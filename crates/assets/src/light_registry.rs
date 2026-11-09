@@ -9,7 +9,7 @@ const HASH_BYTES: usize = 32;
 const MAX_LIGHT_RECORDS: usize = 65_536;
 
 /// Authoritative per-runtime-state light emission and filtering nibbles.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LightProperties {
     emission: u8,
     filter: u8,
@@ -66,7 +66,7 @@ pub fn read_light_registry_for_protocol(
     expected_count: usize,
     expected_protocol: u32,
 ) -> Result<Box<[LightProperties]>, AssetError> {
-    if !matches!(expected_protocol, 1001 | 2193) {
+    if !matches!(expected_protocol, 1001 | 2225) {
         return Err(invalid("unsupported LREG1001 wire protocol"));
     }
     if expected_count > MAX_LIGHT_RECORDS {

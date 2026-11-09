@@ -11,7 +11,7 @@ fn cooperative_retirement_drops_allocations_without_worker_threads() {
         },
     };
     let now = Moment::default();
-    let mut scratch = world::LightSolverScratch::default();
+    let mut scratch = WorkerScratch::default();
     let retired = Arc::new(vec![0_u8; 4096]);
     let witness = Arc::downgrade(&retired);
     pool.retire(move || drop(retired));
@@ -142,6 +142,66 @@ fn lowered_workers_publish_results_at_normal_priority() {
     }
 }
 
+/// Only trailing light and summary work may run below frame priority; mesh, decode and urgent
+/// work keep normal priority even on a background worker.
+#[test]
+fn only_light_and_summary_jobs_run_below_frame_priority() {
+    let mut queues = Queues::default();
+    let (order_tx, order_rx) = crossbeam_channel::unbounded();
+    for lane in [Lane::Mesh, Lane::Decode, Lane::Light, Lane::Summary] {
+        let order = order_tx.clone();
+        queues.push(
+            lane,
+            Moment::default(),
+            Box::new(move |_| order.send(Some(lane)).unwrap()),
+        );
+    }
+    queues
+        .urgent
+        .push_back((Lane::Light, Box::new(move |_| order_tx.send(None).unwrap())));
+    let mut taken = Vec::new();
+    while let Some(Taken { job, below_frame }) = queues.take(true, Moment::default()) {
+        job(&mut WorkerScratch::default());
+        taken.push((order_rx.try_recv().unwrap(), below_frame));
+    }
+    assert_eq!(
+        taken,
+        [
+            (None, false),
+            (Some(Lane::Mesh), false),
+            (Some(Lane::Decode), false),
+            (Some(Lane::Light), true),
+            (Some(Lane::Summary), true),
+        ]
+    );
+}
+
+/// Windows priorities are strict, so decode or mesh on a lowered background worker would wait
+/// behind every busy normal-priority thread; only light and summaries run lowered there.
+#[cfg(windows)]
+#[test]
+fn background_workers_run_mesh_decode_and_urgent_work_at_normal_priority() {
+    const JOBS: usize = 32;
+    let pool = WorldPool::new(PoolSize {
+        foreground: 0,
+        background: 2,
+    });
+    let (done_tx, done_rx) = crossbeam_channel::unbounded();
+    for _ in 0..JOBS {
+        for lane in [Lane::Mesh, Lane::Decode] {
+            let done = done_tx.clone();
+            pool.spawn(lane, move || done.send(priority::is_lowered()).unwrap());
+        }
+        let done = done_tx.clone();
+        pool.batch(Lane::Light)
+            .spawn(true, move || done.send(priority::is_lowered()).unwrap());
+    }
+    let lowered: Vec<bool> = (0..JOBS * 3)
+        .map(|_| done_rx.recv_timeout(Duration::from_secs(5)).unwrap())
+        .collect();
+    assert!(lowered.iter().all(|lowered| !*lowered), "{lowered:?}");
+}
+
 /// Pushes `queued` lanes at `queued_at` and drains them at `now` in worker order.
 fn take_order(background: bool, queued: &[Lane], queued_at: Moment, now: Moment) -> Vec<Lane> {
     let mut queues = Queues::default();
@@ -154,8 +214,8 @@ fn take_order(background: bool, queued: &[Lane], queued_at: Moment, now: Moment)
             Box::new(move |_| order.send(lane).unwrap()),
         );
     }
-    while let Some(job) = queues.take(background, now) {
-        job(&mut world::LightSolverScratch::default());
+    while let Some(Taken { job, .. }) = queues.take(background, now) {
+        job(&mut WorkerScratch::default());
     }
     order_rx.try_iter().collect()
 }
@@ -246,8 +306,8 @@ fn dispatch_batch_publishes_independent_jobs_together() {
     drop(batch);
     let mut queues = pool.shared.lock();
     assert_eq!(queues.mesh.len(), 16);
-    let mut scratch = world::LightSolverScratch::default();
-    while let Some(job) = queues.take(false, Moment::default()) {
+    let mut scratch = WorkerScratch::default();
+    while let Some(Taken { job, .. }) = queues.take(false, Moment::default()) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -258,7 +318,12 @@ fn dispatch_batch_publishes_independent_jobs_together() {
 
 /// Work on the borrowed world cores runs as wide as the world pool, below frame priority, so a
 /// join's compile cannot crowd out the main and render threads.
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(
+    windows,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos"
+))]
 #[test]
 fn borrowed_world_cores_run_as_wide_as_the_world_pool_at_normal_priority() {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
@@ -278,7 +343,7 @@ fn borrowed_world_cores_run_as_wide_as_the_world_pool_at_normal_priority() {
 fn local_driver_runs_one_job_and_reuses_the_native_queue_order() {
     let shared = Shared::default();
     let now = Moment::default();
-    let mut scratch = world::LightSolverScratch::default();
+    let mut scratch = WorkerScratch::default();
     assert!(!run_one(&shared, now, &mut scratch));
     let (sent, received) = crossbeam_channel::bounded(3);
     for lane in [Lane::Summary, Lane::Light, Lane::Decode, Lane::Mesh] {
@@ -308,7 +373,7 @@ fn local_driver_does_not_starve_meshes_behind_overdue_lighting() {
             .lock()
             .push(lane, queued, Box::new(move |_| sent.send(lane).unwrap()));
     }
-    let mut scratch = world::LightSolverScratch::default();
+    let mut scratch = WorkerScratch::default();
     for _ in 0..2 {
         assert!(run_one(&shared, now, &mut scratch));
     }
@@ -339,8 +404,8 @@ fn summaries_never_jump_urgent_or_near_work() {
         Box::new(move |_| urgent.send(Lane::Mesh).unwrap()),
     ));
     let now = oldest.checked_add(Duration::from_secs(3600)).unwrap();
-    let mut scratch = world::LightSolverScratch::default();
-    while let Some(job) = queues.take(false, now) {
+    let mut scratch = WorkerScratch::default();
+    while let Some(Taken { job, .. }) = queues.take(false, now) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -348,7 +413,7 @@ fn summaries_never_jump_urgent_or_near_work() {
         [Lane::Mesh, Lane::Decode, Lane::Mesh]
     );
     assert_eq!(queues.summary.len(), 1);
-    while let Some(job) = queues.take(true, now) {
+    while let Some(Taken { job, .. }) = queues.take(true, now) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -381,12 +446,12 @@ fn summary_submission_wakes_background_waiters() {
                     if queues.shutdown {
                         break;
                     }
-                    if let Some(job) = queues.take(background, Moment::default()) {
+                    if let Some(Taken { job, .. }) = queues.take(background, Moment::default()) {
                         drop(queues);
-                        job(&mut world::LightSolverScratch::default());
+                        job(&mut WorkerScratch::default());
                         queues = shared.lock();
                     } else {
-                        queues = shared.wait(queues);
+                        queues = shared.wait(queues, None);
                     }
                 }
             });
@@ -398,4 +463,64 @@ fn summary_submission_wakes_background_waiters() {
         pool.shared.lock().shutdown = true;
         pool.shared.ready.notify_all();
     });
+}
+
+/// A core cap only ever shrinks the pools; malformed or zero caps keep the machine's count.
+#[test]
+fn core_cap_shrinks_pools_and_ignores_invalid_values() {
+    assert_eq!(capped_cores(12, None), 12);
+    assert_eq!(capped_cores(12, Some("2")), 2);
+    assert_eq!(capped_cores(12, Some(" 4 ")), 4);
+    assert_eq!(capped_cores(4, Some("16")), 4);
+    assert_eq!(capped_cores(12, Some("0")), 12);
+    assert_eq!(capped_cores(12, Some("two")), 12);
+}
+
+/// Idle release uses supplied observations and leaves previously returned geometry intact.
+#[test]
+fn cooperative_worker_reuses_mesh_scratch_until_the_idle_interval_expires() {
+    let shared = Shared::default();
+    let at = Moment::default();
+    let mut scratch = WorkerScratch::default();
+    let (sent, received) = crossbeam_channel::unbounded();
+    for _ in 0..2 {
+        let sent = sent.clone();
+        shared.lock().push(
+            Lane::Mesh,
+            at,
+            Box::new(move |scratch| {
+                let section =
+                    world::SubChunk::decode(&[8, 1, 1, 2], &world::RawBlockIds { air: 0 });
+                let mesh = meshing::mesh_sub_chunk_in_neighbourhood_with_scratch(
+                    &meshing::BlockClassifier::new(0),
+                    &assets::RuntimeAssets::diagnostic(),
+                    assets::NetworkIdMode::Sequential,
+                    &world::MeshNeighbourhood::new(&section),
+                    &meshing::FullBrightLightSampler,
+                    meshing::MeshOptions::default(),
+                    &mut scratch.mesh,
+                );
+                sent.send(mesh).unwrap();
+            }),
+        );
+        assert!(run_one(&shared, at, &mut scratch));
+        assert!(scratch.mesh.retained_bytes() > 0);
+    }
+    let retained = scratch.mesh.retained_bytes();
+    assert!(!run_one(
+        &shared,
+        at.checked_add(scratch::SCRATCH_IDLE_RELEASE - Duration::from_nanos(1))
+            .unwrap(),
+        &mut scratch
+    ));
+    assert_eq!(scratch.mesh.retained_bytes(), retained);
+    assert!(!run_one(
+        &shared,
+        at.checked_add(scratch::SCRATCH_IDLE_RELEASE).unwrap(),
+        &mut scratch
+    ));
+    assert_eq!(scratch.mesh.retained_bytes(), 0);
+    let first = received.recv().unwrap();
+    assert_eq!(first, received.recv().unwrap());
+    assert!(!first.is_empty());
 }

@@ -13,6 +13,8 @@ use server_experience::fetch::public_address;
 use url::{Host, Url};
 
 mod disk;
+#[cfg(test)]
+mod download_tests;
 mod memory;
 pub use disk::ImageDirectory;
 #[cfg(any(test, feature = "test-support"))]
@@ -42,7 +44,7 @@ pub struct Surface {
 
 /// Server form button images, as the vanilla client fetches them.
 pub const FORM_IMAGES: Surface = Surface {
-    max_bytes: 2 * 1024 * 1024,
+    max_bytes: resource_pack::MAX_FILE_BYTES as usize,
     max_files: 0,
     max_dir_bytes: 0,
     max_url_bytes: 0,
@@ -157,35 +159,53 @@ fn client_with<R: reqwest::dns::Resolve + 'static>(
     builder.build().ok()
 }
 
+/// Why [`download`] returned no body.
+#[derive(Debug, thiserror::Error)]
+pub enum DownloadFailure {
+    #[error("the surface does not accept this URL")]
+    Rejected,
+    #[error("request failed: {0}")]
+    Request(#[source] reqwest::Error),
+    #[error("server answered {0}")]
+    Status(StatusCode),
+    #[error("body exceeds {0} bytes")]
+    TooLarge(usize),
+}
+
 /// The body of `url` within `surface`'s byte limit; `only_ok` refuses any status but 200.
 pub async fn download(
     client: &reqwest::Client,
     surface: &Surface,
     url: &str,
     only_ok: bool,
-) -> Option<Vec<u8>> {
+) -> Result<Vec<u8>, DownloadFailure> {
     if !surface.accepts(url) {
-        return None;
+        return Err(DownloadFailure::Rejected);
     }
-    let mut response = client.get(url).send().await.ok()?;
+    let mut response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(DownloadFailure::Request)?;
     let status = response.status();
     if status != StatusCode::OK && (only_ok || !status.is_success()) {
-        return None;
+        return Err(DownloadFailure::Status(status));
     }
+    let too_large = DownloadFailure::TooLarge(surface.max_bytes);
     if response
         .content_length()
         .is_some_and(|length| length > surface.max_bytes as u64)
     {
-        return None;
+        return Err(too_large);
     }
     let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.ok()? {
+    while let Some(chunk) = response.chunk().await.map_err(DownloadFailure::Request)? {
         if body.len() + chunk.len() > surface.max_bytes {
-            return None;
+            return Err(too_large);
         }
         body.extend_from_slice(&chunk);
     }
-    Some(body)
+    Ok(body)
 }
 
 /// The extension of a PNG, JPEG, GIF or BMP by its signature.

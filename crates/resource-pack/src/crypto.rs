@@ -7,7 +7,7 @@ use aes::cipher::{BlockCipherEncrypt, KeyInit};
 use serde::Deserialize;
 use zeroize::{Zeroize, Zeroizing};
 
-use pack_json::parse_jsonc;
+use pack_json::{parse_jsonc, validate_jsonc};
 
 use crate::{AdmissionError, MAX_ENTRIES_PER_PACK, parser::canonical_path};
 
@@ -26,6 +26,12 @@ impl ContentKey {
     /// Whether both keys decrypt identically; used only to compare admitted packs in memory.
     pub(crate) fn same_key(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+
+    /// Identifies a decryption binding without exposing its key bytes to cache callers.
+    pub(crate) fn digest(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&self.0).into()
     }
 
     /// Decrypts `data` in place.
@@ -109,7 +115,7 @@ pub(crate) fn contents_file_keys(
         Ok(contents) => contents,
         Err(_) => {
             // A well-formed document with the wrong shape is not an encrypted index.
-            if parse_jsonc::<serde::de::IgnoredAny>(raw).is_ok() {
+            if validate_jsonc(raw).is_ok() {
                 return Err(AdmissionError::MalformedContentsIndex);
             }
             let mut body = Zeroizing::new(

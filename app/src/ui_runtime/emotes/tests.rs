@@ -2,10 +2,70 @@
 
 use super::*;
 use bevy::input::keyboard::{Key, NativeKey};
+use bevy::window::CursorGrabMode;
 use semantic_input::Action;
 
 mod controller_inventory;
 mod network;
+
+#[test]
+fn mouse_back_bound_to_emote_toggles_the_wheel_once_per_press() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
+    let row = launcher::menu::settings_options::KEY_BINDINGS.len()
+        + launcher::menu::settings_options::EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == BindingId::Emote.name())
+            .unwrap();
+    assert!(client_shell::menu::test_support::remap_control(
+        &mut menu,
+        row,
+        semantic_input::PhysicalControl::MouseButton(
+            client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap()
+        )
+    ));
+    h.app.insert_resource(menu);
+    for open in [true, false] {
+        h.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        h.app.update();
+        assert_eq!(h.runtime().emotes().is_open(), open);
+        assert!(
+            !h.app
+                .world()
+                .resource::<ButtonInput<MouseButton>>()
+                .just_pressed(MouseButton::Back)
+        );
+        h.app
+            .world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        h.app.update();
+    }
+}
+
+#[test]
+fn mouse_back_dismisses_the_emote_wheel_and_consumes_its_press() {
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    h.press(KeyCode::KeyB);
+    assert!(h.runtime().emotes().is_open());
+    h.app
+        .world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Back);
+    h.app.update();
+    assert!(!h.runtime().emotes().is_open());
+    assert!(
+        !h.app
+            .world()
+            .resource::<ButtonInput<MouseButton>>()
+            .just_pressed(MouseButton::Back)
+    );
+}
 
 #[test]
 fn catalog_shortcut_honors_the_configured_xy_button_swap() {
@@ -90,7 +150,8 @@ impl Harness {
             .init_resource::<SemanticRouteState>()
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
-            .init_resource::<EmoteInputConsumed>()
+            .init_resource::<ScreenInputConsumed>()
+            .init_resource::<client_shell::ui_resources::FrameInputOwner>()
             .insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player)
             .add_systems(
@@ -98,6 +159,7 @@ impl Harness {
                 (
                     collect_raw_input,
                     route_semantic_input,
+                    crate::ui_runtime::input_owner::decide_input_owner,
                     drive_emote_input,
                     crate::ui_runtime::interaction::drive_chat_keyboard_input,
                     finalize_semantic_input_after_ui_authority,
@@ -158,6 +220,36 @@ impl Harness {
     }
 }
 
+/// A sign editor's closing frame, standing in for any screen's: its keys are not the game's.
+#[test]
+fn the_frame_a_screen_closes_does_not_open_the_wheel() {
+    use crate::ui_runtime::input_owner::decide_input_owner;
+    fn close_sign(mut runtime: ResMut<UiRuntimeResource>) {
+        runtime.sign_editor_mut().close();
+    }
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    h.app.add_systems(
+        Update,
+        close_sign
+            .after(decide_input_owner)
+            .before(drive_emote_input),
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .sign_editor_mut()
+        .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    h.press(KeyCode::KeyB);
+    assert!(!h.runtime().emotes().is_open());
+    h.press(KeyCode::KeyB);
+    assert!(h.runtime().emotes().is_open());
+}
+
 #[test]
 fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory() {
     let _catalog = cosmetics::test_support::playback_catalog();
@@ -181,7 +273,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
             !h.runtime().inventory_open(),
             "owned batch opened inventory with {trailing_key:?}"
         );
-        assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(h.app.world().resource::<ScreenInputConsumed>().0);
         assert!(
             h.app
                 .world()
@@ -200,7 +292,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
         // Consumption is frame-scoped, so a new physical chat edge still works.
         h.press(KeyCode::KeyT);
         assert!(h.runtime().chat_focused());
-        assert!(!h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(!h.app.world().resource::<ScreenInputConsumed>().0);
     }
 }
 
@@ -215,7 +307,7 @@ fn cancel_closing_frame_also_consumes_later_raw_ui_shortcuts() {
     assert!(!h.runtime().emotes().is_open());
     assert!(!h.runtime().inventory_open());
     assert!(!h.runtime().chat_focused());
-    assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+    assert!(h.app.world().resource::<ScreenInputConsumed>().0);
 }
 
 #[test]

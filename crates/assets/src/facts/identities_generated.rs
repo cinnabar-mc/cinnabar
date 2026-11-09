@@ -7,10 +7,15 @@ pub enum VanillaBlock {
     Bamboo,
     Bedrock,
     Crafter,
+    DiamondBlock,
+    EmeraldBlock,
     EndGateway,
     EndPortal,
     EndPortalFrame,
     Fire,
+    GoldBlock,
+    IronBlock,
+    NetheriteBlock,
     Portal,
 }
 impl VanillaBlock {
@@ -21,10 +26,15 @@ impl VanillaBlock {
             Self::Bamboo => "minecraft:bamboo",
             Self::Bedrock => "minecraft:bedrock",
             Self::Crafter => "minecraft:crafter",
+            Self::DiamondBlock => "minecraft:diamond_block",
+            Self::EmeraldBlock => "minecraft:emerald_block",
             Self::EndGateway => "minecraft:end_gateway",
             Self::EndPortal => "minecraft:end_portal",
             Self::EndPortalFrame => "minecraft:end_portal_frame",
             Self::Fire => "minecraft:fire",
+            Self::GoldBlock => "minecraft:gold_block",
+            Self::IronBlock => "minecraft:iron_block",
+            Self::NetheriteBlock => "minecraft:netherite_block",
             Self::Portal => "minecraft:portal",
         }
     }
@@ -32,12 +42,16 @@ impl VanillaBlock {
 /// Exact VanillaEntity requests validated against the pinned registry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VanillaEntity {
+    Boat,
+    ChestBoat,
     Player,
 }
 impl VanillaEntity {
     /// Resolves this native asset request without a runtime name table.
     pub const fn identifier(self) -> &'static str {
         match self {
+            Self::Boat => "minecraft:boat",
+            Self::ChestBoat => "minecraft:chest_boat",
             Self::Player => "minecraft:player",
         }
     }
@@ -51,12 +65,16 @@ pub enum VanillaItem {
     Compass,
     Crossbow,
     EmptyMap,
+    FireCharge,
+    NameTag,
     RecoveryCompass,
+    Shears,
     Shield,
     SlimeBall,
     Snowball,
     SplashPotion,
     Spyglass,
+    WaterBucket,
 }
 impl VanillaItem {
     /// Resolves this native asset request without a runtime name table.
@@ -68,12 +86,16 @@ impl VanillaItem {
             Self::Compass => "minecraft:compass",
             Self::Crossbow => "minecraft:crossbow",
             Self::EmptyMap => "minecraft:empty_map",
+            Self::FireCharge => "minecraft:fire_charge",
+            Self::NameTag => "minecraft:name_tag",
             Self::RecoveryCompass => "minecraft:recovery_compass",
+            Self::Shears => "minecraft:shears",
             Self::Shield => "minecraft:shield",
             Self::SlimeBall => "minecraft:slime_ball",
             Self::Snowball => "minecraft:snowball",
             Self::SplashPotion => "minecraft:splash_potion",
             Self::Spyglass => "minecraft:spyglass",
+            Self::WaterBucket => "minecraft:water_bucket",
         }
     }
 }

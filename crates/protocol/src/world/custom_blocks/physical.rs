@@ -2,11 +2,30 @@
 
 use super::*;
 
-pub(super) fn collision_enabled(component: Option<&Nbt>) -> bool {
+impl CustomPhysicalComponents {
+    /// Whether this override can change collision, targeting or movement, independently of mining.
+    pub fn affects_physics(&self) -> bool {
+        let Self {
+            mining: _,
+            random_offset,
+            collision,
+            selection,
+            transformation,
+            friction,
+        } = self;
+        random_offset.is_some()
+            || collision.is_some()
+            || selection.is_some()
+            || transformation.is_some()
+            || friction.is_some()
+    }
+}
+
+pub(super) fn collision_enabled(component: Option<Nbt<'_>>) -> bool {
     match component {
-        Some(Nbt::Byte(enabled)) => *enabled != 0,
+        Some(Nbt::Byte(enabled)) => enabled != 0,
         Some(compound @ Nbt::Compound(_)) if compound.field("boxes").is_some() => {
-            matches!(compound.field("enabled"), Some(Nbt::Byte(enabled)) if *enabled != 0)
+            matches!(compound.field("enabled"), Some(Nbt::Byte(enabled)) if enabled != 0)
         }
         Some(compound @ Nbt::Compound(_)) => {
             !matches!(compound.field("enabled"), Some(Nbt::Byte(0)))
@@ -15,7 +34,7 @@ pub(super) fn collision_enabled(component: Option<&Nbt>) -> bool {
     }
 }
 
-pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
+pub(super) fn selection_component(component: Option<Nbt<'_>>) -> CustomSelection {
     match component {
         Some(Nbt::Byte(0)) => CustomSelection::Disabled,
         Some(Nbt::Byte(_)) => CustomSelection::Box(CustomBox::FULL),
@@ -33,13 +52,19 @@ pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
     }
 }
 
-pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalComponents, usize) {
+/// Retains state overrides and reports physical omissions and mining omissions separately.
+pub(super) fn physical_components(
+    components: Option<Nbt<'_>>,
+) -> (CustomPhysicalComponents, usize, usize) {
+    let (mining, mining_skips) =
+        mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
     let collision = components.and_then(|set| set.field("minecraft:collision_box"));
     let (boxes, collision_skips) = collision_components(collision);
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
     (
         CustomPhysicalComponents {
+            mining,
             random_offset: components
                 .and_then(|set| set.field("minecraft:random_offset"))
                 .and_then(random_offset_component),
@@ -65,17 +90,18 @@ pub(super) fn physical_components(components: Option<&Nbt>) -> (CustomPhysicalCo
                     .and_then(|set| set.field("minecraft:transformation"))
                     .is_some_and(|_| transformation_component(components).is_none()),
             ),
+        mining_skips,
     )
 }
 
 /// Reads the network `value`, which defaults to zero when absent or mistyped; a value that
 /// leaves no positive friction is counted and ignored.
-pub(super) fn friction_component(component: Option<&Nbt>) -> (Option<f32>, usize) {
+pub(super) fn friction_component(component: Option<Nbt<'_>>) -> (Option<f32>, usize) {
     match component {
         None => (None, 0),
         Some(compound @ Nbt::Compound(_)) => {
             let value = match compound.field("value") {
-                Some(Nbt::Float(value)) => *value as f32,
+                Some(Nbt::Float(value)) => value as f32,
                 _ => 0.0,
             };
             if value.is_finite() && value < 1.0 {
@@ -90,7 +116,7 @@ pub(super) fn friction_component(component: Option<&Nbt>) -> (Option<f32>, usize
 
 /// Decodes authored pixel ranges once, keeping absence distinct from an explicit zero component.
 pub(super) fn random_offset_component(
-    value: &Nbt,
+    value: Nbt<'_>,
 ) -> Option<block_transform::random_offset::RandomOffsetComponent> {
     use block_transform::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
     if !matches!(value, Nbt::Compound(_)) {
@@ -122,7 +148,9 @@ pub(super) fn random_offset_component(
     result.is_valid().then_some(result)
 }
 
-pub(super) fn collision_components(component: Option<&Nbt>) -> (Option<Arc<[CustomBox]>>, usize) {
+pub(super) fn collision_components(
+    component: Option<Nbt<'_>>,
+) -> (Option<Arc<[CustomBox]>>, usize) {
     let Some(component) = component else {
         return (None, 0);
     };
@@ -156,7 +184,7 @@ pub(super) fn collision_components(component: Option<&Nbt>) -> (Option<Arc<[Cust
 }
 
 /// Wire bounds use corner coordinates in sixteenths; X faces opposite world X.
-fn native_collision_box(entry: &Nbt) -> Option<CustomBox> {
+fn native_collision_box(entry: Nbt<'_>) -> Option<CustomBox> {
     if !matches!(entry, Nbt::Compound(_)) {
         return None;
     }
@@ -166,7 +194,7 @@ fn native_collision_box(entry: &Nbt) -> Option<CustomBox> {
         .zip(["minX", "minY", "minZ", "maxX", "maxY", "maxZ"])
     {
         *coordinate = match entry.field(name) {
-            Some(Nbt::Float(value)) => *value as f32,
+            Some(Nbt::Float(value)) => value as f32,
             _ => 0.0,
         };
         if !coordinate.is_finite() {
@@ -188,12 +216,12 @@ fn native_collision_box(entry: &Nbt) -> Option<CustomBox> {
 
 /// Reads a `{origin, size}` box given in sixteenths from the block's bottom
 /// centre, clamped to the block; empty bounds remain explicit.
-pub(super) fn box_component(component: &Nbt) -> Option<CustomBox> {
+pub(super) fn box_component(component: Nbt<'_>) -> Option<CustomBox> {
     origin_size_box(component, 1.0)
 }
 
 /// Normalizes finite pixel endpoints, preserving zero volume and reflecting authored X.
-fn origin_size_box(component: &Nbt, max_y: f32) -> Option<CustomBox> {
+fn origin_size_box(component: Nbt<'_>, max_y: f32) -> Option<CustomBox> {
     let triple = |name: &str| -> Option<[f32; 3]> {
         let values = component.list(name);
         if values.len() != 3 {
@@ -232,7 +260,9 @@ fn origin_size_box(component: &Nbt, max_y: f32) -> Option<CustomBox> {
 
 /// Reads `minecraft:transformation`: quarter turns about each axis, a scale and a
 /// translation in block units, all applied about the block centre.
-pub(super) fn transformation_component(components: Option<&Nbt>) -> Option<CustomTransformation> {
+pub(super) fn transformation_component(
+    components: Option<Nbt<'_>>,
+) -> Option<CustomTransformation> {
     let transform = components?.field("minecraft:transformation")?;
     let number = |key: &str, default: f64| {
         transform

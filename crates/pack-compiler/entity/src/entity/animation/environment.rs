@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     path::Path,
 };
 
@@ -9,9 +9,9 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::selection::{Selector, Step, condition_text};
+use super::selection::{Selector, selection_condition};
 use super::{
-    super::{SourcePayloads, invalid},
+    super::{SourceDocuments, invalid},
     clip::{read_json, required_object},
 };
 use crate::entity::molang::MolangCompiler;
@@ -41,12 +41,12 @@ pub(super) type GeometrySelections = BTreeMap<(Box<str>, u32), GeometrySelection
 
 pub(super) fn collect(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
     symbols: &[EntityAssetSymbol],
     geometries: &[EntityGeometry],
 ) -> Result<Vec<EntityEnvironment>, AssetError> {
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     let mut environments = Vec::new();
     for (entity_symbol, entity) in symbols.iter().enumerate().filter(|(_, symbol)| {
         matches!(
@@ -56,7 +56,7 @@ pub(super) fn collect(
     }) {
         let source = &sources[entity.source_index as usize];
         let value = read_json(root, payloads, source)?;
-        let description = super::roots::description(&value)
+        let description = super::roots::description(value)
             .ok_or_else(|| invalid("client entity description is absent"))?;
         let geometry_aliases: BTreeMap<Box<str>, Box<str>> = description
             .get("geometry")
@@ -88,8 +88,8 @@ pub(super) fn collect(
                 _ => None,
             })
             .collect();
-        let animation_aliases = super::roots::animation_aliases(&value)?;
-        let mut controller_aliases = super::roots::legacy_controller_aliases(&value)?;
+        let animation_aliases = super::roots::animation_aliases(value)?;
+        let mut controller_aliases = super::roots::legacy_controller_aliases(value)?;
         for (alias, target) in &animation_aliases {
             if target.starts_with("controller.animation.") {
                 match controller_aliases.get(alias) {
@@ -122,20 +122,20 @@ pub(super) fn collect(
 
 pub(super) fn compile_geometry_selections(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
     geometries: &[EntityGeometry],
     environments: &[EntityEnvironment],
     molang: &mut MolangCompiler,
 ) -> Result<GeometrySelections, AssetError> {
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     let mut selections = BTreeMap::new();
     for source in sources
         .iter()
         .filter(|source| source.path.starts_with("render_controllers/"))
     {
         let value = read_json(root, payloads, source)?;
-        for (controller_name, definition) in required_object(&value, "render_controllers")? {
+        for (controller_name, definition) in required_object(value, "render_controllers")? {
             let definition = definition
                 .as_object()
                 .ok_or_else(|| invalid("render controller must be an object"))?;
@@ -190,14 +190,7 @@ pub(super) fn compile_geometry_selections(
                     leaves
                         .into_iter()
                         .map(|(path, geometry)| {
-                            // Rig candidate conditions must end in a boolean op; a lone
-                            // element test already does.
-                            let text = condition_text(&path)?;
-                            let text = if matches!(path.as_slice(), [Step::Element(..)]) {
-                                text
-                            } else {
-                                format!("({text}) != 0")
-                            };
+                            let text = selection_condition(&path)?;
                             let condition = transaction.compile(&text).ok()?;
                             Some(SelectableGeometry {
                                 geometry: geometry?,
@@ -234,17 +227,53 @@ pub(super) fn selection_for<'a>(
         .find_map(|controller| selections.get(&(controller.clone(), environment.entity_symbol)))
 }
 
+/// Keeps duplicate identifiers unambiguous only when their resolved inheritance chains match.
 pub(super) fn unique_geometry_indices(
     geometries: &[EntityGeometry],
-) -> BTreeMap<Box<str>, Option<u32>> {
-    let mut indices = BTreeMap::new();
-    for (index, geometry) in geometries.iter().enumerate() {
-        indices
-            .entry(geometry.identifier.clone())
-            .and_modify(|value| *value = None)
-            .or_insert(Some(index as u32));
+) -> Result<BTreeMap<Box<str>, Option<u32>>, AssetError> {
+    let parents = validate_entity_geometry_inheritance(geometries)?;
+    let chain = |start: usize| {
+        std::iter::successors(Some(start), |&index| parents[index]).map(|index| {
+            // Source files choose parents, but are not part of each resolved model.
+            EntityGeometry {
+                source_index: 0,
+                ..geometries[index].clone()
+            }
+        })
+    };
+    Ok(unique_by_definition(
+        geometries
+            .iter()
+            .enumerate()
+            .map(|(index, geometry)| (geometry.identifier.clone(), index as u32)),
+        |&first, &other| chain(first as usize).eq(chain(other as usize)),
+    ))
+}
+
+/// Maps each key to its first entry, or `None` once another entry under it is not `same`;
+/// a definition repeated verbatim in two files stays unambiguous.
+pub(super) fn unique_by_definition<K: Ord, V>(
+    entries: impl IntoIterator<Item = (K, V)>,
+    same: impl Fn(&V, &V) -> bool,
+) -> BTreeMap<K, Option<V>> {
+    let mut unique = BTreeMap::new();
+    for (key, value) in entries {
+        match unique.entry(key) {
+            Entry::Vacant(slot) => {
+                slot.insert(Some(value));
+            }
+            Entry::Occupied(mut slot) => {
+                if slot
+                    .get()
+                    .as_ref()
+                    .is_some_and(|first| !same(first, &value))
+                {
+                    slot.insert(None);
+                }
+            }
+        }
     }
-    indices
+    unique
 }
 
 pub(super) fn default_geometry(value: Option<&Value>) -> Option<&str> {
@@ -262,7 +291,7 @@ pub(super) fn default_geometry(value: Option<&Value>) -> Option<&str> {
 
 pub(super) fn controller_clip_references(
     root: &Path,
-    payloads: &SourcePayloads,
+    payloads: &SourceDocuments<'_>,
     sources: &[EntityAssetSource],
 ) -> Result<BTreeMap<Box<str>, BTreeSet<Box<str>>>, AssetError> {
     let mut output = BTreeMap::new();
@@ -271,7 +300,7 @@ pub(super) fn controller_clip_references(
         .filter(|source| source.path.starts_with("animation_controllers/"))
     {
         let value = read_json(root, payloads, source)?;
-        for (identifier, definition) in required_object(&value, "animation_controllers")? {
+        for (identifier, definition) in required_object(value, "animation_controllers")? {
             let mut references = BTreeSet::new();
             if let Some(states) = definition.get("states").and_then(Value::as_object) {
                 for state in states.values().filter_map(Value::as_object) {

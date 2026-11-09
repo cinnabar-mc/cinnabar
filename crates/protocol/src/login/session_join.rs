@@ -161,12 +161,13 @@ impl LoginSequence {
         let prepared = prepare_with_read_ahead(&mut transport, preparation).await?;
         drop(pack_wait);
         profile.mark("session_ready");
-        let session = PlaySession::new(
+        let mut session = PlaySession::new(
             transport,
             cache,
             spawned.runtime_id,
             spawned.terrain_before_spawn,
         );
+        session.identity = handoff.identity;
         Ok((session, prepared))
     }
 }
@@ -309,7 +310,7 @@ fn resource_pack_handoff(
                 pack.version.clone(),
                 pack.sub_pack.clone(),
                 archive,
-                pack.content_key.expose().as_bytes().to_vec(),
+                pack.content_key.expose().to_vec(),
             ))
         })
         .collect::<Result<Vec<_>, ProtocolError>>()?;

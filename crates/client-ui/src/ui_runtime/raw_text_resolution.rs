@@ -16,35 +16,42 @@ impl UiRuntime {
         mut resolve_owner_name: impl FnMut(i64) -> Option<Arc<str>>,
         known_player_names: Vec<Arc<str>>,
     ) {
-        self.score_owner_names = self
+        self.session.score_owner_names = self
+            .session
             .scoreboards
             .score_owner_ids()
             .into_iter()
             .filter_map(|unique_id| resolve_owner_name(unique_id).map(|name| (unique_id, name)))
             .collect();
-        self.known_player_names = known_player_names;
+        self.session.known_player_names = known_player_names;
     }
 
     /// The known player-list usernames.
     pub fn known_player_names(&self) -> &[Arc<str>] {
-        &self.known_player_names
+        &self.session.known_player_names
     }
 
     /// Momentary gameplay input; cleared along with the roster at session boundaries.
     pub fn set_player_list_held(&mut self, held: bool) {
-        self.player_list_held = held;
+        self.session.player_list_held = held;
     }
 
     pub fn player_list_held(&self) -> bool {
-        self.player_list_held
+        self.session.player_list_held || self.session.touch_player_list
     }
 
-    /// Resolves a form label without treating literal strings as rawtext documents.
-    pub(super) fn resolve_form_text(&self, text: &protocol::FormText) -> String {
-        match text {
-            protocol::FormText::Literal(text) => text.to_string(),
-            protocol::FormText::Raw(document) => self.resolve_raw_text(document).text.to_string(),
-        }
+    /// Latches the player list for touch input independently of the held keyboard action.
+    pub fn toggle_touch_player_list(&mut self) {
+        self.session.touch_player_list = !self.session.touch_player_list;
+    }
+
+    /// Resolves a form label against the allowance shared by its entire form build.
+    pub(super) fn resolve_form_text(
+        &self,
+        text: &protocol::FormText,
+        budget: &protocol::FormTextBudget,
+    ) -> String {
+        self.with_raw_text_resolver(|resolver| budget.resolve(text, resolver))
     }
 
     /// Resolves one typed rawtext document against the retained scoreboard
@@ -58,16 +65,24 @@ impl UiRuntime {
         &self,
         document: &protocol::RawTextDocument,
     ) -> protocol::ResolvedRawText {
+        self.with_raw_text_resolver(|resolver| document.resolve(resolver))
+    }
+
+    /// Lends the current authoritative identities and catalog to a text resolution pass.
+    fn with_raw_text_resolver<T>(
+        &self,
+        resolve: impl FnOnce(&protocol::RawTextResolver<'_>) -> T,
+    ) -> T {
         let translate = |key: &str| -> Option<Arc<str>> { self.translation(key) };
-        let scoreboards = &self.scoreboards;
-        let owner_names = &self.score_owner_names;
+        let scoreboards = &self.session.scoreboards;
+        let owner_names = &self.session.score_owner_names;
         let score = |owner: &str, objective: &str| {
             scoreboards.score_for_resolved_owner(objective, owner, |unique_id| {
                 owner_names.get(&unique_id).cloned()
             })
         };
-        let reader_name = &self.chat_source_name;
-        let known_player_names = &self.known_player_names;
+        let reader_name = &self.session.local_player_display_name;
+        let known_player_names = &self.session.known_player_names;
         let selector = |selector: &str| -> Option<Arc<str>> {
             match selector.trim() {
                 "@s" => Some(Arc::clone(reader_name)).filter(|name| !name.is_empty()),
@@ -86,7 +101,7 @@ impl UiRuntime {
                 _ => None,
             }
         };
-        document.resolve(&protocol::RawTextResolver {
+        resolve(&protocol::RawTextResolver {
             reader_name,
             translate: &translate,
             score: &score,

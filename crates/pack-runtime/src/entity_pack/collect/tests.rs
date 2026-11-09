@@ -3,10 +3,11 @@ use std::io::Write;
 use serde_json::json;
 
 #[test]
-fn shared_glint_overrides_are_collected_without_json_references() {
+fn shared_equipment_overrides_are_collected_without_json_references() {
     let base = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(base.path().join("textures/misc")).unwrap();
-    for identifier in assets::entity::GLINT_TEXTURE_IDENTIFIERS {
+    for identifier in assets::entity::shared_equipment_textures() {
+        std::fs::create_dir_all(base.path().join(identifier).parent().unwrap()).unwrap();
         let png = format!("{identifier}.png");
         let tga = format!("{identifier}.tga");
         std::fs::write(base.path().join(&png), b"startup glint").unwrap();
@@ -594,5 +595,309 @@ fn referenced_painting_texture_still_inherits_the_installed_raster() {
         files
             .iter()
             .any(|(file, bytes)| file.as_ref() == path && bytes == b"installed raster")
+    );
+}
+
+#[test]
+fn many_file_collection_is_identical_on_one_and_four_threads() {
+    let mut files = Vec::new();
+    for index in 0..64 {
+        files.push((
+            format!("entity/model_{index:03}.json"),
+            json!({
+                "format_version":"1.10.0", "minecraft:client_entity":{"description":{
+                    "identifier":format!("fixture:model_{index}"),
+                    "geometry":{"default":format!("geometry.fixture_{index}")},
+                    "textures":{"default":format!("textures/entity/model_{index}")},
+                    "animations":{"idle":format!("animation.fixture_{index}.idle")}
+                }}
+            })
+            .to_string()
+            .into_bytes(),
+        ));
+        files.push((
+            format!("models/entity/model_{index:03}.json"),
+            json!({
+                "format_version":"1.12.0", "minecraft:geometry":[{
+                    "description":{"identifier":format!("geometry.fixture_{index}")},"bones":[]
+                }]
+            })
+            .to_string()
+            .into_bytes(),
+        ));
+        files.push((
+            format!("animations/model_{index:03}.json"),
+            json!({
+                "format_version":"1.8.0", "animations":{
+                    format!("animation.fixture_{index}.idle"):{"bones":{}}
+                }
+            })
+            .to_string()
+            .into_bytes(),
+        ));
+        files.push((
+            format!("textures/entity/model_{index}.png"),
+            vec![index as u8; 16],
+        ));
+    }
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    let collect = |threads| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+            .install(|| {
+                let view = resource_pack::LayeredPackView::tracked(std::sync::Arc::clone(&stack));
+                let files = super::collect_files(&view, None, None);
+                assert_eq!(
+                    files
+                        .iter()
+                        .filter(|(path, _)| path.starts_with("entity/"))
+                        .count(),
+                    64
+                );
+                assert_eq!(
+                    files
+                        .iter()
+                        .filter(|(path, _)| path.starts_with("textures/"))
+                        .count(),
+                    64
+                );
+                files
+            })
+    };
+    assert_eq!(collect(1), collect(4));
+}
+
+#[test]
+fn superseded_definition_documents_are_released_between_batches() {
+    let files = (0..64).map(|index| (
+        format!("animations/model_{index:03}.json"),
+        json!({"animations":{"animation.fixture.shared":{"value":index,"padding":"x".repeat(1024)}}})
+            .to_string().into_bytes(),
+    )).collect::<Vec<_>>();
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::PEAK_DEFINITION_DOCUMENTS.set(0);
+            let view = resource_pack::LayeredPackView::new(stack);
+            let merged = super::merged_definitions(&view, "animations/", "animations");
+            assert_eq!(merged["animation.fixture.shared"]["value"], 63);
+            assert!(
+                (1..=5).contains(&super::PEAK_DEFINITION_DOCUMENTS.get()),
+                "retained {} definition documents before merging",
+                super::PEAK_DEFINITION_DOCUMENTS.get()
+            );
+        });
+}
+
+#[test]
+fn entity_collection_memory_releases_superseded_payloads() {
+    let files =
+        (0..64)
+            .map(|index| {
+                (
+        format!("entity/model_{index:03}.json"),
+        json!({"minecraft:client_entity":{"description":{"identifier":"fixture:shared"}},
+            "value":index,"padding":"x".repeat(1024)}).to_string().into_bytes(),
+    )
+            })
+            .collect::<Vec<_>>();
+    let largest = files.iter().map(|(_, bytes)| bytes.len()).max().unwrap();
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::PEAK_ENTITY_PAYLOAD_BYTES.set(0);
+            let view = resource_pack::LayeredPackView::new(stack);
+            let collected = super::unique_entities(&view);
+            assert_eq!(collected.files.len(), 1);
+            let document: serde_json::Value =
+                serde_json::from_slice(&collected.files[0].1).unwrap();
+            assert_eq!(document["value"], 63);
+            assert!(
+                (collected.files[0].1.len()..=5 * largest)
+                    .contains(&super::PEAK_ENTITY_PAYLOAD_BYTES.get()),
+                "retained {} canonical entity bytes",
+                super::PEAK_ENTITY_PAYLOAD_BYTES.get()
+            );
+        });
+}
+
+#[test]
+fn geometry_collection_bounds_parallel_parse_input() {
+    let padding = "x".repeat(3 * 1024 * 1024);
+    let files = (0..6)
+        .map(|index| {
+            (
+                format!("models/entity/large_{index}.json"),
+                json!({"format_version":"1.12.0","minecraft:geometry":[{"description":
+                    {"identifier":format!("geometry.large_{index}")}}],"padding":padding})
+                .to_string()
+                .into_bytes(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let largest = files.iter().map(|(_, bytes)| bytes.len()).max().unwrap() as u64;
+    let entries = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let stack = crate::test_support::stack(&entries);
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap()
+        .install(|| {
+            super::PEAK_GEOMETRY_BATCH_BYTES.set(0);
+            let view = resource_pack::LayeredPackView::new(stack);
+            assert_eq!(super::unshadowed_geometry(&view).len(), 6);
+            let peak = super::PEAK_GEOMETRY_BATCH_BYTES.get();
+            assert!(
+                peak <= (assets::MAX_ENTITY_SOURCE_BYTES as u64).max(largest),
+                "parsed {peak} geometry input bytes in one parallel batch"
+            );
+        });
+}
+
+#[test]
+fn declared_entity_images_use_pack_relative_paths_with_base_definitions() {
+    macro_rules! source {
+        ($path:literal) => {
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/localserver/testdata/player-preview-layers/",
+                $path
+            ))
+            .as_slice()
+        };
+    }
+    for image in [
+        "artwork/ui/stripes",
+        "models/ui/stripes",
+        "models/entity/stripes",
+        "attachables/ui/stripes",
+    ] {
+        let image_file = format!("{image}.png");
+        let mut entity: serde_json::Value =
+            serde_json::from_slice(source!("entity/player.json")).unwrap();
+        let description = &mut entity["minecraft:client_entity"]["description"];
+        description["geometry"]["default"] = json!("geometry.fixture.avatar");
+        description["textures"]["panel"] = json!(image);
+        description["render_controllers"][0] = json!("controller.render.fixture.avatar");
+        let mut geometry: serde_json::Value =
+            serde_json::from_slice(source!("models/entity/preview.geo.json")).unwrap();
+        let mut avatar = geometry["minecraft:geometry"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
+        avatar["description"]["identifier"] = json!("geometry.fixture.avatar");
+        let mut controllers: serde_json::Value =
+            serde_json::from_slice(source!("render_controllers/preview.json")).unwrap();
+        let body = controllers["render_controllers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("controller.render.preview.body")
+            .unwrap();
+        controllers["render_controllers"]["controller.render.preview.panel"]["textures"] =
+            json!(["Texture.panel"]);
+        let mut vanilla = assets::VanillaEntityRefs::new();
+        vanilla
+            .render_controllers
+            .insert("controller.render.fixture.avatar".into(), body);
+        vanilla
+            .geometry_index
+            .insert("geometry.fixture.avatar".into(), 0);
+        vanilla.geometry_files.push(assets::VanillaGeometryFile {
+            path: "models/entity/avatar.json".into(),
+            text: json!({"format_version":"1.12.0","minecraft:geometry":[avatar]}).to_string(),
+        });
+        let files = [
+            ("entity/player.json", serde_json::to_vec(&entity).unwrap()),
+            (
+                "models/entity/panel.json",
+                serde_json::to_vec(&geometry).unwrap(),
+            ),
+            (
+                "render_controllers/panel.json",
+                serde_json::to_vec(&controllers).unwrap(),
+            ),
+            (
+                "animations/preview.json",
+                source!("animations/preview.json").to_vec(),
+            ),
+            (
+                "textures/entity/preview_layers.png",
+                source!("textures/entity/preview_layers.png").to_vec(),
+            ),
+            (
+                image_file.as_str(),
+                source!("textures/entity/preview_layers.png").to_vec(),
+            ),
+        ];
+        let borrowed = files
+            .iter()
+            .map(|(path, bytes)| (*path, bytes.as_slice()))
+            .collect::<Vec<_>>();
+        let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&borrowed));
+        let collected = super::collect_files(&view, Some(&vanilla), None);
+        assert!(
+            collected
+                .iter()
+                .any(|(path, _)| path.as_ref() == image_file),
+            "a declared image must not require the conventional texture directory"
+        );
+        let compiled = pack_entity_compiler::compile_actor_pack(collected)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            compiled.entities.rig_bindings.len(),
+            1,
+            "partial entity resolves its base geometry and renderer"
+        );
+        assert_eq!(compiled.entities.render.layers.len(), 2);
+        assert!(compiled.textures.iter().any(|texture| {
+            compiled.entities.sources[texture.source as usize]
+                .path
+                .as_ref()
+                == image_file
+        }));
+        assert!(!compiled.bindings.is_empty());
+    }
+}
+
+#[test]
+fn declared_entity_image_paths_stay_inside_the_resource_root() {
+    for path in [
+        "../image",
+        "/image",
+        "folder/../image",
+        "folder//image",
+        "C:/image",
+        "folder\\image",
+        "",
+    ] {
+        assert!(super::declared_texture_stem(path).is_none(), "{path}");
+    }
+    assert_eq!(
+        super::declared_texture_stem("artwork/ui/image.tga"),
+        Some("artwork/ui/image".into())
     );
 }

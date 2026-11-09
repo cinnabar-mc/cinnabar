@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["assets/fonts/InterVariable.ttf"]
+
 [features]
 test-support = ["ui-engine/test-support"]
 
@@ -20,6 +23,7 @@ ui = { path = "../ui" }
 ui-engine = { path = "../ui-engine" }
 
 [dev-dependencies]
+ui-engine = { path = "../ui-engine", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }
 
 [lints]

@@ -137,6 +137,7 @@ const fn diagnostic_visual() -> BlockVisual {
 }
 
 pub struct RuntimeAssets {
+    carrier_identity: Option<[u8; 32]>,
     visuals: Box<[BlockVisual]>,
     light_properties: Box<[LightProperties]>,
     hashed: hashed_ids::HashedIds,
@@ -154,6 +155,8 @@ pub struct RuntimeAssets {
     overlay_page_layer_counts: Box<[usize]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
+    /// Sorted base visual ids whose face art a session overlay changed.
+    retextured_visuals: Box<[u32]>,
     missing: AtomicU64,
 }
 
@@ -203,6 +206,8 @@ impl RuntimeAssets {
             overlay_page_layer_counts: Box::new([]),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
+            carrier_identity: None,
+            retextured_visuals: Box::new([]),
             missing: AtomicU64::new(0),
         }
     }
@@ -246,14 +251,12 @@ impl RuntimeAssets {
                 })
     }
 
-    /// Source pixel dimensions of the shard a reference names, or the base
-    /// carrier's physical page size for page zero.
+    /// Source pixel dimensions of the shard a reference names, or its base carrier page size.
     #[must_use]
     pub fn texture_source_size(&self, reference: TextureRef) -> [u32; 2] {
-        if reference.page() != 0
-            && let Some(size) = self
-                .flat_overlay_layer(reference)
-                .and_then(|flat| self.overlay_texture_source_sizes.get(flat))
+        if let Some(size) = self
+            .flat_overlay_layer(reference)
+            .and_then(|flat| self.overlay_texture_source_sizes.get(flat))
         {
             return size.map(u32::from);
         }
@@ -268,19 +271,48 @@ impl RuntimeAssets {
     /// Terrain UV-grid exponent for a session layer; carrier layers use their full rectangle.
     #[must_use]
     pub fn texture_source_grid(&self, reference: TextureRef) -> u8 {
-        if reference.page() != 0 {
-            self.flat_overlay_layer(reference)
-                .and_then(|flat| self.overlay_texture_source_grids.get(flat))
-                .copied()
-                .unwrap_or(0)
-        } else {
-            0
+        self.flat_overlay_layer(reference)
+            .and_then(|flat| self.overlay_texture_source_grids.get(flat))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// A material's first-mip texels in RGBA8 at its source size, so other consumers can reuse
+    /// the carrier's copy of a terrain raster. `None` for the diagnostic material or a layer
+    /// outside the retained pages.
+    #[must_use]
+    pub fn material_texels(&self, id: u32) -> Option<([u32; 2], Box<[u8]>)> {
+        if id == DIAGNOSTIC_MATERIAL {
+            return None;
         }
+        let reference = self.materials.get(id as usize)?.texture;
+        let texture = &self.texture_pages.get(reference.page() as usize)?.texture;
+        let mip = texture.mips.first()?;
+        if reference.layer() >= texture.layers {
+            return None;
+        }
+        let side = mip.size as usize;
+        let [width, height] = self.texture_source_size(reference);
+        if width == 0 || height == 0 || width as usize > side || height as usize > side {
+            return None;
+        }
+        let layer_bytes = side * side * 4;
+        let layer = mip
+            .rgba8
+            .get(reference.layer() as usize * layer_bytes..)?
+            .get(..layer_bytes)?;
+        let texels = layer
+            .chunks_exact(side * 4)
+            .take(height as usize)
+            .flat_map(|row| &row[..width as usize * 4])
+            .copied()
+            .collect();
+        Some(([width, height], texels))
     }
 
     /// Index of a shard reference's layer inside the flat per-layer arrays.
     fn flat_overlay_layer(&self, reference: TextureRef) -> Option<usize> {
-        let shard = reference.page().checked_sub(1)? as usize;
+        let shard = (reference.page() as usize).checked_sub(self.base_texture_page_count())?;
         let layers = self.overlay_page_layer_counts.get(shard).copied()?;
         let layer = reference.layer() as usize;
         (layer < layers).then(|| {
@@ -303,7 +335,7 @@ impl RuntimeAssets {
                 detail: "terrain texture page is out of range".into(),
             })?
             .texture;
-        if page != 0 && !self.overlay_texture_source_sizes.is_empty() {
+        if page >= self.base_texture_page_count() && !self.overlay_texture_source_sizes.is_empty() {
             return Ok(std::borrow::Cow::Borrowed(texture));
         }
         crate::rebuild_legacy_terrain_mips(texture).map(std::borrow::Cow::Owned)
@@ -407,9 +439,14 @@ impl RuntimeAssets {
             .ok()
             .map(|index| self.model_random_offsets[index].1)
             .or_else(|| {
-                let model = self.model_templates.get(template as usize)?;
-                (model.flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0)
-                    .then_some(block_transform::random_offset::SHORT_GRASS)
+                let flags = self.model_templates.get(template as usize)?.flags;
+                if flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0 {
+                    Some(block_transform::random_offset::SHORT_GRASS)
+                } else if flags & crate::model::MODEL_TEMPLATE_FLAG_SPELEOTHEM != 0 {
+                    Some(block_transform::random_offset::POINTED_DRIPSTONE)
+                } else {
+                    None
+                }
             })
     }
 
@@ -444,10 +481,13 @@ impl RuntimeAssets {
     pub const fn texture_pages(&self) -> &[TexturePage] {
         &self.texture_pages
     }
-    /// Overlay texture shards appended after the base carrier's page, in
-    /// reference page order (page 1 first). Vanilla carriers decode none.
+    /// Number of retained base carrier pages before any session overlay shards.
+    pub fn base_texture_page_count(&self) -> usize {
+        self.texture_pages.len() - self.overlay_page_layer_counts.len()
+    }
+    /// Overlay texture shards appended after all base pages, in reference page order.
     pub fn texture_shards(&self) -> impl ExactSizeIterator<Item = &TextureArray> {
-        let first = self.texture_pages.len() - self.overlay_page_layer_counts.len();
+        let first = self.base_texture_page_count();
         self.texture_pages[first..].iter().map(|page| &page.texture)
     }
     /// Layer count of each overlay shard, parallel to the shards.
@@ -462,6 +502,18 @@ impl RuntimeAssets {
     #[must_use]
     pub const fn biome_assets(&self) -> &CompiledBiomeAssets {
         &self.biomes
+    }
+
+    /// Whether a session overlay changed this base visual's face art, so art prepared from the
+    /// startup carrier, such as carried cube sheets, no longer matches its terrain.
+    #[must_use]
+    pub fn is_retextured(&self, visual: crate::BlockVisualId) -> bool {
+        self.retextured_visuals.binary_search(&visual.0).is_ok()
+    }
+
+    /// Returns the validated carrier identity; synthetic and composed assets have none.
+    pub const fn carrier_identity(&self) -> Option<[u8; 32]> {
+        self.carrier_identity
     }
 
     /// Returns the exact source identities embedded by the compiler: the

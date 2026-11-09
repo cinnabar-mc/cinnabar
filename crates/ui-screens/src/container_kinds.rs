@@ -12,7 +12,7 @@ use crate::container_actions::InventoryCellHit;
 /// One cell a collection index addresses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Cell {
-    Storage(u8),
+    Storage(u16),
     /// A personal UI-inventory slot.
     Ui(u8),
     /// The screen's created output.
@@ -40,11 +40,11 @@ pub struct ContainerKind {
     pub flags: &'static [&'static str],
 }
 
-const fn storage_run<const N: usize>(first: u8) -> [Cell; N] {
+const fn storage_run<const N: usize>(first: u16) -> [Cell; N] {
     let mut cells = [Cell::Storage(0); N];
     let mut index = 0;
     while index < N {
-        cells[index] = Cell::Storage(first + index as u8);
+        cells[index] = Cell::Storage(first + index as u16);
         index += 1;
     }
     cells
@@ -227,6 +227,7 @@ pub fn window_kind(kind: WindowKind) -> Option<&'static ContainerKind> {
         &[("container_items", &NINE)],
     );
     Some(match kind {
+        WindowKind::Trade { modern } => crate::trading::kind(modern),
         WindowKind::Furnace => &FURNACE,
         WindowKind::BlastFurnace => &BLAST_FURNACE,
         WindowKind::Smoker => &SMOKER,
@@ -356,7 +357,7 @@ mod tests {
             for index in 0..slots {
                 assert_eq!(
                     kind.cell("container_items", index),
-                    Some(Cell::Storage(index as u8))
+                    Some(Cell::Storage(index as u16))
                 );
             }
             assert_eq!(
@@ -404,6 +405,14 @@ mod tests {
         assert_eq!(
             anvil.cell("anvil_material_items", 0).map(Cell::hit),
             Some(InventoryCellHit::Craft(2))
+        );
+    }
+
+    #[test]
+    fn hopper_screen_uses_the_container_name() {
+        assert_eq!(
+            window_kind(WindowKind::Hopper).unwrap().title_key,
+            "container.hopper"
         );
     }
 }

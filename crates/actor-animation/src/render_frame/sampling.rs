@@ -2,36 +2,45 @@ use super::*;
 
 /// Lists the authored expressions that can affect an actor's rendered layers.
 pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
+    let mut expressions = rig_expressions(assets, binding);
+    expressions.extend(render_output_expressions(assets, binding));
+    expressions
+}
+
+/// Lists rig scripts that run before body pose sampling.
+pub(super) fn rig_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     let Some(rig) = assets.rig_bindings().get(binding) else {
         return Vec::new();
     };
     let mut expressions = Vec::new();
     expressions.extend(rig.pre_animation);
     expressions.extend(rig.held_item_scale);
-    expressions.extend(render_controller_expressions(assets, binding));
     expressions
 }
 
-/// Render-controller scripts run after body keyframes and before selected geometry sampling.
-pub(super) fn render_controller_expressions(
-    assets: &RuntimeEntityAssets,
-    binding: usize,
-) -> Vec<u32> {
+/// Controller and visibility scripts run after body keyframes and before selected geometry sampling.
+pub(super) fn render_output_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     assets
         .render_layers(binding)
         .iter()
         .flat_map(|layer| render_layer_expressions(assets, layer).expressions)
+        .chain(
+            assets
+                .rig_bindings()
+                .get(binding)
+                .and_then(|rig| rig.hide_held_items),
+        )
         .collect()
 }
 
 /// Separate selection gates preserve dependencies of conditionally executed assignments.
-pub(super) struct RenderExpressions {
+pub(crate) struct RenderExpressions {
     pub expressions: Vec<u32>,
     pub gates: Vec<u32>,
 }
 
 /// Layer conditions and choices control which following scripts execute.
-pub(super) fn render_layer_expressions(
+pub(crate) fn render_layer_expressions(
     assets: &RuntimeEntityAssets,
     layer: &assets::EntityRenderLayer,
 ) -> RenderExpressions {
@@ -41,6 +50,12 @@ pub(super) fn render_layer_expressions(
 
     expressions.extend(layer.condition);
     gates.extend(layer.condition);
+    let material_expressions: Vec<_> = data
+        .material_nodes(layer)
+        .filter_map(|node| node.expression())
+        .collect();
+    expressions.extend(material_expressions.iter().copied());
+    gates.extend(material_expressions);
     expressions.extend(layer.light_color_multiplier);
     for channels in [
         layer.color,
@@ -85,14 +100,20 @@ pub(super) fn render_layer_expressions(
     RenderExpressions { expressions, gates }
 }
 
-/// Frame-time queries require fresh rendered-layer evaluation between simulation ticks.
-pub(crate) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
-    uses_render_query(assets, binding, |symbol| {
-        matches!(
-            assets.molang_query_binding(symbol),
-            Some(assets::MolangQuery::FrameAlpha | assets::MolangQuery::LifeTime)
-        )
-    })
+/// Frame-time queries require fresh rendered-layer evaluation between simulation ticks, as does a
+/// hurt colour, which follows the actor's damage state rather than any authored input.
+pub(crate) fn needs_frame_sampling(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    binding: usize,
+) -> bool {
+    assets
+        .render_layers(binding)
+        .iter()
+        .any(|layer| layer.hurt_color.is_some())
+        || render_expressions(assets, binding)
+            .into_iter()
+            .any(|expression| layout.expression_inputs(expression as usize).frame)
 }
 
 /// Rendered expressions retain motion endpoints whenever they read interpolated actor inputs.
@@ -145,8 +166,27 @@ pub(super) fn pose_expressions(
         expressions.extend(rig.initialize);
         expressions.extend(rig.scale_expressions.into_iter().flatten());
     }
-    let (selection, mut clips) = topology_expressions(assets, geometry, controllers);
-    expressions.extend(selection);
+    expressions.extend(animation_expressions(
+        assets,
+        rig,
+        geometry,
+        controllers,
+        extra_clips,
+    ));
+    expressions.sort_unstable();
+    expressions.dedup();
+    expressions
+}
+
+/// Expressions in clip selection and bone channels, excluding the rig's setup scripts.
+pub(super) fn animation_expressions(
+    assets: &RuntimeEntityAssets,
+    rig: usize,
+    geometry: usize,
+    controllers: &[ControllerState],
+    extra_clips: &[usize],
+) -> Vec<u32> {
+    let (mut expressions, mut clips) = topology_expressions(assets, geometry, controllers);
     clips.extend(extra_clips.iter().copied());
     let geometries = assets
         .render_layers(rig)
@@ -203,7 +243,7 @@ pub(super) fn selection_expressions(
     expressions
 }
 
-fn topology_expressions(
+pub(super) fn topology_expressions(
     assets: &RuntimeEntityAssets,
     geometry: usize,
     controllers: &[ControllerState],
@@ -252,4 +292,34 @@ fn topology_expressions(
         }
     }
     (expressions, clips)
+}
+
+/// Replays the frame's shared variable setup before controller selection or pose sampling.
+pub(super) fn prepare_variables(
+    evaluator: &Evaluator<'_>,
+    state: &ActorRigState,
+    swing: Option<f32>,
+    variables: &mut MolangVariables,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Option<f32>, EvalError> {
+    let engine = &evaluator.layout.engine;
+    if let Some(swing) = swing {
+        variables.set(engine.attack_time, swing);
+    }
+    let rig = &evaluator.assets.rig_bindings()[state.rig_binding];
+    let held_item_scale = tick::scale::evaluate_held_item(evaluator, rig, variables, budget)?;
+    if let Some(script) = rig.pre_animation {
+        evaluator.run(script as usize, variables, 0.0, budget)?;
+    }
+    if state.complete_spear_variables {
+        engine.spear.apply(
+            variables,
+            evaluator.actor,
+            evaluator.context,
+            evaluator.input,
+            swing.unwrap_or(evaluator.input.attack_time),
+        );
+    }
+    tick::set_item_rotation_factor(engine, variables);
+    Ok(held_item_scale)
 }

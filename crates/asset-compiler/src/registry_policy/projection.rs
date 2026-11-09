@@ -74,8 +74,14 @@ fn key(name: &str, state: &str) -> String {
 /// Removes only neighbour-derived properties from a canonical source state.
 fn reduced(state: &str) -> Result<String> {
     let mut fields: BTreeMap<String, serde_json::Value> = serde_json::from_str(state)?;
-    fields
-        .retain(|name, _| !name.starts_with("minecraft:connection_") && name != "minecraft:corner");
+    fields.retain(|name, _| {
+        !name.starts_with("minecraft:connection_")
+            && name != "minecraft:corner"
+            && !matches!(
+                name.as_str(),
+                "redstone_east" | "redstone_north" | "redstone_south" | "redstone_west"
+            )
+    });
     Ok(serde_json::to_string(&fields)?)
 }
 
@@ -87,8 +93,54 @@ fn fingerprint(hash: &mut Sha256, f: &BlockFact) {
     hash.update([0]);
 }
 
+/// The block whose source states carry no collision shape, and the first of the source-independent
+/// shape ids its connection masks take.
+const CHORUS_PLANT: &str = "minecraft:chorus_plant";
+const CHORUS_SHAPE_BASE: u16 = 0xff00;
+
+/// A plant's one box: its core reaches each block edge it has a connection toward. The native shape
+/// comes from the same neighbours the state's connections name.
+fn chorus_plant_collision(f: &BlockFact) -> Result<CollisionSeed> {
+    let fields: BTreeMap<String, serde_json::Value> = serde_json::from_str(&f.state)?;
+    let connected = |side: &str| {
+        fields
+            .get(&format!("minecraft:connection_{side}"))
+            .and_then(|field| field.get("value"))
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|value| value != 0)
+    };
+    let unit = assets::block_shapes::COLLISION_UNITS_PER_BLOCK as i32;
+    let near = |side: &str| if connected(side) { 0 } else { unit / 8 };
+    let far = |side: &str| if connected(side) { unit } else { unit * 7 / 8 };
+    let mask = ["down", "east", "north", "south", "up", "west"]
+        .into_iter()
+        .enumerate()
+        .filter(|(_, side)| connected(side))
+        .fold(0_u16, |mask, (bit, _)| mask | 1 << bit);
+    Ok(CollisionSeed {
+        shape_id: CHORUS_SHAPE_BASE + mask,
+        confidence: CollisionConfidence::CollisionOnly,
+        boxes: vec![assets::CollisionBox {
+            min_x: near("west"),
+            min_y: near("down"),
+            min_z: near("north"),
+            max_x: far("east"),
+            max_y: far("up"),
+            max_z: far("south"),
+        }]
+        .into(),
+    })
+}
+
 /// Converts exact source boxes into the existing fixed-point carrier coordinates.
 pub(super) fn collision(f: &BlockFact) -> Result<CollisionSeed> {
+    if f.name == CHORUS_PLANT && f.shape_id == 0 {
+        return chorus_plant_collision(f);
+    }
+    check(
+        f.shape_id != 0,
+        format!("collision shape unavailable for {}", f.name),
+    )?;
     let mut boxes = Vec::new();
     for raw in f.boxes.iter().flatten() {
         let mut v = [0i32; 6];
@@ -124,16 +176,28 @@ pub(super) fn collision(f: &BlockFact) -> Result<CollisionSeed> {
     })
 }
 
-/// Admits the three Education construction blocks using their explicit state schemas.
+/// Admits supported Education blocks using their explicit state schemas.
 fn education(f: &BlockFact) -> Result<Option<RegistryRecord>> {
     if !matches!(
         f.name.as_str(),
-        "minecraft:allow" | "minecraft:deny" | "minecraft:border_block"
+        "minecraft:allow" | "minecraft:deny" | "minecraft:border_block" | "minecraft:chalkboard"
     ) {
         return Ok(None);
     }
     let fields: BTreeMap<String, Scalar> = serde_json::from_str(&f.state)?;
     let mut record = identity(f);
+    if f.name == "minecraft:chalkboard" {
+        let direction = fields
+            .get("direction")
+            .ok_or("chalkboard direction missing")?;
+        check(
+            fields.len() == 1
+                && direction.kind == "int"
+                && direction.value.as_u64().is_some_and(|value| value < 16),
+            "invalid chalkboard state",
+        )?;
+        return Ok(Some(record));
+    }
     if f.name != "minecraft:border_block" {
         check(fields.is_empty(), "Education cube has unexpected state")?;
         record.flags = BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE;
@@ -229,7 +293,9 @@ pub(super) fn project(
             let exact = old.get(&key(&f.name, &f.state));
             let reduced = reduced(&f.state)?;
             let reduced_match = old.get(&key(&f.name, &reduced));
-            let adopted = if let Some(record) = exact {
+            let adopted = if policy.unresolved_retail.contains(&f.name) {
+                None
+            } else if let Some(record) = exact {
                 stats.legacy_exact_states += 1;
                 Some(*record)
             } else if let Some(record) = reduced_match {
@@ -288,7 +354,7 @@ pub(super) fn project(
         records.push(record);
     }
     check(
-        stats.education_states == 2 + 3usize.pow(4) * 2,
+        stats.education_states == 2 + 3usize.pow(4) * 2 + 16,
         "Education construction palette count mismatch",
     )?;
     check(
@@ -303,4 +369,74 @@ pub(super) fn project(
     )?;
     stats.denied_fingerprint = format!("{:x}", denied.finalize());
     Ok((records, stats))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chalkboard_admission_preserves_every_direction_without_cube_flags() {
+        for direction in 0..16 {
+            let fact = BlockFact {
+                sequential_id: direction,
+                network_hash: direction + 100,
+                name: "minecraft:chalkboard".into(),
+                state: format!(r#"{{"direction":{{"type":"int","value":{direction}}}}}"#),
+                shape_id: 0,
+                boxes: None,
+                friction: 0.6,
+                emission: 0,
+                filter: 0,
+                can_contain_liquid_source: false,
+            };
+            let record = education(&fact)
+                .unwrap()
+                .expect("chalkboard states must not be reserved placeholders");
+            assert_eq!(record.name.as_ref(), fact.name);
+            assert_eq!(record.canonical_state.as_ref(), fact.state);
+            assert_eq!(record.sequential_id, direction);
+            assert!(!record.flags.contains(BlockFlags::CUBE_GEOMETRY));
+        }
+    }
+
+    #[test]
+    fn a_chorus_plant_box_reaches_only_the_edges_it_connects_toward() {
+        let fact = |connected: &[&str]| BlockFact {
+            sequential_id: 0,
+            network_hash: 0,
+            name: CHORUS_PLANT.into(),
+            state: serde_json::Value::Object(
+                ["down", "east", "north", "south", "up", "west"]
+                    .map(|side| {
+                        (
+                            format!("minecraft:connection_{side}"),
+                            serde_json::json!({
+                                "type": "byte",
+                                "value": i32::from(connected.contains(&side)),
+                            }),
+                        )
+                    })
+                    .into_iter()
+                    .collect(),
+            )
+            .to_string(),
+            shape_id: 0,
+            boxes: None,
+            friction: 0.6,
+            emission: 0,
+            filter: 0,
+            can_contain_liquid_source: false,
+        };
+        let unit = assets::block_shapes::COLLISION_UNITS_PER_BLOCK as i32;
+        let alone = collision(&fact(&[])).unwrap();
+        assert_eq!(alone.boxes[0].min_x, unit / 8);
+        assert_eq!(alone.boxes[0].max_y, unit * 7 / 8);
+        let rooted = collision(&fact(&["down", "east"])).unwrap();
+        assert_ne!(alone.shape_id, rooted.shape_id);
+        let shape = rooted.boxes[0];
+        assert_eq!((shape.min_y, shape.max_y), (0, unit * 7 / 8));
+        assert_eq!((shape.min_x, shape.max_x), (unit / 8, unit));
+        assert_eq!((shape.min_z, shape.max_z), (unit / 8, unit * 7 / 8));
+    }
 }

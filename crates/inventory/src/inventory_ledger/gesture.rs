@@ -21,7 +21,7 @@ pub enum CellGesture {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum InventoryTarget {
     Player(u8),
-    Storage(u8),
+    Storage(u16),
     Armor(u8),
     Offhand,
     /// A crafting cell by UI inventory slot, 28..=40.
@@ -199,7 +199,7 @@ impl PlayerInventoryLedger {
         self.begin_cell_gesture(Cell::Inventory(slot), CellGesture::Click)
     }
 
-    pub fn begin_storage_click(&mut self, slot: u8) -> Result<i32, InventoryGestureError> {
+    pub fn begin_storage_click(&mut self, slot: u16) -> Result<i32, InventoryGestureError> {
         self.begin_cell_gesture(Cell::Storage(slot), CellGesture::Click)
     }
 
@@ -221,7 +221,7 @@ impl PlayerInventoryLedger {
 
     pub fn begin_storage_take_count(
         &mut self,
-        slot: u8,
+        slot: u16,
         amount: u16,
     ) -> Result<i32, InventoryGestureError> {
         self.begin_cell_gesture(Cell::Storage(slot), CellGesture::TakeCount(amount))
@@ -229,7 +229,7 @@ impl PlayerInventoryLedger {
 
     pub fn begin_storage_place_count(
         &mut self,
-        slot: u8,
+        slot: u16,
         amount: u16,
     ) -> Result<i32, InventoryGestureError> {
         self.begin_cell_gesture(Cell::Storage(slot), CellGesture::PlaceCount(amount))
@@ -522,10 +522,12 @@ impl PlayerInventoryLedger {
             deadline_millis: None,
             timed_out: false,
             awaiting_refresh: Vec::new(),
+            refresh_gates: false,
             session_generation: self.session_generation,
             storage_generation: self.storage.as_ref().map(|storage| storage.generation),
             personal_generation: submission.personal_generation,
             storage_identity: self.storage_identity(),
+            trade_purchase: None,
             requires_distinct_stack_ids: submission.requires_distinct_stack_ids,
             registry_bound_merge: submission.registry_bound_merge,
             quick_move_route: None,

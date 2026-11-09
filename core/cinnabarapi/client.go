@@ -27,7 +27,7 @@ const (
 	idleTimeout   = 2*pingInterval + 15*time.Second
 	writeTimeout  = 10 * time.Second
 	lookupTimeout = 10 * time.Second
-	maxFrameBytes = 64 << 10
+	maxFrameBytes = bridgecontract.CinnabarAPIMaxFrameBytes
 	minBackoff    = time.Second
 	maxBackoff    = time.Duration(bridgecontract.CinnabarAPIReconnectMaxMS) * time.Millisecond
 	// stableSession is how long a session must last before failures stop compounding.
@@ -91,11 +91,17 @@ type Client struct {
 	configured      bool
 	reconnect       context.CancelFunc // ends the current session; guarded by mu
 	loadoutRevision uint64
+	ownershipXUID   string
+	ownedCosmetics  []string
+	modLibrary      []bridgecontract.CinnabarModEntry
 	live            *session // authenticated session; guarded by mu
 }
 
 // session is one authenticated connection.
 type session struct {
+	modLibrary      []bridgecontract.CinnabarModEntry // guarded by Client.mu
+	ownershipXUID   string
+	ownedCosmetics  []string
 	loadoutDirty    chan struct{}
 	loadoutSent     bool
 	loadoutSlots    []bridgecontract.CinnabarCosmeticSlot
@@ -357,6 +363,9 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 		parameters: c.parameters, visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
 	}
 	c.mu.Lock()
+	s.ownershipXUID = c.ownershipXUID
+	s.ownedCosmetics = append([]string(nil), c.ownedCosmetics...)
+	s.modLibrary = append([]bridgecontract.CinnabarModEntry(nil), c.modLibrary...)
 	c.live = s
 	if c.config.Visible != config.Visible {
 		s.dirty <- struct{}{}
@@ -437,6 +446,14 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa
 		case typeWelcome:
 			c.mu.Lock()
 			c.loadoutRevision = max(c.loadoutRevision, min(msg.LoadoutRevision, uint64(maxBuildNumber)))
+			c.ownershipXUID = ""
+			c.ownedCosmetics = nil
+			c.modLibrary = nil
+			if ValidXUID(msg.XUID) {
+				c.ownershipXUID = msg.XUID
+				c.ownedCosmetics = admittedOwnership(msg.OwnedCosmetics)
+				c.modLibrary = admittedLibrary(msg.ModLibrary)
+			}
 			c.mu.Unlock()
 			c.mu.Lock()
 			c.parameters = msg.parameters.normalized()
@@ -465,8 +482,16 @@ func (c *Client) read(ctx context.Context, s *session) error {
 			continue
 		}
 		switch msg.Type {
+		case "mod_library":
+			c.mu.Lock()
+			s.modLibrary = admittedLibrary(msg.Mods)
+			c.mu.Unlock()
 		case typeRelease:
 			c.release(msg)
+		case typeCosmeticOwnership:
+			c.mu.Lock()
+			s.ownedCosmetics = admittedOwnership(msg.OwnedCosmetics)
+			c.mu.Unlock()
 		case typeLoadout:
 			c.receiveLoadout(s, msg)
 		case typeEmote:

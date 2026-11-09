@@ -20,7 +20,6 @@ use super::{
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
         self.personal_writes = 0;
-        self.offhand_written = false;
         for update in event.slot_updates() {
             tracing::debug!(target: "cinnabar::inventory_requests",
                 identity = ?update.identity, network_id = update.stack.network_id,
@@ -64,6 +63,7 @@ impl PlayerInventoryLedger {
                 }
             }
             InventoryEvent::Open(open) => self.apply_open(*open),
+            InventoryEvent::Trade(trade) => self.apply_trade(trade),
             InventoryEvent::Close(close) => self.apply_close(*close),
             InventoryEvent::RegistryCleanup(removed) => self.apply_bundle_cleanup(removed),
             InventoryEvent::Content(content) => self.apply_content(content),
@@ -113,6 +113,7 @@ impl PlayerInventoryLedger {
                 }
             }
             InventoryEvent::Creative(content) => self.creative = Some(content.clone()),
+            InventoryEvent::ArmorDamage(event) => self.apply_armor_damage(event),
             _ => {}
         }
     }
@@ -313,9 +314,9 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Maps one accepted-response correction address onto its retained ledger
-    /// cell: the same canonical projection the ingress paths use, bounded by
-    /// each surface's exact retention. `None` marks an unrouted identity.
+    /// Maps a request or response address onto a retained cell. Named open-window
+    /// addresses use full window indices, bounded by the named segment.
+    /// `None` marks an unrouted identity.
     pub(super) fn retained_response_cell(
         &self,
         container: &ContainerIdentity,
@@ -329,14 +330,18 @@ impl PlayerInventoryLedger {
             CanonicalCell::Cursor => Some(Cell::Cursor),
             CanonicalCell::GenericStorage { slot, .. } => {
                 self.storage.as_ref()?;
-                let cell = Cell::Storage(u8::try_from(slot).ok()?);
+                let cell = Cell::Storage(slot);
                 self.confirmed.contains(cell).then_some(cell)
             }
             CanonicalCell::WindowSlot { name, slot } => {
                 let storage = self.storage.as_ref()?;
-                let first = protocol::open_name_first_cell(storage.kind, name)?;
-                let cell = Cell::Storage(first.checked_add(u8::try_from(slot).ok()?)?);
-                self.confirmed.contains(cell).then_some(cell)
+                let (protocol::StackRequestContainer::OpenWindow { name: expected, .. }, _) =
+                    protocol::open_cell_request(storage.kind, slot, None, None)?
+                else {
+                    return None;
+                };
+                let cell = Cell::Storage(slot);
+                (name == expected && self.confirmed.contains(cell)).then_some(cell)
             }
             canonical => fixed_cell(canonical),
         }
@@ -350,7 +355,7 @@ impl PlayerInventoryLedger {
         self.skipped_unknown_containers = self.skipped_unknown_containers.saturating_add(1);
     }
 
-    fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
+    pub(super) fn apply_open(&mut self, open: protocol::ContainerOpenEvent) {
         if open.window_type == super::PERSONAL_INVENTORY_WINDOW_TYPE {
             self.apply_personal_open(open);
             return;
@@ -400,6 +405,7 @@ impl PlayerInventoryLedger {
         });
         self.controls.storage.desired_open = true;
         self.storage = Some(StorageWindow {
+            trade: None,
             window_id,
             window_type: open.window_type,
             kind,
@@ -408,6 +414,8 @@ impl PlayerInventoryLedger {
             data: std::collections::BTreeMap::new(),
             generation,
             identity: None,
+            block_container: None,
+            superseded_identity: None,
             resync_required: false,
             closing: false,
         });

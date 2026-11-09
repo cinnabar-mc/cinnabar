@@ -14,10 +14,10 @@ impl UiPresentationRuntime {
     pub(in super::super) fn clear_player_list(&mut self) {
         self.screens.player_list = None;
         if let Some(engine) = self.engine.as_deref() {
-            engine
-                .textures
-                .lock()
-                .set_client_rasters(&Default::default());
+            engine.textures.lock().set_client_rasters(
+                ui_screens::player_list::PORTRAIT_RASTER_NAMESPACE,
+                &Default::default(),
+            );
         }
     }
 
@@ -45,6 +45,7 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
+        let available_y = self.touch_roster_region(runtime, nodes, next, metrics, content)?;
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
@@ -66,7 +67,13 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        list.paint(renderer, runtime.player_roster.rows(), &mut paint_frame)?;
+        list.set_header(runtime.session.player_roster.level_name());
+        list.paint(
+            renderer,
+            runtime.session.player_roster.rows(),
+            &mut paint_frame,
+            available_y,
+        )?;
         Ok(())
     }
 }

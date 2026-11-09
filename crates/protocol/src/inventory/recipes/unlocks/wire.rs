@@ -50,7 +50,7 @@ pub(super) fn decode_with_credits(
 
 /// Normalizes already-decoded callers through the same bounds and credited representation.
 pub(crate) fn normalize_recipe_unlocks(
-    packet: bedrock_protocol_1_26_51::packets::UnlockedRecipes,
+    packet: bedrock_protocol_1_26_60::packets::UnlockedRecipes,
 ) -> RecipeUnlockUpdate {
     let operation = RecipeUnlockOperation::from_index(packet.packet_type.to_raw());
     let parse = || {

@@ -177,22 +177,30 @@ fn requests_are_optional_validated_and_never_hide_metadata() {
 }
 
 #[test]
-fn raw_reactor_requests_follow_their_wasi_imports() {
-    for (source, wasi) in [
-        ("(module)", false),
+fn raw_core_requests_follow_valid_top_level_native_exports() {
+    for (exports, camera) in [
+        ("", false),
+        (r#"(func (export "native-init") (param i32))"#, false),
         (
-            r#"(module (import "wasi_snapshot_preview1" "fd_write" (func)))"#,
+            r#"(func (export "native-init") (param i32)) (func (export "frame") (param i32 i32) (result i32) i32.const 0)"#,
             true,
         ),
-        (r#"(module (import "other" "fd_write" (func)))"#, false),
+        (
+            r#"(func (export "frame") (param i32 i32) (result i32) i32.const 0)"#,
+            false,
+        ),
+        (
+            r#"(func (export "native-init") (param i32)) (func (export "frame") (param i32 i64) (result i32) i32.const 0)"#,
+            false,
+        ),
     ] {
-        let bytes = wat::parse_str(source).unwrap();
-        let requested = read(&bytes).requested.unwrap().unwrap();
+        let bytes = wat::parse_str(format!("(module {exports})")).unwrap();
         assert_eq!(
-            requested,
+            read(&bytes).requested.unwrap().unwrap(),
             ModGrants {
                 packets: true,
-                wasi,
+                camera,
+                players: camera,
                 ..Default::default()
             }
         );
@@ -200,87 +208,142 @@ fn raw_reactor_requests_follow_their_wasi_imports() {
 }
 
 #[test]
-fn explicit_reactor_requests_override_inference() {
-    let mut bytes =
-        wat::parse_str(r#"(module (import "wasi_snapshot_preview1" "fd_write" (func)))"#).unwrap();
+fn raw_core_export_signatures_include_imported_function_offsets() {
+    for source in [
+        r#"(module
+            (import "wasi_snapshot_preview1" "clock_time_get" (func (param i32 i64 i32) (result i32)))
+            (import "host" "state" (global i32))
+            (import "host" "memory" (memory 1))
+            (func (export "native-init") (param i32))
+            (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
+        r#"(module
+            (import "wasi_snapshot_preview1" "callback" (func $frame (param i32 i32) (result i32)))
+            (func (export "native-init") (param i32))
+            (export "frame" (func $frame)))"#,
+    ] {
+        assert_eq!(
+            read(&wat::parse_str(source).unwrap())
+                .requested
+                .unwrap()
+                .unwrap(),
+            ModGrants {
+                packets: true,
+                wasi: true,
+                camera: true,
+                players: true,
+                ..Default::default()
+            }
+        );
+    }
+}
+
+#[test]
+fn explicit_raw_core_requests_override_native_export_inference() {
+    let module = wat::parse_str(
+        r#"(module
+            (import "wasi_snapshot_preview1" "random_get" (func (param i32 i32) (result i32)))
+            (func (export "native-init") (param i32))
+            (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
+    )
+    .unwrap();
+    for request in [
+        br#"{}"#.as_slice(),
+        br#"{"packets":true,"controls":false,"camera":false,"players":false}"#,
+    ] {
+        let mut bytes = module.clone();
+        section(&mut bytes, REQUESTED_GRANTS_SECTION, request);
+        assert_eq!(
+            read(&bytes).requested.unwrap().unwrap(),
+            serde_json::from_slice::<ModGrants>(request).unwrap()
+        );
+    }
+    let mut nested = module;
+    section(
+        &mut nested,
+        REQUESTED_GRANTS_SECTION,
+        br#"{"controls":true}"#,
+    );
+    let mut outer = wat::parse_str("(component)").unwrap();
+    // A component's core-module section contains the complete nested module encoding.
+    outer.push(1);
+    let mut size = nested.len();
+    loop {
+        let byte = (size & 0x7f) as u8;
+        size >>= 7;
+        outer.push(byte | if size == 0 { 0 } else { 0x80 });
+        if size == 0 {
+            break;
+        }
+    }
+    outer.extend(nested);
+    assert!(read(&outer).requested.unwrap().is_none());
+}
+
+#[test]
+fn legacy_update_sections_are_ignored_without_losing_other_metadata() {
+    let mut bytes = named(&wat::parse_str("(component)").unwrap(), "Zoom");
+    for (section_name, data) in [
+        (
+            mod_api::UPDATE_REPOSITORY_SECTION,
+            "https://github.com/example/zoom",
+        ),
+        (
+            mod_api::UPDATE_URL_SECTION,
+            "https://github.com/example/zoom/releases/latest/download/zoom.wasm",
+        ),
+    ] {
+        section(&mut bytes, section_name, data.as_bytes());
+    }
+    let metadata = read(&bytes).metadata;
+    assert!(metadata.update_repository.is_none());
+    assert!(metadata.update_url.is_none());
+    assert_eq!(metadata.name.as_deref(), Some("Zoom"));
+}
+
+#[test]
+fn snapshot_declarations_keep_native_permissions_and_update_metadata_together() {
+    let mut bytes = wat::parse_str(
+        r#"(module
+        (func (export "native-init") (param i32))
+        (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
+    )
+    .unwrap();
     section(
         &mut bytes,
-        REQUESTED_GRANTS_SECTION,
-        br#"{"packets":true,"wasi":false}"#,
+        mod_api::UPDATE_URL_SECTION,
+        b"https://github.com/example/native/releases/latest/download/native.wasm",
     );
-    let requested = read(&bytes).requested.unwrap().unwrap();
-    assert!(requested.packets);
-    assert!(!requested.wasi);
+    let declared = declarations_snapshot(&bytes).unwrap();
+    assert!(declared.requested.unwrap().unwrap().camera);
+    assert!(declared.metadata.update_url.is_none());
 }
 
 #[test]
-fn update_repository_is_optional_top_level_and_never_breaks_other_metadata() {
-    let empty = wat::parse_str("(component)").unwrap();
-    assert!(read(&empty).metadata.update_repository.is_none());
-    let mut valid = named(&empty, "Zoom");
-    section(
-        &mut valid,
-        mod_api::UPDATE_REPOSITORY_SECTION,
-        b"https://github.com/Example/Zoom.git",
-    );
-    let metadata = read(&valid).metadata;
-    assert_eq!(metadata.update_repository.unwrap().slug(), "example/zoom");
-    assert_eq!(metadata.name.as_deref(), Some("Zoom"));
-
-    for data in [
-        b"https://other.example/zoom".as_slice(),
-        b"\xff",
-        b"https://github.com/example/zoom/releases",
-    ] {
-        let mut invalid = named(&empty, "Zoom");
-        section(&mut invalid, mod_api::UPDATE_REPOSITORY_SECTION, data);
-        let metadata = read(&invalid).metadata;
-        assert!(metadata.update_repository.is_none());
-        assert_eq!(metadata.name.as_deref(), Some("Zoom"));
-    }
-    let mut duplicate = valid.clone();
-    section(
-        &mut duplicate,
-        mod_api::UPDATE_REPOSITORY_SECTION,
-        b"https://github.com/example/other",
-    );
-    assert!(read(&duplicate).metadata.update_repository.is_none());
-    // Encode a nested component with its own repository; the outer component opts out.
-    let mut outer = empty;
-    outer.push(4);
-    length(valid.len(), &mut outer);
-    outer.extend(valid);
-    assert!(read(&outer).metadata.update_repository.is_none());
-}
-
-#[test]
-fn automatic_update_url_requires_one_valid_top_level_declaration() {
-    let empty = wat::parse_str("(component)").unwrap();
-    assert!(read(&empty).metadata.update_url.is_none());
-    let mut valid = named(&empty, "Zoom");
-    let url = b"https://github.com/Example/Zoom/releases/latest/download/zoom.wasm";
-    section(&mut valid, mod_api::UPDATE_URL_SECTION, url);
-    let metadata = read(&valid).metadata;
-    let source = metadata.update_url.unwrap();
-    assert_eq!(source.repository().slug(), "example/zoom");
-    assert_eq!(source.asset(), "zoom.wasm");
-    for data in [
-        b"https://example.com/zoom.wasm".as_slice(),
-        b"\xff",
-        b"https://github.com/example/zoom",
-    ] {
-        let mut invalid = named(&empty, "Zoom");
-        section(&mut invalid, mod_api::UPDATE_URL_SECTION, data);
-        let metadata = read(&invalid).metadata;
+fn revision_updates_disable_legacy_fallback_even_when_invalid_or_duplicated() {
+    let base = wat::parse_str("(component)").unwrap();
+    let declaration = serde_json::json!({
+        "source": "https://github.com/example/mod/releases/latest/download/mod.wasm",
+        "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE, "api_revision": "a".repeat(40), "revision": "a".repeat(40),
+    })
+    .to_string();
+    for data in [declaration.as_bytes(), b"invalid"] {
+        let mut bytes = base.clone();
+        section(
+            &mut bytes,
+            mod_api::UPDATE_URL_SECTION,
+            b"https://github.com/example/mod/releases/latest/download/mod.wasm",
+        );
+        section(&mut bytes, mod_api::REVISION_UPDATE_SECTION, data);
+        let metadata = read(&bytes).metadata;
         assert!(metadata.update_url.is_none());
-        assert_eq!(metadata.name.as_deref(), Some("Zoom"));
+        assert!(metadata.update_repository.is_none());
+        assert_eq!(
+            metadata.revision_update.is_some(),
+            data == declaration.as_bytes()
+        );
+        section(&mut bytes, mod_api::REVISION_UPDATE_SECTION, data);
+        let metadata = read(&bytes).metadata;
+        assert!(metadata.revision_update.is_none());
+        assert!(metadata.update_url.is_none());
     }
-    let mut duplicate = valid.clone();
-    section(&mut duplicate, mod_api::UPDATE_URL_SECTION, url);
-    assert!(read(&duplicate).metadata.update_url.is_none());
-    let mut nested = empty;
-    nested.push(4);
-    length(valid.len(), &mut nested);
-    nested.extend(valid);
-    assert!(read(&nested).metadata.update_url.is_none());
 }

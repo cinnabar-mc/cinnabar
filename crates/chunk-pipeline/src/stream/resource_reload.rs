@@ -34,17 +34,38 @@ impl ResourceMeshSnapshot {
         Some(
             self.chunks
                 .into_par_iter()
-                .map(|(key, snapshot)| {
-                    let biome = pack_biome_record(&snapshot.biomes, &resolved);
-                    let mesh = snapshot.mesh(classifier, assets, mode, &biome);
-                    (key, mesh, biome)
-                })
+                .map_init(
+                    ::meshing::MeshScratch::default,
+                    |scratch, (key, snapshot)| {
+                        let biome = pack_biome_record(&snapshot.biomes, &resolved);
+                        let mesh = snapshot.mesh(classifier, assets, mode, &biome, scratch);
+                        (key, mesh, biome)
+                    },
+                )
                 .collect(),
         )
     }
 }
 
 impl WorldStream {
+    /// Replaces visual face rules and invalidates every earlier mesh generation.
+    pub fn set_surface_rules(
+        &mut self,
+        rules: Arc<[::meshing::surface::SurfaceRule]>,
+        now: Instant,
+    ) -> bool {
+        if Arc::ptr_eq(&self.surface_rules, &rules)
+            || self.surface_rules == rules
+            || rules.iter().any(|rule| !rule.validate())
+        {
+            return false;
+        }
+        self.mesh_memory.surface_rules = rules.clone();
+        self.surface_rules = rules;
+        self.mesh_policy_changed(now);
+        true
+    }
+
     /// The render choices captured by new mesh jobs and resource-pack snapshots.
     pub fn mesh_render_settings(&self) -> ::meshing::MeshRenderSettings {
         self.mesh_render_settings
@@ -66,11 +87,16 @@ impl WorldStream {
             return false;
         }
         self.mesh_render_settings = settings;
+        self.mesh_policy_changed(now);
+        true
+    }
+
+    /// Advances the mesh generation and withdraws work captured under the previous policy.
+    fn mesh_policy_changed(&mut self, now: Instant) {
         self.mesh_render_revision += 1;
         self.invalidate_meshes(now);
         self.staged_mesh_completions.clear();
         self.staged_mesh_bytes = 0;
-        true
     }
 
     /// Captures resident render neighbourhoods only when their lighting is ready.
@@ -108,6 +134,7 @@ impl WorldStream {
         let biomes_changed =
             self.authority.runtime_assets().biome_assets() != assets.biome_assets();
         self.biome_records = None;
+        self.mesh_memory.reload_assets(&assets);
         self.authority.replace_runtime_assets(assets);
         self.reload_far_terrain_resources();
         if biomes_changed {
@@ -127,5 +154,24 @@ impl WorldStream {
         for key in resident {
             self.mark_dirty_exact(key, now);
         }
+    }
+
+    /// Meshes as Java does for a shader pack while `water_filled` (the sorted network values
+    /// of the blocks Java fills with water: seagrass, kelp, bubble columns) is set: every leaf
+    /// with its cutout, two-sided material, as Java's fancy leaves, and no water faces toward
+    /// water-filled blocks. `None` restores Bedrock's opaque deep leaves and water faces.
+    /// A change remeshes every resident sub-chunk.
+    pub fn set_java_meshing(&mut self, water_filled: Option<Arc<[u32]>>, now: Instant) {
+        if self.java_meshing == water_filled {
+            return;
+        }
+        self.java_meshing = water_filled;
+        self.mesh_policy_changed(now);
+    }
+
+    /// The water-filled network values of Java meshing ([`Self::set_java_meshing`]), if on.
+    #[must_use]
+    pub fn java_meshing(&self) -> Option<&[u32]> {
+        self.java_meshing.as_deref()
     }
 }

@@ -61,13 +61,31 @@ pub(super) struct TransparentModelPreparationCache {
     dirty: bool,
     invalidated: HashSet<Entity>,
     invalidate_all: bool,
+    /// The visible model revision and ref total of the last complete scan.
+    scanned: Option<(u64, usize)>,
     #[cfg(test)]
     counts: PreparationCounts,
 }
 
 impl TransparentModelPreparationCache {
+    /// The address and ref total of the last complete scan, while neither the visible model
+    /// allocations and meshes (`model_revision`) nor the carrier changed, so a new scan would
+    /// observe exactly the same inputs.
+    pub(super) fn retained(
+        &self,
+        model_revision: u64,
+        assets: &ChunkTextureAssets,
+    ) -> Option<(TransparentModelAddressIdentity, usize)> {
+        let (scanned_revision, total_refs) = self.scanned?;
+        let address = self.address.as_ref()?;
+        (scanned_revision == model_revision
+            && self.assets.as_ref().map(ChunkTextureAssets::identity) == Some(assets.identity()))
+        .then(|| (address.clone(), total_refs))
+    }
+
     /// Drops abandoned pages while keeping future revisions distinct from old worker keys.
     pub(super) fn clear(&mut self) {
+        self.scanned = None;
         self.pages.clear();
         self.assets = None;
         self.address = None;
@@ -82,6 +100,7 @@ impl TransparentModelPreparationCache {
     /// Starts a visibility scan retaining only the carrier used by geometry.
     /// Carrier changes invalidate every centroid page.
     pub(super) fn begin_frame(&mut self, assets: &ChunkTextureAssets) {
+        self.scanned = None;
         if self.assets.as_ref().map(ChunkTextureAssets::identity) != Some(assets.identity()) {
             self.invalidate_all |= self.assets.is_some();
             self.pages.clear();
@@ -116,11 +135,15 @@ impl TransparentModelPreparationCache {
             .insert(identity.entity, AllocationPage::new(identity, instance));
     }
 
-    /// Publishes a stable identity order only after a complete, valid visibility scan.
+    /// Publishes a stable identity order only after a complete, valid visibility scan of
+    /// `model_revision` that found `total_refs` refs.
     pub(super) fn finish_frame(
         &mut self,
         orders: &mut TransparentModelDrawOrders,
+        model_revision: u64,
+        total_refs: usize,
     ) -> TransparentModelAddressIdentity {
+        self.scanned = Some((model_revision, total_refs));
         let previous_len = self.pages.len();
         self.pages.retain(|_, page| page.seen);
         self.dirty |= self.pages.len() != previous_len || self.visible != self.observed;

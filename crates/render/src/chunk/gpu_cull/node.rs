@@ -16,7 +16,8 @@ use super::{
     model::{CullPhase, CullStream, STREAM_COUNT, args_region, count_index, region_draws},
 };
 use crate::chunk::*;
-use crate::gpu_timing::{SectionSpan, within_span};
+use crate::gpu_timing::{SectionSpan, compute_pass_timestamps, within_span};
+use render_scene::RuntimeStage;
 
 /// Draws one stream's compacted args for one phase of the GPU-culled view.
 pub(in crate::chunk) struct DrawGpuCulled<const STREAM: usize, const LATE: bool>;
@@ -171,7 +172,9 @@ pub(crate) fn early_cull(
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
     let render_context = &mut render_context;
-    let cull = world.resource::<GpuCull>();
+    let Some(cull) = world.get_resource::<GpuCull>() else {
+        return Ok(());
+    };
     if cull.prepared_view != Some(view_entity) {
         return Ok(());
     }
@@ -180,8 +183,12 @@ pub(crate) fn early_cull(
     };
     let encoder = render_context.command_encoder();
     cull.clear_fixed_args(encoder);
-    cull.kernels
-        .encode_cull(encoder, &groups[0], cull.slot_count());
+    cull.kernels.encode_cull(
+        encoder,
+        &groups[0],
+        cull.slot_count(),
+        compute_pass_timestamps(world, RuntimeStage::GpuCullEarly),
+    );
     Ok(())
 }
 
@@ -202,7 +209,9 @@ pub(crate) fn late_cull(
     let view_entity = query.entity();
     let (camera, target, scene_target, depth, resolution_override) = query.into_inner();
     let render_context = &mut render_context;
-    let cull = world.resource::<GpuCull>();
+    let Some(cull) = world.get_resource::<GpuCull>() else {
+        return Ok(());
+    };
     let frame = world.resource::<GpuCullFrame>();
     let (Some(groups), Some(view)) = (&cull.bind_groups, frame.view) else {
         return Ok(());
@@ -228,10 +237,15 @@ pub(crate) fn late_cull(
         SectionSpan::claim(world, "late cull draws"),
     ];
     let colour = scene_target.color_attachment(target, false);
+    let raster_depth = crate::scene_sampling::view_depth(depth).clone();
     let depth = depth.get_attachment(StoreOp::Store);
     let timestamps = crate::gpu_timing::render_pass_timestamps(
         world,
-        render_scene::RuntimeStage::GpuTerrainOpaque,
+        if cfg!(target_os = "macos") {
+            RuntimeStage::GpuTerrainOpaque
+        } else {
+            RuntimeStage::GpuTerrainLate
+        },
     );
     // `None` keeps the full target; `Some(None)` is a camera viewport outside the attachment,
     // which still builds the pyramid and culls but draws nothing.
@@ -246,16 +260,40 @@ pub(crate) fn late_cull(
         );
     let device = world.resource::<RenderDevice>();
     let encoder = render_context.command_encoder();
+    if let Some(raster) = &cull.raster {
+        raster.encode(
+            encoder,
+            &raster_depth,
+            cull.slot_count(),
+            cull.raster_viewport,
+            (
+                compute_pass_timestamps(world, RuntimeStage::GpuCullRaster),
+                crate::gpu_timing::render_pass_timestamps(world, RuntimeStage::GpuCullRaster),
+            ),
+        );
+    }
     if let Some(prepared) = pyramid {
         within_span(spans[0].as_ref(), encoder, |encoder| {
-            cull.kernels
-                .encode_pyramid(encoder, &prepared.pyramid, &prepared.bindings);
+            cull.kernels.encode_pyramid(
+                encoder,
+                &prepared.pyramid,
+                &prepared.bindings,
+                compute_pass_timestamps(world, RuntimeStage::GpuCullHiz),
+            );
         });
     }
     within_span(spans[1].as_ref(), encoder, |encoder| {
-        cull.kernels
-            .encode_cull(encoder, &groups[1], cull.slot_count());
+        cull.kernels.encode_cull(
+            encoder,
+            &groups[1],
+            cull.slot_count(),
+            compute_pass_timestamps(world, RuntimeStage::GpuCullLate),
+        );
     });
+    cull.encode_feedback(
+        encoder,
+        world.resource::<super::feedback::GpuCullFeedback>(),
+    );
     within_span(spans[2].as_ref(), encoder, |encoder| {
         let pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("terrain late cull pass"),

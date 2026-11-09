@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use sim::{Aabb, Vec3};
 
-use super::{BREG_V2193, active_content_registry_protocol, bind, synthetic_preg};
+use super::{BREG_V2225, active_content_registry_protocol, bind, synthetic_preg};
 
 /// Encodes a named NBT tag header for the custom-block fixture.
 fn named(tag: u8, name: &str) -> Vec<u8> {
@@ -35,12 +35,47 @@ fn definitions(shapes: &[[f32; 6]]) -> protocol::CustomBlocks {
 }
 
 #[test]
+fn custom_mining_components_resolve_in_both_runtime_identity_spaces() {
+    let version = active_content_registry_protocol();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
+    let mut registries = bind(
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
+        version,
+    )
+    .unwrap();
+    let mut custom = definitions(&[[0.0, 0.0, 0.0, 16.0, 16.0, 16.0]]);
+    let block = &mut Arc::make_mut(&mut custom.blocks)[0];
+    block.tags = [Arc::from("minecraft:is_pickaxe_item_destructible")].into();
+    block.mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 2.0,
+        ..Default::default()
+    });
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    registries.begin_session_hashed_custom_blocks(&custom);
+    for (mode, id) in [
+        (assets::NetworkIdMode::Sequential, range.start),
+        (
+            assets::NetworkIdMode::Hashed,
+            custom.blocks[0].hashed_states()[0].hash,
+        ),
+    ] {
+        let (mining, tools) = registries.custom_block_mining(mode, id).unwrap();
+        assert_eq!(mining.seconds_to_destroy, 2.0);
+        assert_eq!(
+            tools,
+            assets::compiled::block_destroy::ToolKind::Pickaxe.bit()
+        );
+    }
+}
+
+#[test]
 fn native_collision_boxes_register_separate_primitives_in_both_identity_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -76,10 +111,10 @@ fn native_collision_boxes_register_separate_primitives_in_both_identity_spaces()
 #[test]
 fn default_component_boxes_follow_a_half_height_transformation_in_both_identity_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -147,10 +182,10 @@ fn half_height_collision_and_independent_selection_reach_world_queries() {
     use world::{BlockUpdate, ChunkStore, SubChunkKey};
 
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -219,10 +254,10 @@ fn half_height_collision_and_independent_selection_reach_world_queries() {
 #[test]
 fn selection_never_expands_disabled_or_partial_custom_collision() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -257,10 +292,10 @@ fn selection_never_expands_disabled_or_partial_custom_collision() {
 #[test]
 fn zero_volume_custom_collision_has_no_movement_primitives() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -283,10 +318,10 @@ fn zero_volume_custom_collision_has_no_movement_primitives() {
 #[test]
 fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -374,10 +409,10 @@ fn resolved_state_collision_and_selection_reach_both_identity_spaces() {
 #[test]
 fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -482,10 +517,10 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
 #[test]
 fn omitted_selection_remains_pickable_without_collision() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -545,7 +580,9 @@ fn face_facing() -> protocol::CustomBlocks {
     protocol::CustomBlocks {
         blocks: Arc::from([protocol::CustomBlock {
             name: Arc::from("test:face_facing"),
+            sound: None,
             tags: Arc::default(),
+            tags_complete: true,
             state_count: 6,
             collides: true,
             collision_boxes: Some([base].into()),
@@ -558,6 +595,7 @@ fn face_facing() -> protocol::CustomBlocks {
                 item_visual: None,
                 permutations: Box::default(),
                 components_incomplete: false,
+                mining_truncated: false,
                 state_axes: Box::new([CustomStateAxis {
                     name: Arc::from("minecraft:block_face"),
                     values: ["down", "up", "north", "south", "west", "east"]
@@ -567,8 +605,10 @@ fn face_facing() -> protocol::CustomBlocks {
                 state_identity_incomplete: false,
                 materialization_disabled: false,
             }),
+            mining: Default::default(),
             state_physics_complete: false,
             state_physics: physics.into(),
+            state_mining: Default::default(),
         }]),
         vanilla_blocks: Arc::default(),
         skipped: 0,
@@ -578,10 +618,10 @@ fn face_facing() -> protocol::CustomBlocks {
 #[test]
 fn face_attached_block_boxes_follow_the_authored_turn_in_both_id_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -630,10 +670,10 @@ fn face_attached_block_boxes_follow_the_authored_turn_in_both_id_spaces() {
 #[test]
 fn custom_friction_components_set_surface_friction_in_both_identity_spaces() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -689,10 +729,10 @@ fn a_declared_player_interact_handler_makes_the_block_used_not_built_against() {
         ("test:wall", plain.as_slice()),
     ]);
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();

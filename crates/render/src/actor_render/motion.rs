@@ -167,7 +167,8 @@ pub(crate) fn prepare(
         *state = None;
         return;
     };
-    if gpu.instance_count == 0
+    if !pipeline.motion_supported
+        || gpu.instance_count == 0
         || gpu.frame_generation != frame.rig.frame_generation
         || gpu.instances.len() != frame.rig.instances.len()
     {
@@ -261,8 +262,7 @@ pub(crate) fn prepare(
             state.ready &= gpu.artwork_current
                 && gpu
                     .artwork
-                    .pages
-                    .get(usize::from(span.page) - 1)
+                    .page(usize::from(span.page) - 1)
                     .is_some_and(|page| page.bind_group.is_some());
         }
         state.draws.push((*span, id));
@@ -355,8 +355,7 @@ pub(crate) fn draw(
             gpu.bind_group.as_ref()
         } else {
             gpu.artwork
-                .pages
-                .get(usize::from(span.page) - 1)
+                .page(usize::from(span.page) - 1)
                 .and_then(|page| page.bind_group.as_ref())
         };
         let Some(binding) = binding else {

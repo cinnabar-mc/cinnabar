@@ -104,7 +104,6 @@ fn render_captured_scene() {
             extract_nametag(
                 actor,
                 NametagView {
-                    viewer_position: eye,
                     camera_position: eye,
                     camera_forward: rotation * Vec3::NEG_Z,
                 },
@@ -118,7 +117,7 @@ fn render_captured_scene() {
     let first_glyph_page = font.pages().len();
     let scene = build_nametag_scene(
         &anchors,
-        1.0,
+        None,
         &font,
         &mut TextLayoutCache::new(64, 1 << 24),
         &mut NametagAtlas::default(),
@@ -393,7 +392,7 @@ pub(super) fn draw_actors(
             let tx = ((u * f32::from(width)) as usize).min(usize::from(width) - 1);
             let ty = ((v * f32::from(height)) as usize).min(usize::from(height) - 1);
             let at = ((layer * usize::from(height) + ty) * usize::from(width) + tx) * 4;
-            let texel = &page.pixels()[at..at + 4];
+            let texel = page.rgba8.range(at, 4);
             (texel[3] >= 26).then(|| [texel[0], texel[1], texel[2], 255])
         };
         let span = rig.geometry_spans[instance.geometry_id as usize];

@@ -1,4 +1,5 @@
 import bevy_render::view::View;
+import render::actor_rig::{BoneMatrix, transform_point, posed_point, posed_normal, placed_point, placed_normal};
 import render::glint::glint_layer_uvs;
 import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
@@ -9,12 +10,6 @@ struct GeometrySpan {
     vertex_count: u32,
 }
 
-struct BoneMatrix {
-    row_0: vec4<f32>,
-    row_1: vec4<f32>,
-    row_2: vec4<f32>,
-}
-
 // ActorGpuInstance is read as packed words; the loader substitutes its Rust layout stride.
 // A WGSL struct containing vec4 rows would pad the array differently.
 @group(0) @binding(0) var<uniform> view: View;
@@ -22,6 +17,7 @@ struct BoneMatrix {
 @group(0) @binding(2) var<storage, read> vertex_words: array<u32>;
 @group(0) @binding(3) var<storage, read> geometry_spans: array<GeometrySpan>;
 @group(0) @binding(4) var<storage, read> previous_bones: array<BoneMatrix>;
+@if(!COMPACT_BONES)
 @group(0) @binding(5) var<storage, read> current_bones: array<BoneMatrix>;
 @group(0) @binding(6) var skins: texture_2d_array<f32>;
 @group(0) @binding(7) var skin_sampler: sampler;
@@ -150,22 +146,8 @@ fn instance_row(base: u32, row: u32) -> vec4<f32> {
     );
 }
 
-fn transform_point(matrix: BoneMatrix, point: vec3<f32>) -> vec3<f32> {
-    let homogeneous = vec4(point, 1.0);
-    return vec3(
-        dot(matrix.row_0, homogeneous),
-        dot(matrix.row_1, homogeneous),
-        dot(matrix.row_2, homogeneous),
-    );
-}
-
-fn transform_direction(matrix: BoneMatrix, direction: vec3<f32>) -> vec3<f32> {
-    return vec3(
-        dot(matrix.row_0.xyz, direction),
-        dot(matrix.row_1.xyz, direction),
-        dot(matrix.row_2.xyz, direction),
-    );
-}
+@if(ACTOR_MASK)
+@group(2) @binding(0) var<uniform> mask_displacement: vec4<f32>;
 
 @vertex
 fn actor_vertex(
@@ -246,24 +228,21 @@ fn actor_vertex(
     out.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
     let bone_index = vertex_words[vertex_base + 10u];
     out.material_parameters.y = vertex_words[vertex_base + 11u];
-    let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
-    let current = transform_point(current_bones[current_bone_base + bone_index], local);
-    let posed = mix(previous, current, partial_tick);
-    let previous_normal = transform_direction(
-        previous_bones[previous_bone_base + bone_index],
-        local_normal,
+    let previous_bone = previous_bones[previous_bone_base + bone_index];
+    @if(!COMPACT_BONES)
+    let current_bone = current_bones[current_bone_base + bone_index];
+    @if(COMPACT_BONES)
+    let current_bone = previous_bones[ACTOR_COMPACT_CURRENT_BONE_BASE + current_bone_base + bone_index];
+    let posed = posed_point(previous_bone, current_bone, local, partial_tick);
+    let bone_normal = posed_normal(previous_bone, current_bone, local_normal, partial_tick);
+    let placement = BoneMatrix(
+        instance_row(instance_base, 0u),
+        instance_row(instance_base, 1u),
+        instance_row(instance_base, 2u),
     );
-    let current_normal = transform_direction(
-        current_bones[current_bone_base + bone_index],
-        local_normal,
-    );
-    let posed_normal = normalize(mix(previous_normal, current_normal, partial_tick));
-    let world = vec4(
-        dot(instance_row(instance_base, 0u), vec4(posed, 1.0)),
-        dot(instance_row(instance_base, 1u), vec4(posed, 1.0)),
-        dot(instance_row(instance_base, 2u), vec4(posed, 1.0)),
-        1.0,
-    );
+    var world = vec4(placed_point(placement, posed), 1.0);
+    @if(ACTOR_MASK)
+    { world = vec4(world.xyz + mask_displacement.xyz, 1.0); }
     out.position = view.clip_from_world * world;
     @if(ACTOR_MOTION)
     {
@@ -276,11 +255,7 @@ fn actor_vertex(
         }
     }
     out.world_position = world.xyz;
-    let world_normal = normalize(vec3(
-        dot(instance_row(instance_base, 0u).xyz, posed_normal),
-        dot(instance_row(instance_base, 1u).xyz, posed_normal),
-        dot(instance_row(instance_base, 2u).xyz, posed_normal),
-    ));
+    let world_normal = placed_normal(placement, bone_normal);
     @if(!ACTOR_MOTION)
     out.world_normal = world_normal;
     out.native_lighting = actor_lighting(out.light, world_normal, out.overlay.a) * light_color_multiplier;
@@ -330,9 +305,11 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
-    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
-    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
+    // An authored USE_COLOR_MASK only changes dye weighting; legacy leather coverage stays per-draw.
+    let authored_mask = authored && (input.material & ACTOR_MATERIAL_COLOR_MASK_FLAG) != 0u;
+    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u || authored_mask;
+    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
     if (input.skin_info.y == 0u) {
         discard;
@@ -353,6 +330,15 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // decode before dye/overlay products, then transfer once at the output.
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
+    let masked_multitexture = (input.material & ACTOR_MATERIAL_MASKED_MULTITEXTURE_FLAG) != 0u
+        && input.multitexture_layers.x != 0xffffffffu;
+    if (masked_multitexture) {
+        let clothes = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        // Colored transparent texels keep the underlying clothes; black transparent
+        // texels cut them away. Other texels replace both RGB and coverage.
+        let keep_base = (clothes.r + clothes.g + clothes.b) * (1.0 - clothes.a) > 0.0;
+        color = select(clothes, color, keep_base);
+    }
     @if(ALPHA_TO_COVERAGE)
     let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u, actor_fragment_chart_bounds(input.chart_bounds, front));
     @if(ALPHA_TO_COVERAGE)
@@ -368,8 +354,9 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(!ALPHA_TO_COVERAGE)
     if (material == ACTOR_MATERIAL_GLINT && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     if (legacy_mask && color.a == 0.0) { discard; }
-    let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
+    let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu)) && !masked_multitexture;
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
+        if (emissive && (input.material & ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG) != 0u && (color.a == 0.0 || color.a == 1.0)) { discard; }
         if (emissive && all(color == vec4(0.0))) { discard; }
         @if(!ALPHA_TO_COVERAGE)
         if (!emissive && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
@@ -443,9 +430,9 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
 }
 
 @if(MASK_DISSOLVE && !MASK_DISSOLVE_MSAA)
-@group(2) @binding(0) var mask_dissolve_depth: texture_depth_2d;
+@group(3) @binding(0) var mask_dissolve_depth: texture_depth_2d;
 @if(MASK_DISSOLVE_MSAA)
-@group(2) @binding(0) var mask_dissolve_depth: texture_depth_multisampled_2d;
+@group(3) @binding(0) var mask_dissolve_depth: texture_depth_multisampled_2d;
 
 @fragment
 fn actor_mask_fragment(input: VertexOutput, @builtin(front_facing) front: bool,

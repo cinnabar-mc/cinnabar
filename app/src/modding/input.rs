@@ -1,5 +1,9 @@
 //! Routes granted personal controls before the ordinary gameplay sample.
 
+mod field;
+mod physical;
+use field::PanelSample;
+
 use super::{MenuRuntime, ModRuntime};
 use bevy::{
     ecs::{message::MessageCursor, system::SystemParam},
@@ -11,20 +15,26 @@ use bevy::{
         },
     },
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorOptions, Ime, PrimaryWindow, WindowEvent},
 };
+use client_shell::physical_input::set_cursor_capture;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 #[cfg(test)]
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 
-/// Pointer messages and wheel accumulation routed while a personal panel owns input.
+/// Physical messages and shared services routed while a personal panel owns input.
 #[derive(SystemParam)]
-pub(super) struct PanelPointerInput<'w> {
+pub(super) struct PanelInput<'w> {
+    keyboard_events: Option<Res<'w, Messages<KeyboardInput>>>,
+    ime_events: Option<Res<'w, Messages<Ime>>>,
+    ordered_events: Option<Res<'w, Messages<WindowEvent>>>,
+    clipboard: Option<ResMut<'w, client_shell::menu::MenuClipboard>>,
     mouse_events: Option<Res<'w, Messages<MouseButtonInput>>>,
     scroll: Option<Res<'w, AccumulatedMouseScroll>>,
+    reserved: Option<ResMut<'w, super::ReservedControls>>,
 }
 
-const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
+pub(super) const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
     (MouseButton::Left, "MouseLeft"),
     (MouseButton::Right, "MouseRight"),
     (MouseButton::Middle, "MouseMiddle"),
@@ -35,113 +45,17 @@ const TEXT_INPUT: &str = "TextInput";
 pub(super) struct PhysicalControls {
     keys: MessageCursor<KeyboardInput>,
     mouse: MessageCursor<MouseButtonInput>,
+    ime: MessageCursor<Ime>,
+    ordered: MessageCursor<WindowEvent>,
+    ime_owned: bool,
     left_held: bool,
     held_keys: Vec<String>,
     /// Whether `held_keys` was seeded from physical input since the mod attached or refocused.
     held_seeded: bool,
     restore_capture: bool,
     panel_owned: bool,
-}
-
-impl PhysicalControls {
-    fn discard_pending(
-        &mut self,
-        keyboard: Option<&Messages<KeyboardInput>>,
-        mouse: Option<&Messages<MouseButtonInput>>,
-    ) {
-        if let Some(events) = keyboard {
-            self.keys.clear(events);
-        }
-        if let Some(events) = mouse {
-            self.mouse.clear(events);
-        }
-        self.left_held = false;
-        self.held_keys.clear();
-        self.held_seeded = false;
-    }
-
-    /// Adopts keys already down at attachment as held, without producing press edges.
-    fn seed_held<'a>(&mut self, pressed: impl Iterator<Item = &'a KeyCode>) {
-        if std::mem::replace(&mut self.held_seeded, true) {
-            return;
-        }
-        for key in pressed.filter(|key| !matches!(key, KeyCode::Unidentified(_))) {
-            self.track_held(format!("{key:?}"), true);
-        }
-    }
-
-    /// Tracks held keys from events, since reserved keys are reset out of the shared input state.
-    fn track_held(&mut self, key: String, pressed: bool) {
-        let index = self.held_keys.iter().position(|held| *held == key);
-        match (pressed, index) {
-            (true, None) if self.held_keys.len() < mod_api::MAX_CONTROL_KEYS => {
-                self.held_keys.push(key);
-            }
-            (false, Some(index)) => {
-                self.held_keys.swap_remove(index);
-            }
-            _ => {}
-        }
-    }
-
-    /// Observes same-window pointer edges without consuming ordinary gameplay buttons.
-    fn pointer_edges(
-        &mut self,
-        events: Option<&Messages<MouseButtonInput>>,
-        buttons: Option<&ButtonInput<MouseButton>>,
-        window: Entity,
-        focused: bool,
-    ) -> Vec<String> {
-        let mut pressed = Vec::new();
-        let mut down =
-            POINTER_BUTTONS.map(|(_, name)| self.held_keys.iter().any(|key| key == name));
-        if let Some(events) = events {
-            for event in self.mouse.read(events) {
-                if event.window != window {
-                    continue;
-                }
-                let Some(index) = POINTER_BUTTONS
-                    .iter()
-                    .position(|(button, _)| *button == event.button)
-                else {
-                    continue;
-                };
-                let next = event.state == ButtonState::Pressed;
-                if next && !down[index] && focused && pressed.len() < mod_api::MAX_CONTROL_KEYS {
-                    pressed.push(POINTER_BUTTONS[index].1.to_owned());
-                }
-                down[index] = next;
-            }
-        } else {
-            for (index, (button, name)) in POINTER_BUTTONS.iter().enumerate() {
-                down[index] = buttons.is_some_and(|buttons| buttons.pressed(*button));
-                if focused && buttons.is_some_and(|buttons| buttons.just_pressed(*button)) {
-                    pressed.push((*name).to_owned());
-                }
-            }
-        }
-        self.left_held = down[0];
-        for (index, (_, name)) in POINTER_BUTTONS.iter().enumerate() {
-            self.track_held((*name).into(), down[index]);
-        }
-        pressed
-    }
-
-    /// Remembers input ownership independently of guest reload or quarantine.
-    fn finish_panel(&mut self, open: bool, focused: bool, absorbed: bool, captured: bool) -> bool {
-        if !focused || absorbed {
-            self.restore_capture = false;
-        }
-        if open && !self.panel_owned {
-            self.restore_capture = captured;
-        }
-        let restore = !open && self.panel_owned && self.restore_capture && focused && !absorbed;
-        self.panel_owned = open;
-        if !open {
-            self.restore_capture = false;
-        }
-        restore
-    }
+    /// A packet panel accepted this primary gesture; interruption requires a fresh press.
+    panel_pointer_active: bool,
 }
 
 /// Applies native editor shortcuts without forwarding command letters or touching unfocused fields.
@@ -186,13 +100,13 @@ fn native_editor_shortcut(
 )]
 pub(super) fn prepare_mod_input(
     extension: Option<ResMut<ModRuntime>>,
+    mut packets: Option<ResMut<super::packets::PacketMods>>,
     mut physical: Local<PhysicalControls>,
-    keyboard_events: Option<Res<Messages<KeyboardInput>>>,
-    pointer_input: PanelPointerInput,
+    input: PanelInput,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: Option<ResMut<ButtonInput<MouseButton>>>,
     mut motion: Option<ResMut<AccumulatedMouseMotion>>,
-    mut windows: Query<(Entity, &Window, &mut CursorOptions), With<PrimaryWindow>>,
+    mut windows: Query<(Entity, &mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     ui: Res<UiRuntimeResource>,
     player: Res<client_state::PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
@@ -200,48 +114,63 @@ pub(super) fn prepare_mod_input(
     time: Option<Res<Time>>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
-    mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
 ) {
-    let PanelPointerInput {
+    let PanelInput {
+        keyboard_events,
+        ime_events,
+        ordered_events,
+        mut clipboard,
         mouse_events,
         scroll,
-    } = pointer_input;
-    let extension = extension.filter(|runtime| !runtime.suspended);
-    if extension.is_none() {
+        mut reserved,
+    } = input;
+    if let Some(reserved) = reserved.as_mut() {
+        reserved.0.clear();
+    }
+    let mut extension = extension.filter(|runtime| !runtime.suspended);
+    if let Some(extension) = extension.as_deref_mut()
+        && let Some(order) = extension.hosts.reconcile_panel_requests()
+        && packets
+            .as_ref()
+            .and_then(|packets| packets.panel_open_order())
+            .is_none_or(|packet| order > packet)
+    {
+        super::drive::present_frame_panel(extension, &mut presentation);
+    }
+    let viewport = windows
+        .single()
+        .ok()
+        .map(|(_, window, _)| presentation.mod_panel_viewport([window.width(), window.height()]))
+        .filter(|size| size.iter().all(|extent| *extent > 0.0));
+    if let Some(packets) = packets.as_mut() {
+        super::packet_panel::poll(
+            packets,
+            &mut presentation,
+            viewport,
+            extension.as_deref_mut(),
+        );
+    }
+    let reactor_surface_available = packets
+        .as_ref()
+        .is_some_and(|packets| packets.panel_handle().is_some());
+    let reactor_surface_focused = packets.as_ref().is_some_and(|packets| packets.panel.owned);
+    if extension.is_none() && !reactor_surface_focused && !reactor_surface_available {
         physical.discard_pending(keyboard_events.as_deref(), mouse_events.as_deref());
-        if !physical.panel_owned {
+        if let Some(events) = &ime_events {
+            physical.ime.clear(events);
+        }
+        if let Some(events) = &ordered_events {
+            physical.ordered.clear(events);
+        }
+        if !physical.panel_owned && !physical.ime_owned {
             return;
         }
     }
-    let Ok((entity, window, mut cursor)) = windows.single_mut() else {
+    let Ok((entity, mut window, mut cursor)) = windows.single_mut() else {
         return;
     };
     let focused = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    let Some(mut extension) = extension else {
-        let absorbed = menu.as_deref().map_or_else(
-            || ui.ui_focused(&player),
-            |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
-        );
-        let restore = physical.finish_panel(
-            false,
-            focused,
-            absorbed,
-            crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
-        );
-        if let Some(mouse) = mouse.as_mut() {
-            mouse.clear();
-        }
-        keys.reset(KeyCode::Escape);
-        if restore {
-            cursor.grab_mode = CursorGrabMode::Locked;
-            cursor.visible = false;
-            if let Some(motion) = motion.as_mut() {
-                motion.delta = Vec2::ZERO;
-            }
-        }
-        return;
-    };
     if focused {
         let seed_pointer = !physical.held_seeded;
         physical.seed_held(keys.get_pressed());
@@ -255,129 +184,350 @@ pub(super) fn prepare_mod_input(
         }
     }
     let mut panel_keys = Vec::new();
-    if let Some(events) = keyboard_events {
-        let samples: Vec<_> = physical.keys.read(&events).cloned().collect();
-        for event in samples {
-            if event.window != entity {
-                continue;
+    for sample in field::samples(
+        &mut physical,
+        ordered_events.as_deref(),
+        keyboard_events.as_deref(),
+        ime_events.as_deref(),
+        entity,
+    ) {
+        let field::RawSample::Key(event) = sample else {
+            if let field::RawSample::Ime(event) = sample {
+                panel_keys.push(PanelSample::Ime(event));
             }
-            let identified = !matches!(event.key_code, KeyCode::Unidentified(_));
-            let name = if identified {
-                format!("{:?}", event.key_code)
-            } else {
-                TEXT_INPUT.into()
-            };
-            let down = event.state == ButtonState::Pressed;
-            if identified {
-                physical.track_held(name.clone(), down);
-            }
-            if down
-                && !event.repeat
-                && (0..extension.hosts.host_count()).any(|index| {
-                    extension
-                        .hosts
-                        .host(index)
-                        .panel()
-                        .is_some_and(|panel| panel.is_toggle_key(&name))
-                })
-            {
-                debug!(key = %name, focused, "personal panel hotkey received");
-            }
-            if down && focused {
-                panel_keys.push((
-                    name,
-                    event
-                        .text
-                        .as_deref()
-                        .or_else(|| match &event.logical_key {
-                            bevy::input::keyboard::Key::Character(text) => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .map(str::to_owned),
-                    event.repeat,
-                    physical.held_keys.iter().any(|key| {
-                        matches!(
-                            key.as_str(),
-                            "ControlLeft" | "ControlRight" | "SuperLeft" | "SuperRight"
-                        )
-                    }),
-                ));
-            }
+            continue;
+        };
+        let identified = !matches!(event.key_code, KeyCode::Unidentified(_));
+        if !identified {
+            continue;
+        }
+        let name = format!("{:?}", event.key_code);
+        let down = event.state == ButtonState::Pressed;
+        physical.track_held(name.clone(), down);
+        if down && focused {
+            panel_keys.push(PanelSample::Key((
+                name,
+                event
+                    .text
+                    .as_deref()
+                    .or_else(|| match &event.logical_key {
+                        bevy::input::keyboard::Key::Character(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .map(str::to_owned),
+                event.repeat,
+                field::modifiers(&physical.held_keys),
+            )));
         }
     }
     let pointer_pressed =
         physical.pointer_edges(mouse_events.as_deref(), mouse.as_deref(), entity, focused);
+    if !focused {
+        physical.left_held = false;
+        physical.held_keys.clear();
+        physical.held_seeded = false;
+    }
+    let primary_pressed = pointer_pressed.iter().any(|key| key == "MouseLeft");
+    panel_keys.extend(
+        pointer_pressed
+            .iter()
+            .cloned()
+            .map(|key| PanelSample::Key((key, None, false, Default::default()))),
+    );
+    let raw_key_presses: Vec<_> = panel_keys
+        .iter()
+        .filter_map(PanelSample::key)
+        .filter(|(key, _, repeat, _)| !repeat && key != TEXT_INPUT)
+        .take(mod_api::MAX_CONTROL_KEYS)
+        .map(|(key, text, _, _)| mod_api::panel_input::Key {
+            key: key.clone(),
+            text: text
+                .as_ref()
+                .filter(|text| text.len() <= 256 && !text.chars().any(char::is_control))
+                .cloned(),
+        })
+        .collect();
     let absorbed = menu.as_deref().map_or_else(
         || ui.ui_focused(&player),
         |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
     );
-    super::hud_editor::guard(
-        &mut extension,
-        &mut presentation,
-        Some(ui.session_id()),
-        focused,
-        absorbed,
-    );
-    let was_open = physical.panel_owned;
-    if focused && !absorbed {
-        let toggles: Vec<_> = panel_keys
+    if reactor_surface_available
+        && focused
+        && !absorbed
+        && let Some(packets) = packets.as_mut()
+        && !reactor_surface_focused
+        && !presentation.mod_ui().mod_panel_open()
+    {
+        packets.panel.pending.keys = panel_keys
             .iter()
-            .filter(|(key, _, repeat, _)| key != TEXT_INPUT && !repeat)
-            .map(|(key, _, _, _)| key.clone())
+            .filter_map(PanelSample::key)
+            .filter(|(_, _, repeat, _)| !repeat)
+            .take(mod_api::MAX_CONTROL_KEYS)
+            .map(|(key, text, _, _)| mod_api::panel_input::Key {
+                key: key.clone(),
+                text: text
+                    .as_ref()
+                    .filter(|text| text.len() <= 256 && !text.chars().any(char::is_control))
+                    .cloned(),
+            })
             .collect();
-        if extension.hosts.select_panel(&toggles) {
-            presentation.mod_ui_mut().cancel_mod_panel_edit();
-            let owner = extension.hosts.panel_owner();
-            let _ = presentation.set_mod_panel_font(extension.metadata[owner].font.clone());
-            if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
-                extension.panel_ui_owner(owner),
-                extension.hosts.host(owner).panel(),
-            ) {
-                warn!("Cinnabar extension panel rejected: {error}");
-            }
-            presentation.mod_ui_mut().set_mod_panel_open(false);
+        packets.panel.pending.held = physical.held_sample();
+        packets.panel.pending.focused = focused;
+    }
+    if !reactor_surface_focused {
+        let (_, cancelled) = physical.focused_pointer_sample(
+            false,
+            focused,
+            absorbed,
+            window.cursor_position().is_some(),
+            primary_pressed,
+        );
+        if let Some(packets) = packets.as_mut() {
+            packets.panel.pending.pointer_held = false;
+            packets.panel.pending.pointer_cancelled |= cancelled;
+            packets.panel.pending.shift_held = physical
+                .shift_held(focused && !absorbed && !presentation.mod_ui().mod_panel_open());
         }
     }
+    if extension.is_none()
+        && !reactor_surface_focused
+        && !physical.panel_owned
+        && !physical.ime_owned
+    {
+        return;
+    }
+    if reactor_surface_focused {
+        let mut packets = packets.expect("packet-owned panel requires its packet session");
+        let was_open = physical.panel_owned;
+        let mut open = presentation.mod_ui().mod_panel_open();
+        let editing = open && presentation.mod_ui().mod_panel_editing();
+        let capture = presentation.mod_ui().mod_panel_capture_key();
+        let mut events = Vec::new();
+        let raw_keys = if focused && !absorbed {
+            raw_key_presses
+        } else {
+            Vec::new()
+        };
+        if !focused {
+            presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
+        }
+        if absorbed {
+            presentation.mod_ui_mut().cancel_mod_panel_edit();
+            open = false;
+        }
+        for sample in panel_keys {
+            let Some((key, text, _, modifiers)) =
+                field::route_sample(sample, presentation.mod_ui_mut(), focused && !absorbed)
+            else {
+                continue;
+            };
+            if !open || !focused || absorbed {
+                continue;
+            }
+            if editing {
+                if (modifiers.control || modifiers.super_key)
+                    && native_editor_shortcut(
+                        presentation.mod_ui_mut(),
+                        clipboard.as_deref_mut(),
+                        &key,
+                    )
+                {
+                    continue;
+                }
+                let text = if (modifiers.control || modifiers.super_key) && key != TEXT_INPUT {
+                    Some("")
+                } else {
+                    text.as_deref()
+                };
+                events.extend(
+                    presentation
+                        .mod_ui_mut()
+                        .mod_panel_field_key(&key, text, modifiers),
+                );
+            } else if key == "Escape" && !capture {
+                open = false;
+            }
+        }
+        field::sync_ime(
+            &mut physical,
+            &mut window,
+            presentation.mod_ui_mut(),
+            focused && !absorbed,
+        );
+        presentation.mod_ui_mut().set_mod_panel_open(open);
+        if open && focused {
+            if let Some(position) = window.cursor_position() {
+                events.extend(presentation.mod_ui_mut().mod_panel_events(
+                    position.to_array(),
+                    primary_pressed,
+                    physical.left_held,
+                ));
+                if let Some(scroll) = scroll.as_ref() {
+                    presentation.mod_ui_mut().scroll_mod_panel(
+                        position.to_array(),
+                        f64::from(scroll.delta.y),
+                        scroll.unit == MouseScrollUnit::Pixel,
+                    );
+                }
+            } else {
+                presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
+            }
+        }
+        open = presentation.mod_ui().mod_panel_open();
+        let (pointer_held, pointer_cancelled) = physical.focused_pointer_sample(
+            open,
+            focused,
+            absorbed,
+            window.cursor_position().is_some(),
+            primary_pressed,
+        );
+        if !open {
+            if let Some(handle) = packets.panel_handle() {
+                handle.close();
+            }
+            packets.panel.owned = false;
+        }
+        packets.panel.pending = mod_api::panel_input::Input {
+            open,
+            focused: focused && !absorbed,
+            pointer_held,
+            pointer_cancelled,
+            shift_held: physical.shift_held(focused),
+            viewport,
+            fields: packets
+                .panel
+                .owner
+                .map(|owner| presentation.mod_ui_mut().take_mod_panel_field_events(owner))
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|event| serde_json::to_value(event).ok())
+                .take(ui::mod_panel::MAX_PANEL_EVENTS)
+                .collect(),
+            held: if focused && !absorbed {
+                physical.held_sample()
+            } else {
+                Vec::new()
+            },
+            pointer: window
+                .cursor_position()
+                .filter(|_| open && focused && !absorbed)
+                .and_then(|position| {
+                    presentation.hud_gui_point(
+                        position.to_array(),
+                        [window.physical_width(), window.physical_height()],
+                        window.scale_factor(),
+                    )
+                }),
+            wheel: scroll
+                .as_deref()
+                .filter(|_| open && focused && !absorbed)
+                .map_or(0.0, wheel_notches),
+            events: events
+                .into_iter()
+                .take(ui::mod_panel::MAX_PANEL_EVENTS)
+                .map(|event| mod_api::panel_input::Event {
+                    id: event.id,
+                    value: event.value,
+                })
+                .collect(),
+            keys: raw_keys
+                .into_iter()
+                .take(mod_api::MAX_CONTROL_KEYS)
+                .collect(),
+        };
+        if let Some(extension) = extension.as_mut() {
+            extension.controls = mod_host::empty_controls();
+            extension.controls.panel_open = open;
+        }
+        if was_open
+            && !open
+            && focused
+            && !absorbed
+            && let Some(focus) = focus.as_deref_mut()
+        {
+            focus.authorize_screen_return();
+        }
+        let restore = physical.finish_panel(
+            open,
+            focused,
+            absorbed,
+            crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
+        );
+        finish_capture(
+            open,
+            was_open,
+            restore,
+            &mut keys,
+            mouse.as_deref_mut(),
+            motion.as_deref_mut(),
+            &mut cursor,
+        );
+        return;
+    }
+    let Some(mut extension) = extension else {
+        field::sync_ime(&mut physical, &mut window, presentation.mod_ui_mut(), false);
+        let absorbed = menu.as_deref().map_or_else(
+            || ui.ui_focused(&player),
+            |menu| presentation.base_absorbs_gameplay_input(&player, &ui, menu),
+        );
+        let restore = physical.finish_panel(
+            false,
+            focused,
+            absorbed,
+            crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
+        );
+        if let Some(mouse) = mouse.as_mut() {
+            mouse.clear();
+        }
+        keys.reset(KeyCode::Escape);
+        if restore {
+            set_cursor_capture(&mut cursor, true);
+            if let Some(motion) = motion.as_mut() {
+                motion.delta = Vec2::ZERO;
+            }
+        }
+        return;
+    };
+    let was_open = physical.panel_owned;
     let owner = extension.hosts.panel_owner();
     let mut open =
         extension.hosts.host(owner).panel_open() && presentation.mod_ui().mod_panel_open();
-    let had_panel = open;
     let editing = open && presentation.mod_ui().mod_panel_editing();
-    let interrupt = editing
-        && panel_keys.iter().any(|(key, _, repeat, _)| {
-            key != TEXT_INPUT
-                && !repeat
-                && (key == ui::mod_panel::FALLBACK_TOGGLE_KEY
-                    || presentation.mod_ui().mod_panel_toggle_key() == Some(key.as_str()))
-        });
     if !focused {
         presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
     }
-    if absorbed || interrupt {
+    if absorbed {
         presentation.mod_ui_mut().cancel_mod_panel_edit();
     }
     let mut pressed = pointer_pressed;
     let mut events = Vec::new();
-    for (key, text, repeat, shortcut) in panel_keys {
-        if open && focused && !absorbed && editing && !interrupt {
-            if shortcut
+    for sample in panel_keys {
+        let Some((key, text, repeat, modifiers)) =
+            field::route_sample(sample, presentation.mod_ui_mut(), focused && !absorbed)
+        else {
+            continue;
+        };
+        if POINTER_BUTTONS.iter().any(|(_, name)| *name == key) {
+            continue;
+        }
+        if open && focused && !absorbed && editing {
+            if (modifiers.control || modifiers.super_key)
                 && native_editor_shortcut(presentation.mod_ui_mut(), clipboard.as_deref_mut(), &key)
             {
                 continue;
             }
             // An empty text value also suppresses the editor's physical digit fallback.
-            let text = if shortcut && key != TEXT_INPUT {
+            let text = if (modifiers.control || modifiers.super_key) && key != TEXT_INPUT {
                 Some("")
             } else {
                 text.as_deref()
             };
-            events.extend(presentation.mod_ui_mut().mod_panel_key(&key, text));
-        } else if key != TEXT_INPUT
-            && !repeat
-            && (!editing
-                || key == ui::mod_panel::FALLBACK_TOGGLE_KEY
-                || presentation.mod_ui().mod_panel_toggle_key() == Some(key.as_str()))
-        {
+            events.extend(
+                presentation
+                    .mod_ui_mut()
+                    .mod_panel_field_key(&key, text, modifiers),
+            );
+        } else if key != TEXT_INPUT && !repeat {
             pressed.push(key);
         }
     }
@@ -390,18 +540,8 @@ pub(super) fn prepare_mod_input(
             .host(owner)
             .panel()
             .is_some_and(|panel| panel.capture_key);
-    let toggle_requested = extension
-        .hosts
-        .host(owner)
-        .panel()
-        .is_some_and(|panel| pressed.iter().any(|key| panel.is_toggle_key(key)));
     if !extension.hosts.host(owner).is_active() || (focused && (absorbed || close_requested)) {
         open = false;
-    } else if toggle_requested {
-        open = !open;
-    }
-    if toggle_requested {
-        debug!(focused, absorbed, open, "personal panel hotkey resolved");
     }
     extension.hosts.host_mut(owner).set_panel_open(open);
     presentation.mod_ui_mut().set_mod_panel_open(open);
@@ -428,15 +568,13 @@ pub(super) fn prepare_mod_input(
             presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
         }
     }
-    super::hud_editor::collect(&mut extension, &mut presentation);
-    if extension.hosts.hud_owner() == Some(owner) {
-        events.extend(
-            presentation
-                .take_chat_extension_actions()
-                .into_iter()
-                .map(|id| ui::mod_panel::Event { id, value: 1. }),
-        );
-    }
+    // Chat clicks go to the chat-action owner, which need not own the panel.
+    extension.chat_events = presentation
+        .take_chat_extension_actions()
+        .into_iter()
+        .take(ui::mod_panel::MAX_PANEL_EVENTS)
+        .map(|id| mod_host::ControlEvent { id, value: 1. })
+        .collect();
     let events = events
         .into_iter()
         .take(ui::mod_panel::MAX_PANEL_EVENTS)
@@ -451,9 +589,7 @@ pub(super) fn prepare_mod_input(
         && focused
         && !absorbed
         && extension.hosts.host(owner).is_active()
-        && ((had_panel && (close_requested || toggle_requested))
-            || pointer_closed
-            || editor_closed_panel)
+        && (close_requested || pointer_closed || editor_closed_panel)
         && let Some(focus) = focus.as_deref_mut()
     {
         focus.authorize_screen_return();
@@ -463,8 +599,11 @@ pub(super) fn prepare_mod_input(
         open,
         focused,
         absorbed,
-        crate::camera::mouse_input_active(window, &cursor, focus.as_deref(), driven.is_some()),
+        crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
     );
+    // The editor state in which this frame's keys were routed, before Escape or a commit
+    // could end the edit.
+    extension.native_editing = (editing && focused && !absorbed).then_some(owner);
     extension.controls = mod_host::ControlFrame {
         seconds: time
             .as_ref()
@@ -473,21 +612,44 @@ pub(super) fn prepare_mod_input(
         gameplay: false,
         panel_open: open,
         keys_pressed: if focused {
-            pressed
+            raw_key_presses
                 .into_iter()
-                .filter(|key| !absorbed || key == ui::mod_panel::FALLBACK_TOGGLE_KEY)
+                .map(|key| key.key)
+                .filter(|_| !absorbed)
                 .take(mod_api::MAX_CONTROL_KEYS)
                 .collect()
         } else {
             Vec::new()
         },
-        keys_held: if focused && !absorbed && !editing {
-            physical.held_keys.clone()
+        keys_held: if focused && !absorbed {
+            physical.held_sample()
         } else {
             Vec::new()
         },
+        keys_admitted: Vec::new(),
         events,
+        pointer: window
+            .cursor_position()
+            .filter(|_| open && focused && !absorbed)
+            .and_then(|position| {
+                presentation.hud_gui_point(
+                    position.to_array(),
+                    [window.physical_width(), window.physical_height()],
+                    window.scale_factor(),
+                )
+            })
+            .map(|[x, y]| (x, y)),
+        wheel: scroll
+            .as_deref()
+            .filter(|_| open && focused && !absorbed)
+            .map_or(0.0, wheel_notches),
     };
+    field::sync_ime(
+        &mut physical,
+        &mut window,
+        presentation.mod_ui_mut(),
+        focused && !absorbed,
+    );
     let text_events = presentation
         .mod_ui_mut()
         .take_mod_panel_text_events(extension.panel_ui_owner(owner));
@@ -501,11 +663,58 @@ pub(super) fn prepare_mod_input(
     {
         warn!(%error,"native mod text edit rejected");
     }
-    if !focused {
-        physical.left_held = false;
-        physical.held_keys.clear();
-        physical.held_seeded = false;
+    let field_events = presentation
+        .mod_ui_mut()
+        .take_mod_panel_field_events(extension.panel_ui_owner(owner));
+    if focused
+        && !absorbed
+        && !field_events.is_empty()
+        && let Err(error) = extension
+            .hosts
+            .host_mut(owner)
+            .queue_field_events(field_events)
+    {
+        warn!(%error, "native mod field input rejected");
     }
+    finish_capture(
+        open,
+        was_open,
+        restore,
+        &mut keys,
+        mouse.as_deref_mut(),
+        motion.as_deref_mut(),
+        &mut cursor,
+    );
+    if !open {
+        let subscriptions = extension.hosts.reserved_keys();
+        consume_reserved(
+            &mut keys,
+            mouse.as_deref_mut(),
+            &subscriptions,
+            reserved.as_deref_mut(),
+        );
+    }
+}
+
+/// Applies shared pointer capture and input consumption for every native personal panel.
+/// One frame's wheel turn in notches, positive away from the player; a pixel-precise wheel
+/// reports its pixels / 16.
+fn wheel_notches(scroll: &AccumulatedMouseScroll) -> f32 {
+    match scroll.unit {
+        MouseScrollUnit::Line => scroll.delta.y,
+        MouseScrollUnit::Pixel => scroll.delta.y / 16.0,
+    }
+}
+
+fn finish_capture(
+    open: bool,
+    was_open: bool,
+    restore: bool,
+    keys: &mut ButtonInput<KeyCode>,
+    mut mouse: Option<&mut ButtonInput<MouseButton>>,
+    mut motion: Option<&mut AccumulatedMouseMotion>,
+    cursor: &mut Mut<CursorOptions>,
+) {
     if (open || was_open)
         && let Some(mouse) = mouse.as_mut()
     {
@@ -515,50 +724,50 @@ pub(super) fn prepare_mod_input(
         keys.reset(KeyCode::Escape);
     }
     if open {
-        client_shell::physical_input::release_cursor(&mut cursor);
+        client_shell::physical_input::release_cursor(cursor);
         keys.clear();
         if let Some(motion) = motion.as_mut() {
             motion.delta = Vec2::ZERO;
         }
-    } else {
-        if restore {
-            cursor.grab_mode = CursorGrabMode::Locked;
-            cursor.visible = false;
-            if let Some(motion) = motion.as_mut() {
-                motion.delta = Vec2::ZERO;
-            }
-            // A close edge belongs to the panel, not the underlying pause menu.
-            keys.reset(KeyCode::Escape);
+    } else if restore {
+        set_cursor_capture(cursor, true);
+        if let Some(motion) = motion.as_mut() {
+            motion.delta = Vec2::ZERO;
         }
-        let mut reserved = extension.hosts.reserved_keys();
-        for index in 0..extension.hosts.host_count() {
-            if let Some(panel) = extension.hosts.host(index).panel() {
-                reserved.push(panel.toggle_key.clone());
-                reserved.push(ui::mod_panel::FALLBACK_TOGGLE_KEY.into());
-            }
-        }
-        let toggle = extension
-            .hosts
-            .host(owner)
-            .panel()
-            .map(|panel| panel.toggle_key.as_str());
-        consume_reserved(&mut keys, &reserved, toggle);
+        keys.reset(KeyCode::Escape);
     }
 }
 
-fn consume_reserved(keys: &mut ButtonInput<KeyCode>, reserved: &[String], toggle: Option<&str>) {
-    let consumed: Vec<_> = keys
+/// Removes reserved held state and edges from both gameplay input paths.
+fn consume_reserved(
+    keys: &mut ButtonInput<KeyCode>,
+    mouse: Option<&mut ButtonInput<MouseButton>>,
+    reserved: &[String],
+    mut consumed: Option<&mut super::ReservedControls>,
+) {
+    let is_reserved = |name: &str| reserved.iter().any(|key| key == name);
+    let consumed_keys: Vec<_> = keys
         .get_pressed()
         .chain(keys.get_just_pressed())
         .chain(keys.get_just_released())
         .copied()
         .filter(|key| {
             let name = format!("{key:?}");
-            reserved.contains(&name) || toggle == Some(name.as_str())
+            is_reserved(&name)
         })
         .collect();
-    for key in consumed {
+    for key in consumed_keys {
         keys.reset(key);
+    }
+    if let Some(mouse) = mouse {
+        for (button, name) in POINTER_BUTTONS {
+            if is_reserved(name) {
+                mouse.reset(button);
+            }
+        }
+    }
+    if let Some(consumed) = consumed.as_mut() {
+        consumed.0.extend_from_slice(reserved);
     }
 }
 
@@ -566,197 +775,4 @@ fn consume_reserved(keys: &mut ButtonInput<KeyCode>, reserved: &[String], toggle
 mod focus_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reserved_fast_tap_never_reaches_gameplay_edges() {
-        let mut keys = ButtonInput::default();
-        keys.press(KeyCode::KeyW);
-        keys.release(KeyCode::KeyW);
-        keys.press(KeyCode::KeyA);
-        consume_reserved(&mut keys, &["KeyW".into()], Some("ShiftRight"));
-        assert!(!keys.just_pressed(KeyCode::KeyW));
-        assert!(!keys.just_released(KeyCode::KeyW));
-        assert!(keys.pressed(KeyCode::KeyA));
-        assert!(keys.just_pressed(KeyCode::KeyA));
-    }
-
-    #[test]
-    fn keys_already_held_when_a_mod_attaches_are_reported_held_without_a_press_edge() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("empty.wat");
-        std::fs::write(
-            &path,
-            r#"(component
-            (core module $m (func (export "init")) (func (export "frame")))
-            (core instance $i (instantiate $m))
-            (func (export "init") (canon lift (core func $i "init")))
-            (func (export "frame") (canon lift (core func $i "frame"))))"#,
-        )
-        .unwrap();
-        let mut scratch = App::new();
-        super::super::configure_set(&mut scratch, vec![(path, mod_host::ModGrants::default())]);
-        let runtime = scratch
-            .world_mut()
-            .remove_resource::<super::super::ModRuntime>()
-            .unwrap();
-        let mut app = App::new();
-        let mut keys = ButtonInput::<KeyCode>::default();
-        keys.press(KeyCode::ShiftLeft);
-        keys.clear_just_pressed(KeyCode::ShiftLeft);
-        app.insert_resource(runtime)
-            .insert_resource(keys)
-            .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
-            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
-                1,
-            )))
-            .insert_resource(UiPresentationResource(
-                UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
-            ))
-            .add_systems(Update, prepare_mod_input);
-        app.world_mut().spawn((
-            Window {
-                focused: true,
-                ..Default::default()
-            },
-            CursorOptions::default(),
-            PrimaryWindow,
-        ));
-        app.update();
-        let controls = &app.world().resource::<super::super::ModRuntime>().controls;
-        assert_eq!(controls.keys_held, ["ShiftLeft"]);
-        assert!(controls.keys_pressed.is_empty());
-    }
-
-    #[test]
-    fn held_keys_follow_press_and_release_and_stay_bounded() {
-        let mut physical = PhysicalControls::default();
-        physical.track_held("Digit1".into(), true);
-        physical.track_held("Digit1".into(), true);
-        physical.track_held("ShiftLeft".into(), true);
-        assert_eq!(physical.held_keys, ["Digit1", "ShiftLeft"]);
-        physical.track_held("Digit1".into(), false);
-        assert_eq!(physical.held_keys, ["ShiftLeft"]);
-        for index in 0..mod_api::MAX_CONTROL_KEYS * 2 {
-            physical.track_held(format!("Key{index}"), true);
-        }
-        assert_eq!(physical.held_keys.len(), mod_api::MAX_CONTROL_KEYS);
-        physical.discard_pending(None, None);
-        assert!(physical.held_keys.is_empty());
-    }
-
-    #[test]
-    fn guest_removal_or_quarantine_restores_previous_capture_once() {
-        let mut physical = PhysicalControls::default();
-        assert!(!physical.finish_panel(true, true, false, true));
-        assert!(physical.finish_panel(false, true, false, false));
-        assert!(!physical.finish_panel(false, true, false, false));
-    }
-
-    #[test]
-    fn focus_or_other_ui_cancels_recapture_and_uncaptured_open_stays_free() {
-        for (focused, absorbed) in [(false, false), (true, true)] {
-            let mut physical = PhysicalControls::default();
-            physical.finish_panel(true, true, false, true);
-            assert!(!physical.finish_panel(false, focused, absorbed, false));
-            assert!(!physical.finish_panel(false, true, false, false));
-        }
-        let mut physical = PhysicalControls::default();
-        physical.finish_panel(true, true, false, false);
-        assert!(!physical.finish_panel(false, true, false, false));
-    }
-
-    #[test]
-    fn pointer_observations_count_edges_preserve_holds_and_ignore_other_windows() {
-        let mut physical = PhysicalControls::default();
-        let mut events = Messages::default();
-        let mut world = World::new();
-        let window = world.spawn_empty().id();
-        let other = world.spawn_empty().id();
-        let event = |window, button, state| MouseButtonInput {
-            window,
-            button,
-            state,
-        };
-        events.write(event(other, MouseButton::Right, ButtonState::Pressed));
-        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
-        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
-        assert_eq!(
-            physical.pointer_edges(Some(&events), None, window, true),
-            ["MouseLeft"]
-        );
-        assert!(physical.left_held && physical.held_keys.contains(&"MouseLeft".into()));
-        assert!(
-            physical
-                .pointer_edges(Some(&events), None, window, true)
-                .is_empty()
-        );
-        events.write(event(window, MouseButton::Left, ButtonState::Released));
-        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
-        events.write(event(window, MouseButton::Right, ButtonState::Pressed));
-        assert_eq!(
-            physical.pointer_edges(Some(&events), None, window, true),
-            ["MouseLeft", "MouseRight"]
-        );
-        physical.discard_pending(None, Some(&events));
-        assert!(physical.held_keys.is_empty() && !physical.left_held);
-        events.write(event(window, MouseButton::Left, ButtonState::Pressed));
-        assert!(
-            physical
-                .pointer_edges(Some(&events), None, window, false)
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn dormant_input_discards_old_edges_and_observes_only_next_attachment_edges() {
-        use bevy::input::keyboard::Key;
-        let mut keyboard = Messages::default();
-        let key = |key_code, logical_key| KeyboardInput {
-            key_code,
-            logical_key,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
-            window: Entity::PLACEHOLDER,
-        };
-        keyboard.write(key(KeyCode::F8, Key::F8));
-        let mut mouse = Messages::default();
-        mouse.write(MouseButtonInput {
-            button: MouseButton::Left,
-            state: ButtonState::Pressed,
-            window: Entity::PLACEHOLDER,
-        });
-        let mut physical = PhysicalControls {
-            left_held: true,
-            ..Default::default()
-        };
-        physical.discard_pending(Some(&keyboard), Some(&mouse));
-        assert!(!physical.left_held);
-        assert_eq!(physical.keys.read(&keyboard).count(), 0);
-        assert_eq!(physical.mouse.read(&mouse).count(), 0);
-        keyboard.write(key(KeyCode::F10, Key::F10));
-        mouse.write(MouseButtonInput {
-            button: MouseButton::Left,
-            state: ButtonState::Released,
-            window: Entity::PLACEHOLDER,
-        });
-        assert_eq!(
-            physical
-                .keys
-                .read(&keyboard)
-                .map(|event| event.key_code)
-                .collect::<Vec<_>>(),
-            [KeyCode::F10]
-        );
-        assert_eq!(
-            physical
-                .mouse
-                .read(&mouse)
-                .map(|event| event.state)
-                .collect::<Vec<_>>(),
-            [ButtonState::Released]
-        );
-    }
-}
+mod tests;

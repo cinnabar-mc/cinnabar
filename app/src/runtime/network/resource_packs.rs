@@ -4,15 +4,18 @@ use super::compile_execution::scope;
 use rayon::scope;
 use std::sync::Arc;
 
+#[cfg(test)]
+use super::block_overlay::compile_block_overlay;
 use resource_pack::{LayeredPackView, PackAdmission};
 
 use super::{
-    block_overlay::{CompiledBlockOverlay, compile_block_overlay},
+    block_overlay::CompiledBlockOverlay,
     glyph_sheets::compile_session_glyphs,
     item_icons::{BlockIcons, compile_session_icons, custom_block_icons_with_tint},
 };
 use client_ui::ui_runtime::presentation::{ServerUiPack, SessionGlyphSheets, SessionIcons};
 
+pub(super) mod disk_cache;
 pub(super) mod reuse;
 mod ui;
 pub(super) mod ui_catalog;
@@ -26,7 +29,7 @@ mod capture;
 pub struct PackApplication {
     /// One-shot block state prepared after reusable pack compilation.
     pub(super) registries: Option<super::session_registries::PreparedSessionRegistries>,
-    pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
+    pub(super) dependencies: Arc<pack_runtime::reload_diff::Dependencies>,
     /// Finalized by the join or reload worker after all terrain reads have been recorded.
     pub(super) terrain_identity: [u8; 32],
     /// Inert metadata only; accepting a pack does not authorize execution.
@@ -93,7 +96,10 @@ impl PackApplication {
         blocks: Option<Arc<client_presentation::presentation::equipment::PreparedBlockItems>>,
     ) {
         let Some(base) = base.filter(|_| {
-            self.entities.is_some() || self.block_entity_art.is_some() || blocks.is_some()
+            self.entities.is_some()
+                || self.block_entity_art.is_some()
+                || blocks.is_some()
+                || self.item_icons.is_some()
         }) else {
             self.prepared_actor_artwork = None;
             return;
@@ -105,6 +111,7 @@ impl PackApplication {
                 self.block_entity_art.as_ref(),
             )
             && previous.matches_block_items(blocks.as_ref())
+            && previous.matches_session_icons(self.item_icons.as_ref())
         {
             return;
         }
@@ -114,7 +121,8 @@ impl PackApplication {
                 self.entities.as_ref(),
                 self.block_entity_art.as_ref(),
                 blocks,
-            ),
+            )
+            .with_session_icons(self.item_icons.as_ref()),
         ));
     }
 }
@@ -180,13 +188,28 @@ fn prepare_join_with(
         if let PackAdmission::Validated(stack) = &packs.admission {
             packs.terrain_identity = terrain_identity(stack, &packs.dependencies);
         }
-        packs.prepare_actor_artwork(bases.actor_artwork, None);
+        let stack_artwork = packs.entity_artwork.clone();
+        let artwork = bases
+            .actor_artwork
+            .map(|current| entity_artwork_base(current, stack_artwork.as_deref()));
+        packs.prepare_actor_artwork(artwork, None);
         let source_ui = packs.server_ui.clone();
         packs.prepare_ui_catalog(bases.ui_catalog);
         let now = reuse::CompileEnvironment::current();
         kept.keep_join(environment, &now, &packs, source_ui, cancelled);
         packs
     }))
+}
+
+/// The actor artwork a stack publishes over `current`: its entity texture overrides when they
+/// change the identity, else `current` itself, so prepared resources keep sharing its storage.
+pub(super) fn entity_artwork_base<'a>(
+    current: &'a render_model::ActorArtworkPages,
+    stack: Option<&'a render_model::ActorArtworkPages>,
+) -> &'a render_model::ActorArtworkPages {
+    stack
+        .filter(|next| next.identity() != current.identity())
+        .unwrap_or(current)
 }
 
 /// The recently compiled stacks joins and the post-join reload share.
@@ -280,7 +303,7 @@ fn compile_application(
 ) -> Option<PackApplication> {
     use pack_runtime::reload_diff::{Subscriber, compile_part};
     let mut dependencies = previous
-        .map(|old| old.dependencies.clone())
+        .map(|old| old.dependencies.as_ref().clone())
         .unwrap_or_default();
     let custom_blocks = &inputs.blocks;
     let icon_keys = &inputs.icons;
@@ -329,6 +352,7 @@ fn compile_application(
         });
         scope.spawn(|_| {
             let _binding = profile.enter();
+            let textures = super::block_overlay::SharedTextures::default();
             blocks = compile_part(
                 &stack,
                 cancelled,
@@ -343,13 +367,14 @@ fn compile_application(
                         hashed_block_ids,
                         max_layers,
                         || {
-                            compile_block_overlay(
+                            super::block_overlay::compile_block_overlay_with_textures(
                                 view,
                                 custom_blocks,
                                 hashed_block_ids,
                                 BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys),
                                 max_layers,
                                 base_world_assets(),
+                                Some(&textures),
                             )
                             .map(Arc::new)
                         },
@@ -368,6 +393,7 @@ fn compile_application(
                 changes.icons || changes.blocks,
                 previous.and_then(|old| old.item_icons.clone()),
                 icon_keys,
+                disk_cache::icon_key(&stack, &inputs, max_layers),
                 |view| {
                     let item_overlay = super::block_overlay::compile_block_item_overlay(
                         view,
@@ -375,6 +401,7 @@ fn compile_application(
                         BASE_MATERIAL_KEYS.get().map(|(keys, _)| keys),
                         max_layers,
                         base_world_assets(),
+                        Some(&textures),
                     );
                     let grass = super::item_icons::carried_grass_tint(
                         view,
@@ -513,6 +540,8 @@ fn compile_application(
     let server_ui = record(&mut dependencies, Subscriber::Ui, ui?);
     let server_sounds = record(&mut dependencies, Subscriber::Sounds, sounds?);
     let entities = record(&mut dependencies, Subscriber::Entities, entities?);
+    let block_entity_art =
+        super::block_entity_art::with_entities(block_entity_art, entities.as_deref(), &changes);
     // Artwork reads join the entity subscriber's rather than replacing them.
     let (entity_artwork, artwork_inputs) = artwork?;
     if let Some(inputs) = artwork_inputs {
@@ -560,7 +589,7 @@ fn compile_application(
         aim_assist_textures,
         admission: PackAdmission::Validated(stack),
         block_overlay,
-        dependencies,
+        dependencies: Arc::new(dependencies),
         terrain_identity,
     })
 }
@@ -658,6 +687,14 @@ fn base_world_assets() -> Option<&'static assets::RuntimeAssets> {
         .or_else(|| BASE_WORLD_ASSETS.get().map(AsRef::as_ref))
 }
 
+/// The world sidecar's source facts with the carrier they describe, once installed.
+pub(super) fn base_material_keys() -> Option<&'static (
+    assets::material_keys::MaterialKeys,
+    Arc<assets::RuntimeAssets>,
+)> {
+    BASE_MATERIAL_KEYS.get()
+}
+
 /// Installs immutable source facts and pixels from the same world carrier.
 pub(crate) fn set_base_material_keys(
     keys: assets::material_keys::MaterialKeys,
@@ -679,6 +716,7 @@ fn compile_icons(
     changed: bool,
     reuse: Option<Arc<SessionIcons>>,
     icon_keys: &[(Arc<str>, Arc<str>)],
+    key: Option<[u8; 32]>,
     bake_blocks: impl FnOnce(&LayeredPackView) -> BlockIcons,
 ) -> CompiledIcons {
     pack_runtime::reload_diff::compile_part(
@@ -687,30 +725,47 @@ fn compile_icons(
         changed,
         pack_runtime::reload_diff::Subscriber::Icons,
         reuse,
-        |view| compile_session_icons(view, icon_keys, bake_blocks(view)),
+        |view| {
+            disk_cache::compile(view, key, || {
+                compile_session_icons(view, icon_keys, bake_blocks(view))
+            })
+        },
     )
 }
 
 use pack_runtime::pack_language::merged_server_lang;
 
-use resource_pack::StackFingerprint;
 #[cfg(test)]
 use pack_runtime::stack_fingerprint;
+use resource_pack::StackFingerprint;
 
 struct CachedOverlay {
     dependencies: Option<std::collections::BTreeSet<resource_pack::PackDependency>>,
     stack: StackFingerprint,
+    readers: Vec<[u8; 32]>,
     hashed: bool,
     max_layers: u32,
     blocks: protocol::CustomBlocks,
-    overlay: Option<Arc<CompiledBlockOverlay>>,
+    /// Weak, so an overlay outlives its session only while a kept stack owns it; `None` when the
+    /// stack compiled no blocks.
+    overlay: Option<std::sync::Weak<CompiledBlockOverlay>>,
+}
+
+impl CachedOverlay {
+    /// The compiled overlay, or `None` once every owner has released it.
+    fn upgrade(&self) -> Option<Option<Arc<CompiledBlockOverlay>>> {
+        match &self.overlay {
+            None => Some(None),
+            Some(overlay) => overlay.upgrade().map(Some),
+        }
+    }
 }
 
 /// The current and previous stacks, so switching packs back reuses the earlier compile.
 const KEPT_OVERLAYS: usize = 2;
 
 /// Recently compiled overlays, newest first, reused when the same pack contents and block
-/// definitions return in a later session or reload.
+/// definitions return in a later session or reload while a session or kept stack owns them.
 static OVERLAY_CACHE: std::sync::Mutex<std::collections::VecDeque<CachedOverlay>> =
     std::sync::Mutex::new(std::collections::VecDeque::new());
 
@@ -723,13 +778,21 @@ fn cached_block_overlay(
     max_layers: u32,
     compile: impl FnOnce() -> Option<Arc<CompiledBlockOverlay>>,
 ) -> Option<Arc<CompiledBlockOverlay>> {
+    let readers: Vec<_> = view
+        .stack()
+        .packs()
+        .iter()
+        .map(|pack| pack.compile_identity())
+        .collect();
     let mut cache = OVERLAY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
+    cache.retain(|cached| cached.upgrade().is_some());
     if let Some(index) = cache.iter().position(|cached| {
         cached.hashed == hashed
             && cached.max_layers == max_layers
             && cached.stack == *fingerprint
+            && cached.readers == readers
             && cached.blocks == *blocks
             && (view.dependencies().is_none() || cached.dependencies.is_some())
     }) {
@@ -737,20 +800,26 @@ fn cached_block_overlay(
         if let (Some(dependencies), Some(inputs)) = (view.dependencies(), &cached.dependencies) {
             dependencies.extend(inputs.clone());
         }
-        let overlay = cached.overlay.clone();
-        cache.push_front(cached);
-        return overlay;
+        if let Some(overlay) = cached.upgrade() {
+            cache.push_front(cached);
+            return overlay;
+        }
     }
-    let overlay = compile();
+    let overlay = disk_cache::compile(
+        view,
+        disk_cache::block_key(view.stack(), blocks, hashed, max_layers),
+        compile,
+    );
     cache.push_front(CachedOverlay {
         dependencies: view
             .dependencies()
             .map(|dependencies| dependencies.snapshot()),
         stack: fingerprint.clone(),
+        readers,
         hashed,
         max_layers,
         blocks: blocks.clone(),
-        overlay: overlay.clone(),
+        overlay: overlay.as_ref().map(Arc::downgrade),
     });
     cache.truncate(KEPT_OVERLAYS);
     overlay
@@ -886,3 +955,6 @@ mod tests;
 
 #[cfg(test)]
 mod fingerprint_bench;
+
+#[cfg(all(test, target_os = "linux", feature = "reports"))]
+mod memory_report;

@@ -1,15 +1,18 @@
 use std::{fs, path::Path};
 
 use assets::{
-    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty, EntityRigFallback,
-    MolangOp, MolangSymbolKind, encode_entity_blob,
+    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty,
+    EntityGeometryScalar, EntityRigFallback, MolangOp, MolangSymbolKind, encode_entity_blob,
 };
 use pack_entity_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
 
+mod animation_conflicts;
+mod animation_loading;
 mod held_scale;
 mod legacy_scales;
 mod player_attack;
+mod render_visibility;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 
@@ -352,26 +355,6 @@ fn animation_time_update_accepts_general_molang_and_numeric_constants() {
 }
 
 #[test]
-fn rejects_malformed_or_unsupported_animation_time_updates() {
-    for authored in [
-        serde_json::json!(null),
-        serde_json::json!(true),
-        serde_json::json!([]),
-        serde_json::json!({}),
-        serde_json::json!("query.modified_distance_moved +"),
-        serde_json::json!("query.unreviewed_time"),
-    ] {
-        let pack = animation_pack(false);
-        set_walk_time_update(pack.path(), authored.clone());
-        let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
-        assert!(
-            error.to_string().contains("anim_time_update"),
-            "{authored}: {error}"
-        );
-    }
-}
-
-#[test]
 fn compiles_clips_controllers_molang_and_collection_selection_deterministically() {
     let first = compile_entity_assets(animation_pack(false).path(), MANIFEST).unwrap();
     let second = compile_entity_assets(animation_pack(true).path(), MANIFEST).unwrap();
@@ -540,16 +523,7 @@ fn undefined_animation_reference_keeps_the_rig_as_a_static_fallback() {
 }
 
 #[test]
-fn malformed_keyframes_non_finite_literals_and_unsupported_grammar_fail_closed() {
-    for animation in [
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":{"bad":[0,0,0]}}}}}}"#.as_slice(),
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"animation_length":"NaN"}}}"#.as_slice(),
-    ] {
-        let pack = animation_pack(false);
-        write(pack.path(), "animations/test.animation.json", animation);
-        assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
-    }
-
+fn unsupported_transition_grammar_drops_only_the_transition() {
     let pack = animation_pack(false);
     write(
         pack.path(),
@@ -985,22 +959,75 @@ fn duplicate_geometry_identifiers_reject_the_ambiguous_rig_without_collapsing_so
     )));
 }
 
+/// One definition repeated verbatim in a second file names a single model, not two.
 #[test]
-fn duplicate_animation_identifiers_reject_the_ambiguous_rig_without_collapsing_sources() {
+fn identical_duplicate_definitions_keep_the_rig() {
     let pack = animation_pack(false);
-    write(
-        pack.path(),
-        "animations/duplicate.animation.json",
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":[9,0,0]}}}}}"#,
-    );
+    for (original, copy) in [
+        ("models/entity/test.geo.json", "models/entity/copy.geo.json"),
+        (
+            "animations/test.animation.json",
+            "animations/copy.animation.json",
+        ),
+        (
+            "animation_controllers/test.animation_controllers.json",
+            "animation_controllers/copy.animation_controllers.json",
+        ),
+        (
+            "render_controllers/test.render_controllers.json",
+            "render_controllers/copy.render_controllers.json",
+        ),
+    ] {
+        let bytes = fs::read(pack.path().join(original)).unwrap();
+        write(pack.path(), copy, &bytes);
+    }
     let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
-    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+    assert_eq!(compiled.assets.rig_bindings.len(), 1);
+    assert!(!compiled.reference_outcomes.iter().any(|outcome| matches!(
         outcome,
-        pack_entity_compiler::CompileReferenceOutcome::RequiredRigRejected {
-            reason: pack_entity_compiler::RejectReason::AmbiguousAnimationReference,
-            ..
-        }
+        pack_entity_compiler::CompileReferenceOutcome::RequiredRigRejected { .. }
     )));
+}
+
+#[test]
+fn duplicate_geometry_inheritance_compares_resolved_parents() {
+    for duplicate_origin in [0, 4] {
+        let pack = animation_pack(false);
+        for (path, origin) in [
+            ("models/entity/test.geo.json", 0),
+            ("models/entity/copy.geo.json", duplicate_origin),
+        ] {
+            let geometry = serde_json::json!({
+                "format_version": "1.8.0",
+                "geometry.base": {
+                    "bones": [
+                        {"name": "root", "cubes": [
+                            {"origin": [origin, 0, 0], "size": [1, 1, 1], "uv": [0, 0]}
+                        ]},
+                        {"name": "arm", "parent": "root"}
+                    ]
+                },
+                "geometry.test:geometry.base": {
+                    "bones": [{"name": "arm", "parent": "root"}]
+                }
+            });
+            write(pack.path(), path, &serde_json::to_vec(&geometry).unwrap());
+        }
+        let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+        assert_eq!(compiled.assets.geometries.len(), 4);
+        let ambiguous = duplicate_origin != 0;
+        assert_eq!(compiled.assets.rig_bindings.len(), usize::from(!ambiguous));
+        assert_eq!(
+            compiled.reference_outcomes.iter().any(|outcome| matches!(
+                outcome,
+                pack_entity_compiler::CompileReferenceOutcome::RequiredRigRejected {
+                    reason: pack_entity_compiler::RejectReason::AmbiguousGeometryReference,
+                    ..
+                }
+            )),
+            ambiguous
+        );
+    }
 }
 
 #[test]

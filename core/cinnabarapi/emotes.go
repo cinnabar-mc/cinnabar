@@ -2,8 +2,8 @@ package cinnabarapi
 
 import (
 	"encoding/json"
-	"reflect"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
@@ -57,11 +57,13 @@ func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 		return PlayerUpdates{}
 	}
 	c.queueLoadout(s, state.Slots, now)
-	changed := s.emoteState.EmoteID != state.EmoteID || s.emoteState.PlaybackID != state.PlaybackID ||
-		!reflect.DeepEqual(s.emoteState.XUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteState.UUIDs, state.UUIDs)
-	watchesPending := !reflect.DeepEqual(s.emoteSentXUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteSentUUIDs, state.UUIDs)
+	playbackChanged := s.emoteState.EmoteID != state.EmoteID || s.emoteState.PlaybackID != state.PlaybackID
+	// Every frame wakes the hub. Only playback holds a lease; it keeps watch lists until replaced,
+	// so roster churn waits for the watch interval and idle players send nothing.
+	renewDue := state.EmoteID != "" && now.Sub(s.emoteQueued) >= emoteTTL/3
+	watchesPending := !slices.Equal(s.emoteSentXUIDs, state.XUIDs) || !slices.Equal(s.emoteSentUUIDs, state.UUIDs)
 	watchDue := !s.emoteSent || now.Sub(s.emoteWatchSent) >= emoteTTL/5
-	if now.Sub(s.emoteQueued) >= emoteSpacing && (changed || (watchesPending && watchDue) || now.Sub(s.emoteQueued) >= emoteTTL/3) {
+	if now.Sub(s.emoteQueued) >= emoteSpacing && (playbackChanged || renewDue || (watchesPending && watchDue)) {
 		s.emoteState = state
 		s.emoteQueued = now
 		select {
@@ -82,7 +84,8 @@ func (c *Client) syncPlayers(state PlayerState, now time.Time) PlayerUpdates {
 		value.ValidForMS -= uint64(age / time.Millisecond)
 		result = append(result, value)
 	}
-	return PlayerUpdates{Emotes: result, Loadouts: collectLoadouts(s, state)}
+	return PlayerUpdates{Emotes: result, Loadouts: collectLoadouts(s, state),
+		OwnershipXUID: s.ownershipXUID, OwnedCosmetics: append([]string(nil), s.ownedCosmetics...)}
 }
 
 // watches resolves either identity namespace while keeping subscription memory bounded.
@@ -138,7 +141,7 @@ func (c *Client) emotePayload(s *session) []byte {
 		id = &state.EmoteID
 	}
 	message := emoteMessage{Type: typeEmoteState, EmoteID: id, ElapsedMS: state.ElapsedMS}
-	changed := !reflect.DeepEqual(s.emoteSentXUIDs, state.XUIDs) || !reflect.DeepEqual(s.emoteSentUUIDs, state.UUIDs)
+	changed := !slices.Equal(s.emoteSentXUIDs, state.XUIDs) || !slices.Equal(s.emoteSentUUIDs, state.UUIDs)
 	if !s.emoteSent || (changed && s.emoteQueued.Sub(s.emoteWatchSent) >= emoteTTL/5) {
 		xuids, uuids := append([]string{}, state.XUIDs...), append([]string{}, state.UUIDs...)
 		message.XUIDs, message.UUIDs = &xuids, &uuids
@@ -148,4 +151,23 @@ func (c *Client) emotePayload(s *session) []byte {
 	}
 	payload, _ := json.Marshal(message)
 	return payload
+}
+
+// admittedOwnership rejects malformed server snapshots rather than accepting a partial grant list.
+func admittedOwnership(ids []string) []string {
+	if len(ids) > 256 {
+		return nil
+	}
+	result := make([]string, 0, len(ids))
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		if len(id) > 128 || !cosmeticIDPattern.MatchString(id) {
+			return nil
+		}
+		if !seen[id] {
+			result = append(result, id)
+			seen[id] = true
+		}
+	}
+	return result
 }

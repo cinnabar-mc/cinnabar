@@ -13,7 +13,7 @@ mod lexer;
 mod parser;
 
 use codegen::{Codegen, IrOp, binary, fold_with};
-use parser::{Binary, Expr, Program, Slot, Unary, parse, parse_with};
+use parser::{Binary, Expr, Program, Slot, Statement, Unary, parse, parse_with};
 
 /// Both block-state query spellings resolve the same named state.
 const BLOCK_QUERIES: &[&str] = &["query.block_property", "query.block_state"];
@@ -29,7 +29,7 @@ pub enum BlockStateValue<'a> {
 
 /// A block permutation condition or bone visibility expression, parsed once for every state.
 #[derive(Debug)]
-pub struct BlockMolang(Expr);
+pub struct BlockMolang(Program);
 
 impl BlockMolang {
     /// `None` when the source does not parse in a block context, which reads only
@@ -39,21 +39,100 @@ impl BlockMolang {
         if source.len() > MAX_BLOCK_MOLANG_BYTES {
             return None;
         }
-        match parse_with(source, BLOCK_QUERIES).ok()? {
-            Program::Simple(expression) => Some(Self(expression)),
-            Program::Complex(_) => None,
-        }
+        parse_with(source, BLOCK_QUERIES).ok().map(Self)
     }
 
-    /// The value for one block state; `None` when it reads a state the block lacks or uses a
-    /// string where a number is needed.
+    /// Whether a permutation condition's value applies the permutation: it must round, half
+    /// away from zero, to a nonzero value.
+    #[must_use]
+    pub fn holds(value: f32) -> bool {
+        value.round() != 0.0
+    }
+
+    /// The value for one block state; `None` when it reads a state the block lacks, uses a
+    /// string where a number is needed, or runs a loop. A script without `return` reads zero.
     #[must_use]
     pub fn evaluate<'a>(
         &self,
         block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
     ) -> Option<f32> {
-        block_value(&self.0, block_state)?.number()
+        let query = |_: &str, arguments: &[Expr]| match arguments {
+            [Expr::String(name)] => block_state(name),
+            _ => None,
+        };
+        match &self.0 {
+            Program::Simple(expression) => block_value(expression, &query, &|_, _| None)?.number(),
+            Program::Complex(statements) => {
+                let mut variables = Vec::new();
+                match run_block_script(statements, &query, &mut variables)? {
+                    Some(value) => value.number(),
+                    None => Some(0.0),
+                }
+            }
+        }
     }
+}
+
+/// A script variable's slot, name and value.
+type ScriptVariable<'e> = (Slot, &'e str, BlockStateValue<'e>);
+
+/// Runs block-context statements; `Some(Some(value))` when one returns. Unset variables read
+/// zero. Loops are not run, so a script with one stays unevaluated.
+fn run_block_script<'e, 'a: 'e>(
+    statements: &'e [Statement],
+    query: &dyn Fn(&str, &[Expr]) -> Option<BlockStateValue<'a>>,
+    variables: &mut Vec<ScriptVariable<'e>>,
+) -> Option<Option<BlockStateValue<'e>>> {
+    for statement in statements {
+        let value = |expression: &'e Expr, variables: &Vec<ScriptVariable<'e>>| {
+            block_value(expression, query, &|slot, name| {
+                variables
+                    .iter()
+                    .rev()
+                    .find(|variable| variable.0 == slot && variable.1 == name)
+                    .map(|variable| variable.2)
+            })
+        };
+        match statement {
+            Statement::Expression(Expr::Branch(condition, yes, no)) => {
+                let branch = if value(condition, variables)?.number()? != 0.0 {
+                    Some(yes)
+                } else {
+                    no.as_ref()
+                };
+                if let Some(branch) = branch
+                    && let Some(returned) = run_block_script(branch, query, variables)?
+                {
+                    return Some(Some(returned));
+                }
+            }
+            Statement::Expression(expression) => {
+                value(expression, variables)?;
+            }
+            Statement::Assign(slot, name, expression) => {
+                let assigned = value(expression, variables)?;
+                variables.push((*slot, &**name, assigned));
+            }
+            Statement::Return(expression) => {
+                return Some(Some(match expression {
+                    Some(expression) => value(expression, variables)?,
+                    None => BlockStateValue::Number(0.0),
+                }));
+            }
+            Statement::Block(block) => {
+                if let Some(returned) = run_block_script(block, query, variables)? {
+                    return Some(Some(returned));
+                }
+            }
+            Statement::Loop(..)
+            | Statement::ForEach(..)
+            | Statement::Break
+            | Statement::Continue => {
+                return None;
+            }
+        }
+    }
+    Some(None)
 }
 
 impl BlockStateValue<'_> {
@@ -65,27 +144,88 @@ impl BlockStateValue<'_> {
     }
 }
 
+/// A mining item filter that reads membership in the held item's tags.
+#[derive(Debug)]
+pub struct ItemTagMolang(Expr);
+
+impl ItemTagMolang {
+    /// Parses the tag queries supported by an item descriptor context.
+    pub fn parse(source: &str) -> Option<Self> {
+        match parse_with(source, &["query.all_tags", "query.any_tag"]).ok()? {
+            Program::Simple(expression) => Some(Self(expression)),
+            Program::Complex(_) => None,
+        }
+    }
+
+    /// Evaluates the filter against the caller's admitted item tag membership.
+    pub fn evaluate(&self, has_tag: &dyn Fn(&str) -> bool) -> Option<bool> {
+        self.evaluate_partial(&|tag| Some(has_tag(tag)))
+    }
+
+    /// Keeps unknown tag membership unresolved, including inside a negated query.
+    pub fn evaluate_partial(&self, has_tag: &dyn Fn(&str) -> Option<bool>) -> Option<bool> {
+        let value = block_value(
+            &self.0,
+            &|name, arguments| {
+                if arguments.is_empty() {
+                    return Some(BlockStateValue::Number(0.0));
+                }
+                let all = match name {
+                    "query.any_tag" => false,
+                    "query.all_tags" => true,
+                    _ => return None,
+                };
+                let mut matches = all;
+                let mut unknown = false;
+                for argument in arguments {
+                    let Expr::String(tag) = argument else {
+                        return None;
+                    };
+                    match has_tag(tag) {
+                        Some(value) => {
+                            matches = if all {
+                                matches && value
+                            } else {
+                                matches || value
+                            }
+                        }
+                        None => unknown = true,
+                    }
+                }
+                if unknown && matches == all {
+                    return None;
+                }
+                Some(BlockStateValue::Number(f32::from(u8::from(matches))))
+            },
+            &|_, _| None,
+        )?
+        .number()?;
+        Some(value != 0.0)
+    }
+}
+
+/// Evaluates scalar expressions with the query context and script variables supplied by their
+/// owner; a variable the owner does not hold reads zero.
 fn block_value<'e, 'a: 'e>(
     expression: &'e Expr,
-    block_state: &dyn Fn(&str) -> Option<BlockStateValue<'a>>,
+    query: &dyn Fn(&str, &[Expr]) -> Option<BlockStateValue<'a>>,
+    variables: &dyn Fn(Slot, &str) -> Option<BlockStateValue<'e>>,
 ) -> Option<BlockStateValue<'e>> {
-    let number = |expression: &'e Expr| block_value(expression, block_state)?.number();
+    let number = |expression: &'e Expr| block_value(expression, query, variables)?.number();
     let truth = |value: bool| BlockStateValue::Number(if value { 1.0 } else { 0.0 });
     Some(match expression {
         Expr::Number(value) => BlockStateValue::Number(*value),
         Expr::String(text) => BlockStateValue::String(text),
-        // A block context has no variable storage, so every variable reads as unset.
-        Expr::Variable(..) => BlockStateValue::Number(0.0),
-        Expr::Query(_, Some(arguments)) => match arguments.as_slice() {
-            [Expr::String(name)] => block_state(name)?,
-            _ => return None,
-        },
+        Expr::Variable(slot, name) => {
+            variables(*slot, name).unwrap_or(BlockStateValue::Number(0.0))
+        }
+        Expr::Query(name, Some(arguments)) => query(name, arguments)?,
         Expr::Unary(Unary::Negate, value) => BlockStateValue::Number(-number(value)?),
         Expr::Unary(Unary::Not, value) => truth(number(value)? == 0.0),
         Expr::Binary(operator @ (Binary::Equal | Binary::NotEqual), left, right) => {
             let equal = match (
-                block_value(left, block_state)?,
-                block_value(right, block_state)?,
+                block_value(left, query, variables)?,
+                block_value(right, query, variables)?,
             ) {
                 (BlockStateValue::Number(left), BlockStateValue::Number(right)) => left == right,
                 (BlockStateValue::String(left), BlockStateValue::String(right)) => left == right,
@@ -100,17 +240,29 @@ fn block_value<'e, 'a: 'e>(
         Expr::Or(left, right) => truth(number(left)? != 0.0 || number(right)? != 0.0),
         Expr::Conditional(condition, yes, no) => {
             if number(condition)? != 0.0 {
-                block_value(yes, block_state)?
+                block_value(yes, query, variables)?
             } else {
                 match no {
-                    Some(no) => block_value(no, block_state)?,
+                    Some(no) => block_value(no, query, variables)?,
                     None => BlockStateValue::Number(0.0),
                 }
             }
         }
         Expr::Call(function, arguments) if !function.is_random() => {
-            let values = arguments.iter().map(number).collect::<Option<Vec<_>>>()?;
-            BlockStateValue::Number(molang_call(*function, &values, &mut || 0.0))
+            let mut incomplete = false;
+            let values = arguments
+                .iter()
+                .map_while(|argument| {
+                    let value = number(argument);
+                    incomplete |= value.is_none();
+                    value
+                })
+                .fuse();
+            let value = molang_call(*function, values, &mut || 0.0);
+            if incomplete {
+                return None;
+            }
+            BlockStateValue::Number(value)
         }
         _ => return None,
     })
@@ -188,6 +340,24 @@ impl MolangCompiler {
             }),
             Program::Complex(_) => None,
         }
+    }
+
+    /// Evaluates an interned condition with one query supplied by a regression fixture.
+    #[cfg(test)]
+    pub fn evaluate_query(&self, index: u32, query: &str, value: f32) -> Option<f32> {
+        let source = self
+            .interned
+            .iter()
+            .find(|(_, candidate)| **candidate == index)?
+            .0;
+        let Program::Simple(expression) = parse(source).ok()? else {
+            return None;
+        };
+        fold_with(&expression, &|read| match read {
+            Expr::Query(name, None) if name.as_ref() == query => Some(value),
+            Expr::Query(..) | Expr::Variable(..) => Some(0.0),
+            _ => None,
+        })
     }
 
     pub fn add_name(&mut self, name: &str) -> Result<(), AssetError> {

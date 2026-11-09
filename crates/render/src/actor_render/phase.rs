@@ -9,6 +9,7 @@ type ActorQueueView = (
     &'static bevy::render::camera::ExtractedCamera,
     &'static Msaa,
     Option<&'static render_scene::EnhancedRendering>,
+    bevy::ecs::query::Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
 #[derive(SystemParam)]
@@ -52,7 +53,9 @@ pub(super) fn queue_actors(
         .id::<DrawTransparentActorCommands>();
     let mut queued = false;
     let mut intended_view = None;
-    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced) in &params.views {
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, _pack_view) in
+        &params.views
+    {
         let Some(phase) = params.phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -147,7 +150,7 @@ pub(super) fn queue_actors(
                 geometry_revision: params.gpu.geometry_revision,
                 frame_generation: params.gpu.frame_generation,
                 draw_generation,
-                manifest: std::sync::Arc::clone(&params.gpu.manifest),
+                manifest: std::sync::Arc::clone(&params.gpu.main_manifest),
             },
             intended_view.expect("queued view exists"),
             &params.gpu.spans,
@@ -186,6 +189,23 @@ pub(super) fn sorted(material: u32) -> bool {
 }
 
 impl ActorGpu {
+    /// Uses the same material and artwork admission for native and pack draws.
+    pub(super) fn pack_supports_span(&self, span: &crate::actor::gpu::ActorDrawSpan) -> bool {
+        // A pack vertex shader may move a depth producer away from its native overlay.
+        // Keep the complete actor frame native while that dependency exists.
+        !self.pack_depth_dependency
+            && (span.page == 0
+                || self
+                    .artwork
+                    .page(usize::from(span.page) - 1)
+                    .is_some_and(|page| page.raw_texture().is_some()))
+            && (span.first..span.first + span.count).all(|index| {
+                self.instances
+                    .get(index as usize)
+                    .is_some_and(crate::shaderpack::actors::instance_supported)
+            })
+    }
+
     /// Captures a queued receipt identity only while every prepared revision and manifest match.
     /// A mismatch disables acknowledgement; commands must still encode their ordinary draws.
     pub(super) fn draw_batch(&self, view: u64) -> Option<ActorDrawBatch> {
@@ -195,7 +215,7 @@ impl ActorGpu {
             && draw.skin_revision == self.skin_revision
             && draw.geometry_revision == self.geometry_revision
             && draw.frame_generation == self.frame_generation
-            && std::sync::Arc::ptr_eq(&draw.manifest, &self.manifest))
+            && std::sync::Arc::ptr_eq(&draw.manifest, &self.main_manifest))
         .then(|| batch.clone())
     }
 }
@@ -209,6 +229,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         SRes<ActorRuntimeWitness>,
         SRes<ActorPipeline>,
         SRes<PipelineCache>,
+        crate::shaderpack::native_actors::NativeActorCoverage<'static>,
     );
     type ViewQuery = (
         Entity,
@@ -227,7 +248,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         params: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let (gpu, tracker, witness, pipeline, cache) = params;
+        let (gpu, tracker, witness, pipeline, cache, coverage) = params;
         let gpu = gpu.into_inner();
         if gpu.instance_count == 0 {
             return RenderCommandResult::Skip;
@@ -235,6 +256,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         let tracker = tracker.into_inner();
         let pipeline = pipeline.into_inner();
         let cache = cache.into_inner();
+        let pack_actors = coverage.actors(view.0);
         let mut executed_instances = 0;
         let mut bound_page = None;
         let span_indices = if SORTED {
@@ -262,11 +284,18 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         let mut receipts = gpu
             .draw_batch(view.0.to_bits())
             .filter(|_| span_count <= render_model::MAX_ACTOR_RENDER_INSTANCES)
-            .map(|batch| (batch, Vec::new()));
+            .map(|batch| {
+                let mut scratch = gpu
+                    .receipt_scratch
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                scratch.clear();
+                (batch, scratch)
+            });
         for ordinal in 0..span_count {
             let index = span_indices.map_or(ordinal, |indices| indices[ordinal]);
             let span = &gpu.spans[index];
-            if sorted(span.material) != SORTED {
+            if (pack_actors && gpu.pack_supports_span(span)) || sorted(span.material) != SORTED {
                 continue;
             }
             if span.page != 0 && !gpu.artwork_current {
@@ -286,8 +315,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
                     gpu.bind_group.as_ref()
                 } else {
                     gpu.artwork
-                        .pages
-                        .get(usize::from(span.page) - 1)
+                        .page(usize::from(span.page) - 1)
                         .and_then(|page| page.bind_group.as_ref())
                 };
                 let Some(bind_group) = bind_group else {
@@ -298,16 +326,13 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
             }
             pass.draw(0..span.vertex_count, span.first..span.first + span.count);
             if let Some((_, spans)) = &mut receipts {
-                if spans.is_empty() {
-                    // Allocate only after an actual draw, bounded by the validated command plan.
-                    spans.reserve_exact(span_count);
-                }
                 spans.push(*span);
             }
             executed_instances += span.count;
         }
-        if let Some((batch, spans)) = receipts {
+        if let Some((batch, mut spans)) = receipts {
             tracker.record_batch(&batch, view.0.to_bits(), &spans);
+            spans.record_usage();
         }
         witness.into_inner().observe_draw(ActorDrawWitness {
             executed: executed_instances != 0,

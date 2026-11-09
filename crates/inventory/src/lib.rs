@@ -1,8 +1,13 @@
 //! Engine-independent inventory authority, prediction, crafting and commands.
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 mod anvil;
 mod crafting;
 mod crafting_authority;
 pub mod enchantments;
+mod grindstone;
 mod inventory_options;
 pub use inventory_options::{InventoryContext, InventoryController};
 mod furnace_options;
@@ -27,6 +32,7 @@ pub use crafting::{
 };
 pub use crafting_authority::CraftingPreview;
 pub use furnace_recipes::{FurnaceRecipeIter, FurnaceRecipes};
+pub use grindstone::{GrindstoneItem, GrindstoneOutcome, evaluate_grindstone};
 pub use ingress::{InventoryAuthorityEvent, InventoryIngressError, SequencedInventoryEvent};
 pub use inventory_ledger::{PlayerInventoryLedger, PlayerInventorySlot};
 pub use inventory_router::{
@@ -44,10 +50,10 @@ pub use selection::{
 pub use session::{InventorySession, MAX_PENDING_INVENTORY_EVENTS};
 
 mod item_icon;
-pub use item_icon::{crossbow_animation_frame, ranged_animation_frame};
+pub use item_icon::{crossbow_animation_frame, held_animation_frame, ranged_animation_frame};
 
 mod dial;
 pub use dial::{
     CLOCK_FRAMES, COMPASS_FRAMES, ClockReading, CompassReading, DialFrames, DialNeedle,
-    natural_dimension,
+    natural_dimension, strip_frame_side, strip_frames,
 };

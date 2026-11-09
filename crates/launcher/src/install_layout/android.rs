@@ -13,7 +13,7 @@ impl InstallLayout {
     /// Private app files hold settings, data and the unpacked prep kit; helpers stay in the
     /// APK's native-library directory, the only place Android lets an app execute files.
     #[must_use]
-    pub fn android(files_dir: &Path, core_executable: PathBuf) -> Self {
+    pub fn android(files_dir: &Path, core_executable: PathBuf, shaderpack_worker: PathBuf) -> Self {
         let resource_root = files_dir.join("resources");
         let runtime_root = files_dir.join("run");
         Self {
@@ -23,6 +23,7 @@ impl InstallLayout {
                 .join(assets::carriers::physics_registry_basename()),
             resource_root,
             core_executable,
+            shaderpack_worker,
             user_config_root: files_dir.join("config"),
             user_data_root: files_dir.join("data"),
             transient_runtime_root: runtime_root.clone(),
@@ -58,9 +59,12 @@ mod tests {
     fn android_separates_private_data_from_executable_helpers() {
         let files = Path::new("/data/user/0/app/files");
         let core = Path::new("/data/app/lib/arm64/libbedrock_core.so");
-        let layout = InstallLayout::android(files, core.to_path_buf()).with_prepared_assets();
+        let worker = core.with_file_name("libshaderpack_worker.so");
+        let layout = InstallLayout::android(files, core.to_path_buf(), worker.clone())
+            .with_prepared_assets();
         assert!(layout.is_installed());
         assert_eq!(layout.core_executable, core);
+        assert_eq!(layout.shaderpack_worker, worker);
         assert_eq!(layout.prep_kit(), files.join("resources/prep-kit"));
         assert_eq!(layout.compiled_assets, files.join("data/assets/compiled"));
         assert_eq!(layout.user_config_root, files.join("config"));

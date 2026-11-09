@@ -3,7 +3,9 @@ use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind
 
 use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
+pub(crate) mod frame_cache;
 mod input_reads;
+mod numeric;
 mod observed;
 #[cfg(test)]
 pub(super) mod selection_work;
@@ -19,6 +21,24 @@ mod invalid_input_tests;
 #[cfg(test)]
 thread_local! {
     static QUERY_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static EXPRESSION_WORK: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Takes bytecode evaluations by expression on the current test thread.
+#[cfg(test)]
+pub(super) fn take_expression_work() -> Vec<usize> {
+    EXPRESSION_WORK.with(|work| std::mem::take(&mut *work.borrow_mut()))
+}
+
+/// Counts an expression whose inputs changed, including a direct single-read program.
+#[cfg(test)]
+pub(super) fn record_expression_work(index: usize) {
+    EXPRESSION_WORK.with(|work| {
+        let mut work = work.borrow_mut();
+        let size = work.len().max(index + 1);
+        work.resize(size, 0);
+        work[index] += 1;
+    });
 }
 
 /// Takes query evaluations performed on this test thread since its last observation.
@@ -68,14 +88,17 @@ pub(super) struct VariableLayout {
     controller_inputs: Vec<PresentationReads>,
     presentation_symbols: Vec<PresentationReads>,
     expression_inputs: Vec<PresentationReads>,
+    /// Pure numeric plans bound to this catalog's immutable bytecode and variable slots.
+    numeric: Vec<Option<numeric::Program>>,
     pub(super) engine: EngineSlots,
     /// Immutable analysis cached only for this finalized layout and its exact catalog.
     pub(super) plans: rig_plans::RigPlans,
 }
 
-/// Immutable camera and attack inputs used to admit scratch presentation evaluation.
+/// Immutable frame, camera and attack inputs used to admit scratch presentation evaluation.
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub(super) struct PresentationReads {
+    pub frame: bool,
     pub camera: bool,
     pub swing: bool,
 }
@@ -92,12 +115,16 @@ pub(super) struct EngineSlots {
     pub(super) is_sneaking: Option<usize>,
     pub(super) chest_layer_visible: Option<usize>,
     pub(super) is_blocking: Option<usize>,
+    /// The native brandish pose and the charge it raises the held spear by.
+    pub(super) is_brandishing_spear: Option<usize>,
+    pub(super) charge_amount: Option<usize>,
     pub(super) damage_nearby_mobs: Option<usize>,
     /// The eat/drink arm raise and bob the pack's `use_item_progress` pose reads.
     pub(super) use_item_startup_progress: Option<usize>,
     pub(super) use_item_interval_progress: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
     pub(super) is_first_person: Option<usize>,
+    pub(super) is_paperdoll: Option<usize>,
     pub(super) context_first_person: Option<usize>,
     pub(super) context_paperdoll: Option<usize>,
     pub(super) context_item_slot: Option<usize>,
@@ -124,6 +151,8 @@ pub(super) struct EngineSlots {
     pub(super) horse_stand_anim: Option<usize>,
     pub(super) horse_shake_tail: Option<usize>,
     pub(super) horse_open_mouth: Option<usize>,
+    pub(super) shulker_peek_amount: Option<usize>,
+    pub(super) shulker_facing_direction: Option<usize>,
     /// Dense slots for each requested dragon historical frame's yaw or height.
     pub(super) dragon_history: Vec<(usize, usize, usize)>,
     pub(super) spear: super::spear::Slots,
@@ -166,6 +195,7 @@ impl VariableLayout {
     pub(super) fn new(assets: &Arc<RuntimeEntityAssets>) -> Self {
         let mut layout = Self::from_symbols(assets.molang_symbols());
         layout.bind_input_reads(assets);
+        layout.numeric = numeric::compile(assets, &layout);
         layout.plans = rig_plans::RigPlans::new(assets);
         layout
     }
@@ -200,6 +230,7 @@ impl VariableLayout {
             controller_inputs: Vec::new(),
             presentation_symbols: Vec::new(),
             expression_inputs: Vec::new(),
+            numeric: Vec::new(),
             engine: EngineSlots {
                 seeded: SEEDED_VARIABLES
                     .iter()
@@ -213,10 +244,13 @@ impl VariableLayout {
                 is_sneaking: slot(V::IsSneaking.name()),
                 chest_layer_visible: slot(V::ChestLayerVisible.name()),
                 is_blocking: slot(V::IsBlocking.name()),
+                is_brandishing_spear: slot(V::IsBrandishingSpear.name()),
+                charge_amount: slot(V::ChargeAmount.name()),
                 damage_nearby_mobs: slot(V::DamageNearbyMobs.name()),
                 use_item_startup_progress: slot(V::UseItemStartupProgress.name()),
                 use_item_interval_progress: slot(V::UseItemIntervalProgress.name()),
                 is_first_person: slot(V::IsFirstPerson.name()),
+                is_paperdoll: slot(V::IsPaperdoll.name()),
                 context_first_person: slot("context.is_first_person"),
                 context_paperdoll: slot("context.is_paperdoll"),
                 context_item_slot: slot("context.item_slot"),
@@ -238,6 +272,8 @@ impl VariableLayout {
                 horse_stand_anim: slot(V::StandAnim.name()),
                 horse_shake_tail: slot(V::ShakeTail.name()),
                 horse_open_mouth: slot(V::OpenMouth.name()),
+                shulker_peek_amount: slot(V::ShulkerPeekAmount.name()),
+                shulker_facing_direction: slot(V::ShulkerFacingDirection.name()),
                 dragon_history: symbols[variable_base..variable_base + variable_count]
                     .iter()
                     .enumerate()
@@ -332,6 +368,18 @@ impl MolangEffects {
 }
 
 impl VariableLayout {
+    /// Reads an inherited persistent input; expression temporaries start unassigned.
+    pub(crate) fn input_variable(
+        &self,
+        variables: &MolangVariables,
+        symbol: u32,
+    ) -> Option<MolangValue> {
+        match self.place(symbol) {
+            Some(Place::Variable(slot)) => variables.variable(slot),
+            _ => None,
+        }
+    }
+
     fn place(&self, symbol: u32) -> Option<Place> {
         let symbol = symbol as usize;
         if let Some(slot) = symbol.checked_sub(self.variable_base)
@@ -426,7 +474,19 @@ impl Evaluator<'_> {
         this: f32,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
-        self.run_observed(expression_index, variables, this, budget, None)
+        if self.program.is_none()
+            && crate::render_frame::cache::enabled()
+            && let Some(mut cache) = variables
+                .frame
+                .as_mut()
+                .and_then(|frame| frame.cache.take())
+        {
+            let result = cache.run(self, expression_index, variables, this, budget);
+            variables.frame.as_mut().unwrap().cache = Some(cache);
+            result
+        } else {
+            self.run_observed(expression_index, variables, this, budget, None)
+        }
     }
 
     /// Records selection reads when given a recorder; its caller supplies clean temporaries and
@@ -439,6 +499,8 @@ impl Evaluator<'_> {
         budget: &mut EvalBudget<'_>,
         reads: Option<&mut ObservedInputs>,
     ) -> Result<MolangValue, EvalError> {
+        #[cfg(test)]
+        record_expression_work(expression_index);
         let mut stack = std::mem::take(&mut budget.stack.0);
         stack.clear();
         let result = self.run_on(&mut stack, expression_index, variables, this, budget, reads);
@@ -461,12 +523,22 @@ impl Evaluator<'_> {
     }
 
     pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {
-        #[cfg(test)]
-        QUERY_WORK.with(|work| work.set(work.get() + 1));
         let binding = self.program.map_or_else(
             || self.assets.molang_query_binding(symbol),
             |program| program.query_binding(symbol),
         );
+        self.bound_query(symbol, binding, arguments)
+    }
+
+    /// Reads an already bound query with the same history and presentation overrides.
+    fn bound_query(
+        &self,
+        symbol: u32,
+        binding: Option<assets::MolangQuery>,
+        arguments: &[MolangValue],
+    ) -> MolangValue {
+        #[cfg(test)]
+        QUERY_WORK.with(|work| work.set(work.get() + 1));
         if let Some(alpha) = self.presentation_alpha
             && binding == Some(assets::MolangQuery::FrameAlpha)
         {
@@ -508,11 +580,7 @@ impl Evaluator<'_> {
         if count == 0 {
             return Err(EvalError::Invalid);
         }
-        let index = if index.is_nan() || index <= 0.0 {
-            0
-        } else {
-            (index as usize) % count
-        };
+        let index = collection_index(index, count);
         self.collection_items()
             .get(collection.first_item as usize + index)
             .map(|item| item.value.get())
@@ -548,4 +616,13 @@ pub(super) fn pop(stack: &mut Vec<MolangValue>) -> Result<MolangValue, EvalError
 
 fn bool_value(value: bool) -> MolangValue {
     MolangValue::Number(if value { 1.0 } else { 0.0 })
+}
+
+/// Selects an admitted nonempty collection, wrapping positive indices and clamping negatives.
+pub(super) fn collection_index(index: f32, count: usize) -> usize {
+    if index.is_nan() || index <= 0.0 {
+        0
+    } else {
+        (index as usize) % count
+    }
 }

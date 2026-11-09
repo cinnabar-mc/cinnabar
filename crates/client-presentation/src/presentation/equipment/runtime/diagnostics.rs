@@ -42,15 +42,22 @@ impl EquipmentRuntime {
         });
         if let Some(slot) = slot {
             let Some((binding, from_pack)) = binding else {
-                return if matches!(item.kind, HeldKind::Block(_)) {
+                return if matches!(
+                    item.kind,
+                    HeldKind::Block(_) | HeldKind::RetainedBlock { .. }
+                ) {
                     "worn block has no cube sheet or head bone"
                 } else {
                     "no attachable armor binding for this identifier"
                 };
             };
             let category = self.effective_category(&item.identifier, binding.category);
-            if category != (EquipmentCategory::Armor { slot })
-                && category != EquipmentCategory::Elytra
+            if !matches!(
+                category,
+                EquipmentCategory::Armor { slot: admitted }
+                    | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                    if admitted == slot
+            ) && category != EquipmentCategory::Elytra
             {
                 return "attachable binding is not armor for this slot";
             }
@@ -75,7 +82,7 @@ impl EquipmentRuntime {
                 "no icon sprite for this identifier in the vanilla icon carrier"
             }
             HeldKind::Sprite => "icon sprite has no atlas placement or mesh",
-            HeldKind::Block(_) => "block item has no cube sheet",
+            HeldKind::Block(_) | HeldKind::RetainedBlock { .. } => "block item has no cube sheet",
             HeldKind::Other => "item has no drawable visual route",
         }
     }

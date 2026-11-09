@@ -7,8 +7,14 @@ use sha2::{Digest, Sha256};
 use super::PendingGeometry;
 
 #[cfg(test)]
+#[path = "native_bind_pose/feline_tests.rs"]
+mod feline_tests;
+#[cfg(test)]
 #[path = "native_bind_pose/fox_tests.rs"]
 mod fox_tests;
+#[cfg(test)]
+#[path = "native_bind_pose/villager_tests.rs"]
+mod villager_tests;
 
 const POLAR_BEAR_PATH: &str = "models/entity/polar_bear.geo.json";
 const POLAR_BEAR_GEOMETRY: &str = "geometry.polarbear";
@@ -16,6 +22,12 @@ const LLAMA_PATH: &str = "models/entity/llama.geo.json";
 const LLAMA_GEOMETRY: &str = "geometry.llama.v1.8";
 const FOX_PATH: &str = "models/entity/fox.geo.json";
 const FOX_GEOMETRY: &str = "geometry.fox";
+const CAT_PATH: &str = "models/entity/cat.geo.json";
+const CAT_GEOMETRY: &str = "geometry.cat";
+const OCELOT_PATH: &str = "models/entity/ocelot.geo.json";
+const OCELOT_GEOMETRY: &str = "geometry.ocelot.v1.8";
+const VILLAGER_PATH: &str = "models/entity/villager_v2.geo.json";
+const VILLAGER_GEOMETRY: &str = "geometry.villager_v2";
 // Canonical pinned sample source, not a blanket default for similarly named custom models.
 const SAMPLE_SHA256: [u8; 32] = [
     0x54, 0x11, 0xea, 0x78, 0xae, 0x01, 0xce, 0x1f, 0xa1, 0xbe, 0x30, 0xa5, 0x18, 0x59, 0xe5, 0x1e,
@@ -29,13 +41,61 @@ const FOX_SAMPLE_SHA256: [u8; 32] = [
     0x55, 0xfb, 0x6b, 0x80, 0xe3, 0x10, 0x64, 0xb2, 0x3c, 0x2a, 0xa6, 0x0e, 0xf2, 0x82, 0xb2, 0xa3,
     0x30, 0x70, 0xdd, 0xd7, 0xc2, 0xf5, 0x8f, 0x2d, 0xff, 0x68, 0x0e, 0x7e, 0x92, 0xaa, 0xaf, 0x57,
 ];
-// Polar bear and llama body cubes retain a +90-degree X bind independently of bone rotation.
+const CAT_SAMPLE_SHA256: [u8; 32] = [
+    0x87, 0xf9, 0x24, 0xf9, 0x93, 0x8b, 0xd0, 0x56, 0xed, 0x04, 0x1f, 0x0f, 0x4c, 0x7d, 0x32, 0x6c,
+    0xd7, 0x55, 0xc2, 0x6c, 0x59, 0xa3, 0xc1, 0x9f, 0x9b, 0x9e, 0x8c, 0x33, 0x86, 0x35, 0xee, 0xd9,
+];
+const OCELOT_SAMPLE_SHA256: [u8; 32] = [
+    0x4d, 0xc6, 0x52, 0xc9, 0xed, 0x62, 0x11, 0xb3, 0x8e, 0xd1, 0x61, 0x76, 0x1f, 0xc3, 0x88, 0xc2,
+    0xec, 0xee, 0x74, 0x6c, 0xe0, 0x7d, 0xee, 0x33, 0x5a, 0x4e, 0x11, 0x4f, 0xe5, 0x9e, 0x52, 0xda,
+];
+const VILLAGER_SAMPLE_SHA256: [u8; 32] = [
+    0x33, 0x27, 0x1d, 0xb5, 0xb8, 0x7d, 0x3b, 0xe5, 0x65, 0x6f, 0xad, 0x93, 0xd0, 0x8f, 0x41, 0x75,
+    0xbc, 0xa9, 0xaf, 0xc1, 0x69, 0x2e, 0x91, 0x88, 0x54, 0x45, 0xb0, 0xc8, 0x56, 0xb4, 0x6d, 0xcb,
+];
+/// Cube names and the X/Y/Z bind rotation each keeps.
+type CubeBinds = &'static [(&'static str, [f32; 3])];
+// Repaired body cubes retain a +90-degree X bind independently of bone rotation.
 const NATIVE_BODY_BIND_ROTATION: [f32; 3] = [90.0, 0.0, 0.0];
 // Adult fox cubes retain these binds; baby geometry has its own defaults.
 // See docs/reference/fox-rendering.md.
-const FOX_BINDS: &[(&str, [f32; 3])] = &[
+const FOX_BINDS: CubeBinds = &[
     ("body", NATIVE_BODY_BIND_ROTATION),
     ("tail", [80.0, 0.0, 0.0]),
+];
+const BODY_BINDS: CubeBinds = &[("body", NATIVE_BODY_BIND_ROTATION)];
+// The matching zombie-villager brim serializes this bind. Its use for the pinned
+// villager omission is provisional until the native villager default is verified.
+const VILLAGER_BINDS: CubeBinds = &[("brim", [-90.0, 0.0, 0.0])];
+// Adult cat and ocelot body and tail cubes lie along Z; the baby model has its own defaults.
+const FELINE_BINDS: CubeBinds = &[
+    ("body", NATIVE_BODY_BIND_ROTATION),
+    ("tail1", NATIVE_BODY_BIND_ROTATION),
+    ("tail2", NATIVE_BODY_BIND_ROTATION),
+];
+// Sample path, geometry, source digest and the retained cube binds.
+const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
+    (
+        POLAR_BEAR_PATH,
+        POLAR_BEAR_GEOMETRY,
+        SAMPLE_SHA256,
+        BODY_BINDS,
+    ),
+    (LLAMA_PATH, LLAMA_GEOMETRY, LLAMA_SAMPLE_SHA256, BODY_BINDS),
+    (FOX_PATH, FOX_GEOMETRY, FOX_SAMPLE_SHA256, FOX_BINDS),
+    (CAT_PATH, CAT_GEOMETRY, CAT_SAMPLE_SHA256, FELINE_BINDS),
+    (
+        OCELOT_PATH,
+        OCELOT_GEOMETRY,
+        OCELOT_SAMPLE_SHA256,
+        FELINE_BINDS,
+    ),
+    (
+        VILLAGER_PATH,
+        VILLAGER_GEOMETRY,
+        VILLAGER_SAMPLE_SHA256,
+        VILLAGER_BINDS,
+    ),
 ];
 
 pub(super) fn restore_sample_defaults(
@@ -43,11 +103,9 @@ pub(super) fn restore_sample_defaults(
     bytes: &[u8],
     geometries: &mut BTreeMap<(Box<str>, Box<str>), PendingGeometry>,
 ) {
-    let (geometry, expected) = match path {
-        POLAR_BEAR_PATH => (POLAR_BEAR_GEOMETRY, SAMPLE_SHA256),
-        LLAMA_PATH => (LLAMA_GEOMETRY, LLAMA_SAMPLE_SHA256),
-        FOX_PATH => (FOX_GEOMETRY, FOX_SAMPLE_SHA256),
-        _ => return,
+    let Some(&(_, geometry, expected, _)) = REPAIRS.iter().find(|(source, ..)| *source == path)
+    else {
+        return;
     };
     if <[u8; 32]>::from(Sha256::digest(bytes)) != expected {
         return;
@@ -60,13 +118,14 @@ fn restore_verified_geometry(
     path: &str,
     identifier: &str,
 ) {
-    let Some(geometry) = geometries.get_mut(&(identifier.into(), path.into())) else {
+    let Some(&(.., binds)) = REPAIRS
+        .iter()
+        .find(|(source, geometry, ..)| *source == path && *geometry == identifier)
+    else {
         return;
     };
-    let binds = if identifier == FOX_GEOMETRY {
-        FOX_BINDS
-    } else {
-        &[("body", NATIVE_BODY_BIND_ROTATION)]
+    let Some(geometry) = geometries.get_mut(&(identifier.into(), path.into())) else {
+        return;
     };
     for (name, rotation) in binds {
         if let Some(bone) = geometry
@@ -109,6 +168,7 @@ mod tests {
                 reset: None,
                 binding: None,
                 texture_meshes: Box::new([]),
+                poly_mesh: None,
                 cubes: Box::new([]),
             }]
             .into(),

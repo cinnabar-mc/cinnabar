@@ -6,7 +6,9 @@ use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
 use bevy::{
     camera::{MainPassResolutionOverride, primitives::Frustum},
     render::{
-        Extract, render_resource::TextureViewId, sync_world::RenderEntity,
+        Extract,
+        render_resource::{CachedRenderPipelineId, TextureViewId},
+        sync_world::RenderEntity,
         view::ViewDepthStencilTexture,
     },
 };
@@ -15,20 +17,34 @@ use crate::chunk::*;
 
 use super::{
     GpuCullFrame, GpuCullSubmission,
-    kernels::{CullKernels, CullStorage, HizPyramid, PyramidBindings},
+    kernels::{CullKernels, HizPyramid, PyramidBindings},
     model::{
         CullCamera, CullPhase, CullRecord, CullStream, CullViewInput, CullViewUniform, STREAM_COUNT,
     },
+    order::{DrawOrder, eye_sub_chunk},
     slots::{CullSlots, cull_record},
+    storage::CullStorage,
 };
-
-const MIN_CAPACITY: u32 = 1024;
 
 /// Render entities whose main-world chunk is not inherited-visible (the cave culler hides them).
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkHiddenEntities {
     pub(super) hidden: HashSet<Entity>,
     pub(super) changed: Vec<Entity>,
+    /// Moves whenever `hidden` changes; shader-pack draw lists rebuild only then.
+    revision: u64,
+}
+
+impl ChunkHiddenEntities {
+    /// Whether the cave culler hides render entity `entity`.
+    pub(in crate::chunk) fn contains(&self, entity: Entity) -> bool {
+        self.hidden.contains(&entity)
+    }
+
+    /// Moves whenever the hidden set changes.
+    pub(in crate::chunk) fn revision(&self) -> u64 {
+        self.revision
+    }
 }
 
 pub(super) struct PreparedPyramid {
@@ -53,11 +69,19 @@ pub(in crate::chunk) struct GpuCull {
     pub(super) kernels: CullKernels,
     pub(super) submission: GpuCullSubmission,
     storage: Option<CullStorage>,
+    pub(super) ready: bool,
+    failed: crate::gpu_allocation::FailedRequests<u32>,
     args: Option<Buffer>,
     draw_counts: Option<Buffer>,
     draw_offsets: Option<Buffer>,
     pub(super) table: CullSlots,
+    order: DrawOrder,
     pub(super) pyramid: Option<PreparedPyramid>,
+    pub(super) raster: Option<super::raster::RasterCull>,
+    pub(super) raster_enabled: bool,
+    pub(super) raster_orders: [Vec<u32>; 2],
+    pub(super) depth_pipelines: HashMap<CachedRenderPipelineId, CachedRenderPipelineId>,
+    pub(super) raster_viewport: [f32; 4],
     pub(super) bind_groups: Option<[wgpu::BindGroup; 2]>,
     bound_pyramid: Option<TextureViewId>,
     pub(super) prepared_view: Option<Entity>,
@@ -69,15 +93,28 @@ impl GpuCull {
             kernels: CullKernels::new(device.wgpu_device()),
             submission,
             storage: None,
+            ready: false,
+            failed: default(),
             args: None,
             draw_counts: None,
             draw_offsets: None,
             table: CullSlots::default(),
+            order: DrawOrder::default(),
             pyramid: None,
+            raster: None,
+            raster_enabled: false,
+            raster_orders: Default::default(),
+            depth_pipelines: Default::default(),
+            raster_viewport: [0.0; 4],
             bind_groups: None,
             bound_pyramid: None,
             prepared_view: None,
         }
+    }
+
+    /// Enables the experiment only after the adapter and developer override admit it.
+    pub(super) fn enable_raster(&mut self) {
+        self.raster_enabled = true;
     }
 
     pub(super) fn slot_count(&self) -> u32 {
@@ -95,6 +132,17 @@ impl GpuCull {
             draw_bounds: self.table.draw_bounds(),
             submission: self.submission,
         })
+    }
+
+    /// Samples rejection feedback without changing the visibility used for drawing.
+    pub(super) fn encode_feedback(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        feedback: &super::feedback::GpuCullFeedback,
+    ) {
+        if let Some(storage) = &self.storage {
+            feedback.encode(encoder, &storage.record_draws);
+        }
     }
 
     pub(super) fn clear_fixed_args(&self, encoder: &mut wgpu::CommandEncoder) {
@@ -121,6 +169,7 @@ pub(super) fn extract_hidden_chunks(
         };
         if changed {
             hidden.changed.push(entity);
+            hidden.revision += 1;
         }
     }
 }
@@ -133,11 +182,11 @@ pub(super) type CullViewComponents = (
     Option<&'static MainPassResolutionOverride>,
 );
 
+/// Publishes cull storage before queueing, so failure selects ordinary terrain draws.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn prepare_gpu_cull(
+pub(super) fn upload_gpu_cull(
     mut cull: ResMut<GpuCull>,
     mut hidden: ResMut<ChunkHiddenEntities>,
-    frame: Res<GpuCullFrame>,
     changed: Query<
         (Entity, &GpuChunkAllocation, Option<&ChunkRenderInstance>),
         Changed<GpuChunkAllocation>,
@@ -145,7 +194,6 @@ pub(super) fn prepare_gpu_cull(
     mut removed: RemovedComponents<GpuChunkAllocation>,
     mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     biome_tints: Res<ChunkBiomeTints>,
-    views: Query<CullViewComponents>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     profiler: Option<Res<RuntimeStageProfiler>>,
@@ -178,8 +226,26 @@ pub(super) fn prepare_gpu_cull(
         cull.table.refresh_entity(entity, &hidden.hidden);
     }
     cull.table.trim();
-    upload_records(cull, &device, &queue);
+    cull.ready = upload_records(cull, &device, &queue);
+}
 
+/// Prepares the selected view after queueing has confirmed usable cull storage.
+pub(super) fn prepare_gpu_cull(
+    mut cull: ResMut<GpuCull>,
+    frame: Res<GpuCullFrame>,
+    mut feedback: ResMut<super::feedback::GpuCullFeedback>,
+    views: Query<CullViewComponents>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
+) {
+    let _timer = profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::IndirectPreparation));
+    let cull = &mut *cull;
+    if !cull.ready {
+        return;
+    }
     let Some(view) = frame.view else {
         return;
     };
@@ -187,7 +253,50 @@ pub(super) fn prepare_gpu_cull(
         return;
     };
     let depth = sampleable_depth(depth, resolution_override);
-    prepare_pyramid(&mut cull.pyramid, &cull.kernels, &device, depth, *msaa);
+    let raster_depth = depth.filter(|depth| {
+        let size = depth.texture().size();
+        let vp = extracted.viewport;
+        cull.raster_enabled
+            && vp.z > 0
+            && vp.w > 0
+            && vp
+                .x
+                .checked_add(vp.z)
+                .is_some_and(|right| right <= size.width)
+            && vp
+                .y
+                .checked_add(vp.w)
+                .is_some_and(|bottom| bottom <= size.height)
+    });
+    if let Some(depth) = raster_depth {
+        let format = depth.texture().format();
+        if cull
+            .raster
+            .as_ref()
+            .is_none_or(|raster| raster.format != format || raster.samples != msaa.samples())
+        {
+            cull.raster =
+                crate::gpu_allocation::checked(&device, "terrain raster occlusion", 0, || {
+                    super::raster::RasterCull::new(
+                        device.wgpu_device(),
+                        cull.storage.as_ref().expect("records uploaded"),
+                        cull.kernels.workgroup,
+                        format,
+                        msaa.samples(),
+                    )
+                });
+        }
+    } else {
+        cull.raster = None;
+    }
+    cull.raster_viewport = extracted.viewport.as_vec4().to_array();
+    prepare_pyramid(
+        &mut cull.pyramid,
+        &cull.kernels,
+        &device,
+        depth.filter(|_| !cull.raster_enabled),
+        *msaa,
+    );
     let storage = cull.storage.as_ref().expect("records were uploaded");
     let hiz_mips = cull
         .pyramid
@@ -199,7 +308,21 @@ pub(super) fn prepare_gpu_cull(
         .map_or([1, 1], |prepared| prepared.pyramid.depth_size);
     let input = cull_view_input(extracted, frustum, depth_size, hiz_mips);
     for phase in CullPhase::ALL {
-        let uniform = CullViewUniform::new(&input, phase, cull.slot_count(), storage.capacity);
+        let mut uniform = CullViewUniform::new(
+            &input,
+            phase,
+            cull.slot_count(),
+            storage.capacity,
+            cull.kernels.workgroup,
+        );
+        if cull.raster_enabled {
+            uniform.depth[3] = if cull.raster.is_some() {
+                super::model::OCCLUSION_RASTER
+            } else {
+                super::model::OCCLUSION_ORDERED_FALLBACK
+            };
+            uniform.order[2] = cull.raster_orders[0].len() as u32;
+        }
         storage.write_uniform(&queue, phase, &uniform);
     }
     let pyramid_id = cull.pyramid.as_ref().map(|prepared| prepared.depth);
@@ -211,45 +334,100 @@ pub(super) fn prepare_gpu_cull(
         ));
         cull.bound_pyramid = pyramid_id;
     }
+    if cull.raster_enabled {
+        cull.order
+            .set_visible_prefix(&cull.raster_orders[1], cull.table.records().len());
+        for (index, order) in cull.raster_orders.iter().enumerate() {
+            storage.write_stream_order(&queue, index as u32, 0, order);
+        }
+    } else {
+        cull.order.update(
+            cull.table.records(),
+            eye_sub_chunk(extracted.world_from_view.translation()),
+        );
+        if let Some((first, slots)) = cull.order.take_stale() {
+            storage.write_order(&queue, first, slots);
+        }
+    }
     cull.prepared_view = Some(view.entity);
+    let work = feedback
+        .calibrated()
+        .then(|| super::work_admission::SubmittedWork {
+            records: cull.table.records(),
+            order: cull.order.slots(),
+            camera: input.camera,
+            index_counts: input.index_counts,
+        });
+    feedback.prepare(
+        &device,
+        view.entity,
+        cull.slot_count(),
+        &storage.record_draws,
+        work,
+    );
 }
 
 /// Grows storage when the slot watermark passes it, then writes dirty records and bits.
-fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue) {
+fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue) -> bool {
     let slots = cull.slot_count();
     if cull
         .storage
         .as_ref()
         .is_none_or(|storage| storage.capacity < slots)
     {
-        let capacity = slots.max(MIN_CAPACITY).next_power_of_two();
-        let storage = CullStorage::new(device.wgpu_device(), capacity, false);
+        let Some(capacity) = CullStorage::capacity(&device.limits(), slots) else {
+            return false;
+        };
+        let Some(storage) = cull.failed.attempt(Entity::PLACEHOLDER, capacity, || {
+            crate::gpu_allocation::checked(
+                device,
+                "terrain cull storage",
+                super::model::draw_offset_bytes(capacity),
+                || CullStorage::new(device.wgpu_device(), capacity, false),
+            )
+        }) else {
+            return false;
+        };
         cull.args = Some(Buffer::from(storage.args.clone()));
         cull.draw_counts = Some(Buffer::from(storage.draw_counts.clone()));
         cull.draw_offsets = Some(Buffer::from(storage.draw_offsets.clone()));
         cull.storage = Some(storage);
         cull.bind_groups = None;
+        cull.raster = None;
         cull.table.mark_all_dirty();
+        cull.order.mark_stale();
     }
     let storage = cull.storage.as_ref().expect("storage was just ensured");
-    write_dirty_records(&mut cull.table, queue, &storage.records);
-    if cull.table.take_enabled_dirty() {
-        let enabled = cull.table.enabled();
-        let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
-        if words != 0 {
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!(
-                "terrain.cull_enabled_write",
-                bytes = words * std::mem::size_of::<u32>()
-            )
-            .entered();
-            queue.profiled_write_buffer(
-                &storage.enabled,
-                0,
-                bytemuck::cast_slice(&enabled[..words]),
-            );
-        }
+    let uploaded = crate::gpu_allocation::checked(
+        device,
+        "terrain cull upload",
+        storage.records.size(),
+        || {
+            write_dirty_records(&mut cull.table, queue, &storage.records);
+            if cull.table.take_enabled_dirty() {
+                let enabled = cull.table.enabled();
+                let words = enabled.len().min((storage.capacity as usize).div_ceil(32));
+                if words != 0 {
+                    #[cfg(feature = "tracy")]
+                    let _span = bevy::log::info_span!(
+                        "terrain.cull_enabled_write",
+                        bytes = words * std::mem::size_of::<u32>()
+                    )
+                    .entered();
+                    queue.profiled_write_buffer(
+                        &storage.enabled,
+                        0,
+                        bytemuck::cast_slice(&enabled[..words]),
+                    );
+                }
+            }
+        },
+    )
+    .is_some();
+    if !uploaded {
+        cull.table.mark_all_dirty();
     }
+    uploaded
 }
 
 /// The view's depth when a pyramid can seed from it at full resolution.
@@ -307,6 +485,16 @@ pub(super) fn prepare_pyramid(
     };
     let size = depth.texture().size();
     let depth_size = [size.width, size.height];
+    let limits = device.limits();
+    if depth_size.iter().any(|&side| {
+        side.checked_next_power_of_two()
+            .is_none_or(|rounded| rounded / 2 > limits.max_texture_dimension_2d)
+            || side.div_ceil(2).div_ceil(super::model::PYRAMID_WORKGROUP)
+                > limits.max_compute_workgroups_per_dimension
+    }) {
+        *prepared = None;
+        return;
+    }
     let view = crate::scene_sampling::view_depth(depth);
     if prepared.as_ref().is_some_and(|prepared| {
         prepared.depth == view.id() && prepared.pyramid.depth_size == depth_size
@@ -317,7 +505,17 @@ pub(super) fn prepare_pyramid(
         .take()
         .map(|prepared| prepared.pyramid)
         .filter(|pyramid| pyramid.depth_size == depth_size)
-        .unwrap_or_else(|| HizPyramid::new(device.wgpu_device(), depth_size));
+        .or_else(|| {
+            crate::gpu_allocation::checked(
+                device,
+                "terrain hi-z pyramid",
+                u64::from(size.width) * u64::from(size.height) * 4,
+                || HizPyramid::new(device.wgpu_device(), depth_size),
+            )
+        });
+    let Some(pyramid) = pyramid else {
+        return;
+    };
     let bindings =
         kernels.pyramid_bindings(device.wgpu_device(), view, msaa.samples() > 1, &pyramid);
     *prepared = Some(PreparedPyramid {
@@ -352,3 +550,7 @@ pub(super) fn cull_view_input(
         }),
     }
 }
+
+#[cfg(test)]
+#[path = "allocation_tests.rs"]
+mod allocation_tests;

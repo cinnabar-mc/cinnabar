@@ -3,6 +3,7 @@
 //! source is skipped and counted, and items and equipment are not compiled.
 
 use super::*;
+use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 
 mod prepared;
 use prepared::{PreparedFile, Skip};
@@ -50,6 +51,8 @@ pub struct EntityPackSkips {
     pub over_budget: u32,
     /// Files dropped because the pack failed to compile with them and succeeded without.
     pub isolated: u32,
+    /// Attachables whose description could not be read into a binding.
+    pub unusable_attachables: u32,
 }
 
 /// A pack's entity catalog. Symbols a pack shares with vanilla resolve as
@@ -67,7 +70,7 @@ pub struct EntityPackCompilation {
 }
 
 /// Whether a pack file feeds the entity catalog: definition JSON, geometry anywhere under
-/// `models/`, and rasters anywhere under `textures/`.
+/// `models/`, and pack-relative rasters selected by the collector.
 fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
@@ -84,14 +87,15 @@ fn in_families(path: &str) -> bool {
         ]
         .iter()
         .any(|prefix| path.starts_with(prefix)))
-        || (path.starts_with("textures/") && (raster || (json && path.contains("/entity/"))))
+        || raster
+        || (path.starts_with("textures/") && json && path.contains("/entity/"))
         || material
 }
 
 /// Geometry is keyed by identifier, so a file outside `models/entity/` is filed under it.
 fn canonical_path(path: Box<str>) -> Box<str> {
     match path.strip_prefix("models/") {
-        Some(rest) if !path.starts_with("models/entity/") => {
+        Some(rest) if path.ends_with(".json") && !path.starts_with("models/entity/") => {
             format!("models/entity/_pack/{rest}").into()
         }
         _ => path,
@@ -155,7 +159,7 @@ impl PackSource {
 /// Reserve authored and canonical paths before assigning short keys to retained geometry layers.
 fn select_sources(files: Vec<(Box<str>, Vec<u8>)>) -> Vec<PackSource> {
     let mut selected = files
-        .into_iter()
+        .into_par_iter()
         .filter(|(path, _)| in_families(path))
         .map(|(path, bytes)| PackSource {
             path: canonical_path(path.clone()),
@@ -280,33 +284,54 @@ fn compile_selected(
     let mut symbols = BTreeMap::new();
     let mut geometries = BTreeMap::new();
     let mut total = 0usize;
-    for (index, source) in selected.iter_mut().enumerate() {
+    let batch_size = rayon::current_num_threads().max(1);
+    for (batch, chunk) in selected.chunks_mut(batch_size).enumerate() {
         if cancelled() {
             return None;
         }
-        if omit == Some(index) {
-            continue;
-        }
-        let remaining = SourceBudget {
-            count: budget.count - sources.len(),
-            bytes: budget.bytes - total,
-        };
-        let prepared = match source.parsed(remaining) {
-            Ok(prepared) => prepared.clone(),
-            Err(reason) => {
-                match reason {
-                    Skip::Unparsable => skipped.unparsable += 1,
-                    Skip::Oversized => skipped.oversized += 1,
-                    Skip::OverBudget => skipped.over_budget += 1,
-                }
+        prepared::prepare_batch(
+            chunk,
+            SourceBudget {
+                count: budget.count - sources.len(),
+                bytes: budget.bytes - total,
+            },
+        );
+        for (offset, source) in chunk.iter_mut().enumerate() {
+            let index = batch * batch_size + offset;
+            if cancelled() {
+                return None;
+            }
+            if omit == Some(index) {
                 continue;
             }
-        };
-        total += prepared.bytes.len();
-        symbols.extend(prepared.symbols);
-        geometries.extend(prepared.geometries);
-        sources.push(prepared.record);
-        payloads.insert(source.source.path.clone(), prepared.bytes);
+            let remaining = SourceBudget {
+                count: budget.count - sources.len(),
+                bytes: budget.bytes - total,
+            };
+            #[cfg(test)]
+            let was_unprepared = source.products.is_none();
+            let result = source.parsed(remaining).cloned();
+            #[cfg(test)]
+            if was_unprepared && source.products.is_some() {
+                SOURCE_PARSES.update(|count| count + 1);
+            }
+            let prepared = match result {
+                Ok(prepared) => prepared,
+                Err(reason) => {
+                    match reason {
+                        Skip::Unparsable => skipped.unparsable += 1,
+                        Skip::Oversized => skipped.oversized += 1,
+                        Skip::OverBudget => skipped.over_budget += 1,
+                    }
+                    continue;
+                }
+            };
+            total += prepared.bytes.len();
+            symbols.extend(prepared.symbols);
+            geometries.extend(prepared.geometries);
+            sources.push(prepared.record);
+            payloads.insert(source.source.path.clone(), prepared.bytes);
+        }
     }
     if cancelled() {
         return None;
@@ -314,7 +339,6 @@ fn compile_selected(
     // With no budget skips, omission only removes the file's own entries. Otherwise
     // it can admit a larger file that displaces several later sources.
     let excess_symbols = symbols.len().saturating_sub(MAX_ENTITY_ASSET_SYMBOLS);
-    let excess_geometries = geometries.len().saturating_sub(MAX_ENTITY_GEOMETRIES);
     *can_isolate = skipped.over_budget > 0
         || selected
             .iter()
@@ -324,13 +348,40 @@ fn compile_selected(
                     .products
                     .as_ref()
                     .and_then(Option::as_ref)
-                    .is_some_and(|parsed| {
-                        parsed.symbols.len() >= excess_symbols
-                            && parsed.geometries.len() >= excess_geometries
-                    })
+                    .is_some_and(|parsed| parsed.symbols.len() >= excess_symbols)
             });
     let remaining_budget = (budget.count - sources.len(), budget.bytes - total);
-    if let Err(error) = super::painting::complete_bindings(
+    let painting = match super::painting::complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        Some(remaining_budget),
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return Some(Err(error)),
+    };
+    let remaining_budget = (
+        budget.count.saturating_sub(sources.len()),
+        remaining_budget.1.saturating_sub(painting),
+    );
+    let boat = match super::native_boat::complete_bindings(
+        Path::new(""),
+        &mut sources,
+        &mut payloads,
+        &mut symbols,
+        &mut geometries,
+        Some(remaining_budget),
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => return Some(Err(error)),
+    };
+    let remaining_budget = (
+        budget.count.saturating_sub(sources.len()),
+        remaining_budget.1.saturating_sub(boat),
+    );
+    if let Err(error) = super::native_thrown_trident::complete_bindings(
         Path::new(""),
         &mut sources,
         &mut payloads,
@@ -340,14 +391,20 @@ fn compile_selected(
     ) {
         return Some(Err(error));
     }
-    // Authored attachables and texture-only artwork each make a pack worth retaining.
+    // Authored attachables, block-entity models and texture-only artwork retain a pack.
     let has_attachables = sources
         .iter()
         .any(|source| source.path.starts_with("attachables/"));
     let has_artwork = sources
         .iter()
         .any(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
-    if !has_attachables
+    let has_chalkboards = geometries.values().any(|geometry| {
+        assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL
+            .iter()
+            .any(|size| geometry.identifier.as_ref() == size.geometry())
+    });
+    if !has_chalkboards
+        && !has_attachables
         && !has_artwork
         && !symbols
             .keys()
@@ -375,7 +432,10 @@ fn compile_selected(
                 assets: compilation.assets,
                 reference_outcomes: compilation.reference_outcomes,
                 equipment_bindings: compilation.equipment_bindings,
-                skipped,
+                skipped: EntityPackSkips {
+                    unusable_attachables: compilation.unusable_attachables,
+                    ..skipped
+                },
                 payloads,
             })
         }),
@@ -388,6 +448,7 @@ mod tests {
     use serde_json::json;
 
     mod admission;
+    mod parallel;
     mod preparation;
 
     fn file(path: &str, text: &str) -> (Box<str>, Vec<u8>) {
@@ -552,16 +613,129 @@ mod tests {
     }
 
     #[test]
+    fn server_entity_poly_mesh_survives_compilation_and_the_carrier() {
+        let compiled = compile_synthetic_geometry(json!([{"name":"root","poly_mesh":{
+            "normalized_uvs":true,
+            "positions":[[-8,0,0],[8,0,0],[8,16,0],[-8,16,0]],
+            "normals":[[0,0,-1]],
+            "uvs":[[0,0],[1,0],[1,1],[0,1]],
+            "polys":[[[0,0,0],[1,0,1],[2,0,2],[3,0,3]],[[0,0,0],[99,0,1],[2,0,2]]]
+        }}]));
+        assert_eq!(compiled.skipped.unparsable, 0);
+        let mesh = compiled.assets.geometries[0].bones[0]
+            .poly_mesh
+            .as_deref()
+            .unwrap();
+        assert_eq!(mesh.quads.len(), 1);
+        assert!(mesh.triangles.is_empty());
+        let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+        let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
+        assert_eq!(
+            runtime.geometries()[0].bones[0].poly_mesh.as_deref(),
+            Some(mesh)
+        );
+    }
+
+    #[test]
     fn family_filter_matches_directory_and_extension() {
         assert!(in_families("entity/a.json"));
         assert!(in_families("textures/entity/a/b.png"));
         assert!(in_families("textures/cc/buddy/a.buddy.png"));
         assert!(in_families("models/mobs/a.geo.json"));
-        assert!(!in_families("entity/a.png"));
+        assert!(in_families("entity/a.png"));
+        assert!(in_families("artwork/ui/a.tga"));
+        assert_eq!(
+            canonical_path("models/ui/a.png".into()).as_ref(),
+            "models/ui/a.png"
+        );
+        assert!(!in_families("artwork/ui/a.jpg"));
         assert!(!in_families("ui/a.json"));
         assert_eq!(
             canonical_path("models/mobs/a.geo.json".into()).as_ref(),
             "models/entity/_pack/mobs/a.geo.json"
+        );
+    }
+
+    /// A player's skin replaces its default model at runtime, so a clip naming a bone that
+    /// model lacks stays bound by name for the skin, on every geometry the player can draw;
+    /// other entities still skip such bones.
+    #[test]
+    fn player_clips_keep_bones_their_default_model_lacks_for_the_skin() {
+        let entity = |identifier: &str, short: &str| {
+            json!({"format_version":"1.10.0","minecraft:client_entity":{"description":{
+                "identifier": identifier,
+                "materials":{"default":"entity_alphatest"},
+                "textures":{"default":"textures/entity/steve"},
+                "geometry":{"default": format!("geometry.{short}"), "alt": format!("geometry.{short}_alt")},
+                "animations":{"tail": format!("animation.{short}.tail")},
+                "scripts":{"animate":["tail"]},
+                "render_controllers":["controller.render.tail"]}}})
+            .to_string()
+        };
+        let geometry = |short: &str| {
+            json!({"format_version":"1.12.0","minecraft:geometry":[{"description":{
+                "identifier": format!("geometry.{short}"),"texture_width":64,"texture_height":64},
+                "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[0,0]}]}]}]})
+            .to_string()
+        };
+        let animation = |short: &str| {
+            json!({"format_version":"1.8.0","animations":{format!("animation.{short}.tail"):{
+                "loop":true,"bones":{"body":{"rotation":[0,10,0]},"Tail":{"rotation":[0,"q.life_time",0]}}}}})
+            .to_string()
+        };
+        let mut files = vec![file(
+            "render_controllers/tail.json",
+            r#"{"format_version":"1.8.0","render_controllers":{"controller.render.tail":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#,
+        )];
+        for (identifier, short) in [("minecraft:player", "player"), ("test:mob", "mob")] {
+            files.push(file(
+                &format!("entity/{short}.json"),
+                &entity(identifier, short),
+            ));
+            files.push(file(
+                &format!("models/entity/{short}.geo.json"),
+                &geometry(short),
+            ));
+            files.push(file(
+                &format!("models/entity/{short}_alt.geo.json"),
+                &geometry(&format!("{short}_alt")),
+            ));
+            files.push(file(&format!("animations/{short}.json"), &animation(short)));
+        }
+        let compiled = compile_entity_pack(files).unwrap().unwrap().assets;
+        // Each clip also keeps a name-bound copy for server requests; the rig plays the
+        // copy compiled for its model, whose own bones are bound by index.
+        let model_clip = |clip_identifier: &str| -> Vec<Vec<Option<Box<str>>>> {
+            let clips: Vec<Vec<Option<Box<str>>>> = compiled
+                .animation_clips
+                .iter()
+                .filter(|clip| {
+                    compiled.symbols[clip.symbol as usize].identifier.as_ref() == clip_identifier
+                })
+                .map(|clip| {
+                    compiled.animation_channels[clip.first_channel as usize..]
+                        [..clip.channel_count as usize]
+                        .iter()
+                        .map(|channel| channel.bone_name.clone())
+                        .collect()
+                })
+                .filter(|channels: &Vec<Option<Box<str>>>| channels.contains(&None))
+                .collect();
+            clips
+        };
+        // The player's default and alternate models both keep the bone; a skin replaces either.
+        let player = model_clip("animation.player.tail");
+        assert_eq!(player.len(), 2, "{player:?}");
+        assert!(
+            player
+                .iter()
+                .all(|clip| clip == &[Some("tail".into()), None]),
+            "{player:?}"
+        );
+        let mob = model_clip("animation.mob.tail");
+        assert!(
+            !mob.is_empty() && mob.iter().all(|clip| clip == &[None]),
+            "other entities skip the absent bone: {mob:?}"
         );
     }
 }

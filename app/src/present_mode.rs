@@ -1,5 +1,5 @@
 use bevy::{
-    prelude::{Entity, Query, Res, ResMut, Resource, With},
+    prelude::{DetectChangesMut, Entity, Query, Res, ResMut, Resource, With},
     window::{PresentMode, PrimaryWindow, Window},
 };
 use render::{PresentModePolicy, PresentModePreference, PresentModeRemedy, window_present_mode};
@@ -44,7 +44,7 @@ impl PresentModeRuntime {
         } else if force_vsync || attributable_evidence {
             PresentModePreference::Vsync
         } else {
-            PresentModePreference::Auto
+            vsync_preference(render_api::VsyncMode::DEFAULT)
         };
         Self {
             policy: PresentModePolicy::new(preference),
@@ -81,7 +81,8 @@ impl PresentModeRuntime {
         self.policy.clone()
     }
 
-    /// Returns the session VSync state a launch flag or evidence run pins, if any.
+    /// Returns the session VSync state a launch flag or evidence run pins, if any; `--no-vsync`
+    /// pins the same Immediate-first presentation as the VSync Off setting.
     #[must_use]
     pub(crate) fn vsync_override(&self) -> Option<bool> {
         self.locked
@@ -136,6 +137,7 @@ impl PresentModeRuntime {
 /// Applies the VSync setting and keeps the window on the policy's present mode.
 pub(crate) fn apply_present_mode(
     settings: Res<RuntimeSettings>,
+    display: Option<Res<DisplayRefresh>>,
     mut runtime: ResMut<PresentModeRuntime>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
 ) {
@@ -145,12 +147,7 @@ pub(crate) fn apply_present_mode(
     let (generation, user_settings) = settings.user_settings_update();
     if generation > runtime.observed_settings_generation {
         if !runtime.locked {
-            // VSync on stays automatic so the driver remedy can still apply.
-            let preference = if user_settings.video.vsync {
-                PresentModePreference::Auto
-            } else {
-                PresentModePreference::NoVsync
-            };
+            let preference = vsync_preference(user_settings.video.vsync);
             if preference != runtime.policy.preference() {
                 runtime.remedy_adopted = None;
             }
@@ -171,10 +168,23 @@ pub(crate) fn apply_present_mode(
         runtime.remedy_adopted = Some(entity);
     }
     let selected = runtime.selected_mode();
+    if let Some(display) = display {
+        runtime.policy.publish_display_timing(
+            display
+                .0
+                .with_vrr_preference(settings.user_settings_update().1.video.vrr),
+        );
+    }
     runtime
         .policy
         .publish_selection(runtime.policy.capabilities().map(|_| selected));
-    set_present_mode_if_changed(&mut window, window_present_mode(selected));
+    if set_present_mode_if_changed(
+        window.bypass_change_detection(),
+        window_present_mode(selected),
+    ) {
+        window.set_changed();
+    }
+    // Fixed queue depth: adaptive depth changes reconfigured the surface and flickered on Windows.
     let latency = Some(render::frame_latency_for_vsync(
         runtime.intent() == PresentationIntent::Synchronized,
     ));
@@ -183,6 +193,16 @@ pub(crate) fn apply_present_mode(
     }
 }
 
+/// The preference for a saved VSync choice; On stays automatic so the driver remedy can apply.
+const fn vsync_preference(mode: render_api::VsyncMode) -> PresentModePreference {
+    match mode {
+        render_api::VsyncMode::On => PresentModePreference::Auto,
+        render_api::VsyncMode::Off => PresentModePreference::NoVsync,
+        render_api::VsyncMode::OffNoTearing => PresentModePreference::TearFree,
+    }
+}
+
+/// Reports a real mode change so the caller only notifies window consumers when needed.
 fn set_present_mode_if_changed(window: &mut Window, present_mode: PresentMode) -> bool {
     if window.present_mode == present_mode {
         false

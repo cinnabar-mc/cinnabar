@@ -23,8 +23,9 @@ pub struct BlockTextureSource {
     pub name: Box<str>,
     pub binding_name: Box<str>,
     pub source_faces: [u8; 6],
-    /// Quarter-turn UV rotation for each world face when the binding is per-face.
-    pub source_rotations: [bool; 6],
+    /// Packed UV rotation code (`MATERIAL_FLAG_UV_ROTATION_MASK`) for each world face when
+    /// the binding is per-face.
+    pub source_rotations: [u8; 6],
     /// Both world faces and carried art may be rebound only for admitted full cubes.
     pub cube_binding_eligible: bool,
     pub carried_keys: [Option<Box<str>>; 6],
@@ -86,6 +87,30 @@ impl super::MaterialKeys {
         self.material_sources
             .iter()
             .map(|(&id, source)| (id, source))
+    }
+
+    /// Records the pixel size of each source image, keyed by its `raster` filename.
+    #[must_use]
+    pub fn with_raster_sizes(
+        mut self,
+        sizes: impl IntoIterator<Item = (Box<str>, [u32; 2])>,
+    ) -> Self {
+        self.raster_sizes = sizes.into_iter().collect();
+        self
+    }
+
+    /// Pixel width and height of a source image, by its `raster` filename.
+    pub fn raster_size(&self, raster: &str) -> Option<[u32; 2]> {
+        self.raster_sizes.get(raster).copied()
+    }
+
+    /// Materials whose carrier layer holds their source image unchanged: an untinted image of
+    /// exactly one tile, which compilation neither downsamples nor reduces to an animation frame.
+    pub fn exact_carrier_rasters(&self) -> impl Iterator<Item = (u32, &MaterialTextureSource)> {
+        self.material_sources().filter(|(_, source)| {
+            source.baked_tint.is_none()
+                && self.raster_size(&source.raster) == Some([crate::TILE_SIZE; 2])
+        })
     }
 
     /// Per-block binding identities, in the carrier's sequential visual order.

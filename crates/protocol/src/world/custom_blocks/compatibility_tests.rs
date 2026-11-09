@@ -1,7 +1,7 @@
 use super::{CustomSelection, Definition, block_name_sort_key};
 
 fn parse_definition(bytes: &[u8]) -> Option<Definition> {
-    super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
+    super::parse_definition(crate::nbt_tree::read_root(bytes)?.root())
 }
 
 fn string(value: &str) -> Vec<u8> {
@@ -17,7 +17,7 @@ fn named(tag: u8, name: &str) -> Vec<u8> {
 }
 
 #[test]
-fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
+fn nameless_properties_take_the_empty_state_name() {
     for with_named_property in [false, true] {
         let mut nbt = named(10, "");
         nbt.extend(named(9, "properties"));
@@ -42,13 +42,11 @@ fn singleton_unnamed_properties_do_not_form_partial_state_identities() {
         assert_eq!(block.state_count, 1);
         assert_eq!(
             block.visual.state_axes.len(),
-            usize::from(with_named_property)
+            1 + usize::from(with_named_property)
         );
+        assert_eq!(block.visual.state_axes.last().unwrap().name.as_ref(), "");
         assert!(block.collides);
-        assert!(
-            block.hashed_states().is_empty(),
-            "an unnamed singleton cannot create an identity; named_neighbor={with_named_property}"
-        );
+        assert_eq!(block.hashed_states().len(), 1);
     }
 }
 
@@ -89,7 +87,9 @@ fn placement_trait_and_enum_properties_multiply_states() {
     let mut nbt = named(10, "");
     nbt.extend(named(9, "properties"));
     nbt.extend([10, 4]);
-    for values in [2_u8, 3] {
+    for (name, values) in [("test:two", 2_u8), ("test:three", 3)] {
+        nbt.extend(named(8, "name"));
+        nbt.extend(string(name));
         nbt.extend(named(9, "enum"));
         nbt.extend([8, values * 2]);
         for index in 0..values {
@@ -111,8 +111,12 @@ fn placement_trait_and_enum_properties_multiply_states() {
         (2 * 3 * 4, false)
     );
     let axes = &definition.visual.state_axes;
-    assert_eq!(axes.len(), 1, "unnamed properties carry no axis");
-    assert_eq!(axes[0].name.as_ref(), "minecraft:cardinal_direction");
+    let names: Vec<_> = axes.iter().map(|axis| axis.name.as_ref()).collect();
+    assert_eq!(
+        names,
+        ["minecraft:cardinal_direction", "test:two", "test:three"],
+        "trait states lead the properties"
+    );
     assert_eq!(
         axes[0].values[0],
         super::CustomStateValue::String("south".into())
@@ -166,7 +170,7 @@ fn network_legacy_light_filter_retains_transparent_plant_dampening() {
 
 #[test]
 fn network_material_lighting_choices_remain_distinct() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let components = |ao, dimming| {
         Nbt::Compound(vec![(
             "minecraft:material_instances".into(),
@@ -183,8 +187,9 @@ fn network_material_lighting_choices_remain_distinct() {
             )]),
         )])
     };
-    let choices = [(0, 0), (0, 1), (1, 0), (1, 1)]
-        .map(|(ao, dimming)| super::visual_components(Some(&components(ao, dimming))).materials);
+    let choices = [(0, 0), (0, 1), (1, 0), (1, 1)].map(|(ao, dimming)| {
+        super::visual_components(Some(components(ao, dimming).view())).materials
+    });
     for (index, first) in choices.iter().enumerate() {
         for second in &choices[index + 1..] {
             assert_ne!(first, second);
@@ -194,7 +199,7 @@ fn network_material_lighting_choices_remain_distinct() {
 
 #[test]
 fn scalar_light_components_remain_lenient_for_odd_values() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let components = |value| Nbt::Compound(vec![("minecraft:light_dampening".into(), value)]);
     for (value, expected) in [
         (Nbt::Int(0), Some(0)),
@@ -203,7 +208,7 @@ fn scalar_light_components_remain_lenient_for_odd_values() {
         (Nbt::Float(f64::NAN), None),
         (Nbt::String("unknown".into()), None),
     ] {
-        let visual = super::visual_components(Some(&components(value)));
+        let visual = super::visual_components(Some(components(value).view()));
         assert_eq!(visual.light_dampening, expected);
     }
 }
@@ -256,7 +261,7 @@ fn visual_components_and_permutations_are_retained() {
 // Origin is bottom-centre in sixteenths; a full 16-cube maps to the unit block.
 #[test]
 fn collision_box_maps_sixteenths_to_block_units() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let list = |values: [f64; 3]| Nbt::List(values.map(Nbt::Float).into());
     let boxed = |origin, size| {
         Nbt::Compound(vec![
@@ -264,25 +269,26 @@ fn collision_box_maps_sixteenths_to_block_units() {
             ("size".to_owned(), list(size)),
         ])
     };
-    let full = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0])).unwrap();
+    let full = super::box_component(boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0]).view()).unwrap();
     assert_eq!((full.min, full.max), ([0.0; 3], [1.0; 3]));
-    let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
+    let slab = super::box_component(boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0]).view()).unwrap();
     assert_eq!(slab.max, [1.0, 0.5, 1.0]);
-    let empty = super::box_component(&boxed([0.0; 3], [0.0; 3])).unwrap();
+    let empty = super::box_component(boxed([0.0; 3], [0.0; 3]).view()).unwrap();
     assert_eq!(empty.min, empty.max);
 }
 
 #[test]
 fn review_custom_box_rejects_nonfinite_narrowed_and_computed_coordinates() {
-    use super::{Nbt, box_component};
+    use super::box_component;
+    use crate::nbt_tree::test_tree::Nbt;
     let boxed = |origin: [f64; 3], size: [f64; 3]| {
         Nbt::Compound(vec![
             ("origin".into(), Nbt::List(origin.map(Nbt::Float).into())),
             ("size".into(), Nbt::List(size.map(Nbt::Float).into())),
         ])
     };
-    assert!(box_component(&boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0])).is_none());
-    assert!(box_component(&boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0])).is_none());
+    assert!(box_component(boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0]).view()).is_none());
+    assert!(box_component(boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0]).view()).is_none());
 }
 
 // A disabled selection box makes the block untargetable; a box overrides the default.
@@ -375,7 +381,7 @@ fn compound_traits_with_enabled_state_lists_preserve_state_identities() {
 
 #[test]
 fn inventory_visual_descriptions_stay_separate_from_placed_components() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let geometry =
         |name: &str| Nbt::Compound(vec![("identifier".into(), Nbt::String(name.into()))]);
     let material = Nbt::Compound(vec![(
@@ -398,7 +404,7 @@ fn inventory_visual_descriptions_stay_separate_from_placed_components() {
             ),
         ]),
     )]);
-    let parsed = super::parse_definition(&root).unwrap();
+    let parsed = super::parse_definition(root.view()).unwrap();
     assert_eq!(
         parsed.visual.base.geometry.as_deref(),
         Some("geometry.placed")

@@ -7,6 +7,8 @@ const MAX_FLEX_JOINTS: usize = 512;
 
 #[derive(Default, Deserialize)]
 pub(super) struct Animation {
+    pub companion: Option<super::companion::Definition>,
+    pub cloth: Option<super::cloth::Definition>,
     pub wind: Option<Wind>,
     #[serde(default)]
     pub animations: BTreeMap<String, clip_playback::Definition>,

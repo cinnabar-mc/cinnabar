@@ -92,6 +92,25 @@ impl Outcome {
     }
 }
 
+/// Refreshes only the synthetic current entry, preserving catalog skins and cape choices.
+fn refresh_default_entries(view: &mut DressingRoomView, default: &render_api::StandardSkin) {
+    if !view
+        .skins
+        .iter()
+        .any(|entry| entry.id == "current" && entry.skin.rgba8 != default.rgba8)
+    {
+        return;
+    }
+    for entry in Arc::make_mut(&mut view.skins)
+        .iter_mut()
+        .filter(|entry| entry.id == "current")
+    {
+        entry.skin.rgba8 = default.rgba8.clone();
+        entry.skin.width = default.width;
+        entry.skin.height = default.height;
+    }
+}
+
 /// Returns the non-image selection state that must reach login and PlayerSkin together.
 fn selection_key(
     entry: &launcher::dressing_room::DressingRoomSkin,
@@ -207,15 +226,19 @@ fn apply_job(layout: &InstallLayout, view: &mut DressingRoomView, job: Job) -> R
     match job {
         Job::Select(index) => catalog::select(layout, view, index),
         Job::Model(model) => catalog::set_model(layout, view, model),
-        Job::Import(None) => picker::pick(false)
-            .and_then(|path| path.map_or(Ok(()), |path| catalog::import(layout, view, &path))),
+        Job::Import(None) => picker::pick(false).and_then(|path| {
+            path.map_or(Ok(()), |path| catalog::import(layout, view, path.as_ref()))
+        }),
         Job::Import(Some(path)) => catalog::import(layout, view, &path),
         Job::Rename(index, name) => catalog::rename(layout, view, index, &name),
         Job::Delete(index) => catalog::delete(layout, view, index),
         Job::SelectCape(index) => catalog::select_cape(layout, view, index),
         Job::SelectCosmetic(hat) => catalog::select_cosmetic(layout, view, hat),
-        Job::ImportCape(None) => picker::pick(true)
-            .and_then(|path| path.map_or(Ok(()), |path| catalog::import_cape(layout, view, &path))),
+        Job::ImportCape(None) => picker::pick(true).and_then(|path| {
+            path.map_or(Ok(()), |path| {
+                catalog::import_cape(layout, view, path.as_ref())
+            })
+        }),
         Job::ImportCape(Some(path)) => catalog::import_cape(layout, view, &path),
         Job::RenameCape(index, name) => catalog::rename_cape(layout, view, index, &name),
         Job::DeleteCape(index) => catalog::delete_cape(layout, view, index),
@@ -227,6 +250,20 @@ type SkinPacketSender<'a> =
     dyn Fn(u64, protocol::Packet) -> Result<(), client_session::PacketSendError> + 'a;
 
 impl MenuRuntime {
+    /// Replaces the startup fallback with the validated carrier skin before joins are admitted.
+    pub fn refresh_default_player_skin(&mut self, skin: render_api::StandardSkin) {
+        let Some(default) = self.default_player_skin.as_mut() else {
+            return;
+        };
+        *default = skin;
+        refresh_default_entries(Arc::make_mut(&mut self.dressing_room), default);
+        if self.player_skin.refresh_default_player_skin(default) {
+            self.skin_update_pending = true;
+            self.skin_packet_pending = None;
+            self.skin_outbound = None;
+        }
+    }
+
     pub(super) fn ensure_dressing_room(&mut self) {
         if self.dressing_room_worker.is_some() {
             return;
@@ -362,6 +399,23 @@ impl MenuRuntime {
                 let Ok(mut result) = worker.results.try_recv() else {
                     break;
                 };
+                if let Some(default) = &self.default_player_skin {
+                    let before = result.view.active_skin();
+                    refresh_default_entries(&mut result.view, default);
+                    if before != result.view.active_skin() {
+                        result = Outcome::new(
+                            &result.view,
+                            Some(self.player_skin.standard_skin()),
+                            Some((
+                                self.player_skin.model(),
+                                self.player_skin.engine_version.clone(),
+                                self.player_skin.skin_id.clone(),
+                            )),
+                            self.player_skin.local_uuid,
+                            result.completed_command,
+                        );
+                    }
+                }
                 if result.completed_command {
                     worker.pending = worker.pending.saturating_sub(1);
                 }
@@ -383,6 +437,8 @@ impl MenuRuntime {
                 {
                     if let Some(active) = result.view.active_skin() {
                         self.player_skin.set_selection(&active, selected.model);
+                        self.player_skin.default_fallback =
+                            selected.id == "current" && self.default_player_skin.is_some();
                         self.player_skin.skin_id = crate::player_skin::selected_skin_id(selected);
                         self.player_skin.engine_version = selected.engine_version.clone();
                     }
@@ -391,15 +447,23 @@ impl MenuRuntime {
                     self.skin_packet_pending = result.packet;
                 }
                 if self.player_skin.cosmetics
-                    != cosmetics::resolve(&result.view.selected_cosmetics, |_| false)
+                    != cosmetics::resolve(&result.view.selected_cosmetics, cosmetics::owns)
                 {
                     self.player_skin.cosmetics =
-                        cosmetics::resolve(&result.view.selected_cosmetics, |_| false);
+                        cosmetics::resolve(&result.view.selected_cosmetics, cosmetics::owns);
                     if let Some(local) = local.as_deref_mut() {
                         local.cosmetics.clone_from(&self.player_skin.cosmetics);
                     }
                 }
                 self.dressing_room = Arc::new(result.view);
+            }
+        }
+        // Account grant changes also update an already-open wardrobe without a new appearance job.
+        let resolved = cosmetics::resolve(&self.dressing_room.selected_cosmetics, cosmetics::owns);
+        if self.player_skin.cosmetics != resolved {
+            self.player_skin.cosmetics = resolved;
+            if let Some(local) = local.as_deref_mut() {
+                local.cosmetics.clone_from(&self.player_skin.cosmetics);
             }
         }
         if !self.skin_update_pending {
@@ -410,7 +474,7 @@ impl MenuRuntime {
             *local = self.player_skin.clone();
         }
         let Some(stream) = stream else {
-            self.skin_update_pending = self.is_connecting();
+            self.skin_update_pending = self.is_connecting() && self.skin_packet_pending.is_some();
             if !self.skin_update_pending {
                 self.skin_packet_pending = None;
             }
@@ -528,9 +592,11 @@ impl MenuRuntime {
                 cosmetics::Item::all()
                     .iter()
                     .filter(|item| {
-                        self.dressing_room
-                            .cosmetic_category
-                            .includes_slot(&item.descriptor().slot)
+                        item.is_owned()
+                            && self
+                                .dressing_room
+                                .cosmetic_category
+                                .includes_slot(&item.descriptor().slot)
                     })
                     .map(|hat| MenuAction::DressingRoom(Action::SelectCosmetic(Some(*hat)))),
             );

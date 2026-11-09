@@ -19,6 +19,7 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+mod mouse_back_tests;
 mod npc_dismissal_tests;
 
 #[test]
@@ -261,7 +262,12 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         )
         .unwrap();
         assert_eq!(packets.len(), 1);
-        app.update(); // returns cursor ownership without replaying old messages
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(
+                client_ui::ui_runtime::FORM_HANDOFF_GRACE_MILLIS + 1,
+            ));
+        app.update(); // expires the unanswered handoff and returns cursor ownership
         assert!(
             !app.world()
                 .resource::<UiRuntimeResource>()
@@ -331,10 +337,24 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
             client_ui::ui_runtime::LocalFormAction::SubmitButton(0)
         );
         if stale {
-            app.world_mut()
-                .resource_mut::<UiRuntimeResource>()
-                .apply(&mut player_runtime, retained(7, 2))
+            // Reusing an ID requires the previous form and its answer to retire first.
+            let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+            runtime
+                .respond_to_server_form(hit.0, client_ui::ui_runtime::LocalFormAction::Dismiss)
                 .unwrap();
+            assert!(
+                flush_form_response(
+                    &mut runtime,
+                    |_| false,
+                    |packet| {
+                        assert_eq!(packet, protocol::modal_form_cancel_response(hit.0.form_id));
+                        Ok(())
+                    }
+                )
+                .unwrap()
+            );
+            runtime.apply(&mut player_runtime, retained(7, 2)).unwrap();
+            assert_ne!(runtime.server_forms().active().unwrap().identity, hit.0);
         }
         app.world_mut()
             .get_mut::<Window>(entity)
@@ -376,36 +396,26 @@ fn mouse_activates_visible_buttons_once_and_rejects_old_rendered_hits() {
 fn enter_reveals_a_hidden_button_before_it_can_submit() {
     let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
-    let (mut app, entity) = app(&mut player_runtime);
-    let mut event = retained(7, 2);
+    let mut event = retained(7, 1);
     if let protocol::UiEvent::Form(form) = &mut event.event
         && let protocol::ServerFormModel::TextMenu(menu) = &mut form.model
     {
         menu.content = "Long body\n".repeat(100).into();
         menu.omitted_images = 1;
     }
-    let mut runtime = app
-        .world_mut()
-        .remove_resource::<UiRuntimeResource>()
-        .unwrap();
-    runtime.apply(&mut player_runtime, event).unwrap();
-    app.world_mut()
-        .resource_mut::<UiPresentationResource>()
-        .build(
-            &player_runtime,
-            &runtime,
-            0,
-            [1280, 720],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
-    let identity = runtime.server_forms().active().unwrap().identity;
+    let (mut app, entity) = app_for_event(&mut player_runtime, event);
+    let identity = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .server_forms()
+        .active()
+        .unwrap()
+        .identity;
     assert!(
         !app.world()
             .resource::<UiPresentationResource>()
             .form_button_visible(identity, 0)
     );
-    app.insert_resource(runtime);
     press(&mut app, entity, KeyCode::Enter);
     app.update();
     let runtime = app
@@ -532,6 +542,87 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         ),)
         .unwrap()
     );
+}
+
+/// A click on a screen over the form is that screen's, even once it has closed and the form reads
+/// the frames after it. The frames run without a fixed tick between them, which is what keeps raw
+/// edges readable into the next frame in the real app, as `TimePlugin` only swaps messages after one.
+#[test]
+fn a_click_on_a_screen_over_the_form_does_not_replay_on_the_form() {
+    use bevy::input::mouse::MouseButtonInput;
+    use {
+        client_ui::test_support::mini_engine_presentation, client_ui::test_support::pack_harness,
+    };
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
+    let mut presentation = mini_engine_presentation();
+    presentation
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.collection_index == Some(1))
+        .unwrap();
+    let centre = Vec2::new(
+        frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+    );
+    assert!(runtime.credits_mut().open(1, 1, 0));
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(player_runtime.clone())
+        .insert_resource(UiPresentationResource(presentation))
+        .add_systems(Update, drive_server_form_input);
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window.resolution.set_physical_resolution(1280, 720);
+    window.set_cursor_position(Some(centre));
+    let entity = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window: entity,
+        });
+    }
+    app.world_mut().run_schedule(Update);
+    let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+    runtime.credits_mut().skip(0);
+    let closed = runtime.credits_mut().flush(Some(1), |_| Ok(()));
+    assert_eq!(closed, Ok(true));
+    assert!(!runtime.credits().owns_input());
+    app.world_mut().run_schedule(Update);
+    let mut response = None;
+    flush_form_response(
+        &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
+        |packet| {
+            response = Some(packet);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(response.is_none(), "the click answered the form under it");
 }
 
 // A key held from gameplay auto-repeats; repeats must never press form buttons (pages skipped).
@@ -689,8 +780,16 @@ fn a_release_after_the_next_page_arrives_does_not_click_it() {
     send(&mut app, ButtonState::Pressed);
     let first = take(&mut app);
     assert!(first.is_empty(), "pointer selection waits for release");
-    // A different ID would be rejected as Busy while the first page remains open.
-    // Reissuing the same ID replaces its authority before the physical release.
+    // The first page closes before the server sends the next request.
+    // Its held pointer must not transfer to the next page, even with the same ID.
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .respond_to_server_form(identity, client_ui::ui_runtime::LocalFormAction::Dismiss)
+        .unwrap();
+    assert_eq!(
+        take(&mut app),
+        vec![protocol::modal_form_cancel_response(identity.form_id)]
+    );
     app.world_mut()
         .resource_scope(|world, mut runtime: Mut<UiRuntimeResource>| {
             let mut player_runtime = world
@@ -840,11 +939,13 @@ fn custom_form_toggle_and_input_edit_their_values() {
                         title: "T".into(),
                         elements: vec![
                             CustomFormElement::Toggle {
+                                control_locked: Default::default(),
                                 text: "On".into(),
                                 default: false,
                                 tooltip: None,
                             },
                             CustomFormElement::Input {
+                                control_locked: Default::default(),
                                 text: "Name".into(),
                                 placeholder: "".into(),
                                 default: Arc::from(""),
@@ -965,13 +1066,22 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         }
         press(&mut app, window, key);
         app.update();
-        assert!(
-            app.world()
-                .resource::<UiRuntimeResource>()
-                .server_forms()
-                .active()
-                .is_none()
-        );
+        if key == KeyCode::Enter {
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
+                    .server_forms()
+                    .handoff_pending()
+            );
+        } else {
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
+                    .server_forms()
+                    .active()
+                    .is_none()
+            );
+        }
         assert!(
             app.world()
                 .resource::<UiRuntimeResource>()
@@ -991,6 +1101,11 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         app.world_mut()
             .resource_mut::<client_state::CursorFocus>()
             .begin_frame(true);
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(
+                client_ui::ui_runtime::FORM_HANDOFF_GRACE_MILLIS + 1,
+            ));
         app.update();
         let cursor = app.world().get::<CursorOptions>(window).unwrap();
         assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::Locked);

@@ -4,9 +4,9 @@
 use std::{collections::VecDeque, time::Instant};
 
 use super::*;
-use kernels::OcclusionStorage;
 use model::reference_occluded;
 use occlusion::{OcclusionBasis, OcclusionHistory, VerdictTag};
+use storage::OcclusionStorage;
 
 /// The occlusion kernel over one record table.
 struct Occluder<'a> {
@@ -53,14 +53,20 @@ impl<'a> Occluder<'a> {
     }
 
     fn uniform(&self, input: &CullViewInput) -> CullViewUniform {
-        CullViewUniform::new(input, CullPhase::Late, self.slots, self.storage.capacity)
+        CullViewUniform::new(
+            input,
+            CullPhase::Late,
+            self.slots,
+            self.storage.capacity,
+            self.kernels.workgroup,
+        )
     }
 
     fn bits(&self) -> Vec<u32> {
         let bytes = read_buffer(
             self.gpu,
             &self.storage.occluded,
-            kernels::occlusion_bytes(self.storage.capacity),
+            storage::occlusion_bytes(self.storage.capacity),
         );
         bytemuck::cast_slice(&bytes).to_vec()
     }
@@ -882,7 +888,7 @@ fn occlusion_cuts_submitted_terrain_only_while_the_view_holds_still() {
                         |encoder| {
                             occluder
                                 .kernels
-                                .encode_pyramid(encoder, &pyramid, &bindings);
+                                .encode_pyramid(encoder, &pyramid, &bindings, None);
                             occluder.encode(encoder, &input, &pyramid);
                         },
                     )

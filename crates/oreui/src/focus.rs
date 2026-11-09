@@ -17,6 +17,10 @@ pub(super) const PICKER_HEADER: u16 = 6;
 pub(super) const PICKER_BODY: u16 = 7;
 pub(super) const SIDEBAR_SCROLL: u16 = 8;
 pub(super) const PICKER_SCROLL: u16 = 9;
+pub(super) const SEARCH: u16 = 10;
+pub(super) const SEARCH_RESULTS: u16 = 12;
+pub(super) const PLAY_TABS: u16 = 14;
+pub(super) const WORLD_ACTIONS: u16 = 15;
 const TAB_BASE: u16 = 16;
 
 pub(super) fn tab(section: u8) -> u16 {

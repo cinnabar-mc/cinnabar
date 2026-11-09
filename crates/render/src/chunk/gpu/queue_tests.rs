@@ -7,25 +7,22 @@ use render_scene::{
 
 #[test]
 fn adjacent_quad_frees_coalesce_and_reuse_the_lowest_range_under_churn() {
-    let mut free = Vec::new();
+    let mut free = FreeRanges::default();
 
-    insert_free_quad_range(&mut free, 12..16);
-    insert_free_quad_range(&mut free, 0..4);
-    insert_free_quad_range(&mut free, 8..12);
-    insert_free_quad_range(&mut free, 4..8);
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 0..16);
+    free.insert(12..16);
+    free.insert(0..4);
+    free.insert(8..12);
+    free.insert(4..8);
+    assert!(free.iter().eq(std::iter::once(0..16)));
 
-    assert_eq!(take_free_quad_range(&mut free, 3), Some(0));
-    assert_eq!(take_free_quad_range(&mut free, 5), Some(3));
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 8..16);
+    assert_eq!(free.take(3, 1), Some(0));
+    assert_eq!(free.take(5, 1), Some(3));
+    assert!(free.iter().eq(std::iter::once(8..16)));
 
-    insert_free_quad_range(&mut free, 0..3);
-    insert_free_quad_range(&mut free, 3..8);
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 0..16);
-    assert_eq!(take_free_quad_range(&mut free, 16), Some(0));
+    free.insert(0..3);
+    free.insert(3..8);
+    assert!(free.iter().eq(std::iter::once(0..16)));
+    assert_eq!(free.take(16, 1), Some(0));
     assert!(free.is_empty());
 }
 
@@ -45,7 +42,8 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     let growth = plan_arena_growth(8, 9, PACKED_QUAD_BYTES, 16)
         .unwrap()
         .unwrap();
-    assert_eq!(growth.new_capacity, 16);
+    // A quarter more than the old capacity, rounded to an eighth of 16.
+    assert_eq!(growth.new_capacity, 10);
     assert_eq!(growth.gpu_copy_bytes, 64);
 
     let stats = account_chunk_gpu_uploads(
@@ -61,6 +59,25 @@ fn gpu_growth_plan_copies_the_old_allocation_without_a_host_shadow_upload() {
     assert_eq!(stats.gpu_copy_bytes, 64);
     assert_eq!(stats.full_shadow_bytes, 0);
     assert_eq!(stats.total_bytes, 136);
+}
+
+#[test]
+fn arena_growth_rounds_to_an_eighth_of_the_enclosing_power_of_two() {
+    for items in [1_usize, 7, 9, 1000, 33 << 20, (64 << 20) + 1, 100_000_007] {
+        let capacity = round_arena_capacity(items, usize::MAX);
+        assert!(capacity >= items);
+        assert!(
+            (capacity - items) * 8 <= items.next_power_of_two(),
+            "{items} items took {capacity}"
+        );
+    }
+    // The adapter limit still caps it.
+    assert_eq!(round_arena_capacity(1000, 1001), 1001);
+    // Small growth past a full stream still adds a quarter, so streaming growth stays rare.
+    let growth = plan_arena_growth(1 << 20, (1 << 20) + 1, PACKED_QUAD_BYTES, usize::MAX)
+        .unwrap()
+        .unwrap();
+    assert_eq!(growth.new_capacity, (1 << 20) + (1 << 18));
 }
 
 #[test]
@@ -121,7 +138,7 @@ fn first_arena_growth_names_the_first_short_stream_and_rejects_adapter_overflow(
         Ok(Some((
             ArenaStream::GeometryStreams,
             ArenaGrowthPlan {
-                new_capacity: 32,
+                new_capacity: 20,
                 gpu_copy_bytes: 16 * GEOMETRY_STREAM_WORD_BYTES,
             }
         )))
@@ -215,7 +232,7 @@ fn failing_candidates_do_not_starve_a_later_fitting_candidate() {
         &GpuUpdateFairness::default(),
     );
     let mut len = 2;
-    let mut free = std::iter::once(0..2).collect::<Vec<_>>();
+    let mut free = std::iter::once(0..2).collect::<FreeRanges>();
     let successful = selected
         .into_iter()
         .filter(|entity| {
@@ -836,7 +853,7 @@ fn adapter_failure_releases_capacity_for_later_fitting_extracted_instance() {
         &GpuUpdateFairness::default(),
     );
     let mut quad_len = 0;
-    let mut free_quads = Vec::new();
+    let mut free_quads = FreeRanges::default();
     let mut failed = Vec::new();
     let mut successful = Vec::new();
     for entity in selected {
@@ -927,15 +944,14 @@ fn arena_growth_clamps_to_adapter_limits_and_rejects_one_past() {
 #[test]
 fn quad_allocator_reuses_and_trims_high_water_without_a_cpu_shadow() {
     let mut len = 0;
-    let mut free = Vec::new();
+    let mut free = FreeRanges::default();
     let first = allocate_quad_range(&mut len, &mut free, 4, 16).unwrap();
     let second = allocate_quad_range(&mut len, &mut free, 6, 16).unwrap();
     assert_eq!((first, second, len), (0, 4, 10));
 
     release_quad_range(&mut len, &mut free, 0..4);
     assert_eq!(len, 10);
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 0..4);
+    assert!(free.iter().eq(std::iter::once(0..4)));
     release_quad_range(&mut len, &mut free, 4..10);
     assert_eq!(len, 0);
     assert!(free.is_empty());

@@ -3,27 +3,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-mod compass;
-mod cosmetic;
-mod editor_style;
-mod source;
-mod text_plate;
-pub use text_plate::{MAX_TEXT_PLATE_HEIGHT, TextPlate, TextPlateLayout, TextPlateStyle};
-mod totems;
-pub use totems::{CounterAnnotation, TotemCounterStyle};
-mod merge;
-mod update;
-pub use compass::{
-    COMPASS_DEFAULT_WIDTH, COMPASS_DIRECTIONS, COMPASS_HEIGHT, COMPASS_MAX_WIDTH,
-    COMPASS_MIN_WIDTH, COMPASS_TICKS, Compass, CompassFrame, CompassMarker, MAX_COMPASS_COORDINATE,
-    MAX_COMPASS_MARKERS, MAX_HUD_COMPASSES, compass_bearing, compass_offset,
+mod anchor;
+mod bindings;
+mod elements;
+mod geometry;
+pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
+pub use elements::{
+    ElementState, ElementStates, HiddenElements, HudViewport, PanelLayout, VanillaElement,
 };
-pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
-pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
-pub use merge::HudMergeCache;
-pub use source::{ActorBounds, ActorHealth, NativeRows, RowSource};
-pub use update::HudUpdate;
-
+pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
 /// Bound for the newest received chat history imported by one callback.
@@ -32,10 +20,6 @@ pub const MAX_OBSERVED_CHAT_MESSAGES: usize = 32;
 pub const MAX_CHAT_READ_MESSAGES: usize = 4;
 /// Bound for camera-projected labels, separate from draggable HUD cards.
 pub const MAX_WORLD_LABELS: usize = 64;
-/// Reserved projected labels for the host's bounded nearby-actor observation set.
-pub const MAX_NATIVE_ACTOR_LABELS: usize = 16;
-/// Bound for clickable literal spans in native chat.
-pub const MAX_CHAT_ACTIONS: usize = 32;
 pub const MAX_HUD_BYTES: usize = 128 * 1024;
 pub const MAX_HUD_CARDS: usize = 64;
 pub const MAX_HUD_ROWS: usize = 256;
@@ -49,11 +33,31 @@ pub const MAX_CROSSHAIR_BYTES: usize = 1024;
 /// Uniform HUD scales shared by admission and the native layout editor.
 pub const MIN_CARD_SCALE: f32 = 0.25;
 pub const MAX_CARD_SCALE: f32 = 5.;
+/// Scale span of the editor's continuous `hud.scale` slider, from its left to its right edge.
+pub const EDITOR_SCALE_SLIDER_RANGE: [f32; 2] = [0.5, 2.];
+const _: () = assert!(
+    EDITOR_SCALE_SLIDER_RANGE[0] >= MIN_CARD_SCALE
+        && EDITOR_SCALE_SLIDER_RANGE[0] < EDITOR_SCALE_SLIDER_RANGE[1]
+        && EDITOR_SCALE_SLIDER_RANGE[1] <= MAX_CARD_SCALE
+);
 pub const MAX_CARD_WIDTH: f32 = 512.;
+/// Largest unscaled corner radius, in GUI pixels, of card and text-plate backgrounds.
+pub const MAX_CARD_BACKGROUND_RADIUS: f32 = 16.;
+/// Card background radius when omitted, matching the original card template.
+pub const DEFAULT_CARD_BACKGROUND_RADIUS: f32 = 3.;
 pub const DEFAULT_CARD_WIDTH: f32 = 148.;
 pub const DEFAULT_ROW_HEIGHT: f32 = 20.;
 pub const DEFAULT_ICON_SIZE: f32 = 16.;
 pub const DEFAULT_TEXT_SCALE: f32 = 1.;
+
+/// Accepts a local card name; qualified and foreign-owner names cannot be selected.
+pub fn valid_card_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 48
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,7 +67,11 @@ pub enum Anchor {
     /// Keeps the card horizontally centered as its size or viewport changes.
     TopCenter,
     TopRight,
+    Left,
+    Center,
+    Right,
     BottomLeft,
+    BottomCenter,
     BottomRight,
 }
 
@@ -85,18 +93,6 @@ pub enum RowLayout {
 #[serde(deny_unknown_fields)]
 pub struct Hud {
     pub cards: Vec<Card>,
-    /// Cosmetic native actor overrides; absence restores native presentation.
-    #[serde(default)]
-    pub actor_style: Option<ActorStyle>,
-    /// Read-only replicated health labels; players and mobs require their own grants.
-    #[serde(default)]
-    pub actor_health: Option<ActorHealth>,
-    /// Native depth-tested outlines; requires render plus the selected actor grants.
-    #[serde(default)]
-    pub actor_bounds: Option<ActorBounds>,
-    /// Adds cosmetic food-state artwork to the actual native hunger controls.
-    #[serde(default)]
-    pub hunger_overlay: Option<HungerOverlay>,
     /// Suppresses the ordinary status-effect icons while this HUD is published.
     #[serde(default)]
     pub hide_effect_icons: bool,
@@ -106,32 +102,25 @@ pub struct Hud {
     /// Bounded world anchors rendered by the host through the actual gameplay camera.
     #[serde(default)]
     pub world_labels: Vec<WorldLabel>,
-    /// Client-selected literal spans made clickable in the open native chat history.
-    #[serde(default)]
-    pub chat_actions: Vec<ChatAction>,
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,
     /// Enables host-owned corner handles for uniform card resizing.
     #[serde(default)]
     pub resizable: bool,
+    /// Host-only inclusive scale bounds narrower than the card range, for host previews whose
+    /// painter supports fewer sizes. JSON cannot set this bound.
+    #[serde(skip)]
+    pub scale_range: Option<[f32; 2]>,
     /// Hides editor labels while preserving native draggable outlines.
     #[serde(default)]
     pub hide_editor_labels: bool,
     /// Optional client-authored JSON-UI chrome for a host-owned layout editor.
     #[serde(default)]
     pub surface: Option<crate::mod_panel::Surface>,
-    /// Optional colors for the editor's outlines, handles, guides and grid.
+    /// Optional editor settings-card size in GUI pixels, positioned beside the selection.
     #[serde(default)]
-    pub editor_style: Option<EditorStyle>,
-}
-
-/// Exact plain-text chat span and the extension event emitted by a primary click.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChatAction {
-    pub text: String,
-    pub action: String,
+    pub inspector_size: Option<[f32; 2]>,
 }
 
 /// Cosmetic world anchor; text content and persistence belong to the extension.
@@ -169,16 +158,45 @@ impl Default for WorldLabel {
     }
 }
 
+/// Selects host-owned typography for a draggable HUD card.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardFont {
+    #[default]
+    Native,
+    Sans,
+}
+
+impl CardFont {
+    /// Returns the same font alias for painting and native text measurement.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Native => "default",
+            Self::Sans => crate::mod_panel::SANS_FONT_NAME,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Card {
     pub id: String,
+    /// Initial visibility in gameplay and the editor; hidden cards remain available for editing.
+    #[serde(default = "enabled")]
+    pub visible: bool,
+    /// Reserves a card for panel previews without showing it during gameplay.
+    #[serde(default)]
+    pub preview_only: bool,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub editor_label: String,
+    /// Host-measured preview bounds in GUI pixels. JSON cannot set this geometry.
+    #[serde(skip)]
+    pub editor_size: Option<[f32; 2]>,
     #[serde(default)]
     pub anchor: Anchor,
+    /// GUI pixels inward from edge anchors, or right/down from centered axes.
     #[serde(default)]
     pub offset: [f32; 2],
     #[serde(default = "unit")]
@@ -188,6 +206,10 @@ pub struct Card {
     pub position: Option<[f32; 2]>,
     #[serde(default = "background_opacity")]
     pub background_opacity: f32,
+    /// Unscaled GUI-pixel background corner radius, 0 through 16; paint clamps it to half the
+    /// shorter side.
+    #[serde(default = "background_radius")]
+    pub background_radius: f32,
     #[serde(default)]
     pub row_layout: RowLayout,
     /// Unscaled GUI-pixel width: 48–512 for rows, 1–512 for cells.
@@ -202,6 +224,9 @@ pub struct Card {
     /// Row text multiplier, bounded to 0.5 through 2 independently of card geometry.
     #[serde(default = "text_scale")]
     pub text_scale: f32,
+    /// Omitted typography keeps the native pixel font.
+    #[serde(default)]
+    pub font: CardFont,
     /// Draws row labels and values with a shadow; legacy cards keep their shadow.
     #[serde(default = "enabled")]
     pub shadow: bool,
@@ -214,15 +239,9 @@ pub struct Card {
     #[serde(default)]
     pub reset_scale: Option<f32>,
     pub rows: Vec<Row>,
-    /// Optional native rows. Game-backed sources require player-state; Clock is local UI time.
-    #[serde(default)]
-    pub source: Option<RowSource>,
-    /// A native compass uses current-session motion instead of guest-sampled geometry.
+    /// Shares the gameplay crosshair painter with isolated menu artwork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compass: Option<Compass>,
-    /// Native measured text with independently colored brackets, background and border.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text_plate: Option<TextPlate>,
+    pub crosshair: Option<Crosshair>,
     /// Optional rectangular text cells instead of linear rows.
     #[serde(default)]
     pub cells: Vec<Cell>,
@@ -232,27 +251,46 @@ impl Default for Card {
     fn default() -> Self {
         Self {
             id: String::new(),
+            visible: true,
+            preview_only: false,
             title: String::new(),
             editor_label: String::new(),
+            editor_size: None,
             anchor: Anchor::default(),
             offset: [0.; 2],
             scale: unit(),
             position: None,
             background_opacity: background_opacity(),
+            background_radius: background_radius(),
             row_layout: RowLayout::default(),
             width: card_width(),
             row_height: row_height(),
             icon_size: icon_size(),
             text_scale: text_scale(),
+            font: CardFont::default(),
             shadow: true,
             reset_anchor: None,
             reset_offset: None,
             reset_scale: None,
             rows: Vec::new(),
-            source: None,
-            compass: None,
-            text_plate: None,
+            crosshair: None,
             cells: Vec::new(),
+        }
+    }
+}
+
+impl Card {
+    /// Keeps disabled and preview-only artwork out of gameplay while retaining explicit previews.
+    pub fn gameplay_visible(&self) -> bool {
+        self.visible && !self.preview_only
+    }
+
+    /// Names editor rows and feedback consistently, falling back to the stable card ID.
+    pub fn editor_name(&self) -> &str {
+        if self.editor_label.is_empty() {
+            &self.id
+        } else {
+            &self.editor_label
         }
     }
 }
@@ -287,8 +325,31 @@ impl Default for Cell {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     pub id: String,
+    pub anchor: Anchor,
+    pub offset: [f32; 2],
     pub scale: f32,
     pub position: Option<[f32; 2]>,
+}
+
+impl Placement {
+    /// Captures authored placement without card artwork, text or runtime layout caches.
+    pub fn capture(card: &Card) -> Self {
+        Self {
+            id: card.id.clone(),
+            anchor: card.anchor,
+            offset: card.offset,
+            scale: card.scale,
+            position: card.position,
+        }
+    }
+
+    /// Restores placement onto a card already matched by ID, leaving its content intact.
+    pub fn apply_to(&self, card: &mut Card) {
+        card.anchor = self.anchor;
+        card.offset = self.offset;
+        card.scale = self.scale;
+        card.position = self.position;
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -296,6 +357,10 @@ pub struct EditorResult {
     pub saved: bool,
     pub reset: bool,
     pub placements: Vec<Placement>,
+    /// IDs hidden in this saved draft; every ID also has a placement.
+    pub hidden_cards: Vec<String>,
+    /// A history restore replaces unread reset intent instead of coalescing it.
+    pub replace_pending_reset: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -362,13 +427,21 @@ impl Default for Crosshair {
 fn unit() -> f32 {
     1.
 }
-/// Preserves legacy text shadows when a card omits its preference.
+/// Admits a finite unscaled background corner radius within its published bound.
+pub(crate) fn background_radius_valid(radius: f32) -> bool {
+    radius.is_finite() && (0. ..=MAX_CARD_BACKGROUND_RADIUS).contains(&radius)
+}
+/// Preserves enabled defaults when a card omits its visibility or shadow preference.
 fn enabled() -> bool {
     true
 }
 /// Preserves the existing card surface alpha when the new field is omitted.
 fn background_opacity() -> f32 {
     0.82
+}
+/// Keeps the original card rounding when the radius is omitted.
+fn background_radius() -> f32 {
+    DEFAULT_CARD_BACKGROUND_RADIUS
 }
 /// Keeps omitted dimensions identical to the original host-owned card template.
 fn card_width() -> f32 {
@@ -389,6 +462,11 @@ fn text_scale() -> f32 {
 fn white() -> [f32; 4] {
     [1.; 4]
 }
+/// Whether `value` is the bounded plain single-line text HUD cards and editor captions accept.
+pub fn plain_text_valid(value: &str) -> bool {
+    text(value).is_ok()
+}
+
 fn text(value: &str) -> Result<(), String> {
     if value.len() > MAX_TEXT_BYTES || value.chars().any(|c| c.is_control() || c == '§') {
         return Err("HUD text must be bounded plain single-line text".into());
@@ -424,22 +502,28 @@ fn color(value: [f32; 4]) -> Result<(), String> {
     Ok(())
 }
 impl Hud {
+    /// Inclusive bounds every card scale and editor scaling gesture stays within.
+    pub fn scale_bounds(&self) -> [f32; 2] {
+        self.scale_range.unwrap_or([MIN_CARD_SCALE, MAX_CARD_SCALE])
+    }
+
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(bounds) = &self.actor_bounds {
-            bounds.validate()?;
+        if self.scale_range.is_some_and(|[lo, hi]| {
+            !(lo.is_finite()
+                && hi.is_finite()
+                && MIN_CARD_SCALE <= lo
+                && lo < hi
+                && hi <= MAX_CARD_SCALE)
+        }) {
+            return Err("HUD scale bounds exceed the card scale range".into());
         }
-        if let Some(health) = &self.actor_health {
-            health.validate()?;
-            if self.world_labels.len() > MAX_WORLD_LABELS - MAX_NATIVE_ACTOR_LABELS {
-                return Err(
-                    "actor health labels require sixteen reserved world-label slots".into(),
-                );
-            }
-        }
-        cosmetic::validate(self.actor_style.as_ref(), self.hunger_overlay.as_ref())?;
-        if let Some(style) = &self.editor_style {
-            style.validate()?;
+        let [min_scale, max_scale] = self.scale_bounds();
+        if self.inspector_size.is_some_and(|size| {
+            size.into_iter()
+                .any(|value| !value.is_finite() || value <= 0.)
+        }) {
+            return Err("HUD inspector size must contain finite positive GUI pixels".into());
         }
         if let Some(surface) = &self.surface {
             if !surface.collections.is_empty() {
@@ -455,28 +539,27 @@ impl Hud {
                 };
                 if !matches!(
                     action.as_str(),
-                    "hud.save" | "hud.cancel" | "hud.close" | "hud.reset" | "hud.grid"
+                    "hud.save"
+                        | "hud.cancel"
+                        | "hud.close"
+                        | "hud.reset"
+                        | "hud.grid"
+                        | "hud.snap"
+                        | "hud.undo"
+                        | "hud.redo"
+                        | "hud.scale"
+                        | "hud.scale_down"
+                        | "hud.scale_up"
                 ) && !indexed("hud.card:", MAX_HUD_CARDS)
+                    && !indexed("hud.select:", MAX_HUD_CARDS)
+                    && !indexed("hud.visibility:", MAX_HUD_CARDS)
+                    && !indexed("hud.anchor:", Anchor::ALL.len())
+                    && !indexed("hud.control:", crate::mod_panel::MAX_PANEL_CONTROLS)
                     && !indexed("hud.done:", crate::mod_panel::MAX_PANEL_CONTROLS)
                 {
                     return Err("HUD editor surface action is unsupported".into());
                 }
             }
-        }
-        if self.chat_actions.len() > MAX_CHAT_ACTIONS
-            || self.chat_actions.iter().any(|a| {
-                a.text.is_empty()
-                    || a.text.len() > 96
-                    || a.text.chars().any(char::is_control)
-                    || a.action.is_empty()
-                    || a.action.len() > crate::mod_panel::MAX_PANEL_ID_BYTES
-                    || !a
-                        .action
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-            })
-        {
-            return Err("invalid chat actions".into());
         }
         if self.world_labels.len() > MAX_WORLD_LABELS
             || self.world_labels.iter().any(|label| {
@@ -509,67 +592,44 @@ impl Hud {
             return Err("invalid world labels".into());
         }
         if self.cards.len() > MAX_HUD_CARDS
+            || self.cards.iter().map(|card| card.rows.len()).sum::<usize>() > MAX_HUD_ROWS
             || self
                 .cards
                 .iter()
-                .map(|c| {
-                    c.source
-                        .as_ref()
-                        .map_or(c.rows.len(), |s| usize::from(s.limit))
-                })
+                .map(|card| card.cells.len())
                 .sum::<usize>()
-                > MAX_HUD_ROWS
-            || self.cards.iter().map(|c| c.cells.len()).sum::<usize>() > MAX_HUD_CELLS
-            || self.cards.iter().filter(|c| c.compass.is_some()).count() > MAX_HUD_COMPASSES
+                > MAX_HUD_CELLS
         {
             return Err("HUD has too many cards, rows or cells".into());
         }
         let mut ids = HashSet::new();
         for card in &self.cards {
-            if let Some(plate) = &card.text_plate {
-                plate.validate(card)?;
-            }
-            if let Some(compass) = &card.compass {
-                compass.validate()?;
-                if card.source.is_some()
-                    || !card.rows.is_empty()
-                    || !card.cells.is_empty()
-                    || !(COMPASS_MIN_WIDTH..=COMPASS_MAX_WIDTH).contains(&card.width)
-                {
-                    return Err("native compass requires its own bounded, empty card".into());
+            if let Some(crosshair) = &card.crosshair {
+                crosshair.validate()?;
+                if !card.preview_only || !card.cells.is_empty() || !card.rows.is_empty() {
+                    return Err("crosshair previews require their own preview-only card".into());
                 }
             }
-            if let Some(source) = &card.source {
-                source.validate()?;
-                if !card.cells.is_empty() || card.rows.len() > usize::from(source.limit) {
-                    return Err("native HUD source exceeds its reserved rows or has cells".into());
-                }
-            }
-            if card.id.is_empty()
-                || card.id.len() > 48
-                || !card
-                    .id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-                || !ids.insert(&card.id)
-            {
+            if !valid_card_id(&card.id) || !ids.insert(&card.id) {
                 return Err("HUD cards require bounded unique identifiers".into());
             }
             text(&card.title)?;
             text(&card.editor_label)?;
-            if card.reset_scale.is_some_and(|scale| {
-                !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
-            }) || !card.scale.is_finite()
-                || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
-                || card
-                    .offset
-                    .into_iter()
-                    .any(|v| !v.is_finite() || v.abs() > 2048.)
+            if card
+                .editor_size
+                .is_some_and(|size| size.into_iter().any(|side| !side.is_finite() || side <= 0.))
+                || card.reset_scale.is_some_and(|scale| {
+                    !scale.is_finite() || !(min_scale..=max_scale).contains(&scale)
+                })
+                || !card.scale.is_finite()
+                || !(min_scale..=max_scale).contains(&card.scale)
+                || card.offset.into_iter().any(|v| !v.is_finite())
                 || card.rows.len() > MAX_CARD_ROWS
                 || card.cells.len() > MAX_CARD_CELLS
                 || !card.rows.is_empty() && !card.cells.is_empty()
                 || !card.background_opacity.is_finite()
                 || !(0. ..=1.).contains(&card.background_opacity)
+                || !background_radius_valid(card.background_radius)
                 || !card.width.is_finite()
                 || !(if card.cells.is_empty() { 48. } else { 1. }..=MAX_CARD_WIDTH)
                     .contains(&card.width)
@@ -587,7 +647,7 @@ impl Hud {
                 })
                 || card
                     .reset_offset
-                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite() || v.abs() > 2048.))
+                    .is_some_and(|p| p.into_iter().any(|v| !v.is_finite()))
             {
                 return Err("HUD card geometry exceeds its bounds".into());
             }
@@ -634,7 +694,12 @@ impl Hud {
 impl EditorResult {
     /// Rejects malformed placement output and changes attached to cancellation.
     pub fn validate(&self) -> Result<(), String> {
-        if !self.saved && (self.reset || !self.placements.is_empty()) {
+        if !self.saved
+            && (self.reset
+                || !self.placements.is_empty()
+                || !self.hidden_cards.is_empty()
+                || self.replace_pending_reset)
+        {
             return Err("cancelled HUD editor cannot carry changes".into());
         }
         let hud = Hud {
@@ -643,6 +708,8 @@ impl EditorResult {
                 .iter()
                 .map(|p| Card {
                     id: p.id.clone(),
+                    anchor: p.anchor,
+                    offset: p.offset,
                     position: p.position,
                     scale: p.scale,
                     ..Default::default()
@@ -650,7 +717,14 @@ impl EditorResult {
                 .collect(),
             ..Default::default()
         };
-        hud.validate()
+        hud.validate()?;
+        let mut hidden = HashSet::new();
+        if self.hidden_cards.iter().any(|id| {
+            !hidden.insert(id) || !self.placements.iter().any(|placement| &placement.id == id)
+        }) {
+            return Err("hidden HUD cards require unique placement IDs".into());
+        }
+        Ok(())
     }
 }
 impl Crosshair {

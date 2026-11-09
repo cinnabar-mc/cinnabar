@@ -116,6 +116,7 @@ pub(super) fn resolve_binding(
     let bones = plan.bones.to_vec();
     let bone_names = plan.names.to_vec();
     let current = plan.rest.to_vec();
+    let head_rotation = HeadRotation::rest(actor, &bones, &bone_names);
     let controllers = plan.controllers.to_vec();
     let mut motion = MotionState::spawn(actor.body_yaw(), actor.head_yaw());
     motion.horse = super::horse::AnimationState::new(random_seed);
@@ -137,23 +138,29 @@ pub(super) fn resolve_binding(
         rig_binding,
         geometry_binding,
         bones,
+        composition: Arc::clone(&plan.composition),
         bone_names,
+        attachment_bindings: Arc::clone(&plan.attachments),
+        channel_bindings: Arc::clone(&plan.channels),
         render: Vec::new(),
+        visibility: RenderVisibility::default(),
         may_use_always_depth_material: plan.always_depth,
         scale: None,
         held_item_scale: None,
-        layer_skeletons: BTreeMap::new(),
+        layer_skeletons: plan.skeletons.iter().cloned().collect(),
         controllers,
         server_animations: Vec::new(),
         previous: current.clone(),
         ui_pose: None,
         ui_animation: None,
+        paper_doll_animation: None,
         view_context: None,
         rest: current.clone(),
         rest_completed_tick: 0,
         rest_reset_generation: 0,
         rest_reset_pending: false,
         current,
+        head_rotation,
         reset_generation: 0,
         reset_pending: false,
         lifetime_epoch: completed_tick,
@@ -328,6 +335,7 @@ fn bone_metadata(bone: &EntityGeometryBone) -> EntityGeometryBone {
         reset: bone.reset,
         binding: bone.binding.clone(),
         texture_meshes: Box::default(),
+        poly_mesh: None,
         cubes: Box::default(),
     }
 }
@@ -534,8 +542,12 @@ fn reselect_geometry_with_checkpoint(
     state.samples_render_frames = plan.frames;
     state.geometry_binding = selected;
     state.bones = bones;
+    state.composition = Arc::clone(&plan.composition);
     state.bone_names = bone_names;
+    state.channel_bindings = Arc::clone(&plan.channels);
+    state.attachment_bindings = Arc::clone(&plan.attachments);
     state.controllers = controllers;
+    state.head_rotation = HeadRotation::rest(actor, &state.bones, &state.bone_names);
     state.reset_to_skeleton(pose);
     checkpoint
 }

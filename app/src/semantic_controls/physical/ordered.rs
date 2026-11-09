@@ -4,7 +4,10 @@ use super::*;
 use bevy::{
     ecs::message::MessageCursor, input::ButtonState, prelude::Messages, window::WindowEvent,
 };
-use semantic_input::{DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS, PhysicalControl};
+use semantic_input::{DesktopEvent, DesktopEvents, PhysicalControl};
+
+#[cfg(test)]
+mod tests;
 
 /// Drains the backend batch even while capture is unavailable; missing order fails closed.
 pub(super) fn collect(
@@ -17,10 +20,37 @@ pub(super) fn collect(
     let mut batch = Vec::new();
     let mut output = DesktopEvents::default();
     let mut lost = false;
+    let reserved = |name: &str| {
+        inputs
+            .reserved
+            .as_ref()
+            .is_some_and(|reserved| reserved.0.iter().any(|key| key == name))
+    };
+    // Platform buttons carry their own event-time modifiers, in the order they were written. They
+    // are matched against every event, before reservations filter the batch.
+    let mut platform_buttons = inputs
+        .platform_buttons
+        .as_ref()
+        .map(|buttons| buttons.0.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .peekable();
     for event in cursor.read(messages) {
+        let platform_modifiers = match event {
+            WindowEvent::MouseButtonInput(input) => platform_buttons
+                .next_if(|(written, _)| written == input)
+                .map(|(_, modifiers)| *modifiers),
+            _ => None,
+        };
         let relevant = match event {
-            WindowEvent::KeyboardInput(event) => event.window == window && !event.repeat,
-            WindowEvent::MouseButtonInput(event) => event.window == window,
+            WindowEvent::KeyboardInput(event) => {
+                event.window == window
+                    && !event.repeat
+                    && !reserved(&format!("{:?}", event.key_code))
+            }
+            WindowEvent::MouseButtonInput(event) => {
+                event.window == window && !reserved(&format!("Mouse{:?}", event.button))
+            }
             WindowEvent::MouseWheel(event) => event.window == window,
             WindowEvent::KeyboardFocusLost(_) => {
                 lost = true;
@@ -37,19 +67,11 @@ pub(super) fn collect(
             _ => false,
         };
         if relevant {
-            if batch.len() == MAX_PENDING_ACTION_EVENTS {
-                output.invalidate();
-            } else {
-                batch.push(event.clone());
-            }
+            batch.push((event.clone(), platform_modifiers));
         }
     }
-    if output.overflowed() {
-        bevy::log::warn!("desktop input burst exceeded the pending action budget");
-        return Some((output, lost));
-    }
     let mut keys = (*inputs.keys).clone();
-    for event in batch.iter().rev() {
+    for (event, _) in batch.iter().rev() {
         if let WindowEvent::KeyboardInput(event) = event {
             change_key(
                 &mut keys,
@@ -59,7 +81,7 @@ pub(super) fn collect(
         }
     }
     output.set_initial_modifiers(modifiers(&keys));
-    for event in batch {
+    for (event, platform_modifiers) in batch {
         let button = match event {
             WindowEvent::KeyboardInput(event) => {
                 let pressed = event.state == ButtonState::Pressed;
@@ -87,7 +109,7 @@ pub(super) fn collect(
             output.push(DesktopEvent::Button {
                 control,
                 pressed,
-                modifiers: modifiers(&keys),
+                modifiers: platform_modifiers.unwrap_or_else(|| modifiers(&keys)),
             });
         }
     }

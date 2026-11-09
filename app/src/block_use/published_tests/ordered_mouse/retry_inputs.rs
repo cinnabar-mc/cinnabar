@@ -293,10 +293,18 @@ fn ordered_mouse_missing_pick_does_not_postpone_the_use_edge() {
         let authority = app
             .world()
             .resource::<MovementTicker>()
-            .interaction_authority_identity();
+            .position_authority_identity();
         app.world_mut()
             .resource_mut::<BlockUseRuntime>()
-            .retain_pick(&InteractionOriginSnapshot::default(), authority);
+            .retain_pick(
+                &InteractionOriginSnapshot::default(),
+                authority,
+                client_interaction::block_use::FrameHits {
+                    endpoint: [0.0; 3],
+                    ordinary: Some(gameplay::block_use::PickResult::Miss),
+                    liquid: Some(gameplay::block_use::PickResult::Miss),
+                },
+            );
         tap(app.world_mut(), MouseButton::Right);
         next_slot(app.world_mut());
         frame(&mut app);
@@ -308,7 +316,7 @@ fn ordered_mouse_missing_pick_does_not_postpone_the_use_edge() {
                 .all(|packet| observe_transaction(packet).is_none())
         );
         app.world_mut()
-            .run_system_cached(client_interaction::block_use::retain_block_use_pick)
+            .run_system_cached(crate::block_use::retain_block_use_pick)
             .unwrap();
         let mut sent = Vec::new();
         for _ in 0..3 {

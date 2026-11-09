@@ -37,6 +37,17 @@ pub(in crate::chunk) struct ChunkUploadPublication<'w> {
         Option<ResMut<'w, crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>>,
     coverage: Option<ResMut<'w, crate::chunk::TerrainCoverage>>,
 }
+/// Sub-chunk uploads admitted per frame while a shader pack draws the terrain. The pack
+/// expands at most `FRAME_EXPANSION_FACES` a frame from these sections, so admitting
+/// a whole streaming burst (up to the publication's 512 items, ~50 µs of CPU each) only puts
+/// the burst's cost into one frame; 24 a frame stays above the server's arrival rate.
+const SHADER_PACK_FRAME_UPLOADS: usize = 24;
+/// The upload budget, and whether a shader pack draws the terrain these uploads feed.
+#[derive(SystemParam)]
+pub(in crate::chunk) struct ChunkUploadLimits<'w> {
+    budget: Res<'w, ChunkUploadBudget>,
+    pack: Option<Res<'w, render_scene::shaderpack::ShaderPackDrawnCategories>>,
+}
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_gpu_chunks(
     mut commands: Commands,
@@ -44,7 +55,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     views: Query<&ExtractedView, With<ExtractedCamera>>,
     mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     mut arena: ResMut<ChunkGpuArena>,
-    budget: Res<ChunkUploadBudget>,
+    limits: ChunkUploadLimits,
     capacity_hint: Option<Res<render_scene::chunk::capacity::ChunkArenaCapacityHint>>,
     mut upload_stats: ResMut<ChunkGpuUploadStats>,
     biome_tints: Res<ChunkBiomeTints>,
@@ -56,6 +67,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut writes: Local<ArenaWrites>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    let budget = &*limits.budget;
+    let deadline = PreparationDeadline::new(Instant::now(), budget.max_preparation_time);
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
@@ -135,6 +148,15 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         &acknowledgements,
         terrain_generations.as_deref_mut(),
     );
+    if super::idle::release_idle_arena(
+        &mut arena,
+        &upload_queue.device,
+        &upload_queue.queue,
+        !selected.is_empty(),
+    ) {
+        *upload_stats = ChunkGpuUploadStats::default();
+        return;
+    }
 
     // A selected CPU atlas can outlive a session reset. Keep old draw tables coherent,
     // while the physical-removal and completion-fence work above continues to drain.
@@ -174,9 +196,16 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let mut candidates_examined = 0;
     let mut model_streams_validated = 0;
     let mut range_plans = 0;
-    let frame_items = budget
-        .max_per_frame
-        .max(PublicationServiceConfig::DEFAULT.maximum_frame_items);
+    // Set when the device ran out of memory for a growth buffer; uploads needing growth then
+    // wait for the next frame's attempt instead of retrying it per upload.
+    let mut growth_failed = false;
+    let frame_items = if limits.pack.as_deref().is_some_and(|drawn| drawn.terrain) {
+        SHADER_PACK_FRAME_UPLOADS
+    } else {
+        budget
+            .max_per_frame
+            .max(PublicationServiceConfig::DEFAULT.maximum_frame_items)
+    };
     // Spread large buffer allocations across frames while leaving room for uploads now.
     if arena.origin_len == 0
         && arena.quad_len == 0
@@ -200,7 +229,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             first_arena_growth(arena_capacities(&arena), initial_target, arena.limits)
         {
             let growth = super::capacity::backlog_growth(&arena, stream, growth, initial_target);
-            begin_arena_migration(&mut arena, uploads.device, stream, growth);
+            if !begin_arena_migration(&mut arena, uploads.device, stream, growth) {
+                growth_failed = true;
+                break;
+            }
             migrations_started += 1;
             upload_reservation.growth_copy_bytes += advance_arena_migration(
                 &mut arena,
@@ -212,8 +244,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
         }
     }
+    let mut time_limited = false;
     for entity in fairness.examination_order(&selected) {
         if upload_reservation.items >= frame_items {
+            break;
+        }
+        if !deadline.admits_more(Instant::now(), successful_updates.len()) {
+            time_limited = true;
             break;
         }
         let Ok((_, instance)) = all_instances.get(entity) else {
@@ -384,6 +421,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 Ok(None) => break true,
                 Ok(Some((stream, growth))) => {
                     if arena.migration.is_none() {
+                        if growth_failed {
+                            break false;
+                        }
                         // Earlier uploads reserved one write. Issue them before a migration
                         // can make the write path mirror them into an uncharged destination.
                         if !writes.is_empty() {
@@ -395,7 +435,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                             growth,
                             capacity_target,
                         );
-                        begin_arena_migration(&mut arena, uploads.device, stream, growth);
+                        if !begin_arena_migration(&mut arena, uploads.device, stream, growth) {
+                            growth_failed = true;
+                            break false;
+                        }
                         migrations_started += 1;
                     }
                     // A slice copy is submitted at once; stage this frame's earlier
@@ -572,6 +615,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             coverage.publish_full(instance.key, instance.generation);
         }
         arena.transparent_liquids.record(entity, &gpu);
+        arena.record_transparent_model_change(entity, Some(&gpu));
         arena.allocations.insert(
             entity,
             ArenaAllocation {
@@ -644,6 +688,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     upload_stats.model_streams_validated = model_streams_validated;
     upload_stats.range_plans = range_plans;
     upload_stats.candidates_deferred = selected.len().saturating_sub(successful_updates.len());
+    upload_stats.time_limited = time_limited;
     #[cfg(feature = "tracy")]
     if let Some(client) = tracy_client::Client::running() {
         use tracy_client::plot_name;
@@ -663,6 +708,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             plot_name!("terrain upload deferred"),
             upload_stats.candidates_deferred as f64,
         );
+        client.plot(
+            plot_name!("terrain upload time limited"),
+            f64::from(u8::from(time_limited)),
+        );
     }
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
         bevy::log::warn!(
@@ -670,6 +719,26 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             upload_stats.chunk_updates,
             upload_stats.chunk_budget,
         );
+    }
+}
+
+/// Elapsed-time allowance for one frame's upload preparation loop, from a caller-read start.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::chunk) struct PreparationDeadline {
+    started: Instant,
+    allowance: Duration,
+}
+
+impl PreparationDeadline {
+    /// Starts the allowance at the render edge's supplied observation.
+    pub(in crate::chunk) const fn new(started: Instant, allowance: Duration) -> Self {
+        Self { started, allowance }
+    }
+
+    /// Whether another candidate may be prepared at `now`; a frame that has admitted nothing
+    /// always may, so one expensive item still progresses.
+    pub(in crate::chunk) fn admits_more(self, now: Instant, admitted: usize) -> bool {
+        admitted == 0 || now.saturating_duration_since(self.started) < self.allowance
     }
 }
 

@@ -37,7 +37,7 @@ fn presented_hotbar_stacks(
         player_runtime,
         runtime,
         &mut presentation,
-        Some(&world_stream()),
+        (Some(&world_stream())).map(|stream| stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );

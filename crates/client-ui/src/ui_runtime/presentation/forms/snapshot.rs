@@ -1,5 +1,5 @@
 //! Local-only visual check: rasterizes a presentation frame's UI draw input on
-//! the CPU (nearest sampling, alpha blending, scissors) into a PNG, so form
+//! the CPU (sprite filtering, alpha blending, scissors) into a PNG, so form
 //! layouts can be inspected without a window. Written only when
 //! `CINNABAR_FORM_SNAPSHOT_DIR` names a directory; images are never committed.
 
@@ -8,7 +8,7 @@ use std::path::Path;
 use image::{Rgba, RgbaImage};
 use render_model::{
     UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_RADIAL_GRADIENT, UiRenderInput,
-    UiRenderVertex, UiTextureFormat,
+    UiRenderVertex, UiTextureFormat, UiTexturePage,
 };
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
@@ -85,19 +85,32 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         let Some(page) = pages.get(batch.texture_page as usize) else {
             continue;
         };
-        let [page_width, page_height] = page.dimensions();
         let pixels = page.pixels();
         let scissor = batch.scissor;
         let indices = &input.indices
             [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
         for triangle in indices.as_chunks::<3>().0 {
-            let corners: [UiRenderVertex; 3] =
-                std::array::from_fn(|corner| input.vertices[triangle[corner] as usize]);
+            let pose = batch
+                .isolated_depth_scope
+                .and_then(|scope| input.models.iter().find(|pose| pose.scope == scope));
+            let projected: [_; 3] = std::array::from_fn(|corner| {
+                render_model::project_ui_model_vertex(
+                    input.vertices[triangle[corner] as usize],
+                    pose,
+                )
+                .expect("validated model palette")
+            });
+            let corners = projected.map(|projection| projection.vertex);
+            let model = input.vertices[triangle[0] as usize].style_flags
+                & render_api::UI_STYLE_MODEL_VERTEX
+                != 0;
             let [du, dv] = offset(triangle[0] as usize);
             fill(
                 &mut image,
                 corners,
-                |[u, v], color, overlay, coverage, x, y| {
+                Some(projected.map(|projection| projection.repeat_bounds.unwrap_or([0.; 4]))),
+                projected[0].cull_back_faces,
+                |[u, v], color, overlay, bounds, coverage, x, y| {
                     if x < scissor.x
                         || y < scissor.y
                         || x >= scissor.x + scissor.width
@@ -109,6 +122,13 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                     {
                         let paint = render_api::UiCoveragePaint::from_vertex_colors(color, overlay);
                         return Some(paint.sample(u, [v, coverage]));
+                    }
+                    if corners[0].style_flags & u32::from(render_api::ui_shadow::UI_STYLE_SHADOW)
+                        != 0
+                    {
+                        let area =
+                            render_api::ui_shadow::coverage([u, v], overlay, shadow_pixel(corners));
+                        return Some(premultiply(color).map(|channel| channel * area));
                     }
                     if corners[0].style_flags & UI_STYLE_RADIAL_GRADIENT != 0 {
                         let radius = u.hypot(v).clamp(0.0, 1.0);
@@ -123,15 +143,32 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                             inner[channel] * (1.0 - radius) + outer[channel] * radius
                         }));
                     }
-                    let (u, v) = (
-                        ((u + du).floor() as u32).min(page_width - 1),
-                        ((v + dv).floor() as u32).min(page_height - 1),
-                    );
-                    let at = (v * page_width + u) as usize;
-                    let mut texel: [u8; 4] = match page.format() {
-                        UiTextureFormat::Coverage => [255, 255, 255, pixels[at]],
-                        UiTextureFormat::Rgba8 => pixels[at * 4..at * 4 + 4].try_into().unwrap(),
+                    let flags = corners[0].style_flags as u16;
+                    let repeated = flags & render_api::ui_repeat::UI_STYLE_REPEAT != 0;
+                    let uv = if repeated {
+                        render_api::ui_repeat::decode_uv(
+                            [u, v],
+                            [bounds[0] + du, bounds[1] + dv, bounds[2], bounds[3]],
+                            flags,
+                            page.dimensions(),
+                            page.repeat_content(),
+                        )?
+                    } else {
+                        [u + du, v + dv]
                     };
+                    let mut texel = sample(
+                        page,
+                        pixels,
+                        uv,
+                        repeated && flags & u16::from(render_api::UI_STYLE_BILINEAR) != 0,
+                    );
+                    if corners[0].style_flags & render_api::UI_STYLE_SPRITE_COLOR_MASK != 0 {
+                        texel = assets::color_mask_texel(
+                            texel,
+                            [overlay[0], overlay[1], overlay[2]]
+                                .map(|channel| (channel * 255.0).round() as u8),
+                        );
+                    }
                     if u32::from(ui::UI_STYLE_GRAYSCALE) & corners[0].style_flags != 0 {
                         let luma = (0.299 * f32::from(texel[0])
                             + 0.587 * f32::from(texel[1])
@@ -139,15 +176,70 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                         .round() as u8;
                         texel = [luma, luma, luma, texel[3]];
                     }
-                    Some(premultiply(std::array::from_fn(|channel| {
+                    let mut rgba = premultiply(std::array::from_fn(|channel| {
                         (u16::from(texel[channel]) * u16::from(color[channel]) / 255) as u8
-                    })))
+                    }));
+                    if (!repeated || model)
+                        && corners[0].style_flags
+                            & (render_model::UI_STYLE_PARTICLE
+                                | render_api::UI_STYLE_SPRITE_COLOR_MASK)
+                            == 0
+                    {
+                        for channel in 0..3 {
+                            rgba[channel] = rgba[channel] * (1. - overlay[3])
+                                + overlay[channel] * rgba[3] * overlay[3];
+                        }
+                    }
+                    if corners[0].style_flags & render_api::UI_STYLE_RGB_COVERAGE != 0 {
+                        rgba[3] *= f32::from(texel[0].max(texel[1]).max(texel[2])) / 255.0;
+                    }
+                    Some(rgba)
                 },
                 batch.blend_mode == UI_BLEND_INVERT,
             );
         }
     }
     image
+}
+
+/// Samples texel centers with nearest or linear filtering, clamped to the page edges.
+fn sample(page: &UiTexturePage, pixels: &[u8], uv: [f32; 2], linear: bool) -> [u8; 4] {
+    let [width, height] = page.dimensions();
+    let texel = |uv: [f32; 2]| -> [u8; 4] {
+        let x = (uv[0].floor() as u32).min(width - 1);
+        let y = (uv[1].floor() as u32).min(height - 1);
+        let at = (y * width + x) as usize;
+        match page.format() {
+            UiTextureFormat::Coverage => [255, 255, 255, pixels[at]],
+            UiTextureFormat::Rgba8 => pixels[at * 4..at * 4 + 4].try_into().unwrap(),
+        }
+    };
+    if !linear {
+        return texel(uv);
+    }
+    let low = uv.map(|value| (value - 0.5).floor());
+    let mix: [f32; 2] = std::array::from_fn(|axis| uv[axis] - 0.5 - low[axis]);
+    let taps =
+        [[0., 0.], [1., 0.], [0., 1.], [1., 1.]].map(|at| texel([low[0] + at[0], low[1] + at[1]]));
+    std::array::from_fn(|channel| {
+        let top =
+            f32::from(taps[0][channel]) * (1. - mix[0]) + f32::from(taps[1][channel]) * mix[0];
+        let bottom =
+            f32::from(taps[2][channel]) * (1. - mix[0]) + f32::from(taps[3][channel]) * mix[0];
+        (top * (1. - mix[1]) + bottom * mix[1]).round() as u8
+    })
+}
+
+/// Largest local UV derivative along one physical pixel of the shadow triangle.
+fn shadow_pixel(corners: [UiRenderVertex; 3]) -> f32 {
+    let [a, b, c] = corners;
+    let dx = [b.position[0] - a.position[0], c.position[0] - a.position[0]];
+    let dy = [b.position[1] - a.position[1], c.position[1] - a.position[1]];
+    let area = dx[0] * dy[1] - dx[1] * dy[0];
+    let duv = [0, 1].map(|axis| [b.uv[axis] - a.uv[axis], c.uv[axis] - a.uv[axis]]);
+    let x = duv.map(|d| (d[0] * dy[1] - d[1] * dy[0]) / area);
+    let y = duv.map(|d| (d[1] * dx[0] - d[0] * dx[1]) / area);
+    x[0].hypot(x[1]).max(y[0].hypot(y[1]))
 }
 
 /// Converts an RGBA byte color into normalized premultiplied color for composition.
@@ -166,9 +258,12 @@ fn premultiply(color: [u8; 4]) -> [f32; 4] {
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
-    shade: impl Fn([f32; 2], [u8; 4], [f32; 4], f32, u32, u32) -> Option<[f32; 4]>,
+    repeat_bounds: Option<[[f32; 4]; 3]>,
+    cull_back_faces: bool,
+    shade: impl Fn([f32; 2], [u8; 4], [f32; 4], [f32; 4], f32, u32, u32) -> Option<[f32; 4]>,
     invert: bool,
 ) {
+    let mut repeat_bounds = repeat_bounds.unwrap_or([[0.; 4]; 3]);
     for corner in &mut corners {
         corner.position = corner
             .position
@@ -176,11 +271,16 @@ fn fill(
     }
     let [a, b, c] = corners.map(|corner| corner.position);
     let mut area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // Physical UI Y points down; a counterclockwise clip-space front points clockwise here.
+    if cull_back_faces && area > 0. {
+        return;
+    }
     if area.abs() < f32::EPSILON {
         return;
     }
     if area < 0.0 {
         corners.swap(1, 2);
+        repeat_bounds.swap(1, 2);
         area = -area;
     }
     let [a, b, c] = corners.map(|corner| corner.position);
@@ -222,7 +322,12 @@ fn fill(
             let coverage = wa * corners[0].model_light
                 + wb * corners[1].model_light
                 + wc * corners[2].model_light;
-            let Some(source) = shade(uv, color, overlay, coverage, x, y) else {
+            let bounds = std::array::from_fn(|channel| {
+                wa * repeat_bounds[0][channel]
+                    + wb * repeat_bounds[1][channel]
+                    + wc * repeat_bounds[2][channel]
+            });
+            let Some(source) = shade(uv, color, overlay, bounds, coverage, x, y) else {
                 continue;
             };
             let target = image.get_pixel_mut(x, y);
@@ -262,6 +367,9 @@ pub(in crate::ui_runtime::presentation) fn write_image(image: &RgbaImage, name: 
 }
 
 #[cfg(test)]
+mod repeat_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -285,6 +393,7 @@ mod tests {
                     ..vertex(position[0], position[1])
                 });
             rasterize(&UiRenderInput {
+                models: Default::default(),
                 revision: 1,
                 viewport_size: [2, 2],
                 safe_area: [0; 4],
@@ -329,6 +438,7 @@ mod tests {
                     ..vertex(position[0], position[1])
                 });
             rasterize(&UiRenderInput {
+                models: Default::default(),
                 revision: 1,
                 viewport_size: [3, 1],
                 safe_area: [0; 4],
@@ -402,7 +512,9 @@ mod tests {
             fill(
                 &mut image,
                 [vertex(0., 0.), vertex(2., 0.), vertex(0., 2.)],
-                |_, _, _, _, _, _| Some(premultiply(source)),
+                None,
+                false,
+                |_, _, _, _, _, _, _| Some(premultiply(source)),
                 true,
             );
             assert_eq!(image.get_pixel(0, 0).0, expected);
@@ -425,7 +537,9 @@ mod tests {
                 fill(
                     &mut image,
                     triangle.map(|index| quad[index]),
-                    |_, color, _, _, _, _| Some(premultiply(color)),
+                    None,
+                    false,
+                    |_, color, _, _, _, _, _| Some(premultiply(color)),
                     false,
                 );
             }

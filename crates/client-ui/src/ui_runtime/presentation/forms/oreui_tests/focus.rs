@@ -17,7 +17,7 @@ fn view(section: &str) -> MenuView {
     view
 }
 
-fn paint(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
+pub(super) fn paint(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
     let (mut nodes, mut next) = (Vec::new(), 1);
     let metrics = TextMetrics::for_viewport(
         [size[0] as u32, size[1] as u32],
@@ -209,7 +209,10 @@ fn slider_focus_uses_its_inset_track_anchor_while_pointer_steps_keep_distinct_ac
         .projections
         .oreui_slider_tracks
         .iter()
-        .find_map(|(index, track, _)| (*index == option).then_some(*track))
+        .find_map(|(action, track, _)| {
+            matches!(action, MenuAction::SettingsOption(index, _) if *index == option)
+                .then_some(*track)
+        })
         .unwrap();
     assert_eq!(targets[0].bounds, track);
     assert_eq!(targets[0].bounds.height(), steps[0].1.height());

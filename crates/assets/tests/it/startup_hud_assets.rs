@@ -4,7 +4,7 @@ use assets::carriers::startup::{
     AssetStartupError, DEFAULT_ASSET_PATH, HUD_ASSETS_COMPILE_COMMAND, hud_asset_path,
     hud_assets_missing_notice, hud_assets_rebuild_command, load_hud_assets, require_hud_assets,
 };
-use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTexture, HudTextureRole, encode_hud_catalog};
+use assets::{HudTexture, HudTextureRole, encode_hud_catalog, hud_source_manifest_sha256};
 use sha2::{Digest, Sha256};
 
 fn temporary_directory(label: &str) -> PathBuf {
@@ -37,7 +37,7 @@ fn fixture_carrier() -> Box<[u8]> {
             }
         })
         .collect::<Vec<_>>();
-    encode_hud_catalog(HUD_SOURCE_MANIFEST_SHA256, &textures)
+    encode_hud_catalog(hud_source_manifest_sha256(), &textures)
         .unwrap()
         .into_boxed_slice()
 }
@@ -152,7 +152,7 @@ fn valid_sibling_hud_carrier_loads_with_provenance() {
     let loaded = load_hud_assets(&world_assets).unwrap().unwrap();
     assert_eq!(
         loaded.runtime().source_manifest_sha256(),
-        HUD_SOURCE_MANIFEST_SHA256
+        hud_source_manifest_sha256()
     );
     assert!(
         loaded

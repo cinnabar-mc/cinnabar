@@ -15,13 +15,13 @@ use assets::{
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
     MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS, MAX_MATERIALS,
-    MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    MODEL_TEMPLATE_FLAG_WALL, Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate,
-    NO_ANIMATION, RegistryRecord, TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
+    MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS, MAX_MATERIALS, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
+    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
+    TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 
 use {
@@ -47,6 +47,8 @@ mod materials;
 use materials::compile_materials;
 mod pack_bindings;
 mod seasonal_leaves;
+mod sheet_regions;
+mod sheet_tiles;
 mod variations;
 mod visuals;
 
@@ -74,7 +76,8 @@ use visuals::{
         is_chiseled_bookshelf_record,
     },
     cactus::{
-        cactus_inventory_is_exact, cactus_material_descriptors, is_cactus_name, is_cactus_record,
+        cactus_inventory_is_exact, cactus_material_descriptors, cactus_quads, is_cactus_name,
+        is_cactus_record,
     },
     cake::{
         cake_inventory_is_exact, cake_material_descriptors, cake_source_alpha_is_exact,
@@ -338,12 +341,26 @@ fn compile_pack_sources(
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
+            || matches!(
+                assets::facts::block_render_fact(&record.name).variant,
+                Some(assets::facts::BlockModelVariant::Chest(_))
+            )
             || assets::facts::block_render_fact(&record.name).kind
                 == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
             || visuals::bubble_column::is_record(record)
+            || visuals::beacon::is_record(record)
+            || visuals::cube::is_hash_only(record)
             || fallback.contains(record)
     }) {
+        if visuals::beacon::is_record(record) {
+            if let Some(descriptors) = visuals::beacon::descriptors(&pack, record) {
+                for (descriptor, key) in descriptors {
+                    descriptor_keys.insert(descriptor, key);
+                }
+            }
+            continue;
+        }
         if visuals::hollow_containers::is_name(&record.name) {
             if let Some(descriptors) = visuals::hollow_containers::descriptors(&pack, record) {
                 for (descriptor, key) in descriptors {
@@ -352,11 +369,14 @@ fn compile_pack_sources(
             }
             continue;
         }
-        if visuals::candle_cake::is_record(record) {
-            if let Some(descriptors) = visuals::candle_cake::descriptors(&pack, record) {
-                for (descriptor, key) in descriptors {
-                    descriptor_keys.insert(descriptor, key);
-                }
+        if visuals::candle_cake::is_record(record) || visuals::candle::is_record(record) {
+            let descriptors = if visuals::candle::is_record(record) {
+                visuals::candle::descriptors(&pack, record)
+            } else {
+                visuals::candle_cake::descriptors(&pack, record)
+            };
+            for (descriptor, key) in descriptors.into_iter().flatten() {
+                descriptor_keys.insert(descriptor, key);
             }
             continue;
         }
@@ -368,6 +388,17 @@ fn compile_pack_sources(
         }
         if visuals::lever::is_record(record)
             && let Some((descriptor, key)) = visuals::lever::base_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
+        if visuals::dried_ghast::is_record(record)
+            && let Some((descriptor, key)) =
+                visuals::dried_ghast::tentacle_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
+        if visuals::sculk::is_record(record)
+            && let Some((descriptor, key)) = visuals::sculk::attachment_descriptor(&pack, record)
         {
             descriptor_keys.insert(descriptor, key);
         }
@@ -491,6 +522,7 @@ fn compile_pack_sources(
             || is_liquid(record)
             || visuals::fire::is_record(record)
             || visuals::potted_plants::is_record(record)
+            || visuals::sunflower::is_record(record)
         {
             &BlockFace::ALL
         } else if is_aquatic_cross(record) {
@@ -528,12 +560,23 @@ fn compile_pack_sources(
         material_keys::build(&pack, &material_by_descriptor, &materials, &animations);
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
-    let (visuals, hashed, model_templates, mut model_quads) = compile_visuals(
+    let sheet_tiles = sheet_tiles::plan(
+        sheet_tiles::Inputs {
+            root,
+            pack: &pack,
+            records,
+            fallback,
+            descriptors: &material_by_descriptor,
+        },
+        &materials,
+    )?;
+    let (visuals, hashed, mut model_templates, mut model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
         vanilla_fallback_material,
         fallback,
+        &sheet_tiles,
         ExactAdmissions {
             mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
@@ -573,6 +616,16 @@ fn compile_pack_sources(
         animations,
         frames: animation_frames,
     } = leaf_mips::install(&mut materials, texture_pages, animations, animation_frames)?;
+    // The required copies above are done, so these optional layers only take what they left.
+    let mut texture_pages = texture_pages.into_vec();
+    sheet_tiles.install(
+        &mut materials,
+        &mut texture_pages,
+        &visuals,
+        &mut model_templates,
+        &mut model_quads,
+    )?;
+    let texture_pages = texture_pages.into_boxed_slice();
     // World leaf selectors retain their original terrain keys even though their
     // native mip chains are separate from carried/shared texture pixels.
     let material_keys = material_keys::extend(
@@ -658,9 +711,10 @@ fn flowerbed_material_descriptors(
     pack: &PackSources,
     record: &RegistryRecord,
 ) -> Option<[(Descriptor, Box<str>); 2]> {
-    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, BlockFace::Down);
+    let TextureKey { key, uv_rotation } =
+        resolve_texture_key(&pack.blocks, record, BlockFace::Down);
     let key = key?;
-    let flags = (u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV) | MATERIAL_FLAG_ALPHA_CUTOUT;
+    let flags = (uv_rotation) | MATERIAL_FLAG_ALPHA_CUTOUT;
     let paths = pack.terrain.get_exact_pair(&key)?;
     Some(std::array::from_fn(|index| {
         let path = paths[index];

@@ -434,18 +434,22 @@ fn entering_page_rebuilds_nested_clips_and_input_geometry() {
 
 #[test]
 fn paint_transform_applies_once_after_sampled_geometry_and_input() {
-    let mut screen = Screen::new(json!({
+    let mut document = json!({
         "move":{"anim_type":"offset","from":[0,0],"to":[20,10],"duration":1},
         "root":{"type":"panel","size":[40,20],"offset":"@fixture.move","anchor_from":"top_left","anchor_to":"top_left","cinnabar_transform":{"scale":2,"origin":[0,0]},"controls":[
             {"press":{"type":"button","size":[20,10],"anchor_from":"top_left","anchor_to":"top_left","controls":[
                 {"fill":{"type":"image","texture":"textures/fixture","keep_ratio":false}}
             ]}}
         ]}
-    }));
+    });
+    let region = std::num::NonZeroU64::new(7).unwrap();
+    document["root"][json_ui::transform::PAINT_REGION_PROPERTY] = json!(region.get());
+    let mut screen = Screen::new(document);
     screen.frame(0.0, &ViewState::default());
     let frame = screen.frame(1.0, &ViewState::default());
     let fill = draw(&frame, "fill");
     assert_eq!([fill.dest.x, fill.dest.y], [20.0, 10.0]);
+    assert_eq!(fill.paint_region, Some(region));
     assert_eq!(
         fill.anim.as_ref().unwrap().transform,
         hit(&frame, "press").transform

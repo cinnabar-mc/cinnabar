@@ -2,13 +2,18 @@ use std::borrow::Cow;
 
 use super::*;
 
+pub(crate) mod cache;
 pub(super) mod camera;
 mod clips;
+mod composition;
 mod layers;
 pub(super) mod motion_endpoint;
 pub(super) mod motion_sampling;
+mod retained;
 mod rotation;
 pub(super) mod sampling;
+mod schedule;
+mod visibility;
 
 use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 
@@ -16,9 +21,12 @@ use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 #[derive(Clone)]
 pub struct ActorRenderLayers<'a> {
     pub render: Cow<'a, [RenderTextureLayer]>,
+    pub visibility: RenderVisibility,
     pub skin: Cow<'a, [SkinRenderLayer]>,
     /// Main-hand size evaluated with this frame's owner variables and query inputs.
     pub held_item_scale: Option<f32>,
+    /// The head's own angles this frame's body poses from, when its renderer reads them.
+    pub head_rotation: Option<HeadRotation>,
 }
 
 /// A bounded render-layer evaluation frame, borrowing tick-owned actor and rig state.
@@ -66,6 +74,11 @@ impl<'a> ActorRenderFrame<'a> {
         self.actors
             .animated_actor(runtime_id)
             .is_some_and(|actor| self.store.may_use_always_depth_material(actor))
+    }
+
+    /// Whether admission can spend this actor's frame budget before its body is sampled.
+    pub fn samples_during_admission(&self, runtime_id: u64) -> bool {
+        self.samples_rig_scale(runtime_id) || self.may_use_always_depth_material(runtime_id)
     }
 
     /// Whether any controller branch can replace the base mesh, including frame selections.
@@ -141,6 +154,45 @@ impl<'a> ActorRenderFrame<'a> {
             .as_ref()
     }
 
+    /// Moves a single actor's sample to a retained consumer without a frame-map allocation.
+    pub fn into_layers(
+        mut self,
+        runtime_id: u64,
+        sample_skin: bool,
+    ) -> Option<ActorRenderLayers<'a>> {
+        self.sampled_layers.remove(&runtime_id).unwrap_or_else(|| {
+            Self::sample(
+                self.store,
+                self.actors,
+                (self.camera_rotation, self.camera_position, self.alpha),
+                runtime_id,
+                &mut self.remaining_ops,
+                sample_skin,
+            )
+        })
+    }
+
+    /// Samples into caller-owned storage, retaining vector capacity as frame inputs advance.
+    /// Visibility-only consumers may receive completed artwork and scale instead of sampled poses.
+    pub fn into_layers_reusing(
+        mut self,
+        runtime_id: u64,
+        sample_skin: bool,
+        visibility_only: bool,
+        render: &mut Vec<RenderTextureLayer>,
+    ) -> Option<ActorRenderLayers<'a>> {
+        self.store.render_layers_reusing(
+            self.actors.animated_actor(runtime_id)?,
+            self.alpha,
+            self.camera_rotation,
+            self.camera_position,
+            &mut self.remaining_ops,
+            sample_skin,
+            visibility_only,
+            render,
+        )
+    }
+
     /// Samples authored scale before admission and caches its layers for the same draw.
     /// Ordinary rigs retain their tick scale without evaluating layer expressions.
     pub fn sample_rig_scale(&mut self, mut rig: ActorRigSnapshot<'a>) -> ActorRigSnapshot<'a> {
@@ -156,15 +208,16 @@ impl<'a> ActorRenderFrame<'a> {
         rig
     }
 
-    /// Shares the owner's sampled item scale with equipment under this frame's budget.
-    pub fn sample_held_item_scale<'rig>(
+    /// Shares sampled held-item scale and visibility under this frame's budget.
+    pub fn sample_equipment_properties<'rig>(
         &mut self,
         mut rig: ActorRigSnapshot<'rig>,
     ) -> ActorRigSnapshot<'rig> {
-        if rig.held_item_scale.is_some()
+        if (rig.held_item_scale.is_some() || rig.visibility.hide_held_items.is_some())
             && let Some(layers) = self.cached_layers(rig.actor.runtime_id)
         {
             rig.held_item_scale = layers.held_item_scale;
+            rig.visibility = layers.visibility;
         }
         rig
     }
@@ -172,27 +225,8 @@ impl<'a> ActorRenderFrame<'a> {
     /// Shares the frame's sampled layers without committing variables, clocks or poses.
     /// Unsupported or exhausted evaluations retain the completed tick's layers.
     pub fn layers(&mut self, runtime_id: u64) -> Option<Cow<'a, [RenderTextureLayer]>> {
-        if self
-            .store
-            .get(runtime_id)
-            .is_some_and(|rig| rig.held_item_scale.is_some())
-        {
-            return self
-                .cached_layers(runtime_id)
-                .map(|layers| layers.render.clone());
-        }
-        if let Some(layers) = self.sampled_layers.get(&runtime_id) {
-            return layers.as_ref().map(|layers| layers.render.clone());
-        }
-        Self::sample(
-            self.store,
-            self.actors,
-            (self.camera_rotation, self.camera_position, self.alpha),
-            runtime_id,
-            &mut self.remaining_ops,
-            false,
-        )
-        .map(|layers| layers.render)
+        self.cached_layers(runtime_id)
+            .map(|layers| layers.render.clone())
     }
 
     /// Samples possible Always rigs and retains the same frame layers for the eventual draw.
@@ -205,6 +239,17 @@ impl<'a> ActorRenderFrame<'a> {
                     .iter()
                     .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
             })
+    }
+
+    /// Shares the frame's visibility without copying its pose or texture layers.
+    pub fn visibility(&mut self, runtime_id: u64) -> Option<RenderVisibility> {
+        Some(self.cached_layers(runtime_id)?.visibility)
+    }
+
+    /// The head angles of the pose this frame draws the actor's body with, so a layer built on the
+    /// head stays with it. Absent unless the actor's renderer reads them.
+    pub fn head_rotation(&mut self, runtime_id: u64) -> Option<HeadRotation> {
+        self.cached_layers(runtime_id)?.head_rotation
     }
 
     /// Expression budget left for this frame's remaining samples.
@@ -227,6 +272,7 @@ impl<'a> ActorRenderFrame<'a> {
 
 #[derive(Debug)]
 pub(super) struct FrameState {
+    pub cache: std::sync::Mutex<FrameSamplingCache>,
     pub motion: MotionEndpointState,
     /// Previous simulation tick, even when that tick did not evaluate a visual pose.
     pub previous_rotation: ActorTickInput,
@@ -243,6 +289,39 @@ pub(super) struct FrameState {
     pub motion_layers: BTreeMap<u32, MotionPoses>,
     /// Swell samples used by the retained motion endpoints.
     pub swelling: [f32; 2],
+}
+
+/// One frame lock protects the independent scratch streams and their sampled outputs.
+#[derive(Debug, Default)]
+pub(crate) struct FrameSamplingCache {
+    variables: evaluation::variables::frame::FrameVariables,
+    previous: evaluation::variables::frame::FrameVariables,
+    current: evaluation::variables::frame::FrameVariables,
+    layers: render::cache::RenderCache,
+    compositions: composition::Compositions,
+    retained: Option<retained::Sample>,
+    visibility: Option<visibility::Plan>,
+}
+
+impl FrameSamplingCache {
+    /// A tick replaces frozen inputs while preserving storage and immutable expression plans.
+    fn rebase(
+        &mut self,
+        current: &MolangVariables,
+        previous: &MolangVariables,
+        sampling: Option<&motion_sampling::MotionSampling>,
+    ) {
+        self.variables.rebase(current);
+        self.current.rebase(current);
+        self.previous.rebase(previous);
+        if let Some(sampling) = sampling {
+            if let Some(retained) = &mut self.retained {
+                retained.rebase(sampling.frame_queries());
+            }
+        } else {
+            self.retained = None;
+        }
+    }
 }
 
 impl FrameState {
@@ -276,6 +355,21 @@ impl FrameState {
             && self.previous_rotation.rotation_changed(self.motion.input)
     }
 
+    /// Local walking can advance while the independent actor clock has no new endpoint.
+    fn samples_local_walk(&self, state: &ActorRigState) -> bool {
+        state.java.local_body.has_walk()
+            && (self.needs_walk_sampling()
+                || state
+                    .java
+                    .local_body
+                    .walk_changed(&state.motion, self.motion.input))
+            && self
+                .motion
+                .sampling
+                .as_ref()
+                .is_some_and(|sampling| sampling.uses_walk())
+    }
+
     /// A changing stride or speed requires walk sampling between ticks.
     fn needs_walk_sampling(&self) -> bool {
         self.motion
@@ -286,11 +380,17 @@ impl FrameState {
     }
 
     pub(super) fn hold_motion(&mut self) {
+        self.cache.get_mut().unwrap().retained = None;
         self.previous_rotation = self.motion.input;
         self.previous_walk = self.motion.input;
         self.swelling[0] = self.swelling[1];
         if let Some(previous) = self.previous_motion.as_mut() {
             previous.clone_from(&self.motion);
+            self.cache
+                .get_mut()
+                .unwrap()
+                .previous
+                .rebase(&previous.variables);
         }
         for poses in self
             .motion_poses
@@ -348,6 +448,9 @@ pub(super) fn carry_motion_history(
         next.previous_walk = previous.previous_walk;
     }
     let mut previous = previous;
+    if let Some(previous) = previous.as_deref_mut() {
+        next.cache = std::mem::take(&mut previous.cache);
+    }
     if next.motion_poses.is_some() {
         next.previous_motion = previous.as_deref_mut().map(|frame| {
             if advance {
@@ -378,6 +481,15 @@ pub(super) fn carry_motion_history(
             advance,
         );
     }
+    next.cache.get_mut().unwrap().rebase(
+        &next.motion.variables,
+        &next
+            .previous_motion
+            .as_ref()
+            .unwrap_or(&next.motion)
+            .variables,
+        next.motion.sampling.as_deref(),
+    );
 }
 
 impl MotionPoses {
@@ -386,15 +498,15 @@ impl MotionPoses {
         current: &mut [pose::LocalDelta],
         sampled_previous: &[pose::LocalDelta],
         mask: Option<&[[u8; 3]]>,
-    ) -> Vec<pose::LocalDelta> {
-        let mut previous = self.previous.clone();
+    ) -> pose::PoseBuffer {
+        let mut previous = pose::PoseBuffer::copy_of(&self.previous);
         for (
             (((((sample, completed), previous), sampled_previous), sampled_mask), current_mask),
             previous_mask,
         ) in current
             .iter_mut()
             .zip(&self.current)
-            .zip(&mut previous)
+            .zip(previous.iter_mut())
             .zip(sampled_previous)
             .zip(mask.unwrap_or(&self.mask))
             .zip(&self.mask)

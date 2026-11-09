@@ -599,7 +599,6 @@ fn evaluate_job(
         stack: OperandStack::lease(),
         static_draw: None,
     };
-    render::cache_layer_skeletons(assets, state);
     if job.refresh_view {
         geometry::reselect_geometry_replay(
             assets,
@@ -641,9 +640,27 @@ fn evaluate_job(
             &mut budget,
             !job.refresh_view,
         );
+        // HUD paper dolls share the level view, unlike actors drawn inside a menu.
+        let paper_doll_context = ActorTickContext {
+            is_local_first_person: false,
+            is_in_ui: false,
+            is_paperdoll: true,
+            ..context.clone()
+        };
+        hud::evaluate(
+            assets,
+            layout,
+            state,
+            actor,
+            &paper_doll_context,
+            catalogs.tick,
+            &mut budget,
+            !job.refresh_view,
+        );
     } else {
         state.ui_pose = None;
         state.ui_animation = None;
+        state.paper_doll_animation = None;
     }
     let used = budget.used;
     Evaluation { result, used }
@@ -660,6 +677,9 @@ struct Ledger<'a> {
 
 fn hold_pose_history(state: &mut ActorRigState) {
     state.previous.clone_from(&state.current);
+    if let Some(head) = state.head_rotation.as_mut() {
+        head.previous = head.current;
+    }
     if let Some(frame) = state.render_frame.as_mut() {
         frame.hold_motion();
     }
@@ -752,6 +772,7 @@ impl Ledger<'_> {
         );
         state.scale = evaluated.scale;
         state.held_item_scale = evaluated.held_item_scale;
+        state.visibility = evaluated.visibility;
         let initial = !state.initialized;
         let restart = initial || state.reset_pending || resumed || view_changed;
         if let Some(next) = evaluated.render_frame.as_mut() {
@@ -770,6 +791,12 @@ impl Ledger<'_> {
             self.advance_history,
         );
         state.skin_layers = evaluated.skin_layers;
+        state.head_rotation = HeadRotation::carry(
+            state.head_rotation,
+            evaluated.head_angles,
+            restart,
+            self.advance_history,
+        );
         if let Some(mut render) = evaluated.render {
             render::carry_layer_poses(&state.render, &mut render, restart, self.advance_history);
             state.render = render;

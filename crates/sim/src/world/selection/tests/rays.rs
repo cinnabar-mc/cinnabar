@@ -174,7 +174,7 @@ fn check_moving_rays(mut inspect: impl FnMut(&PaletteWorld<'_>, Vec3, Vec3) -> O
                 registry.set_compiled_selection(20, &piston);
                 let owner = [-2, 0, 0];
                 set_block(&mut store, owner, 20);
-                set_piston(&mut store, owner, 0.5);
+                set_piston(&mut store, owner, EXPANDING);
                 set_moving(&mut store, "minecraft:carried", owner, expanding);
                 let axis = direction.iter().position(|value| *value != 0).unwrap();
                 let ray_axis = (axis + 1) % 3;
@@ -307,4 +307,30 @@ fn add_aim_liquid_halo(registry: &mut CollisionRegistry) {
     registry.set_compiled_selection(9, &liquid);
     registry.register(20, []).unwrap();
     registry.set_compiled_selection(20, &shapes(SelectionContext::MovingBlock, vec![], vec![]));
+}
+
+#[test]
+fn rays_lying_in_an_exposed_face_plane_pick_the_face_they_meet() {
+    // A player pressed against a wall with their eye exactly on a block-boundary plane.
+    let eye = |z: f64| Vec3::new(-0.300_003_051_757_812_5, 0.620_010_375_976_562_5, z);
+    let toward = |z: f64| Vec3::new(0.996_194_720_268_249_5, -0.087_155_742_943_286_9, z);
+    for space in [CollisionIdSpace::Sequential, CollisionIdSpace::Hashed] {
+        let target = shapes(SelectionContext::Static, vec![UNIT], vec![]);
+        let (store, registry, id) = fixture(space, &target);
+        let world = PaletteWorld::new(&store, &registry, 0, PickContext::default());
+        let reference = world
+            .block_interaction_ray_current(eye(0.5), toward(0.0), 5.7)
+            .unwrap()
+            .unwrap();
+        for (origin, direction) in [(eye(0.0), toward(0.0)), (eye(0.0), toward(1.885_928_2e-8))] {
+            let hit = world
+                .block_interaction_ray_current(origin, direction, 5.7)
+                .unwrap()
+                .unwrap_or_else(|| panic!("{space:?} {origin:?} {direction:?} missed"));
+            assert_eq!(
+                (hit.runtime_id, hit.block_pos, hit.face),
+                (id, [0; 3], reference.face)
+            );
+        }
+    }
 }

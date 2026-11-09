@@ -4,7 +4,10 @@
 
 use super::{
     Direction, Guest, Outbound, PACKET_MOD_LOAD_DEADLINE, PACKET_MOD_TRANSFER_BYTES,
-    SessionIdentity, SessionPack, limits::PacketLimits, wasi,
+    SessionIdentity, SessionPack,
+    limits::PacketLimits,
+    native_capabilities::{FRAME, NATIVE_INIT, NativeExports},
+    wasi,
 };
 use crate::{ModGrants, execution};
 use anyhow::{Context, Result, bail, ensure};
@@ -37,16 +40,20 @@ const SESSION_PACK_BYTES: u32 = 12;
 type StartParams = (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32);
 
 /// Store data: the locked-down WASI preview 1 context and the memory limiter.
-struct State {
+pub(super) struct State {
     wasi: WasiP1Ctx,
     limits: PacketLimits,
     log: wasi::LogBudget,
+    pub(super) panel: super::panel::PanelHandle,
 }
 
 /// A compiled module linked against WASI preview 1 only with the `wasi` grant.
 #[derive(Clone)]
 pub(super) struct Program {
     pre: InstancePre<State>,
+    native_capabilities: u32,
+    camera_players: bool,
+    controls: bool,
 }
 
 impl Program {
@@ -68,6 +75,7 @@ impl Program {
                 _ => bail!("packet mod does not export function {name}"),
             }
         }
+        let native_capabilities = NativeExports::from_module(&module).negotiate(grants)?;
         ensure!(
             matches!(module.get_export(MEMORY), Some(ExternType::Memory(_))),
             "packet mod does not export its memory"
@@ -78,8 +86,17 @@ impl Program {
                 &mut state.wasi
             })?;
         }
+        super::panel::link(&mut linker)?;
         let pre = linker.instantiate_pre(&module).context("link packet mod")?;
-        Ok((Self { pre }, image_bytes))
+        Ok((
+            Self {
+                pre,
+                native_capabilities,
+                camera_players: grants.players,
+                controls: grants.controls,
+            },
+            image_bytes,
+        ))
     }
 
     /// Instantiates the module and runs its `_initialize` under the load deadline.
@@ -91,6 +108,7 @@ impl Program {
                 wasi: wasi::builder(&log).build_p1(),
                 limits: PacketLimits::default(),
                 log,
+                panel: super::panel::PanelHandle::new(self.controls),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -104,7 +122,13 @@ impl Program {
                     .call_async(&mut store, ()),
             )?;
         }
-
+        if instance.get_func(&mut store, NATIVE_INIT).is_some() {
+            deadline.run(
+                instance
+                    .get_typed_func::<i32, ()>(&mut store, NATIVE_INIT)?
+                    .call_async(&mut store, self.native_capabilities as i32),
+            )?;
+        }
         let memory = instance
             .get_memory(&mut store, MEMORY)
             .context("packet mod memory")?;
@@ -115,14 +139,38 @@ impl Program {
                 None => Ok(None),
             }
         };
-        let posts = [post(START)?, post(ON_BATCH)?, post(TICK)?];
-
+        let posts = [
+            post(START)?,
+            post(ON_BATCH)?,
+            post(TICK)?,
+            post(FRAME)?,
+            post(super::native_capabilities::CAMERA_FRAME)?,
+            post(super::native_capabilities::RENDER_FRAME)?,
+        ];
+        let frame = if self.native_capabilities & mod_api::native_frame::CAMERA_PLAYERS != 0 {
+            Some(instance.get_typed_func(&mut store, FRAME)?)
+        } else {
+            None
+        };
+        let camera_frame = if self.native_capabilities & mod_api::native_camera::CAPABILITY != 0 {
+            Some(instance.get_typed_func(&mut store, super::native_capabilities::CAMERA_FRAME)?)
+        } else {
+            None
+        };
+        let render_frame = if self.native_capabilities & mod_api::native_render::CAPABILITY != 0 {
+            Some(instance.get_typed_func(&mut store, super::native_capabilities::RENDER_FRAME)?)
+        } else {
+            None
+        };
         let calls = Calls {
             realloc: instance.get_typed_func(&mut store, REALLOC)?,
             start: instance.get_typed_func(&mut store, START)?,
             on_batch: instance.get_typed_func(&mut store, ON_BATCH)?,
             tick: instance.get_typed_func(&mut store, TICK)?,
             stop: instance.get_typed_func(&mut store, STOP)?,
+            frame,
+            camera_frame,
+            render_frame,
             posts,
         };
         Ok(Box::new(CoreGuest {
@@ -130,6 +178,8 @@ impl Program {
             memory,
             calls,
             deadline,
+            camera_players: self.camera_players,
+            native_capabilities: self.native_capabilities,
         }))
     }
 }
@@ -141,8 +191,11 @@ struct Calls {
     on_batch: TypedFunc<(i32, i32, i32), i32>,
     tick: TypedFunc<(), i32>,
     stop: TypedFunc<(), ()>,
-    /// Post-return functions of `start`, `on-batch` and `tick`.
-    posts: [Option<TypedFunc<i32, ()>>; 3],
+    frame: Option<TypedFunc<(i32, i32), i32>>,
+    camera_frame: Option<TypedFunc<(i32, i32), i32>>,
+    render_frame: Option<TypedFunc<(i32, i32), i32>>,
+    /// Post-return functions of `start`, `on-batch`, `tick` and optional camera and drawing calls.
+    posts: [Option<TypedFunc<i32, ()>>; 6],
 }
 
 struct CoreGuest {
@@ -150,6 +203,8 @@ struct CoreGuest {
     memory: Memory,
     calls: Calls,
     deadline: wasi::CallDeadline,
+    camera_players: bool,
+    native_capabilities: u32,
 }
 
 impl CoreGuest {
@@ -272,6 +327,72 @@ impl Guest for CoreGuest {
     fn stop(&mut self) -> Result<()> {
         self.deadline
             .run(self.calls.stop.call_async(&mut self.store, ()))
+    }
+
+    fn has_native_frame(&self) -> bool {
+        self.calls.frame.is_some()
+    }
+
+    fn frame(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(frame) = self.calls.frame.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self
+            .deadline
+            .run(frame.call_async(&mut self.store, input))?;
+        self.lift_bounded(3, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
+            reader.result(at, |reader, at| reader.list(at).map(Some))
+        })
+    }
+
+    fn native_render_capabilities(&self) -> u32 {
+        self.native_capabilities
+    }
+
+    fn has_native_render(&self) -> bool {
+        self.calls.render_frame.is_some()
+    }
+    fn render_frame(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(frame) = self.calls.render_frame.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self
+            .deadline
+            .run(frame.call_async(&mut self.store, input))?;
+        self.lift_bounded(
+            5,
+            result,
+            mod_api::native_render::MAX_BYTES,
+            |reader, at| reader.result(at, |reader, at| reader.list(at).map(Some)),
+        )
+    }
+    fn has_native_camera(&self) -> bool {
+        self.calls.camera_frame.is_some()
+    }
+    fn native_camera_players(&self) -> bool {
+        self.camera_players
+    }
+    fn camera_frame(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        let Some(frame) = self.calls.camera_frame.clone() else {
+            return Ok(Ok(None));
+        };
+        let input = self.lower(json)?;
+        let result = self
+            .deadline
+            .run(frame.call_async(&mut self.store, input))?;
+        self.lift_bounded(4, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
+            reader.result(at, |reader, at| reader.list(at).map(Some))
+        })
+    }
+
+    fn panel(&self) -> Option<super::panel::PanelHandle> {
+        self.store
+            .data()
+            .panel
+            .enabled()
+            .then(|| self.store.data().panel.clone())
     }
 
     fn peak_memory(&self) -> usize {

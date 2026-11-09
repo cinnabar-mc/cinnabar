@@ -10,6 +10,9 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 
+#[path = "item_visuals/fireworks.rs"]
+mod fireworks;
+
 #[path = "item_visuals/spawn_eggs.rs"]
 mod spawn_eggs;
 
@@ -19,11 +22,14 @@ mod beds;
 #[path = "item_visuals/redstone.rs"]
 mod redstone;
 
+#[path = "item_visuals/coverage.rs"]
+mod coverage;
+
 #[test]
 fn independent_retail_inventory_has_explicit_compiled_glint_facts() {
     let pack = item_pack(false);
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    for identifier in include_str!("../../../../protocol/data/retail_items_1_26_50.tsv")
+    for identifier in include_str!("../../../../protocol/data/retail_items_1_26_60.tsv")
         .lines()
         .filter_map(|row| row.split('\t').nth(1))
     {
@@ -55,7 +61,7 @@ fn independent_retail_inventory_has_explicit_compiled_glint_facts() {
 #[test]
 fn independent_retail_inventory_has_explicit_compiled_grips() {
     let compiled = compile_entity_assets(item_pack(false).path(), MANIFEST).unwrap();
-    let retail = include_str!("../../../../protocol/data/retail_items_1_26_50.tsv");
+    let retail = include_str!("../../../../protocol/data/retail_items_1_26_60.tsv");
     for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
         let visual = compiled
             .item_visuals
@@ -81,7 +87,7 @@ fn independent_retail_inventory_has_explicit_compiled_grips() {
 fn independent_retail_inventory_has_explicit_compiled_fuel_facts() {
     let pack = item_pack(false);
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
-    for identifier in include_str!("../../../../protocol/data/retail_items_1_26_50.tsv")
+    for identifier in include_str!("../../../../protocol/data/retail_items_1_26_60.tsv")
         .lines()
         .filter_map(|row| row.split('\t').nth(1))
     {
@@ -129,7 +135,7 @@ fn durability_values_compile_by_identity_and_cover_the_retail_inventory() {
         visual(&compiled.item_visuals, "custom:diamond_chestplate", 0).durability,
         assets::item::durability::ItemDurability::Unresolved
     );
-    let inventory = include_str!("../../../../protocol/data/retail_items_1_26_50.tsv");
+    let inventory = include_str!("../../../../protocol/data/retail_items_1_26_60.tsv");
     for identifier in inventory.lines().filter_map(|line| line.split('\t').nth(1)) {
         assert_eq!(
             visual(&compiled.item_visuals, identifier, 0).durability,
@@ -169,7 +175,7 @@ fn armour_values_compile_by_identity_with_unresolved_unknown_items() {
         visual(&compiled.item_visuals, "custom:cloth", 0).armour,
         assets::item::armour::ItemArmour::Unresolved
     );
-    let inventory = include_str!("../../../../protocol/data/retail_items_1_26_50.tsv");
+    let inventory = include_str!("../../../../protocol/data/retail_items_1_26_60.tsv");
     for identifier in inventory.lines().filter_map(|line| line.split('\t').nth(1)) {
         let item = visual(&compiled.item_visuals, identifier, 0);
         assert_eq!(item.key.identifier.as_ref(), identifier);
@@ -271,7 +277,15 @@ fn compiles_exact_metadata_variants_reviewed_block_routes_and_missing_items() {
         encode_entity_blob(&first).unwrap(),
         encode_entity_blob(&second).unwrap()
     );
-    assert_eq!(first.block_visual_count, 22_091);
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    assert_eq!(
+        usize::try_from(first.block_visual_count).unwrap(),
+        records.len()
+    );
     assert!(matches!(
         visual(&first.item_visuals, "minecraft:air", 0).route,
         ItemVisualDefinitionRoute::EmptyHand
@@ -357,7 +371,7 @@ fn reviewed_block_routes_and_empty_hand_do_not_depend_on_an_item_atlas() {
     ));
     assert_eq!(
         compiled.sources[stone.source as usize].path.as_ref(),
-        "registry/block-item-routes-v2193.json"
+        "registry/block-item-routes-v2225.json"
     );
 }
 
@@ -499,7 +513,7 @@ fn absent_binding_aliases_do_not_invent_routes_and_missing_pixels_stay_missing()
 fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes() {
     let pack = item_pack(false);
     let facts: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../../assets/data/default-sprite-bindings-1.26.50.json"
+        "../../../../assets/data/default-sprite-bindings-1.26.60.json"
     ))
     .unwrap();
     let rows = facts["routes"].as_array().unwrap();
@@ -532,7 +546,7 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
         );
         assert_eq!(
             compiled.sources[item.source as usize].path.as_ref(),
-            "registry/default-sprite-bindings-1.26.50.json"
+            "registry/default-sprite-bindings-1.26.60.json"
         );
         assert_eq!(texture.variant, 0);
     }
@@ -551,7 +565,7 @@ fn all_reviewed_defaults_emit_canonical_keys_without_auxiliary_metadata_routes()
 fn default_item_bindings_preserve_sprite_pixels_through_carrier_round_trip() {
     let pack = item_pack(false);
     let bindings: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../../assets/data/default-sprite-bindings-1.26.50.json"
+        "../../../../assets/data/default-sprite-bindings-1.26.60.json"
     ))
     .unwrap();
     let routes = bindings["routes"].as_array().unwrap();
@@ -682,4 +696,49 @@ fn nether_wart_keeps_its_item_sprite_over_its_crop() {
         visual(&compiled.item_visuals, "minecraft:nether_wart", 0).route,
         ItemVisualDefinitionRoute::Sprite { .. }
     ));
+}
+
+/// Filled-map terrain identities do not select the inventory sprite; its default is atlas art.
+#[test]
+fn filled_map_default_icon_keeps_the_pack_atlas_pixels() {
+    let pack = item_pack(false);
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        br#"{"texture_data":{"map_filled":{"textures":"textures/items/fixture_map"}}}"#,
+    );
+    let expected = [31, 127, 73, 255];
+    std::fs::create_dir_all(pack.path().join("textures/items")).unwrap();
+    image::save_buffer(
+        pack.path().join("textures/items/fixture_map.png"),
+        &expected,
+        1,
+        1,
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let definition = compiled.item_visuals.iter().find(|visual| {
+        visual.key.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
+            && visual.key.metadata == 0
+    });
+    assert!(
+        definition
+            .is_some_and(|visual| matches!(visual.route, ItemVisualDefinitionRoute::Sprite { .. })),
+        "filled map must keep its inventory sprite"
+    );
+    let ItemVisualDefinitionRoute::Sprite { texture } = definition.unwrap().route else {
+        unreachable!();
+    };
+    assert_eq!(
+        compiled.sources[texture.source as usize].path.as_ref(),
+        "textures/items/fixture_map.png"
+    );
+    let decoded = image::open(
+        pack.path()
+            .join(compiled.sources[texture.source as usize].path.as_ref()),
+    )
+    .unwrap()
+    .into_rgba8();
+    assert_eq!(decoded.as_raw(), &expected);
 }

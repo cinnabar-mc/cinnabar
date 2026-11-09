@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["tools/localserver/testdata/player-preview-layers"]
+
 [features]
 test-support = []
 
@@ -13,6 +16,9 @@ bridge = { path = "../bridge" }
 pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
 image.workspace = true
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
 pack-compile-input = { path = "../pack-compiler/input" }
 pack-entity-compiler = { path = "../pack-compiler/entity" }
 protocol = { path = "../protocol" }
@@ -24,6 +30,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 resource-pack = { path = "../resource-pack", features = ["test-support"] }
 block-transform = { path = "../block-transform" }
 sim = { path = "../sim" }

@@ -645,6 +645,10 @@ fn append_dialog(
         )?,
         PANEL,
     );
+    let shader_removal = matches!(dialog, MenuDialog::RemoveShaderPack(..))
+        .then(|| launcher::menu::dialogs::dialog(view, dialog, &|_| None));
+    let storage_popup = matches!(dialog, MenuDialog::StorageDelete | MenuDialog::StorageError)
+        .then(|| launcher::menu::dialogs::dialog(view, dialog, &|_| None));
     let (title, description, confirm) = match dialog {
         MenuDialog::MinecraftImport => (
             view.minecraft_import.title(),
@@ -678,22 +682,28 @@ fn append_dialog(
             MenuAction::SettingsConfirmResetBindings(gamepad),
         ),
         MenuDialog::SettingsSupport(_) => ("Settings", "", MenuAction::DismissDialog),
-        MenuDialog::StorageError => (
-            "Storage",
-            view.storage.error.as_deref().unwrap_or_default(),
-            MenuAction::DismissDialog,
-        ),
-        MenuDialog::StorageDelete => (
-            "Delete Cached Data permanently?",
-            "Downloaded packs will be downloaded again when required.",
-            MenuAction::SettingsStorage(
-                launcher::menu::settings_storage::StorageAction::ConfirmDelete,
-            ),
-        ),
+        MenuDialog::StorageError | MenuDialog::StorageDelete => {
+            let popup = storage_popup.as_ref().expect("storage popup was prepared");
+            (popup.title.as_str(), popup.body.as_str(), popup.confirm)
+        }
         MenuDialog::Exit => (
             "Quit Cinnabar?",
             "Your saved servers and account cache will remain available.",
             MenuAction::ConfirmExit,
+        ),
+        MenuDialog::RemoveShaderPack(..) => {
+            let popup = shader_removal
+                .as_ref()
+                .expect("shader removal wording was prepared");
+            (popup.title.as_str(), popup.body.as_str(), popup.confirm)
+        }
+        MenuDialog::LeaveRealm(id) => (
+            "Leave Realm?",
+            launcher::menu::joined_realm(&view.realms, id)
+                .map_or("You will lose access to this Realm.", |realm| {
+                    realm.name.as_str()
+                }),
+            MenuAction::ConfirmLeaveRealm(id),
         ),
         MenuDialog::RemoveSaved(index) => (
             "Remove saved server?",

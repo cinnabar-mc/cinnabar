@@ -127,6 +127,10 @@ impl ManualCraftPlan {
         let handle = catalog
             .recipe(recipe_id)
             .ok_or(ManualCraftError::Unavailable)?;
+        // This packet declares a single result.
+        if handle.extra_outputs().len() != 0 {
+            return Err(ManualCraftError::Unsupported);
+        }
         let grid = std::array::from_fn(|index| inputs[index].as_ref().map(|input| &input.stack));
         let (output, counts) = validate_grid(handle.recipe(), &grid, |id| binding(registry, id))?;
         let mut consume: [Option<(u8, u8, i32)>; 4] = [None; 4];
@@ -157,7 +161,7 @@ impl ManualCraftPlan {
 fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
     StackRequestSlot {
         container,
-        slot,
+        slot: u16::from(slot),
         stack_network_id,
     }
 }
@@ -196,11 +200,7 @@ pub fn manual_craft_packet(
             aux: i32::from(output.aux),
             count: u16::from(output.count),
             block_runtime_id: output.block_runtime_id,
-            user_data: if output.empty_envelope {
-                Arc::from([0; 10])
-            } else {
-                Arc::from([])
-            },
+            user_data: output.user_data.bytes(),
         }]),
     });
     for (source, count, id) in plan.consume.iter().flatten().copied() {

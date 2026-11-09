@@ -285,6 +285,79 @@ fn survival_empty_recipe_book_hit_keeps_the_cursor_selection() {
     assert_eq!(player.inventory.ledger().cursor_stack().unwrap().count, 8);
     assert_eq!(player.inventory.ledger().pending_request_count(), 0);
 }
+
+#[test]
+fn interleaved_creative_items_emit_each_group_head_once() {
+    let mut runtime = UiRuntime::new(1);
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Creative(protocol::CreativeContentEvent {
+            groups: Arc::from([
+                protocol::CreativeGroup {
+                    category: protocol::CreativeCategory::Construction,
+                    name: "itemGroup.name.stairs".into(),
+                    icon: None,
+                },
+                protocol::CreativeGroup {
+                    category: protocol::CreativeCategory::Construction,
+                    name: "itemGroup.name.fence".into(),
+                    icon: None,
+                },
+            ]),
+            items: Arc::from([
+                protocol::CreativeItem {
+                    creative_network_id: 1,
+                    group: 0,
+                    stack: NetworkItemStack::empty(),
+                },
+                protocol::CreativeItem {
+                    creative_network_id: 2,
+                    group: 1,
+                    stack: NetworkItemStack::empty(),
+                },
+                protocol::CreativeItem {
+                    creative_network_id: 3,
+                    group: 0,
+                    stack: NetworkItemStack::empty(),
+                },
+                protocol::CreativeItem {
+                    creative_network_id: 4,
+                    group: 1,
+                    stack: NetworkItemStack::empty(),
+                },
+            ]),
+            skipped: 0,
+        }));
+    runtime.screen_state_mut().select_tab(0);
+
+    let entries = super::recipe_book_entries(&player, &runtime);
+    let headings: Vec<u32> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            ui_screens::recipe_book::BookEntry::Group { index, .. } => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(headings, [0, 1]);
+    assert_eq!(entries.len(), 2);
+
+    runtime.screen_state_mut().creative_expanded.insert(0);
+    let entries = super::recipe_book_entries(&player, &runtime);
+    assert_eq!(entries.len(), 4);
+    assert!(matches!(
+        entries[1],
+        ui_screens::recipe_book::BookEntry::Creative { grouped: true, .. }
+    ));
+    assert!(matches!(
+        entries[2],
+        ui_screens::recipe_book::BookEntry::Creative { grouped: true, .. }
+    ));
+}
+
 #[test]
 fn creative_json_ui_secondary_catalog_click_takes_or_destroys_one() {
     for held in [None, Some((9000, 8)), Some((9001, 8))] {
@@ -298,4 +371,100 @@ fn creative_json_ui_secondary_catalog_click_takes_or_destroys_one() {
         let shown = player.inventory.ledger().cursor_stack().unwrap();
         assert_eq!((shown.network_id, shown.count), expected);
     }
+}
+
+/// A primary press on the item grid's empty background deletes the held stack in creative
+/// and leaves it held in survival.
+#[test]
+fn item_grid_background_destroys_the_held_stack_only_in_creative() {
+    for creative in [true, false] {
+        let Some((mut runtime, mut player)) = creative_selection(Some((9000, 8))) else {
+            return;
+        };
+        if !creative {
+            player
+                .facts
+                .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+        }
+        assert_eq!(
+            runtime.destroy_held_on_item_grid(&mut player).is_ok(),
+            creative
+        );
+        assert_eq!(
+            player.inventory.ledger().cursor_stack().is_none(),
+            creative,
+            "creative={creative}"
+        );
+    }
+}
+
+/// A Shift-click routed to `button.container_auto_destroy`, as on the creative layout's
+/// hotbar, deletes the slot's whole stack in creative and leaves it in survival.
+#[test]
+fn auto_destroy_deletes_the_hotbar_stack_only_in_creative() {
+    for creative in [true, false] {
+        let Some((mut runtime, mut player)) = creative_selection(None) else {
+            return;
+        };
+        if !creative {
+            player
+                .facts
+                .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+        }
+        runtime
+            .inventory_ledger_mut(&mut player)
+            .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: protocol::SlotIdentity {
+                    container: ContainerIdentity::window(0),
+                    slot: 2,
+                },
+                stack: NetworkItemStack {
+                    network_id: 9001,
+                    stack_network_id: 43,
+                    count: 5,
+                    ..NetworkItemStack::empty()
+                },
+                storage_item: None,
+            }));
+        assert_eq!(
+            runtime
+                .destroy_on_auto_place(&mut player, InventoryCellHit::Player(2))
+                .is_ok(),
+            creative
+        );
+        assert_eq!(
+            player.inventory.ledger().displayed_stack(2).is_none(),
+            creative,
+            "creative={creative}"
+        );
+    }
+}
+
+/// With a stack held, the creative hotbar's auto-destroy leaves the slot alone.
+#[test]
+fn auto_destroy_keeps_the_hotbar_stack_while_holding() {
+    let Some((mut runtime, mut player)) = creative_selection(Some((9000, 8))) else {
+        return;
+    };
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+            identity: protocol::SlotIdentity {
+                container: ContainerIdentity::window(0),
+                slot: 2,
+            },
+            stack: NetworkItemStack {
+                network_id: 9001,
+                stack_network_id: 43,
+                count: 5,
+                ..NetworkItemStack::empty()
+            },
+            storage_item: None,
+        }));
+    assert!(
+        runtime
+            .destroy_on_auto_place(&mut player, InventoryCellHit::Player(2))
+            .is_err()
+    );
+    assert!(player.inventory.ledger().displayed_stack(2).is_some());
 }

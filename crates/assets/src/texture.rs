@@ -29,20 +29,21 @@ pub const PBR_HEIGHT_SCALE: f32 = 0.035;
 pub const PBR_TILE_SIZE: u32 = 512;
 /// Largest square layer a runtime overlay page may use.
 pub const MAX_TILE_SIZE: u32 = crate::texture::policy::MAX_TEXTURE_SIDE;
-const ALPHA_TEST_THRESHOLD: u8 = 128;
+/// Lowest alpha a cutout texel keeps; mip chains preserve the count of texels at or above it.
+pub const ALPHA_TEST_THRESHOLD: u8 = 128;
 const ALPHA_SCALE_FRACTION_BITS: u32 = 16;
 const ALPHA_SCALE_MAX: u32 = 16 << ALPHA_SCALE_FRACTION_BITS;
 const ALPHA_SCALE_SEARCH_STEPS: usize = 21;
 
 /// One mip level containing every array layer in layer-major RGBA8 order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureMip {
     pub size: u32,
     pub rgba8: Box<[u8]>,
 }
 
 /// Equal-sized square texture-array layers with independent mip chains.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureArray {
     pub layers: u32,
     pub mips: Box<[TextureMip]>,

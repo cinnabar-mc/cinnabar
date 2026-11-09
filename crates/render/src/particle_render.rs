@@ -1,6 +1,7 @@
 //! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
 use crate::queue_writes::ProfiledQueue as _;
+use crate::shaderpack::effects::textures::SharedAtlasRelease;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -59,6 +60,16 @@ const INSTANCE_BYTES: u64 = std::mem::size_of::<ParticleInstance>() as u64;
 const MIN_CAPACITY: usize = 256;
 const MERGE_RETAINED_CAPACITY_FACTOR: usize = 4;
 
+#[path = "particle_render/atlas.rs"]
+mod atlas;
+
+#[path = "particle_render/instance_upload.rs"]
+mod instance_upload;
+
+#[cfg(test)]
+#[path = "particle_render/atlas_fault_tests.rs"]
+mod atlas_fault_tests;
+
 #[cfg(all(test, target_os = "macos"))]
 #[path = "particle_render/upload_tests.rs"]
 mod upload_tests;
@@ -88,6 +99,7 @@ impl Plugin for ParticleRenderPlugin {
             return;
         };
         crate::transparent_phase::install(render_app);
+        crate::world_passes::install(render_app);
         render_app
             .init_resource::<ParticlePipeline>()
             .init_resource::<ParticlePhase>()
@@ -101,7 +113,7 @@ impl Plugin for ParticleRenderPlugin {
                     prepare_particle_resources.in_set(RenderSystems::PrepareResources),
                     prepare_particle_bind_group.in_set(RenderSystems::PrepareBindGroups),
                     queue_particles
-                        .run_if(render_scene::panorama::world_passes_enabled)
+                        .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
                 ),
             );
@@ -109,19 +121,32 @@ impl Plugin for ParticleRenderPlugin {
 }
 
 #[derive(Resource)]
-struct ParticleGpu {
+pub(crate) struct ParticleGpu {
     sampler: Sampler,
     texture_view: Option<TextureView>,
     texture: Option<Texture>,
+    /// The raw-view setting `texture` was created with.
+    texture_raw_views: crate::actor::gpu::ArtworkRawViews,
     base: Option<Arc<[u8]>>,
     uploaded_seq: u64,
     buffer: Option<Buffer>,
     capacity: usize,
+    instance_upload: instance_upload::InstanceUpload,
     opaque_range: Range<u32>,
     blend_range: Range<u32>,
     add_range: Range<u32>,
     bind_group: Option<BindGroup>,
     bound: (Option<BufferId>, Option<BufferId>, u64),
+    atlas: atlas::AtlasUpload,
+}
+
+impl ParticleGpu {
+    /// The uploaded particle atlas with its dynamic tiles, which shader-pack particle draws
+    /// read through a gamma-byte view rather than a copy of their own; `None` until it is
+    /// recreated to allow that view.
+    pub(crate) fn atlas_texture(&self) -> Option<&Texture> {
+        self.texture.as_ref().filter(|_| self.texture_raw_views.0)
+    }
 }
 
 fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
@@ -139,84 +164,60 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sampler,
         texture_view: None,
         texture: None,
+        texture_raw_views: default(),
         base: None,
         uploaded_seq: 0,
         buffer: None,
         capacity: 0,
+        instance_upload: default(),
         opaque_range: 0..0,
         blend_range: 0..0,
         add_range: 0..0,
         bind_group: None,
         bound: (None, None, 0),
+        atlas: atlas::AtlasUpload::default(),
     });
 }
 
-fn prepare_particle_resources(
+pub(crate) fn prepare_particle_resources(
     frame: Res<ParticleGpuFrame>,
     uploads: crate::upload_staging::FrameUploads,
     mut gpu: ResMut<ParticleGpu>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
+    mut shared_atlases: SharedAtlasRelease,
 ) {
-    if let Some(base) = &frame.base
-        && gpu.base.as_ref().is_none_or(|old| !Arc::ptr_eq(old, base))
-        && assets::texture::policy::TexturePolicy::for_device(
-            uploads.device.limits().max_texture_dimension_2d,
-        )
-        .page_bytes(frame.atlas_side, frame.atlas_side)
-            == Some(base.len())
-    {
-        let texture = uploads.device.create_texture(&TextureDescriptor {
-            label: Some("particle atlas"),
-            size: Extent3d {
-                width: frame.atlas_side,
-                height: frame.atlas_side,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        write_rect(
-            &uploads.queue,
-            &texture,
-            [0, 0],
-            [frame.atlas_side, frame.atlas_side],
-            base,
-        );
-        gpu.texture_view = Some(texture.create_view(&TextureViewDescriptor::default()));
-        gpu.texture = Some(texture);
-        gpu.base = Some(Arc::clone(base));
-        gpu.uploaded_seq = 0;
-        gpu.bind_group = None;
-    }
-    if let Some(texture) = &gpu.texture
-        && frame.patch_seq != gpu.uploaded_seq
-    {
-        for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
-            write_rect(
-                &uploads.queue,
-                texture,
-                [patch.x, patch.y],
-                [patch.width, patch.height],
-                &patch.rgba8,
-            );
-        }
-        let seq = frame.patch_seq;
-        gpu.uploaded_seq = seq;
-    }
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
+    atlas::prepare(
+        &frame,
+        &uploads.device,
+        &uploads.queue,
+        &mut gpu,
+        raw_views,
+        &mut shared_atlases,
+    );
 
     let (opaque, blend, add) = (frame.opaque.len(), frame.blend.len(), frame.add.len());
     gpu.opaque_range = 0..opaque as u32;
     gpu.blend_range = opaque as u32..(opaque + blend) as u32;
     gpu.add_range = (opaque + blend) as u32..(opaque + blend + add) as u32;
     let total = opaque + blend + add;
+    let previous_capacity = gpu.capacity;
+    let capacity = gpu.instance_upload.capacity.target(
+        previous_capacity,
+        total,
+        if total == 0 { 0 } else { MIN_CAPACITY },
+    );
     if total == 0 {
+        if capacity == 0 {
+            gpu.buffer = None;
+            gpu.capacity = 0;
+            gpu.bind_group = None;
+        }
+        gpu.instance_upload.accept(&frame);
         return;
     }
-    if gpu.capacity < total || gpu.buffer.is_none() {
-        let capacity = total.next_power_of_two().max(MIN_CAPACITY);
+    let replaced = capacity != gpu.capacity || gpu.buffer.is_none();
+    if replaced {
         gpu.buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
             label: Some("particle instances"),
             size: capacity as u64 * INSTANCE_BYTES,
@@ -226,62 +227,53 @@ fn prepare_particle_resources(
         gpu.capacity = capacity;
         gpu.bind_group = None;
     }
-    if let Some(buffer) = &gpu.buffer {
+    let changed = gpu.instance_upload.changes(&frame, replaced);
+    if let Some(buffer) = gpu
+        .buffer
+        .as_ref()
+        .filter(|_| changed.iter().any(|changed| *changed))
+    {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "particles.instance_write",
             instances = total,
-            bytes = total as u64 * INSTANCE_BYTES
+            bytes = (usize::from(changed[0]) * opaque
+                + usize::from(changed[1]) * blend
+                + usize::from(changed[2]) * add) as u64
+                * INSTANCE_BYTES
         )
         .entered();
         uploads.write_batch(&[
-            (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
+            (
+                buffer,
+                0,
+                if changed[0] {
+                    bytemuck::cast_slice(&frame.opaque[..])
+                } else {
+                    &[]
+                },
+            ),
             (
                 buffer,
                 opaque as u64 * INSTANCE_BYTES,
-                bytemuck::cast_slice(&frame.blend[..]),
+                if changed[1] {
+                    bytemuck::cast_slice(&frame.blend[..])
+                } else {
+                    &[]
+                },
             ),
             (
                 buffer,
                 (opaque + blend) as u64 * INSTANCE_BYTES,
-                bytemuck::cast_slice(&frame.add[..]),
+                if changed[2] {
+                    bytemuck::cast_slice(&frame.add[..])
+                } else {
+                    &[]
+                },
             ),
         ]);
     }
-}
-
-fn write_rect(
-    queue: &RenderQueue,
-    texture: &Texture,
-    origin: [u32; 2],
-    size: [u32; 2],
-    rgba: &[u8],
-) {
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!("particles.texture_write", bytes = rgba.len()).entered();
-    queue.profiled_write_texture(
-        TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: Origin3d {
-                x: origin[0],
-                y: origin[1],
-                z: 0,
-            },
-            aspect: Default::default(),
-        },
-        rgba,
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(size[0] * 4),
-            rows_per_image: Some(size[1]),
-        },
-        Extent3d {
-            width: size[0],
-            height: size[1],
-            depth_or_array_layers: 1,
-        },
-    );
+    gpu.instance_upload.accept(&frame);
 }
 
 struct ParticleSpecializer;
@@ -480,6 +472,10 @@ fn prepare_particle_bind_group(
 }
 
 /// Queues compact translucent streams at their target-view depths from the extracted frame.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a queue system's render-world inputs"
+)]
 fn queue_particles(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<ParticlePipeline>,
@@ -494,6 +490,7 @@ fn queue_particles(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
     for draws in pending.0.values_mut() {
         draws.clear_frame();
@@ -517,7 +514,13 @@ fn queue_particles(
         ] {
             let first = offset;
             offset += instances.len() as u32;
-            if instances.is_empty() {
+            if instances.is_empty()
+                || pack.replaces(view_entity, |drawn| match material {
+                    ParticleMode::Opaque => drawn.particles_opaque,
+                    ParticleMode::Blend => drawn.particles_translucent,
+                    ParticleMode::Add => drawn.particles_additive,
+                })
+            {
                 continue;
             }
             let Ok(pipeline) = pipeline.variants.specialize(

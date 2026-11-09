@@ -1,10 +1,11 @@
 use super::*;
 use crate::presentation::actors::{PoseConversions, select_actor_presentations};
-use crate::presentation::skin_rig::{MAX_SKIN_RIGS, SkinRigCache};
+use crate::presentation::skin_rig::SkinRigCache;
 use bevy::math::Vec3;
 use protocol::{
     ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, WorldEvent,
 };
+use render_model::MAX_SKIN_RIGS;
 use render_model::{ActorArtworkPages, ActorRigFrameBuilder, ActorRigRoute};
 use std::sync::Arc;
 
@@ -274,6 +275,8 @@ fn input() -> ActorFrameInput {
 
 #[derive(Default)]
 struct Caches {
+    coverage: Vec<u64>,
+    occluded: bool,
     poses: PoseConversions,
     java_poses: java::PoseScratch,
     native_pose: hand::NativePoseCache,
@@ -288,6 +291,20 @@ impl Caches {
         stream: &'a WorldStream,
         artwork: &ActorArtworkPages,
         alpha: f32,
+    ) -> (
+        bodies::SampledBodies<'a>,
+        Vec<render_model::ActorRigGeometry>,
+    ) {
+        self.sample_with_view(stream, artwork, alpha, Some(view()))
+    }
+
+    /// Allows the same production sampler to admit a complete crowd without a camera frustum.
+    fn sample_with_view<'a>(
+        &mut self,
+        stream: &'a WorldStream,
+        artwork: &ActorArtworkPages,
+        alpha: f32,
+        cull_view: Option<render_model::ActorCullView>,
     ) -> (
         bodies::SampledBodies<'a>,
         Vec<render_model::ActorRigGeometry>,
@@ -307,10 +324,11 @@ impl Caches {
                     sampling_camera: Some(([0.0; 2], Vec3::Y.to_array())),
                     aspect: 1.0,
                 },
-                Some(view()),
+                cull_view,
             ),
             artwork,
             bodies::BodyCaches {
+                coverage: &self.coverage,
                 poses: &mut self.poses,
                 java_poses: &mut self.java_poses,
                 native_pose: &mut self.native_pose,
@@ -318,7 +336,7 @@ impl Caches {
                 equipment: None,
                 scratch: &mut self.scratch,
             },
-            |_, _, _, _| false,
+            |_, _, _, _| self.occluded,
             &mut geometries,
         );
         (sampled, geometries)
@@ -445,7 +463,7 @@ fn selected_wide_geometry_is_drawn_when_only_its_base_is_outside() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| frame.layers(id),
+        |id| frame.layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -510,7 +528,7 @@ fn selected_geometry_keeps_empty_layer_base_fallback_and_unknown_bounds() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| sampled.render_frame.as_mut().unwrap().layers(id),
+        |id| sampled.render_frame.as_mut().unwrap().layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -586,7 +604,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
         }
         let mut batch =
             select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
-        let mut layers = crate::presentation::skin_layers::SkinLayerCache::default();
+        let mut layers = crate::presentation::skin_layers::ActorLayerCache::default();
         let _ = layers.apply(
             &mut batch,
             &artwork,
@@ -601,6 +619,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
             },
             &mut caches.skin_rigs,
             |geometry| geometries.push(geometry),
+            |_, _| None,
         );
         let persona = batch
             .submissions
@@ -617,5 +636,111 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
                 .iter()
                 .any(|draw| draw.identity == persona_identity)
         );
+    }
+}
+
+#[test]
+fn a_remote_player_containing_the_camera_reaches_the_draw_frame() {
+    let (assets, artwork) = catalog(None, true, "Geometry.default");
+    let stream = player_world(&assets, 0, |id| skin(id, true), [0.0; 3]);
+    let (sampled, mut geometries) = Caches::default().sample(&stream, &artwork, 1.0);
+    assert_eq!(sampled.remotes.len(), 1);
+    let batch = select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
+    geometries.extend(render_model::pack_geometries(&assets));
+    let mut builder = ActorRigFrameBuilder::new(geometries).unwrap();
+    let built = builder.build(1.0, Some(view()), batch.submissions);
+    assert!(
+        built
+            .manifest
+            .iter()
+            .any(|draw| draw.identity.runtime_id == 1)
+    );
+}
+
+#[test]
+fn remote_body_batches_keep_serial_order_layers_and_budget() {
+    let (assets, artwork) = catalog(Some("query.frame_alpha < 0.75"), true, "Geometry.default");
+    let serial = player_world(&assets, 127, |id| skin(id, false), [0.0, 0.0, -5.0]);
+    let parallel = player_world(&assets, 127, |id| skin(id, false), [0.0, 0.0, -5.0]);
+    let mut caches = Caches::default();
+    let mut conversions = PoseConversions::default();
+    for alpha in [0.0, 0.25, 0.5, 0.75, 1.0, 0.25] {
+        let mut frame = serial.authority().actor_render_frame(alpha);
+        let mut expected = Vec::new();
+        conversions.begin_frame();
+        for rig in serial.authority().actor_rigs() {
+            let actor = serial.authority().actor(rig.actor.runtime_id).unwrap();
+            let mut body = crate::presentation::actors::actor_rig_presentation_cached(
+                &rig,
+                actor,
+                serial
+                    .authority()
+                    .actor_player_profile(rig.actor.runtime_id),
+                alpha,
+                &mut conversions,
+            )
+            .unwrap();
+            hand::NativePoseCache::apply_frame_body(&mut frame, &mut body);
+            expected.push((
+                body.submission.input.identity.runtime_id,
+                body.submission.input.previous_bones,
+                body.submission.input.current_bones,
+            ));
+        }
+        let (mut sampled, _) = caches.sample_with_view(&parallel, &artwork, alpha, None);
+        let actual: Vec<_> = sampled
+            .remotes
+            .iter()
+            .map(|body| {
+                (
+                    body.submission.input.identity.runtime_id,
+                    Arc::clone(&body.submission.input.previous_bones),
+                    Arc::clone(&body.submission.input.current_bones),
+                )
+            })
+            .collect();
+        assert_eq!(actual, expected, "alpha={alpha}");
+        for (id, _, _) in &expected {
+            assert_eq!(
+                sampled
+                    .render_frame
+                    .as_mut()
+                    .unwrap()
+                    .layers_with_skin(*id)
+                    .unwrap()
+                    .render,
+                frame.layers_with_skin(*id).unwrap().render,
+                "layers for actor {id}, alpha={alpha}"
+            );
+        }
+        assert_eq!(
+            sampled.render_frame.as_ref().unwrap().remaining_ops(),
+            frame.remaining_ops()
+        );
+        caches
+            .scratch
+            .recycle(sampled.java_posed, sampled.remote_skin_layers);
+    }
+}
+
+#[test]
+fn translated_coverage_prepares_remote_sources_outside_the_live_view_or_behind_terrain() {
+    for (feet, occluded) in [
+        ([0., 0., 5.], false),
+        ([8., 0., -5.], false),
+        ([500., 0., -5.], false),
+        ([0., 0., -5.], true),
+    ] {
+        let (assets, artwork) = catalog(None, true, "Geometry.default");
+        let stream = player_world(&assets, 0, |id| skin(id, false), feet);
+        let mut caches = Caches {
+            occluded,
+            ..Default::default()
+        };
+        assert!(caches.sample(&stream, &artwork, 0.5).0.remotes.is_empty());
+        caches.coverage.push(1);
+        let sampled = caches.sample(&stream, &artwork, 0.5).0;
+        assert_eq!(sampled.remotes.len(), 1, "source at {feet:?}");
+        assert_eq!(sampled.mask_only_runtime_ids, [1]);
     }
 }

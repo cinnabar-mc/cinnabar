@@ -53,6 +53,8 @@ const SHADE_UP: f32 = 1.0;
 const SHADE_DOWN: f32 = 0.5;
 const SHADE_Z: f32 = 0.8;
 const SHADE_X: f32 = 0.6;
+/// Scalar shades of a box's faces, in [`BoxSpec::faces`] order.
+const BOX_SHADES: [f32; 6] = [SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN];
 
 /// Directional brightness in the shared terrain face order.
 pub(super) const fn tile_face_shade(face: usize) -> f32 {
@@ -75,6 +77,8 @@ pub struct MeshBuilder {
     pub(super) actor_light: u32,
     /// Whether a required model texture was absent from the atlas.
     pub(super) missing_required_texture: bool,
+    /// Reused when layered models construct an atlas texture name.
+    pub(super) texture_name: String,
     pub rejected_quads: u64,
 }
 
@@ -91,6 +95,7 @@ impl MeshBuilder {
             light: 1.0,
             actor_light: 0,
             missing_required_texture: false,
+            texture_name: String::new(),
             rejected_quads: 0,
         }
     }
@@ -109,12 +114,14 @@ impl MeshBuilder {
             layer.clear();
         }
         let [solid, overlay, crack, portal, additive] = layers;
+        let texture_name = std::mem::take(&mut self.texture_name);
         *self = Self {
             solid,
             overlay,
             crack,
             portal,
             additive,
+            texture_name,
             ..Self::new(atlas_size)
         };
     }
@@ -140,7 +147,31 @@ impl MeshBuilder {
         spec: BoxSpec,
         tint: [f32; 4],
     ) {
-        self.box_faces(layer, texture, model, spec.faces(), tint);
+        self.box_faces(layer, texture, model, spec.faces(), tint, BOX_SHADES);
+    }
+
+    /// Emits a legacy native cube, given with its Y range negated. Native legacy cubes start
+    /// each side's art at the box's lowest Y and put the unwrap's first top-strip cell on that
+    /// low face, while [`BoxSpec::faces`] starts both at the highest Y; drawing the negated box
+    /// under a half turn about Z reproduces the native placement. The top and bottom shades
+    /// follow those faces to where they land.
+    pub fn legacy_cuboid(
+        &mut self,
+        layer: Layer,
+        texture: &TextureRef,
+        model: Mat4,
+        spec: BoxSpec,
+        tint: [f32; 4],
+    ) {
+        let [north, south, west, east, up, down] = BOX_SHADES;
+        self.box_faces(
+            layer,
+            texture,
+            model * Mat4::from_rotation_z(std::f32::consts::PI),
+            spec.faces(),
+            tint,
+            [north, south, west, east, down, up],
+        );
     }
 
     /// Emits a box with no depth, such as a book cover, as its front and back faces moved
@@ -156,16 +187,18 @@ impl MeshBuilder {
         tint: [f32; 4],
     ) {
         let [sx, sy, _] = spec.size;
-        let mut faces = BoxSpec::new(spec.origin, [sx, sy, 0.0], spec.uv).faces();
+        let mut faces = BoxSpec::new(spec.origin, [sx, sy, 0.0], spec.uv)
+            .mirrored(spec.mirror)
+            .faces();
         for (face, shift) in faces.iter_mut().zip([-gap / 2.0, gap / 2.0]) {
             for corner in &mut face.0 {
                 corner[2] += shift;
             }
         }
-        self.box_faces(layer, texture, model, faces, tint);
+        self.box_faces(layer, texture, model, faces, tint, BOX_SHADES);
     }
 
-    /// Emits the six faces of a box with their face shades.
+    /// Emits the six faces of a box, each with its scalar shade.
     fn box_faces(
         &mut self,
         layer: Layer,
@@ -173,11 +206,9 @@ impl MeshBuilder {
         model: Mat4,
         faces: [assets::block_entity_geometry::ModelFace; 6],
         tint: [f32; 4],
+        shades: [f32; 6],
     ) {
-        for ((corners, texels), shade) in faces
-            .into_iter()
-            .zip([SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN])
-        {
+        for ((corners, texels), shade) in faces.into_iter().zip(shades) {
             if texels[2] <= 0.0 || texels[3] == 0.0 {
                 continue;
             }
@@ -448,6 +479,35 @@ mod tests {
             .collect();
         assert!(depths[..6].iter().all(|z| (*z + 0.005).abs() < 1.0e-6));
         assert!(depths[6..].iter().all(|z| (*z - 0.005).abs() < 1.0e-6));
+    }
+
+    #[test]
+    fn mirrored_sheets_keep_their_artwork_and_outward_faces() {
+        let mut builder = MeshBuilder::new([64, 64]);
+        builder.actor_light = render_api::ACTOR_LIGHT_WORLD;
+        builder.sheet(
+            Layer::Solid,
+            &texture(),
+            Mat4::IDENTITY,
+            BoxSpec::new([0.0; 3], [6.0, 10.0, 0.0], [16.0, 0.0]).mirrored(true),
+            0.01,
+            WHITE,
+        );
+        assert_eq!(builder.solid.len(), 12);
+        let front_left = builder.solid[..6]
+            .iter()
+            .find(|vertex| vertex.position[..2] == [0.0, 10.0])
+            .unwrap();
+        assert_eq!(front_left.uv, [16.0 / 64.0, 0.0]);
+        for (face, normal) in builder
+            .solid
+            .as_chunks::<6>()
+            .0
+            .iter()
+            .zip([Vec3::NEG_Z, Vec3::Z])
+        {
+            assert!(face.iter().all(|vertex| vertex.normal == normal.to_array()));
+        }
     }
 
     #[test]

@@ -121,6 +121,8 @@ func visualCable(assets map[string]string) BlockDef {
 		ID:          "probe:cable",
 		DisplayName: "Probe Cable",
 		Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:       DropsItself,
+		Item:        ItemListed,
 		States:      states,
 		Placement:   []PlacementState{PlacementFacingDirection},
 		Visual: &Visual{
@@ -204,12 +206,19 @@ func TestBlockTypeRules(t *testing.T) {
 		{"no values", func(b *BlockDef) { b.States = append(b.States, values(0)) }, "has 0 values"},
 		{"a value twice", func(b *BlockDef) { b.States = append(b.States, choiceState("colour", "red", "red")) }, "twice"},
 		{"a value with a quote", func(b *BlockDef) { b.States = append(b.States, choiceState("colour", "it's")) }, "does not match"},
-		{"2^16 combinations", bools(16), ""},
-		{"2^17 combinations", bools(17), "more than 65536 combinations"},
-		{"2^16 combinations and a trait", func(b *BlockDef) {
+		{"16 state bits", bools(16), ""},
+		{"17 state bits", bools(17), "more than 16 state bits"},
+		// 46,656 combinations, but 18 bits: the client keeps only 7,776 of them.
+		{"six six-value states", func(b *BlockDef) {
+			bools(0)(b)
+			for i := range 6 {
+				b.States = append(b.States, choiceState(fmt.Sprintf("c%d", i), "a", "b", "c", "d", "e", "f"))
+			}
+		}, "more than 16 state bits"},
+		{"16 state bits and a trait", func(b *BlockDef) {
 			bools(16)(b)
 			b.Placement = []PlacementState{PlacementFacingDirection}
-		}, "more than 65536 combinations"},
+		}, "more than 16 state bits"},
 		{"a condition on a state the block lacks", func(b *BlockDef) {
 			b.Visual.Bones[0].Visible = Condition{{is("sideways", true)}}
 		}, "does not have"},
@@ -459,6 +468,8 @@ func TestCubePermutationEmptyBones(t *testing.T) {
 	def := BlockDef{
 		ID: "probe:lamp", DisplayName: "Probe Lamp",
 		Mining:       Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:        DropsItself,
+		Item:         ItemListed,
 		States:       []StateDef{boolState("on")},
 		Visual:       &Visual{Materials: []Material{{Instance: allFaces, Path: assets["counter.png"], RenderMethod: RenderOpaque}}},
 		Permutations: []Permutation{{When: Condition{{is("on", true)}}, Bones: &bones}},
@@ -493,6 +504,7 @@ func TestZeroRotationAfterPermutation(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			def := BlockDef{ID: "probe:lamp", DisplayName: "Probe Lamp", Mining: Mining{Breakable: &Breakable{Hardness: 1}}, States: []StateDef{boolState("on")},
+				Drops: DropsItself, Item: ItemListed,
 				Visual:       &Visual{Materials: []Material{{Instance: allFaces, Path: assets["counter.png"], RenderMethod: RenderOpaque}}},
 				Permutations: []Permutation{{When: Condition{{is("on", true)}}, Rotation: &QuarterTurns{Y: 1}}, {When: c.when, Rotation: &QuarterTurns{}}},
 			}

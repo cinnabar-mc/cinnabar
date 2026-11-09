@@ -1,11 +1,16 @@
+mod materials;
+mod mining;
 mod physical;
+pub use mining::{CustomBlockMining, CustomMiningItem, CustomMiningSpeed};
 mod placement;
 mod shared_states;
+mod states;
+use states::MAX_STATES_PER_BLOCK;
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::StartGame;
+use bedrock_protocol_1_26_60::packets::StartGame;
 
-use crate::nbt_tree::{Nbt, read_root};
+use crate::nbt_tree::{Nbt, NbtCompound, NbtList, read_root};
 #[cfg(test)]
 use physical::box_component;
 use physical::{
@@ -13,27 +18,28 @@ use physical::{
     random_offset_component, selection_component, transformation_component,
 };
 
-/// States one custom block may contribute before it is treated as malformed.
-const MAX_STATES_PER_BLOCK: u64 = 1 << 16;
-
 /// Permutations one custom block may define before extras are ignored.
 const MAX_PERMUTATIONS: usize = 1024;
 /// Bone visibility entries one geometry component may define before extras are ignored.
 const MAX_BONE_VISIBILITY: usize = 256;
-/// Material instances one component set may define before extras are ignored.
-const MAX_MATERIAL_INSTANCES: usize = 64;
 /// Collision primitives one custom block may contribute before extras are ignored.
 const MAX_COLLISION_BOXES: usize = 256;
 /// The namespace of vanilla's own blocks.
-const VANILLA_NAMESPACE: &str = "minecraft";
+pub(crate) const VANILLA_NAMESPACE: &str = "minecraft";
 
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
+    /// Mining values shared by every state unless a permutation replaces them.
+    pub mining: Arc<CustomBlockMining>,
+    /// `minecraft:sound` material declared by the block's base component set.
+    pub sound: Option<Arc<str>>,
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
-    /// Sequential palette states: the product of property and trait values.
+    /// False when any server tag was discarded during decoding or state admission.
+    pub tags_complete: bool,
+    /// Palette states: the value combinations that fit the client's 16 state bits.
     pub state_count: u32,
     /// False when the definition disables its collision box.
     pub collides: bool,
@@ -44,10 +50,12 @@ pub struct CustomBlock {
     /// `minecraft:friction` value; surface friction is one minus it, and `None` keeps the default.
     pub friction: Option<f32>,
     pub visual: Arc<CustomBlockVisuals>,
-    /// `minecraft:custom_components` declares a player-interact handler, so using the block
-    /// interacts with it rather than placing the held block against it.
+    /// Using the block interacts with it (a crafting table or a player-interact handler)
+    /// rather than placing the held block against it.
     pub player_interact: bool,
-    /// Resolved palette-order component sets; empty until session preparation.
+    /// Resolved mining components in palette order; empty until session preparation.
+    pub state_mining: Arc<[Arc<CustomBlockMining>]>,
+    /// Resolved palette-order physical components; empty until session preparation.
     pub state_physics: Arc<[CustomBlockPhysics]>,
     /// Every physical permutation was parsed and evaluated for every state.
     pub state_physics_complete: bool,
@@ -88,8 +96,10 @@ pub struct CustomBlockVisuals {
     pub item_visual: Option<CustomVisualComponents>,
     /// In definition order; later matching permutations override earlier ones.
     pub permutations: Box<[CustomPermutation]>,
-    /// Physical components or permutations were discarded while parsing the definition.
+    /// Physical or placement data was discarded while parsing the definition.
     pub components_incomplete: bool,
+    /// A permutation past the bound set mining, so no state's mining value is known.
+    pub mining_truncated: bool,
     /// Block states in palette order: placement trait states, then properties in list order.
     /// The first axis varies fastest across the block's palette run.
     pub state_axes: Box<[CustomStateAxis]>,
@@ -106,7 +116,7 @@ pub struct CustomPlacement {
     pub trait_state_count: usize,
     /// Degrees subtracted from player yaw before choosing a direction state.
     pub y_rotation_offset: f32,
-    /// A server-side placing handler owns the resulting block state.
+    /// A server placing handler owns the resulting block state.
     pub server_placing: bool,
     /// Placement filters require support checks before local prediction is admitted.
     pub has_placement_filter: bool,
@@ -120,6 +130,8 @@ pub struct CustomVisualComponents {
     pub geometry: Option<Arc<str>>,
     /// Geometry's legacy `useBlockTypeLightAbsorption` flag; absent means false.
     pub geometry_use_block_type_light_absorption: bool,
+    /// Geometry's `needsLegacyTopRotation` flag; absent means false.
+    pub geometry_needs_legacy_top_rotation: bool,
     /// `bone_visibility` of the same geometry component: bone name and Molang expression.
     pub bone_visibility: Box<[(Arc<str>, Arc<str>)]>,
     pub materials: Option<Box<[CustomMaterialInstance]>>,
@@ -191,9 +203,10 @@ pub struct CustomPermutation {
     pub physical: CustomPhysicalComponents,
 }
 
-/// Collision and targeting components present in a permutation; absent fields inherit.
+/// State components present in a permutation; absent fields inherit.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomPhysicalComponents {
+    pub mining: Option<Arc<CustomBlockMining>>,
     pub random_offset: Option<block_transform::random_offset::RandomOffsetComponent>,
     pub collision: Option<CustomCollision>,
     pub selection: Option<CustomSelection>,
@@ -243,13 +256,31 @@ pub struct CustomHashedState {
 }
 
 impl CustomBlock {
-    /// Falls back to the base component set when a state has not been resolved.
+    /// Falls back to base shapes until physical state preparation has completed.
     #[must_use]
     pub fn physics_for_state(&self, index: u32) -> CustomBlockPhysics {
         self.state_physics
             .get(index as usize)
             .cloned()
             .unwrap_or_else(|| self.base_physics())
+    }
+
+    /// Borrows resolved mining data; `None` only before a mining permutation is prepared.
+    pub fn mining_for_state(&self, index: u32) -> Option<&Arc<CustomBlockMining>> {
+        if self.visual.mining_truncated {
+            None
+        } else if let Some(mining) = self.state_mining.get(index as usize) {
+            Some(mining)
+        } else if self
+            .visual
+            .permutations
+            .iter()
+            .any(|permutation| permutation.physical.mining.is_some())
+        {
+            None
+        } else {
+            Some(&self.mining)
+        }
     }
 
     #[must_use]
@@ -434,7 +465,7 @@ impl CustomBlocks {
                 skipped += 1;
                 continue;
             }
-            let Some(root) = read_root(bytes) else {
+            let Some(document) = read_root(bytes) else {
                 skipped += 1;
                 continue;
             };
@@ -445,12 +476,15 @@ impl CustomBlocks {
                 vanilla_blocks.push(Arc::from(name));
                 continue;
             }
-            match parse_definition(&root) {
+            match parse_definition(document.root()) {
                 Some(definition) => {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
+                        mining: definition.mining,
+                        sound: definition.sound,
                         name: Arc::from(name),
                         tags: definition.tags,
+                        tags_complete: definition.tags_complete,
                         state_count: definition.state_count,
                         collides: definition.collides,
                         collision_boxes: definition.collision_boxes,
@@ -460,6 +494,7 @@ impl CustomBlocks {
                         visual: Arc::new(definition.visual),
                         state_physics_complete: false,
                         state_physics: Arc::default(),
+                        state_mining: Default::default(),
                     });
                 }
                 None => skipped += 1,
@@ -477,6 +512,7 @@ impl CustomBlocks {
                 exhausted = true;
                 skipped += 1;
                 block.tags = Arc::default();
+                block.tags_complete = false;
                 block.collision_boxes = None;
                 block.visual = Arc::new(CustomBlockVisuals {
                     state_identity_incomplete: true,
@@ -504,7 +540,10 @@ impl CustomBlocks {
 }
 
 struct Definition {
+    mining: Arc<CustomBlockMining>,
+    sound: Option<Arc<str>>,
     tags: Arc<[Arc<str>]>,
+    tags_complete: bool,
     skipped: usize,
     state_count: u32,
     collides: bool,
@@ -516,11 +555,11 @@ struct Definition {
 }
 
 /// Reads the wire tag list, counting unsupported entries without discarding the block.
-fn block_tags(root: &Nbt) -> (Arc<[Arc<str>]>, usize) {
+fn block_tags(root: Nbt<'_>) -> (Arc<[Arc<str>]>, usize) {
     const MAX_TAGS: usize = 256;
     const MAX_TAG_BYTES: usize = 256;
     let entries = match root.field("blockTags") {
-        Some(Nbt::List(entries)) => entries.as_slice(),
+        Some(Nbt::List(entries)) => entries,
         Some(_) => return (Arc::default(), 1),
         None => return (Arc::default(), 0),
     };
@@ -539,83 +578,53 @@ fn block_tags(root: &Nbt) -> (Arc<[Arc<str>]>, usize) {
     (tags.into(), skipped)
 }
 
-fn parse_definition(root: &Nbt) -> Option<Definition> {
-    let mut states = 1_u64;
-    let mut state_axes = Vec::new();
-    let mut state_identity_incomplete = false;
-    let traits = match root.field("traits") {
-        Some(Nbt::List(traits)) => traits.iter().map(|value| (None, value)).collect::<Vec<_>>(),
-        Some(Nbt::Compound(traits)) => traits
-            .iter()
-            .map(|(name, value)| (Some(name.as_str()), value))
-            .collect(),
-        _ => Vec::new(),
-    };
-    let enabled = traits
-        .iter()
-        .flat_map(|(name, trait_)| enabled_flags(trait_, *name))
-        .collect::<Vec<_>>();
-    // Trait states come first, in vanilla's fixed order, whatever order the traits are listed in.
-    for (name, values) in TRAIT_STATES {
-        if enabled.iter().any(|state| trait_key(state) == name) {
-            states = states.checked_mul(values.len() as u64)?;
-            state_axes.push(CustomStateAxis {
-                name: format!("minecraft:{name}").into(),
-                values: values
-                    .iter()
-                    .map(|value| CustomStateValue::String((*value).into()))
-                    .collect(),
-            });
+/// A definition's `traits`, listed or keyed by trait name, read in place.
+#[derive(Clone, Copy)]
+enum Traits<'a> {
+    /// Missing or scalar.
+    None,
+    List(NbtList<'a>),
+    Keyed(NbtCompound<'a>),
+}
+
+impl<'a> Traits<'a> {
+    fn of(root: Nbt<'a>) -> Self {
+        match root.field("traits") {
+            Some(Nbt::List(traits)) => Self::List(traits),
+            Some(Nbt::Compound(traits)) => Self::Keyed(traits),
+            _ => Self::None,
         }
     }
-    // The connection trait enables cardinal fence connections: four
-    // neighbor-derived booleans the server keeps updated as neighbours
-    // change. They read as ordinary block states, so permutations and bone
-    // visibility resolve per palette state with the existing machinery.
-    // Accept the `cardinal_connections` group or the individual directions;
-    // axes run north, east, south, west, matching Dragonfly's bit layout.
-    // The order is provisional: no wire capture confirms the server palette
-    // order yet, and hashed sessions hash sorted names, so only sequential
-    // palettes could observe a mismatch.
-    let cardinal = enabled
-        .iter()
-        .any(|state| trait_key(state) == CARDINAL_CONNECTIONS);
-    for direction in CONNECTION_DIRECTIONS
-        .into_iter()
-        .filter(|direction| cardinal || enabled.iter().any(|state| trait_key(state) == *direction))
-    {
-        states = states.checked_mul(2)?;
-        state_axes.push(CustomStateAxis {
-            name: format!("minecraft:{direction}").into(),
-            values: [CustomStateValue::Bool(false), CustomStateValue::Bool(true)].into(),
-        });
+
+    /// Each trait with the key naming it in a keyed container.
+    fn iter(self) -> impl Iterator<Item = (Option<&'a str>, Nbt<'a>)> {
+        let (list, keyed) = match self {
+            Self::List(list) => (Some(list), None),
+            Self::Keyed(keyed) => (None, Some(keyed)),
+            Self::None => (None, None),
+        };
+        list.into_iter()
+            .flatten()
+            .map(|trait_| (None, trait_))
+            .chain(
+                keyed
+                    .into_iter()
+                    .flat_map(NbtCompound::iter)
+                    .map(|(name, trait_)| (Some(name), trait_)),
+            )
     }
-    state_identity_incomplete |= enabled.iter().any(|state| {
-        let key = trait_key(state);
-        !TRAIT_STATES.iter().any(|(name, _)| *name == key)
-            && key != CARDINAL_CONNECTIONS
-            && !CONNECTION_DIRECTIONS.contains(&key)
-    });
+}
+
+fn parse_definition(root: Nbt<'_>) -> Option<Definition> {
+    let traits = Traits::of(root);
+    let states = states::state_axes(root, traits.iter());
+    let state_axes = states.axes;
+    let state_identity_incomplete = states.identity_incomplete;
     let mut placement =
-        placement::traits(traits.iter().map(|(_, trait_)| *trait_), state_axes.len());
-    for property in root.list("properties") {
-        let values = property.list("enum");
-        states = states.checked_mul(values.len().max(1) as u64)?;
-        if let Some(Nbt::String(name)) = property.field("name") {
-            let parsed_values = values.iter().filter_map(state_value).collect::<Vec<_>>();
-            state_identity_incomplete |= values.is_empty() || parsed_values.len() != values.len();
-            state_axes.push(CustomStateAxis {
-                name: name.as_str().into(),
-                values: parsed_values.into_boxed_slice(),
-            });
-        } else {
-            state_identity_incomplete = true;
-        }
-    }
-    if states > MAX_STATES_PER_BLOCK {
-        return None;
-    }
+        placement::traits(traits.iter().map(|(_, trait_)| trait_), states.trait_count);
     let components = root.field("components");
+    let (mining, mining_skips) =
+        mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
     placement::components(&mut placement, components);
     let collision_component = components.and_then(|set| set.field("minecraft:collision_box"));
     let collides = collision_enabled(collision_component);
@@ -624,24 +633,34 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         selection_component(components.and_then(|set| set.field("minecraft:selection_box")));
     let (friction, friction_skips) =
         friction_component(components.and_then(|set| set.field("minecraft:friction")));
-    let mut permutation_skips = root
-        .list("permutations")
-        .len()
-        .saturating_sub(MAX_PERMUTATIONS);
+    let mut permutation_skips = 0;
+    let mut physical_permutation_skips = 0;
+    let mut mining_truncated = false;
     let permutations = root
         .list("permutations")
         .iter()
-        .take(MAX_PERMUTATIONS)
-        .filter_map(|permutation| {
-            placement::components(&mut placement, permutation.field("components"));
+        .enumerate()
+        .filter_map(|(index, permutation)| {
+            let components = permutation.field("components");
+            if index >= MAX_PERMUTATIONS {
+                permutation_skips += 1;
+                physical_permutation_skips += usize::from(!mining::only_component(components));
+                mining_truncated |= components
+                    .and_then(|set| set.field(mining::COMPONENT))
+                    .is_some();
+                return None;
+            }
+            placement::components(&mut placement, components);
+            // A missing condition evaluates as an empty expression, which never holds.
             let Some(Nbt::String(condition)) = permutation.field("condition") else {
                 permutation_skips += 1;
                 return None;
             };
-            let (physical, skipped) = physical_components(permutation.field("components"));
-            permutation_skips += skipped;
+            let (physical, skipped, mining_skips) = physical_components(components);
+            permutation_skips += skipped + mining_skips;
+            physical_permutation_skips += skipped;
             Some(CustomPermutation {
-                condition: condition.as_str().into(),
+                condition: condition.into(),
                 components: visual_components(permutation.field("components")),
                 physical,
             })
@@ -661,14 +680,23 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                 .is_some_and(|_| transformation_component(components).is_none()),
         );
     Some(Definition {
+        mining: mining.unwrap_or_default(),
+        sound: sound_component(components),
         tags,
-        skipped: tag_skips + physical_skips + permutation_skips,
-        state_count: u32::try_from(states).ok()?,
+        tags_complete: tag_skips == 0,
+        skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
+        state_count: states.count,
         collides,
         collision_boxes,
         selection,
         friction,
-        player_interact: player_interact(components),
+        player_interact: std::iter::once(components)
+            .chain(
+                root.list("permutations")
+                    .iter()
+                    .map(|permutation| permutation.field("components")),
+            )
+            .any(player_interact),
         visual: CustomBlockVisuals {
             placement,
             base: visual_components(components),
@@ -683,7 +711,8 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
                     )
                 }),
             permutations,
-            components_incomplete: physical_skips > 0 || permutation_skips > 0,
+            components_incomplete: physical_skips > 0 || physical_permutation_skips > 0,
+            mining_truncated,
             state_axes: state_axes.into_boxed_slice(),
             state_identity_incomplete,
             materialization_disabled: false,
@@ -691,17 +720,46 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
     })
 }
 
-/// Whether `minecraft:custom_components` declares a player-interact handler.
-fn player_interact(components: Option<&Nbt>) -> bool {
-    let flag = components
-        .and_then(|set| set.field("minecraft:custom_components"))
-        .and_then(|component| component.field("hasPlayerInteract"));
-    matches!(flag, Some(Nbt::Byte(value)) if *value != 0)
+/// Reads a nonempty material from a scalar or compound sound component.
+fn sound_component(components: Option<Nbt<'_>>) -> Option<Arc<str>> {
+    let component = components?.field("minecraft:sound")?;
+    let sound = component
+        .field("sound")
+        .and_then(Nbt::as_str)
+        .or_else(|| component.as_str())
+        .filter(|sound| !sound.is_empty())?;
+    Some(sound.into())
+}
+
+/// Whether using a block with these components interacts with it: a crafting table, an
+/// `on_interact` component, or custom components declaring a player-interact handler (version 1
+/// components declare every handler).
+/// The client applies the handler flag to the whole type; a permutation's table is treated alike.
+fn player_interact(components: Option<Nbt<'_>>) -> bool {
+    let Some(components) = components else {
+        return false;
+    };
+    let custom = components.field("minecraft:custom_components");
+    let flag = |name: &str| {
+        matches!(
+            custom.and_then(|component| component.field(name)),
+            Some(Nbt::Byte(value)) if value != 0
+        )
+    };
+    matches!(
+        components.field("minecraft:crafting_table"),
+        Some(Nbt::Compound(_))
+    ) || flag("hasPlayerInteract")
+        || flag("isV1Component")
+        || matches!(
+            components.field("minecraft:on_interact"),
+            Some(Nbt::Compound(_))
+        )
 }
 
 /// Reads geometry, material instances, and transformation; odd values are
 /// treated as absent so the block keeps its other visuals.
-fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
+fn visual_components(components: Option<Nbt<'_>>) -> CustomVisualComponents {
     let Some(components) = components else {
         return CustomVisualComponents::default();
     };
@@ -714,14 +772,14 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
 
 /// Reads geometry and material descriptions shared by placed and inventory visuals.
 fn visual_descriptions(
-    components: Option<&Nbt>,
-    geometry_component: Option<&Nbt>,
-    material_component: Option<&Nbt>,
+    components: Option<Nbt<'_>>,
+    geometry_component: Option<Nbt<'_>>,
+    material_component: Option<Nbt<'_>>,
 ) -> CustomVisualComponents {
     let geometry = match geometry_component {
-        Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
+        Some(Nbt::String(identifier)) => Some(identifier.into()),
         Some(compound) => match compound.field("identifier") {
-            Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
+            Some(Nbt::String(identifier)) => Some(identifier.into()),
             _ => None,
         },
         None => None,
@@ -734,7 +792,7 @@ fn visual_descriptions(
                 .take(MAX_BONE_VISIBILITY)
                 .filter_map(|(bone, value)| {
                     let expression: Arc<str> = match value {
-                        Nbt::String(expression) => expression.as_str().into(),
+                        Nbt::String(expression) => expression.into(),
                         Nbt::Compound(_) => value.field("expression")?.as_str()?.into(),
                         value => value
                             .number()
@@ -742,58 +800,12 @@ fn visual_descriptions(
                             .to_string()
                             .into(),
                     };
-                    Some((bone.as_str().into(), expression))
+                    Some((bone.into(), expression))
                 })
                 .collect(),
             _ => Box::default(),
         };
-    let materials = material_component
-        .and_then(|instances| match instances.field("materials") {
-            Some(Nbt::Compound(fields)) => Some(fields),
-            _ => None,
-        })
-        .map(|fields| {
-            fields
-                .iter()
-                .take(MAX_MATERIAL_INSTANCES)
-                .filter_map(|(name, material)| {
-                    let Some(Nbt::String(texture)) = material.field("texture") else {
-                        return None;
-                    };
-                    let render_method = match material.field("render_method") {
-                        Some(Nbt::String(method)) => Some(method.as_str().into()),
-                        _ => None,
-                    };
-                    let tint_method = match material.field("tint_method") {
-                        Some(Nbt::String(method)) => Some(method.as_str().into()),
-                        _ => None,
-                    };
-                    Some(CustomMaterialInstance {
-                        name: name.as_str().into(),
-                        texture: texture.as_str().into(),
-                        render_method,
-                        tint_method,
-                        ambient_occlusion: material
-                            .field("ambient_occlusion")
-                            .and_then(Nbt::number)
-                            .map(|value| value as f32)
-                            .filter(|value| value.is_finite() && *value >= 0.0),
-                        face_dimming: material
-                            .field("packed_bools")
-                            .and_then(Nbt::number)
-                            .filter(|value| value.is_finite())
-                            .map(|value| value as i64 & 1 != 0)
-                            .or_else(|| {
-                                material
-                                    .field("face_dimming")
-                                    .and_then(Nbt::number)
-                                    .filter(|value| matches!(value, 0.0 | 1.0))
-                                    .map(|value| value != 0.0)
-                            }),
-                    })
-                })
-                .collect()
-        });
+    let materials = materials::instances(material_component);
     let transformation = transformation_component(components);
     let nibble = |key: &str, field: &str| {
         components
@@ -811,7 +823,11 @@ fn visual_descriptions(
         geometry,
         geometry_use_block_type_light_absorption: matches!(
             geometry_component.and_then(|geometry| geometry.field("useBlockTypeLightAbsorption")),
-            Some(Nbt::Byte(value)) if *value != 0
+            Some(Nbt::Byte(value)) if value != 0
+        ),
+        geometry_needs_legacy_top_rotation: matches!(
+            geometry_component.and_then(|geometry| geometry.field("needsLegacyTopRotation")),
+            Some(Nbt::Byte(value)) if value != 0
         ),
         bone_visibility,
         materials,
@@ -819,75 +835,6 @@ fn visual_descriptions(
         light_dampening: nibble("minecraft:light_dampening", "lightLevel")
             .or_else(|| nibble("minecraft:block_light_filter", "lightLevel")),
         light_emission: nibble("minecraft:light_emission", "emission"),
-    }
-}
-
-/// Placement trait states in the order vanilla adds them to a block (`placement_position`, then
-/// `placement_direction`), each with its values in palette order.
-const TRAIT_STATES: [(&str, &[&str]); 4] = [
-    (
-        "block_face",
-        &["down", "up", "north", "south", "west", "east"],
-    ),
-    ("vertical_half", &["bottom", "top"]),
-    ("cardinal_direction", &["south", "west", "north", "east"]),
-    (
-        "facing_direction",
-        &["down", "up", "north", "south", "west", "east"],
-    ),
-];
-
-/// Group state enabling the four cardinal fence connections at once.
-const CARDINAL_CONNECTIONS: &str = "cardinal_connections";
-/// Cardinal fence connections in palette order: north varies fastest.
-const CONNECTION_DIRECTIONS: [&str; 4] = [
-    "connection_north",
-    "connection_east",
-    "connection_south",
-    "connection_west",
-];
-
-/// Treats namespaced and unnamespaced trait state spellings as the same key.
-fn trait_key(name: &str) -> &str {
-    name.strip_prefix("minecraft:").unwrap_or(name)
-}
-
-fn state_value(value: &Nbt) -> Option<CustomStateValue> {
-    match value {
-        Nbt::String(value) => Some(CustomStateValue::String(value.as_str().into())),
-        Nbt::Byte(value) => Some(CustomStateValue::Bool(*value != 0)),
-        Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value) => {
-            Some(CustomStateValue::Int(*value))
-        }
-        _ => None,
-    }
-}
-
-/// Reads states and flags using the container key or the trait's own name as its identity.
-fn enabled_flags(trait_: &Nbt, name: Option<&str>) -> Vec<String> {
-    match trait_.field("enabled_states") {
-        Some(Nbt::Int(flags))
-            if name
-                .or_else(|| trait_.field("name").and_then(Nbt::as_str))
-                .is_some_and(|name| trait_key(name) == "connection") =>
-        {
-            if flags & 1 != 0 {
-                vec![CARDINAL_CONNECTIONS.to_owned()]
-            } else {
-                Vec::new()
-            }
-        }
-        Some(Nbt::List(states)) => states
-            .iter()
-            .filter_map(Nbt::as_str)
-            .map(str::to_owned)
-            .collect(),
-        Some(Nbt::Compound(fields)) => fields
-            .iter()
-            .filter(|(_, value)| value.number().is_some_and(|flag| flag != 0.0))
-            .map(|(key, _)| key.clone())
-            .collect(),
-        _ => Vec::new(),
     }
 }
 

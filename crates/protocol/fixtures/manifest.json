@@ -10,15 +10,15 @@
     "name": "StartGame",
     "file": "start_game.bin",
     "id": 11,
-    "byte_length": 269,
-    "sha256": "cef9a4dcaa54a3c54879dd6f2b82ea6b2687e5c3315582d59b8fd5f086cb18f1"
+    "byte_length": 270,
+    "sha256": "4d0652a0a84f3b99777f7e467cb4b5da3273ce282cb7e54268ec331f3ece21ed"
   },
   {
     "name": "LevelChunk",
     "file": "level_chunk.bin",
     "id": 58,
-    "byte_length": 17,
-    "sha256": "100ab874aaf069eb206135a7b1ab10b2d7c393d59c827e04fdb200b5573e7cc5"
+    "byte_length": 18,
+    "sha256": "4e1b1bf0950ffee9b58d885f0b9289c619140ae58a0ad681bbcdcf1544050ad5"
   },
   {
     "name": "MovePlayer",
@@ -80,8 +80,8 @@
     "name": "AddActor",
     "file": "add_actor.bin",
     "id": 13,
-    "byte_length": 66,
-    "sha256": "94488d2f25a50e01e1bcaa57f83200af36495605f299004b946c145d1d73d2a5"
+    "byte_length": 67,
+    "sha256": "8756b7864e4b8bb499dd7d36beeaa3882951cca35004331a9ca61ec900be7ace"
   },
   {
     "name": "Text",
@@ -198,20 +198,6 @@
     "sha256": "76434a12d7c8f84c2ad35efbe869fd044fe34cf9785eb1cef63473d9d4caaf0f"
   },
   {
-    "name": "InventorySlot",
-    "file": "inventory_slot_live_zeqa.bin",
-    "id": 50,
-    "byte_length": 113,
-    "sha256": "1a352cc084482ade205e7f69052ae1236c8a983f1d356e664ace6ec04687d804"
-  },
-  {
-    "name": "InventoryContent",
-    "file": "inventory_content_armor_live_zeqa.bin",
-    "id": 49,
-    "byte_length": 47,
-    "sha256": "b40f0463f1cbf7f4371cf84c0ded8cc9307b791276c3dfb389a32d80483d4439"
-  },
-  {
     "name": "PlayerHotBar",
     "file": "player_hotbar.bin",
     "id": 48,
@@ -261,29 +247,29 @@
     "name": "InventoryTransactionAttackActor",
     "file": "inventory_transaction_attack_actor.bin",
     "id": 30,
-    "byte_length": 81,
-    "sha256": "4006ad37cd8896865570739eac1c1b2bc1da2f46188cf2e36f16c4e7980611be"
+    "byte_length": 82,
+    "sha256": "939a8cd172ba6628766aa81fb3bb323bebec155adb1fc817b5538b2a27415ca4"
   },
   {
     "name": "InventoryTransactionAttackActorEmptyHand",
     "file": "inventory_transaction_attack_actor_empty_hand.bin",
     "id": 30,
-    "byte_length": 52,
-    "sha256": "2f92f5fe10b736f7a897fff3804f8f2570e26ef2072b8e2293e01fdbae85bc5e"
+    "byte_length": 53,
+    "sha256": "8f5049c0f188fd4f360abab773604c0c1c897a9a5662a0cf4098785d5b9f70e7"
   },
   {
     "name": "InventoryTransactionInteractActor",
     "file": "inventory_transaction_interact_actor.bin",
     "id": 30,
-    "byte_length": 76,
-    "sha256": "c65792a5bc80ebc5e24be256a2d5466dbeaa01bb4a8bd06e0e32a99c135fc749"
+    "byte_length": 77,
+    "sha256": "7d88dfcf479b0c213c80108cbbb89473d906f9fd62d028ae1cad8cac21c14b5e"
   },
   {
     "name": "InventoryTransactionInteractActorEmptyHand",
     "file": "inventory_transaction_interact_actor_empty_hand.bin",
     "id": 30,
-    "byte_length": 43,
-    "sha256": "39d6d0b48e099351568ec92c8b76f63fbe4e7a704eb086452718a58000479cb5"
+    "byte_length": 44,
+    "sha256": "a93bd2f192194749ed7113632e36604efc4830c7389fa10dd863be21e63b822d"
   },
   {
     "name": "ContainerClose",
@@ -373,7 +359,7 @@
     "file": "item_stack_request_manual_craft.bin",
     "id": 147,
     "byte_length": 85,
-    "sha256": "93660ca2ed6a2659af72f05dc7c9c37ad4aabaae4a3e2944285f2778cd3e6669"
+    "sha256": "83cefe2132f8da4c25e4ed54de0dca83bab4a95395ba0854ae86058081ee013c"
   },
   {
     "name": "ItemStackResponseManualCraft",

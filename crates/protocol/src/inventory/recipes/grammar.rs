@@ -23,6 +23,34 @@ pub(super) struct Candidate<'a> {
     pub(super) priority: i32,
     pub(super) ingredients: [Ingredient<'a>; super::model::MAX_INGREDIENTS],
     pub(super) output: Output,
+    pub(super) extra: ExtraOutputs<'a>,
+}
+
+/// The wire results after a recipe's first, kept borrowed until materialization.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ExtraOutputs<'a> {
+    bytes: &'a [u8],
+    count: usize,
+}
+
+impl ExtraOutputs<'_> {
+    pub(super) const fn len(&self) -> usize {
+        self.count
+    }
+
+    /// Re-reads the already validated results.
+    pub(super) fn read(&self) -> ReadResult<Vec<Output>> {
+        let mut reader = Reader::new(self.bytes)?;
+        let mut outputs = Vec::new();
+        outputs
+            .try_reserve_exact(self.count)
+            .map_err(|_| Refusal::Policy)?;
+        for _ in 0..self.count {
+            outputs.push(output(&mut reader)?.ok_or(Refusal::Wire)?);
+        }
+        reader.finish()?;
+        Ok(outputs)
+    }
 }
 
 /// Borrowed identity metadata carried beside the numeric recipe it describes.
@@ -87,15 +115,24 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
         let value = reader.string()?;
         // `item_tag` descriptors name a tag rather than an item.
         match key {
-            "name" | "item_tag" if identifier(value) => {
+            "name" => name = value,
+            "item_tag" if identifier(value) => {
                 name = value;
                 tag = key == "item_tag";
             }
             _ => valid = false,
         }
     }
-    let aux = reader.int()?;
+    let mut aux = reader.int()?;
     let count = reader.int()?;
+    if !tag {
+        if let Some((identifier, resolved)) = item_id(name, aux) {
+            name = identifier;
+            aux = resolved;
+        } else {
+            valid = false;
+        }
+    }
     valid &= (0..=u16::MAX as i32).contains(&aux) && (1..=255).contains(&count);
     if pairs == 0 && count == 0 {
         valid = true;
@@ -109,6 +146,27 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
     })
 }
 
+/// Splits a named ingredient's `namespace:path[:aux[:...]]` item ID into its
+/// identifier and effective aux, as Bedrock's item-ID parser does when it
+/// resolves deferred descriptors. A third token that parses as `0..=255`
+/// replaces the descriptor's aux; any other third token leaves it unchanged,
+/// and later tokens are ignored.
+fn item_id(name: &str, aux: i32) -> Option<(&str, i32)> {
+    if identifier(name) {
+        return Some((name, aux));
+    }
+    let (namespace, rest) = name.split_once(':')?;
+    let (path, tail) = rest.split_once(':')?;
+    let base = &name[..namespace.len() + 1 + path.len()];
+    let suffix = tail.split(':').next().unwrap_or_default();
+    let aux = suffix
+        .parse::<i32>()
+        .ok()
+        .filter(|value| (0..=0xff).contains(value))
+        .unwrap_or(aux);
+    identifier(base).then_some((base, aux))
+}
+
 fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     let id = reader.int()?;
     let bytes = reader.take(2)?;
@@ -116,24 +174,20 @@ fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     let aux = reader.uint()?;
     let block = reader.int()?;
     let extra = reader.opaque()?;
-    // The existing validator is unchanged. The candidate accepts only the
-    // independently parsed no-NBT/no-place/no-break envelope, or absent data.
-    let empty = super::canonical_empty_extra(extra);
+    let user_data = super::crafting::RecipeOutputData::decode(extra);
     // Block items carry negative network ids; only 0 (air) makes nothing.
-    Ok(
-        (id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && empty).then_some(
-            Output {
-                id,
-                aux: aux as u16,
-                count: count as u8,
-                // The recipe descriptor transports block identity as signed
-                // ZigZag32; inventory item descriptors retain its raw u32 bits.
-                // Hashed block identities may have bit 31 set.
-                block: u32::from_ne_bytes(block.to_ne_bytes()),
-                empty_envelope: !extra.is_empty(),
-            },
-        ),
-    )
+    Ok(user_data
+        .filter(|_| id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32)
+        .map(|user_data| Output {
+            id,
+            aux: aux as u16,
+            count: count as u8,
+            // The recipe descriptor transports block identity as signed
+            // ZigZag32; inventory item descriptors retain its raw u32 bits.
+            // Hashed block identities may have bit 31 set.
+            block: u32::from_ne_bytes(block.to_ne_bytes()),
+            user_data,
+        }))
 }
 
 /// Reads discovery context without using it as a recipe admission gate.
@@ -192,14 +246,30 @@ fn normal<'a>(
     }
     valid &= ingredients.iter().any(|i| i.count > 0);
     let results = reader.count(64)?;
-    valid &= results == 1;
+    valid &= results >= 1;
     let mut result = None;
-    for _ in 0..results {
+    let mut extra_start = reader.position();
+    for index in 0..results {
+        if index == 1 {
+            extra_start = reader.position();
+        }
         let current = output(reader)?;
-        if results == 1 {
+        // Every result must be craftable for the recipe to be.
+        valid &= current.is_some();
+        if index == 0 {
             result = current;
         }
     }
+    let extra = if results > 1 {
+        ExtraOutputs {
+            bytes: reader.since(extra_start),
+            count: results - 1,
+        }
+    } else {
+        ExtraOutputs::default()
+    };
+    // Station screens take exactly one result.
+    let single = if results == 1 { result } else { None };
     reader.take(16)?;
     let tag = reader.text()?;
     let block = tag.unwrap_or("");
@@ -237,10 +307,10 @@ fn normal<'a>(
         };
         count == expected && ingredients.iter().take(count).all(|item| item.count == 1)
     });
-    let skipped = screen_kind.is_some() && !(valid && !shaped && supported && result.is_some());
+    let skipped = screen_kind.is_some() && !(valid && !shaped && supported && single.is_some());
     let screen = screen_kind
         .filter(|_| valid && !shaped && supported)
-        .zip(result)
+        .zip(single)
         .map(|(kind, output)| {
             let mut kept = [Ingredient::default(); 3];
             kept[..count].copy_from_slice(&ingredients[..count]);
@@ -264,6 +334,7 @@ fn normal<'a>(
                 priority,
                 ingredients,
                 output,
+                extra,
             })
         } else {
             None

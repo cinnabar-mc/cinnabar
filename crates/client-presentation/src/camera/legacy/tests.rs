@@ -1,6 +1,7 @@
 //! Scheduled camera contracts with original actors and resolved movement observations.
 use super::*;
 use crate::actor_publication::ActorFramePartialTick;
+use crate::camera::actor_effects::PresentedDamageShake;
 use crate::camera::{CameraSettingsAuthority, FirstPersonHandMotion, FlyCamera, ServerCameraView};
 use crate::camera::{bob::WalkBobState, hurt::CameraHurtState, java::JavaCameraState};
 use crate::local_player::LocalViewPose;
@@ -11,6 +12,7 @@ use protocol::ActorStatusKind;
 
 const WALK_BLOCKS_PER_TICK: f32 = 0.2;
 
+mod damage_shake_tests;
 mod sleep_tests;
 
 #[derive(Resource)]
@@ -21,6 +23,7 @@ struct TestPhysics {
     ticks: Vec<CameraMovementTick>,
     alpha: f32,
     world_identity: Option<sim::WorldCollisionIdentity>,
+    sneaking: bool,
 }
 impl PhysicsObservation for TestPhysics {
     /// Returns the deterministic completed state.
@@ -35,13 +38,17 @@ impl PhysicsObservation for TestPhysics {
             }
         }
     }
-    /// The fixture never sneaks or sprints.
+    /// Reports the fixture's sneak flag; it never sprints.
     fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {
-        Some((false, false))
+        Some((self.sneaking, false))
     }
     /// The fixture uses ordinary walking.
     fn mode(&self) -> sim::MovementMode {
         sim::MovementMode::Walking
+    }
+    /// The fixture uses the current sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        sim::SneakProfile::Current
     }
     /// No glide state is present.
     fn fall_fly_ticks(&self) -> u32 {
@@ -92,11 +99,38 @@ fn sample(
     );
 }
 
+/// Applies camera effects with the same world observation used to sample hand motion.
+#[allow(clippy::too_many_arguments)]
+fn present(
+    time: Res<Time>,
+    settings: Res<CameraSettingsAuthority>,
+    view: Res<LocalViewPose>,
+    world: Res<TestWorld>,
+    server: ResMut<ServerCameraView>,
+    cameras: Query<(&mut Transform, Option<&mut Projection>), With<FlyCamera>>,
+) {
+    crate::camera::presentation::apply_camera_presentation(
+        time,
+        settings,
+        None,
+        None,
+        view,
+        0,
+        Some(WorldObservation {
+            stream: Some(&world.0),
+        }),
+        None,
+        server,
+        cameras,
+    );
+}
+
 /// Shares the late effect with the hand while retaining each owner's clock fraction.
 #[allow(clippy::too_many_arguments)]
 fn apply(
     settings: Res<CameraSettingsAuthority>,
     hand: ResMut<FirstPersonHandMotion>,
+    shake: ResMut<PresentedDamageShake>,
     legacy: Res<LegacyCameraMotion>,
     server: Res<ServerCameraView>,
     world: Res<TestWorld>,
@@ -107,6 +141,7 @@ fn apply(
     crate::camera::actor_effects::apply_actor_damage_camera_rotation(
         settings,
         hand,
+        shake,
         Some(legacy),
         server,
         Some(WorldObservation {
@@ -129,6 +164,7 @@ fn camera_app() -> App {
         .init_resource::<JavaCameraState>()
         .init_resource::<LegacyCameraMotion>()
         .init_resource::<FirstPersonHandMotion>()
+        .init_resource::<PresentedDamageShake>()
         .init_resource::<ServerCameraView>()
         .insert_resource(ActorFramePartialTick(0.5))
         .insert_resource(TestWorld(player_stream()))
@@ -137,6 +173,7 @@ fn camera_app() -> App {
             ticks: Vec::new(),
             alpha: 0.5,
             world_identity: None,
+            sneaking: false,
         });
     app
 }
@@ -201,6 +238,45 @@ fn native_frame_bob_receives_the_real_dead_gate() {
     assert!(app.world().resource::<WalkBobState>().bob() < previous);
 }
 
+/// A crouched first-person camera stays on the gameplay eye that picks blocks, in both animation modes.
+#[test]
+fn crouched_camera_stays_on_the_interaction_eye() {
+    for java in [false, true] {
+        let mut app = camera_app();
+        let mut user = ui::UserSettings::default();
+        user.video.java_animations = java;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &user)
+            .unwrap();
+        app.world_mut().resource_mut::<TestPhysics>().sneaking = true;
+        let feet = Vec3::new(0.0, 64.0, 0.0);
+        let eye = feet + Vec3::Y * (protocol::PLAYER_NETWORK_OFFSET - 0.35);
+        app.world_mut()
+            .resource_mut::<LocalViewPose>()
+            .set_subject_position(eye, feet);
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Transform::from_translation(eye)))
+            .id();
+        for index in 0..4 {
+            tick(&mut app, index);
+            app.world_mut().run_system_cached(sample).unwrap();
+            *app.world_mut().get_mut::<Transform>(camera).unwrap() =
+                Transform::from_translation(eye);
+            app.world_mut().run_system_cached(present).unwrap();
+            let rendered = app.world().get::<Transform>(camera).unwrap().translation;
+            assert!(
+                rendered.abs_diff_eq(
+                    app.world().resource::<LocalViewPose>().eye_translation(),
+                    1e-5
+                ),
+                "java {java}, tick {index}: {rendered} != {eye}"
+            );
+        }
+    }
+}
+
 #[test]
 fn java_poses_keep_one_legacy_effect_for_world_and_hand_without_changing_aim() {
     for java in [false, true] {
@@ -251,7 +327,7 @@ fn java_poses_keep_one_legacy_effect_for_world_and_hand_without_changing_aim() {
         let expected = render_model::legacy_combat::legacy_hurt_matrix(5, 0.0, None, 0.5, 1.0)
             * endpoints.bob_matrix(0.5);
         assert!(shared.abs_diff_eq(expected, 3e-6));
-        user.video.view_bobbing = false;
+        user.video.view_bobbing = ui::ViewBobbing::Off;
         user.video.damage_bob = 0.0;
         app.world_mut()
             .resource_mut::<CameraSettingsAuthority>()
@@ -268,79 +344,271 @@ fn java_poses_keep_one_legacy_effect_for_world_and_hand_without_changing_aim() {
     }
 }
 
+/// Minimal retains the Full hand effect while the world receives only hurt/death motion.
 #[test]
-fn third_person_and_free_server_camera_preserve_their_base_pose() {
+fn minimal_bobbing_keeps_the_hand_moving_without_bobbing_the_camera() {
+    for java in [false, true] {
+        for hurt in [false, true] {
+            let mut app = camera_app();
+            let mut user = ui::UserSettings::default();
+            user.video.java_animations = java;
+            for index in 0..4 {
+                tick(&mut app, index);
+            }
+            if hurt {
+                event(
+                    &mut app.world_mut().resource_mut::<TestWorld>().0,
+                    2,
+                    ActorStatusKind::Hurt,
+                );
+                app.world_mut()
+                    .resource_mut::<TestWorld>()
+                    .0
+                    .advance_actor_interpolation_frame(5);
+            }
+            let base = Transform::from_xyz(3.0, 6.0, -8.0).with_rotation(Quat::from_euler(
+                EulerRot::YXZ,
+                0.7,
+                -0.4,
+                0.0,
+            ));
+            let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+            let aim = *app.world().resource::<LocalViewPose>();
+            let mut full_hand = None;
+            for (generation, mode) in [
+                ui::ViewBobbing::Full,
+                ui::ViewBobbing::Minimal,
+                ui::ViewBobbing::Off,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                user.video.view_bobbing = mode;
+                app.world_mut()
+                    .resource_mut::<CameraSettingsAuthority>()
+                    .replace(generation as u64 + 1, &user)
+                    .unwrap();
+                app.world_mut().run_system_cached(sample).unwrap();
+                *app.world_mut().get_mut::<Transform>(camera).unwrap() = base;
+                app.world_mut().run_system_cached(apply).unwrap();
+                let hand = app.world().resource::<FirstPersonHandMotion>();
+                let effect = hand.legacy_effect.unwrap();
+                let endpoints = app.world().resource::<LegacyCameraMotion>().state.endpoints;
+                let bob = endpoints.bob_matrix(0.5);
+                assert_ne!(bob, Mat4::IDENTITY);
+                let damage = if hurt {
+                    render_model::legacy_combat::legacy_hurt_matrix(5, 0.0, None, 0.5, 1.0)
+                } else {
+                    Mat4::IDENTITY
+                };
+                match mode {
+                    ui::ViewBobbing::Full => {
+                        assert!(effect.abs_diff_eq(damage * bob, 3e-6));
+                        full_hand = Some(effect);
+                    }
+                    ui::ViewBobbing::Minimal => assert_eq!(Some(effect), full_hand),
+                    ui::ViewBobbing::Off => assert!(effect.abs_diff_eq(damage, 3e-6)),
+                }
+                let camera_effect = if mode.camera_enabled() {
+                    damage * bob
+                } else {
+                    damage
+                };
+                let rendered = app
+                    .world()
+                    .get::<Transform>(camera)
+                    .unwrap()
+                    .to_matrix()
+                    .inverse();
+                assert!(rendered.abs_diff_eq(camera_effect * base.to_matrix().inverse(), 3e-5));
+                assert_eq!(*app.world().resource::<LocalViewPose>(), aim);
+            }
+        }
+    }
+}
+
+/// Third-person views bob the orbiting camera only under Full bobbing and never take the hurt
+/// shake or the first-person hand effect.
+#[test]
+fn third_person_camera_bobs_only_with_full_bobbing() {
+    for perspective in [
+        semantic_input::PerspectiveMode::ThirdPersonBack,
+        semantic_input::PerspectiveMode::ThirdPersonFront,
+    ] {
+        let mut app = camera_app();
+        for index in 0..4 {
+            tick(&mut app, index);
+        }
+        app.world_mut().run_system_cached(sample).unwrap();
+        event(
+            &mut app.world_mut().resource_mut::<TestWorld>().0,
+            2,
+            ActorStatusKind::Hurt,
+        );
+        app.world_mut()
+            .resource_mut::<TestWorld>()
+            .0
+            .advance_actor_interpolation_frame(5);
+        let base = Transform::from_xyz(2.0, 5.0, 8.0).with_rotation(Quat::from_rotation_y(0.7));
+        let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+        let bob = app
+            .world()
+            .resource::<LegacyCameraMotion>()
+            .state
+            .endpoints
+            .bob_matrix(0.5);
+        assert_ne!(bob, Mat4::IDENTITY);
+        let mut user = ui::UserSettings::default();
+        user.gameplay.default_perspective = perspective;
+        for (generation, mode) in ui::ViewBobbing::ALL.into_iter().enumerate() {
+            user.video.view_bobbing = mode;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(generation as u64 + 1, &user)
+                .unwrap();
+            *app.world_mut().get_mut::<Transform>(camera).unwrap() = base;
+            app.world_mut().run_system_cached(apply).unwrap();
+            let view = app
+                .world()
+                .get::<Transform>(camera)
+                .unwrap()
+                .to_matrix()
+                .inverse();
+            let expected = if mode.camera_enabled() {
+                bob
+            } else {
+                Mat4::IDENTITY
+            };
+            assert!(
+                view.abs_diff_eq(expected * base.to_matrix().inverse(), 3e-5),
+                "{perspective:?} {mode:?}"
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<FirstPersonHandMotion>()
+                    .legacy_effect,
+                None
+            );
+        }
+    }
+}
+
+/// A mod's detached presented view reports third person but keeps its absolute pose while the
+/// body walks under Full bobbing.
+#[test]
+fn detached_presented_view_does_not_bob_with_the_body() {
     let mut app = camera_app();
-    tick(&mut app, 0);
-    tick(&mut app, 1);
+    for index in 0..4 {
+        tick(&mut app, index);
+    }
     app.world_mut().run_system_cached(sample).unwrap();
-    let mut user = ui::UserSettings::default();
-    user.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
+    assert_ne!(
+        app.world()
+            .resource::<LegacyCameraMotion>()
+            .state
+            .endpoints
+            .bob_matrix(0.5),
+        Mat4::IDENTITY
+    );
+    let base = Transform::from_xyz(2.0, 5.0, 8.0).with_rotation(Quat::from_rotation_y(0.7));
     app.world_mut()
         .resource_mut::<CameraSettingsAuthority>()
-        .replace(1, &user)
-        .unwrap();
-    let base = Transform::from_xyz(2.0, 5.0, 8.0);
+        .set_presented_view(Some(crate::camera::PresentedView {
+            position: base.translation,
+            rotation: base.rotation,
+            capture_look: false,
+            capture_movement: false,
+        }));
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    );
     let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
     app.world_mut().run_system_cached(apply).unwrap();
     assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
-    assert_eq!(
-        app.world()
-            .resource::<FirstPersonHandMotion>()
-            .legacy_effect,
-        None
-    );
-    user.gameplay.default_perspective = semantic_input::PerspectiveMode::FirstPerson;
-    app.world_mut()
-        .resource_mut::<CameraSettingsAuthority>()
-        .replace(2, &user)
-        .unwrap();
-    let context = crate::camera::ViewContext {
-        base,
-        subject: base,
-        base_fov: 60.0,
-        actors: &|_| None,
-    };
-    let mut server = ServerCameraView::default();
-    server.apply(
-        1,
-        &protocol::CameraEvent::Presets(
-            vec![protocol::CameraPreset {
-                name: "minecraft:free".into(),
-                ..Default::default()
-            }]
-            .into(),
-        ),
-        &context,
-    );
-    server.apply(
-        2,
-        &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
-            set: Some(protocol::CameraSetInstruction {
-                preset_id: 0,
-                ease: None,
-                position: None,
-                rotation_degrees: None,
-                facing_position: None,
-                view_offset: None,
-                entity_offset: None,
-                default_preset: None,
-                remove_ignore_starting_values: false,
-            }),
-            ..Default::default()
-        })),
-        &context,
-    );
-    assert!(!server.renders_first_person(true));
-    app.insert_resource(server);
-    app.world_mut().run_system_cached(apply).unwrap();
-    assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
-    assert_eq!(
-        app.world()
-            .resource::<FirstPersonHandMotion>()
-            .legacy_effect,
-        None
-    );
+}
+
+/// Server free, follow-orbit and fixed-boom rigs keep their own poses while the body walks under
+/// Full bobbing, even when the preset enables player effects.
+#[test]
+fn server_camera_rigs_preserve_their_base_pose() {
+    for name in [
+        "minecraft:free",
+        "minecraft:follow_orbit",
+        "minecraft:fixed_boom",
+    ] {
+        for player_effects in [None, Some(true)] {
+            let mut app = camera_app();
+            for index in 0..4 {
+                tick(&mut app, index);
+            }
+            app.world_mut().run_system_cached(sample).unwrap();
+            assert_ne!(
+                app.world()
+                    .resource::<LegacyCameraMotion>()
+                    .state
+                    .endpoints
+                    .bob_matrix(0.5),
+                Mat4::IDENTITY
+            );
+            let base = Transform::from_xyz(2.0, 5.0, 8.0);
+            let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+            let context = crate::camera::ViewContext {
+                base,
+                subject: base,
+                base_fov: 60.0,
+                actors: &|_| None,
+            };
+            let mut server = ServerCameraView::default();
+            server.apply(
+                1,
+                &protocol::CameraEvent::Presets(
+                    vec![protocol::CameraPreset {
+                        name: name.into(),
+                        player_effects,
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+                &context,
+            );
+            server.apply(
+                2,
+                &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
+                    set: Some(protocol::CameraSetInstruction {
+                        preset_id: 0,
+                        ease: None,
+                        position: None,
+                        rotation_degrees: None,
+                        facing_position: None,
+                        view_offset: None,
+                        entity_offset: None,
+                        default_preset: None,
+                        remove_ignore_starting_values: false,
+                    }),
+                    ..Default::default()
+                })),
+                &context,
+            );
+            assert!(!server.renders_first_person(true), "{name}");
+            assert!(!server.renders_native_third_person(), "{name}");
+            app.insert_resource(server);
+            app.world_mut().run_system_cached(apply).unwrap();
+            assert_eq!(
+                *app.world().get::<Transform>(camera).unwrap(),
+                base,
+                "{name} {player_effects:?}"
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<FirstPersonHandMotion>()
+                    .legacy_effect,
+                None
+            );
+        }
+    }
 }
 
 #[test]
@@ -431,7 +699,7 @@ fn reanchored_bob_does_not_rewind_when_the_actor_fraction_wraps() {
 #[test]
 fn shared_hand_sway_uses_java_ticks_with_either_animation_option_and_bob_preference() {
     for java_mode in [false, true] {
-        for view_bobbing in [false, true] {
+        for view_bobbing in ui::ViewBobbing::ALL {
             let mut app = camera_app();
             let mut user = ui::UserSettings::default();
             user.video.java_animations = java_mode;
@@ -578,7 +846,7 @@ fn freelook_release_preserves_hand_sway_winding() {
                 .set_freelook(false);
             let view = *app.world().resource::<LocalViewPose>();
             assert_eq!(view.rotation(), actor_rotation);
-            assert_eq!(view.camera_rotation(), actor_rotation);
+            assert_eq!(view.player_camera_rotation(), actor_rotation);
             for alpha in [0.0, 0.5, 1.0] {
                 app.world_mut().resource_mut::<TestPhysics>().alpha = alpha;
                 app.world_mut().run_system_cached(sample).unwrap();

@@ -1,0 +1,72 @@
+Protocolgen contribution license and source notices
+
+Cinnabar contributors license their copyrightable contributions to the
+protocolgen generator, runtime, tooling and generated implementation code
+under the MIT License in LICENSE-MIT. This grant reaches only copyrights
+that those contributors control; it does not relicense third-party material.
+Generated Cargo metadata describes this authored implementation grant.
+
+Imported source code, documentation and schema inputs, captured game payloads,
+and catalog values retain their separate rights and conditions. In the source
+repository this includes the migration/axolotl-protocol history, the Endstone
+adapter in vanilla-data/endstone, source fixtures and candidates, source-derived
+snapshot inputs, data/source/inputs, and values in generated/data. Adding an
+MIT notice beside generated code does not turn these materials into MIT code.
+Existing upstream grants and attribution remain in force.
+
+Source and data provenance
+
+Packet schemas are reconciled from Mojang/bedrock-protocol-docs and
+EndstoneMC/protocol-docs. Per-release source-lock.json and manifest.json files
+record the revisions used:
+https://github.com/cinnabar-mc/protocolgen/tree/main/generated
+
+Mojang's source repository carries the following notice, preserved here without
+extending the MIT grant to its documents or copied source text:
+
+(c) Mojang AB. All rights reserved.
+
+By downloading the files in this repository, you agree to the [Minecraft End User License Agreement](https://www.minecraft.net/en-us/eula) and that these files are subject to its terms.
+
+The pinned Endstone protocol-docs inputs do not include a separate license
+grant. This project does not grant rights in those inputs on Endstone's behalf.
+https://github.com/EndstoneMC/protocol-docs
+
+The imported Axolotl history and Endstone adapter retain their recorded origins:
+https://github.com/cinnabar-mc/protocolgen/blob/main/migration/README.md
+https://github.com/cinnabar-mc/protocolgen/blob/main/vanilla-data/endstone/NOTICE
+The adapter's Apache-2.0 license is included beside that source.
+
+Game-data input attribution and conditions are recorded separately:
+https://github.com/cinnabar-mc/protocolgen/blob/main/data/NOTICE.md
+The native input snapshot retains its full CC0-1.0 license. The game-data
+catalog and Minecraft materials are not relicensed by this contribution grant.
+
+Gophertunnel documentation
+
+The reviewed documentation overlays and emitted comments include text copied
+or adapted from Gophertunnel. Its copyright and permission notice apply to that
+text, and are retained below:
+https://github.com/Sandertv/gophertunnel
+
+MIT License
+
+Copyright (c) 2019 Sandertv
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

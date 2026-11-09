@@ -22,14 +22,19 @@ pub fn assert_installed_geometry(
     let icons = presentation.icon_catalog.as_deref().unwrap();
     for identifier in ["minecraft:dirt", "minecraft:grass_block"] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
-        assert!(presentation.gui_models.models.contains_key(&icon_key(icon)));
+        assert!(
+            presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon))
+        );
         let model = presentation
             .gui_models
+            .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: identifier.into(),
-                metadata: 0,
-            })
+            .get(identifier)
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert_eq!(model.vertices.len(), 36);
@@ -41,11 +46,10 @@ pub fn assert_installed_geometry(
     if presentation.equipment_catalog.is_some() {
         let shield = presentation
             .gui_models
+            .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: "minecraft:shield".into(),
-                metadata: 0,
-            })
+            .get("minecraft:shield")
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert!(matches!(
@@ -93,6 +97,7 @@ pub fn assert_installed_geometry(
             let icon = presentation.item_icon(identifier, 0).unwrap();
             let mesh = presentation
                 .gui_models
+                .sources
                 .models
                 .get(&icon_key(icon))
                 .unwrap_or_else(|| panic!("{identifier} draws at the control's size"));
@@ -113,6 +118,7 @@ pub fn assert_installed_geometry(
     assert!(
         presentation
             .gui_models
+            .sources
             .models
             .contains_key(&icon_key(grass))
     );
@@ -163,7 +169,11 @@ fn assert_installed_blended_thumbnails(
             continue;
         };
         assert!(
-            !presentation.gui_models.models.contains_key(&icon_key(icon)),
+            !presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon)),
             "fractional blended faces retain their composited thumbnail: {:?}",
             definition.key
         );

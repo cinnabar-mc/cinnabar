@@ -11,9 +11,11 @@ use ui::{
 
 use super::scene_stack::Scene;
 use super::{UiRuntime, render_adapter::UiRenderViewport};
+#[cfg(test)]
 use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
+mod color_icons;
 mod construction;
 pub mod debug_overlay;
 mod dial_icons;
@@ -21,6 +23,7 @@ pub mod dynamic_textures;
 pub mod forms;
 mod frame;
 pub mod gui_models;
+pub use gui_models::{GuiModelPreparation, PreparedGuiModels};
 pub mod gui_scale_settings;
 pub mod hud_layout;
 pub mod inventory_pointer;
@@ -30,10 +33,12 @@ pub(super) mod item_glint;
 pub mod item_gui;
 pub mod item_sprite;
 pub mod item_viewmodel;
+mod local_player_identity;
 pub mod menu;
 pub mod menu_artwork;
 pub mod menu_branding;
 pub mod menu_scroll;
+mod mod_hud_bindings;
 mod mod_panel_font;
 mod runtime_assets;
 
@@ -114,6 +119,7 @@ pub struct UiPresentationRuntime {
     /// The startup font without the session's glyph sheets.
     base_font: Arc<RuntimeFontCatalog>,
     mod_panel_font: Option<mod_panel_font::InstalledFont>,
+    local_player_identity: local_player_identity::LocalPlayerIdentity,
     textures: Arc<UiRenderTextureArray>,
     texture_session: Option<u64>,
     item_glint: item_glint::ItemGlintTextures,
@@ -133,6 +139,8 @@ pub struct UiPresentationRuntime {
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
     assembly_nodes: Vec<UiNode>,
+    /// Immutable geometry reuses storage only after all render readers release it.
+    vertex_buffers: render_model::FrameBuffers<render_model::UiRenderVertex>,
     retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
@@ -154,14 +162,25 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Inventory projections retained across HUD publications.
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
+    /// External projection changes that invalidate closed-inventory preparation.
+    inventory_preparation_revision: std::sync::atomic::AtomicU64,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
+    /// What the presentation's renderers drew the engine HUD and its crosshair overlay from.
+    hud_renderers: [forms::hud::HudRendererInputs; 2],
+    /// Owner-scoped extension globals layered over the gameplay HUD's retained data.
+    mod_hud_bindings: mod_hud_bindings::Bindings,
+    /// Text metrics of the last painted HUD, for `hud.measure-text`.
+    label_metrics: Option<Arc<mod_ui::LabelMetrics>>,
+    /// Vanilla HUD elements of the last painted HUD, for `hud.read-elements`.
+    hud_elements: forms::hud::HudElements,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
     nametag_anchors: Vec<nametags::NametagAnchor>,
     nametag_local_actor: Option<u64>,
     nametag_atlas: nametag_atlas::NametagAtlas,
+    nametag_bounds: nametags::bounds::BoundsCache,
     primitive_text: primitive_shapes::PrimitiveTextRasterizer,
     /// Stable reserved logical page for the optional preview raster.
     paper_doll: paper_doll::PaperDoll,
@@ -172,6 +191,8 @@ pub struct UiPresentationRuntime {
     player_preview_raster_pose: Option<player_preview::PlayerPreviewPose>,
     /// How the UI last asked to show the model, and the idle sway it was drawn at.
     player_preview_view: player_preview::PreviewView,
+    /// How the HUD's own player renderer last asked to show the model.
+    hud_preview_view: player_preview::PreviewView,
     menu_preview_model: player_preview::model::MenuPreviewModel,
     menu_preview: player_preview::controller::MenuPreview,
     player_preview_drawn: Option<(
@@ -196,6 +217,8 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_icon: Option<IconRef>,
     /// The art set last requested: service art plus engine textures too big for a server page.
     menu_artwork_set: menu_artwork::ArtworkSet,
+    /// Large server textures the last built frame drew; requests pack them first.
+    frame_oversized: std::collections::BTreeSet<String>,
     mod_menu_branding: Option<Arc<menu_branding::PreparedMenuBranding>>,
     menu_artwork_loader: menu_artwork::ArtworkLoader,
     /// This frame's clock in seconds, which engine screen animations paint at.

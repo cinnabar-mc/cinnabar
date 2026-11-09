@@ -327,7 +327,7 @@ fn same_frame_unit_visibility_preserves_pixels_after_disocclusion() {
     };
     let terrain = fixture();
     let kernels = CullKernels::new(&gpu.device);
-    let storage = kernels::OcclusionStorage::new(&gpu.device, terrain.records.len() as u32);
+    let storage = storage::OcclusionStorage::new(&gpu.device, terrain.records.len() as u32);
     gpu.queue
         .write_buffer(&storage.records, 0, bytemuck::cast_slice(&terrain.records));
     for samples in [1, 2]
@@ -404,12 +404,13 @@ fn same_frame_unit_visibility_preserves_pixels_after_disocclusion() {
                     CullPhase::Late,
                     terrain.records.len() as u32,
                     storage.capacity,
+                    kernels.workgroup,
                 );
                 gpu.queue
                     .write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
                 let group = kernels.occlusion_bind_group(&gpu.device, &storage, &pyramid);
                 let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                kernels.encode_pyramid(&mut encoder, &pyramid, &bindings);
+                kernels.encode_pyramid(&mut encoder, &pyramid, &bindings, None);
                 kernels.encode_occlusion(&mut encoder, &group, terrain.records.len() as u32);
                 gpu.queue.submit([encoder.finish()]);
                 for (stream, draws) in [CullStream::Solid, CullStream::Cutout]

@@ -32,6 +32,7 @@ fn geometry() -> EntityGeometry {
             reset: None,
             binding: None,
             texture_meshes: Box::new([]),
+            poly_mesh: None,
             cubes: vec![EntityGeometryCube {
                 origin: [-4.0, 16.0, -2.0].map(scalar),
                 size: [10.0, 18.0, 2.0].map(scalar),
@@ -58,6 +59,7 @@ fn texture() -> EquipmentTexture {
 
 fn texture_ref() -> IconRef {
     IconRef {
+        color_mask: None,
         page: 3,
         uv: [16, 48, 48, 80],
         glint: false,

@@ -265,6 +265,9 @@ impl Fixture {
         let storage = wgpu::BufferUsages::STORAGE;
         let uniform = wgpu::BufferUsages::UNIFORM;
         let frame = render_scene::AtmosphereFrame::default();
+        let mut atmosphere: Vec<f32> = bytemuck::cast_slice(std::slice::from_ref(&frame)).to_vec();
+        atmosphere.extend(render_model::celestial::rgb_to_gamma(frame.fog_color()));
+        atmosphere.push(0.0);
         Some(Self {
             materials: gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage),
             zeros: gpu.words(&UNUSED, storage),
@@ -277,7 +280,7 @@ impl Fixture {
                 &meshing::biome_lattice::query_table_words(),
                 wgpu::BufferUsages::UNIFORM,
             ),
-            atmosphere: gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform),
+            atmosphere: gpu.buffer(&atmosphere, uniform),
             lightmap: gpu.lightmap(bytemuck::cast_slice(
                 &render_model::LightmapInputs::default().build(),
             )),

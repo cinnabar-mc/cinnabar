@@ -1,7 +1,7 @@
 use super::*;
-use bedrock_protocol_1_26_51::enums::GeneratorType;
-use bedrock_protocol_1_26_51::packets::DimensionData;
-use bedrock_protocol_1_26_51::types::DimensionDefinition;
+use bedrock_protocol_1_26_60::enums::GeneratorType;
+use bedrock_protocol_1_26_60::packets::DimensionData;
+use bedrock_protocol_1_26_60::types::DimensionDefinition;
 
 pub(super) fn early_dimension_definition() -> Packet {
     Packet::new(DimensionData {
@@ -32,7 +32,7 @@ async fn named_dimension_definition_before_start_game_survives_login_in_order() 
     assert_eq!(heights[0].name.as_ref(), "minecraft:overworld");
     assert_eq!(heights[0].dimension, 3);
     assert_eq!(heights[0].minimum_y, 0);
-    assert_eq!(heights[0].height_range, 256);
+    assert_eq!(heights[0].maximum_y, 256);
     assert_eq!(heights[0].generator, 1);
     assert!(matches!(
         session.recv_world_event(0).await.unwrap(),

@@ -3,7 +3,8 @@
 use {
     super::*,
     render_model::equipment::{
-        BoneChannels, ItemDisplay, attach_to_bone, held_block_display, held_sprite_display,
+        BoneChannels, ItemDisplay, SpriteGrip, attach_to_bone, held_block_display_for_hand,
+        held_sprite_display_for_hand,
     },
 };
 
@@ -21,6 +22,19 @@ impl EquipmentRuntime {
         scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
     ) {
+        if !self.show_custom_item_models && source.is_some_and(|source| source.from_pack) {
+            if let Some(grip) = equipment.java.filter(|_| layer == LAYER_MAIN_HAND) {
+                self.push_java_held(body, item, bones, grip, scale, layers, true);
+            } else {
+                let hand = if layer == LAYER_OFF_HAND {
+                    bones.left_item
+                } else {
+                    bones.right_item
+                };
+                self.push_icon_attached(body, item, layer, hand, scale, layers);
+            }
+            return;
+        }
         if let Some(source) = source {
             let binding = &source.catalog.bindings()[source.index];
             let authored = layer != LAYER_MAIN_HAND
@@ -52,7 +66,7 @@ impl EquipmentRuntime {
             }
         }
         if let Some(grip) = equipment.java.filter(|_| layer == LAYER_MAIN_HAND) {
-            self.push_java_held(body, item, bones, grip, scale, layers);
+            self.push_java_held(body, item, bones, grip, scale, layers, false);
         } else {
             let hand = if layer == LAYER_OFF_HAND {
                 bones.left_item
@@ -61,6 +75,45 @@ impl EquipmentRuntime {
             };
             self.push_attached(body, item, layer, hand, None, scale, layers);
         }
+    }
+
+    /// Draws a pack item's ordinary icon on an item bone, bypassing authored geometry.
+    pub(super) fn push_icon_attached(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        layer: u8,
+        bone: Option<usize>,
+        scale: f32,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
+        let Some(hand) = bone else {
+            return;
+        };
+        let Some((mesh, location, span)) = self.held_icon_mesh(item) else {
+            return;
+        };
+        let display = self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale, |runtime| {
+            runtime.held_icon_dimensions(item)
+        });
+        let (Some(previous), Some(current)) = (
+            body.input.previous_bones.get(hand),
+            body.input.current_bones.get(hand),
+        ) else {
+            return;
+        };
+        let (Some(previous), Some(current)) = (
+            attach_to_bone(*previous, display),
+            attach_to_bone(*current, display),
+        ) else {
+            return;
+        };
+        let poses = self.poses.share(body, layer, [&[previous], &[current]]);
+        layers.push(held_glint(
+            layer_presentation(body, layer, mesh, poses, location, 0),
+            item,
+            span,
+        ));
     }
 
     /// A held item whose attachable ships its own single-bone geometry and a literal
@@ -92,16 +145,14 @@ impl EquipmentRuntime {
             return false;
         };
         let channels = match self.effective_category(&item.identifier, binding.category) {
-            EquipmentCategory::Held => {
-                binding
-                    .third_person
-                    .literal()
-                    .map(|transform| BoneChannels {
-                        translation: transform.translation.map(|value| value.get()),
-                        rotation: transform.rotation.map(|value| value.get()),
-                        scale: transform.scale.map(|value| value.get()),
-                    })
-            }
+            EquipmentCategory::Held | EquipmentCategory::ArmorAndHeld { .. } => binding
+                .third_person
+                .literal()
+                .map(|transform| BoneChannels {
+                    translation: transform.translation.map(|value| value.get()),
+                    rotation: transform.rotation.map(|value| value.get()),
+                    scale: transform.scale.map(|value| value.get()),
+                }),
             EquipmentCategory::Shield => {
                 let slot = if off_hand { "off_hand" } else { "main_hand" };
                 binding
@@ -174,49 +225,131 @@ impl EquipmentRuntime {
         item: &WornItem,
         icon_fallback: bool,
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool, [f32; 2])> {
-        let session =
-            self.session_held(&item.identifier, item.metadata)
-                .filter(|(_, key, _, _)| {
-                    !matches!(item.kind, HeldKind::Block(_))
-                        || matches!(key, MeshKey::SessionBlock(_))
-                });
-        if session.is_none()
-            && let Some(&(rig, location, span)) = HeldBlockEntity::from_item(&item.identifier)
-                .and_then(|kind| self.held_block_entities.models.get(&kind))
-        {
-            return Some((rig, location, true, span));
-        }
-        let (index, key, placement, location) = if let Some(held) = session {
-            held
-        } else {
-            let sheet = match item.kind {
-                HeldKind::Block(visual) => {
-                    self.block_placement(visual).map(|sheet| (visual, sheet))
+        use crate::session_artwork::{ItemArtwork, item_artwork};
+        item_artwork(self, |runtime, source| {
+            let (index, key, placement, location) = match source {
+                ItemArtwork::SessionCube => {
+                    let (index, placement, location) =
+                        runtime.session_held_block(&item.identifier)?;
+                    (index, MeshKey::SessionBlock(index), placement, location)
                 }
-                _ => None,
+                ItemArtwork::SessionSprite => {
+                    let (identifier, metadata) = runtime.session_icon_key(item);
+                    let (index, placement, location) =
+                        runtime.session_sprite(identifier, metadata)?;
+                    (index, MeshKey::Session(index), placement, location)
+                }
+                ItemArtwork::StartupCube => {
+                    if let Some(&(rig, location, span)) =
+                        HeldBlockEntity::from_item(&item.identifier)
+                            .and_then(|kind| runtime.held_block_entities.models.get(&kind))
+                    {
+                        return Some((rig, location, true, span));
+                    }
+                    let visual = runtime.held_block_visual(item.kind)?;
+                    let (index, placement, location) = runtime.block_placement(visual)?;
+                    (index, MeshKey::Block(visual), placement, location)
+                }
+                ItemArtwork::StartupSprite => {
+                    match item.kind {
+                        HeldKind::Other => return None,
+                        HeldKind::Block(_) | HeldKind::RetainedBlock { .. } if !icon_fallback => {
+                            return None;
+                        }
+                        _ => {}
+                    }
+                    let (index, placement, location) = runtime.held_icon_parts(item)?;
+                    (index, MeshKey::Sprite(index), placement, location)
+                }
             };
-            if let Some((visual, (index, placement, location))) = sheet {
-                (index, MeshKey::Block(visual), placement, location)
-            } else {
-                match item.kind {
-                    HeldKind::Other => return None,
-                    HeldKind::Block(_) if !icon_fallback => return None,
-                    _ => {}
-                }
-                let index = self.held_icon_index(item)?;
-                let placement = self.placements.get(index).copied().flatten()?;
-                let location = self
-                    .atlas_locations
-                    .get(placement.layer)
-                    .copied()
-                    .flatten()?;
-                (index, MeshKey::Sprite(index), placement, location)
-            }
+            let mesh = runtime.mesh_for(key, index, placement)?;
+            let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
+            let span = glint_span(placement.uv_rect(), block);
+            Some((mesh, location, block, span))
+        })
+    }
+
+    /// Resolves an ordinary icon even when the item also has a block or custom model route.
+    pub(super) fn held_icon_mesh(
+        &mut self,
+        item: &WornItem,
+    ) -> Option<(EntityRigId, ActorArtworkLocation, [f32; 2])> {
+        let (identifier, metadata) = self.session_icon_key(item);
+        if let Some((index, placement, location)) = self.session_sprite(identifier, metadata) {
+            let mesh = self.mesh_for(MeshKey::Session(index), index, placement)?;
+            return Some((mesh, location, glint_span(placement.uv_rect(), false)));
+        }
+        let (index, placement, location) = self.held_icon_parts(item)?;
+        let mesh = self.mesh_for(MeshKey::Sprite(index), index, placement)?;
+        Some((mesh, location, glint_span(placement.uv_rect(), false)))
+    }
+
+    /// Resolves an item's startup sprite and its admitted atlas placement together.
+    fn held_icon_parts(&self, item: &WornItem) -> Option<(usize, Placement, ActorArtworkLocation)> {
+        let index = self.held_icon_index(item)?;
+        let placement = self.placements.get(index).copied().flatten()?;
+        let location = self
+            .atlas_locations
+            .get(placement.layer)
+            .copied()
+            .flatten()?;
+        Some((index, placement, location))
+    }
+
+    /// Third-person placement of a flat sprite on its item bone: its render offsets, or the retail
+    /// grip. `scale` is the actor's held item scale. `dimensions` is the texel size of the sprite
+    /// being drawn.
+    pub(super) fn held_sprite_display(
+        &self,
+        item: &WornItem,
+        off_hand: bool,
+        scale: f32,
+        dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
+    ) -> ItemDisplay {
+        let placement = held_sprite_placement(item, false);
+        let grip = SpriteGrip::from(item.grip);
+        let side = if off_hand {
+            render_api::HeldItemHandSide::Off
+        } else {
+            render_api::HeldItemHandSide::Main
         };
-        let mesh = self.mesh_for(key, index, placement)?;
-        let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
-        let span = glint_span(placement.uv_rect(), block);
-        Some((mesh, location, block, span))
+        let offset = (placement != render_api::HeldItemPlacement::Retail)
+            .then(|| dimensions(self))
+            .flatten()
+            .and_then(|dimensions| {
+                render_model::equipment::offset_held_display(
+                    placement, grip, side, dimensions, scale,
+                )
+            });
+        offset.unwrap_or_else(|| {
+            let mut retail = held_sprite_display_for_hand(grip, off_hand);
+            retail.scale *= scale;
+            retail
+        })
+    }
+
+    /// Texel size of the sprite `held_icon_mesh` draws for this item.
+    pub(super) fn held_icon_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        let (identifier, metadata) = self.session_icon_key(item);
+        let sprite = self
+            .session_sprite(identifier, metadata)
+            .and_then(|(index, _, _)| self.session_sprite_pixels(index))
+            .or_else(|| {
+                self.held_icon_index(item)
+                    .and_then(|index| self.icons.sprites().get(index))
+            })?;
+        Some([sprite.width, sprite.height])
+    }
+
+    /// Texel size of the sprite `held_mesh_with_use` draws for the same input: the selected native
+    /// frame when the item has native artwork.
+    pub(super) fn held_mesh_dimensions(
+        &self,
+        item: &WornItem,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<[u16; 2]> {
+        self.native_sprite_dimensions_with_use(item, input)
+            .or_else(|| self.held_icon_dimensions(item))
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -238,14 +371,19 @@ impl EquipmentRuntime {
         else {
             return;
         };
-        let mut display = override_display.unwrap_or_else(|| {
-            if block {
-                held_block_display()
-            } else {
-                held_sprite_display(item.grip.upright().unwrap_or(false))
+        let display = match override_display {
+            None if !block => {
+                self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale, |runtime| {
+                    runtime.held_icon_dimensions(item)
+                })
             }
-        });
-        display.scale *= scale;
+            override_display => {
+                let mut display = override_display
+                    .unwrap_or_else(|| held_block_display_for_hand(layer == LAYER_OFF_HAND));
+                display.scale *= scale;
+                display
+            }
+        };
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -291,7 +429,12 @@ impl EquipmentRuntime {
         let binding = &catalog.bindings()[index];
         // A custom item's `minecraft:wearable` slot names where its attachable is worn.
         let category = self.effective_category(&item.identifier, binding.category);
-        if category != (EquipmentCategory::Armor { slot }) {
+        if !matches!(
+            category,
+            EquipmentCategory::Armor { slot: admitted }
+                | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                if admitted == slot
+        ) {
             return;
         }
         let selected = match animation.map(|animation| {
@@ -353,7 +496,12 @@ impl EquipmentRuntime {
             .or_else(|| {
                 if from_pack
                     || selected.is_some()
-                    || binding.category != (EquipmentCategory::Armor { slot })
+                    || !matches!(
+                        binding.category,
+                        EquipmentCategory::Armor { slot: admitted }
+                            | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                            if admitted == slot
+                    )
                     || binding.geometry.resolution != EntityDependencyResolution::External
                 {
                     return None;
@@ -492,9 +640,9 @@ impl EquipmentRuntime {
         let input = animation.worn_input(equipment, slot, &variables);
         let (assets, runtime) = if from_pack {
             let pack = self.pack.as_mut().ok_or(())?;
-            (&pack.assets, &mut pack.attachables)
+            (Arc::clone(&pack.assets), &mut pack.attachables)
         } else {
-            (&self.assets, &mut self.attachables)
+            (Arc::clone(&self.assets), &mut self.attachables)
         };
         let evaluated = runtime
             .evaluate(attachable_identifier, animation.owner, animation.rig, input)
@@ -518,37 +666,66 @@ impl EquipmentRuntime {
         } else {
             &layer.pose
         };
-        let pose = local
-            .iter()
-            .enumerate()
-            .map(|(index, local)| {
-                if layer.hidden_bones.contains(&(index as u32))
-                    || (geometry_index == evaluated.geometry
-                        && evaluated.bone_names.get(index).is_some_and(|name| {
-                            bones
-                                .names
-                                .iter()
-                                .any(|owner| owner.eq_ignore_ascii_case(name))
-                        }))
-                {
-                    return Some(hidden_bone());
-                }
-                let root = evaluated.bone_parent(geometry_index, index)?;
-                if root == actor_animation::AttachableBoneParent::BindingExpression {
-                    return None;
-                }
-                let parent = modern::parent_for_root(
-                    &body.input.previous_bones,
-                    &body.input.current_bones,
+        let pose = self
+            .attachment_poses
+            .sample(
+                body,
+                (true, input.worn_slot),
+                self.poses.frame,
+                placement_cache::Inputs {
+                    assets: &assets,
                     bones,
-                    input,
-                    root,
-                    evaluated.axis_scale.map(|axis| axis * evaluated.scale),
-                )?;
-                modern::compose_parent(parent, *local)
-            })
-            .map(|pose| pose.unwrap_or_else(hidden_bone))
-            .collect();
+                    owner_names: animation.rig.bone_names,
+                    geometry: (geometry_index, evaluated.geometry),
+                    local,
+                    paired: false,
+                    hidden: &layer.hidden_bones,
+                    scale: evaluated.axis_scale.map(|axis| axis * evaluated.scale),
+                    alpha: placement_cache::alpha(
+                        body,
+                        &evaluated,
+                        geometry_index,
+                        local.len(),
+                        input.frame_alpha,
+                    ),
+                },
+                |_, index| {
+                    let local = &local[index];
+                    if layer.hidden_bones.contains(&(index as u32))
+                        || (geometry_index == evaluated.geometry
+                            && evaluated.bone_names.get(index).is_some_and(|name| {
+                                bones
+                                    .names
+                                    .iter()
+                                    .any(|owner| owner.eq_ignore_ascii_case(name))
+                            }))
+                    {
+                        return Some(hidden_bone());
+                    }
+                    let Some(root) = evaluated.bone_parent(geometry_index, index) else {
+                        return Some(hidden_bone());
+                    };
+                    if root == actor_animation::AttachableBoneParent::BindingExpression {
+                        return Some(hidden_bone());
+                    }
+                    let Some(parent) = actor_animation::attachment::parent_for_root(
+                        &body.input.previous_bones,
+                        &body.input.current_bones,
+                        &bones.names,
+                        input,
+                        root,
+                        evaluated.axis_scale.map(|axis| axis * evaluated.scale),
+                    ) else {
+                        return Some(hidden_bone());
+                    };
+                    Some(
+                        actor_animation::attachment::compose_parent(parent, *local)
+                            .unwrap_or_else(hidden_bone),
+                    )
+                },
+            )
+            .ok_or(())?[0]
+            .clone();
         let path = &assets.sources().get(layer.source as usize).ok_or(())?.path;
         let texture = path
             .strip_suffix(".png")
@@ -650,6 +827,15 @@ fn with_glint(
         };
     }
     presentation
+}
+
+/// The item's placement when drawn as a flat sprite; a cube keeps its own retail placement.
+pub(super) fn held_sprite_placement(item: &WornItem, block: bool) -> render_api::HeldItemPlacement {
+    if block {
+        render_api::HeldItemPlacement::Retail
+    } else {
+        item.use_facts.held_placement
+    }
 }
 
 #[cfg(test)]

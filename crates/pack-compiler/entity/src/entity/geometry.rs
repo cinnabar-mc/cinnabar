@@ -4,9 +4,8 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, EntityAssetKind, EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv,
-    EntityGeometryFaceUvs, EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_GEOMETRIES,
-    MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES,
-    MAX_ENTITY_TEXTURE_DIMENSION,
+    EntityGeometryFaceUvs, EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_GEOMETRY_BONES,
+    MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_TEXTURE_DIMENSION,
 };
 use serde_json::Value;
 
@@ -30,7 +29,7 @@ pub(super) fn parse_geometry(
     let supported_version = if is_modern {
         matches!(
             format_version,
-            "1.12.0" | "1.16.0" | "1.21.0" | "1.21.120" | "1.26.10"
+            "1.12.0" | "1.16.0" | "1.21.0" | "1.21.60" | "1.21.120" | "1.26.10"
         )
     } else {
         matches!(format_version, "1.8.0" | "1.10.0")
@@ -200,9 +199,6 @@ fn insert_geometry(
             "duplicate entity geometry payload `{identifier}` within one source"
         )));
     }
-    if geometries.len() > MAX_ENTITY_GEOMETRIES {
-        return Err(invalid("entity geometry count exceeds bound"));
-    }
     Ok(())
 }
 
@@ -248,6 +244,7 @@ fn parse_geometry_bones_with_inheritance(
                 "locators",
                 "binding",
                 "texture_meshes",
+                "poly_mesh",
                 "neverRender",
                 "reset",
                 "bind_pose_rotation",
@@ -302,6 +299,7 @@ fn parse_geometry_bones_with_inheritance(
             never_render,
             reset,
             binding,
+            poly_mesh: assets::EntityGeometryPolyMesh::parse_bone(bone.get("poly_mesh"), name),
             texture_meshes,
             cubes,
         });
@@ -427,12 +425,11 @@ fn parse_geometry_uv(value: &Value, path: &Path) -> Result<EntityGeometryUv, Ass
         ))
     })?;
     const FACE_NAMES: [&str; 6] = ["north", "south", "east", "west", "up", "down"];
-    if object.is_empty()
-        || object
-            .keys()
-            .any(|field| !FACE_NAMES.contains(&field.as_str()))
+    if object
+        .keys()
+        .any(|field| !FACE_NAMES.contains(&field.as_str()))
     {
-        return Err(invalid("unknown or empty entity geometry face UV map"));
+        return Err(invalid("unknown entity geometry face UV"));
     }
     let parse_face = |name: &str| -> Result<Option<EntityGeometryFaceUv>, AssetError> {
         object

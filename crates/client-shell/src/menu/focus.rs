@@ -19,6 +19,7 @@ pub(super) struct SettingsInput {
     pub(super) actions: Vec<MenuAction>,
     pub(super) geometry: SettingsFocusGeometry,
     pub(super) slider_drag: Option<u16>,
+    pub(super) shader_slider_drag: Option<(u32, u16, u16)>,
 }
 
 impl MenuRuntime {
@@ -29,7 +30,7 @@ impl MenuRuntime {
             action => action,
         };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
-            if self.settings.dropdown.is_some() || self.settings.scale_picker {
+            if self.settings.dropdown.is_some() {
                 *candidate == action
             } else {
                 same_control(*candidate, action)
@@ -41,6 +42,15 @@ impl MenuRuntime {
             self.settings_input.geometry.remember(action);
             self.retain_settings_slider_selection();
         }
+    }
+
+    /// Transfers editable-field ownership only after a settings slider captures input.
+    pub(super) fn capture_settings_slider(&mut self, index: u16) {
+        self.field = None;
+        self.focus_pointer(MenuAction::SettingsOption(
+            index,
+            self.settings_options.get(usize::from(index)),
+        ));
     }
 
     pub fn move_focus(&mut self, direction: i32) {
@@ -61,6 +71,14 @@ impl MenuRuntime {
         self.retain_settings_slider_selection();
     }
 
+    /// What selecting the focused control would press, with its live settings value.
+    pub(super) fn focused_action(&self) -> Option<MenuAction> {
+        let actions = self.focus_actions();
+        let focused = self.focused.min(actions.len().saturating_sub(1));
+        let action = actions.get(focused).copied()?;
+        Some(self.live_settings_action(action))
+    }
+
     pub fn activate_focused(&mut self) {
         let actions = self.focus_actions();
         // A modal can replace the controls while the old focus index remains.
@@ -68,10 +86,29 @@ impl MenuRuntime {
         let Some(action) = actions.get(self.focused).copied() else {
             return;
         };
+        if let MenuAction::Navigate(screen) = action
+            && play_tab(self.screen)
+            && play_tab(screen)
+        {
+            // Switching play tabs keeps focus on the tab bar; the open tab does nothing.
+            if screen != self.screen {
+                self.activate_from_navigation(action);
+            }
+            self.focus_pointer(action);
+            return;
+        }
         if self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && self.settings.dropdown.is_none()
-            && !self.settings.scale_picker
+            && self.settings_input.geometry.native
+            && let MenuAction::SettingsScale(_) = action
+        {
+            self.toggle_gui_scale_slider_selection();
+            return;
+        }
+        if self.screen == MenuScreen::Settings
+            && self.dialog.is_none()
+            && self.settings.dropdown.is_none()
             && let MenuAction::SettingsOption(index, _) = action
         {
             match SETTINGS_OPTIONS
@@ -79,6 +116,7 @@ impl MenuRuntime {
                 .map(|option| option.kind)
             {
                 Some(SettingKind::Slider) => {
+                    self.field = None;
                     self.settings.slider_selected =
                         (self.settings.slider_selected != Some(index)).then_some(index);
                     return;
@@ -120,7 +158,7 @@ impl MenuRuntime {
             return;
         }
         let previous = self.focus_actions().get(self.focused).copied();
-        let picker = self.settings.dropdown.is_some() || self.settings.scale_picker;
+        let picker = self.settings.dropdown.is_some();
         let mut visible = Vec::new();
         for action in actions {
             let action = match action {
@@ -190,6 +228,9 @@ impl MenuRuntime {
             return;
         }
         self.retain_settings_slider_selection();
+        if axis == SettingsFocusAxis::Horizontal && self.step_selected_gui_scale(direction) {
+            return;
+        }
         if axis == SettingsFocusAxis::Horizontal
             && self.screen == MenuScreen::Settings
             && self.dialog.is_none()
@@ -204,6 +245,9 @@ impl MenuRuntime {
             if next != value {
                 self.activate_from_navigation(MenuAction::SettingsOption(index, next));
             }
+            return;
+        }
+        if self.dialog.is_none() && self.move_in_regions(axis, direction) {
             return;
         }
         if self.screen != MenuScreen::Settings
@@ -240,6 +284,41 @@ impl MenuRuntime {
         }
     }
 
+    /// Selects or releases the GUI-scale slider for directional adjustment, like other
+    /// settings sliders. A window with a single modifier has nothing to adjust.
+    fn toggle_gui_scale_slider_selection(&mut self) {
+        let row = MenuAction::SettingsScale(self.gui_scale_display_offset).settings_slider_row();
+        self.field = None;
+        let adjustable = self.gui_scale_choices.len() > 1;
+        let selected = self.settings.slider_selected;
+        self.settings.slider_selected = row.filter(|row| adjustable && selected != Some(*row));
+    }
+
+    /// Moves a selected GUI-scale slider one modifier in `direction`, stopping at either end.
+    /// Returns whether the GUI-scale slider owned the input.
+    fn step_selected_gui_scale(&mut self, direction: i32) -> bool {
+        let row = MenuAction::SettingsScale(self.gui_scale_display_offset).settings_slider_row();
+        if self.screen != MenuScreen::Settings
+            || self.dialog.is_some()
+            || self.settings.slider_selected != row
+        {
+            return false;
+        }
+        let current = self
+            .gui_scale_choices
+            .iter()
+            .position(|choice| choice.offset == self.gui_scale_display_offset);
+        let next = current.and_then(|index| {
+            index
+                .checked_add_signed(direction.signum() as isize)
+                .and_then(|next| self.gui_scale_choices.get(next))
+        });
+        if let Some(next) = next {
+            self.activate_from_navigation(MenuAction::SettingsScale(next.offset));
+        }
+        true
+    }
+
     pub(super) fn clear_settings_slider_selection(&mut self) -> bool {
         self.settings.slider_selected.take().is_some()
     }
@@ -248,9 +327,11 @@ impl MenuRuntime {
         let retained = self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && self.settings.dropdown.is_none()
-            && !self.settings.scale_picker
             && self.settings.slider_selected.is_some_and(|selected| {
-                matches!(self.focus_actions().get(self.focused), Some(MenuAction::SettingsOption(index, _)) if *index == selected)
+                self.focus_actions()
+                    .get(self.focused)
+                    .and_then(|action| action.settings_slider_row())
+                    == Some(selected)
             });
         if !retained {
             self.settings.slider_selected = None;
@@ -263,10 +344,6 @@ impl MenuRuntime {
         visible: &[MenuAction],
     ) -> Option<usize> {
         let replacement = match previous {
-            MenuAction::SettingsScale(_) => MenuAction::SettingsScalePicker,
-            MenuAction::SettingsScalePicker => {
-                MenuAction::SettingsScale(self.gui_scale_display_offset)
-            }
             MenuAction::SettingsOption(index, _) => MenuAction::SettingsDropdown(index),
             MenuAction::SettingsDropdown(index) => {
                 MenuAction::SettingsOption(index, self.settings_options.get(usize::from(index)))
@@ -399,10 +476,17 @@ impl MenuRuntime {
                 MenuDialog::DeathQuit => {
                     vec![MenuAction::ConfirmDeathQuit, MenuAction::DismissDialog]
                 }
+                MenuDialog::RemoveShaderPack(index, revision) => vec![
+                    MenuAction::DismissDialog,
+                    MenuAction::ConfirmRemoveShaderPack(index, revision),
+                ],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
                 ],
+                MenuDialog::LeaveRealm(id) => {
+                    vec![MenuAction::ConfirmLeaveRealm(id), MenuAction::DismissDialog]
+                }
             };
         }
         if let Some(actions) = self.join_request_focus_actions() {
@@ -426,10 +510,12 @@ impl MenuRuntime {
                 MenuAction::OpenExitDialog,
             ]
         };
+        if self.uses_painted_focus()
+            && let Some(actions) = self.navigation_focus.painted_actions(self.screen)
+        {
+            return actions.to_vec();
+        }
         match self.screen {
-            MenuScreen::Home if self.navigation_focus.home_actions().is_some() => {
-                self.navigation_focus.home_actions().unwrap().to_vec()
-            }
             MenuScreen::Home => {
                 let mut actions = nav();
                 actions[4] = MenuAction::OpenAccounts;
@@ -473,8 +559,34 @@ impl MenuRuntime {
                         launcher::menu::realm_membership::Action::Open,
                     ));
                 }
-                actions.push(MenuAction::RefreshCatalog);
-                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
+                let mut first = None;
+                for member in [false, true] {
+                    for (index, _) in self
+                        .realms
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, realm)| realm.member == member)
+                    {
+                        first.get_or_insert(index);
+                        actions.push(MenuAction::SelectRealm(index));
+                    }
+                }
+                if let Some(index) = self
+                    .feeds
+                    .selected_realm
+                    .filter(|index| *index < self.realms.len())
+                    .or(first)
+                {
+                    let realm = &self.realms[index];
+                    if realm.can_play() {
+                        actions.push(MenuAction::PlayRealm(index));
+                    }
+                    if self.realm_leave.leaving().is_none()
+                        && let Some(id) = realm.leave_id()
+                    {
+                        actions.push(MenuAction::LeaveRealmDialog(id));
+                    }
+                }
                 actions
             }
             MenuScreen::Servers => {
@@ -631,13 +743,36 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Friends => {
+                let query = self.friend_query.as_str().to_lowercase();
+                let mut actions = vec![
+                    MenuAction::SearchFriends,
+                    MenuAction::Navigate(MenuScreen::Home),
+                ];
+                actions.extend(
+                    self.friends
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, friend)| friend.gamertag.to_lowercase().contains(&query))
+                        .map(|(index, _)| MenuAction::PlayFriend(index)),
+                );
+                actions
+            }
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }
 }
 
-/// Dropdown radio rows are distinct controls; slider stops share one control.
+/// The Worlds, Realms and Servers tabs of the play route, whose arrow keys
+/// also follow the painted focus regions.
+pub(super) fn play_tab(screen: MenuScreen) -> bool {
+    matches!(
+        screen,
+        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers
+    )
+}
+
+/// Radio choices are distinct controls; toggle values and slider stops share one control.
 pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
     match (a, b) {
         (MenuAction::SettingsOption(a, av), MenuAction::SettingsOption(b, bv)) if a == b => {
@@ -649,7 +784,16 @@ pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
                     Some(SettingKind::Toggle | SettingKind::Slider)
                 )
         }
-        (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_)) => true,
+        (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_))
+        | (MenuAction::SettingsScale(_), MenuAction::SettingsScale(_)) => true,
+        (
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(a, _)),
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(b, _)),
+        ) if a == b
+            && a.definition().control == launcher::local_worlds::options::Control::Toggle =>
+        {
+            true
+        }
         _ => a == b,
     }
 }

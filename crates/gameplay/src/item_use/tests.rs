@@ -12,12 +12,14 @@ use {super::*, inventory::crossbow_animation_frame};
 
 mod admission;
 mod crossbow;
-mod delayfix;
 mod frame_order;
 mod progress;
+mod pulse;
 mod respawn;
 mod riptide;
 mod rockets;
+mod server_flag;
+mod server_flag_model;
 
 fn crossbow_duration() -> u32 {
     match classify("minecraft:crossbow", false, 0, None).unwrap() {
@@ -490,33 +492,39 @@ fn selected_count_change_cancels_the_old_use_without_release() {
     assert_eq!(kinds(&released), ["release"]);
 }
 
-/// Count admission belongs to release; a held update does not replace its start snapshot.
+/// Vanilla's normal tick refreshes the in-use stack, count included, without
+/// restarting the use; release then compares with the refreshed count, so a
+/// release at the refreshed count sends its transaction and one at another
+/// count stops the use without it.
 #[test]
-fn selected_count_change_while_held_keeps_the_original_use_until_release() {
-    let mut runtime = ItemUseRuntime::default();
-    runtime.observe_press(true);
-    runtime.step(&item_frame(
-        100,
-        true,
-        stack(2, MENU_ITEM, 16),
-        "minecraft:golden_apple",
-    ));
-    let timing = runtime.active_timing();
-    let held = runtime.step(&item_frame(
-        101,
-        true,
-        stack(2, MENU_ITEM, 15),
-        "minecraft:golden_apple",
-    ));
-    assert!(held.packets.is_empty() && !held.started);
-    assert_eq!(runtime.active_timing(), timing);
-    let released = runtime.step(&item_frame(
-        102,
-        false,
-        stack(2, MENU_ITEM, 16),
-        "minecraft:golden_apple",
-    ));
-    assert_eq!(kinds(&released), ["release"]);
+fn a_held_count_change_refreshes_the_in_use_stack() {
+    for (released_count, expected) in [(15, vec!["release"]), (16, vec![])] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        runtime.step(&item_frame(
+            100,
+            true,
+            stack(2, MENU_ITEM, 16),
+            "minecraft:golden_apple",
+        ));
+        let timing = runtime.active_timing();
+        let held = runtime.step(&item_frame(
+            101,
+            true,
+            stack(2, MENU_ITEM, 15),
+            "minecraft:golden_apple",
+        ));
+        assert!(held.packets.is_empty() && !held.started);
+        assert_eq!(runtime.active_timing(), timing);
+        let released = runtime.step(&item_frame(
+            102,
+            false,
+            stack(2, MENU_ITEM, released_count),
+            "minecraft:golden_apple",
+        ));
+        assert_eq!(kinds(&released), expected, "released at {released_count}");
+        assert!(!runtime.is_using());
+    }
 }
 
 /// A briefly unverifiable selection (inventory request in flight) keeps the use and its release.
@@ -572,7 +580,7 @@ fn a_custom_menu_item_sends_click_air_and_repeats_while_held() {
     runtime.observe_press(true);
     let pressed = runtime.step(&menu(100, true));
     assert_eq!(kinds(&pressed), ["use"]);
-    assert!(!pressed.started && !pressed.swung && !runtime.is_using());
+    assert!(!pressed.started && pressed.swung.is_none() && !runtime.is_using());
     let sent = transaction(&pressed.packets[0]);
     let (legacy, actions, _, _) = summary(&sent);
     assert_eq!((legacy, actions), (0, 0));
@@ -599,18 +607,14 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     runtime.observe_press(true);
     let first = runtime.step(&throw(100, true));
     assert_eq!(kinds(&first), ["use"]);
-    assert!(first.swung && !first.started);
+    assert_eq!(first.swung, Some(protocol::SwingSource::ThrowItem));
+    assert!(!first.started);
     let sent = transaction(&first.packets[0]);
     let first_id = sent.legacy_request_id;
     assert!(protocol::is_legacy_request_id(first_id));
     assert_eq!(
         summary(&sent),
-        (
-            first_id,
-            1,
-            vec![16, 15, 16],
-            vec![Some(41), Some(first_id), None]
-        )
+        (first_id, 1, vec![16, 15, 16], vec![None; 3])
     );
     assert_eq!(
         sent.legacy_set_slots,
@@ -625,19 +629,14 @@ fn a_snowball_throw_reports_its_predicted_decrement() {
     assert!(second_id < first_id && protocol::is_legacy_request_id(second_id));
     assert_eq!(
         summary(&transaction(&second.packets[0])),
-        (
-            second_id,
-            1,
-            vec![15, 14, 15],
-            vec![Some(first_id), Some(second_id), None]
-        )
+        (second_id, 1, vec![15, 14, 15], vec![None; 3])
     );
 
     // The server restating the slot replaces the prediction.
     let restated = stack(4, SNOWBALL, 14);
     let third = runtime.step(&item_frame(110, true, restated, "minecraft:snowball"));
     let (_, _, sizes, ids) = summary(&transaction(&third.packets[0]));
-    assert_eq!((sizes[0], ids[0]), (14, Some(41)));
+    assert_eq!((sizes[0], ids[0]), (14, None));
 }
 
 /// Every admitted throw reports its slot, source revision and full decrement once.
@@ -649,7 +648,7 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     };
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
-    assert!(runtime.step(&snowballs(100, 2)).swung);
+    assert!(runtime.step(&snowballs(100, 2)).swung.is_some());
     let (slot, revision, change) = runtime.take_inventory_change().unwrap();
     assert_eq!(
         (slot, revision, change.from.count(), change.to.count()),
@@ -658,7 +657,7 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     assert!(runtime.take_inventory_change().is_none());
     // The server has not restated the slot, so this throws the predicted last snowball.
     runtime.observe_press(true);
-    assert!(runtime.step(&snowballs(110, 2)).swung);
+    assert!(runtime.step(&snowballs(110, 2)).swung.is_some());
     let (slot, revision, change) = runtime.take_inventory_change().unwrap();
     assert_eq!((slot, revision), (3, 7));
     assert!(change.to.is_empty());
@@ -673,6 +672,19 @@ fn throwing_items_reports_each_admitted_inventory_change() {
     assert!(runtime.take_inventory_change().is_none());
 }
 
+#[test]
+fn fishing_rod_use_swings_without_consuming_the_stack() {
+    let rod = |tick, held| item_frame(tick, held, stack(2, MENU_ITEM, 1), "minecraft:fishing_rod");
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let outcome = runtime.step(&rod(100, true));
+
+    assert_eq!(kinds(&outcome), ["use"]);
+    assert_eq!(outcome.swung, Some(protocol::SwingSource::UseItem));
+    assert!(runtime.take_inventory_change().is_none());
+    assert!(runtime.step(&rod(105, true)).packets.is_empty());
+}
+
 /// Creative throws swing but change no stack, so they carry no action or legacy request.
 #[test]
 fn a_creative_throw_reports_no_inventory_change() {
@@ -682,7 +694,7 @@ fn a_creative_throw_reports_no_inventory_change() {
         creative: true,
         ..item_frame(100, true, stack(1, SNOWBALL, 16), "minecraft:snowball")
     });
-    assert!(outcome.swung);
+    assert!(outcome.swung.is_some());
     let (legacy, actions, _, _) = summary(&transaction(&outcome.packets[0]));
     assert_eq!((legacy, actions), (0, 0));
 }
@@ -702,14 +714,14 @@ fn an_ender_pearl_on_cooldown_sends_a_plain_click_air() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     let thrown = runtime.step(&pearl(100, 16));
-    assert!(thrown.swung);
+    assert!(thrown.swung.is_some());
     runtime.observe_press(true);
     let cooling = runtime.step(&pearl(110, 15));
     assert_eq!(kinds(&cooling), ["use"]);
-    assert!(!cooling.swung);
+    assert!(cooling.swung.is_none());
     assert_eq!(summary(&transaction(&cooling.packets[0])).1, 0);
     runtime.observe_press(true);
-    assert!(runtime.step(&pearl(120, 15)).swung);
+    assert!(runtime.step(&pearl(120, 15)).swung.is_some());
 }
 
 /// Eating runs its duration, completes silently and, still held, starts again after the re-arm;
@@ -883,14 +895,13 @@ impl AdmissionQueue {
 }
 
 #[test]
-fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
+fn a_pulse_admits_once_per_tick_and_session_reset_restores_rearm() {
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     let mut runtime = ItemUseRuntime::default();
     runtime.synchronize(1);
-    runtime.set_delay_fix(true);
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
-    runtime.observe_press(true);
+    assert!(runtime.step(&first).swung.is_some());
+    runtime.observe_pulse(true);
     assert_eq!(
         runtime.press_drop_reason(&first),
         Some("use_tick_already_admitted")
@@ -902,11 +913,47 @@ fn delay_fix_admits_once_per_tick_and_session_reset_restores_rearm() {
         selection: Some(stack(3, SNOWBALL, 16)),
         ..first.clone()
     };
-    runtime.observe_press(true);
-    assert!(runtime.step(&next).swung);
+    runtime.observe_pulse(true);
+    assert!(runtime.step(&next).swung.is_some());
     runtime.synchronize(2);
+    assert!(!runtime.pulse_pending());
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
+    assert!(runtime.step(&first).swung.is_some());
     runtime.observe_press(true);
-    assert!(!runtime.step(&next).swung);
+    assert!(runtime.step(&next).swung.is_none());
+}
+
+/// Server flag writes do not alter local use and survive held frames until a real local write.
+#[test]
+fn sync_reported_use_flag_orders_server_writes_and_local_edges() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.adopt_server_using_item(Some(true));
+    assert!(!runtime.is_using());
+    assert_eq!(runtime.reported_using_item(), Some(true));
+    runtime.observe_press(true);
+    runtime.step(&frame(100, true));
+    assert_eq!(runtime.reported_using_item(), Some(true));
+    runtime.adopt_server_using_item(Some(false));
+    runtime.step(&frame(101, true));
+    assert!(runtime.is_using());
+    assert_eq!(runtime.reported_using_item(), Some(false));
+    runtime.adopt_server_using_item(Some(true));
+    runtime.step(&frame(102, false));
+    assert!(!runtime.is_using());
+    assert_eq!(runtime.reported_using_item(), Some(false));
+    runtime.adopt_server_using_item(Some(true));
+    assert_eq!(runtime.reported_using_item(), Some(true));
+}
+
+/// A new session drops the previous accepted local use flag.
+#[test]
+fn sync_reported_use_resets_with_the_session() {
+    let mut runtime = ItemUseRuntime::default();
+    runtime.synchronize(1);
+    runtime.observe_press(true);
+    runtime.step(&frame(100, true));
+    runtime.synchronize(2);
+    assert_eq!(runtime.reported_using_item(), None);
+    runtime.adopt_server_using_item(Some(true));
+    assert_eq!(runtime.reported_using_item(), Some(true));
 }

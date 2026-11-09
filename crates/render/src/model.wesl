@@ -3,9 +3,9 @@ import render::chunk_bindings::{
     block_textures_page_3, block_textures_page_4, block_sampler, terrain_gamma_page_0,
     terrain_gamma_page_1, terrain_gamma_page_2, terrain_gamma_page_3, terrain_gamma_page_4,
     model_sampler, animations, animation_frames,
-    clock, model_templates, geometry_streams, atmosphere,
+    clock, model_templates, model_templates_length, geometry_streams, atmosphere,
 };
-import render::material::{MaterialGpu, materials, positional_material, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, material_uv_flags, texture_model_uv, texture_gradient_scale};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import render::world_projection::{section_camera_offset, camera_offset_clip};
@@ -53,6 +53,8 @@ struct FrameSample { current: u32, next: u32, blend: f32 }
 // Visibility also carries the admitted tile policy without another interpolator.
 const MODEL_VISIBLE: u32 = 1u;
 const MODEL_BOUNDED_TILE: u32 = 2u;
+// Every UV stays inside one tile, so cutout coverage must not borrow texels across its edges.
+const MODEL_UNIT_TILE: u32 = 4u;
 
 fn invisible_vertex() -> VertexOutput {
     var invisible: VertexOutput;
@@ -89,16 +91,16 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = animations(material.animation);
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current = animation_frames[animation.frame_start + current_index];
+    let current = animation_frames(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return FrameSample(current, current, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
     let partial = (f32(clock.tick % animation.ticks_per_frame) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
         f32(animation.ticks_per_frame);
-    return FrameSample(current, animation_frames[animation.frame_start + next_index], partial);
+    return FrameSample(current, animation_frames(animation.frame_start + next_index), partial);
 }
 
 fn signed_i16(word: u32, high: bool) -> i32 {
@@ -107,12 +109,12 @@ fn signed_i16(word: u32, high: bool) -> i32 {
 }
 
 fn packed_i16(words: u32, component: u32) -> i32 {
-    let word = model_templates[words + component / 2u];
+    let word = model_templates(words + component / 2u);
     return signed_i16(word, (component & 1u) != 0u);
 }
 
 fn packed_u16(words: u32, component: u32) -> u32 {
-    let word = model_templates[words + component / 2u];
+    let word = model_templates(words + component / 2u);
     return select(word & 0xffffu, word >> 16u, (component & 1u) != 0u);
 }
 
@@ -126,6 +128,17 @@ fn rotate_cross(position: vec3<f32>, transform: u32) -> vec3<f32> {
         default: {}
     }
     return rotated + vec3(0.5, 0.0, 0.5);
+}
+
+/// Turns a template-space position by a model turn: its quarter turns about x (bits 2-3), each
+/// taking +y to +z about the block centre, then its quarter turns about y (bits 0-1) as
+/// `rotate_cross` makes them. Overlays turn to their face this way.
+fn rotate_model_turn(position: vec3<f32>, turn: u32) -> vec3<f32> {
+    var turned = position;
+    for (var x_turn = 0u; x_turn < ((turn >> 2u) & 3u); x_turn += 1u) {
+        turned = vec3(turned.x, 1.0 - turned.z, turned.y);
+    }
+    return rotate_cross(turned, turn);
 }
 
 // Current lily-pad tessellator: unsigned wrapping position hash.
@@ -174,140 +187,304 @@ fn vertex(
     return model_vertex(offsets.x, offsets.y + instance_index);
 }
 
-fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
-    let local_vertex = vertex_index & 3u;
-    let metadata_index = vertex_index / 4u;
-    let corner = local_vertex;
+/// One quad of a placed model, decoded as every model program reads it. Its flags are 0 or 1
+/// in `u32`s: older Mali compilers fault on bool struct members merged across returns.
+struct ModelQuad {
+    /// Zero when the draw ref, model ref, template or lighting record is out of range, or
+    /// the quad is hidden by its ref's visibility mask; no other field is meaningful then.
+    valid: u32,
+    template_quad_base: u32,
+    quad_index: u32,
+    surface_patch: u32,
+    packed_transform: u32,
+    lighting_base_index: u32,
+    /// Placed block corner, relative to the section origin.
+    block_position: vec3<f32>,
+    /// Quarter turns about the block's vertical centre line, after bamboo and lily-pad rules.
+    rotation: u32,
+    is_lily_pad: u32,
+    is_bamboo: u32,
+    /// Bamboo's packed placement offset, added to template corners before `rotation`.
+    template_offset: vec3<f32>,
+    /// Bamboo leaf plane inset, added after `template_offset` and before `rotation`.
+    leaf_inset: vec3<f32>,
+    /// Random placement offset, added after `rotation`.
+    placement_offset: vec3<f32>,
+    material_id: u32,
+    quad_flags: u32,
+    /// `material_id` after positional variation at the placed block.
+    selected_material_id: u32,
+    /// Section origin in blocks, and the section's biome record in `w`.
+    chunk_origin: vec4<i32>,
+}
+
+fn invalid_model_quad() -> ModelQuad {
+    var quad: ModelQuad;
+    quad.valid = 0u;
+    return quad;
+}
+
+/// Decodes the model quad that draw-ref record `instance_index` names, in origin slot
+/// `metadata_index`, validating every address it reads.
+fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
     let geometry_word_count = arrayLength(&geometry_streams);
     if (instance_index > 0x7fffffffu) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let draw_ref_word = instance_index * 2u;
     if (draw_ref_word + 1u >= geometry_word_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let model_ref_index = geometry_streams[draw_ref_word];
     let quad_index = geometry_streams[draw_ref_word + 1u];
+    return model_quad_at(model_ref_index, quad_index, metadata_index);
+}
+
+/// Decodes a stable model-ref address and template quad in an origin slot, validating all reads.
+fn model_quad_at(model_ref_index: u32, encoded_quad: u32, metadata_index: u32) -> ModelQuad {
+    let quad_index = encoded_quad & SURFACE_QUAD_INDEX_MASK;
+    let geometry_word_count = arrayLength(&geometry_streams);
     if (quad_index >= 32u || model_ref_index > 0x3fffffffu) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let ref_word = model_ref_index * 4u;
     if (ref_word + 3u >= geometry_word_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let packed_transform = geometry_streams[ref_word];
     let template_id = geometry_streams[ref_word + 1u];
     let lighting_base_index = geometry_streams[ref_word + 2u];
     let visible_quad_mask = geometry_streams[ref_word + 3u];
-    let template_word_count = arrayLength(&model_templates);
+    let template_word_count = model_templates_length();
     if (template_word_count < 4u) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let template_count = model_templates[0];
+    let template_count = model_templates(0);
     if (template_count > (template_word_count - 1u) / 3u || template_id >= template_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
     let descriptor = 1u + template_id * 3u;
-    let quad_start = model_templates[descriptor];
-    let quad_count = model_templates[descriptor + 1u];
+    let quad_start = model_templates(descriptor);
+    let quad_count = model_templates(descriptor + 1u);
     if (quad_count == 0u || quad_index >= quad_count) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let is_visible = (visible_quad_mask >> quad_index) & 1u;
-    if (is_visible == 0u) {
-        return invisible_vertex();
+    if (((visible_quad_mask >> quad_index) & 1u) == 0u) {
+        return invalid_model_quad();
     }
     let template_quad_words = 1u + template_count * 3u;
     let stored_quad_count = (template_word_count - template_quad_words) / 12u;
     if (quad_start >= stored_quad_count || quad_index >= stored_quad_count - quad_start) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
-
-    let component = corner * 3u;
-    var template_position = vec3<f32>(
-        f32(packed_i16(template_quad_base, component)),
-        f32(packed_i16(template_quad_base, component + 1u)),
-        f32(packed_i16(template_quad_base, component + 2u)),
-    ) / 256.0;
-    let block_position = vec3<f32>(
+    var quad: ModelQuad;
+    quad.valid = 1u;
+    quad.template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
+    quad.quad_index = quad_index;
+    quad.surface_patch = encoded_quad >> SURFACE_TILE_SHIFT;
+    quad.packed_transform = packed_transform;
+    quad.lighting_base_index = lighting_base_index;
+    quad.block_position = vec3<f32>(
         f32(packed_transform & 15u),
         f32((packed_transform >> 4u) & 15u),
         f32((packed_transform >> 8u) & 15u),
     );
-    let origin = chunk_origins[metadata_index];
-    let is_lily_pad = (model_templates[descriptor + 2u] & MODEL_LILY_PAD_FLAG) != 0u;
-    let is_bamboo = (model_templates[descriptor + 2u] & MODEL_BAMBOO_FLAG) != 0u;
+    quad.chunk_origin = chunk_origins(metadata_index).value;
+    quad.is_lily_pad = select(0u, 1u, (model_templates(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u);
+    quad.is_bamboo = select(0u, 1u, (model_templates(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u);
     let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
-    var rotation = packed_transform >> 12u;
-    if (is_bamboo) {
+    quad.rotation = packed_transform >> 12u;
+    if (quad.is_bamboo != 0u) {
         if (!has_offset) {
-            template_position.x += BAMBOO_OFFSET_MIN + f32(rotation & 15u) * BAMBOO_OFFSET_STEP;
-            template_position.z += BAMBOO_OFFSET_MIN + f32((rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
+            quad.template_offset.x = BAMBOO_OFFSET_MIN + f32(quad.rotation & 15u) * BAMBOO_OFFSET_STEP;
+            quad.template_offset.z = BAMBOO_OFFSET_MIN + f32((quad.rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
         }
-        if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { template_position.z += BAMBOO_LEAF_PLANE_INSET; }
-        if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { template_position.x += BAMBOO_LEAF_PLANE_INSET; }
-        rotation = 0u;
+        if (quad_index == BAMBOO_POSITIVE_X_LEAF_QUAD) { quad.leaf_inset.z = BAMBOO_LEAF_PLANE_INSET; }
+        if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { quad.leaf_inset.x = BAMBOO_LEAF_PLANE_INSET; }
+        quad.rotation = 0u;
     }
-    if (is_lily_pad) {
-        rotation = lily_pad_rotation(origin.value.xyz + vec3<i32>(block_position));
+    if (quad.is_lily_pad != 0u) {
+        quad.rotation = lily_pad_rotation(quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     }
-    template_position = rotate_cross(template_position, rotation);
     if (has_offset) {
-        if (lighting_base_index < 2u || lighting_base_index > geometry_word_count / 2u) { return invisible_vertex(); }
+        if (lighting_base_index < 2u || lighting_base_index > geometry_word_count / 2u) { return invalid_model_quad(); }
         let offset_word = lighting_base_index * 2u - 4u;
-        template_position += vec3<f32>(bitcast<f32>(geometry_streams[offset_word]),
+        quad.placement_offset = vec3<f32>(bitcast<f32>(geometry_streams[offset_word]),
             bitcast<f32>(geometry_streams[offset_word + 1u]), bitcast<f32>(geometry_streams[offset_word + 2u]));
     }
-    let local_position = block_position + template_position;
-    let material_id = model_templates[template_quad_base + 10u];
-    let quad_flags = model_templates[template_quad_base + 11u];
-    let material = positional_material(material_id, origin.value.xyz + vec3<i32>(block_position));
-    let frame = animation_sample(material);
-    let uv_component = corner * 2u;
-
+    quad.material_id = model_templates(quad.template_quad_base + 10u);
+    quad.quad_flags = model_templates(quad.template_quad_base + 11u);
+    quad.selected_material_id = positional_material_id(quad.material_id, quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     if (lighting_base_index >= geometry_word_count / 2u || quad_index >= geometry_word_count / 2u - lighting_base_index) {
-        return invisible_vertex();
+        return invalid_model_quad();
     }
-    let light_word = geometry_streams[(lighting_base_index + quad_index) * 2u + corner / 2u];
-    let light_sample = select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
-    var out: VertexOutput;
-    let world = vec3<f32>(origin.value.xyz) + local_position;
-    let camera_offset = section_camera_offset(origin.value.xyz, local_position, view.world_position);
-    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
-    @if(ENHANCED_SHADOW)
-    out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
-    out.uv = vec2<f32>(
-        f32(packed_u16(template_quad_base + 6u, uv_component)),
-        f32(packed_u16(template_quad_base + 6u, uv_component + 1u)),
-    ) / 4096.0;
+    return quad;
+}
+
+/// Reads the original pack geometry, independently of any surface partition.
+fn raw_model_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
+    let component = corner * 3u;
+    return vec3<f32>(f32(packed_i16(quad.template_quad_base, component)),
+        f32(packed_i16(quad.template_quad_base, component + 1u)),
+        f32(packed_i16(quad.template_quad_base, component + 2u))) / 256.0;
+}
+
+/// Reads an authored UV without rotation or surface cropping.
+fn raw_model_uv(quad: ModelQuad, corner: u32) -> vec2<f32> {
+    return vec2<f32>(f32(packed_u16(quad.template_quad_base + 6u, corner * 2u)),
+        f32(packed_u16(quad.template_quad_base + 6u, corner * 2u + 1u))) / 4096.0;
+}
+
+/// Positive physical face axes, shared with the mesher's neighbour conditions.
+fn surface_axes(quad: ModelQuad, position: vec3<f32>) -> vec2<f32> {
+    let face = quad.quad_flags & 7u;
+    if (face <= 2u) { return position.xz; }
+    if (face <= 4u) { return position.zy; }
+    return position.xy;
+}
+
+/// Cropped position of an original corner within the block face.
+fn patch_coordinate(quad: ModelQuad, corner: u32) -> vec2<f32> {
+    let tile = quad.surface_patch & SURFACE_TILE_MASK;
+    let border = f32(quad.surface_patch >> SURFACE_BORDER_REL_SHIFT) / 256.0;
+    let edges = array(0.0, border, 1.0 - border, 1.0);
+    let cell = vec2<u32>(tile % 3u, tile / 3u);
+    let original = surface_axes(quad, raw_model_position(quad, corner));
+    return mix(vec2(edges[cell.x], edges[cell.y]),
+        vec2(edges[cell.x + 1u], edges[cell.y + 1u]), original);
+}
+
+/// Bilinear weights preserve the pack's UV mapping when a face is cropped.
+fn patch_weight(quad: ModelQuad, corner: u32, point: vec2<f32>) -> f32 {
+    let original = surface_axes(quad, raw_model_position(quad, corner));
+    let weight = mix(vec2(1.0) - point, point, original);
+    return weight.x * weight.y;
+}
+
+/// Template-space position of `corner` (block units from the placed block corner), after the
+/// quad's offsets and rotation.
+fn model_corner_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
+    var template_position = raw_model_position(quad, corner);
+    if (quad.surface_patch != 0u) {
+        let point = patch_coordinate(quad, corner);
+        template_position = vec3(0.0);
+        for (var source = 0u; source < 4u; source += 1u) {
+            template_position += raw_model_position(quad, source) * patch_weight(quad, source, point);
+        }
+    }
+    return rotate_model_turn(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
+}
+
+/// Whether every authored corner UV of `quad` lies within a single tile, so the quad never repeats.
+fn model_quad_within_tile(quad: ModelQuad) -> bool {
+    var within = true;
+    for (var component = 0u; component < 8u; component += 1u) {
+        within = within && packed_u16(quad.template_quad_base + 6u, component) <= 4096u;
+    }
+    return within;
+}
+
+/// Texture coordinates of `corner` in the material's texture, before its page scale.
+fn model_corner_uv(quad: ModelQuad, material: MaterialGpu, corner: u32) -> vec2<f32> {
+    var uv = raw_model_uv(quad, corner);
+    if (quad.surface_patch != 0u) {
+        let point = patch_coordinate(quad, corner);
+        uv = vec2(0.0);
+        for (var source = 0u; source < 4u; source += 1u) {
+            uv += raw_model_uv(quad, source) * patch_weight(quad, source, point);
+        }
+    }
+    // Mirrors `assets::world_aligned_uv`: undo the model's y turns on world-aligned faces.
+    let turns = quad.rotation & 3u;
+    if ((quad.quad_flags & MODEL_WORLD_ALIGNED_UV_FLAG) != 0u && turns != 0u) {
+        let up = (quad.quad_flags & 7u) == 2u;
+        if (turns == 2u) {
+            uv = vec2(1.0) - uv;
+        } else if ((turns == 1u) == up) {
+            uv = vec2(1.0 - uv.y, uv.x);
+        } else {
+            uv = vec2(uv.y, 1.0 - uv.x);
+        }
+    }
     // World rotation acts on the authored UV rectangle, independently of model geometry.
     if ((material.flags & MATERIAL_ISOTROPIC_FLAG) != 0u) {
-        let uv_flags = material_uv_flags(material.flags, origin.value.xyz + vec3<i32>(block_position));
+        let uv_flags = material_uv_flags(material.flags, quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
         switch uv_flags & 3u {
-            case 1u: { out.uv = vec2(out.uv.y, 1.0 - out.uv.x); }
-            case 2u: { out.uv = vec2(1.0) - out.uv; }
-            case 3u: { out.uv = vec2(1.0 - out.uv.y, out.uv.x); }
+            case 1u: { uv = vec2(uv.y, 1.0 - uv.x); }
+            case 2u: { uv = vec2(1.0) - uv; }
+            case 3u: { uv = vec2(1.0 - uv.y, uv.x); }
             default: {}
         }
     }
-    if (is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad_index) & 1u) != 0u) {
-        out.uv.x += f32((packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
+    if (quad.is_bamboo != 0u && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad.quad_index) & 1u) != 0u) {
+        uv.x += f32((quad.packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }
-    out.current_texture = frame.current;
+    return uv;
+}
+
+/// Packed light sample of `corner`, laid out as `cube_light_sample` describes in `chunk.wesl`.
+fn model_light_sample(quad: ModelQuad, corner: u32) -> u32 {
+    let light_word = geometry_streams[(quad.lighting_base_index + quad.quad_index) * 2u + corner / 2u];
+    return select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
+}
+
+/// Unit normal of a model-carrier face id; zero for faceless quads.
+fn model_face_normal(face: u32) -> vec3<f32> {
     let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
-    out.normal = rotate_cross(normals[quad_flags & 7u] + vec3(0.5,0.0,0.5), rotation) - vec3(0.5,0.0,0.5);
+    return normals[face & 7u];
+}
+
+/// The quad's authored shading normal, turned with the model.
+fn model_quad_normal(quad: ModelQuad) -> vec3<f32> {
+    return rotate_model_turn(model_face_normal(quad.quad_flags) + vec3(0.5), quad.rotation) - vec3(0.5);
+}
+
+/// Normal whose face coefficient shades the quad: the shade face `light_sample` carries for a
+/// detail quad that keeps the colour of the cuboid face drawn before it, else `normal`.
+fn model_shade_normal(normal: vec3<f32>, light_sample: u32) -> vec3<f32> {
+    let face = (light_sample >> MODEL_SHADE_FACE_SHIFT) & 7u;
+    return select(normal, model_face_normal(face), face != 0u);
+}
+
+fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
+    let corner = vertex_index & 3u;
+    let quad = model_quad(instance_index, vertex_index / 4u);
+    if (quad.valid == 0u) {
+        return invisible_vertex();
+    }
+    let template_position = model_corner_position(quad, corner);
+    let block_position = quad.block_position;
+    let local_position = block_position + template_position;
+    let material_id = quad.material_id;
+    let quad_flags = quad.quad_flags;
+    let rotation = quad.rotation;
+    let is_lily_pad = quad.is_lily_pad != 0u;
+    let is_bamboo = quad.is_bamboo != 0u;
+    let material = materials(quad.selected_material_id);
+    let frame = animation_sample(material);
+    let light_sample = model_light_sample(quad, corner);
+    var out: VertexOutput;
+    let world = vec3<f32>(quad.chunk_origin.xyz) + local_position;
+    let camera_offset = section_camera_offset(quad.chunk_origin.xyz, local_position, view.world_position);
+    out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, camera_offset);
+    @if(ENHANCED_SHADOW)
+    out.clip_position = caster_clip(world, material_id, clamp(template_position.y, 0.0, 1.0));
+    out.uv = model_corner_uv(quad, material, corner);
+    out.current_texture = frame.current;
+    out.normal = model_quad_normal(quad);
     out.material_flags = material.flags;
     out.local_position = block_position;
-    out.biome_record = u32(origin.value.w);
+    out.biome_record = u32(quad.chunk_origin.w);
     out.next_texture = frame.next;
     out.frame_blend = frame.blend;
-    out.visibility.x = is_visible | select(0u, MODEL_BOUNDED_TILE, is_bamboo && is_visible != 0u);
+    out.visibility.x = MODEL_VISIBLE
+        | select(0u, MODEL_BOUNDED_TILE, is_bamboo)
+        | select(0u, MODEL_UNIT_TILE, model_quad_within_tile(quad));
     // Vanilla uses white top vertices and RGB 0x0f on the reverse
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
-    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    let dimming = material_face_shade(model_shade_normal(out.normal, light_sample), (light_sample & 2048u) != 0u, material.flags);
     let terrain_shade = select(ao * dimming, pad_shade, is_lily_pad);
     out.lighting = light_colour(light_sample) * terrain_shade;
     @if(ENHANCED)
@@ -318,9 +495,38 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
     out.native_ao_face = terrain_shade;
+    // Crop the decoded attributes at the same coordinates as geometry and UVs.
+    // Keeping these as floats avoids repeating or quantizing a whole-face gradient.
+    if (quad.surface_patch != 0u) {
+        let point = patch_coordinate(quad, corner);
+        out.lighting = vec3(0.0);
+        @if(ENHANCED)
+        out.sky_light = 0.0;
+        @if(ENHANCED)
+        out.ambient_occlusion = 0.0;
+        @if(!ENHANCED)
+        out.native_light_levels = vec2(0.0);
+        @if(!ENHANCED)
+        out.native_ao_face = 0.0;
+        for (var source = 0u; source < 4u; source += 1u) {
+            let weight = patch_weight(quad, source, point);
+            let sample = model_light_sample(quad, source);
+            let source_ao = material_ambient_occlusion(light_ao_factor((sample >> 8u) & 7u), material.flags);
+            let source_shade = source_ao * material_face_shade(model_shade_normal(out.normal, sample), (sample & 2048u) != 0u, material.flags);
+            out.lighting += weight * light_colour(sample) * source_shade;
+            @if(ENHANCED)
+            out.sky_light += weight * sky_illumination(sample);
+            @if(ENHANCED)
+            out.ambient_occlusion += weight * source_ao;
+            @if(!ENHANCED)
+            out.native_light_levels += weight * terrain_light_levels(sample);
+            @if(!ENHANCED)
+            out.native_ao_face += weight * source_shade;
+        }
+    }
     out.visibility.y = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
-    out.world_origin = vec3<f32>(origin.value.xyz);
+    out.world_origin = vec3<f32>(quad.chunk_origin.xyz);
     @if(!ENHANCED)
     out.tint_gamma = stem_colour(material.flags);
     // Every corner belongs to the same block; keep its exact tint flat across the model.
@@ -341,7 +547,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
         camera_offset + (out.world_position - world),
     );
     @if(ENHANCED)
-    out.normal = template_quad_normal(template_quad_base, rotation);
+    out.normal = template_quad_normal(quad.template_quad_base, rotation);
     return out;
 }
 
@@ -352,7 +558,7 @@ template_quad_base: u32, @if(ENHANCED)
 corner: u32, @if(ENHANCED)
 transform: u32) -> vec3<f32> {
     let component = corner * 3u;
-    return rotate_cross(vec3<f32>(
+    return rotate_model_turn(vec3<f32>(
         f32(packed_i16(template_quad_base, component)),
         f32(packed_i16(template_quad_base, component + 1u)),
         f32(packed_i16(template_quad_base, component + 2u)),
@@ -503,58 +709,70 @@ texture_ref: u32, @if(ALPHA_TO_COVERAGE)
 uv: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
-sampled: vec4<f32>) -> CutoutSample {
+sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
+repeat_uv: bool) -> CutoutSample {
     let layer = texture_layer(texture_ref);
     let page = texture_page(texture_ref);
     let coordinate = texture_model_uv(texture_ref, uv);
     @if(ENHANCED)
     if (page == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_0, 0));
-        return cutout_alpha_array(block_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(block_textures_page_0, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(ENHANCED)
     if (page == 1u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_1, 0));
-        return cutout_alpha_array(block_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(block_textures_page_1, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(ENHANCED)
     if (page == 2u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_2, 0));
-        return cutout_alpha_array(block_textures_page_2, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(block_textures_page_2, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(ENHANCED)
     if (page == 3u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_3, 0));
-        return cutout_alpha_array(block_textures_page_3, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(block_textures_page_3, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(block_textures_page_4, 0));
     @if(ENHANCED)
-    return cutout_alpha_array(block_textures_page_4, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+    return cutout_alpha_array(block_textures_page_4, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     @if(!ENHANCED)
     if (page == 0u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_0, 0));
-        return cutout_alpha_array(terrain_gamma_page_0, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(terrain_gamma_page_0, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(!ENHANCED)
     if (page == 1u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_1, 0));
-        return cutout_alpha_array(terrain_gamma_page_1, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(terrain_gamma_page_1, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(!ENHANCED)
     if (page == 2u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_2, 0));
-        return cutout_alpha_array(terrain_gamma_page_2, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(terrain_gamma_page_2, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(!ENHANCED)
     if (page == 3u) {
         let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_3, 0));
-        return cutout_alpha_array(terrain_gamma_page_3, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+        return cutout_alpha_array(terrain_gamma_page_3, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
     }
     @if(!ENHANCED)
     let scale = texture_gradient_scale(texture_ref, textureDimensions(terrain_gamma_page_4, 0));
     @if(!ENHANCED)
-    return cutout_alpha_array(terrain_gamma_page_4, coordinate, layer, dx * scale, dy * scale, sampled, true, MODEL_ALPHA_THRESHOLD);
+    return cutout_alpha_array(terrain_gamma_page_4, coordinate, layer, dx * scale, dy * scale, sampled, repeat_uv, MODEL_ALPHA_THRESHOLD);
+}
+
+// Repeating quads read the neighbouring tile across a seam; single-tile quads stop at their edge.
+@if(ALPHA_TO_COVERAGE)
+fn model_cutout(@if(ALPHA_TO_COVERAGE)
+in: VertexOutput, @if(ALPHA_TO_COVERAGE)
+texture_ref: u32, @if(ALPHA_TO_COVERAGE)
+dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
+sampled: vec4<f32>) -> CutoutSample {
+    return model_alpha_footprint(texture_ref, in.uv, dx, dy, sampled, (in.visibility.x & MODEL_UNIT_TILE) == 0u);
 }
 
 fn distance_fog_amount(world_position: vec3<f32>) -> f32 {
@@ -610,9 +828,9 @@ fn fragment(
     if (alpha_cutout && sampled.a < MODEL_ALPHA_THRESHOLD) { discard; }
     @if(ALPHA_TO_COVERAGE)
     if (alpha_cutout) {
-        var cutout = model_alpha_footprint(in.current_texture, in.uv, dx, dy, sampled);
+        var cutout = model_cutout(in, in.current_texture, dx, dy, sampled);
         if (in.frame_blend > 0.0) {
-            cutout = cutout_mix(cutout, model_alpha_footprint(in.next_texture, in.uv, dx, dy, sampled), in.frame_blend);
+            cutout = cutout_mix(cutout, model_cutout(in, in.next_texture, dx, dy, sampled), in.frame_blend);
         }
         if (sampled.a < MODEL_ALPHA_THRESHOLD && cutout.coverage > 0.0) { sampled = cutout.colour; }
         sampled.a = cutout.coverage;

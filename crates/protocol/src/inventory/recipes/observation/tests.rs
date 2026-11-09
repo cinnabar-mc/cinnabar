@@ -55,8 +55,9 @@ fn catalog(count: usize) -> RecipeCatalog {
                             aux: 0,
                             count: 4,
                             block: 5,
-                            empty_envelope: true,
+                            user_data: crate::RecipeOutputData::Empty,
                         },
+                        extra_outputs: Box::new([]),
                     }),
                 })
                 .collect(),

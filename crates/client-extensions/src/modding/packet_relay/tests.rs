@@ -148,3 +148,31 @@ fn selection_returns_the_old_executable_for_off_thread_retirement() {
     let retired = loader.select_prepared(selected, replacement).unwrap();
     assert!(Arc::ptr_eq(&first, &retired));
 }
+
+#[test]
+fn panel_mailboxes_belong_to_the_current_session_and_revoke_immediately() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut selected = selection(guest(directory.path()));
+    selected.grants.controls = true;
+    let loader = PacketModLoader::default();
+    loader.select_prepared(
+        selected.clone(),
+        Arc::new(CompiledPacketMod::load(&selected.path, &selected.grants).unwrap()),
+    );
+    let first = loader.session_relay().unwrap();
+    first.start(&identity(), "{}", &[1]);
+    let old = loader.panel().unwrap();
+    let second = loader.session_relay().unwrap();
+    assert!(loader.panel().is_none());
+    second.start(&identity(), "{}", &[1]);
+    let current = loader.panel().unwrap();
+    assert!(!old.same_instance(&current));
+    assert_ne!(old.identity(), current.identity());
+    assert_eq!(current.identity(), current.clone().identity());
+    first.stop();
+    assert!(!old.enabled());
+    assert!(loader.panel().unwrap().same_instance(&current));
+    second.stop();
+    assert!(!current.enabled());
+    assert!(loader.panel().is_none());
+}

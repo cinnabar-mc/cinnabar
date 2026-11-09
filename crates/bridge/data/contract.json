@@ -37,6 +37,7 @@
     {"rust_name": "RELAY_EVENT_CONNECT", "go_name": "RelayEventConnect", "value": "connect", "rust_type": "str", "doc": "Report the latest join progress."},
     {"rust_name": "RELAY_EVENT_ERROR", "go_name": "RelayEventError", "value": "error", "rust_type": "str", "doc": "Report a bounded public refusal code."},
     {"rust_name": "GAME_VERSION", "go_name": "GameVersion", "rust_type": "str", "doc": "Game version reported by the client.", "source": {"path": "assets/bedrock-target.json", "field": "game_version"}},
+    {"rust_name": "BDS_VERSION", "go_name": "BDSVersion", "rust_type": "str", "doc": "Dedicated server version used by integration fixtures.", "source": {"path": "assets/bedrock-target.json", "field": "server_version"}},
     {"rust_name": "DEFAULT_BEDROCK_PORT", "go_name": "DefaultBedrockPort", "value": 19132, "rust_type": "u16", "doc": "Default port for an addressed Bedrock server."},
     {"rust_name": "DEFAULT_BEDROCK_PORT_TEXT", "go_name": "DefaultBedrockPortText", "rust_type": "str", "doc": "Text form of the default Bedrock server port.", "from_constant": "DEFAULT_BEDROCK_PORT"},
     {"rust_name": "CONTROL_UNIX_ENDPOINT_NAME", "go_name": "ControlUnixEndpointName", "value": "control.sock", "rust_type": "str", "doc": "Control endpoint name on Unix."},
@@ -49,7 +50,8 @@
     {"rust_name": "GATHERING_TARGET_PREFIX", "go_name": "GatheringTargetPrefix", "value": "gathering/", "rust_type": "str", "doc": "Prefix for an experience target."},
     {"rust_name": "NETHERNET_TARGET_PREFIX", "go_name": "NetherNetTargetPrefix", "value": "nethernet/", "rust_type": "str", "doc": "Prefix for a NetherNet signaling target."},
     {"rust_name": "NETHERNET_SIGNALING_JSONRPC", "go_name": "NetherNetSignalingJSONRPC", "value": "jsonrpc", "rust_type": "str", "doc": "NetherNet JSON-RPC signaling selector."},
-    {"rust_name": "NETHERNET_SIGNALING_WEBSOCKET", "go_name": "NetherNetSignalingWebSocket", "value": "websocket", "rust_type": "str", "doc": "NetherNet WebSocket signaling selector."},
+    {"rust_name": "NETHERNET_SIGNALING_HTTP", "go_name": "NetherNetSignalingHTTP", "value": "http", "rust_type": "str", "doc": "NetherNet HTTP signaling selector for a host:port, probed for its endpoint without falling back to RakNet."},
+    {"rust_name": "RAKNET_TARGET_PREFIX", "go_name": "RakNetTargetPrefix", "value": "raknet/", "rust_type": "str", "doc": "Prefix for a host:port joined over RakNet without probing it for NetherNet."},
     {"rust_name": "JSON_RPC_VERSION", "go_name": "JSONRPCVersion", "value": "2.0", "rust_type": "str", "doc": "Version of the control JSON-RPC envelope."},
     {"rust_name": "CONTROL_SCHEMA_VERSION", "go_name": "ControlSchemaVersion", "value": 1, "rust_type": "u32", "doc": "Schema version of control results."},
     {"rust_name": "METHOD_STATUS", "go_name": "MethodStatus", "value": "status.v1", "rust_type": "str", "doc": "Control method for status."},
@@ -68,6 +70,7 @@
     {"rust_name": "METHOD_MESSAGE_EVENT", "go_name": "MethodMessageEvent", "value": "message_event.v1", "rust_type": "str", "doc": "Control method for message event."},
     {"rust_name": "METHOD_PROFILE", "go_name": "MethodProfile", "value": "profile.v1", "rust_type": "str", "doc": "Control method for profile."},
     {"rust_name": "METHOD_REALM_MEMBERSHIP", "go_name": "MethodRealmMembership", "value": "realm_membership.v1", "rust_type": "str", "doc": "Control method for realm membership."},
+    {"rust_name": "METHOD_REALM_LEAVE", "go_name": "MethodRealmLeave", "value": "realm_leave.v1", "rust_type": "str", "doc": "Control method for leaving a joined realm."},
     {"rust_name": "METHOD_PACKET_DELAY", "go_name": "MethodPacketDelay", "value": "packet_delay.v1", "rust_type": "str", "doc": "Control method for packet delay."},
     {"rust_name": "METHOD_PRESENCE", "go_name": "MethodPresence", "value": "presence.v1", "rust_type": "str", "doc": "Control method for presence."},
     {"rust_name": "METHOD_LOCAL_WORLD", "go_name": "MethodLocalWorld", "value": "local_world.v1", "rust_type": "str", "doc": "Control method for local world."},
@@ -85,11 +88,14 @@
     {"rust_name": "RPC_CINNABAR_RATE_LIMITED", "go_name": "RPCCinnabarRateLimited", "value": -32024, "rust_type": "i64", "doc": "Control error code for a Cinnabar lookup the API rate-limited."},
     {"rust_name": "METHOD_CINNABAR_API", "go_name": "MethodCinnabarAPI", "value": "cinnabar_api.v1", "rust_type": "str", "doc": "Control method for the Cinnabar API identity and visibility."},
     {"rust_name": "METHOD_CINNABAR_PLAYERS", "go_name": "MethodCinnabarPlayers", "value": "cinnabar_players.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emotes and cosmetics."},
+    {"rust_name": "METHOD_CINNABAR_MODS", "go_name": "MethodCinnabarMods", "value": "cinnabar_mods.v1", "rust_type": "str", "doc": "Control method for the authenticated marketplace library."},
+    {"rust_name": "CINNABAR_MODS_MAX_ENTRIES", "go_name": "CinnabarModsMaxEntries", "value": 100, "rust_type": "usize", "doc": "Maximum marketplace library selections; checked against the pinned API schema."},
+    {"rust_name": "", "go_name": "CinnabarAPIMaxFrameBytes", "value": 2097152, "rust_type": "usize", "doc": "Bounded API frames including a full marketplace library."},
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
     {
       "rust_name": "CINNABAR_API_BASE_URL",
       "go_name": "CinnabarAPIBaseURL",
-      "value": "https://cinnabar-api.cinnabar-api.workers.dev",
+      "value": "https://api.cinnabar.gg",
       "rust_type": "str",
       "doc": "Cinnabar API origin; the package workflow reads it from this manifest."
     },
@@ -129,7 +135,8 @@
     {"rust_name": "DISCONNECT_KEY_OUTDATED_SERVER", "go_name": "DisconnectKeyOutdatedServer", "value": "disconnectionScreen.outdatedServer", "rust_type": "str", "doc": "Core disconnect message: The client's protocol is newer than the core's."},
     {"rust_name": "DISCONNECT_KEY_INVALID_SKIN", "go_name": "DisconnectKeyInvalidSkin", "value": "disconnectionScreen.invalidSkin", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its skin."},
     {"rust_name": "DISCONNECT_KEY_INVALID_NAME", "go_name": "DisconnectKeyInvalidName", "value": "disconnectionScreen.invalidName", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its player name."},
-    {"rust_name": "DISCONNECT_KEY_DEVICE_CLOCK", "go_name": "DisconnectKeyDeviceClock", "value": "cinnabar.disconnect.deviceClock", "rust_type": "str", "doc": "Core disconnect message: The sign-in token was rejected because this device's clock is behind."}
+    {"rust_name": "DISCONNECT_KEY_DEVICE_CLOCK", "go_name": "DisconnectKeyDeviceClock", "value": "cinnabar.disconnect.deviceClock", "rust_type": "str", "doc": "Core disconnect message: The sign-in token was rejected because this device's clock is behind."},
+    {"rust_name": "DISCONNECT_KEY_LOCAL_WORLD_OFFLINE", "go_name": "DisconnectKeyLocalWorldOffline", "value": "cinnabar.disconnect.localWorldOffline", "rust_type": "str", "doc": "Core disconnect message: The local Bedrock Dedicated Server world cannot be reached without a network connection."}
   ],
   "string_lists": [
     {"rust_name": "INBOX_CATEGORIES", "go_name": "InboxCategories", "values": ["News", "Realms", "Invites", "Feedback"], "doc": "Inbox category names in display order."},
@@ -511,7 +518,41 @@
           "go_name": "Loadouts",
           "type": "list:CinnabarRemoteLoadout",
           "doc": "Nearby authenticated loadouts."
+        },
+        {
+          "name": "ownership_xuid",
+          "go_name": "OwnershipXUID",
+          "type": "string",
+          "default": true,
+          "doc": "Verified local account identity, empty while disconnected."
+        },
+        {
+          "name": "owned_cosmetics",
+          "go_name": "OwnedCosmetics",
+          "type": "strings",
+          "default": true,
+          "doc": "Paid grants supplied by the account API database."
         }
+      ]
+    },{
+      "rust_name": "CinnabarModEntry", "go_name": "CinnabarModEntry",
+      "derive": ["Clone", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "doc": "A marketplace selection hint; clients independently verify its signed release.",
+      "fields": [
+        {"name": "slug", "go_name": "Slug", "type": "string", "doc": "Project selector."},
+        {"name": "version", "go_name": "Version", "type": "string", "doc": "Selected release version."},
+        {"name": "sha256", "go_name": "SHA256", "type": "string", "doc": "Selected immutable artifact digest."},
+        {"name": "bytes", "go_name": "Bytes", "type": "u64", "doc": "Claimed size, rechecked against signed metadata."},
+        {"name": "sent_at", "go_name": "SentAt", "type": "string", "doc": "Explicit website send request identity."},
+        {"name": "pulled", "go_name": "Pulled", "type": "bool", "doc": "Immediate withdrawal hint, independently checked against signed revocations."}
+      ]
+    },{
+      "rust_name": "CinnabarModLibrary", "go_name": "CinnabarModLibrary",
+      "derive": ["Clone", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "doc": "Current authenticated account's marketplace selections; empty while disconnected.",
+      "fields": [
+        {"name": "xuid", "go_name": "XUID", "type": "string", "doc": "Verified local account identity."},
+        {"name": "mods", "go_name": "Mods", "type": "list:CinnabarModEntry", "doc": "Whole library snapshot with no granting authority."}
       ]
     }
   ],
@@ -540,7 +581,9 @@
       {"type": "error", "error": "refused"},
       {"type": "ping", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
       {"type": "account", "account": {"state": "signed_out"}},
-      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 512, "total_bytes": 1024}}
+      {"type": "connect", "connect": {"stage": "packs", "packs_done": 1, "packs_total": 2, "received_bytes": 512, "total_bytes": 1024}},
+      {"version": 2, "channel": "control", "channels": ["control", "play"], "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+      {"version": 2, "channel": "control", "channels": ["control", "play"], "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", "apple_mobile": true}
     ]
   }
 }

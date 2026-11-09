@@ -49,6 +49,29 @@ fn closing_the_window_before_presentation_does_not_poison_recovery() {
 }
 
 #[test]
+fn interface_startup_failure_does_not_poison_graphics_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    let pending = pending_attempt(Backend::Vulkan);
+    guard.begin(pending.clone()).unwrap();
+    let mut app = App::new();
+    install_guard(&mut app, guard);
+    assert!(super::super::finish_prerequisite(&mut app, Ok(())).is_ok());
+    assert_eq!(StartupGuard::pending(dir.path()).unwrap(), Some(pending));
+    let failure = super::super::finish_prerequisite::<()>(
+        &mut app,
+        Err(anyhow::anyhow!("invalid required interface carrier")),
+    )
+    .unwrap_err();
+    assert_eq!(failure.to_string(), "invalid required interface carrier");
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+}
+
+#[test]
 fn unfinished_startup_without_an_exit_message_remains_recoverable() {
     let dir = tempfile::tempdir().unwrap();
     let mut guard = StartupGuard::open(dir.path()).unwrap();
@@ -64,6 +87,32 @@ fn unfinished_startup_without_an_exit_message_remains_recoverable() {
     assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
 }
 
+/// An exit right after presentation waits for the off-frame save instead of cancelling it.
+#[test]
+fn exit_right_after_presentation_keeps_the_working_renderer() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    install_guard(&mut app, guard);
+    app.world()
+        .resource::<StartupPresentation>()
+        .record_completed_frame();
+    app.update();
+    app.world_mut().write_message(AppExit::Success);
+    app.update();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    assert_eq!(
+        next.recovery.working.map(|working| working.backend),
+        Some(Backend::Vulkan)
+    );
+}
+
 #[test]
 fn backend_mask_uses_the_policy_order() {
     assert_eq!(
@@ -73,4 +122,91 @@ fn backend_mask_uses_the_policy_order() {
     assert_eq!(backends(wgpu::Backends::DX12), [Backend::Dx12]);
     assert!(backends(wgpu::Backends::empty()).is_empty());
     assert!(backends(wgpu::Backends::GL).is_empty());
+}
+
+#[test]
+fn fallback_notice_waits_for_a_visible_menu_and_opens_once() {
+    let message = notice(
+        &VideoFallback {
+            requested: Backend::Dx12,
+            reason: "device rejected".into(),
+        },
+        Backend::Vulkan,
+        Platform::Windows,
+    );
+    let mut app = App::new();
+    install_notice(&mut app, message.clone());
+    app.update();
+    app.insert_resource(client_shell::menu::MenuRuntime::new(
+        false,
+        2,
+        String::new(),
+    ));
+    app.update();
+    assert!(app.world().contains_resource::<FallbackNotice>());
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .set_visible(true);
+    app.update();
+    assert!(!app.world().contains_resource::<FallbackNotice>());
+    let view = app
+        .world()
+        .resource::<client_shell::menu::MenuRuntime>()
+        .view();
+    assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
+    assert_eq!(view.message.as_deref(), Some(message.as_str()));
+    for expected in ["DX12", "Vulkan", "device rejected"] {
+        assert!(message.contains(expected), "{message}");
+    }
+}
+
+#[test]
+fn fallback_notice_waits_for_an_open_dialog_to_close() {
+    let mut app = App::new();
+    install_notice(&mut app, "DX12 could not start".into());
+    let mut menu = client_shell::menu::MenuRuntime::new(true, 2, String::new());
+    menu.show_notice("Import your Minecraft settings?");
+    app.insert_resource(menu);
+    app.update();
+    assert!(app.world().contains_resource::<FallbackNotice>());
+    let menu = app.world().resource::<client_shell::menu::MenuRuntime>();
+    assert_eq!(
+        menu.view().message.as_deref(),
+        Some("Import your Minecraft settings?")
+    );
+    app.world_mut()
+        .resource_mut::<client_shell::menu::MenuRuntime>()
+        .activate(launcher::menu::MenuAction::DismissDialog);
+    app.update();
+    assert!(!app.world().contains_resource::<FallbackNotice>());
+    let view = app
+        .world()
+        .resource::<client_shell::menu::MenuRuntime>()
+        .view();
+    assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
+    assert_eq!(view.message.as_deref(), Some("DX12 could not start"));
+}
+
+/// An exit written in `Last` before the exit systems, like the startup benchmark's, still cancels
+/// the pending presentation in that update, so the next launch does not exclude its backend.
+#[test]
+fn exit_written_before_the_exit_systems_cancels_in_the_same_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    install_guard(&mut app, guard);
+    app.add_systems(
+        Last,
+        (|mut exit: bevy::prelude::MessageWriter<AppExit>| {
+            exit.write(AppExit::Success);
+        })
+        .before(OnAppExitSystems),
+    );
+    app.update();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
 }

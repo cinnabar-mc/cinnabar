@@ -91,6 +91,17 @@ pub(in super::super) fn capture(
         effects: effects(runtime, now_tick),
         java_effects: java_effects(runtime, now_tick),
         hotbar_cooldowns: frame.hotbar_cooldowns,
+        locator: frame
+            .locator_view
+            .filter(|_| {
+                mode_allows_hotbar
+                    && frame.mount_jump.is_none()
+                    && runtime
+                        .session
+                        .locator
+                        .visible(frame.dimension, frame.now_millis)
+            })
+            .map(|view| runtime.session.locator.paint(view, frame.dimension)),
         // The third-person preference never overrides the spectator gate.
         crosshair: sheet
             .filter(|_| {
@@ -149,6 +160,7 @@ fn hearts(
 ) -> HeartPaint {
     let variant = runtime.gameplay_hud().heart_variant(now_tick);
     let damage = runtime
+        .session
         .local_actor_damage
         .filter(|damage| damage.flash_active());
     let hardcore = runtime.gameplay_hud().hardcore();
@@ -243,10 +255,6 @@ fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> HungerPaint {
         ]
     };
     HungerPaint {
-        saturation_overlay: None,
-        overlay_color: [255; 4],
-        food_preview: None,
-        food_saturation_preview: None,
         current,
         saturation_empty: runtime.gameplay_hud().saturation_empty(),
         sprites: Some(roles.map(path)),

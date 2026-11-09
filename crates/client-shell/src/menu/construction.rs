@@ -69,6 +69,11 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
+        // The Shaders tab's folder button and drop prompt need these before Storage is first
+        // measured.
+        let storage = std::sync::Arc::make_mut(&mut initial.storage);
+        storage.opens_folders = launcher_host::desktop::opens_folders();
+        storage.accepts_file_drops = launcher_host::desktop::accepts_file_drops();
         if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
             initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
         }
@@ -99,11 +104,14 @@ impl MenuRuntime {
             hovered: initial.hovered,
             pressed: initial.pressed,
             pointer_down: false,
+            touch_available: launcher::TOUCH_PRIMARY,
+            touch_editor_open: false,
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,
             dialog: initial.dialog,
             field: initial.field,
             caret_revision: 0,
+            field_activation: 0,
             history: {
                 let mut history = json_ui::ScreenNav::default();
                 history.reset(initial.screen);
@@ -116,6 +124,9 @@ impl MenuRuntime {
             address: field_editor(MenuField::Address),
             port: field_editor(MenuField::Port),
             skin_name: field_editor(MenuField::SkinName),
+            friend_query: field_editor(MenuField::FriendQuery),
+            settings_query: field_editor(MenuField::SettingsQuery),
+            storage_query: field_editor(MenuField::StorageQuery),
             macro_commands: macro_editors(&settings_options),
             message,
             gui_scale_preference: gui_scale
@@ -131,6 +142,15 @@ impl MenuRuntime {
             failed_video_settings_save: None,
             render_mode: initial.render_mode,
             render_mode_request: None,
+            shader_packs: initial.shader_packs,
+            shader_packs_revision: initial.shader_packs_revision,
+            shader_pack: None,
+            shader_pack_request: None,
+            shader_pack_status: Default::default(),
+            shader_pack_reload: false,
+            shader_pack_removing: None,
+            shader_pack_remove_request: None,
+            shader_pack_import: Default::default(),
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),
@@ -150,6 +170,9 @@ impl MenuRuntime {
             auth_restart_requested: false,
             account_core: None,
             layout,
+            default_player_skin: player_skin
+                .default_fallback
+                .then(|| player_skin.standard_skin()),
             player_skin,
             dressing_room: initial.dressing_room,
             dressing_room_worker: None,
@@ -159,6 +182,7 @@ impl MenuRuntime {
             editing: initial.editing,
             disconnect_message: initial.disconnect_message,
             death_shown: false,
+            death_lifecycle: None,
             death_loading: false,
             death_presentation: launcher::menu::death::DeathPresentation::default(),
             death_retry_remaining: None,
@@ -180,12 +204,14 @@ impl MenuRuntime {
             global_resources: initial.global_resources,
             mod_actions: Vec::new(),
             mods: initial.mods,
+            shader_options: Default::default(),
             minecraft_import: std::sync::Arc::new(minecraft_import),
             minecraft_import_requests: Vec::new(),
             settings: initial.settings,
             settings_input: focus::SettingsInput::default(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
+            storage_reader: None,
             settings_dirty: false,
             settings_writer: None,
             settings_retry_at: None,
@@ -195,12 +221,13 @@ impl MenuRuntime {
             language_choices,
             language_pending,
             language_asset_path,
-            input_mode: input::MenuInputMode::default(),
+            input_mode: input::mode::MenuInputMode::default(),
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
             invite: Default::default(),
             realm_membership: Default::default(),
+            realm_leave: Default::default(),
             join_requests: Default::default(),
         }
     }

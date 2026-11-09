@@ -6,12 +6,12 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{NpcDialogueActionType, RequestType};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{NpcDialogueActionType, RequestType};
+use bedrock_protocol_1_26_60::packets::{
     ModalFormRequest, NpcDialogue, NpcRequest, ServerSettingsRequest, ServerSettingsResponse,
 };
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 use serde_json::Value;
 
 use super::{FormKind, FormRequestEvent, ServerFormModel, UnsupportedForm, normalize_form};
@@ -21,6 +21,7 @@ use crate::ui::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 pub const NPC_DIALOGUE_FORM_ID: u32 = u32::MAX;
 /// NPC action entries whose `mode` makes them a clickable button.
 const BUTTON_MODE: u64 = 0;
+const URL_ACTION_TYPE: u64 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpcDialogueForm {
@@ -37,6 +38,8 @@ pub struct NpcDialogueForm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpcButton {
     pub text: Arc<str>,
+    /// Selects the URL label style rather than the command label style.
+    pub is_url: bool,
     /// Index into the full action list, echoed back in the request.
     pub action_index: u8,
 }
@@ -124,6 +127,7 @@ fn buttons(json: &str) -> Result<Vec<NpcButton>, UnsupportedForm> {
         }
         buttons.push(NpcButton {
             text: Arc::from(text),
+            is_url: action.get("type").and_then(Value::as_u64) == Some(URL_ACTION_TYPE),
             action_index: index as u8,
         });
     }
@@ -137,9 +141,9 @@ pub fn npc_request_packet(
     kind: NpcRequestKind,
 ) -> crate::Packet {
     let (request_type, action_index) = match kind {
-        NpcRequestKind::ExecuteAction(index) => (RequestType::Executeaction, index),
-        NpcRequestKind::ExecuteOpeningCommands => (RequestType::Executeopeningcommands, 0),
-        NpcRequestKind::ExecuteClosingCommands => (RequestType::Executeclosingcommands, 0),
+        NpcRequestKind::ExecuteAction(index) => (RequestType::ExecuteAction, index),
+        NpcRequestKind::ExecuteOpeningCommands => (RequestType::ExecuteOpeningCommands, 0),
+        NpcRequestKind::ExecuteClosingCommands => (RequestType::ExecuteClosingCommands, 0),
     };
     crate::Packet::new(NpcRequest {
         npc_runtime_id: ActorRuntimeID(npc_runtime_id),
@@ -171,6 +175,14 @@ pub fn server_settings_request_packet() -> crate::Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_buttons_preserve_their_label_kind() {
+        let parsed = buttons(r#"[{"button_name":"Command","type":1,"mode":0},{"button_name":"Website","type":0,"mode":0},{"button_name":"Default"}]"#).unwrap();
+        assert!(!parsed[0].is_url);
+        assert!(parsed[1].is_url);
+        assert!(!parsed[2].is_url);
+    }
 
     #[test]
     fn button_mode_actions_keep_their_action_indexes() {

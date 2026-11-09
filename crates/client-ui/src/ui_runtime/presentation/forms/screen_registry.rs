@@ -25,10 +25,13 @@ fn compose() -> ScreenRegistry {
     catalog.layer_builtin(ui_screens::vrr_setting::install);
     catalog.layer_builtin(ui_screens::motion_blur_setting::install);
     catalog.layer_builtin(ui_screens::smaa_setting::install);
+    catalog.layer_builtin(ui_screens::view_bobbing_setting::install);
     catalog.layer_builtin(ui_screens::java_animations_setting::install);
     catalog.layer_builtin(ui_screens::skybox_setting::install);
+    catalog.layer_builtin(ui_screens::occlusion_setting::install);
     catalog.layer_builtin(ui_screens::discord_presence_setting::install);
     catalog.layer_builtin(ui_screens::crosshair_settings::install);
+    catalog.layer_builtin(ui_screens::hud_placement::install);
     ui_screens::hud::register(&mut registry);
     let catalog = registry.catalog_mut();
     catalog.layer_builtin(ui_screens::menu_renderers::install_brand_overlays);

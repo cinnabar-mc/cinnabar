@@ -6,6 +6,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,53 @@ func TestEmoteRefreshesDoNotResendStableWatchLists(t *testing.T) {
 	}
 	if renewed.XUIDs == nil || len(*renewed.XUIDs) != 0 {
 		t.Fatal("empty replacement omitted")
+	}
+}
+
+// sentEmoteFrames replays 100 ms bridge ticks through the writer and counts the frames that would wake the hub.
+func sentEmoteFrames(c *Client, s *session, start time.Time, duration time.Duration, state func(time.Duration) PlayerState) int {
+	frames := 0
+	for elapsed := time.Duration(0); elapsed <= duration; elapsed += 100 * time.Millisecond {
+		c.syncPlayers(state(elapsed), start.Add(elapsed))
+		select {
+		case <-s.emoteDirty:
+			c.emotePayload(s)
+			frames++
+		default:
+		}
+	}
+	return frames
+}
+
+func TestIdlePlayersSendNoEmoteFramesAfterPublishingWatches(t *testing.T) {
+	now := time.Unix(123, 0)
+	s := &session{emoteDirty: make(chan struct{}, 1), emotes: make(map[string]receivedEmote)}
+	c := &Client{live: s}
+	if frames := sentEmoteFrames(c, s, now, time.Minute, func(time.Duration) PlayerState { return PlayerState{XUIDs: []string{"11"}} }); frames != 1 {
+		t.Fatalf("idle nearby player sent %d frames in a minute, want only the watch list", frames)
+	}
+	s = &session{emoteDirty: make(chan struct{}, 1), emotes: make(map[string]receivedEmote)}
+	c = &Client{live: s}
+	if frames := sentEmoteFrames(c, s, now, time.Minute, func(time.Duration) PlayerState { return PlayerState{XUIDs: []string{}} }); frames != 0 {
+		t.Fatalf("player with nobody nearby sent %d frames", frames)
+	}
+}
+
+func TestNearbyChurnSendsWatchListsOnlyAtTheWatchInterval(t *testing.T) {
+	now := time.Unix(123, 0)
+	s := &session{emoteDirty: make(chan struct{}, 1), emotes: make(map[string]receivedEmote)}
+	c := &Client{live: s}
+	frames := sentEmoteFrames(c, s, now, time.Minute, func(elapsed time.Duration) PlayerState {
+		return PlayerState{XUIDs: []string{strconv.Itoa(int(elapsed / emoteSpacing))}}
+	})
+	if limit := int(time.Minute/(emoteTTL/5)) + 1; frames > limit {
+		t.Fatalf("roster churn sent %d frames in a minute, want at most %d", frames, limit)
+	}
+	var last emoteMessage
+	if err := json.Unmarshal(c.emotePayload(s), &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.EmoteID != nil {
+		t.Fatal(last)
 	}
 }

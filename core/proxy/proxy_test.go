@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 
 	"github.com/google/uuid"
@@ -80,7 +81,7 @@ func TestNewUpstreamDialerDeclinesResourcePackAcquisitionWithoutBudget(t *testin
 	}
 }
 
-func TestProtocol2193RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
+func TestProtocol2225RustFastTransferFixtureDecodesAsVanillaPlayerRequest(t *testing.T) {
 	// Body bytes are shared with crates/protocol/tests/chat_send.rs. Decoding
 	// them here prevents a self-round-trip from hiding a Rust/Go bridge
 	// disagreement in CommandOrigin or UUID byte order.
@@ -291,7 +292,7 @@ func TestNewUpstreamDialerOfflinePreservesIdentity(t *testing.T) {
 func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testing.T) {
 	downstream := dialerTestDownstream{
 		identity: login.IdentityData{Identity: "offline-identity", DisplayName: "Offline Player"},
-		client:   login.ClientData{DeviceModel: "client-data-sentinel"},
+		client:   login.ClientData{DeviceModel: "client-data-sentinel", ThirdPartyName: "Transport Player"},
 		protocol: minecraft.DefaultProtocol,
 	}
 	source := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "sentinel"})
@@ -308,6 +309,12 @@ func TestNewUpstreamDialerAuthenticatedUsesTokenAndOmitsOfflineIdentity(t *testi
 	}
 	if dialer.ClientData.DeviceModel != downstream.client.DeviceModel {
 		t.Fatalf("ClientData.DeviceModel = %q, want %q", dialer.ClientData.DeviceModel, downstream.client.DeviceModel)
+	}
+	if dialer.ClientData.ThirdPartyName != "" {
+		t.Fatal("the downstream name overrides the token's login identity")
+	}
+	if downstream.client.ThirdPartyName != "Transport Player" {
+		t.Fatal("the upstream dialer changed the downstream client data")
 	}
 	if dialer.Protocol != downstream.protocol {
 		t.Fatal("Protocol was not preserved")
@@ -1306,7 +1313,7 @@ func relayFixtureStartup() []packet.Packet {
 		&packet.StartGame{
 			WorldName: "Fixture", LevelID: "fixture-level", ServerID: "server-id", WorldID: "world-id",
 			ScenarioID: "scenario", OwnerID: "owner", EntityUniqueID: 42, EntityRuntimeID: 42,
-			BaseGameVersion: "1.26.50", GameVersion: "1.26.50", Trial: true, EducationFeaturesEnabled: true,
+			BaseGameVersion: bridgecontract.GameVersion, GameVersion: bridgecontract.GameVersion, Trial: true, EducationFeaturesEnabled: true,
 			TemplateContentIdentity: "template", EnchantmentSeed: 1234, MultiPlayerCorrelationID: "correlation",
 		},
 		&packet.ItemRegistry{Items: []protocol.ItemEntry{{Name: "minecraft:shield", RuntimeID: 355}}},

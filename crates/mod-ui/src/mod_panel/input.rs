@@ -3,9 +3,6 @@ use super::*;
 impl ModUi {
     /// Releases pointer capture while preserving the panel and its editor draft.
     pub fn cancel_mod_panel_pointer_input(&mut self) {
-        if let Some(editor) = self.mod_hud_editor.as_mut() {
-            editor.cancel_pointer_input();
-        }
         if let Some(panel) = self.mod_panel.as_mut() {
             panel.cancel_pointer_input();
         }
@@ -23,6 +20,9 @@ impl ModPanel {
         self.view.hovered = None;
         self.view.pressed = None;
         self.view.pointer = None;
+        if let Some(edit::Editor::Field { state, .. }) = &mut self.edit {
+            state.dragging = false;
+        }
     }
 
     /// Routes one pointer sample through the last frame's hits; `exit` lets a close action
@@ -37,6 +37,17 @@ impl ModPanel {
         if !self.open || !position.iter().all(|value| value.is_finite()) {
             self.cancel_pointer_input();
             return Vec::new();
+        }
+        if let Some(edit::Editor::Field { state, .. }) = &mut self.edit
+            && state.dragging
+        {
+            if !pressed {
+                state.place_cursor(position[0], true);
+                if held {
+                    return Vec::new();
+                }
+            }
+            state.dragging = false;
         }
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
@@ -67,10 +78,7 @@ impl ModPanel {
         let Some(frame) = self.frame.as_ref() else {
             return Vec::new();
         };
-        let hit =
-            frame.hits.iter().rev().find(|region| {
-                region.enabled && region.pressed.is_some() && region.contains(point)
-            });
+        let hit = json_ui::hit_test(&frame.hits, point);
         let hovered = hit.map(|hit| hit.key.as_str());
         if self.view.hovered.as_deref() != hovered {
             self.view.hovered = hovered.map(str::to_owned);
@@ -93,6 +101,10 @@ impl ModPanel {
                 return Vec::new();
             }
             if action == Some("mod.editor") {
+                if let Some(edit::Editor::Field { state, .. }) = &mut self.edit {
+                    state.place_cursor(position[0], false);
+                    state.dragging = held;
+                }
                 return Vec::new();
             }
             if let Some(index) = action
@@ -138,38 +150,8 @@ impl ModPanel {
                 return Vec::new();
             }
         }
-        match action {
-            Some("mod.close") => {
-                self.close(exit);
-                return Vec::new();
-            }
-            Some("mod.prev") | Some("mod.next") => {
-                self.page = if action == Some("mod.prev") {
-                    self.page.saturating_sub(1)
-                } else {
-                    (self.page + 1).min(self.last_page())
-                };
-                self.catalog = None;
-                self.frame = None;
-                self.drag = None;
-                self.pointer = None;
-                return Vec::new();
-            }
-            _ => {}
-        }
-        if let Some(category) = action
-            .and_then(|action| action.strip_prefix("mod.category:"))
-            .and_then(|value| value.parse::<usize>().ok())
-        {
-            if category < ui::mod_panel::MAX_PANEL_CATEGORIES && category != self.category {
-                self.category = category;
-                self.page = 0;
-                self.catalog = None;
-                self.frame = None;
-                self.drag = None;
-                self.pointer = None;
-                self.view = ViewState::default();
-            }
+        if action == Some("mod.close") {
+            self.close(exit);
             return Vec::new();
         }
         let selected = action

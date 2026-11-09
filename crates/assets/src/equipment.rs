@@ -47,12 +47,18 @@ pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
 /// Includes authored use profiles, food nutrition, component durations and use-modifiers presence.
 /// Older carriers need a rebuild.
 pub const EQUIPMENT_CARRIER_VERSION: u32 = 5;
+/// Startup carrier bound. A server pack's catalog has no binding count limit.
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
+/// Startup carrier bound. A server pack's catalog has no texture count limit.
 pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
 pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = crate::MAX_ACTOR_TEXTURE_SIDE;
-/// Held and worn item art; entity art has its own, larger budget.
+/// Startup carrier bound on held and worn item art.
 pub const MAX_EQUIPMENT_PIXEL_BYTES: usize = 256 * 1024 * 1024;
+/// Cinnabar's ceiling on the decoded attachable art held for one server pack, matching entity art.
+/// No such native limit is known: native queues textures when first requested. Rasters past it
+/// are counted and logged by the pack compile.
+pub const MAX_PACK_EQUIPMENT_PIXEL_BYTES: usize = crate::MAX_ACTOR_PIXEL_BYTES;
 const MAX_EQUIPMENT_METADATA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_EQUIPMENT_CARRIER_BYTES: usize =
     MAX_EQUIPMENT_PIXEL_BYTES + MAX_EQUIPMENT_METADATA_BYTES;
@@ -139,14 +145,22 @@ const MAX_POSES_PER_BINDING: usize = 16;
 const MAX_ITEM_TIMINGS: usize = 2048;
 const MAX_BONES_PER_POSE: usize = 32;
 
-/// Where the attachment renders, which selects the biped bone it binds to.
+/// Equipment mount used to select a worn model or a held-item fallback.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum EquipmentCategory {
     Held,
-    Armor { slot: ArmorSlot },
+    Armor {
+        slot: ArmorSlot,
+    },
+    /// An attachable that has authored branches for both a worn slot and a hand.
+    ArmorAndHeld {
+        slot: ArmorSlot,
+    },
     Shield,
     Elytra,
+    /// A model worn in the separately replicated body slot.
+    Body,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -247,62 +261,12 @@ pub struct RuntimeEquipmentCatalog {
     item_food: Arc<[CompiledItemFood]>,
 }
 
-impl RuntimeEquipmentCatalog {
-    pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
-        if bytes.len() < HEADER_BYTES + HASH_BYTES || bytes.len() > MAX_EQUIPMENT_CARRIER_BYTES {
-            return Err(invalid("equipment carrier size is out of bounds"));
-        }
-        if bytes[..8] != EQUIPMENT_CARRIER_MAGIC
-            || u32::from_le_bytes(field::<4>(bytes, 8)?) != EQUIPMENT_CARRIER_VERSION
-        {
-            return Err(invalid(
-                "unsupported equipment carrier header; rebuild with make assets",
-            ));
-        }
-        let payload_bytes = usize::try_from(u64::from_le_bytes(field::<8>(bytes, 12)?))
-            .map_err(|_| invalid("equipment payload size exceeds platform"))?;
-        if payload_bytes > MAX_EQUIPMENT_METADATA_BYTES {
-            return Err(invalid("equipment metadata exceeds bound"));
-        }
-        let hash_start = bytes.len() - HASH_BYTES;
-        let payload_end = HEADER_BYTES
-            .checked_add(payload_bytes)
-            .filter(|end| *end <= hash_start)
-            .ok_or_else(|| invalid("noncanonical equipment carrier layout"))?;
-        if Sha256::digest(&bytes[..hash_start]).as_slice() != &bytes[hash_start..] {
-            return Err(invalid("equipment carrier envelope hash mismatch"));
-        }
-        let payload: EquipmentCatalogPayload =
-            serde_json::from_slice(&bytes[HEADER_BYTES..payload_end])
-                .map_err(|_| invalid("invalid equipment carrier payload"))?;
-        let canonical = serde_json::to_vec(&payload)
-            .map_err(|_| invalid("failed to canonicalize equipment payload"))?;
-        if canonical.as_slice() != &bytes[HEADER_BYTES..payload_end] {
-            return Err(invalid("noncanonical equipment payload encoding"));
-        }
-        validate(
-            &payload.source_manifest_sha256,
-            &payload.entity_blob_sha256,
-            &payload.bindings,
-        )?;
-        validate_item_use(&payload.item_use)?;
-        attack::validate(&payload.item_attack)?;
-        use_profiles::validate(&payload.item_use_overlays)?;
-        food::validate(&payload.item_food)?;
-        let textures = decode_textures(&bytes[payload_end..hash_start])?;
-        Ok(Self {
-            source_manifest_sha256: payload.source_manifest_sha256,
-            entity_blob_sha256: payload.entity_blob_sha256,
-            bindings: Arc::from(payload.bindings),
-            item_use_overlays: Arc::from(payload.item_use_overlays),
-            item_use: Arc::from(payload.item_use),
-            item_attack: Arc::from(payload.item_attack),
-            item_food: Arc::from(payload.item_food),
-            texture_paths_sha256: texture_paths_sha256(&textures),
-            textures: Arc::from(textures),
-        })
-    }
+#[path = "equipment/decode.rs"]
+mod decode;
+mod session;
+pub(crate) use session::SessionEquipmentEncoding;
 
+impl RuntimeEquipmentCatalog {
     /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
     /// nonzero digest of the pack sources). Bindings retain distinct authored definitions;
     /// exact duplicate definitions and texture identifiers keep their first entry.
@@ -315,8 +279,8 @@ impl RuntimeEquipmentCatalog {
         bindings.dedup_by(|later, earlier| binding_key(later) == binding_key(earlier));
         textures.sort_by(|left, right| left.identifier.cmp(&right.identifier));
         textures.dedup_by(|later, earlier| later.identifier == earlier.identifier);
-        validate(&identity, &identity, &bindings)?;
-        validate_textures(&textures)?;
+        validate_binding_entries(&identity, &identity, &bindings)?;
+        validate_texture_entries(&textures, MAX_PACK_EQUIPMENT_PIXEL_BYTES)?;
         Ok(Self {
             source_manifest_sha256: identity,
             entity_blob_sha256: identity,
@@ -557,14 +521,7 @@ pub fn encode_equipment_catalog_with_use_profiles(
     bytes.extend_from_slice(&EQUIPMENT_CARRIER_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(payload_bytes.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&payload_bytes);
-    bytes.extend_from_slice(&(textures.len() as u32).to_le_bytes());
-    for texture in textures {
-        bytes.extend_from_slice(&(texture.identifier.len() as u16).to_le_bytes());
-        bytes.extend_from_slice(texture.identifier.as_bytes());
-        bytes.extend_from_slice(&texture.width.to_le_bytes());
-        bytes.extend_from_slice(&texture.height.to_le_bytes());
-        bytes.extend_from_slice(&texture.rgba8);
-    }
+    write_textures(&mut bytes, textures).expect("writing to memory cannot fail");
     let hash = Sha256::digest(&bytes);
     bytes.extend_from_slice(&hash);
     if bytes.len() > MAX_EQUIPMENT_CARRIER_BYTES {
@@ -573,16 +530,42 @@ pub fn encode_equipment_catalog_with_use_profiles(
     Ok(bytes)
 }
 
+/// Writes the texture records [`decode::read_textures`] reads back.
+fn write_textures(
+    out: &mut dyn std::io::Write,
+    textures: &[EquipmentTexture],
+) -> std::io::Result<()> {
+    out.write_all(&(textures.len() as u32).to_le_bytes())?;
+    for texture in textures {
+        out.write_all(&(texture.identifier.len() as u16).to_le_bytes())?;
+        out.write_all(texture.identifier.as_bytes())?;
+        out.write_all(&texture.width.to_le_bytes())?;
+        out.write_all(&texture.height.to_le_bytes())?;
+        out.write_all(&texture.rgba8)?;
+    }
+    Ok(())
+}
+
+/// Validates a startup carrier's bindings, including its count bound.
 fn validate(
     source_manifest_sha256: &[u8; 32],
     entity_blob_sha256: &[u8; 32],
     bindings: &[EquipmentBinding],
 ) -> Result<(), AssetError> {
-    if source_manifest_sha256 == &[0; 32]
-        || entity_blob_sha256 == &[0; 32]
-        || bindings.len() > MAX_EQUIPMENT_BINDINGS
-    {
-        return Err(invalid("equipment catalog provenance or count is invalid"));
+    if bindings.len() > MAX_EQUIPMENT_BINDINGS {
+        return Err(invalid("equipment catalog binding count is invalid"));
+    }
+    validate_binding_entries(source_manifest_sha256, entity_blob_sha256, bindings)
+}
+
+/// Validates provenance and each binding, without bounding how many there are.
+fn validate_binding_entries(
+    source_manifest_sha256: &[u8; 32],
+    entity_blob_sha256: &[u8; 32],
+    bindings: &[EquipmentBinding],
+) -> Result<(), AssetError> {
+    if source_manifest_sha256 == &[0; 32] || entity_blob_sha256 == &[0; 32] {
+        return Err(invalid("equipment catalog provenance is invalid"));
     }
     let mut previous = None;
     for binding in bindings {
@@ -625,10 +608,19 @@ fn validate_item_use(item_use: &[ItemUseDuration]) -> Result<(), AssetError> {
     Ok(())
 }
 
+/// Validates a startup carrier's textures, including its count and pixel bounds.
 fn validate_textures(textures: &[EquipmentTexture]) -> Result<(), AssetError> {
     if textures.len() > MAX_EQUIPMENT_TEXTURES {
         return Err(invalid("equipment texture count exceeds bound"));
     }
+    validate_texture_entries(textures, MAX_EQUIPMENT_PIXEL_BYTES)
+}
+
+/// Validates each texture and their total pixels, without bounding how many there are.
+fn validate_texture_entries(
+    textures: &[EquipmentTexture],
+    max_pixel_bytes: usize,
+) -> Result<(), AssetError> {
     let mut previous: Option<&str> = None;
     let mut pixel_bytes = 0usize;
     for texture in textures {
@@ -637,7 +629,7 @@ fn validate_textures(textures: &[EquipmentTexture]) -> Result<(), AssetError> {
             .ok_or_else(|| invalid("equipment texture dimensions exceed bound"))?;
         pixel_bytes = pixel_bytes
             .checked_add(bytes)
-            .filter(|total| *total <= MAX_EQUIPMENT_PIXEL_BYTES)
+            .filter(|total| *total <= max_pixel_bytes)
             .ok_or_else(|| invalid("equipment texture pixel budget exceeded"))?;
         if previous.is_some_and(|previous| previous >= texture.identifier.as_ref())
             || texture.rgba8.len() != bytes
@@ -657,65 +649,6 @@ fn texture_pixel_bytes(width: u16, height: u16) -> Option<usize> {
     usize::from(width)
         .checked_mul(usize::from(height))?
         .checked_mul(4)
-}
-
-fn decode_textures(section: &[u8]) -> Result<Vec<EquipmentTexture>, AssetError> {
-    let mut cursor = section;
-    let count = u32::from_le_bytes(
-        take(&mut cursor, 4)?
-            .try_into()
-            .map_err(|_| invalid("invalid equipment texture count"))?,
-    ) as usize;
-    if count > MAX_EQUIPMENT_TEXTURES {
-        return Err(invalid("equipment texture count exceeds bound"));
-    }
-    let mut textures = Vec::with_capacity(count);
-    let mut pixel_bytes = 0usize;
-    for _ in 0..count {
-        let name_len = usize::from(u16::from_le_bytes(
-            take(&mut cursor, 2)?
-                .try_into()
-                .map_err(|_| invalid("invalid equipment texture name length"))?,
-        ));
-        let identifier: Box<str> = std::str::from_utf8(take(&mut cursor, name_len)?)
-            .map_err(|_| invalid("equipment texture identifier is not UTF-8"))?
-            .into();
-        let width = u16::from_le_bytes(
-            take(&mut cursor, 2)?
-                .try_into()
-                .map_err(|_| invalid("invalid equipment texture width"))?,
-        );
-        let height = u16::from_le_bytes(
-            take(&mut cursor, 2)?
-                .try_into()
-                .map_err(|_| invalid("invalid equipment texture height"))?,
-        );
-        let length = texture_pixel_bytes(width, height)
-            .ok_or_else(|| invalid("equipment texture dimensions exceed bound"))?;
-        pixel_bytes = pixel_bytes
-            .checked_add(length)
-            .filter(|total| *total <= MAX_EQUIPMENT_PIXEL_BYTES)
-            .ok_or_else(|| invalid("equipment texture pixel budget exceeded"))?;
-        textures.push(EquipmentTexture {
-            identifier,
-            width,
-            height,
-            rgba8: Arc::from(take(&mut cursor, length)?),
-        });
-    }
-    if !cursor.is_empty() {
-        return Err(invalid("trailing bytes after equipment texture section"));
-    }
-    validate_textures(&textures)?;
-    Ok(textures)
-}
-
-fn take<'a>(cursor: &mut &'a [u8], length: usize) -> Result<&'a [u8], AssetError> {
-    let head = cursor
-        .get(..length)
-        .ok_or_else(|| invalid("truncated equipment texture section"))?;
-    *cursor = &cursor[length..];
-    Ok(head)
 }
 
 fn poses_are_valid(poses: &[AttachablePose]) -> bool {
@@ -764,14 +697,6 @@ fn validate_identifier(identifier: &str) -> Result<(), AssetError> {
     Ok(())
 }
 
-fn field<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], AssetError> {
-    bytes
-        .get(offset..offset + N)
-        .ok_or_else(|| invalid("truncated equipment carrier field"))?
-        .try_into()
-        .map_err(|_| invalid("invalid equipment carrier field"))
-}
-
 fn invalid(detail: &str) -> AssetError {
     AssetError::InvalidCompiledAssets {
         detail: detail.into(),
@@ -791,7 +716,7 @@ mod tests {
         }
     }
 
-    fn sample() -> Vec<EquipmentBinding> {
+    pub(super) fn sample() -> Vec<EquipmentBinding> {
         vec![
             EquipmentBinding {
                 identifier: "minecraft:diamond_helmet".into(),

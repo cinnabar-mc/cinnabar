@@ -20,6 +20,7 @@ use crate::state::{LayoutReport, ViewState};
 use crate::tree::ResolvedControl;
 use crate::widgets;
 
+mod bounds;
 mod grid;
 mod measure;
 mod place;
@@ -30,6 +31,7 @@ mod size;
 mod stack;
 mod style;
 
+pub use grid::grid_template_columns;
 pub(crate) use grid::{
     CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY,
     TEMPLATE_KEY as GRID_TEMPLATE_KEY,
@@ -109,11 +111,12 @@ pub trait TextMeasure {
         self.extent(text)
     }
 
-    /// Measures a label in a named font; default-only backends keep their label metrics.
+    /// Measures with the authored primary and backup faces; default-only backends keep their metrics.
     fn named_label(
         &self,
         text: &str,
         _font: &str,
+        _backup: Option<&str>,
         width: Option<f64>,
         shape: crate::label::LabelShape,
     ) -> [f64; 2] {
@@ -220,46 +223,41 @@ pub fn layout_with<'a>(
 
 /// Lay out a stable bound tree over retained measurements, splicing the last
 /// layout's output for unchanged subtrees; emits draws, hit regions and the
-/// cancel and `root_panel` lookups.
+/// cancel and `root_panel` lookups. A `gated` layout culls like
+/// [`crate::render_bound_gated`]: it omits hidden controls' subtrees and scroll
+/// content wholly outside its viewport, and emits state children gated.
 pub(crate) fn layout_reusing(
     root: &ResolvedControl,
     root_size: [f64; 2],
     env: &LayoutEnv,
     state: &ViewState,
     cache: &mut MeasureCache,
+    gated: bool,
 ) -> (Output, LayoutReport) {
+    let records = cache.splices_next();
     cache.enter(root);
     cache.placements.begin(
         state,
-        false,
+        gated,
         crate::LayoutCacheKey::new(root_size, 1.0, env),
+        records,
     );
+    if records {
+        cache.placements.pin(root);
+    }
     let (laid, report) = lay_out(
         root,
         root_size,
         env,
         state,
-        false,
-        Some(&mut cache.placements),
+        gated,
+        records.then_some(&mut cache.placements),
     );
     cache.leave();
-    (reuse::output(&laid, env, &mut cache.placements), report)
-}
-
-/// [`layout_with`] over `cache`'s measurements that omits hidden controls'
-/// subtrees and scroll content wholly outside its viewport, so a long list costs
-/// only what it shows.
-pub(crate) fn layout_culled<'a>(
-    root: &'a ResolvedControl,
-    root_size: [f64; 2],
-    env: &LayoutEnv,
-    state: &ViewState,
-    cache: &mut MeasureCache,
-) -> (LaidOut<'a>, LayoutReport) {
-    cache.enter(root);
-    let laid = lay_out(root, root_size, env, state, true, None);
-    cache.leave();
-    laid
+    (
+        reuse::output(&laid, env, &mut cache.placements, gated),
+        report,
+    )
 }
 
 /// A culling layout keeps the memos its caller entered.
@@ -294,6 +292,7 @@ fn lay_out<'a>(
             emitting: true,
             taint: 0,
             inspected: 0,
+            roles_moved: false,
         }),
     };
     let key = child_key("", root, 0);
@@ -354,11 +353,13 @@ struct Reuse<'e> {
     taint: usize,
     /// Enclosing edit boxes, whose input metadata reads their laid-out descendants.
     inspected: usize,
+    /// A scroll view this layout opened names other role controls than the last did.
+    roles_moved: bool,
 }
 
 /// `parent/name`, with `[index]` on factory instances and `~n` on the nth sibling sharing
 /// both, so anonymous array entries keep their own hover and press state.
-pub(crate) fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
+pub fn child_key(parent: &str, control: &ResolvedControl, repeat: usize) -> String {
     instance_key(parent, &control.name, collection_index(control), repeat)
 }
 
@@ -390,7 +391,7 @@ fn collection_index(control: &ResolvedControl) -> Option<u64> {
 /// Counts siblings by name and collection index for [`child_key`]'s repeat, keyed by a hash of
 /// both so counting a long list allocates nothing.
 #[derive(Default)]
-pub(crate) struct SiblingKeys(crate::bind::KeyMap<usize>);
+pub struct SiblingKeys(crate::bind::KeyMap<usize>);
 
 impl SiblingKeys {
     /// Earlier siblings sharing `name` and `index`.
@@ -407,7 +408,8 @@ impl SiblingKeys {
         *count - 1
     }
 
-    pub(crate) fn of(&mut self, control: &ResolvedControl) -> usize {
+    /// Counts earlier siblings with this control's name and collection index.
+    pub fn of(&mut self, control: &ResolvedControl) -> usize {
         self.repeat(&control.name, collection_index(control))
     }
 }
@@ -422,9 +424,10 @@ fn place_subtree<'a>(
     inherited: &Inherited,
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
-    // Only context a control's inputs capture lets a later layout splice it.
-    let free = ctx.scrolls.is_empty()
-        && ctx.sliders.is_empty()
+    // Only context a control's inputs capture lets a later layout splice it. Scroll content
+    // may splice: the enclosing views' solved state and whether they cull are inputs, and
+    // the controls a view's state moves or hides beyond that are pinned.
+    let free = ctx.sliders.is_empty()
         && ctx.overrides.is_empty()
         && ctx.hidden_names.is_empty()
         && ctx.reuse.as_ref().is_some_and(|reuse| reuse.inspected == 0);
@@ -433,6 +436,10 @@ fn place_subtree<'a>(
         .last()
         .map_or(parent_clip, |(_, parent, _)| *parent);
     let enabled_above = ctx.disabled == 0;
+    let pinned = ctx
+        .reuse
+        .as_ref()
+        .is_some_and(|reuse| reuse.placements.pinned(std::ptr::from_ref(control).addr()));
     let entry = ctx.reuse.as_mut().map(|reuse| {
         let address = reuse
             .address
@@ -453,12 +460,26 @@ fn place_subtree<'a>(
             emitting: reuse.emitting,
             inherited: inherited.clone(),
             hits: std::sync::Arc::clone(&reuse.hits),
+            culls: ctx.cull
+                && ctx
+                    .scrolls
+                    .last()
+                    .is_some_and(|frame| frame.metrics.is_some()),
+            scroll: ctx
+                .scrolls
+                .iter()
+                .fold(0, |hash, frame| hash.rotate_left(17) ^ frame.applied()),
         };
         let reused = old
-            .filter(|_| free)
+            .filter(|_| free && !pinned && !reuse.roles_moved)
             .and_then(|old| reuse.placements.reuse(address, old, &inputs));
         (address, old, inputs, reuse.taint, reused)
     });
+    // A scroll view moves, sizes, fades, hides or reports its role controls and what their
+    // paths and bars enclose from its own state, so none of them splices.
+    if pinned {
+        ctx.taint();
+    }
     let (entry, reused) = match entry {
         Some((address, old, inputs, taint, reused)) => {
             (Some((address, old, inputs, taint)), reused)
@@ -522,7 +543,15 @@ fn place_subtree<'a>(
         (packed, replaced),
         ctx.env,
     );
-    let spaces = inherited.space.place(
+    let mut space = inherited.space;
+    if let Some(region) = control
+        .properties
+        .get(crate::transform::PAINT_REGION_PROPERTY)
+        .and_then(serde_json::Value::as_u64)
+    {
+        space.region = std::num::NonZeroU64::new(region);
+    }
+    let spaces = space.place(
         style.transform,
         crate::transform::ClipInputs {
             rect,
@@ -552,6 +581,17 @@ fn place_subtree<'a>(
         && measure::suppress(panel, frame.panel_hidden)
     {
         scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
+    }
+    // Placements under the view record its whole solved state as an input.
+    if ctx.reuse.is_some() {
+        scroll = scroll.map(ScrollFrame::seal);
+    }
+    // A scroll view whose roles moved to other controls splices nothing for the rest of the
+    // layout: an unchanged record may enclose a control that only now follows its state.
+    if let (Some(frame), Some(reuse), Some((address, ..))) = (&scroll, ctx.reuse.as_mut(), &entry)
+        && reuse.placements.roles_moved(*address, frame.roles())
+    {
+        reuse.roles_moved = true;
     }
     let opened_scroll = scroll.is_some();
     if let Some(frame) = scroll {
@@ -602,8 +642,20 @@ fn place_subtree<'a>(
                 .scrolls
                 .iter()
                 .any(|frame| frame.adjusts_children(control)))
-        .then_some(child_clip);
-        measure::placed_children(control, rect, ctx.env, indexed_clip)
+        .then(|| {
+            bounds::local_clip(
+                inherit.space.transform,
+                inherit.space.clip.unwrap_or(child_clip),
+            )
+        })
+        .flatten();
+        measure::placed_children(
+            control,
+            rect,
+            ctx.env,
+            indexed_clip,
+            inherit.space.transform,
+        )
     };
     let placed_rects: Vec<(&str, Rect)> = match &dropdown {
         Some(_) => placed
@@ -645,6 +697,10 @@ fn place_subtree<'a>(
     let placeholders = grid::is_grid(control)
         .then(|| control.children.iter().find_map(grid::placeholder_of))
         .flatten();
+    // Its report of the cells in view is not part of a spliced output.
+    if placeholders.is_some() {
+        ctx.taint();
+    }
     let mut in_view: Option<std::ops::Range<usize>> = None;
     for (child, mut child_rect) in placed {
         let mut replaced = false;
@@ -714,20 +770,29 @@ fn place_subtree<'a>(
             child_rect = frame.place_box(child_rect);
             replaced = true;
         }
+        let cull_clip = if inherit.space.transform.is_some() {
+            bounds::local_clip(
+                inherit.space.transform,
+                inherit.space.clip.unwrap_or(clip_for_child),
+            )
+            .unwrap_or(clip_for_child)
+        } else {
+            clip_for_child
+        };
         // Clipped cells cannot paint outside their bounds. Other cells retain a viewport of
         // margin so a selection frame or shifted label can reach in from a built cell.
         if placeholders.is_some()
             && child_shown
             && !disjoint(
-                subtree_bounds(child, child_rect, ctx.env),
+                bounds::subtree(child, child_rect, ctx.env, inherit.space.transform),
                 if child.properties.get(GRID_CLIPPED_CELL_KEY) == Some(&Value::Bool(true)) {
-                    clip_for_child
+                    cull_clip
                 } else {
                     Rect {
-                        x: clip_for_child.x - clip_for_child.w,
-                        y: clip_for_child.y - clip_for_child.h,
-                        w: clip_for_child.w * 3.0,
-                        h: clip_for_child.h * 3.0,
+                        x: cull_clip.x - cull_clip.w,
+                        y: cull_clip.y - cull_clip.h,
+                        w: cull_clip.w * 3.0,
+                        h: cull_clip.h * 3.0,
                     }
                 },
             )
@@ -748,7 +813,10 @@ fn place_subtree<'a>(
             && measure::style(child).allows != Some(false)
             && !measure::style(child).unclipped_descendant
             && (child.children.is_empty() || measure::style(child).clips)
-            && disjoint(subtree_bounds(child, child_rect, ctx.env), clip_for_child)
+            && disjoint(
+                bounds::subtree(child, child_rect, ctx.env, inherit.space.transform),
+                cull_clip,
+            )
         {
             continue;
         }
@@ -868,22 +936,6 @@ fn disjoint(rect: Rect, clip: Rect) -> bool {
         || rect.y >= clip.y + clip.h
         || rect.x + rect.w <= clip.x
         || rect.y + rect.h <= clip.y
-}
-
-/// Keeps authored input and child bounds along with conservative path coverage overflow.
-pub(crate) fn subtree_bounds(control: &ResolvedControl, rect: Rect, env: &LayoutEnv) -> Rect {
-    if control.control_type.as_deref() != Some("custom")
-        || control.properties.get("renderer").and_then(Value::as_str)
-            != Some(crate::vector_path::RENDERER)
-    {
-        return rect;
-    }
-    let Some(crate::Draw::Custom { data, .. }) = crate::emit::custom_draw(control) else {
-        return rect;
-    };
-    crate::vector_path::bounds(&data).map_or(rect, |bounds| {
-        bounds.subtree_at(rect, env.text.physical_pixel_size())
-    })
 }
 
 /// A bound `clip_ratio`, or a slider progress image revealing its fraction.

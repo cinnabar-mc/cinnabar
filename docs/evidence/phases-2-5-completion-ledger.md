@@ -6,6 +6,15 @@ a current implementation audit; check the owning code and later entries before
 calling work unstarted. Test files listed below establish existing coverage, not
 a fresh passing run or full gate acceptance.
 
+## Frame interpolation backend
+
+The optional `render/frame-generation` build feature contains optical flow and
+camera/depth interpolation for native-sized SDR world colour. It remains absent
+from production rendering and Video settings. Synthetic GPU fixtures cover block
+motion, camera motion, cut detection, explicit history resets, invalid inputs and
+depth at 10% resolution. No composition, presented-frame pacing, measured latency,
+hardware performance or in-world visual gate closes from these backend fixtures.
+
 ## Browser host composition
 
 The browser host uses verified memory carriers, the shared game frame and HUD, injected
@@ -24,6 +33,9 @@ The local rig retains animation flags separately from gameplay metadata. Visual
 item use and locomotion poses no longer author correction-sync flag words.
 Rendering consumers read the separate animation state. Accepted local held-use and
 glide/swim/crawl projection, replay authority and send-phase parity remain open.
+Player death also changes presentation flags once after its visible sequence,
+retaining the actor and accepting later server visibility updates. Deterministic
+death, revival and removal coverage does not establish original Zeqa acceptance.
 
 ## Correction-sync posture retries
 
@@ -133,8 +145,14 @@ this storage change advances no rendered, live-join or broader parity completion
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;
-app composition coverage remains in `app`. This move adds no compilation, execution
-or live evidence, and all behavior and performance gates retain their status.
+app composition coverage remains in `app`. Launch diagnostics now retain the first
+GPU-completed menu presentation and bounded main/render startup samples. Menu launches
+prepare world carriers, collision bindings and static GUI item sources after menu
+completion, with joins gated on the complete bundle. Terrain compute construction runs
+on workers. Pipeline warmup ordering, launch benchmarking and delayed feedback have
+deterministic coverage; reference-hardware startup budgets and persistent shader-cache
+reuse remain unqualified.
+All behavior and performance gates retain their status.
 
 End-rod terrain coverage now includes the six facing states, separate shaft/base sprite
 mapping and an original-art GPU fixture. This bounded geometry correction leaves the
@@ -173,7 +191,12 @@ Far-summary extraction now has global copied-work admission, a background lane a
 explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
 sources. Shutdown advances all retiring inboxes before waiting, and cancelled live delivery
 releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
-performance qualification remain incomplete. No phase or performance gate closes here.
+performance qualification remain incomplete. Coarsening keeps overlapping fallback tiles
+until their replacement covers all known columns; near masks also track the outer view
+distance. Regressions cover partial solid/empty coarsening and horizon changes. The Far
+Terrain control remains unavailable; owner-approved rendered comparisons, smooth transitions
+and matched on/off hardware profiles at 32+ chunks are still required. No phase or
+performance gate closes here.
 
 ## P2.5-NATIVE-BIOME
 
@@ -190,11 +213,14 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
-| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping and transport membership are implemented; broader publication acceptance remains open. See the sub-chunk request batching continuation in `plan.md`. |
-| Deterministic tests | Protocol, stream, transport and app regressions are authored. Full verification of the final implementation is pending. |
+| Completion collection | Decode, light and mesh mailboxes defer contended reads while retaining FIFO order, capacity and permit lifetimes. Authored regressions cover paused publication, later collection, backpressure, shutdown and service notification handling; CI execution and saturated-producer hardware qualification remain pending. |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented. Light dependency notifications coalesce and compete across camera queue generations until geometry can check readiness; broader publication acceptance remains open. See the publication and sub-chunk request batching continuation in `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Full publication qualification is pending. |
+| Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership, deferred-mesh promotion and stalled cached-terrain recovery are implemented. Ordinary polls keep intake first; interrupted worker service resumes with bounded completion and refill work. Foreground offload requires service polling that advanced commits. Broader publication acceptance remains open. See `plan.md`. |
+| Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Controlled cache deadlines cover idle input, cancellation, full-column payload retention, shared-hash retries, ordering and resets. Reclaim regressions cover downstream progress, full intake windows, bounded worker continuation and foreground handoff credit. Full publication qualification is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
-| Performance/resource witness | Live join, streaming and hardware budgets remain open. |
+| Performance/resource witness | Exact whole-output light and valid provenance equality reuses boundary evidence only while prior identities match. Changed outputs retain their existing scans. Workers finalize shared geometry streams; publication and extraction preserve their payload allocations, with pointer-identity and upload-byte regressions authored for CI. Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE
@@ -292,7 +318,13 @@ have not been compiled or executed and do not close this gate.
 Settings now manages ordered local components, independent reloads and per-mod permissions.
 The native mod host is always included; regular callback fuel and separate event/loading
 lanes are bounded across the full frame. Deferred lifecycle state and bounded screen-scoped
-edit text remain queued until delivery, while frame-local outputs reset. Revocation is distinct
+edit text remain queued until delivery, while frame-local outputs reset. Suspendible frame
+callbacks retain their store, fuel and private output across time slices; completed output
+publishes after post-return, and late frame actions expire. Invocation writes use deltas;
+drawing allocation and retirement retain one owner. In-flight actor references and mask
+members use confirmed despawns rather than candidate absence, and publication uses
+resource revisions and allocation identity without mesh or shader content comparisons. Decision-exporting instances
+remain synchronous. The new deterministic regressions have not been executed. Revocation is distinct
 from quarantine, so unrelated registration changes do not restart trapped guests.
 These extension changes close no vanilla parity gate. Their native execution and visual
 acceptance remain incomplete until CI and owner review, as recorded in `plan.md`.
@@ -320,6 +352,18 @@ and exact native and platform comparison remain open.
 | Final status | Open -- deterministic code and validator present; binding live/native evidence remains gated. |
 
 ## P4.3-RIGS
+
+Local leg cycles consume completed physics movement in both animation modes.
+Deterministic coverage checks independent actor cadence, movement retries and frame
+interpolation. Linux running-jump captures cover both modes; matched native
+qualification remains open.
+
+Body-slot equipment retention, authored model selection and removal have original
+fixture coverage, alongside startup binding completion and raw worn-slot counting.
+Resource-only session overrides reuse completed bindings without replacing authored
+item conditions; expression-root placement retains the worn slot.
+Local counts use the armor container; replicated counts retain unresolved equipment.
+Multi-pass body equipment and matched native visual qualification remain open.
 
 | Field | Evidence |
 |---|---|
@@ -368,6 +412,10 @@ execution of this move are unverified, and it adds no parity evidence.
 Session custom-item regressions cover scalar legacy facts and stack limits,
 shared held/preview/dropped block geometry, carried tint and owner-selected
 external armor models. Broader item-action and custom-content parity stays open.
+Shield decoration tests cover metadata, ordered texture composition, stack-specific icons,
+selected artwork and pack replacement. Inventory, preview and held routes retain banner layers;
+dropped/frame models retain their authored geometry and decoration. Custom model-part trees,
+glint shading and full damage-feedback acceptance remain open.
 
 | Field | Evidence |
 |---|---|
@@ -414,6 +462,11 @@ retained alpha/depth/UV behavior. Broader custom-model sidedness remains open.
 | Performance/resource witness | Not recorded in this row |
 | Final status | Open |
 
+Personal HUD editing belongs to the first-party mod. The host retains generic HUD
+surfaces, bounds, bindings and element visibility, plus the touch-controls editor
+backend. Touch editor placement, history and factory reflow have offline regression
+coverage; this cleanup closes no live HUD acceptance gate.
+
 Attack-category cooldown shading has owning timer and hotbar-publication regressions
 for admission rollback, shared categories and expiry. A local spear jab reproduces
 the missing overlay against the official client; broader HUD parity remains open.
@@ -451,6 +504,17 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Custom block mining retains component defaults, disabled values, ordered item
+overrides and resolved state permutations in both runtime identity spaces.
+Every admitted state resolves a mining value: malformed item entries never match,
+and conditions the client reads as zero keep the base value. Item-tag filters
+compile during session preparation and reuse those programs without allocating.
+Mining state storage is independent of the physical state budget.
+Regression tests cover component decoding, progress rates and completion packets.
+Complex Molang conditions and item-tag scripts read as zero, and live acceptance
+against a vanilla server remains incomplete; this does not advance the
+interaction completion gate.
+
 Ordered desktop interactions now attempt each edge only in its input frame.
 Refused presses retain no proposal or movement reservation. Gameplay owners retain
 accepted mining and release work, while overload recovery suppresses current held
@@ -473,12 +537,26 @@ camera-direction generation and runtime witnesses remain incomplete.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Ordinary actor picks retain the frame's ticked camera-actor position for the final pick-range
+trim. Knockback regressions cover preserved world intercepts beyond three blocks
+from the transaction source, rejected picks beyond the broader pick range, and
+presses after a later movement tick. Live comparison remains incomplete.
+
+Held placement now retains complete frame picks in arrival order, consumes each batch once,
+and permits due retries within that batch. Stored-hit refresh preserves the original bounded
+intercept and eligible fallback, and line targeting does not add a support-centre range
+filter. Ordinary/liquid availability is independent; indirect refresh may produce a direct
+block hit. Placement and air use share the upcoming-tick category cooldown owner. Native
+repeat delays remain unchanged. Focused app, gameplay, interaction and collision tests pass;
+a headless local-server bridge comparison keeps the fixed player supported where the old
+build falls. Live native-client equivalence and broader placement coverage remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |
 | Deterministic tests | Gameplay direction, support, stacking and immediate-placement tables in both palette encodings; pipeline atomic pair, rollback and ordered publication tests. Item-use tests cover frame/tick slot changes, the native rearm boundary, category cooldowns, rejected-send rollback and hotbar cooldown publication. Inventory regressions cover packet routing, whole transaction rejection, owned response data, active close inputs and selected-item use after close; complete inventory parity remains open. |
 | Review commit | Recorded by the placement follow-up PR. |
-| Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
+| Live/native witness | Headless local-server before/after bridge comparison at the same aim and input duration; the fixed player remains supported. Earlier stair comparison and door pair coverage remains. Live native-client equivalence and broader family visual parity remain open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
 | Final status | Open: remaining placement families and the wider interaction/inventory gate are incomplete. Combat reach, float clipping, movement rounding and snapping, minimum collision dimensions, actor/latency commit ordering and fresh-press swings have regression coverage pending CI. Pose-dependent reach, per-entity pick radii, specialized actor motion, native-origin rounding, terrain availability during asynchronous ingestion, catch-up-frame attack positions and full batch/latency timing remain open. |
 
@@ -499,6 +577,16 @@ Ingress uses bounded lookahead and the existing conflict tracker to admit light 
 past stalled terrain. Dependent mutations, dimension changes and transfer barriers stay
 ordered. Latency echoes flush when their movement/control fence clears. Deterministic
 regressions cover these paths; paired hardware join and transfer timings remain open.
+Scene policy reads retain root properties without resolving unused descendants.
+Deterministic coverage checks constant work, warm reuse and catalog/context changes;
+the full cold UI and hardware frame gates remain open.
+Pack publication shares dependency evidence and retires old application
+snapshots off the frame. Clone-work regression coverage does not close the
+resource-pack or hardware performance gates.
+Join workers prepare base entity expression analysis before session publication;
+authoritative and spawner stores share it with independent actor state. Displays
+skip unused item tables, and network stores avoid a discarded initial table. Cold UI,
+pack reload and reference-hardware acceptance remain open.
 
 Cloud preparation skips hidden geometry, prefetches finite windows on workers and
 retains GPU storage. Regression coverage checks admission frames, exact records,
@@ -519,6 +607,8 @@ resource-pack rebuilds. Renderer work is reduced through uploaded native lightma
 bounded sky lookup, retained actor pipeline IDs and UI composite bindings, and direct
 SMAA blending into the shared scene samples. Early depth rejection and shared passes across
 deferred nametag gaps reduce filtering and attachment work without changing draw order.
+Player label anchors use Java's standing height before crouching offsets; collision-height
+transitions and Scale have regression coverage. Wider name-tag qualification stays open.
 Native colour comparisons cover LDR/HDR filtering and partial-sample overlays. World UI
 also shares passes across depth modes, preserving pixels and pipeline-readiness fallbacks.
 Opt-in Metal visibility admission uses fresh current-frame masks.
@@ -639,12 +729,15 @@ executed locally. No existing completion entry is advanced.
 
 The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
 are implemented. GL/GLES is absent from choices and candidates; older saved GL choices read
-as Auto. Android requires Vulkan. Failed saved Video choices retry Auto for the current launch,
-while WGPU_BACKEND stays strict. Each API is enumerated under its own sentinel before eligible adapters are
-ranked by power preference, device type and vendor backend order, with unclassified hardware
+as Auto. Android requires Vulkan. A saved Video choice that fails, or that crashed an earlier
+startup under the same setting, retries Auto without that API for the current launch and opens a
+menu notice naming both APIs and the reason, while WGPU_BACKEND stays strict. The startup log
+states the requested API, the API in use and why. Each API is enumerated under its own sentinel before eligible adapters are
+ranked by power preference, device type and platform backend order (Windows: DX12, then Vulkan, for every GPU vendor), with unclassified hardware
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
-client version change or Graphics API selection, including choosing Auto again. Exhausted candidates permit one retry
+client version change or selecting Auto, including choosing it again; an explicit selection keeps
+them for its Auto fallback. Exhausted candidates permit one retry
 pass with exclusions cleared. Startup log boundaries synchronize only the file sink.
 Candidate filtering requires base-vertex terrain draws, vertex and fragment storage, alternate
 texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and
@@ -661,6 +754,8 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+Chalkboards retain supplied model geometry and world artwork; text and native visual
+acceptance remain incomplete, and no completion status advances.
 
 Retained mod drawing has authority and lifetime contracts. Geometry admission validates
 vertices once and caches extent and quota facts for every shared instance and callback
@@ -668,7 +763,13 @@ group. Extent checks use conservative box and sphere bounds without revisiting v
 Unchanged callbacks preserve snapshot identity without allocations. The generic unlit
 renderer is connected; actor root attachment uses the renderer publication and exact spawn
 references. Bone attachment, native output captures and hardware budgets remain incomplete
-and do not close any completion requirement.
+and do not close any completion requirement. Client parts reuse these imports and their
+host, with signed asset access, optional frames and session-scoped resource ownership.
+Epoch callbacks keep their native actor context, including actor-only retained snapshots.
+One bundle allocation ledger covers drawing, per-view instance capacity, masks and media;
+charges follow resident storage through its last GPU use. Celestial camera anchoring retains the geometry and byte budgets. Headless planet / star-cube
+rendering and F9 teardown cover the developer path; hardware qualification remains open in
+`plan.md`.
 
 Bounded procedural materials and SDK presets use a session animation phase.
 Lifecycle, shader layout and GPU timing tests pass; native Metal fixtures cover

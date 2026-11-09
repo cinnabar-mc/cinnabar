@@ -109,6 +109,7 @@ impl Category {
             Self::Packs => &[
                 "assets",
                 "client_extensions",
+                "mod_host",
                 "pack_runtime",
                 "resource_pack",
                 "cinnabar::asset_bindings",
@@ -135,6 +136,7 @@ impl Category {
                 "bridge",
                 "crash_monitor",
                 "diagnostics",
+                "first_run",
                 "launcher",
                 "cinnabar::lifecycle",
             ],

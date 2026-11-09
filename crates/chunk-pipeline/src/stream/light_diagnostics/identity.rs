@@ -190,11 +190,15 @@ mod tests {
         stream.set_sequential_id_remap(assets::SequentialIdRemap::new([(3, 2, 10)]));
         stream.set_light_diagnostic_custom_blocks(CustomBlocks {
             blocks: Arc::from([CustomBlock {
+                mining: Default::default(),
                 state_physics_complete: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
                 player_interact: false,
+                sound: None,
                 name: Arc::from("test:roof"),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 2,
                 collides: true,
                 collision_boxes: None,

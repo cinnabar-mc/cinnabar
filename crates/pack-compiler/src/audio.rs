@@ -20,8 +20,8 @@ use thiserror::Error;
 pub const AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH: &str = "sounds/sound_definitions.json";
 pub const MAX_AUDIO_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 pub const PINNED_SOUND_DEFINITIONS_SHA256: [u8; 32] = [
-    0xf6, 0xeb, 0xf5, 0xfe, 0x07, 0xd6, 0x73, 0x55, 0x69, 0x8a, 0x4f, 0xa2, 0xd1, 0x38, 0x21, 0x77,
-    0x53, 0xb3, 0xb7, 0xda, 0x2b, 0x94, 0xe3, 0x16, 0x2c, 0x94, 0xda, 0x48, 0xf9, 0xa6, 0x9f, 0xe6,
+    0xfb, 0x75, 0x8a, 0x08, 0x89, 0x16, 0x07, 0xc1, 0x7e, 0xe2, 0x94, 0x9b, 0xda, 0xa2, 0xe4, 0xf4,
+    0xbc, 0x0c, 0xc4, 0xc9, 0xb0, 0xc4, 0x45, 0x44, 0x7b, 0x23, 0xff, 0x6d, 0x4f, 0x6d, 0x37, 0xef,
 ];
 
 #[derive(Clone, Debug)]
@@ -321,6 +321,32 @@ mod tests {
 
     fn compile(source: &[u8]) -> Result<CompiledAudioCarrier, AudioCompileError> {
         compile_audio_source(source, [0x11; 32], Sha256::digest(source).into())
+    }
+
+    #[test]
+    fn sound_definition_pin_is_bound_to_the_current_pack_manifest() {
+        // A pack update must verify its sound definitions before updating this witness.
+        let manifest_sha256 = [
+            0x27, 0x60, 0x09, 0x0a, 0x11, 0x2c, 0x50, 0xdc, 0x0a, 0xc6, 0xab, 0xf3, 0xfc, 0x21,
+            0xbf, 0xa9, 0x0d, 0x6f, 0x53, 0x33, 0x0b, 0x1d, 0x45, 0xd5, 0x1d, 0xac, 0xe8, 0xfa,
+            0xba, 0xfa, 0xa0, 0xad,
+        ];
+        assert_eq!(assets::vanilla_source_manifest_sha256(), manifest_sha256);
+    }
+
+    #[test]
+    fn pinned_pack_compiles_a_playable_sound_catalog() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let pack = workspace.join(assets::vanilla_source().resource_pack_dir());
+        if !pack.join(AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH).is_file() {
+            eprintln!("missing fixture: pinned Bedrock sample sound definitions");
+            return;
+        }
+        let compiled = compile_audio_assets(&pack, assets::VANILLA_SOURCE_MANIFEST.as_bytes())
+            .expect("compile sound definitions from the pinned sample pack");
+        let catalog = RuntimeAudioCatalog::decode(&compiled.bytes).unwrap();
+        let click = catalog.lookup("random.click").expect("UI click definition");
+        assert!(!click.alternatives.is_empty());
     }
 
     #[test]

@@ -85,8 +85,12 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
             .collect(),
         ..Default::default()
     })));
-    runtime.hud.set_title(Arc::from("Ordinary title"), 1, 0);
     runtime
+        .session
+        .hud
+        .set_title(Arc::from("Ordinary title"), 1, 0);
+    runtime
+        .session
         .hud
         .set_subtitle(Arc::from("Ordinary subtitle"), 2, 0);
     for now in [0, 16, 32] {
@@ -100,8 +104,8 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
             )
             .unwrap();
     }
-    runtime.hud.set_title(Arc::from(title), 3, 0);
-    runtime.hud.set_subtitle(Arc::from(subtitle), 4, 0);
+    runtime.session.hud.set_title(Arc::from(title), 3, 0);
+    runtime.session.hud.set_subtitle(Arc::from(subtitle), 4, 0);
     for now in [100, 116, 132] {
         presentation
             .build(
@@ -146,8 +150,14 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
         Draw::Text { text, .. } if text == "Ordinary title" || text == "Ordinary subtitle"))
     );
 
-    runtime.hud.set_title(Arc::from("Back in round"), 5, 1200);
-    runtime.hud.set_subtitle(Arc::from("Playing"), 6, 1200);
+    runtime
+        .session
+        .hud
+        .set_title(Arc::from("Back in round"), 5, 1200);
+    runtime
+        .session
+        .hud
+        .set_subtitle(Arc::from("Playing"), 6, 1200);
     for now in [1200, 1216, 1232] {
         presentation
             .build(
@@ -181,8 +191,11 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
     assert!(!nodes.iter().any(|node| matches!(&node.draw,
         Draw::Text { text, .. } if text == title || text == subtitle)));
 
-    runtime.hud.set_title(Arc::from(title), 7, 1800);
-    runtime.hud.set_subtitle(Arc::from(subtitle), 8, 1800);
+    runtime.session.hud.set_title(Arc::from(title), 7, 1800);
+    runtime
+        .session
+        .hud
+        .set_subtitle(Arc::from(subtitle), 8, 1800);
     presentation
         .build(
             &player,
@@ -204,7 +217,7 @@ fn admitted_dynamic_title_selects_only_its_authored_branch() {
     assert!(!nodes.iter().any(|node| matches!(&node.draw,
         Draw::Text { text, .. } if text == "Back in round" || text == "Playing")));
 
-    runtime.hud.clear_titles();
+    runtime.session.hud.clear_titles();
     presentation
         .build(
             &player,

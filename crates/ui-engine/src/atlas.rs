@@ -20,15 +20,18 @@ use image::{ImageReader, Limits};
 use json_ui::{TextureMeta, parse_texture_meta};
 use render_model::UiTexturePage;
 
+use crate::revision::{AtlasRevision, Revision};
 use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
 
 pub(crate) mod fitted;
 mod frame_sidecars;
 pub mod jobs;
 mod local_sources;
+mod outlines;
 mod oversized;
-pub use oversized::OversizedTextures;
+pub use oversized::{OversizedFrame, OversizedTextures};
 mod client_rasters;
+pub use client_rasters::LOCAL_PLAYER_HEAD;
 pub mod native_sheets;
 pub mod preread;
 mod source_reads;
@@ -44,7 +47,7 @@ pub const VANILLA_IN_PACKAGE: &str = "resource_packs/vanilla/";
 pub type BuiltinImages = &'static [(&'static str, &'static [u8])];
 
 /// Side of a dynamic UI page, which also bounds one server texture.
-const PAGE_SIDE: u32 = 256;
+pub(crate) const PAGE_SIDE: u32 = 256;
 const GUTTER: u32 = 1;
 
 /// Largest texture file read from the pack stack.
@@ -303,11 +306,14 @@ pub struct ServerAtlas {
     metadata_revision: u64,
     metadata_dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
-    oversized: OversizedTextures,
+    oversized: oversized::Registry,
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
+    outlines: outlines::Outlines,
     work: ImageWork,
+    /// Changes whenever what a sprite lookup or residency check reads changes.
+    revision: Revision,
 }
 
 /// Decode time a frame spends inline before spilling misses to workers or a later frame.
@@ -482,6 +488,7 @@ impl ServerAtlas {
     /// Enables the original-image slots owned by the main presentation catalog.
     pub fn with_native_sheets(mut self, enabled: bool) -> Self {
         self.native_enabled = enabled;
+        self.revision.bump();
         self
     }
 
@@ -499,6 +506,37 @@ impl ServerAtlas {
                     .as_ref()
                     .is_some_and(|pack| pack.read_pending(key)),
             }
+    }
+
+    /// Requests draw-sized source coverage independently of GPU sheets, outside painting.
+    pub(crate) fn prepare_outline(&mut self, key: &str, size: [u32; 2]) {
+        if !self.outlines.needs(key, size) {
+            return;
+        }
+        let carrier = (!self.has_image(key))
+            .then(|| {
+                let carrier = self.carrier.as_ref()?;
+                let slot = carrier.texture(key)?;
+                Some(outlines::Input::Carrier {
+                    page: carrier.atlas_pages().get(usize::from(slot.page))?.clone(),
+                    bounds: [slot.x, slot.y, slot.width, slot.height].map(u32::from),
+                })
+            })
+            .flatten();
+        if let Some(input) =
+            carrier.or_else(|| self.native_source(key).map(outlines::Input::Encoded))
+        {
+            self.outlines.request(key, size, input, self.work.workers);
+        }
+    }
+
+    /// Reads a ready draw-sized mask without doing source work during paint.
+    pub(crate) fn original_outline(
+        &self,
+        key: &str,
+        size: [u32; 2],
+    ) -> Option<Arc<render_api::sprite_mask::SpriteMask>> {
+        self.outlines.get(key, size)
     }
 
     /// Whether an original virtual image has finished its one-time decode.
@@ -532,13 +570,23 @@ impl ServerAtlas {
         if ready {
             self.metadata_revision = self.metadata_revision.wrapping_add(1);
             self.metadata_dirty = true;
+            self.revision.bump();
         }
-        ready | self.native.collect()
+        ready | self.native.collect() | self.outlines.collect()
     }
 
     /// Changes to image dimensions must rebuild normalized UVs, aspect ratios and slice geometry.
     pub fn metadata_revision(&self) -> u64 {
         self.metadata_revision
+    }
+
+    /// The current residency, readiness and source state that painted sprites resolve against.
+    pub(crate) fn revision(&self) -> AtlasRevision {
+        AtlasRevision {
+            atlas: self.revision,
+            native: self.native.revision(),
+            outlines: self.outlines.revision(),
+        }
     }
 
     /// Keeps readiness observed during painting visible to the next retained-frame poll.
@@ -645,16 +693,20 @@ impl ServerAtlas {
             return found.clone();
         }
         let (found, settled) = if is_remote(key) {
-            match self.remote.as_ref()?.state(key) {
+            match self.remote.as_ref()?.load(key) {
                 RemoteImage::Ready(bytes) => (source(bytes), true),
                 RemoteImage::Failed => (None, true),
-                RemoteImage::Loading => (None, false),
+                RemoteImage::Loading | RemoteImage::ReadyWithoutBody => (None, false),
             }
         } else {
             self.local_source(key)
         };
         if settled {
             let mut extra = self.extra.borrow_mut();
+            // Cache admission also bounds diagnostics when misses churn.
+            if found.is_none() && extra.len() < MAX_EXTRA {
+                tracing::debug!(target: "server_form", key, "UI texture unresolved");
+            }
             if extra.len() >= MAX_EXTRA {
                 extra.pop_first();
             }
@@ -665,11 +717,6 @@ impl ServerAtlas {
 
     pub fn placement(&self, key: &str) -> Option<ServerTexture> {
         self.resident.get(key).copied()
-    }
-
-    /// Drawn textures a page had to shrink, by key, with their source bytes.
-    pub fn oversized(&self) -> OversizedTextures {
-        self.oversized.clone()
     }
 
     /// Page images in order, for the reserved dynamic pages.
@@ -687,6 +734,11 @@ impl ServerAtlas {
     /// that fits nowhere without evicting one drawn this frame is left out.
     pub fn require<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.clock += 1;
+        self.require_current(keys);
+    }
+
+    /// Adds prepared artwork without making earlier draws in this paint eligible for eviction.
+    pub(crate) fn require_current<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
         self.decodes.collect();
         self.poll_native_images();
         // Mark what is already resident first, so a miss never evicts a page
@@ -705,7 +757,10 @@ impl ServerAtlas {
                 }
             }
             match self.resident.get(key) {
-                Some(texture) => self.pages[usize::from(texture.page)].used = self.clock,
+                Some(texture) => {
+                    self.pages[usize::from(texture.page)].used = self.clock;
+                    self.oversized.draw_resident(key);
+                }
                 None => missing.push(key),
             }
         }
@@ -749,28 +804,33 @@ impl ServerAtlas {
         {
             self.images = self.pages.iter().map(|page| page.image.clone()).collect();
             self.dirty = true;
+            self.revision.bump();
         }
     }
 
     /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
     /// while its decode is still on a worker or waits for a later frame.
     fn place(&mut self, key: &str, within_budget: bool) -> Option<usize> {
-        let (size, rgba) = if let Some(image) = self.client_rasters.get(key) {
-            (image.dimensions(), Arc::new(image.pixels().to_vec()))
+        let (size, rgba, fitted) = if let Some(image) = self.client_rasters.get(key) {
+            (image.dimensions(), Arc::new(image.pixels().to_vec()), None)
         } else {
             let source = match self.image(key) {
                 Some(source) => source,
                 None => self.fallback(key)?,
             };
-            if source.packed != source.size {
-                self.oversized.insert(key, &source.bytes);
+            let fitted = (source.packed != source.size).then(|| Arc::clone(&source.bytes));
+            if let Some(bytes) = &fitted {
+                self.oversized.draw(key, bytes);
             }
             let size = source.packed;
             let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
             let rgba = self.decodes.get(key, &source, decode_on)?;
-            (size, rgba)
+            (size, rgba, fitted)
         };
         let (index, origin) = self.slot(size)?;
+        if let Some(bytes) = fitted {
+            self.oversized.fitted(key, &bytes);
+        }
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;
         let width = size[0] as usize * 4;
@@ -782,6 +842,7 @@ impl ServerAtlas {
         page.keys.push(key.to_owned());
         page.used = self.clock;
         let rect = [origin[0], origin[1], size[0], size[1]].map(|value| value as u16);
+        self.revision.bump();
         self.resident.insert(
             key.to_owned(),
             ServerTexture {
@@ -820,8 +881,10 @@ impl ServerAtlas {
                 .is_some_and(|slot| usize::from(slot.page) == index)
             {
                 self.resident.remove(&key);
+                self.oversized.evicted(&key);
             }
         }
+        self.revision.bump();
         page.pixels.fill(0);
         page.cursor = [0; 3];
         Some((index, page.allocate(size)?))
@@ -838,9 +901,6 @@ fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
         packed: fitted(size),
     })
 }
-
-/// Oversized textures remembered for the art pages.
-const MAX_OVERSIZED: usize = 16;
 
 /// Largest source side decoded, as a desktop texture allows; bigger images are skipped.
 const MAX_SOURCE_SIDE: u32 = render_model::MAX_UI_NATIVE_SHEET_SIDE;

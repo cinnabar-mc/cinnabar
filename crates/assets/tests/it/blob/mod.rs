@@ -156,7 +156,7 @@ fn world_carrier_exact_bytes() {
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "f0dbfc832cb8e76276844eba23c8d8c2a5c9e039c40d4a3fb7854aab907bf487",
+        "fa5725727ffbc7083dbe9a8c8f86e62ba95198651093bcddf706f624e9fd05a1",
         "the complete every-table fixture is the byte-exact world carrier golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
@@ -405,7 +405,7 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     }]
     .into_boxed_slice();
     bad_quad.model_quads = vec![assets::ModelQuad {
-        flags: 0x80,
+        flags: assets::MODEL_QUAD_FLAG_WORLD_ALIGNED_UV << 1,
         ..quad
     }]
     .into_boxed_slice();

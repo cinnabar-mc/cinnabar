@@ -32,12 +32,17 @@ const MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME: usize =
     FRAME_PASSES_PER_ACTOR * MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
 
+mod catalog;
+pub use catalog::ActorAnimationCatalog;
+
 mod actor;
 pub use actor::{AnimatedActor, AnimatedActors, MAX_ANIMATED_ACTORS};
 pub mod consumables;
 mod properties;
 mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
+mod head_rotation;
+pub use head_rotation::HeadRotation;
 mod rig;
 pub use rig::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
@@ -53,6 +58,7 @@ pub use store::ActorAnimationStore;
 use store::{PackCatalog, PoseStep, model_scale};
 
 mod attachable;
+mod boat;
 mod cape;
 pub use cape::CapePreparationQueue;
 mod clock;
@@ -76,8 +82,10 @@ mod query;
 mod render;
 mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
+mod brandish;
 mod replay;
 mod server_animation;
+mod shulker;
 pub use server_animation::ServerAnimationCompiler;
 mod schedule;
 mod skin;
@@ -89,14 +97,14 @@ pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
 };
 pub use evaluation::ActorAnimationVariables;
-use evaluation::variables::{MolangVariables, ScratchVariables};
+use evaluation::variables::MolangVariables;
 use evaluation::{EngineSlots, Evaluator, MolangValue, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
-use pose::{compose_pose, sample_clips};
-pub use render::RenderTextureLayer;
+use pose::compose_pose;
+pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
@@ -126,3 +134,10 @@ mod crystal_tests;
 
 #[cfg(test)]
 mod dragon_tests;
+
+#[cfg(test)]
+#[global_allocator]
+static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+/// Owner-bone placement shared by world and live UI equipment.
+pub mod attachment;
