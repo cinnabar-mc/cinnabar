@@ -168,6 +168,8 @@ impl MenuRuntime {
             auth_process: None,
             auth_attempted: false,
             auth_restart_requested: false,
+            saved_sign_in_checked: false,
+            sign_in_resumed: false,
             account_core: None,
             layout,
             default_player_skin: player_skin

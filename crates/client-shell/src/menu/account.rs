@@ -77,11 +77,11 @@ impl MenuRuntime {
         self.cancel_join_fallback_prompt();
         // Cached validation also runs when a signed-out account core is already
         // attached, as happens before opening the menu in a direct session.
-        if self.visible
-            && !self.is_connecting()
-            && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
-        {
-            self.start_cached_sign_in();
+        if self.visible && !self.is_connecting() {
+            self.resume_saved_sign_in(std::time::SystemTime::now());
+            if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
+                self.start_cached_sign_in();
+            }
         }
         self.update_sign_in_browser(false);
         self.poll_catalog_art();
@@ -115,6 +115,35 @@ impl MenuRuntime {
         // Keep successful sections, but expose only controlled recovery copy.
         self.catalog_message =
             (!catalog.errors.is_empty()).then(|| "Social: Refresh to try again.".to_owned());
+    }
+
+    /// Once per launch, before any other sign-in, reopens a prompt the helper saved before the
+    /// system ended the client, as phones do to an app left for the browser. The helper resumes
+    /// polling the same code, so approving it there still signs the player in.
+    fn resume_saved_sign_in(&mut self, now: std::time::SystemTime) {
+        if std::mem::replace(&mut self.saved_sign_in_checked, true)
+            || self.auth_attempted
+            || self.auth_process.is_some()
+        {
+            return;
+        }
+        if launcher::pending_sign_in::awaiting(&self.layout.auth_cache(), now) {
+            self.start_sign_in();
+        } else if launcher::pending_sign_in::awaiting(&self.account_store().pending_cache(), now) {
+            self.resume_add_account();
+        } else {
+            return;
+        }
+        self.sign_in_resumed = true;
+    }
+
+    /// The token cache the current sign-in writes: the pending one while adding an account.
+    fn sign_in_cache(&self) -> PathBuf {
+        if self.feeds.account_adding {
+            self.account_store().pending_cache()
+        } else {
+            self.layout.auth_cache()
+        }
     }
 
     /// Validates the saved account in the background, without taking focus for a prompt.
@@ -231,6 +260,7 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = true;
         self.sign_in_cancelled = false;
+        self.sign_in_resumed = false;
         self.focus_sign_in_prompt();
         self.auth_attempted = true;
         self.stop_catalog();
@@ -257,12 +287,7 @@ impl MenuRuntime {
             self.message = Some(failure.into());
             return;
         };
-        let cache = if self.feeds.account_adding {
-            launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
-        } else {
-            self.layout.auth_cache()
-        };
-        match AuthSupervisor::spawn(&executable, &cache) {
+        match AuthSupervisor::spawn(&executable, &self.sign_in_cache()) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
                 self.auth_process = None;
@@ -294,7 +319,7 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
             self.control_auth.as_ref(),
         );
-        if state.awaiting_browser() {
+        if state.awaiting_browser() && (explicit || !self.sign_in_resumed) {
             #[cfg(not(test))]
             self.sign_in_browser
                 .open(state, explicit, launcher_host::desktop::open_sign_in_link);
@@ -462,6 +487,10 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
+        self.sign_in_resumed = false;
+        if let Err(error) = launcher::pending_sign_in::forget(&self.sign_in_cache()) {
+            bevy::log::warn!(%error, "abandoned sign-in prompt could not be removed");
+        }
         // Cancellation is sticky. Only the explicit StartSignIn action may
         // create another helper after this point.
         if matches!(
@@ -495,3 +524,5 @@ mod tests;
 
 #[cfg(test)]
 mod auth_tests;
+#[cfg(all(test, unix))]
+mod resume_tests;
