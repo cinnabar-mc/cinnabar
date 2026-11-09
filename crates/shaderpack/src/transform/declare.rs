@@ -844,6 +844,7 @@ mod tests {
             normalize_legacy: true,
             geometry: false,
             vertex_clip: true,
+            bound_core_inputs: false,
         }
     }
 

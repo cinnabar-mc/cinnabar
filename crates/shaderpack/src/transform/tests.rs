@@ -44,6 +44,10 @@ fn draft(
         normalize_legacy: true,
         geometry: file.starts_with("gbuffers_"),
         vertex_clip: true,
+        bound_core_inputs: crate::translate::bound_core_inputs(
+            file.rsplit_once('.').map_or(file, |(stem, _)| stem),
+            &pp,
+        ),
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)
@@ -228,6 +232,7 @@ fn only_compatibility_stages_write_the_alpha_tested_output() {
             normalize_legacy,
             geometry: true,
             vertex_clip: true,
+            bound_core_inputs: false,
         };
         let mut iface = ProgramInterface::default();
         transform(&pp, StageKind::Fragment, &mut iface, &names)
