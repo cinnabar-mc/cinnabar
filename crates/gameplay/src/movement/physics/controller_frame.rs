@@ -18,7 +18,7 @@ pub(super) struct ControllerFrame {
     /// Modifier state and actor flag after this tick, including ticks before an attribute arrives.
     pub speed: crate::movement::speed_authority::EffectiveMovementSpeed,
     pub start_sprinting: bool,
-    /// Accepted replacements and effect operations before this tick's local sprint edges.
+    /// Accepted attribute, effect and live metadata edits before this tick's local sprint edges.
     pub speed_updates: Vec<crate::movement::speed_authority::MovementSpeedUpdate>,
     pub sync_state: posture::SyncState,
     pub sync_server: Vec<posture::ServerWrite>,

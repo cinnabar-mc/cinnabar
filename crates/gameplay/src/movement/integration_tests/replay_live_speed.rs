@@ -227,7 +227,7 @@ fn pending_speed_effect_survives_correction_and_frame_replay_adoption() {
 }
 
 /// Compares replay before and after the first speed effect reaches a completed tick.
-fn check_first_speed_effect_replay(trigger: Option<ReplayTrigger>) {
+fn check_first_speed_effect_replay(trigger: Option<ReplayTrigger>, metadata_first: bool) {
     let (mut physics, mut ticker) = walked_physics(0);
     let mut locals = super::super::LocomotionState::default();
     let mut effects = super::super::LocalMovementEffectTimeline::default();
@@ -244,40 +244,57 @@ fn check_first_speed_effect_replay(trigger: Option<ReplayTrigger>) {
         ));
     }
     let anchor = ticker.completed_tick();
-    apply_control(
-        CommittedControlEvent::LocalMovementEffect {
-            sequence: 1,
-            event: protocol::ActorEffectEvent {
-                dimension: 0,
-                actor_runtime_id: 42,
-                action: protocol::ActorEffectAction::Add,
-                effect_id: protocol_ids::Effect::Speed.wire_value(),
-                amplifier: 0,
-                particles: false,
-                ambient: false,
-                duration_ticks: 600,
-                tick: 0,
-            },
-        },
-        &mut ticker,
-        &mut physics,
-        &mut effects,
-        &mut speed,
-    );
-    apply_control(
-        CommittedControlEvent::LocalMovementFlags {
-            sequence: 2,
+    let effect = CommittedControlEvent::LocalMovementEffect {
+        sequence: if metadata_first { 2 } else { 1 },
+        event: protocol::ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 42,
+            action: protocol::ActorEffectAction::Add,
+            effect_id: protocol_ids::Effect::Speed.wire_value(),
+            amplifier: 0,
+            particles: false,
+            ambient: false,
+            duration_ticks: 600,
             tick: 0,
-            flags: flags(|flags| flags.sprinting = Some(true)),
-            replacement: false,
-            dimensions: None,
         },
-        &mut ticker,
-        &mut physics,
-        &mut effects,
-        &mut speed,
-    );
-    let expected_speed = Some(f64::from(0.1_f32 * 1.2));
+    };
+    let metadata = CommittedControlEvent::LocalMovementFlags {
+        sequence: if metadata_first { 1 } else { 2 },
+        tick: 0,
+        flags: flags(|flags| flags.sprinting = Some(true)),
+        replacement: false,
+        dimensions: None,
+    };
+    let controls = if metadata_first {
+        [metadata, effect]
+    } else {
+        [effect, metadata]
+    };
+    for (index, control) in controls.into_iter().enumerate() {
+        apply_control(control, &mut ticker, &mut physics, &mut effects, &mut speed);
+        if metadata_first && index == 0 {
+            let mut frame = speed_frame(Default::default());
+            frame.delta = Duration::ZERO;
+            assert!(locals.advance(
+                frame,
+                &mut physics,
+                &mut ticker,
+                &mut effects,
+                &mut speed,
+                &VersionedFloor(1),
+            ));
+            assert_eq!(ticker.completed_tick(), anchor);
+            assert_eq!(speed.current(), None);
+        }
+    }
+    let expected_current = 0.1_f32
+        * 1.2
+        * if metadata_first {
+            sim::SPRINT_SPEED_MULTIPLIER as f32
+        } else {
+            1.0
+        };
+    let expected_speed = Some(f64::from(expected_current));
     assert_eq!(speed.current(), expected_speed);
     if let Some(trigger) = trigger {
         let retained = physics.sample_at(anchor - 1).unwrap().clone();
@@ -311,7 +328,7 @@ fn check_first_speed_effect_replay(trigger: Option<ReplayTrigger>) {
     assert_eq!(
         speed.prediction_speed(),
         Some(f64::from(
-            0.1_f32 * 1.2 / sim::SPRINT_SPEED_MULTIPLIER as f32
+            expected_current / sim::SPRINT_SPEED_MULTIPLIER as f32
         )),
         "{trigger:?}"
     );
@@ -348,7 +365,7 @@ fn check_first_speed_effect_replay(trigger: Option<ReplayTrigger>) {
     ));
     assert_eq!(physics.state(), live_state.as_ref());
     assert_eq!(speed.current(), live_speed);
-    assert_eq!(live_speed, Some(f64::from(0.1_f32 * 1.2)));
+    assert_eq!(live_speed, expected_speed);
 }
 
 /// A first speed effect followed by live sprint metadata keeps its speed across replay.
@@ -360,7 +377,20 @@ fn first_speed_effect_before_live_sprint_metadata_matches_replay() {
         Some(ReplayTrigger::Motion),
         Some(ReplayTrigger::Frame),
     ] {
-        check_first_speed_effect_replay(trigger);
+        check_first_speed_effect_replay(trigger, false);
+    }
+}
+
+/// Live sprint metadata adopted before a first speed effect preserves its modifier in replay.
+#[test]
+fn live_sprint_metadata_before_first_speed_effect_matches_replay() {
+    for trigger in [
+        None,
+        Some(ReplayTrigger::Correction),
+        Some(ReplayTrigger::Motion),
+        Some(ReplayTrigger::Frame),
+    ] {
+        check_first_speed_effect_replay(trigger, true);
     }
 }
 

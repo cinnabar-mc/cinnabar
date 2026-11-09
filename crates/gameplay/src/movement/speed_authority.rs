@@ -22,6 +22,7 @@ pub(crate) enum MovementSpeedUpdate {
     /// Ends the preceding actor's attribute and sprint state.
     Reset,
     Attribute(MovementSpeedAttribute),
+    Sprinting(bool),
     Effect {
         action: protocol::ActorEffectAction,
         amplifier: i32,
@@ -36,6 +37,7 @@ impl MovementSpeedUpdate {
             Self::Attribute(attribute) => {
                 *speed = EffectiveMovementSpeed::authoritative(attribute, speed.sprinting());
             }
+            Self::Sprinting(sprinting) => speed.adopt_server_sprinting(Some(sprinting)),
             Self::Effect { action, amplifier } => {
                 let sprinting = speed.sprinting();
                 let attribute = speed.attribute.get_or_insert_with(|| {
@@ -403,6 +405,12 @@ impl LocalMovementSpeedAuthority {
     pub(crate) fn adopt_server_sprinting(&mut self, sprinting: Option<bool>) {
         self.speed.adopt_server_sprinting(sprinting);
         self.reported_speed.adopt_server_sprinting(sprinting);
+    }
+
+    /// Retains an adopted live flag among pending attribute and effect edits.
+    pub(crate) fn record_live_sprinting(&mut self, sprinting: bool) {
+        self.pending_updates
+            .push(MovementSpeedUpdate::Sprinting(sprinting));
     }
 
     /// Applies unrecorded server edits to the modifier state reached by replay.

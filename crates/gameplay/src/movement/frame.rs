@@ -403,6 +403,11 @@ impl LocomotionState {
             let server = physics.take_server_control_flags();
             if let Some(server) = server {
                 movement_speed.adopt_server_sprinting(server.sprinting);
+                if let Some(sprinting) = server.sprinting
+                    && physics.unrecorded_live_sprinting().is_some()
+                {
+                    movement_speed.record_live_sprinting(sprinting);
+                }
                 self.controls
                     .adopt_server_flags(server.sprinting, server.sneaking);
             }
