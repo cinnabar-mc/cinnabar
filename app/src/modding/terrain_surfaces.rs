@@ -52,9 +52,9 @@ fn publish(
         cache.compiled = cache
             .source
             .iter()
-            .filter_map(|rule| {
-                let mut states: Vec<_> = rule
-                    .identifiers
+            .flat_map(|rule| rule.groups.iter().map(move |group| (rule, group)))
+            .filter_map(|(rule, group)| {
+                let mut states: Vec<_> = group
                     .iter()
                     .flat_map(|name| stream.authority().block_ids_for_name(name).iter().copied())
                     .collect();

@@ -22,7 +22,7 @@ impl cinnabar::extension::terrain::Host for State {
         let rules: Vec<_> = rules
             .into_iter()
             .map(|rule| Rule {
-                identifiers: rule.identifiers,
+                groups: rule.groups,
                 border: rule.border,
                 clauses: rule
                     .clauses
@@ -186,7 +186,7 @@ mod tests {
     fn surface_rules_require_material_authority_and_commit_transactionally() {
         use cinnabar::extension::terrain::{SurfaceClause, SurfaceRule};
         let rules = vec![SurfaceRule {
-            identifiers: vec!["test:panel".into()],
+            groups: vec![vec!["test:panel".into()]],
             border: 16,
             clauses: vec![SurfaceClause {
                 conditions: vec![],

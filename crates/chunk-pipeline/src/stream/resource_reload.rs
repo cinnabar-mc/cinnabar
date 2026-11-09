@@ -60,7 +60,7 @@ impl WorldStream {
         {
             return false;
         }
-        self.mesh_memory.surface_patches = !rules.is_empty();
+        self.mesh_memory.surface_rules = rules.clone();
         self.surface_rules = rules;
         self.mesh_policy_changed(now);
         true

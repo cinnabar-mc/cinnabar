@@ -11,6 +11,7 @@ struct CompiledConnectedFixture {
     cube: u32,
     glass: u32,
     scaffolding: u32,
+    powder_snow: u32,
     /// Registry-unclassified see-through cubes: ice, tinted glass and honey.
     see_through: [u32; 3],
 }
@@ -29,7 +30,8 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
                 "cobblestone_wall":{{"textures":"wall"}},
                 "{cube_name}":{{"textures":"cube"}},
                 "glass":{{"textures":"glass"}},
-                "scaffolding":{{"textures":"wall"}}
+                "scaffolding":{{"textures":"wall"}},
+                "powder_snow":{{"textures":"cube"}}
             }}"#
         ),
     )
@@ -162,6 +164,9 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             glass,
             scaffolding,
         ];
+        let powder_snow = named("minecraft:powder_snow");
+        let powder_snow_id = powder_snow.sequential_id;
+        records.push(powder_snow);
         records.extend(see_through);
         let compiled = compile_pack(directory.path(), &records)
         .expect("compile connected fixture");
@@ -209,6 +214,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             cube: ids[8],
             glass: ids[9],
             scaffolding: scaffolding_id,
+            powder_snow: powder_snow_id,
             see_through: see_through_ids,
         }
     })
@@ -762,5 +768,80 @@ fn surface_conditions_distinguish_loaded_empty_sections_from_missing_sections() 
         rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
             .tiles,
         0
+    );
+}
+
+#[test]
+fn surface_rules_preserve_opaque_model_faces_and_only_reserve_matching_draws() {
+    use meshing::surface::SurfaceRule;
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.powder_snow],
+        &[([8, 8, 8], 1)],
+    )]);
+    let neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rules = [SurfaceRule {
+        states: vec![fixture.powder_snow],
+        border: 16,
+        clauses: vec![],
+    }];
+    let baseline = meshing::mesh_sub_chunk_in_neighbourhood(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+    );
+    assert!(!baseline.model_draw_refs().is_empty());
+    let masked = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert_eq!(baseline.model_draw_refs(), masked.model_draw_refs());
+    let bounds = meshing::MeshOutputBounds::new(&fixture.assets);
+    assert_eq!(
+        bounds.for_sub_chunk(&source, &fixture.assets, NetworkIdMode::Sequential),
+        bounds.for_sub_chunk_with_surface_patches(
+            &source,
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &rules
+        )
+    );
+    let glass = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([8, 8, 8], 1)],
+    )]);
+    assert_eq!(
+        bounds.for_sub_chunk(&glass, &fixture.assets, NetworkIdMode::Sequential),
+        bounds.for_sub_chunk_with_surface_patches(
+            &glass,
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &rules
+        )
+    );
+    let glass_rule = [SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![],
+    }];
+    let extra = bounds.for_sub_chunk_with_surface_patches(
+        &glass,
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &glass_rule,
+    ) - bounds.for_sub_chunk(&glass, &fixture.assets, NetworkIdMode::Sequential);
+    assert_eq!(
+        extra,
+        4096 * 2 * 6 * 7 * std::mem::size_of::<meshing::PackedModelDrawRef>() as u64
     );
 }

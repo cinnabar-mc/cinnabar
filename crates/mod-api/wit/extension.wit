@@ -937,7 +937,9 @@ interface terrain {
     record surface-clause { conditions: list<surface-condition>, tiles: u16 }
     /// Identifiers form one connection group. Border is 1..127 in 1/256 block units.
     /// Tiles are a 3x3 bit mask along positive physical U, then V; centre is bit 4.
-    record surface-rule { identifiers: list<string>, border: u8, clauses: list<surface-clause> }
+    /// Each group connects independently; groups share the same coverage clauses.
+    /// Only non-occluding faces with alpha cutout/blend materials are eligible.
+    record surface-rule { groups: list<list<string>>, border: u8, clauses: list<surface-clause> }
     /// Replaces this owner's retained full-cell model-face coverage. Empty restores defaults.
     /// Requires render-material. Original textures, physics and destruction overlays remain.
     /// First matching rule in mod load order wins. Successful callback publication only.

@@ -436,6 +436,7 @@ fn mesh_sub_chunk_core<
                                 }
                             }
                             if entry.variant == 0
+                                && !entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                                 && visuals.model_random_offset(part_template).is_none()
                             {
                                 if let Some(rule) = options.surface_rules.iter().find(|rule| {
@@ -443,6 +444,14 @@ fn mesh_sub_chunk_core<
                                 }) {
                                     for (index, quad) in template_quads.iter().enumerate() {
                                         if visible_quad_mask & (1 << index) == 0 {
+                                            continue;
+                                        }
+                                        if quad.material == DIAGNOSTIC_MATERIAL
+                                            || visuals.material(quad.material).flags
+                                                & (assets::MATERIAL_FLAG_ALPHA_BLEND
+                                                    | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+                                                == 0
+                                        {
                                             continue;
                                         }
                                         if let Some(face) = crate::surface::full_face(quad) {

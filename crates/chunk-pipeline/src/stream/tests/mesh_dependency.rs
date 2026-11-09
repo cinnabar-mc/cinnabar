@@ -633,3 +633,56 @@ fn mesh_neutral_block_changes_keep_their_meshes() {
 fn surface_rules_invalidate_visually_equivalent_state_changes() {
     check_equivalent_state_change(true);
 }
+
+#[test]
+fn surface_snapshot_preserves_authoritative_empty_neighbours() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let mut stream = stream();
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let neighbour = SubChunkKey::new(0, 1, 0, 0);
+    let center = std::sync::Arc::new(super::uniform_sub_chunk(7));
+    stream.surface_rules = std::sync::Arc::from([SurfaceRule {
+        states: vec![7],
+        border: 16,
+        clauses: vec![CoverageClause {
+            tiles: 1,
+            conditions: vec![NeighbourCondition {
+                offset: [1, 0, 0],
+                present: false,
+            }],
+        }],
+    }]);
+    let missing = stream.mesh_snapshot(key, center.clone(), Default::default());
+    assert_eq!(
+        stream.surface_rules[0]
+            .coverage(
+                &missing.neighbourhood(),
+                [15, 8, 8],
+                meshing::Face::PositiveZ,
+                stream.classifier.air_network_id()
+            )
+            .tiles,
+        0x1ff
+    );
+    stream.record_known_air(neighbour);
+    assert!(stream.authority.terrain().sub_chunk(neighbour).is_none());
+    let known = stream.mesh_snapshot(key, center, Default::default());
+    assert!(
+        known
+            .neighbourhood()
+            .sub_chunk([1, 0, 0])
+            .unwrap()
+            .has_no_storages()
+    );
+    assert_eq!(
+        stream.surface_rules[0]
+            .coverage(
+                &known.neighbourhood(),
+                [15, 8, 8],
+                meshing::Face::PositiveZ,
+                stream.classifier.air_network_id()
+            )
+            .tiles,
+        1
+    );
+}

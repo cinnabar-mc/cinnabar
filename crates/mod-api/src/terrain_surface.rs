@@ -19,7 +19,8 @@ pub struct Clause {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
-    pub identifiers: Vec<String>,
+    /// Independent connection groups sharing this coverage policy.
+    pub groups: Vec<Vec<String>>,
     pub border: u8,
     pub clauses: Vec<Clause>,
 }
@@ -27,16 +28,21 @@ pub struct Rule {
 /// Bounds retained work and rejects malformed masks before publication.
 pub fn validate(rules: &[Rule]) -> bool {
     rules.len() <= MAX_RULES
+        && rules.iter().map(|rule| rule.groups.len()).sum::<usize>() <= MAX_RULES
         && rules.iter().all(|rule| {
-            !rule.identifiers.is_empty()
-                && rule.identifiers.len() <= 32
-                && rule.identifiers.iter().all(|name| {
-                    !name.is_empty()
-                        && name.len() <= 128
-                        && name.contains(':')
-                        && name
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"_:./-".contains(&b))
+            !rule.groups.is_empty()
+                && rule.groups.len() <= MAX_RULES
+                && rule.groups.iter().all(|group| {
+                    !group.is_empty()
+                        && group.len() <= 32
+                        && group.iter().all(|name| {
+                            !name.is_empty()
+                                && name.len() <= 128
+                                && name.contains(':')
+                                && name
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b"_:./-".contains(&b))
+                        })
                 })
                 && (1..=127).contains(&rule.border)
                 && rule.clauses.len() <= MAX_CLAUSES
