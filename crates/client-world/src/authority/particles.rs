@@ -4,7 +4,7 @@ use protocol_ids::{LevelEvent, ParticleType};
 
 use super::WorldAuthority;
 
-/// The legacy `Terrain` particle event, whose data is a block runtime id.
+/// Level-event selector for block-textured terrain particles.
 const TERRAIN_PARTICLE_EVENT: i32 =
     LevelEvent::ParticleLegacyEvent.wire_value() | ParticleType::Terrain.wire_value();
 
@@ -66,6 +66,33 @@ mod tests {
     }
 
     #[test]
+    fn terrain_particles_remap_sequential_ids_without_changing_other_particles() {
+        for hashes in [false, true] {
+            let authority = authority(hashes);
+            for particle_type in [ParticleType::Terrain, ParticleType::MobFlame] {
+                let mut event = ParticleEvent::Level(LevelParticleEvent {
+                    event_id: LevelEvent::ParticleLegacyEvent.wire_value()
+                        | particle_type.wire_value(),
+                    position: [0.0; 3],
+                    data: 7,
+                });
+                authority.remap_particle_block_ids(&mut event);
+                let ParticleEvent::Level(level) = event else {
+                    unreachable!();
+                };
+                assert_eq!(
+                    level.data,
+                    if hashes || particle_type != ParticleType::Terrain {
+                        7
+                    } else {
+                        5
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
     fn face_cracks_remap_the_full_sequential_id_and_preserve_hashes() {
         for hashes in [false, true] {
             let authority = authority(hashes);
@@ -87,21 +114,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn legacy_terrain_particles_remap_their_block_id() {
-        let authority = authority(false);
-        let mut event = ParticleEvent::Level(LevelParticleEvent {
-            event_id: LevelEvent::ParticleLegacyEvent.wire_value() | 21,
-            position: [0.0; 3],
-            data: 7,
-        });
-        authority.remap_particle_block_ids(&mut event);
-        let ParticleEvent::Level(level) = event else {
-            unreachable!();
-        };
-        assert_eq!(level.data, 5);
     }
 
     #[test]
