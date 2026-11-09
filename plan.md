@@ -804,6 +804,14 @@ and version-matched in-game acceptance remain incomplete.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Pack scripts compile at any statement count and up to their source document's size and the
+  stored per-expression operation width. The graphics-mode, pack-setting and
+  bone-orientation queries are admitted but read their idle zero: Cinnabar has no pack
+  settings or bone transform readback yet. Large initialize and pre-animation programs
+  reserve their stored operations beside the ordinary pose allowance, including frame
+  replay and ordered world-budget accounting. Loop-heavy scripts, rigs exceeding the
+  shared world budget and hardware frame-work acceptance remain incomplete. The large-script
+  per-actor allowance has not been verified against version-matched Bedrock behavior.
   Classic and slim skins take the built-in skin pack's models, which are not in the fetched
   pack, so they derive from its `geometry.humanoid.custom` and `geometry.humanoid.customSlim`.
   The slim left leg drops the fetched copy's mirror to match in-game output and the newest
