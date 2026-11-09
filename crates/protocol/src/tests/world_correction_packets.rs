@@ -3,9 +3,9 @@
 //! Split from `world_packets.rs` to keep each integration-test binary inside
 //! the architecture policy line limit.
 
-use bedrock_protocol_1_26_51::enums::RewindType as CorrectPlayerMovePredictionPacketPredictionType;
-use bedrock_protocol_1_26_51::packets::CorrectPlayerMovePrediction;
-use bedrock_protocol_1_26_51::types::PlayerInputTick;
+use bedrock_protocol_1_26_60::enums::RewindType as CorrectPlayerMovePredictionPacketPredictionType;
+use bedrock_protocol_1_26_60::packets::CorrectPlayerMovePrediction;
+use bedrock_protocol_1_26_60::types::PlayerInputTick;
 use protocol::{
     MovementCorrectionSubject, PlayerMovementCorrectionEvent, WorldEvent, into_world_event,
 };

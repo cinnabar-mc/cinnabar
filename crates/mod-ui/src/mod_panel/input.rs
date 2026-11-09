@@ -3,9 +3,6 @@ use super::*;
 impl ModUi {
     /// Releases pointer capture while preserving the panel and its editor draft.
     pub fn cancel_mod_panel_pointer_input(&mut self) {
-        if let Some(editor) = self.mod_hud_editor.as_mut() {
-            editor.cancel_pointer_input();
-        }
         if let Some(panel) = self.mod_panel.as_mut() {
             panel.cancel_pointer_input();
         }
@@ -153,38 +150,8 @@ impl ModPanel {
                 return Vec::new();
             }
         }
-        match action {
-            Some("mod.close") => {
-                self.close(exit);
-                return Vec::new();
-            }
-            Some("mod.prev") | Some("mod.next") => {
-                self.page = if action == Some("mod.prev") {
-                    self.page.saturating_sub(1)
-                } else {
-                    (self.page + 1).min(self.last_page())
-                };
-                self.catalog = None;
-                self.frame = None;
-                self.drag = None;
-                self.pointer = None;
-                return Vec::new();
-            }
-            _ => {}
-        }
-        if let Some(category) = action
-            .and_then(|action| action.strip_prefix("mod.category:"))
-            .and_then(|value| value.parse::<usize>().ok())
-        {
-            if category < ui::mod_panel::MAX_PANEL_CATEGORIES && category != self.category {
-                self.category = category;
-                self.page = 0;
-                self.catalog = None;
-                self.frame = None;
-                self.drag = None;
-                self.pointer = None;
-                self.view = ViewState::default();
-            }
+        if action == Some("mod.close") {
+            self.close(exit);
             return Vec::new();
         }
         let selected = action

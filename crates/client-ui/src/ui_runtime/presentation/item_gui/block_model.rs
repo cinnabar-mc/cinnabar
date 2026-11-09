@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::gui_item::{
-    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, face_brightness,
+    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, GuiShading,
     project_cube,
 };
 use ui::{UiMesh, UiMeshBatch};
@@ -20,6 +20,7 @@ use {
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
     lighting: CubeLighting,
+    shading: GuiShading,
     order: BlockModelOrder,
 ) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(quads.len() * 4);
@@ -38,7 +39,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         {
             return None;
         }
-        let shade = shade(face_brightness(quad.corners), lighting);
+        let shade = shade(shading.brightness(quad.corners), lighting);
         let start = vertices.len() as u32;
         for (corner, uv) in quad.corners.into_iter().zip(quad.uvs) {
             let [x, y, z] = project_cube(corner);

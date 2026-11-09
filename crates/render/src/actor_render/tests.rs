@@ -182,7 +182,7 @@ fn generic_only_frames_do_not_require_or_reinterpret_player_skins() {
 }
 
 /// Builds one valid generic draw without player skin residency or installed assets.
-fn generic_frame() -> render_scene::ActorRenderFrame {
+pub(super) fn generic_frame() -> render_scene::ActorRenderFrame {
     use render_model::{ActorDrawManifestEntry, ActorRenderIdentity, ActorRigRoute};
     use render_model::{ActorRigVertex, EntityRigId};
     let mut frame = render_scene::ActorRenderFrame::default();
@@ -353,7 +353,8 @@ fn in_place_skin_updates_keep_the_actor_bind_group() {
     assert!(gpu.bind_group.is_some());
 }
 
-fn app_with_noop_render_sub_app() -> App {
+/// Installs a headless validation device and the render schedules used by actor fixtures.
+pub(super) fn app_with_noop_render_sub_app() -> App {
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let mut render_app = SubApp::new();
     render_app
@@ -522,7 +523,6 @@ fn skin_array_allocation_failure_keeps_old_view_and_does_not_publish_residency()
 }
 
 /// Skin arrays allow the pack's raw view only while a pack draws, re-homed by GPU copies.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn skin_arrays_allow_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};

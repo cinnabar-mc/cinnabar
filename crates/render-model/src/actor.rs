@@ -1,14 +1,16 @@
 //! Actor geometry on the CPU: skins, the standard biped, rig contracts and entity-catalog meshes.
 mod asset_geometry;
 mod biped;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture;
 pub mod flame;
 mod geometry;
 mod ids;
 mod locator;
 mod rig;
 pub use locator::{ActorEmitterTransform, sampled_bone_offset, sampled_locator_transform};
+mod poly_mesh;
 mod skin;
-mod skin_poly_mesh;
 pub mod skin_portrait;
 mod surface;
 mod texel_fit;
@@ -25,10 +27,10 @@ pub use biped::{
 };
 pub use geometry::{ONE_SIDED_BACK_UV, append_entity_cube_vertices};
 pub use ids::{
-    DIAGNOSTIC_RIG_ID, ITEM_MESH_RIG_ID_CAPACITY, cosmetic_rig_id, equipment_rig_id,
+    DIAGNOSTIC_RIG_ID, ITEM_MESH_RIG_ID_CAPACITY, MAX_SKIN_RIGS, cosmetic_rig_id, equipment_rig_id,
     is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,
-    item_mesh_rig_id, layer_geometries, layer_geometry_rig_id, pack_equipment_rig_id, pack_rig_id,
-    skin_rig_id,
+    is_skin_rig_id, item_mesh_rig_id, layer_geometries, layer_geometry_rig_id,
+    pack_equipment_rig_id, pack_rig_id, skin_rig_id,
 };
 pub use rig::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, EntityRigId,
@@ -56,7 +58,7 @@ mod glint;
 pub mod skin_slots;
 pub use artwork::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
-    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
+    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES, PagePixels,
 };
 pub use cull::{ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorCullView, MAX_ACTOR_RENDER_DISTANCE_BLOCKS};
 

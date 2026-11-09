@@ -490,6 +490,12 @@ impl Builder<'_> {
                         std::array::from_fn(|axis| geometry.texture_size[axis] - uv[axis])
                     });
                 }
+                if components.geometry_needs_legacy_top_rotation
+                    && cube.per_face_uv
+                    && face_quad.face == assets::BlockFace::Up as usize
+                {
+                    face_quad.uvs.rotate_left(2);
+                }
                 let (material, _, two_sided) =
                     self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
                 // Failed quads keep the diagnostic material so the model

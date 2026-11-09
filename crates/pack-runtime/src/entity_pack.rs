@@ -60,6 +60,8 @@ pub fn vanilla_pack_dir() -> Option<PathBuf> {
 }
 
 mod cache;
+#[cfg(any(test, feature = "test-support"))]
+pub use cache::stores_idle;
 use cache::{Compiled, ENTITY_CACHE, EntityInputs};
 
 /// Compiles the stack's entity files: the inner `None` when it defines no usable entity, the
@@ -140,11 +142,18 @@ fn compile_encoded(
             unparsable = skipped.unparsable,
             over_budget = skipped.over_budget,
             isolated = skipped.isolated,
+            unusable_attachables = skipped.unusable_attachables,
             rigs_without_artwork = compiled.fallbacks.len(),
             "server pack entities are incomplete"
         );
     }
-    equipment_artwork::merge(view, &mut compiled.equipment_textures, artwork_sources);
+    equipment_artwork::merge(
+        view,
+        &mut compiled.equipment_textures,
+        artwork_sources,
+        &mut compiled.equipment_raster_drops,
+    );
+    log_equipment_raster_drops(&compiled.equipment_raster_drops);
     if !compiled.entities.geometries.iter().any(|geometry| {
         assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL
             .iter()
@@ -195,6 +204,30 @@ fn compile_encoded(
         equipment,
     });
     Some((Some(pack), blob))
+}
+
+/// Logs each attachable raster the compile left out, then their totals.
+fn log_equipment_raster_drops(drops: &pack_entity_compiler::EquipmentRasterDrops) {
+    if drops == &pack_entity_compiler::EquipmentRasterDrops::default() {
+        return;
+    }
+    for identifier in &drops.over_budget {
+        tracing::warn!(
+            identifier = identifier.as_ref(),
+            "server pack attachable texture is past the pixel budget"
+        );
+    }
+    for identifier in &drops.undecodable {
+        tracing::warn!(
+            identifier = identifier.as_ref(),
+            "server pack attachable texture could not be decoded"
+        );
+    }
+    tracing::warn!(
+        over_budget = drops.over_budget.len(),
+        undecodable = drops.undecodable.len(),
+        "server pack attachable textures were left out"
+    );
 }
 
 /// Reads an entity identifier from a normalized client-entity definition.

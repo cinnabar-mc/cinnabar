@@ -309,8 +309,20 @@ fn display_actor_uses_custom_rig_and_keeps_a_separate_lifetime_namespace() {
     assert!(displays.actor(runtime).is_none());
     let replacement = displays.resolve(position, "custom:display_actor").unwrap();
     assert_ne!(replacement, runtime);
-    displays.retain(&Default::default());
+    let neighbour = [2, 64, 2];
+    let retained = displays.resolve(neighbour, "custom:display_actor").unwrap();
+    let mut visited = Vec::new();
+    displays.retain(|position| {
+        visited.push(position);
+        position == neighbour
+    });
+    assert_eq!(visited, [position, neighbour]);
     assert!(displays.actor(replacement).is_none());
+    assert_eq!(
+        displays.resolve(neighbour, "custom:display_actor"),
+        Some(retained),
+        "retained positions keep their actor lifetime"
+    );
     assert!(
         second.actor(other).is_some(),
         "retirement is local to one pool"

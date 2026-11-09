@@ -74,6 +74,7 @@ impl MenuRuntime {
     /// Returns to Storage once the core's edit/delete flow returns to its list.
     pub(in crate::menu) fn finish_storage_world(&mut self, screen: Screen) {
         if self.storage.return_from_world && screen == Screen::List {
+            Arc::make_mut(&mut self.storage).return_from_world = false;
             self.screen = MenuScreen::Settings;
             self.refresh_storage();
         }

@@ -22,11 +22,19 @@ use {client_presentation::camera::AutoFly, client_state::DrivenInput};
 
 #[cfg(any(windows, test))]
 mod native;
+#[cfg(any(windows, test))]
+mod pointer_paint;
+#[cfg(any(windows, test))]
+mod raw_mouse;
 
 /// Installs focus tracking without opening or calling into a native window.
 pub(super) fn install(app: &mut App) {
     #[cfg(all(windows, not(test)))]
-    native::install(app);
+    {
+        native::install(app);
+        native::install_pointer_paint(app);
+        raw_mouse::install(app, native::WindowsRawMouse::default());
+    }
     app.init_resource::<CursorFocus>()
         .add_message::<WindowFocused>()
         .add_message::<WindowOccluded>()
@@ -124,6 +132,8 @@ pub(crate) fn update_cursor_capture(
     consent: Option<Res<client_state::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
+    effective_mode: Option<Res<client_state::EffectiveGameplayInputMode>>,
+    devices: Option<Res<client_state::ConnectedPhysicalDevices>>,
     captured_last_frame: Local<bool>,
     #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
@@ -146,6 +156,13 @@ pub(crate) fn update_cursor_capture(
             if !captured && !policy.driven {
                 clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
             }
+            let pointer_capture_needed = captured
+                && effective_mode
+                    .is_none_or(|mode| mode.0 == semantic_input::InputMode::KeyboardMouse)
+                && devices.is_none_or(|dev| dev.mice > 0);
+            crate::platform_devices::ingress::request_platform_pointer_capture(
+                pointer_capture_needed,
+            );
             return;
         }
     }
@@ -283,6 +300,11 @@ mod grab_free_tests;
 
 #[cfg(test)]
 mod high_rate_tests;
+
+#[cfg(test)]
+mod pointer_paint_tests;
+#[cfg(test)]
+mod raw_mouse_tests;
 
 #[cfg(test)]
 mod recapture_tests;

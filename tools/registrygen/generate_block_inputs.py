@@ -22,7 +22,7 @@ def state_facts(path=None):
             subprocess.run(["go", "-C", "tools/registrygen", "run", ".", "-facts-out", str(path)], cwd=ROOT, env=env, check=True)
             return state_facts(path)
     facts = json.loads(path.read_text())
-    projection = json.loads((ROOT / "assets/block-projection-v2193.json").read_text())
+    projection = json.loads((ROOT / "assets/block-projection-v2225.json").read_text())
     if (facts["protocol"] != projection["protocol"] or facts["game_version"] != projection["game_version"]
             or facts["source_lock_sha256"] != projection["source"]["source_lock_sha256"]):
         raise ValueError("state export does not match the pinned registry source")
@@ -93,8 +93,8 @@ def generate(archive, out, facts_path=None):
     destination = out / "crates/assets/data"
     destination.mkdir(parents=True, exist_ok=True)
     document = {"schema": 1, "source_sha256": manifest["sha256"], "state_source_lock_sha256": facts["source_lock_sha256"], "properties": properties}
-    (destination / "block-properties-v2193.json").write_text(json.dumps(document, indent=2) + "\n")
-    (destination / "block-components-v2193.tsv").write_text(
+    (destination / "block-properties-v2225.json").write_text(json.dumps(document, indent=2) + "\n")
+    (destination / "block-components-v2225.tsv").write_text(
         "identifier\tcomponents\n" + "".join(f"{name}\t{facts or '-'}\n" for name, facts in sorted(components)))
 
 

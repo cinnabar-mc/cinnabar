@@ -120,6 +120,7 @@ fn apply(resolved: &mut CustomVisualComponents, components: &CustomVisualCompone
         resolved.geometry.clone_from(&components.geometry);
         resolved.geometry_use_block_type_light_absorption =
             components.geometry_use_block_type_light_absorption;
+        resolved.geometry_needs_legacy_top_rotation = components.geometry_needs_legacy_top_rotation;
         resolved
             .bone_visibility
             .clone_from(&components.bone_visibility);

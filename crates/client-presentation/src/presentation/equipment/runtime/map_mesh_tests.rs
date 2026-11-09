@@ -29,6 +29,17 @@ fn item_meshes_and_map_planes_preserve_every_reserved_cosmetic_geometry() {
     for geometry in runtime.take_pending_geometries() {
         builder.insert_geometry(geometry).unwrap();
     }
+    builder
+        .insert_geometry(
+            ActorRigGeometry::synthetic_cuboid(
+                ReservedItemMesh::ShieldSprite.rig(),
+                [2.0; 3],
+                [3.0; 3],
+                1,
+            )
+            .unwrap(),
+        )
+        .unwrap();
     for index in [0, session::MAX_SESSION_MESHES - 1] {
         let id = session::session_mesh_id(index).unwrap();
         builder

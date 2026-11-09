@@ -1172,4 +1172,5 @@ fn stack(network_id: i32, count: u16, stack_network_id: i32) -> NetworkItemStack
 }
 
 mod graph;
+mod input_owner;
 use graph::*;

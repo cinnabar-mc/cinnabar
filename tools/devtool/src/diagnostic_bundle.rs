@@ -15,7 +15,7 @@ const LOG_LIMIT: u64 = 8 << 20;
 /// Bundles the latest local session without uploading any data.
 pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     let root = match args {
-        [] => std::env::var_os("CINNABAR_USER_ROOT").map_or_else(
+        [] => std::env::var_os(render_api::USER_ROOT_ENV).map_or_else(
             || PathBuf::from(".local"),
             |root| PathBuf::from(root).join("data"),
         ),

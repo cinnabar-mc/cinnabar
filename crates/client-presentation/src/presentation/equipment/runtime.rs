@@ -41,6 +41,7 @@ mod push;
 mod readiness;
 mod routing;
 mod session;
+mod shield;
 mod style;
 mod types;
 pub use block_items::{BlockItemPreparer, PreparedBlockItems};
@@ -51,7 +52,9 @@ pub use types::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation,
     FirstPersonArms, FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
+use types::{
+    ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey, ReservedItemMesh,
+};
 
 use {
     super::{
@@ -59,10 +62,10 @@ use {
         atlas::{Placement, SpriteAtlas},
         display::{
             FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
-            LAYER_LEGGINGS, LAYER_OFF_HAND, head_block_display, view_bone,
+            LAYER_LEGGINGS, LAYER_OFF_HAND, view_bone,
         },
     },
-    render_model::equipment::{self as attachable, blocks::BlockSheets},
+    render_model::equipment::{self as attachable, blocks::BlockSheets, head_block_display},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -92,15 +95,16 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
     SkullKind::from_block_identifier(identifier).filter(|kind| kind.packed_rig_index().is_some())
 }
 
-/// Startup meshes occupy the item namespace below session icons and map planes.
+/// Startup meshes occupy the item namespace below session icons and static item meshes.
 const STARTUP_MESH_ID_CAPACITY: usize =
-    render_model::ITEM_MESH_RIG_ID_CAPACITY - session::MAX_SESSION_MESHES - maps::MAP_MESH_COUNT;
+    render_model::ITEM_MESH_RIG_ID_CAPACITY - session::MAX_SESSION_MESHES - ReservedItemMesh::COUNT;
 
 /// Body bone index per armor bone; `None` where the body lacks it.
 type ArmorBoneMap = Arc<[Option<usize>]>;
 
 #[derive(Resource)]
 pub struct EquipmentRuntime {
+    shield_patterns: shield::Patterns,
     assets: Arc<RuntimeEntityAssets>,
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
@@ -297,6 +301,7 @@ impl EquipmentRuntime {
                 .collect(),
         );
         let runtime = Self {
+            shield_patterns: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
             native_meshes: BTreeMap::new(),
@@ -422,6 +427,9 @@ impl EquipmentRuntime {
             (&input.main, LAYER_MAIN_HAND, bones.right_item),
             (&input.off, LAYER_OFF_HAND, bones.left_item),
         ] {
+            if animation.is_some_and(|animation| animation.rig.visibility.hides_held_items()) {
+                continue;
+            }
             let Some(item) = item else { continue };
             let held_item_scale = animation.and_then(|animation| animation.rig.held_item_scale);
             let scale = actor_animation::AttachableAnimationInput {

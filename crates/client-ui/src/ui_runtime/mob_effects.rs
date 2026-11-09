@@ -22,20 +22,20 @@ impl MobEffectScreenState {
 
 impl UiRuntime {
     pub const fn mob_effect_screen(&self) -> &MobEffectScreenState {
-        &self.mob_effect_screen
+        &self.session.mob_effect_screen
     }
 
     pub fn close_mob_effect_screen(&mut self) {
-        self.mob_effect_screen.close();
+        self.session.mob_effect_screen.close();
     }
 
     /// The binding's press: closes an open screen, else opens it as
     /// `ClientInputCallbacks::handleMobEffectsButtonPress` does, only while the local player
     /// has an active effect. Returns whether the screen is open afterwards.
     pub fn toggle_mob_effect_screen(&mut self, now_millis: u64) -> bool {
-        self.mob_effect_screen.open =
-            !self.mob_effect_screen.open && !self.mob_effect_entries(now_millis).is_empty();
-        self.mob_effect_screen.open
+        self.session.mob_effect_screen.open =
+            !self.session.mob_effect_screen.open && !self.mob_effect_entries(now_millis).is_empty();
+        self.session.mob_effect_screen.open
     }
 
     /// The local player's active effects at `now_millis`, iconless ones included.

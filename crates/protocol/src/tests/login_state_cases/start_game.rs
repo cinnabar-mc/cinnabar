@@ -1,7 +1,7 @@
 use super::*;
-use bedrock_protocol_1_26_51::enums::GeneratorType;
-use bedrock_protocol_1_26_51::packets::DimensionData;
-use bedrock_protocol_1_26_51::types::DimensionDefinition;
+use bedrock_protocol_1_26_60::enums::GeneratorType;
+use bedrock_protocol_1_26_60::packets::DimensionData;
+use bedrock_protocol_1_26_60::types::DimensionDefinition;
 
 pub(super) fn early_dimension_definition() -> Packet {
     Packet::new(DimensionData {

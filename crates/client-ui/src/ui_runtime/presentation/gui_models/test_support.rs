@@ -40,10 +40,8 @@ pub fn assert_installed_geometry(
             .gui_models
             .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: identifier.into(),
-                metadata: 0,
-            })
+            .get(identifier)
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert_eq!(model.vertices.len(), 36);
@@ -57,10 +55,8 @@ pub fn assert_installed_geometry(
             .gui_models
             .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: "minecraft:shield".into(),
-                metadata: 0,
-            })
+            .get("minecraft:shield")
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert!(matches!(

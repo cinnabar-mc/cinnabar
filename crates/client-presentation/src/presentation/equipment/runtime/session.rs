@@ -200,6 +200,14 @@ impl EquipmentRuntime {
         Some((sheet, placement, location))
     }
 
+    /// Whether the session carries every variant of `identifier` from zero up to `count`.
+    pub(super) fn session_has_variants(&self, identifier: &str, count: u32) -> bool {
+        self.session
+            .by_identifier
+            .get(identifier)
+            .is_some_and(|variants| (0..count).all(|variant| variants.contains_key(&variant)))
+    }
+
     /// The session icon for `identifier` with its atlas placement and artwork location.
     pub(super) fn session_sprite(
         &self,

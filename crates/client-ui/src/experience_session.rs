@@ -16,6 +16,15 @@ pub struct ExperienceSession {
 }
 
 impl ExperienceSession {
+    /// Retires permissions and ingress while retaining the host-selected destination and epoch.
+    pub(crate) fn next_session(&mut self) -> Self {
+        Self {
+            audience: self.audience.take(),
+            epoch: self.epoch,
+            ..Self::default()
+        }
+    }
+
     /// Ends every permission while retaining the host-selected destination.
     pub fn reset(&mut self) {
         self.marker = None;

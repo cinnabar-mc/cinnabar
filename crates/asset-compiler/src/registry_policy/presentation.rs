@@ -30,7 +30,7 @@ pub fn write(out: &Path) -> Result<()> {
         "presentation rules need explicit status",
     )?;
     let items = assets::item::retail::identifiers();
-    let biomes: BTreeSet<_> = include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
+    let biomes: BTreeSet<_> = include_str!("../../../protocol/data/retail_biomes_1_26_60.txt")
         .lines()
         .collect();
     let blocks = assets::read_registry_for_protocol(
@@ -68,7 +68,7 @@ pub fn write(out: &Path) -> Result<()> {
     let mut seen = BTreeSet::new();
     for (kind, names) in &rules.ambient_blocks {
         check(
-            matches!(kind.as_str(), "Fire" | "Portal"),
+            matches!(kind.as_str(), "EnderChest" | "Fire" | "Portal"),
             "unknown ambient callback",
         )?;
         check(!names.is_empty(), "empty ambient selector")?;

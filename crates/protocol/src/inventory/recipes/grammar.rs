@@ -115,15 +115,24 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
         let value = reader.string()?;
         // `item_tag` descriptors name a tag rather than an item.
         match key {
-            "name" | "item_tag" if identifier(value) => {
+            "name" => name = value,
+            "item_tag" if identifier(value) => {
                 name = value;
                 tag = key == "item_tag";
             }
             _ => valid = false,
         }
     }
-    let aux = reader.int()?;
+    let mut aux = reader.int()?;
     let count = reader.int()?;
+    if !tag {
+        if let Some((identifier, resolved)) = item_id(name, aux) {
+            name = identifier;
+            aux = resolved;
+        } else {
+            valid = false;
+        }
+    }
     valid &= (0..=u16::MAX as i32).contains(&aux) && (1..=255).contains(&count);
     if pairs == 0 && count == 0 {
         valid = true;
@@ -137,6 +146,27 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
     })
 }
 
+/// Splits a named ingredient's `namespace:path[:aux[:...]]` item ID into its
+/// identifier and effective aux, as Bedrock's item-ID parser does when it
+/// resolves deferred descriptors. A third token that parses as `0..=255`
+/// replaces the descriptor's aux; any other third token leaves it unchanged,
+/// and later tokens are ignored.
+fn item_id(name: &str, aux: i32) -> Option<(&str, i32)> {
+    if identifier(name) {
+        return Some((name, aux));
+    }
+    let (namespace, rest) = name.split_once(':')?;
+    let (path, tail) = rest.split_once(':')?;
+    let base = &name[..namespace.len() + 1 + path.len()];
+    let suffix = tail.split(':').next().unwrap_or_default();
+    let aux = suffix
+        .parse::<i32>()
+        .ok()
+        .filter(|value| (0..=0xff).contains(value))
+        .unwrap_or(aux);
+    identifier(base).then_some((base, aux))
+}
+
 fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     let id = reader.int()?;
     let bytes = reader.take(2)?;
@@ -144,24 +174,20 @@ fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     let aux = reader.uint()?;
     let block = reader.int()?;
     let extra = reader.opaque()?;
-    // The existing validator is unchanged. The candidate accepts only the
-    // independently parsed no-NBT/no-place/no-break envelope, or absent data.
-    let empty = super::canonical_empty_extra(extra);
+    let user_data = super::crafting::RecipeOutputData::decode(extra);
     // Block items carry negative network ids; only 0 (air) makes nothing.
-    Ok(
-        (id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && empty).then_some(
-            Output {
-                id,
-                aux: aux as u16,
-                count: count as u8,
-                // The recipe descriptor transports block identity as signed
-                // ZigZag32; inventory item descriptors retain its raw u32 bits.
-                // Hashed block identities may have bit 31 set.
-                block: u32::from_ne_bytes(block.to_ne_bytes()),
-                empty_envelope: !extra.is_empty(),
-            },
-        ),
-    )
+    Ok(user_data
+        .filter(|_| id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32)
+        .map(|user_data| Output {
+            id,
+            aux: aux as u16,
+            count: count as u8,
+            // The recipe descriptor transports block identity as signed
+            // ZigZag32; inventory item descriptors retain its raw u32 bits.
+            // Hashed block identities may have bit 31 set.
+            block: u32::from_ne_bytes(block.to_ne_bytes()),
+            user_data,
+        }))
 }
 
 /// Reads discovery context without using it as a recipe admission gate.

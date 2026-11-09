@@ -43,6 +43,7 @@ mod tests {
             active: true,
             input_authority_released: false,
             resolved_movement: false,
+            movement_override: false,
             movement: [0.0; 2],
             raw_movement: [0.0; 2],
             analogue_movement: [0.0; 2],
@@ -192,7 +193,8 @@ mod tests {
             (None, 7, false),
         ] {
             let sample = paused_sample(lock, session, true, false, false);
-            assert_eq!(sample.processed.jump_initiated, !blocked, "{lock:?}");
+            // A tap released before the tick never jumps; only its pressed edge is retained.
+            assert!(!sample.processed.jump_initiated, "{lock:?}");
             assert_eq!(sample.input.jump.pressed, !blocked, "{lock:?}");
         }
     }

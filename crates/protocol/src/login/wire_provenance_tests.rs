@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{PacketId, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{PacketId, SetTime};
+use bedrock_protocol_1_26_60::wire;
 use bytes::{Buf, BufMut, Bytes};
 
 use crate::raw_packet::{RawPacket, decode_packet_raw};
@@ -9,8 +9,8 @@ use crate::{Packet, ProtocolError, WorldEvent};
 
 #[test]
 fn world_clock_registry_packet_is_allowlisted_at_raw_ingress() {
-    use bedrock_protocol_1_26_51::packets::SyncWorldClocks;
-    use bedrock_protocol_1_26_51::types::{SyncWorldClocksData, WorldClockData};
+    use bedrock_protocol_1_26_60::packets::SyncWorldClocks;
+    use bedrock_protocol_1_26_60::types::{SyncWorldClocksData, WorldClockData};
     let packet: Packet = crate::Packet::new(SyncWorldClocks {
         data: SyncWorldClocksData::InitializeRegistryData {
             clock_data: vec![WorldClockData {
@@ -273,7 +273,7 @@ fn semantic_world_rejections_remain_skippable_before_the_next_valid_packet() {
 
 #[test]
 fn world_spawn_positions_decode_and_player_respawn_points_are_dropped() {
-    use bedrock_protocol_1_26_51::{
+    use bedrock_protocol_1_26_60::{
         enums::SpawnPositionType,
         packets::SetSpawnPosition,
         types::{BlockPos, DimensionType},
@@ -305,13 +305,13 @@ fn world_spawn_positions_decode_and_player_respawn_points_are_dropped() {
     }
     for trailing_position in [[1, 2, 3], [i32::MIN; 3]] {
         assert!(matches!(
-            decode(SpawnPositionType::Worldspawn, trailing_position),
+            decode(SpawnPositionType::WorldSpawn, trailing_position),
             Ok(Some(WorldEvent::WorldSpawn(crate::WorldSpawnEvent {
                 position: [12, 64, -30]
             })))
         ));
         assert!(matches!(
-            decode(SpawnPositionType::Playerrespawn, trailing_position),
+            decode(SpawnPositionType::PlayerRespawn, trailing_position),
             Ok(None)
         ));
     }

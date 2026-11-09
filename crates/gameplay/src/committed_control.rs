@@ -24,6 +24,9 @@ pub enum SpatialReset {
 pub enum ControlDisposition {
     Handled,
     Environment,
+    /// Physics eases the pose; the caller supplies its filtered aim target and keeps
+    /// its frame and camera history.
+    Aim,
     Spatial(SpatialReset),
 }
 
@@ -274,6 +277,26 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
+        if let CommittedControlEvent::MovePlayer {
+            movement,
+            riding_actor_resolved,
+            resolved,
+            ..
+        } = control
+            && let Some(disposition) = self.apply_normal_move_player(
+                &movement,
+                riding_actor_resolved,
+                resolved.position,
+                world,
+            )
+        {
+            if matches!(disposition, ControlDisposition::Spatial(_)) {
+                observe(ControlObservation::BeforeSpatial(control));
+                self.physics
+                    .apply_server_actor_position(resolved.position, Some(movement.on_ground));
+            }
+            return disposition;
+        }
         observe(ControlObservation::BeforeSpatial(control));
         let reset = match &control {
             CommittedControlEvent::PlayerMovementCorrection {
@@ -335,9 +358,9 @@ impl CommittedGameplayState<'_> {
                 };
                 if self.movement.physics_is_authorized() {
                     let previous = self.physics.network_position().unwrap_or(resolved.position);
-                    // A teleport rewinds when nearby and retained, else snaps. An
-                    // unmarked MovePlayer is classified like a correction (Cinnabar
-                    // policy). HandledTeleport arms on the teleport path only.
+                    // A teleport rewinds when nearby and retained, else snaps. Another
+                    // unmarked MovePlayer that cannot ease is classified like a correction
+                    // (Cinnabar policy). HandledTeleport arms on the teleport path only.
                     let outcome = if correction.teleported {
                         self.movement
                             .note_server_teleport(ServerTeleportKind::MovePlayer);
@@ -504,6 +527,34 @@ impl CommittedGameplayState<'_> {
         };
         self.movement.enforce_local_physics_authority(self.physics);
         ControlDisposition::Spatial(reset)
+    }
+
+    /// Eases resident Normal targets and places unloaded targets without replacing an ease.
+    fn apply_normal_move_player(
+        &mut self,
+        movement: &protocol::MovePlayerEvent,
+        riding_actor_resolved: bool,
+        position: [f32; 3],
+        world: &impl CollisionWorld,
+    ) -> Option<ControlDisposition> {
+        if movement.teleported
+            || movement.mode != protocol::MovePlayerMode::Normal
+            || riding_actor_resolved
+            || !self.movement.physics_is_authorized()
+            || !self.physics.is_active()
+            || !position.into_iter().all(f32::is_finite)
+        {
+            return None;
+        }
+        self.movement.note_unmarked_local_move_player();
+        if self
+            .physics
+            .start_server_movement_lerp(position, movement.on_ground, world)
+        {
+            Some(ControlDisposition::Aim)
+        } else {
+            Some(ControlDisposition::Spatial(SpatialReset::Correction))
+        }
     }
 }
 

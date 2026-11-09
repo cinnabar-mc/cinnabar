@@ -4,7 +4,7 @@ use super::*;
 
 /// Loads sorted names by category; names in another category cannot validate a declaration.
 fn vocabulary() -> BTreeSet<(&'static str, &'static str)> {
-    let text = include_str!("../../data/vanilla-ui-vocabulary-1.26.50.txt");
+    let text = include_str!("../../data/vanilla-ui-vocabulary-1.26.60.txt");
     assert!(text.lines().zip(text.lines().skip(1)).all(|(a, b)| a < b));
     text.lines()
         .map(|row| {
