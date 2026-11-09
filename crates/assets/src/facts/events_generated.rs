@@ -250,7 +250,6 @@ pub(super) const LEGACY_PARTICLES: &[(i32, ParticleEffect)] = &[
     (44, ParticleEffect::NoteParticle),
     (45, ParticleEffect::WitchspellEmitter),
     (48, ParticleEffect::Endrod),
-    (49, ParticleEffect::DragonBreathLingering),
     (50, ParticleEffect::LlamaSpitSmoke),
     (51, ParticleEffect::TotemManual),
     (56, ParticleEffect::BalloonGasParticle),

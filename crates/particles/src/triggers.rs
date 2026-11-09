@@ -518,6 +518,14 @@ mod tests {
             Some(LevelParticle::Terrain { runtime_id: 7 })
         );
         assert_eq!(legacy_particle_effect(0), None);
+        // Native emits one particle manually; the pack's lingering emitter needs cloud variables.
+        assert_eq!(
+            classify_level_event(
+                LEVEL_EVENT_PARTICLE_FLAG | ParticleType::DragonBreath.wire_value(),
+                0
+            ),
+            None
+        );
     }
 
     #[test]
