@@ -383,7 +383,10 @@ fn panes_and_fences_connect_to_non_occluding_full_cubes() {
             .collect::<Vec<_>>();
         assert_eq!(
             arms,
-            [template(fixture.wood_fence), template(fixture.wood_fence) + 1 + 3],
+            [
+                template(fixture.wood_fence),
+                template(fixture.wood_fence) + 1 + 3
+            ],
             "fence beside {cube}"
         );
     }
@@ -631,4 +634,96 @@ fn fence_gate_axis_connections_cross_all_four_horizontal_subchunk_boundaries() {
         assert_eq!(refs[0].words()[1], fence_base, "face={face:?}");
         assert_eq!(refs[1].words()[1], fence_base + 1 + bit, "face={face:?}");
     }
+}
+
+#[test]
+fn surface_rules_crop_pack_faces_without_changing_block_identity_or_materials() {
+    use meshing::surface::{CoverageClause, SurfaceRule};
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([8, 8, 8], 1)],
+    )]);
+    let neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rules = [SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![],
+            tiles: (1 << 0) | (1 << 8),
+        }],
+    }];
+    let baseline = meshing::mesh_sub_chunk_in_neighbourhood(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+    );
+    let masked = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert_eq!(source.runtime_id(0, 8, 8, 8), Some(fixture.glass));
+    assert_eq!(baseline.model_refs(), masked.model_refs());
+    assert_eq!(baseline.model_lighting(), masked.model_lighting());
+    assert_eq!(
+        masked.model_draw_refs().len(),
+        baseline.model_draw_refs().len() * 2
+    );
+    for pair in masked.model_draw_refs().chunks_exact(2) {
+        assert_eq!(pair[0].quad_index(), pair[1].quad_index());
+        assert_eq!((pair[0].words()[1] >> 5) & 15, 0);
+        assert_eq!((pair[1].words()[1] >> 5) & 15, 8);
+        assert!(
+            pair.iter()
+                .all(|draw| draw.valid_surface_tile() && draw.words()[1] >> 9 == 16)
+        );
+    }
+}
+
+#[test]
+fn surface_conditions_follow_diagonal_neighbours_across_chunk_boundaries() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([15, 15, 8], 1)],
+    )]);
+    let remote = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([0, 0, 8], 1)],
+    )]);
+    let mut neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rule = SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![NeighbourCondition {
+                offset: [1, 1, 0],
+                present: false,
+            }],
+            tiles: 1 << 8,
+        }],
+    };
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ)
+            .tiles,
+        0x1ff
+    );
+    assert!(neighbourhood.insert([1, 1, 0], &remote));
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ)
+            .tiles,
+        0
+    );
 }

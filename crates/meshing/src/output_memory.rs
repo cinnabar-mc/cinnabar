@@ -70,6 +70,18 @@ impl MeshOutputBounds {
         assets: &RuntimeAssets,
         mode: NetworkIdMode,
     ) -> u64 {
+        self.for_sub_chunk_with_surface_patches(source, assets, mode, false)
+    }
+
+    /// Includes at most eight retained patches per model face without inflating cube or liquid storage.
+    #[must_use]
+    pub fn for_sub_chunk_with_surface_patches(
+        &self,
+        source: &SubChunk,
+        assets: &RuntimeAssets,
+        mode: NetworkIdMode,
+        patches: bool,
+    ) -> u64 {
         let model_bytes = source
             .storages()
             .iter()
@@ -89,7 +101,10 @@ impl MeshOutputBounds {
             .max()
             .unwrap_or(0);
         plain_bound()
-            + BLOCKS_PER_SUB_CHUNK as u64 * MAX_SELECTED_MODEL_TEMPLATES as u64 * model_bytes
+            + BLOCKS_PER_SUB_CHUNK as u64
+                * MAX_SELECTED_MODEL_TEMPLATES as u64
+                * model_bytes
+                * if patches { 8 } else { 1 }
     }
 
     /// What `overlays` cell overlays can add to a sub-chunk's mesh: each draws one model.

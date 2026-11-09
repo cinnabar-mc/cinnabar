@@ -439,6 +439,7 @@ impl WorldStream {
             adjacent[mesh_offset_index(offset)] = neighbour;
         }
         MeshSnapshot {
+            surface_rules: self.surface_rules.clone(),
             rendering: self.mesh_render_settings,
             center,
             biomes: self.biome_neighbourhood(key),
