@@ -30,6 +30,28 @@ fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
 }
 
 #[test]
+fn minified_source_edges_do_not_pick_up_neighboring_textures() {
+    let mut atlas = atlas::Atlas::new(8, MODEL_PAGES);
+    let sources = [[255, 0, 0, 255], [0, 0, 255, 255]].map(|color| {
+        let pixels = color.repeat(16 * 16);
+        (atlas.insert([16; 2], &pixels).unwrap(), color)
+    });
+    let (pages, _) = atlas.finish().unwrap();
+    for (icon, color) in sources {
+        for (level, (dimensions, pixels)) in pages[0].mip_levels().enumerate() {
+            let [left, top, right, bottom] =
+                icon.uv.map(|coordinate| usize::from(coordinate) >> level);
+            for y in top..bottom {
+                for x in left..right {
+                    let offset = (y * dimensions[0] as usize + x) * 4;
+                    assert_eq!(&pixels[offset..offset + 4], &color);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn carried_sheet_refs_preserve_face_order_and_pixel_edges() {
     let sheet = IconRef {
         color_mask: None,
@@ -72,6 +94,7 @@ fn mesh_modulation_preserves_geometry_and_adds_glint_without_baking() {
         &modulated(&mesh, [255; 4], false).unwrap()
     ));
     let faded = modulated(&mesh, [255, 255, 255, 127], true).unwrap();
+    assert!(faded.uses_compact_block_vertices());
     for (original, result) in mesh.vertices().iter().zip(faded.vertices()) {
         assert_eq!(original.position, result.position);
         assert_eq!(result.color[3], 127);

@@ -136,6 +136,13 @@ pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Opti
         mesh.batches().into(),
     )
     .ok()
+    .map(|modulated| {
+        if mesh.uses_compact_block_vertices() {
+            modulated.with_compact_block_vertices()
+        } else {
+            modulated
+        }
+    })
     .map(Arc::new)
 }
 

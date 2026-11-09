@@ -952,6 +952,17 @@ and version-matched in-game acceptance remain incomplete.
   Firework-star previews preserve their mask artwork and per-stack colors.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
+  Terrain-backed GUI meshes retain independently averaged texture levels and choose a
+  level from their physical footprint. Projected cube and shaped-block coordinates round
+  to half precision after control scaling and placement; their texture vertices use normalized
+  unsigned shorts after atlas placement. Tinted and glinting copies retain both formats.
+  Opaque terrain-face tinting rounds to encoded output bytes.
+  Source tiles stay aligned through the retained
+  levels; the source allocation retains shaped models alongside the flame page for the
+  pinned catalog.
+  The hotbar catalog comparison still has open shape, artwork and item-variant differences;
+  animated dials and glint also require phase-matched acceptance.
+  Glass-pane previews use thin plates with separate edges and retain their held sprites.
   Glass panes use thin plates with separate edges in slots and both hands; player previews share the ordinary held model, sprite resolver and material alpha policy. Preview face sheets reuse resident artwork, with a counted sprite fallback when new held artwork cannot fit. Metal bars keep their flat carried sprites.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
