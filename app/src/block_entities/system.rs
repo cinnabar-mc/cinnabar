@@ -588,11 +588,8 @@ pub(crate) fn update_block_entity_scene(
             settled &= scan.is_current(chunk);
             scan.seen_frame = frame_stamp;
             let before_portals = submissions.len();
-            portals::submit(&mut submissions, &scan.portals, eye, |block, kind| {
-                piston_arms::light_sample(kind, *block).map_or(1.0.into(), |sample| {
-                    let (block_light, sky_light) = stream.light_level_at(sample);
-                    model_light(kind, block_light, sky_light, daylight)
-                })
+            portals::submit(&mut submissions, &scan.portals, eye, daylight, |position| {
+                stream.light_level_at(position)
             });
             let portals = (submissions.len() - before_portals) as u32;
             work.candidates += portals;

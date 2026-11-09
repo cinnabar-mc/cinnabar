@@ -62,6 +62,7 @@ pub(super) fn settle(cells: &mut Vec<PortalCell>, dye_at: impl Fn([i32; 3]) -> O
     });
 }
 
+/// Uses the brightest block and sky light from the bed's two halves.
 pub(super) fn light(
     model: BedModel,
     position: [i32; 3],
