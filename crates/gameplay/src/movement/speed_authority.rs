@@ -19,6 +19,8 @@ pub(crate) struct EffectiveMovementSpeed {
 /// Accepted edits retain their operation so replay preserves unrelated modifiers.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum MovementSpeedUpdate {
+    /// Ends the preceding actor's attribute and sprint state.
+    Reset,
     Attribute(MovementSpeedAttribute),
     Effect {
         action: protocol::ActorEffectAction,
@@ -30,6 +32,7 @@ impl MovementSpeedUpdate {
     /// Applies this edit to the modifier state reached at its position in the timeline.
     pub(crate) fn apply(self, speed: &mut EffectiveMovementSpeed) {
         match self {
+            Self::Reset => *speed = EffectiveMovementSpeed::default(),
             Self::Attribute(attribute) => {
                 *speed = EffectiveMovementSpeed::authoritative(attribute, speed.sprinting());
             }
@@ -173,6 +176,12 @@ impl LocalMovementSpeedAuthority {
             dimension,
             ..Self::default()
         };
+    }
+
+    /// Records an actor lifetime reset before its next attribute or successful tick.
+    pub(crate) fn replace_actor(&mut self, session_id: u64, dimension: i32) {
+        self.begin_session(session_id, dimension);
+        self.pending_updates.push(MovementSpeedUpdate::Reset);
     }
 
     /// Clears speed authority when the active session changes dimension.

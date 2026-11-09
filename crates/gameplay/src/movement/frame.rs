@@ -339,9 +339,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
-        if let Some(speed) = physics.take_replayed_movement_speed() {
-            movement_speed.adopt_replayed_speed(speed);
-        }
+        physics.publish_replayed_movement_speed(movement_speed);
         movement_ticker.settle_riptide_input(physics);
         movement_effects.begin_frame();
         self.observe_dismount(&frame, movement_ticker.session_generation);
@@ -373,12 +371,11 @@ impl LocomotionState {
         let head_yaw = wire_head_yaw(yaw);
         let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
-        let movement_speed_attribute = if physics.latest_movement_speed().is_none()
-            && movement_speed.pending_updates().is_empty()
-        {
-            movement_speed.attribute()
-        } else {
+        let has_speed_history = physics.latest_movement_speed().is_some();
+        let movement_speed_attribute = if has_speed_history {
             None
+        } else {
+            movement_speed.attribute()
         };
         let requested_speed;
         let frame = if let Some(hold) = frame.hold {
@@ -520,7 +517,11 @@ impl LocomotionState {
                         server_spinning: None,
                     },
                 },
-                movement_speed.pending_updates(),
+                if has_speed_history {
+                    movement_speed.pending_updates()
+                } else {
+                    &[]
+                },
                 world,
                 movement_effects,
             )

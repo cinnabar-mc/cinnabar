@@ -68,13 +68,9 @@ impl CommittedGameplayState<'_> {
         world: &impl CollisionWorld,
         observe: impl FnMut(ControlObservation),
     ) -> ControlDisposition {
-        if let Some(speed) = self.physics.take_replayed_movement_speed() {
-            self.speed.adopt_replayed_speed(speed);
-        }
+        self.physics.publish_replayed_movement_speed(self.speed);
         let disposition = self.apply_control(control, world, observe);
-        if let Some(speed) = self.physics.take_replayed_movement_speed() {
-            self.speed.adopt_replayed_speed(speed);
-        }
+        self.physics.publish_replayed_movement_speed(self.speed);
         disposition
     }
 
@@ -179,7 +175,7 @@ impl CommittedGameplayState<'_> {
         {
             if replacement {
                 self.speed
-                    .begin_session(self.session_generation, self.dimension);
+                    .replace_actor(self.session_generation, self.dimension);
                 self.physics
                     .replace_actor_authority(flags, dimensions.expect("replacement dimensions"));
                 return ControlDisposition::Handled;

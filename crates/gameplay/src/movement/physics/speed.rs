@@ -1,7 +1,7 @@
 //! Movement attributes advance with local sprint edges, including correction replay.
 
 use super::*;
-use crate::movement::speed_authority::EffectiveMovementSpeed;
+use crate::movement::speed_authority::{EffectiveMovementSpeed, LocalMovementSpeedAuthority};
 
 impl LocalPhysicsController {
     /// Returns the modifier state after the latest completed tick.
@@ -9,11 +9,15 @@ impl LocalPhysicsController {
         Some(self.controller_history.back()?.speed)
     }
 
-    /// Transfers a successful replay's modifier state to the live attribute owner once.
-    pub(crate) fn take_replayed_movement_speed(&mut self) -> Option<EffectiveMovementSpeed> {
-        let mut speed = self.replayed_speed.take()?;
-        speed.adopt_server_sprinting(self.unrecorded_live_sprinting());
-        Some(speed)
+    /// Publishes replay and pending speed edits before overlaying newer live sprint metadata.
+    pub(crate) fn publish_replayed_movement_speed(
+        &mut self,
+        authority: &mut LocalMovementSpeedAuthority,
+    ) {
+        if let Some(speed) = self.replayed_speed.take() {
+            authority.adopt_replayed_speed(speed);
+            authority.adopt_server_sprinting(self.unrecorded_live_sprinting());
+        }
     }
 }
 

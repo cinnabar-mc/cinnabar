@@ -236,6 +236,7 @@ fn a_delayed_attribute_replays_the_liquid_speed_edge_and_updates_live_authority(
                 0.1,
                 Some(sim::SPRINT_SPEED_MULTIPLIER as f32),
             )),
+            movement_received: true,
             underwater: None,
             lava: None,
             air_drag_modifier: None,

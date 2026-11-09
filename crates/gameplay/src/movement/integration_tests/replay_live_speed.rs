@@ -35,6 +35,46 @@ fn apply_control(
     observations
 }
 
+/// Builds a delayed control that replays the retained ticks after this sample.
+fn replay_control(trigger: ReplayTrigger, anchor: &PhysicsMovementSample) -> CommittedControlEvent {
+    let mut position = anchor.position;
+    position[0] += 0.25;
+    match trigger {
+        ReplayTrigger::Correction => CommittedControlEvent::PlayerMovementCorrection {
+            sequence: 3,
+            correction: protocol::PlayerMovementCorrectionEvent {
+                position,
+                delta: anchor.velocity,
+                pitch: 0.0,
+                yaw: 0.0,
+                subject: protocol::MovementCorrectionSubject::Player,
+                on_ground: anchor.grounded_after_tick,
+                tick: anchor.tick,
+            },
+            resolved: ResolvedServerPosition {
+                position,
+                surface_anchor: None,
+            },
+        },
+        ReplayTrigger::Motion => CommittedControlEvent::LocalActorMotion {
+            sequence: 3,
+            event: protocol::ActorMotionEvent {
+                actor_runtime_id: 42,
+                motion: [0.2, 0.0, 0.0],
+                tick: anchor.tick,
+            },
+        },
+        ReplayTrigger::Flags => CommittedControlEvent::LocalMovementFlags {
+            sequence: 3,
+            tick: anchor.tick,
+            flags: flags(|flags| flags.sprinting = Some(false)),
+            replacement: false,
+            dimensions: None,
+        },
+        ReplayTrigger::Frame => unreachable!(),
+    }
+}
+
 /// A delayed correction must preserve speed accepted since the last completed tick.
 fn check_pending_speed(update: CommittedControlEvent, expected: f32, trigger: ReplayTrigger) {
     let (mut physics, mut ticker) = walked_physics(0);
@@ -72,40 +112,7 @@ fn check_pending_speed(update: CommittedControlEvent, expected: f32, trigger: Re
             &VersionedFloor(1),
         ));
     } else {
-        let mut position = anchor.position;
-        position[0] += 0.25;
-        let control = match trigger {
-            ReplayTrigger::Correction => CommittedControlEvent::PlayerMovementCorrection {
-                sequence: 3,
-                correction: protocol::PlayerMovementCorrectionEvent {
-                    position,
-                    delta: anchor.velocity,
-                    pitch: 0.0,
-                    yaw: 0.0,
-                    subject: protocol::MovementCorrectionSubject::Player,
-                    on_ground: anchor.grounded_after_tick,
-                    tick: anchor.tick,
-                },
-                resolved: ResolvedServerPosition {
-                    position,
-                    surface_anchor: None,
-                },
-            },
-            ReplayTrigger::Motion => CommittedControlEvent::LocalActorMotion {
-                sequence: 3,
-                event: protocol::ActorMotionEvent {
-                    actor_runtime_id: 42,
-                    motion: [0.2, 0.0, 0.0],
-                    tick: anchor.tick,
-                },
-            },
-            ReplayTrigger::Flags => CommittedControlEvent::LocalMovementFlags {
-                sequence: 3,
-                tick: anchor.tick,
-                flags: flags(|flags| flags.sprinting = Some(false)),
-            },
-            ReplayTrigger::Frame => unreachable!(),
-        };
+        let control = replay_control(trigger, &anchor);
         let observations =
             apply_control(control, &mut ticker, &mut physics, &mut effects, &mut speed);
         if matches!(trigger, ReplayTrigger::Correction) {
@@ -178,6 +185,7 @@ fn pending_speed_attribute_survives_correction_and_frame_replay_adoption() {
                 sequence: 2,
                 dimension: 0,
                 movement: Some(attribute(f64::from(0.2_f32), 0.2, None)),
+                movement_received: true,
                 underwater: None,
                 lava: None,
                 air_drag_modifier: None,
@@ -218,15 +226,24 @@ fn pending_speed_effect_survives_correction_and_frame_replay_adoption() {
     }
 }
 
-/// A first speed effect followed by live sprint metadata keeps its speed across replay.
-#[test]
-fn first_speed_effect_before_live_sprint_metadata_matches_replay() {
-    let (mut physics, mut ticker) = walked_physics(2);
-    let anchor = ticker.completed_tick();
+/// Compares replay before and after the first speed effect reaches a completed tick.
+fn check_first_speed_effect_replay(trigger: Option<ReplayTrigger>) {
+    let (mut physics, mut ticker) = walked_physics(0);
     let mut locals = super::super::LocomotionState::default();
     let mut effects = super::super::LocalMovementEffectTimeline::default();
     let mut speed = super::super::LocalMovementSpeedAuthority::default();
     speed.begin_session(7, 0);
+    for _ in 0..3 {
+        assert!(locals.advance(
+            speed_frame(Default::default()),
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+    }
+    let anchor = ticker.completed_tick();
     apply_control(
         CommittedControlEvent::LocalMovementEffect {
             sequence: 1,
@@ -252,11 +269,51 @@ fn first_speed_effect_before_live_sprint_metadata_matches_replay() {
             sequence: 2,
             tick: 0,
             flags: flags(|flags| flags.sprinting = Some(true)),
+            replacement: false,
+            dimensions: None,
         },
         &mut ticker,
         &mut physics,
         &mut effects,
         &mut speed,
+    );
+    let expected_speed = Some(f64::from(0.1_f32 * 1.2));
+    assert_eq!(speed.current(), expected_speed);
+    if let Some(trigger) = trigger {
+        let retained = physics.sample_at(anchor - 1).unwrap().clone();
+        if matches!(trigger, ReplayTrigger::Frame) {
+            reconcile_timeline_rewind(&mut ticker, &mut physics, retained.tick, &VersionedFloor(1))
+                .unwrap();
+        } else {
+            apply_control(
+                replay_control(trigger, &retained),
+                &mut ticker,
+                &mut physics,
+                &mut effects,
+                &mut speed,
+            );
+            assert_eq!(speed.current(), expected_speed, "{trigger:?}");
+        }
+    }
+    let mut frame = speed_frame(Default::default());
+    frame.delta = Duration::ZERO;
+    assert!(locals.advance(
+        frame,
+        &mut physics,
+        &mut ticker,
+        &mut effects,
+        &mut speed,
+        &VersionedFloor(1),
+    ));
+    assert_eq!(ticker.completed_tick(), anchor);
+    assert_eq!(speed.current(), expected_speed, "{trigger:?}");
+    assert_eq!(speed.reported_current(), expected_speed, "{trigger:?}");
+    assert_eq!(
+        speed.prediction_speed(),
+        Some(f64::from(
+            0.1_f32 * 1.2 / sim::SPRINT_SPEED_MULTIPLIER as f32
+        )),
+        "{trigger:?}"
     );
     assert!(locals.advance(
         speed_frame(semantic_input::ActionPhase {
@@ -292,4 +349,184 @@ fn first_speed_effect_before_live_sprint_metadata_matches_replay() {
     assert_eq!(physics.state(), live_state.as_ref());
     assert_eq!(speed.current(), live_speed);
     assert_eq!(live_speed, Some(f64::from(0.1_f32 * 1.2)));
+}
+
+/// A first speed effect followed by live sprint metadata keeps its speed across replay.
+#[test]
+fn first_speed_effect_before_live_sprint_metadata_matches_replay() {
+    for trigger in [
+        None,
+        Some(ReplayTrigger::Correction),
+        Some(ReplayTrigger::Motion),
+        Some(ReplayTrigger::Frame),
+    ] {
+        check_first_speed_effect_replay(trigger);
+    }
+}
+
+/// Missing replacement attributes cannot restore speed from the preceding actor's ticks.
+#[test]
+fn actor_replacement_without_movement_resets_live_and_replayed_speed() {
+    for pending_replay in [false, true] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::super::LocomotionState::default();
+        let mut effects = super::super::LocalMovementEffectTimeline::default();
+        let mut speed = super::super::LocalMovementSpeedAuthority::default();
+        speed.begin_session(7, 0);
+        assert!(speed.apply(7, 1, 0, attribute(f64::from(0.2_f32), 0.2, None)));
+        for _ in 0..3 {
+            assert!(locals.advance(
+                speed_frame(Default::default()),
+                &mut physics,
+                &mut ticker,
+                &mut effects,
+                &mut speed,
+                &VersionedFloor(1),
+            ));
+        }
+        let anchor = ticker.completed_tick() - 1;
+        assert_eq!(speed.current(), Some(f64::from(0.2_f32)));
+        for control in [
+            CommittedControlEvent::LocalMovementFlags {
+                sequence: 2,
+                tick: 0,
+                flags: flags(|flags| flags.sprinting = Some(false)),
+                replacement: true,
+                dimensions: Some(client_world::ExplicitDimensions::for_spawn(2)),
+            },
+            CommittedControlEvent::LocalMovementSpeed {
+                sequence: 2,
+                dimension: 0,
+                movement: None,
+                movement_received: true,
+                underwater: None,
+                lava: None,
+                air_drag_modifier: None,
+                tick: 0,
+            },
+        ] {
+            apply_control(control, &mut ticker, &mut physics, &mut effects, &mut speed);
+        }
+        assert_eq!(speed.current(), None);
+        if pending_replay {
+            reconcile_timeline_rewind(&mut ticker, &mut physics, anchor, &VersionedFloor(1))
+                .unwrap();
+            let mut frame = speed_frame(Default::default());
+            frame.delta = Duration::ZERO;
+            assert!(locals.advance(
+                frame,
+                &mut physics,
+                &mut ticker,
+                &mut effects,
+                &mut speed,
+                &VersionedFloor(1),
+            ));
+            assert_eq!(speed.current(), None);
+        }
+        assert!(locals.advance(
+            speed_frame(Default::default()),
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        assert_eq!(speed.current(), None);
+        assert_eq!(physics.latest_movement_speed().unwrap().attribute(), None);
+        let state = physics.state().cloned();
+        for _ in 0..2 {
+            reconcile_timeline_rewind(&mut ticker, &mut physics, anchor, &VersionedFloor(1))
+                .unwrap();
+            let mut frame = speed_frame(Default::default());
+            frame.delta = Duration::ZERO;
+            assert!(locals.advance(
+                frame,
+                &mut physics,
+                &mut ticker,
+                &mut effects,
+                &mut speed,
+                &VersionedFloor(1),
+            ));
+            assert_eq!(physics.state(), state.as_ref());
+            assert_eq!(speed.current(), None);
+            assert_eq!(speed.prediction_speed(), None);
+            assert_eq!(speed.reported_current(), None);
+        }
+    }
+}
+
+/// A snap seeds new history from the accepted attribute, which already includes pending effects.
+#[test]
+fn pending_speed_effect_survives_a_snap_that_clears_history() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::super::LocomotionState::default();
+    let mut effects = super::super::LocalMovementEffectTimeline::default();
+    let mut speed = super::super::LocalMovementSpeedAuthority::default();
+    speed.begin_session(7, 0);
+    assert!(speed.apply(7, 1, 0, attribute(f64::from(0.2_f32), 0.2, None)));
+    assert!(locals.advance(
+        speed_frame(Default::default()),
+        &mut physics,
+        &mut ticker,
+        &mut effects,
+        &mut speed,
+        &VersionedFloor(1),
+    ));
+    apply_control(
+        CommittedControlEvent::LocalMovementEffect {
+            sequence: 2,
+            event: protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 42,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: protocol_ids::Effect::Speed.wire_value(),
+                amplifier: 0,
+                particles: false,
+                ambient: false,
+                duration_ticks: 600,
+                tick: 0,
+            },
+        },
+        &mut ticker,
+        &mut physics,
+        &mut effects,
+        &mut speed,
+    );
+    let expected = Some(f64::from(0.2_f32 * 1.2));
+    assert_eq!(speed.current(), expected);
+    let tick = ticker.completed_tick();
+    let position = physics.network_position().unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        position,
+        tick,
+        true,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert_eq!(physics.latest_movement_speed(), None);
+    for completed in [tick, tick + 1] {
+        assert!(locals.advance(
+            speed_frame(Default::default()),
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        assert_eq!(ticker.completed_tick(), completed);
+        assert_eq!(speed.current(), expected);
+        assert_eq!(speed.reported_current(), expected);
+    }
+    assert_eq!(
+        physics
+            .latest_movement_speed()
+            .unwrap()
+            .attribute()
+            .unwrap()
+            .current,
+        expected.unwrap()
+    );
 }

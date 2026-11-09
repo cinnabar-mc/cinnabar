@@ -526,16 +526,10 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
-Fixed-tick movement and correction replay apply sprint speed-modifier changes before
-travel, including liquid stops, catch-up restarts and equal authoritative attribute
-refreshes. Speed effect operations preserve replayed sprint modifier changes.
-Unrecorded live sprint flags retain ownership through zero-tick frames and replays;
-delayed control adoption does not duplicate their original server write.
-Later rewinds reconcile unresolved earlier writes after replay failures.
-Loading resets preserve their sprint stop across holds without a completed tick.
-Frozen travel clears jumping after input for the following tick's sprint
-intent. Live strict-server acceptance of the surface-exit and wet-jump sprint stops
-is pending.
+Fixed-tick movement and correction replay apply liquid sprint stops and sprint
+speed-modifier edges before travel; see [swimming triggers](docs/reference/swimming-trigger.md).
+Speed authority follows actor lifetimes and survives prediction resets.
+Incomplete: live strict-server acceptance of the surface-exit and wet-jump sprint stops.
 Server sprint metadata preserves the local Toggle Sprint request. Held sprint
 restarts after a server clear when admission conditions hold. Native rendered
 acceptance of server resets and corrections remains outstanding.
