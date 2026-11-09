@@ -4,8 +4,18 @@
 //! prediction follows.
 
 use protocol::ActorMoveEvent;
+use protocol_ids::ActorFlag;
 
-use super::{ActorPose, ActorStore};
+use super::{ActorPose, ActorSnapshot, ActorStore};
+
+impl ActorSnapshot {
+    /// Whether only the server moves riders off this vehicle, so a rider leaving it waits for
+    /// the server instead of placing itself.
+    #[must_use]
+    pub fn server_owns_dismount(&self) -> bool {
+        self.flag(ActorFlag::DoesServerAuthOnlyDismount.wire_value())
+    }
+}
 
 /// Server changes to the predicted vehicle that prediction follows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

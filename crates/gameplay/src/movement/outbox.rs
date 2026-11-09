@@ -492,6 +492,20 @@ impl MovementTicker {
     /// movement waits until [`Self::release_dismount_fence`].
     pub(super) fn place_dismount(&mut self, position: [f32; 3]) {
         let tick = self.completed_tick();
+        self.dismount = DismountBoundary {
+            fence: Some(tick),
+            placed: Some((tick, position)),
+        };
+        self.reapply_dismount_placement();
+    }
+
+    /// Ends the last completed tick where a dismount after it placed the player, also after
+    /// a correction rebuilds the tick ends.
+    pub(super) fn reapply_dismount_placement(&mut self) {
+        let tick = self.completed_tick();
+        let Some((_, position)) = self.dismount.placed.filter(|(placed, _)| *placed == tick) else {
+            return;
+        };
         let end = self.tick_ends.get(tick).map_or(
             UnsentSampleView {
                 tick,
@@ -503,10 +517,6 @@ impl MovementTicker {
             |end| UnsentSampleView { position, ..end },
         );
         self.tick_ends.record(end);
-        self.dismount = DismountBoundary {
-            fence: Some(tick),
-            placed: Some((tick, position)),
-        };
     }
 
     /// Lets movement held back for a dismount request reach transport.
@@ -546,7 +556,9 @@ impl MovementTicker {
     /// Pairs an attack with the state before the first input it precedes.
     /// Older unsent inputs must drain before an attack can use a later state.
     pub fn interaction_before_tick(&self, tick: u64) -> Option<InteractionSample> {
-        if !self.is_first_unsent_tick(tick) {
+        // Ticks after a dismount wait for its request, and so do interactions before them.
+        if !self.is_first_unsent_tick(tick) || self.dismount.fence.is_some_and(|fence| tick > fence)
+        {
             return None;
         }
         let previous = self.tick_ends.get(tick.checked_sub(1)?)?;

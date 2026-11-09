@@ -945,6 +945,7 @@ impl MovementTicker {
                     self.tick_ends
                         .record(UnsentSampleView::from_replayed(sample, flags));
                 }
+                self.reapply_dismount_placement();
                 Ok(())
             }
         }

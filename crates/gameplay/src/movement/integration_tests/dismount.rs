@@ -624,6 +624,11 @@ fn movement_after_getting_off_waits_for_the_dismount_request() {
         before.iter().all(|tick| *tick <= seated),
         "only seated movement goes ahead of the request: {before:?}"
     );
+    assert_eq!(
+        rider.ticker.interaction_before_tick(seated + 1),
+        None,
+        "nor does an interaction before the first tick off the boat"
+    );
 
     rider.locals.flush_dismount(position, |_| Ok(()));
     rider.locals.settle_dismount_fence(&mut rider.ticker);
