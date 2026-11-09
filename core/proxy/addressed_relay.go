@@ -9,7 +9,7 @@ import (
 	"github.com/df-mc/go-nethernet"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/sandertv/gophertunnel/minecraft/service"
-	"github.com/sandertv/gophertunnel/minecraft/service/signaling/messaging"
+	"github.com/sandertv/gophertunnel/minecraft/service/signaling"
 )
 
 // relayFetchTimeout bounds one relay config request. When it passes, the join continues with
@@ -43,13 +43,14 @@ func newXboxRelay(account service.TokenSource, logger *slog.Logger) *xboxRelay {
 		logger: logger,
 		now:    time.Now,
 		fetch: func(ctx context.Context) (*nethernet.Credentials, error) {
-			conn, err := messaging.Dialer{Log: logger}.DialContext(ctx, account)
+			conn, err := signaling.Dialer{Log: logger}.DialContext(ctx, account)
 			if err != nil {
 				return nil, err
 			}
 			// The graceful close has its own timeouts; it must not hold back the answer.
 			defer func() { go func() { _ = conn.Close() }() }()
-			return conn.Credentials(ctx)
+			// Credentials no longer waits for the pending request, and closing would cancel it.
+			return conn.AwaitCredentials(ctx)
 		},
 	}
 }

@@ -6,7 +6,7 @@ mod runtime_system;
 mod simulation_tick;
 pub(crate) use colliders::MovementColliderCache;
 pub(crate) use prediction_sync::send_movement_prediction_sync;
-pub(crate) use runtime_system::advance_local_physics;
+pub(crate) use runtime_system::{advance_local_physics, decide_frame_ticks};
 pub(crate) use simulation_tick::record_simulation_tick;
 
 /// Borrows terrain and retains solid actor bounds for prediction and correction replay.

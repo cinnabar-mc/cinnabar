@@ -7,6 +7,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
+mod armor_damage;
+#[cfg(test)]
+mod armor_damage_tests;
 mod auto_craft;
 #[cfg(test)]
 pub(crate) use auto_craft::take_source_validations;

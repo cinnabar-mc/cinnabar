@@ -7,6 +7,7 @@ pub(super) mod command_macros;
 mod drop_swing;
 pub(crate) mod input_capture;
 pub(crate) mod inventory;
+mod screen_text;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{
@@ -628,6 +629,15 @@ pub(crate) fn drive_chat_keyboard_input(
                     }
                     // An OS repeat of a held key is not a new press, so it never closes a screen.
                     KeyCode::Escape => {}
+                    key if screen_text::edit_field_key(
+                        &mut runtime,
+                        key,
+                        &modifiers
+                            .get_pressed()
+                            .map(|key| keyboard_key(*key))
+                            .collect::<Vec<_>>(),
+                        clipboard.as_deref_mut(),
+                    ) => {}
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(&mut player_runtime, keyboard_key(key)) => {}
                     _ => {

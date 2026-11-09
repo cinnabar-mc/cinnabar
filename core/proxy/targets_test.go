@@ -219,18 +219,23 @@ var _ interface {
 	DialContextIdentityProvider(context.Context, string, string, *ecdsa.PrivateKey, string) (net.Conn, error)
 } = scopedNetherNetNetwork{}
 
-// A raw NetherNet ID carries its signaling explicitly; a bare ID is refused rather than guessed.
+// A raw NetherNet target names its signaling explicitly: JSON-RPC for an ID, the only signaling
+// vanilla uses for one, or HTTP for a host:port. A bare ID is refused rather than guessed.
 func TestNetherNetTargetsNameTheirSignaling(t *testing.T) {
 	id := "5db3882f-99fe-4648-97dd-1b55492e1cc9"
-	for address, want := range map[string]int{
-		"nethernet/jsonrpc/" + id:      p2p.ConnectionTypeSignalingOverJSONRPC,
-		"NetherNet/WebSocket/12345678": p2p.ConnectionTypeSignalingOverWebSocket,
+	for address, want := range map[string][2]string{
+		"nethernet/jsonrpc/" + id:               {"jsonrpc", id},
+		"NetherNet/JSONRPC/12345678":            {"jsonrpc", "12345678"},
+		"nethernet/HTTP/play.example.net:19132": {"http", "play.example.net:19132"},
 	} {
-		if _, got, err := parseNetherNetTarget(strings.ToLower(address)); err != nil || got != want {
-			t.Fatalf("%s = %d, %v; want %d", address, got, err, want)
+		if signaling, value, err := parseNetherNetTarget(address); err != nil || [2]string{signaling, value} != want {
+			t.Fatalf("%s = %q %q, %v; want %q", address, signaling, value, err, want)
 		}
 	}
-	for _, address := range []string{"nethernet/jsonrpc/", "nethernet/carrier/" + id, "nethernet/websocket/host:1"} {
+	for _, address := range []string{
+		"nethernet/jsonrpc/", "nethernet/carrier/" + id, "nethernet/websocket/12345678", "nethernet/websocket/host:1",
+		"nethernet/jsonrpc/host:1", "nethernet/http/" + id, "nethernet/http/host", "nethernet/http/host:0",
+	} {
 		if _, _, err := parseNetherNetTarget(address); err == nil {
 			t.Fatalf("%s parsed", address)
 		}
@@ -380,4 +385,43 @@ func TestDialTransportBoundsSilentRakNetServer(t *testing.T) {
 			t.Fatal("RakNet never probed the silent transport")
 		}
 	})
+}
+
+// A featured server's DEFAULT assignment joins over RakNet without a NetherNet probe, and a
+// NETHERNET assignment joins only through the HTTP signaling a probe finds: when only RakNet
+// answers there, the join fails instead of falling back to it, as vanilla joins them.
+func TestExperienceTargetsKeepTheirTransport(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	server, err := minecraft.ListenConfig{AuthenticationDisabled: true, ErrorLog: logger}.Listen("raknet", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	address := server.Addr().String()
+
+	rakNet, err := resolveUpstreamTarget(t.Context(), "RakNet/"+address, nil, logger, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rakNet.network.(minecraft.RakNet); !ok || rakNet.address != address {
+		t.Fatalf("raknet target = %T at %q, want RakNet at %q", rakNet.network, rakNet.address, address)
+	}
+	if _, err := resolveUpstreamTarget(t.Context(), "raknet/host", nil, logger, nil); err == nil {
+		t.Fatal("a RakNet target without a port resolved")
+	}
+
+	account := authcache.NewAccount(t.Context(), "", oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "unused"}), nil)
+	netherNet, err := resolveUpstreamTarget(t.Context(), "nethernet/http/"+address, account, logger, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := netherNet.network.(minecraft.NetherNetHTTP); !ok || netherNet.address != address {
+		t.Fatalf("NetherNet HTTP target = %T at %q, want NetherNetHTTP at %q", netherNet.network, netherNet.address, address)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	if conn, err := netherNet.network.DialContext(ctx, netherNet.address); err == nil {
+		_ = conn.Close()
+		t.Fatal("a NETHERNET assignment joined the RakNet server at its address")
+	}
 }

@@ -961,6 +961,11 @@ kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
+literal = "CINNABAR_SHUTDOWN_PHASE"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
 literal = "CINNABAR_SHUTDOWN_WATCHDOG_ARMED"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"

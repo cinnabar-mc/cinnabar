@@ -126,6 +126,7 @@ impl MenuRuntime {
             skin_name: field_editor(MenuField::SkinName),
             friend_query: field_editor(MenuField::FriendQuery),
             settings_query: field_editor(MenuField::SettingsQuery),
+            storage_query: field_editor(MenuField::StorageQuery),
             macro_commands: macro_editors(&settings_options),
             message,
             gui_scale_preference: gui_scale
@@ -210,6 +211,7 @@ impl MenuRuntime {
             settings_input: focus::SettingsInput::default(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
+            storage_reader: None,
             settings_dirty: false,
             settings_writer: None,
             settings_retry_at: None,
@@ -219,12 +221,13 @@ impl MenuRuntime {
             language_choices,
             language_pending,
             language_asset_path,
-            input_mode: input::MenuInputMode::default(),
+            input_mode: input::mode::MenuInputMode::default(),
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
             invite: Default::default(),
             realm_membership: Default::default(),
+            realm_leave: Default::default(),
             join_requests: Default::default(),
         }
     }

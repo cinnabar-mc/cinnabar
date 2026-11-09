@@ -140,6 +140,27 @@ impl IconBlocks {
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
+        if matches!(
+            assets::facts::pack::face_slots(&record.name),
+            Some(assets::facts::pack::FaceSlots::Pumpkin)
+        ) {
+            // The item routes to the north state, whose carved or lit face lands on the side the
+            // GUI cube hides. The icon shows the placed south pose, with that face on the left.
+            return self
+                .records
+                .iter()
+                .filter(|candidate| candidate.name == record.name)
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    state[assets::facts::BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                        == "south"
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if assets::facts::block_render_fact(&record.name).kind
             == assets::facts::BlockRenderKind::Lectern
         {
@@ -649,3 +670,7 @@ mod button_tests;
 #[cfg(test)]
 #[path = "blocks/lectern_tests.rs"]
 mod lectern_tests;
+
+#[cfg(test)]
+#[path = "blocks/pumpkin_tests.rs"]
+mod pumpkin_tests;

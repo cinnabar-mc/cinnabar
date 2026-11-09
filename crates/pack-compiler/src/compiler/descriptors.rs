@@ -34,7 +34,7 @@ pub(super) fn descriptor_for(
     if visuals::mapped_face::is_record(record) {
         return visuals::mapped_face::descriptor(pack, record, face);
     }
-    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
+    let TextureKey { key, uv_rotation } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
     let (path, state_variant) = if let Some(variant) = visuals::chorus::flower_variant(record) {
         pack.terrain.get_clamped_untinted_variant(&key, variant)?
@@ -50,11 +50,7 @@ pub(super) fn descriptor_for(
     {
         return None;
     }
-    let mut flags = if rotate_uv {
-        MATERIAL_FLAG_ROTATE_UV
-    } else {
-        0
-    };
+    let mut flags = uv_rotation;
     if (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
         && !record.flags.contains(BlockFlags::LEAF_MODEL))
         || block_render_fact(&record.name).kind == R::GrassPath

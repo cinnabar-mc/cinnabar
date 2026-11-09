@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/andreburgaud/crypt2go v1.8.0 // indirect
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
@@ -47,6 +48,8 @@ require (
 	golang.org/x/time v0.14.0 // indirect
 )
 
-replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261028172540-f8448d729edd
+replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261109084346-4a55fcfa068d
 
-replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
+replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261108113906-d4f2a990a702
+
+replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f

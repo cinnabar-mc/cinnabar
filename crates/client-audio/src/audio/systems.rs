@@ -176,7 +176,7 @@ impl IngestState {
 }
 
 /// Level sound events the client also voices itself: block events by cell, actor events by actor.
-const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
+const ECHOED_BLOCK_EVENTS: [&str; 1] = ["break"];
 const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
 pub const BLOCK_ECHO_SECONDS: f64 = 0.6;
 pub const ACTOR_ECHO_SECONDS: f64 = 0.4;
@@ -424,9 +424,10 @@ pub fn drive_local_motion(
                     LocalCue::Swim { volume } => {
                         (tables.entity(PLAYER, "swim", None), Some(volume))
                     }
-                    LocalCue::Splash { volume } => {
-                        (tables.entity(PLAYER, "splash", None), Some(volume))
-                    }
+                    LocalCue::Splash { volume } => (
+                        tables.entity(PLAYER, super::route::SPLASH_EVENT, None),
+                        Some(volume),
+                    ),
                 };
                 route.map(|route| {
                     let volume = volume.map_or(route.volume, |value| assets::FloatRange {

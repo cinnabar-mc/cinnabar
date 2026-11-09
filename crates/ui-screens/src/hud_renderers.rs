@@ -17,6 +17,8 @@ use ui_engine::engine::{
 };
 
 mod hunger_animation;
+mod locator;
+pub use locator::{LocatorMarker, LocatorPaint, LocatorView};
 mod mob_effects;
 mod status;
 mod status_motion;
@@ -35,6 +37,8 @@ pub const MOB_EFFECTS_RENDERER: &str = "mob_effects_renderer";
 pub const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
 /// The crosshair overlay's cursor.
 pub const CURSOR_RENDERER: &str = "cursor_renderer";
+/// The server-restylable locator control.
+pub const LOCATOR_RENDERER: &str = json_ui::vanilla::Renderer::LocatorBar.as_str();
 
 /// One sprite a renderer draws, relative to its control's origin, in GUI px.
 #[derive(Clone, Debug, PartialEq)]
@@ -100,6 +104,7 @@ pub struct HudPaint {
     pub java_effects: Vec<Cell>,
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
+    pub locator: Option<LocatorPaint>,
     pub hotbar_cooldowns: [f32; 9],
     pub crosshair: Option<SheetSprite>,
     pub crosshair_blend: ui::UiBlendMode,
@@ -120,6 +125,7 @@ impl HudPaint {
         .chain(self.effects.textures())
         .chain(self.hearts.textures())
         .chain(self.hunger.textures())
+        .chain(self.locator.iter().flat_map(LocatorPaint::textures))
         .chain(SLOT_ART)
         .chain(self.crosshair.into_iter().flat_map(|_| {
             [
@@ -140,6 +146,7 @@ impl HudPaint {
             effects,
             java_effects,
             mount_jump,
+            locator,
             hotbar_cooldowns,
             crosshair,
             crosshair_blend,
@@ -152,6 +159,7 @@ impl HudPaint {
             && *effects == other.effects
             && *java_effects == other.java_effects
             && *mount_jump == other.mount_jump
+            && *locator == other.locator
             && *hotbar_cooldowns == other.hotbar_cooldowns
             && *crosshair == other.crosshair
             && *crosshair_blend == other.crosshair_blend
@@ -347,9 +355,14 @@ fn paint(
             }
             return PaintKind::Bottom;
         }
+        LOCATOR_RENDERER => {
+            if let Some(locator) = &hud.locator {
+                locator::paint(canvas, locator, dest, alpha);
+            }
+            return PaintKind::Bottom;
+        }
         // Renderers with no Cinnabar state draw nothing, as with no data.
         "dash_renderer"
-        | "locator_bar"
         | "vignette_renderer"
         | "progress_indicator_renderer"
         | "camera_renderer"
