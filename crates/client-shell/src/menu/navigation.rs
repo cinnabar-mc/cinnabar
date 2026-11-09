@@ -160,7 +160,7 @@ impl MenuRuntime {
     pub(super) fn step_play_tab(&mut self, step: isize) {
         if !self.visible
             || self.is_connecting()
-            || self.local_ui.view.progress.is_some()
+            || self.local_ui.progress_open()
             || self.dialog.is_some()
             || self.field.is_some()
             || self.disconnect_message.is_some()
