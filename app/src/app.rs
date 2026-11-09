@@ -173,6 +173,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
+        .add_systems(Update, crate::named_audio::notify_audio_output_unavailable)
         .add_systems(
             Update,
             crate::named_audio::drain_live_named_audio

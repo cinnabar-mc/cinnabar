@@ -4,7 +4,7 @@ use super::{Candidate, download::Asset, worker::Release};
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 
-const HOST_REPOSITORY: &str = "https://github.com/cinnabar-mc/cinnabar.git";
+const HOST_REPOSITORY: &str = concat!(launcher::repository_url!(), ".git");
 const MAX_METADATA_BYTES: usize = 16 * 1024;
 
 #[derive(Deserialize)]
