@@ -26,6 +26,7 @@ inventory = { path = "../inventory" }
 particles = { path = "../particles" }
 player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
+protocol-ids = { path = "../protocol-ids" }
 resource-pack = { path = "../resource-pack" }
 rodio = { version = "=0.20.1", default-features = false }
 serde_json = "1"
@@ -47,7 +48,6 @@ web-sys = { version = "0.3.104", features = ["AudioContext", "AudioContextState"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
-protocol-ids = { path = "../protocol-ids" }
 test-alloc = { path = "../test-alloc" }
 test-time = { path = "../test-time" }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

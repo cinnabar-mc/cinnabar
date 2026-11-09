@@ -9,7 +9,7 @@ use super::Content;
 use launcher::menu::{
     MenuAction, RendererChoice,
     settings_storage::{StorageAction, StorageFolder},
-    shader_pack_status::pack_label,
+    shader_pack_status::{PackIssue, pack_label},
 };
 use launcher::shader_options::Action;
 use ui_engine::engine::screen::PaintError;
@@ -44,27 +44,22 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             content.view.renderer,
         )?;
     }
-    if render_model::SHADER_PACKS_ENABLED {
-        let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
-            .then_some(content.view.shader_pack.as_deref())
-            .flatten()
-            .map_or("Off", pack_label);
-        super::services::action_row_text(
-            content,
-            &format!("Shaders: {selected}"),
-            "",
-            "Open",
-            Some(MenuAction::SettingsShaders),
-        )?;
-    }
+    let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
+        .then_some(content.view.shader_pack.as_deref())
+        .flatten()
+        .map_or("Off", pack_label);
+    super::services::action_row_text(
+        content,
+        &format!("Shaders: {selected}"),
+        "",
+        "Open",
+        Some(MenuAction::SettingsShaders),
+    )?;
     Ok(())
 }
 
 /// Draws Off and every pack as one pick-one list, ending in the host's import controls.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return Ok(());
-    }
     let view = content.view;
     content.heading(
         "Shader pack",
@@ -76,8 +71,11 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     )?;
     let active = view.render_mode == ui::RenderMode::ShaderPack;
     let removing = view.shader_pack_removing.as_deref();
-    let status = if view.renderer_failure.is_some() {
-        Chip::Failed
+    let status = if let Some(issue) = &view.renderer_issue {
+        match issue {
+            PackIssue::Failure(_) => Chip::Failed,
+            PackIssue::Warning(_) => Chip::Partial,
+        }
     } else if view.shader_pack_loading {
         Chip::Loading
     } else {
@@ -181,6 +179,7 @@ enum Chip {
     Active,
     Loading,
     Failed,
+    Partial,
     Removing,
     Zip,
     Folder,
@@ -192,6 +191,7 @@ impl Chip {
             Self::Active => "Active",
             Self::Loading => "Loading…",
             Self::Failed => "Failed",
+            Self::Partial => "Active with warnings",
             Self::Removing => "Removing…",
             Self::Zip => "ZIP",
             Self::Folder => "Folder",
@@ -212,7 +212,7 @@ impl Chip {
     /// Draws the chip filling `bounds` from [`Self::size`].
     fn draw(self, canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
         let [fill, text] = match self {
-            Self::Active => [theme::PRIMARY_ROLE.fill, TEXT],
+            Self::Active | Self::Partial => [theme::PRIMARY_ROLE.fill, TEXT],
             Self::Failed => [theme::DESTRUCTIVE.fill, TEXT],
             Self::Loading | Self::Removing | Self::Zip | Self::Folder => {
                 [theme::NEUTRAL80.fill, TEXT_DIMMER]
@@ -363,7 +363,7 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
     };
     let failure = entry
         .controls
-        .then_some(view.renderer_failure.as_deref())
+        .then_some(view.renderer_issue.as_ref().map(PackIssue::description))
         .flatten();
     let failure_height = match failure {
         Some(text) => {
@@ -478,7 +478,11 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         canvas.frame(bounds, EDGE, theme::BORDER)?;
         canvas.fill(
             [bounds[0], bounds[1], bounds[0] + canvas.r(0.4), bounds[3]],
-            theme::DESTRUCTIVE_TINT,
+            if matches!(view.renderer_issue, Some(PackIssue::Warning(_))) {
+                theme::PRIMARY_ROLE.fill
+            } else {
+                theme::DESTRUCTIVE_TINT
+            },
         )?;
         canvas.text(
             text,

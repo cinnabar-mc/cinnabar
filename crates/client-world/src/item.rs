@@ -28,6 +28,8 @@ mod grip;
 mod map_tests;
 #[cfg(test)]
 mod presentation_tests;
+#[cfg(test)]
+mod shield_tests;
 mod visual;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
@@ -50,6 +52,8 @@ pub struct CanonicalItemStack {
     pub charged_projectile: Option<Arc<str>>,
     /// Signed image identity retained independently of visual metadata.
     pub map_id: Option<i64>,
+    /// Shield cloth colors and overlays retained from this admitted stack.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Projectile drawing facts resolved when this stack enters canonical admission.
     pub charged_projectile_role: assets::item_use::ItemProjectileRole,
     /// Durability damage retained separately from the stack's visual metadata.
@@ -204,7 +208,22 @@ impl ItemStateStore {
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         let registry = built_in_registry(assets.as_deref());
-        let mut store = Self {
+        let mut store = Self::with_registry(assets, registry);
+        store.rebuild_use_profiles();
+        store
+    }
+
+    /// Display actors never receive equipment or an item registry, so they need no retail tables.
+    pub(crate) fn empty() -> Self {
+        Self::with_registry(None, BTreeMap::new())
+    }
+
+    /// Starts item state around admitted records; normal stores then prepare their use profiles.
+    fn with_registry(
+        assets: Option<Arc<RuntimeEntityAssets>>,
+        registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
+    ) -> Self {
+        Self {
             presentation_generation: Arc::new(()),
             assets,
             registry,
@@ -220,9 +239,7 @@ impl ItemStateStore {
             use_overlays: None,
             attack_timings: None,
             notices: Vec::new(),
-        };
-        store.rebuild_use_profiles();
-        store
+        }
     }
 
     /// Records where an equipment event landed; the stacks are named through the registry.
@@ -474,17 +491,7 @@ impl ItemStateStore {
                 &mut snapshot.boots,
                 &mut snapshot.body,
             ] {
-                let charged = piece.item.charged_projectile.take();
-                let damage = piece.item.damage;
-                let enchanted = piece.item.enchanted;
-                let map_id = piece.item.map_id;
-                piece.item = self.resolve_identity(piece.item.identity);
-                piece.item.charged_projectile = charged;
-                piece.item.charged_projectile_role =
-                    self.projectile_role(piece.item.charged_projectile.as_deref());
-                piece.item.damage = damage;
-                piece.item.enchanted = enchanted;
-                piece.item.map_id = map_id;
+                self.refresh_stack_facts(&mut piece.item);
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -492,40 +499,37 @@ impl ItemStateStore {
         let keys = self.equipment.keys().copied().collect::<Vec<_>>();
         self.pending.clear();
         for key in keys {
-            let Some(identity) = self
-                .equipment
-                .get(&key)
-                .map(|equipment| equipment.item.identity)
-            else {
+            let Some(mut equipment) = self.equipment.remove(&key) else {
                 continue;
             };
-            let mut item = self.resolve_identity(identity);
-            item.charged_projectile = self
-                .equipment
-                .get(&key)
-                .and_then(|equipment| equipment.item.charged_projectile.clone());
-            item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
-            item.damage = self
-                .equipment
-                .get(&key)
-                .and_then(|equipment| equipment.item.damage);
-            item.enchanted = self
-                .equipment
-                .get(&key)
-                .is_some_and(|equipment| equipment.item.enchanted);
-            item.map_id = self
-                .equipment
-                .get(&key)
-                .and_then(|equipment| equipment.item.map_id);
+            self.refresh_stack_facts(&mut equipment.item);
+            let item = &equipment.item;
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
-            if let Some(equipment) = self.equipment.get_mut(&key) {
-                equipment.item = item;
-            }
+            self.equipment.insert(key, equipment);
             if unresolved {
                 self.retain_pending(key);
             }
         }
         true
+    }
+
+    /// Refreshes registry-owned facts without rebuilding or losing retained stack metadata.
+    fn refresh_stack_facts(&self, item: &mut CanonicalItemStack) {
+        let resolved = self.resolve_identity(item.identity);
+        item.use_animation = resolved.use_animation;
+        item.grip = resolved.grip;
+        item.glint = resolved.glint;
+        item.identifier = resolved.identifier;
+        if item
+            .identifier
+            .as_deref()
+            .is_some_and(|identifier| identifier != assets::gui_item::SHIELD_IDENTIFIER)
+        {
+            item.shield_pattern = None;
+        }
+        item.visual = resolved.visual;
+        item.durability = resolved.durability;
+        item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
     }
 
     pub(crate) fn get(&self, lifetime: ActorLifetimeId) -> Option<&ActorEquipmentSnapshot> {
@@ -573,6 +577,13 @@ impl ItemStateStore {
         item.damage = protocol::item_stack_damage(stack);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
         item.map_id = protocol::item_map_id(&stack.extra_data);
+        item.shield_pattern = item
+            .identifier
+            .as_deref()
+            .is_none_or(|identifier| identifier == assets::gui_item::SHIELD_IDENTIFIER)
+            .then(|| protocol::item_shield_pattern(&stack.extra_data))
+            .flatten()
+            .map(Arc::new);
         Some(item)
     }
 
@@ -609,6 +620,7 @@ impl ItemStateStore {
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
                 map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 damage: None,
                 durability: assets::item::durability::ItemDurability::NotDamageable,
@@ -642,6 +654,7 @@ impl ItemStateStore {
             identifier,
             visual,
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             damage: None,
             durability: self.item_durability(identity.network_id),
@@ -825,7 +838,7 @@ mod armor_tests {
     }
 
     #[test]
-    fn registry_refresh_preserves_held_and_worn_damage_and_glint() {
+    fn registry_refresh_preserves_held_and_worn_stack_metadata() {
         let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
         extra.extend_from_slice(&4u16.to_le_bytes());
         extra.extend_from_slice(b"ench");
@@ -833,11 +846,27 @@ mod armor_tests {
         extra.extend_from_slice(&6u16.to_le_bytes());
         extra.extend_from_slice(b"Damage");
         extra.extend_from_slice(&7u32.to_le_bytes());
+        extra.push(3);
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"Base");
+        extra.extend_from_slice(&15i32.to_le_bytes());
         extra.push(0);
+        let shield = protocol::vanilla_item_registry()
+            .iter()
+            .find(|item| item.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER)
+            .unwrap()
+            .network_id;
         let actor = lifetime(7, 1);
         let mut store = ItemStateStore::diagnostic();
-        store.insert_spawn(actor, 1, stack(1, &extra));
-        assert!(store.apply_armor(actor, 2, &event(7, stack(1, &extra))));
+        store.insert_spawn(actor, 1, stack(shield, &extra));
+        assert!(store.apply_armor(actor, 2, &event(7, stack(shield, &extra))));
+        let pattern = store
+            .get(actor)
+            .unwrap()
+            .item
+            .shield_pattern
+            .clone()
+            .unwrap();
         assert!(store.apply_registry(ItemRegistryEvent {
             entries: Arc::from([])
         }));
@@ -846,6 +875,7 @@ mod armor_tests {
             &store.armor(7).unwrap().helmet.item,
         ] {
             assert_eq!(item.damage, Some(7));
+            assert_eq!(item.shield_pattern.as_deref(), Some(pattern.as_ref()));
             assert!(
                 item.enchanted,
                 "registry resolution must retain the stack's enchantments"

@@ -2,28 +2,54 @@
 
 use super::*;
 
-pub(super) fn try_emit_blob_cache_telemetry<S: NetworkSession, P>(
-    session: &S,
-    control_event_tx: &mpsc::Sender<NetworkControlEvent<P>>,
-    last_stats: &mut Option<BlobCacheStats>,
-) {
-    if !session.blob_cache_enabled() {
-        return;
-    }
-    let stats = session.blob_cache_stats();
-    if *last_stats == Some(stats) {
-        return;
-    }
-    if control_event_tx
-        .try_send(NetworkControlEvent::BlobCacheTelemetry {
-            enabled: true,
-            stats,
-        })
-        .is_ok()
-    {
-        emit_bounded_blob_cache_warning(last_stats.unwrap_or_default(), stats);
+pub(super) const LOG_INTERVAL_MS: u64 = 1_000;
+
+/// Keeps control delivery and ordinary log cadence together for one play pump.
+#[derive(Default)]
+pub(super) struct BlobCacheTelemetry {
+    last_stats: Option<BlobCacheStats>,
+    last_log_ms: u64,
+}
+
+impl BlobCacheTelemetry {
+    /// Logs the initial snapshot immediately and starts its ordinary log interval.
+    pub(super) fn emit_initial(&mut self, stats: BlobCacheStats, now_ms: u64) {
         emit_blob_cache_telemetry(stats);
-        *last_stats = Some(stats);
+        self.last_stats = Some(stats);
+        self.last_log_ms = now_ms;
+    }
+
+    /// Delivers changed stats, retaining warning admission while limiting ordinary logs.
+    /// Failed deliveries leave both the stats and caller-clock log interval eligible to retry.
+    pub(super) fn try_emit<S: NetworkSession, P>(
+        &mut self,
+        session: &S,
+        control_event_tx: &mpsc::Sender<NetworkControlEvent<P>>,
+        now_ms: u64,
+    ) {
+        if !session.blob_cache_enabled() {
+            return;
+        }
+        let stats = session.blob_cache_stats();
+        if self.last_stats == Some(stats) {
+            return;
+        }
+        if control_event_tx
+            .try_send(NetworkControlEvent::BlobCacheTelemetry {
+                enabled: true,
+                stats,
+            })
+            .is_ok()
+        {
+            emit_bounded_blob_cache_warning(self.last_stats.unwrap_or_default(), stats);
+            if self.last_stats.is_none()
+                || now_ms.saturating_sub(self.last_log_ms) >= LOG_INTERVAL_MS
+            {
+                emit_blob_cache_telemetry(stats);
+                self.last_log_ms = now_ms;
+            }
+            self.last_stats = Some(stats);
+        }
     }
 }
 

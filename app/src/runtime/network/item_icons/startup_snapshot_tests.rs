@@ -55,7 +55,7 @@ fn startup_custom_sword_survives_empty_registry_duplicate_in_rendered_hotbar() {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );

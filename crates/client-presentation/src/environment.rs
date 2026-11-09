@@ -261,6 +261,7 @@ pub fn apply_environment_control(
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
+        | CommittedControlEvent::LocalGameMode { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }

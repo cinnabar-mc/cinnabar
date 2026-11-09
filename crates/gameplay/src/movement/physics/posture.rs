@@ -381,13 +381,15 @@ impl LocalPhysicsController {
             .push(ServerWrite::Replacement(flags, dimensions));
         self.live_posture = Default::default();
         self.server_control_flags = None;
-        self.server_flags.reset_history();
+        self.server_flags.replace_actor();
+        self.write_server_using_item(flags.using_item.unwrap_or(false));
         if let Some(state) = self.state.as_mut() {
             state.spin_attack_ticks = flags.spinning.unwrap_or(false).then_some(0);
             state.swim_pose_active = [flags.swimming, flags.crawling].contains(&Some(true));
         }
         self.modes.adopt_actor_flags(flags);
-        self.adopt_live_flags(flags);
+        let stamp = self.state.as_ref().map_or(0, |state| state.tick);
+        self.adopt_live_flags(flags, stamp, false);
     }
 
     /// Records one sparse server flag write without replacing prior replay actions.

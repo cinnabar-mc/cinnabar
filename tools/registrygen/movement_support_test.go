@@ -7,7 +7,7 @@ import (
 // TestPhysicsSeedCarriesExplicitMovementSupport keeps typed movement facts in compiler inputs.
 func TestPhysicsSeedCarriesExplicitMovementSupport(t *testing.T) {
 	records := []PhysicsRecord{{SequentialID: 0, NetworkHash: 7, FrictionQ1E8: defaultFrictionQ1E8, HorizontalSpeedQ1E8: defaultSpeedQ1E8, VerticalSpeedQ1E8: defaultSpeedQ1E8, MovementSemantics: MovementSemanticsSpecial}}
-	blob, err := encodePhysicsRegistryForProtocol([]byte("identity fixture"), records, len(records), v2193BlockProtocol)
+	blob, err := encodePhysicsRegistryForProtocol([]byte("identity fixture"), records, len(records), v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestPhysicsSeedCarriesExplicitMovementSupport(t *testing.T) {
 // TestMovementSupportRejectsUnknownDiscriminants keeps unsupported data out of current carriers.
 func TestMovementSupportRejectsUnknownDiscriminants(t *testing.T) {
 	record := PhysicsRecord{SequentialID: 0, NetworkHash: 7, FrictionQ1E8: defaultFrictionQ1E8, HorizontalSpeedQ1E8: defaultSpeedQ1E8, VerticalSpeedQ1E8: defaultSpeedQ1E8, MovementSemantics: maxMovementSemantics + 1}
-	if _, err := encodePhysicsRegistryForProtocol([]byte("identity fixture"), []PhysicsRecord{record}, 1, v2193BlockProtocol); err == nil {
+	if _, err := encodePhysicsRegistryForProtocol([]byte("identity fixture"), []PhysicsRecord{record}, 1, v2225BlockProtocol); err == nil {
 		t.Fatal("unknown movement support emitted as a valid record")
 	}
 }

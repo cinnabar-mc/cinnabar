@@ -11,6 +11,7 @@ use super::{ActorSnapshot, entities};
 pub(super) struct EffectMembers {
     pub blocks: BTreeSet<u64>,
     pub ropes: BTreeSet<u64>,
+    pub tridents: BTreeSet<u64>,
     pub crystals: BTreeSet<u64>,
     pub dragons: BTreeSet<u64>,
     pub paintings: BTreeSet<u64>,
@@ -47,6 +48,11 @@ impl EffectMembers {
             ),
         );
         set(
+            &mut self.tridents,
+            runtime,
+            class == NativeEntityClass::ThrownTrident,
+        );
+        set(
             &mut self.crystals,
             runtime,
             class == NativeEntityClass::EnderCrystal,
@@ -69,6 +75,7 @@ impl EffectMembers {
     pub fn remove(&mut self, runtime: u64) {
         self.blocks.remove(&runtime);
         self.ropes.remove(&runtime);
+        self.tridents.remove(&runtime);
         self.crystals.remove(&runtime);
         self.dragons.remove(&runtime);
         self.paintings.remove(&runtime);

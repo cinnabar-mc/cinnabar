@@ -76,7 +76,7 @@ fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
         }
         h.app.update();
         assert!(!h.runtime().emotes().is_open());
-        assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(h.app.world().resource::<ScreenInputConsumed>().0);
         assert_eq!(
             h.app
                 .world()
@@ -112,7 +112,7 @@ fn closing_emote_wheel_cannot_replay_controller_navigation_as_world_drop() {
             .digital_mut()
             .press(GamepadButton::DPadDown);
         h.app.update();
-        assert!(!h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(!h.app.world().resource::<ScreenInputConsumed>().0);
         assert_eq!(
             h.app
                 .world()
@@ -138,14 +138,14 @@ fn closing_emote_wheel_consumes_book_use_and_allows_a_fresh_gameplay_use() {
     h.app.update();
     assert!(!h.runtime().emotes().is_open());
     assert!(!h.runtime().inventory_open());
-    assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+    assert!(h.app.world().resource::<ScreenInputConsumed>().0);
     h.app.update();
     h.app
         .world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Right);
     h.app.update();
-    assert!(!h.app.world().resource::<EmoteInputConsumed>().0);
+    assert!(!h.app.world().resource::<ScreenInputConsumed>().0);
     assert!(h.runtime().inventory_open());
     assert!(h.runtime().screen_state().book.is_some());
 }

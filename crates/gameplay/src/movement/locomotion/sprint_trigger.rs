@@ -23,6 +23,12 @@ impl SprintTrigger {
         self.previous_sneak = sneak_down;
     }
 
+    /// Forgets how the current sprint started, as every native stop request does.
+    pub(super) fn clear_latch(&mut self) {
+        self.started_by_button = false;
+        self.automatic_sprint = false;
+    }
+
     /// Updates the seven-tick forward latch and applies start/continuation conditions.
     pub(super) fn select(
         &mut self,
@@ -31,6 +37,16 @@ impl SprintTrigger {
         intent: ModeIntent,
         observed: ModeObservation,
     ) -> bool {
+        // Only sprint admission sees the direction projection; physics and wire axes stay intact.
+        let observed = if intent.movement_override {
+            ModeObservation {
+                move_forward: observed.move_sideways.hypot(observed.move_forward),
+                move_sideways: 0.0,
+                ..observed
+            }
+        } else {
+            observed
+        };
         self.double_tap_ticks = self.double_tap_ticks.saturating_sub(1);
         let forward = observed.move_forward >= SPRINT_THRESHOLD;
         let admission = forward

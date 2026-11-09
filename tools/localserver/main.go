@@ -83,6 +83,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.baseTextureIcon {
 		registerBaseTextureIcon()
 	}
+	if cfg.heldItemFixture {
+		registerHeldItemFixture()
+	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
 	var ext *extension.Server
@@ -149,6 +152,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if ext != nil {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = ext.Listener(listen)
+		}
+	}
+	if cfg.heldItemFixture {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = heldItemFixtureListener(listen)
 		}
 	}
 	if cfg.cameraTest {
@@ -219,6 +227,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		})
 	}
 	var closeUnstarted func() error
+	if exps != nil {
+		conf.Entities = exps.reg.EntityRegistry()
+	}
 	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	pauses := &pauseState{settings: cfg}
@@ -266,7 +277,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	go func() {
 		defer close(accepting)
 		for p := range srv.Accept() {
-			p.Handle(&localPlayerHandler{host: host})
+			handler := &localPlayerHandler{}
+			if host != nil {
+				handler.host = host
+			}
+			p.Handle(handler)
 			if host != nil {
 				host.PlayerJoined(p)
 			}

@@ -61,6 +61,31 @@ fn development_layout_needs_no_preparation() {
     assert_eq!(fake.asked.get(), 0);
 }
 
+/// A setup window process that crashes, as a faulting graphics driver does while the window
+/// opens, hands setup to native dialogs instead of failing the launch.
+#[test]
+fn crashed_setup_window_falls_back_to_native_dialogs() {
+    let data = Dir::new("crashed-window");
+    let layout = installed_layout(&data, "/nonexistent/opt/cinnabar/bin/cinnabar");
+    let fake = Fake {
+        accept: false,
+        asked: Cell::new(0),
+    };
+    // A Windows access violation, a Rust panic, and a Unix signal with no exit code.
+    let crashes = [
+        window::ChildOutcome::Crashed(Some(0xC000_0005_u32 as i32)),
+        window::ChildOutcome::Crashed(Some(101)),
+        window::ChildOutcome::Crashed(None),
+    ];
+    for crash in crashes {
+        assert_eq!(
+            after_window(&layout, crash, &fake, false).unwrap(),
+            Outcome::Quit
+        );
+    }
+    assert_eq!(fake.asked.get(), 3);
+}
+
 #[test]
 fn declined_consent_quits_without_running_anything() {
     let data = Dir::new("decline");
@@ -264,8 +289,12 @@ fn android_game_gate_requires_current_assets_only() {
     use std::os::unix::fs::PermissionsExt;
 
     let data = Dir::new("android-gate");
-    let layout = InstallLayout::android(data.path(), data.path().join("native/core.so"))
-        .with_prepared_assets();
+    let layout = InstallLayout::android(
+        data.path(),
+        data.path().join("native/core.so"),
+        data.path().join("native/worker.so"),
+    )
+    .with_prepared_assets();
     let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
     fs::create_dir_all(compiler.parent().unwrap()).unwrap();
     for (stale, kept, gated) in [

@@ -230,10 +230,11 @@ impl AudioDevice {
                 return;
             };
             match opening.try_recv() {
-                Ok(Some((mixer, release))) => {
+                Ok(Some((shared, release))) => {
                     self.sample_rate = MIXER_RATE;
                     self.output = Some(Output {
-                        mixer,
+                        mixer: shared.mixer,
+                        unavailable: shared.unavailable,
                         _release: release,
                     });
                 }
@@ -297,6 +298,16 @@ impl AudioDevice {
         return self.output.is_some();
         #[cfg(target_arch = "wasm32")]
         self.output.as_ref().is_some_and(Output::available)
+    }
+    /// Whether the default hardware output has stayed unopenable past a default-device
+    /// handoff. Sounds keep queuing on the retained mixer meanwhile; capture and test
+    /// mixers do not change the answer.
+    pub fn output_unavailable(&mut self) -> bool {
+        self.resolve();
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.output.as_ref().is_some_and(Output::unavailable);
+        #[cfg(target_arch = "wasm32")]
+        false
     }
     /// Only replaces hardware transport; admission and source ownership are real.
     #[cfg(any(test, feature = "test-support"))]

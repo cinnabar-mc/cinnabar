@@ -10,8 +10,8 @@ use std::{
 
 /// A collection can represent a catalogue without expanding every tile's descendants.
 pub const MAX_ITEMS: usize = 256;
-/// Includes a four-column, three-row viewport and its bounded virtualization margin.
-pub const MAX_VISIBLE_CELLS: usize = 26;
+/// Includes a five-column, three-row viewport and its bounded virtualization margin.
+pub const MAX_VISIBLE_CELLS: usize = 32;
 
 /// A reusable native grid with a small mutable list of immutable item indexes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -139,7 +139,6 @@ impl SurfaceCollection {
                 return Err("surface collection item has too many fields".into());
             }
             let values = Surface {
-                previews: Default::default(),
                 collections: Default::default(),
                 screen: String::new(),
                 document: String::new(),
@@ -147,6 +146,13 @@ impl SurfaceCollection {
                 transitions: Default::default(),
             };
             values.validate_bindings()?;
+            if item
+                .values
+                .values()
+                .any(|value| value.item().is_some() || value.projection().is_some())
+            {
+                return Err("surface collection items bind plain values only".into());
+            }
             if item.values.keys().any(|key| {
                 !key.starts_with("#item_") || key.starts_with("#item_art_") || key == "#item_exists"
             }) || item
@@ -368,10 +374,11 @@ mod tests {
         }
     }
 
-    /// Admits the four-column browser while retaining a finite window for oversized viewports.
+    /// Admits four- and five-column browsers while retaining a finite window for oversized
+    /// viewports and wider grids.
     #[test]
-    fn four_column_browser_keeps_a_bounded_retained_window() {
-        let mut collection = SurfaceCollection {
+    fn card_browsers_keep_a_bounded_retained_window() {
+        let browser = |columns: usize, viewport: [f64; 2]| SurfaceCollection {
             reveal: None,
             definition: Arc::new(CollectionDefinition {
                 template: Surface {
@@ -381,16 +388,16 @@ mod tests {
                     bindings: Default::default(),
                     transitions: Default::default(),
                     collections: Default::default(),
-                    previews: Default::default(),
                 },
-                columns: 4,
-                viewport: [452., 289.],
+                columns,
+                viewport,
                 items: vec![CollectionItem::default(); 66],
             }),
             order: (0..66).collect(),
         };
-        collection.validate("modules").unwrap();
-        Arc::make_mut(&mut collection.definition).viewport[1] = 486.;
-        assert!(collection.validate("modules").is_err());
+        browser(4, [452., 289.]).validate("modules").unwrap();
+        browser(5, [563., 289.]).validate("modules").unwrap();
+        assert!(browser(5, [563., 486.]).validate("modules").is_err());
+        assert!(browser(6, [674., 289.]).validate("modules").is_err());
     }
 }

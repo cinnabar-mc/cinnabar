@@ -46,6 +46,55 @@ fn physics_filename_follows_the_carrier_registry_for_every_layout() {
     }
 }
 
+/// The client spawns the packaged shader-pack compiler beside the core, never the asset compiler.
+#[test]
+fn shaderpack_worker_is_the_packaged_runtime_binary_beside_the_core() {
+    for (platform, executable, home, os) in [
+        (
+            Platform::Windows,
+            "C:/Cinnabar/cinnabar.exe",
+            "C:/Users/dev",
+            "windows",
+        ),
+        (
+            Platform::Linux,
+            "/opt/cinnabar/bin/cinnabar",
+            "/home/dev",
+            "linux",
+        ),
+        (
+            Platform::MacOs,
+            "/Applications/Cinnabar.app/Contents/MacOS/cinnabar",
+            "/Users/dev",
+            "macos",
+        ),
+        (
+            Platform::Linux,
+            "/work/cinnabar/target/debug/cinnabar",
+            "/home/dev",
+            "linux",
+        ),
+    ] {
+        let mut env = environment(executable, home);
+        if platform == Platform::Windows {
+            env.local_app_data = Some(PathBuf::from("C:/Users/dev/AppData/Local"));
+        }
+        let layout = InstallLayout::resolve(platform, &env).unwrap();
+        assert_eq!(
+            layout.shaderpack_worker.parent(),
+            layout.core_executable.parent()
+        );
+        assert_eq!(
+            layout.shaderpack_worker.file_name().unwrap(),
+            update_manifest::runtime::executable("SHADERPACK_WORKER", os).as_str()
+        );
+        assert_ne!(
+            layout.shaderpack_worker,
+            assets::carriers::kit_compiler(&layout.prep_kit())
+        );
+    }
+}
+
 /// A test binary in a build dir outside the checkout still resolves the checkout.
 #[test]
 fn external_build_dir_tests_resolve_their_workspace() {
@@ -132,7 +181,7 @@ fn isolated_user_root_rejects_relative_and_empty_paths() {
             assert!(matches!(
                 InstallLayout::resolve(platform, &env),
                 Err(LayoutError::InvalidUserRoot {
-                    variable: "CINNABAR_USER_ROOT",
+                    variable: render_api::USER_ROOT_ENV,
                     ..
                 })
             ));
@@ -163,7 +212,7 @@ fn resolves_development_layout_from_target_ancestor() {
     .unwrap();
     assert_eq!(
         layout.world_assets(),
-        PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2193.mcbea")
+        PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2225.mcbea")
     );
     assert_eq!(
         layout.physics_registry,

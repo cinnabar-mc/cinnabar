@@ -5,5 +5,5 @@ use client_ui::ui_runtime::forms::{
 mod interaction;
 mod network;
 
-pub(crate) use interaction::drive_server_form_input;
+pub(crate) use interaction::{drive_server_form_input, engine_frame_input, read_pointer_edges};
 pub(crate) use network::flush_server_form_network;

@@ -30,6 +30,14 @@ impl VisibilityAdmission {
         }
     }
 
+    /// Applies measured profitability only to future pass selection.
+    pub(super) fn observe_profitability(&mut self, frame: u64, profitable: bool) {
+        if frame > self.observed {
+            self.observed = frame;
+            self.profitable = profitable;
+        }
+    }
+
     /// Uses completed visible-candidate counts only to admit work, never to hide geometry.
     pub(super) fn observe(&mut self, frame: u64, candidates: usize, hidden: usize) {
         if frame <= self.observed || candidates == 0 {

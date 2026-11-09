@@ -46,6 +46,76 @@ fn numeric_array_versions_survive_import_and_restart() {
     }
 }
 
+/// Imports and activates one pack whose only resource is `marker.txt` holding `id`.
+fn install_active(library: &mut GlobalPackLibrary, fixture: &Fixture, id: u128) {
+    let bytes = zip(&[
+        ("manifest.json", manifest(id, "resources", "").as_bytes()),
+        ("marker.txt", id.to_string().as_bytes()),
+    ]);
+    let report = library
+        .import(&fixture.write("pack.mcpack", &bytes))
+        .unwrap();
+    assert_eq!(report.imported.len(), 1, "{:?}", report.rejected);
+    library.activate(Uuid::from_u128(id)).unwrap();
+}
+
+/// The installed archive of pack `id`, for a test to delete behind the library's back.
+fn archive_of(library: &GlobalPackLibrary, id: u128) -> PathBuf {
+    let pack = library
+        .available()
+        .iter()
+        .find(|pack| pack.id == Uuid::from_u128(id))
+        .unwrap();
+    library.root.join(pack.filename())
+}
+
+#[test]
+fn a_pack_whose_archive_is_gone_is_dropped_at_startup_and_the_rest_still_apply() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    install_active(&mut library, &fixture, 1);
+    install_active(&mut library, &fixture, 2);
+    library.apply().unwrap();
+    fs::remove_file(archive_of(&library, 1)).unwrap();
+
+    let mut restarted = fixture.library();
+    assert_eq!(restarted.missing_packs(), ["Fixture"]);
+    assert_eq!(
+        restarted
+            .active()
+            .iter()
+            .map(|active| active.id)
+            .collect::<Vec<_>>(),
+        [Uuid::from_u128(2)]
+    );
+    assert!(
+        restarted
+            .available()
+            .iter()
+            .all(|pack| pack.id != Uuid::from_u128(1))
+    );
+    let view = LayeredPackView::new(restarted.apply().unwrap());
+    assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"2");
+
+    let again = fixture.library();
+    assert!(
+        again.missing_packs().is_empty(),
+        "the player is told once, because the catalog forgets the pack"
+    );
+    assert_eq!(again.active().len(), 1);
+}
+
+#[test]
+fn an_archive_lost_during_a_session_does_not_block_applying_the_others() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    install_active(&mut library, &fixture, 1);
+    install_active(&mut library, &fixture, 2);
+    fs::remove_file(archive_of(&library, 2)).unwrap();
+    let view = LayeredPackView::new(library.preview().unwrap());
+    assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"1");
+}
+
 #[test]
 fn authored_version_strings_still_reject_more_than_five_digits() {
     let fixture = Fixture::new();
@@ -121,6 +191,201 @@ fn directory_preview_reuses_validation_and_installs_the_previewed_bytes() {
     );
 }
 
+/// A 16x16 PNG filled with `color`.
+fn png(color: [u8; 4]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn java_edition_packs_import_as_translated_bedrock_packs() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let planks = png([0, 255, 0, 255]);
+    let bytes = zip(&[
+        (
+            "Faithful/pack.mcmeta",
+            br#"{"pack":{"pack_format":15,"description":"Java textures"}}"#,
+        ),
+        ("Faithful/pack.png", &png([0, 0, 255, 255])),
+        (
+            "Faithful/assets/minecraft/textures/block/oak_planks.png",
+            &planks,
+        ),
+        (
+            "Faithful/assets/minecraft/sounds/ignored.ogg",
+            b"not a texture",
+        ),
+    ]);
+    let report = library
+        .import(&fixture.write("faithful.zip", &bytes))
+        .unwrap();
+    assert!(report.rejected.is_empty(), "{:?}", report.rejected);
+    let imported = &report.imported[0];
+    assert_eq!(imported.name, "Faithful");
+    assert_eq!(imported.description, "Java textures");
+    library.activate(imported.id).unwrap();
+    let view = LayeredPackView::new(library.apply().unwrap());
+    assert_eq!(
+        view.read("textures/blocks/planks_oak.png")
+            .unwrap()
+            .as_ref(),
+        planks.as_slice()
+    );
+    assert!(view.read("assets/minecraft/sounds/ignored.ogg").is_none());
+
+    let directory = fixture.0.join("java-pack");
+    fs::create_dir_all(directory.join("assets/minecraft/textures/item")).unwrap();
+    fs::write(
+        directory.join("pack.mcmeta"),
+        br#"{"pack":{"pack_format":15}}"#,
+    )
+    .unwrap();
+    fs::write(
+        directory.join("assets/minecraft/textures/item/golden_apple.png"),
+        png([255, 255, 0, 255]),
+    )
+    .unwrap();
+    let report = library.import(&directory).unwrap();
+    assert_eq!(
+        report.imported[0].name, "java-pack",
+        "{:?}",
+        report.rejected
+    );
+}
+
+#[test]
+fn java_edition_packs_without_usable_textures_are_rejected() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let bytes = zip(&[
+        ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+        ("assets/minecraft/sounds.json", b"{}"),
+    ]);
+    let report = library
+        .import(&fixture.write("sounds.zip", &bytes))
+        .unwrap();
+    assert!(report.imported.is_empty());
+    assert_eq!(report.rejected.len(), 1, "{:?}", report.rejected);
+    assert!(
+        report.rejected[0].contains("no textures"),
+        "{:?}",
+        report.rejected
+    );
+    assert!(library.available().is_empty());
+}
+
+#[test]
+fn java_metadata_over_the_manifest_allowance_is_not_read() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let mut meta = br#"{"pack":{"pack_format":15,"description":"Padded"},"pad":""#.to_vec();
+    meta.resize(crate::MAX_MANIFEST_BYTES + 16, b' ');
+    meta.extend_from_slice(b"\"}");
+    let bytes = zip(&[
+        ("pack.mcmeta", &meta),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            &png([1, 2, 3, 255]),
+        ),
+    ]);
+    let report = library
+        .import(&fixture.write("padded.zip", &bytes))
+        .unwrap();
+    assert_eq!(report.imported[0].description, "Java Edition resource pack");
+}
+
+#[test]
+fn compressible_java_translations_fit_the_compressed_archive_limit() {
+    // Each checkerboard TGA is about 4 MB uncompressed but deflates to almost nothing.
+    let checkerboard = {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_fn(1000, 1000, |x, y| {
+            image::Rgba(if (x + y) % 2 == 0 {
+                [0, 128, 0, 255]
+            } else {
+                [0; 4]
+            })
+        })
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+        bytes
+    };
+    let names = [
+        "acacia_leaves",
+        "birch_leaves",
+        "dark_oak_leaves",
+        "flowering_azalea_leaves",
+        "jungle_leaves",
+        "large_fern_bottom",
+        "large_fern_top",
+        "lilac_bottom",
+        "lilac_top",
+        "oak_leaves",
+        "short_grass",
+        "spruce_leaves",
+        "sugar_cane",
+        "tall_grass_bottom",
+        "tall_grass_top",
+        "tall_seagrass_bottom",
+        "tall_seagrass_top",
+    ];
+    let paths: Vec<String> = names
+        .iter()
+        .map(|name| format!("assets/minecraft/textures/block/{name}.png"))
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)];
+    files.extend(
+        paths
+            .iter()
+            .map(|path| (path.as_str(), checkerboard.as_slice())),
+    );
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let report = library
+        .import(&fixture.write("leaves.zip", &zip(&files)))
+        .unwrap();
+    assert_eq!(report.imported.len(), 1, "{:?}", report.rejected);
+}
+
+#[test]
+fn java_packs_in_bundles_keep_their_nested_siblings() {
+    let nested = zip(&[
+        ("manifest.json", manifest(140, "resources", "").as_bytes()),
+        ("marker.txt", b"nested"),
+    ]);
+    let texture = png([0, 255, 0, 255]);
+    for (usable, imported, rejected) in [(true, 2, 0), (false, 1, 1)] {
+        let fixture = Fixture::new();
+        let mut library = fixture.library();
+        let java: (&str, &[u8]) = if usable {
+            ("java/assets/minecraft/textures/block/stone.png", &texture)
+        } else {
+            ("java/assets/minecraft/sounds.json", b"{}")
+        };
+        let bytes = zip(&[
+            ("java/pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+            java,
+            ("java/assets/minecraft/extra.zip", b"not a pack"),
+            ("resource.mcpack", &nested),
+        ]);
+        let report = library
+            .import(&fixture.write("bundle.zip", &bytes))
+            .unwrap();
+        assert_eq!(report.imported.len(), imported, "{:?}", report.rejected);
+        assert_eq!(report.rejected.len(), rejected, "{:?}", report.rejected);
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|pack| pack.id == Uuid::from_u128(140))
+        );
+    }
+}
+
 #[test]
 fn directory_preview_rejects_encrypted_or_malformed_manifests() {
     let fixture = Fixture::new();
@@ -182,6 +447,40 @@ fn imports_legacy_manifest_names_with_formatting_codes() {
     assert_eq!(report.imported[0].name, "§r§4Fixture");
     library.activate(Uuid::from_u128(91)).unwrap();
     assert_eq!(library.apply().unwrap().packs().len(), 1);
+}
+
+#[test]
+fn multiline_manifest_descriptions_survive_import_and_restart() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let manifest = manifest(92, "resources", "").replace(
+        "\"name\":\"Fixture\"",
+        "\"name\":\"§bFixture\",\"description\":\"First line\r\n§eSecond\tline\"",
+    );
+    let bytes = zip(&[
+        ("manifest.json", manifest.as_bytes()),
+        ("marker.txt", b"pack content"),
+    ]);
+    let report = library
+        .import(&fixture.write("multiline.mcpack", &bytes))
+        .unwrap();
+    assert!(report.rejected.is_empty(), "{:?}", report.rejected);
+    assert_eq!(report.imported.len(), 1);
+    assert_eq!(report.imported[0].name, "§bFixture");
+    assert_eq!(
+        report.imported[0].description,
+        "First line\r\n§eSecond\tline"
+    );
+    library.activate(Uuid::from_u128(92)).unwrap();
+    library.apply().unwrap();
+
+    let mut restarted = fixture.library();
+    assert_eq!(
+        restarted.available()[0].description,
+        report.imported[0].description
+    );
+    let view = LayeredPackView::new(restarted.preview().unwrap());
+    assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"pack content");
 }
 
 #[test]
@@ -474,7 +773,11 @@ fn failed_apply_leaves_persisted_selection_and_composition_gives_higher_layer_pr
     library
         .select_subpack(Uuid::from_u128(1), "missing")
         .unwrap_err();
-    fs::remove_file(library.root.join(library.available()[0].filename())).unwrap();
+    fs::write(
+        library.root.join(library.available()[0].filename()),
+        b"not an archive",
+    )
+    .unwrap();
     assert!(library.apply().is_err());
     assert_eq!(fixture.library().active(), library.active());
     let empty = ValidatedPackStack {

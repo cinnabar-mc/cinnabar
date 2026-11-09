@@ -1,6 +1,8 @@
 //! Bounded declarative world drawing for trusted packet extensions.
 use serde::{Deserialize, Serialize};
 
+/// Independent native drawing wire version.
+pub const VERSION: u32 = 1;
 /// Native initialization bit for the independent `render-frame` callback.
 pub const CAPABILITY: u32 = 8;
 /// Optional consent bits carried by the same independent callback.
@@ -113,7 +115,7 @@ pub struct Scene {
 impl Scene {
     /// Validates the wire budget and finite input; retained drawing owns resource admission.
     pub fn is_valid(&self) -> bool {
-        self.version == super::native_frame::VERSION
+        self.version == VERSION
             && self.boxes.len() <= MAX_BOXES
             && self.lines.len() <= MAX_LINES
             && self.entities.len() <= crate::drawing::MAX_MASKS

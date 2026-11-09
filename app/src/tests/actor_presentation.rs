@@ -30,7 +30,7 @@ use client_presentation::local_player::{
     LocalPlayerFrameSample,
 };
 use client_presentation::presentation::actors::{
-    ActorRigPresentation, actor_rig_presentation, entity_rig_presentation,
+    ActorRigPresentation, ModelFrame, actor_rig_presentation, entity_rig_presentation,
     local_actor_presentation_for_visibility, local_diagnostic_presentation,
     select_actor_presentations, select_actor_presentations_for_view, update_actor_rig_scene,
 };
@@ -122,6 +122,7 @@ fn rig<'a>(
         rest: previous,
         rest_completed_tick: 11,
         rest_reset_generation: 5,
+        visibility: Default::default(),
         completed_tick: 11,
         reset_generation: 5,
         pose_evaluated: true,
@@ -187,6 +188,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
         authored_scale: 1.0,
         world_yaw_degrees: 0.0,
         head_over_body: 0.0,
+        model_frame: ModelFrame::Upright,
     }
 }
 

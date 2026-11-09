@@ -10,6 +10,20 @@ pub fn rotate_quarter<T: Copy + std::ops::Neg<Output = T>>(value: [T; 3], axis: 
     }
 }
 
+/// `turns[axis]` quarter turns about each axis, x then y then z, the order of
+/// `minecraft:transformation`'s rotation.
+pub fn rotate_turns<T: Copy + std::ops::Neg<Output = T>>(
+    mut value: [T; 3],
+    turns: [u8; 3],
+) -> [T; 3] {
+    for (axis, turns) in turns.into_iter().enumerate() {
+        for _ in 0..turns % 4 {
+            value = rotate_quarter(value, axis);
+        }
+    }
+    value
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

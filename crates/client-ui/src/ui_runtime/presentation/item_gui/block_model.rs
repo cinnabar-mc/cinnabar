@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GuiBlockQuad, face_brightness, project_cube};
+use assets::gui_item::{GuiBlockQuad, GuiShading, project_cube};
 use ui::UiMesh;
 
 use {
@@ -15,10 +15,11 @@ use {
 /// Uses the same accepted alpha byte as the thumbnail baker.
 const ALPHA_CUTOFF: f32 = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD as f32 / u8::MAX as f32;
 
-/// Each quad with its tile's place in the atlas. `None` when a UV leaves its tile, which an atlas
-/// cannot wrap.
+/// Each quad with its tile's place in the atlas, lit by `shading`. `None` when a UV leaves its
+/// tile, which an atlas cannot wrap.
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
+    shading: GuiShading,
 ) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(quads.len() * 4);
     let mut by_page: BTreeMap<u16, Vec<u32>> = BTreeMap::new();
@@ -34,7 +35,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         {
             return None;
         }
-        let shade = (face_brightness(quad.corners) * f32::from(u8::MAX)) as u8;
+        let shade = (shading.brightness(quad.corners) * f32::from(u8::MAX)) as u8;
         let start = vertices.len() as u32;
         for (corner, uv) in quad.corners.into_iter().zip(quad.uvs) {
             let [x, y, z] = project_cube(corner);

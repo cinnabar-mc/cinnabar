@@ -3,7 +3,6 @@
 pub mod block_highlights;
 mod budget;
 pub mod geometry;
-pub mod position_box;
 mod primitive_ranges;
 pub use budget::{GpuAllocation, GpuLedger, GpuReservation};
 pub use primitive_ranges::PrimitiveRanges;

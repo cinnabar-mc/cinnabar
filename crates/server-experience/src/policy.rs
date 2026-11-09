@@ -18,6 +18,8 @@ pub const MAX_FALLBACK_BYTES: usize = 512;
 
 pub const MAX_MARKER_BYTES: usize = 64 * 1024;
 
+pub const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
+
 pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024;
 
 pub const MAX_MESSAGE_BYTES: usize = 48 * 1024;
@@ -32,7 +34,7 @@ pub const MAX_QUEUE_MESSAGES: usize = 256;
 
 pub const MAX_QUEUE_BYTES: usize = 256 * 1024;
 
-pub const MAX_ACTIONS: usize = 32;
+pub const MAX_ACTIONS: usize = 1024;
 
 pub const MAX_CHANNELS: usize = 64;
 

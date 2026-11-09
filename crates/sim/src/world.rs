@@ -13,11 +13,13 @@ mod contracts;
 mod current;
 mod door;
 mod flow;
+mod pistons;
 mod selection;
 mod terrain;
 pub use camera_collision::CameraShapeCache;
 pub use contracts::CollisionWorld;
 pub use flow::FlowBlockFacts;
+pub use pistons::PistonPush;
 pub use terrain::{
     TERRAIN_EMPTY_SHAPE, TERRAIN_NO_LAYER, TerrainColumn, TerrainGeometry, TerrainSample,
     TerrainSampleError, TerrainSampler, TerrainShape, TerrainShapeBinding, TerrainShapeOverride,
@@ -36,7 +38,9 @@ mod section;
 pub use door::{DoorFacing, DoorState};
 mod validate;
 
-pub use raycast::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, CameraBlockHit};
+pub use raycast::{
+    BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y, BlockHit, CameraBlockHit, OverlayHit,
+};
 use validate::{validate_facts, validate_shapes};
 
 /// Surface friction of a block that declares no friction of its own.
@@ -191,6 +195,14 @@ impl BlockPhysicsFlags {
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
+    }
+
+    /// Whether a block with these flags is climbable for an actor
+    /// (`Actor::onClimbableBlock`): any climbable block, or powder snow for a
+    /// wearer who can stand on it.
+    #[must_use]
+    pub const fn climbable_for(self, can_stand_on_snow: bool) -> bool {
+        self.contains(Self::CLIMBABLE) || (can_stand_on_snow && self.contains(Self::POWDER_SNOW))
     }
 }
 
@@ -635,12 +647,18 @@ pub struct LenientCollisionBoxes {
 pub struct PaletteWorld<'a> {
     read_observation: Option<observation::ReadObservation>,
     unsupported_actor_selections: std::sync::atomic::AtomicU32,
+    /// The client simulation tick whose piston arm progress the geometry shows.
+    tick: std::sync::atomic::AtomicU64,
     pick_context: assets::block_shapes::PickContext,
     store: &'a ChunkStore,
     registry: &'a CollisionRegistry,
     dimension: i32,
     unloaded_collision_barriers: bool,
     actor_colliders: Option<std::sync::Arc<[Aabb]>>,
+    dimension_bottom: Option<i32>,
+    /// Resolves the block states of the cell overlays the interaction ray also picks; without
+    /// it overlays cannot be picked.
+    overlay_ids: Option<&'a (dyn world::BlockIds + Sync)>,
 }
 
 /// One internal collision instance before projection onto the public
@@ -696,12 +714,15 @@ impl<'a> PaletteWorld<'a> {
         Self {
             read_observation: None,
             unsupported_actor_selections: std::sync::atomic::AtomicU32::new(0),
+            tick: std::sync::atomic::AtomicU64::new(store.simulation_tick()),
             pick_context,
             store,
             registry,
             dimension,
             unloaded_collision_barriers: false,
             actor_colliders: None,
+            dimension_bottom: None,
+            overlay_ids: None,
         }
     }
 
@@ -709,6 +730,22 @@ impl<'a> PaletteWorld<'a> {
     #[must_use]
     pub fn with_actor_colliders(mut self, colliders: impl Into<std::sync::Arc<[Aabb]>>) -> Self {
         self.actor_colliders = Some(colliders.into());
+        self
+    }
+
+    /// Adds the solid floor under the dimension whose lowest block row is `bottom`, and retains
+    /// it in prediction snapshots. Without it, terrain below the dimension has no floor.
+    #[must_use]
+    pub fn with_dimension_floor(mut self, bottom: i32) -> Self {
+        self.dimension_bottom = Some(bottom);
+        self
+    }
+
+    /// Lets the interaction ray pick cell overlays (see [`world::CellOverlays`]), whose block
+    /// states `ids` resolves; the session's own registry view keeps them as the mesh draws them.
+    #[must_use]
+    pub fn with_cell_overlays(mut self, ids: &'a (dyn world::BlockIds + Sync)) -> Self {
+        self.overlay_ids = Some(ids);
         self
     }
 
@@ -744,6 +781,12 @@ impl<'a> PaletteWorld<'a> {
                 .or_else(|| self.unloaded_boundary_revision(key))
                 .ok_or(WorldQueryError::UnloadedChunk(key)),
         )
+    }
+
+    /// The client simulation tick whose piston arm progress the geometry shows: the store's
+    /// until [`CollisionWorld::begin_tick`] sets another.
+    pub fn tick(&self) -> u64 {
+        self.tick.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether every layer of a loaded block is air.
@@ -784,6 +827,18 @@ impl CollisionWorld for PaletteWorld<'_> {
 
     fn snapshot(&self) -> Option<CollisionSnapshot> {
         Some(CollisionSnapshot::capture(self))
+    }
+
+    fn begin_tick(&self, tick: u64) {
+        self.tick.store(tick, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn piston_pushes(
+        &self,
+        query: Aabb,
+        tick: u64,
+    ) -> Result<Option<CollisionQuery<Vec<PistonPush>>>, WorldQueryError> {
+        self.moved_piston_arms(query, tick).map(Some)
     }
 
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {

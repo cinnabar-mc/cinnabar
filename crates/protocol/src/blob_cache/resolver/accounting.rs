@@ -19,6 +19,12 @@ impl BlobCacheResolver {
                     .and_then(|order| bytes.checked_add(order))
             })
             .and_then(|bytes| {
+                self.retryable_pending
+                    .len()
+                    .checked_mul(size_of::<u64>())
+                    .and_then(|retryable| bytes.checked_add(retryable))
+            })
+            .and_then(|bytes| {
                 self.resolved_pending
                     .len()
                     .checked_mul(size_of::<u64>())
@@ -27,7 +33,7 @@ impl BlobCacheResolver {
             .and_then(|bytes| {
                 self.pending_by_hash
                     .capacity()
-                    .checked_mul(size_of::<(u64, HashSet<u64>)>())
+                    .checked_mul(size_of::<(u64, PendingBlob)>())
                     .and_then(|index| bytes.checked_add(index))
             })
             .and_then(|bytes| {
@@ -44,10 +50,22 @@ impl BlobCacheResolver {
     /// collections; release builds trust the totals maintained at each mutation.
     pub(super) fn debug_assert_running_totals(&self) {
         debug_assert_eq!(
+            self.retryable_pending.len(),
+            self.pending
+                .values()
+                .filter(|pending| { matches!(pending.packet, PendingPacket::SubChunk(_)) })
+                .count()
+        );
+        debug_assert!(self.retryable_pending.iter().all(|sequence| {
+            self.pending
+                .get(sequence)
+                .is_some_and(|pending| matches!(pending.packet, PendingPacket::SubChunk(_)))
+        }));
+        debug_assert_eq!(
             self.pending_hash_set_capacity,
             self.pending_by_hash
                 .values()
-                .map(HashSet::capacity)
+                .map(|pending| pending.transactions.capacity())
                 .sum::<usize>()
         );
         debug_assert_eq!(
@@ -101,6 +119,7 @@ impl BlobCacheResolver {
         if self.pending.is_empty() {
             self.pending = HashMap::new();
             self.pending_order = BTreeSet::new();
+            self.retryable_pending = BTreeSet::new();
             self.resolved_pending = BTreeSet::new();
         }
         if self.pending_by_hash.is_empty() {
@@ -222,7 +241,7 @@ mod tests {
                 resolver
                     .pending_by_hash
                     .values()
-                    .map(HashSet::capacity)
+                    .map(|pending| pending.transactions.capacity())
                     .sum::<usize>(),
                 "hash-index capacity after abandoning {sequence}"
             );

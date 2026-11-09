@@ -249,7 +249,7 @@ fn equal_artwork_source_publications_do_not_rehash_or_upload() {
     assert!(gpu.prepare(&pages, &device, &queue));
     let texture = gpu.page(0).unwrap()._texture.id();
     let mut replacement = pages.pages[0].clone();
-    replacement.rgba8 = replacement.rgba8.to_vec().into();
+    replacement.rgba8 = replacement.pixels().into_owned().into();
     pages.pages = Arc::from([replacement]);
     pages.entity_identity = [1; 32];
     take_work();

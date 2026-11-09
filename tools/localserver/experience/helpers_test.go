@@ -41,8 +41,11 @@ var (
 // The artifact layout the runtime expects.
 const (
 	manifestFile = "experience.toml"
+	indexFile    = "files.toml"
 	serverWasm   = "server.wasm"
 	counterPNG   = "assets/counter.png"
+	// plateGeometry is the probe plate overlay's geometry, copied from the probe's own assets.
+	plateGeometry = "assets/plate.geo.json"
 )
 
 // helperPipeWaitDelay bounds pipe cleanup after a helper build exits or is canceled.
@@ -163,14 +166,19 @@ func cargoArtifact(ctx context.Context, root, target string, args ...string) (st
 }
 
 // assembleProbe writes the probe artifact into dir like the runtime tests' probe_dir: the
-// probe's experience.toml with [files] holding the SHA-256 of every other file, server.wasm,
-// and a 1×1 opaque PNG as assets/counter.png.
+// probe's experience.toml, server.wasm, a 1×1 opaque PNG as assets/counter.png, its overlay
+// geometry assets/plate.geo.json, and files.toml holding the SHA-256 of each of those files.
 func assembleProbe(root, wasm, dir string) error {
-	manifest, err := os.ReadFile(filepath.Join(root, "examples", "experiences", "probe", manifestFile))
+	probe := filepath.Join(root, "examples", "experiences", "probe")
+	manifest, err := os.ReadFile(filepath.Join(probe, manifestFile))
 	if err != nil {
 		return err
 	}
 	module, err := os.ReadFile(wasm)
+	if err != nil {
+		return err
+	}
+	geometry, err := os.ReadFile(filepath.Join(probe, filepath.FromSlash(plateGeometry)))
 	if err != nil {
 		return err
 	}
@@ -180,13 +188,9 @@ func assembleProbe(root, wasm, dir string) error {
 	if err := png.Encode(&texture, img); err != nil {
 		return err
 	}
-	files := map[string][]byte{serverWasm: module, counterPNG: texture.Bytes()}
+	files := map[string][]byte{serverWasm: module, counterPNG: texture.Bytes(), plateGeometry: geometry}
 
-	index := strings.TrimRight(string(manifest), "\r\n")
-	if !strings.HasSuffix(index, "[files]") {
-		return fmt.Errorf("the probe's %s no longer ends with its empty [files] table", manifestFile)
-	}
-	index += "\n"
+	var index strings.Builder
 	for _, name := range slices.Sorted(maps.Keys(files)) {
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -196,9 +200,12 @@ func assembleProbe(root, wasm, dir string) error {
 			return err
 		}
 		sum := sha256.Sum256(files[name])
-		index += fmt.Sprintf("%q = %q\n", name, hex.EncodeToString(sum[:]))
+		fmt.Fprintf(&index, "%q = %q\n", name, hex.EncodeToString(sum[:]))
 	}
-	return os.WriteFile(filepath.Join(dir, manifestFile), []byte(index), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, indexFile), []byte(index.String()), 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, manifestFile), manifest, 0o644)
 }
 
 // freshProbe assembles a probe artifact of the test's own, which it may change.

@@ -150,7 +150,8 @@ impl Harness {
             .init_resource::<SemanticRouteState>()
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
-            .init_resource::<EmoteInputConsumed>()
+            .init_resource::<ScreenInputConsumed>()
+            .init_resource::<client_shell::ui_resources::FrameInputOwner>()
             .insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player)
             .add_systems(
@@ -158,6 +159,7 @@ impl Harness {
                 (
                     collect_raw_input,
                     route_semantic_input,
+                    crate::ui_runtime::input_owner::decide_input_owner,
                     drive_emote_input,
                     crate::ui_runtime::interaction::drive_chat_keyboard_input,
                     finalize_semantic_input_after_ui_authority,
@@ -218,6 +220,36 @@ impl Harness {
     }
 }
 
+/// A sign editor's closing frame, standing in for any screen's: its keys are not the game's.
+#[test]
+fn the_frame_a_screen_closes_does_not_open_the_wheel() {
+    use crate::ui_runtime::input_owner::decide_input_owner;
+    fn close_sign(mut runtime: ResMut<UiRuntimeResource>) {
+        runtime.sign_editor_mut().close();
+    }
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    h.app.add_systems(
+        Update,
+        close_sign
+            .after(decide_input_owner)
+            .before(drive_emote_input),
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .sign_editor_mut()
+        .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    h.press(KeyCode::KeyB);
+    assert!(!h.runtime().emotes().is_open());
+    h.press(KeyCode::KeyB);
+    assert!(h.runtime().emotes().is_open());
+}
+
 #[test]
 fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory() {
     let _catalog = cosmetics::test_support::playback_catalog();
@@ -241,7 +273,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
             !h.runtime().inventory_open(),
             "owned batch opened inventory with {trailing_key:?}"
         );
-        assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(h.app.world().resource::<ScreenInputConsumed>().0);
         assert!(
             h.app
                 .world()
@@ -260,7 +292,7 @@ fn closing_wheel_consumes_the_full_raw_keyboard_batch_before_chat_or_inventory()
         // Consumption is frame-scoped, so a new physical chat edge still works.
         h.press(KeyCode::KeyT);
         assert!(h.runtime().chat_focused());
-        assert!(!h.app.world().resource::<EmoteInputConsumed>().0);
+        assert!(!h.app.world().resource::<ScreenInputConsumed>().0);
     }
 }
 
@@ -275,7 +307,7 @@ fn cancel_closing_frame_also_consumes_later_raw_ui_shortcuts() {
     assert!(!h.runtime().emotes().is_open());
     assert!(!h.runtime().inventory_open());
     assert!(!h.runtime().chat_focused());
-    assert!(h.app.world().resource::<EmoteInputConsumed>().0);
+    assert!(h.app.world().resource::<ScreenInputConsumed>().0);
 }
 
 #[test]

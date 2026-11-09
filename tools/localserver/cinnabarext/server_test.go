@@ -1,9 +1,12 @@
 package cinnabarext
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -224,6 +227,44 @@ func TestNextRevisionNeverDecreases(t *testing.T) {
 		if data, _ := os.ReadFile(path); string(data) != bad {
 			t.Fatalf("after %q the file holds %q", bad, data)
 		}
+	}
+}
+
+// A revision kept in an earlier file carries over: the next one follows the highest, and the
+// earlier file goes once path holds it. An earlier file that holds no revision fails, changing
+// nothing.
+func TestNextRevisionContinuesEarlierFiles(t *testing.T) {
+	dir := t.TempDir()
+	path, earlier := filepath.Join(dir, "key.revision"), filepath.Join(dir, "world", RevisionFile)
+	for _, c := range []struct{ path, earlier, want string }{{"3", "7", "8"}, {"9", "2", "10"}} {
+		if err := os.WriteFile(path, []byte(c.path), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(earlier), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(earlier, []byte(c.earlier), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := NextRevision(path, earlier, filepath.Join(dir, "missing"))
+		if err != nil || strconv.FormatUint(got, 10) != c.want {
+			t.Fatalf("after %s and %s: revision %d, %v; want %s", c.path, c.earlier, got, err, c.want)
+		}
+		if data, err := os.ReadFile(path); err != nil || strings.TrimSpace(string(data)) != c.want {
+			t.Fatalf("stored %q, %v", data, err)
+		}
+		if _, err := os.Stat(earlier); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the earlier file survived: %v", err)
+		}
+	}
+	if err := os.WriteFile(earlier, []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := NextRevision(path, earlier); err == nil {
+		t.Fatalf("after garbage: revision %d", got)
+	}
+	if data, _ := os.ReadFile(path); strings.TrimSpace(string(data)) != "10" {
+		t.Fatalf("a failed migration changed path to %q", data)
 	}
 }
 

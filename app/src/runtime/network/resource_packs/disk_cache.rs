@@ -125,6 +125,8 @@ pub(super) fn icon_key(
             icons,
             &inputs.block_items,
             installed,
+            // The dial strips the compile reads from the pack.
+            assets::icon::dial::DIAL_STRIPS,
         ),
         max_layers,
     )
