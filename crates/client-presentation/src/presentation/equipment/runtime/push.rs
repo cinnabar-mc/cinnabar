@@ -234,8 +234,9 @@ impl EquipmentRuntime {
                     (index, MeshKey::SessionBlock(index), placement, location)
                 }
                 ItemArtwork::SessionSprite => {
+                    let (identifier, metadata) = runtime.session_icon_key(item);
                     let (index, placement, location) =
-                        runtime.session_sprite(&item.identifier, item.metadata)?;
+                        runtime.session_sprite(identifier, metadata)?;
                     (index, MeshKey::Session(index), placement, location)
                 }
                 ItemArtwork::StartupCube => {
@@ -273,9 +274,8 @@ impl EquipmentRuntime {
         &mut self,
         item: &WornItem,
     ) -> Option<(EntityRigId, ActorArtworkLocation, [f32; 2])> {
-        if let Some((index, placement, location)) =
-            self.session_sprite(&item.identifier, item.metadata)
-        {
+        let (identifier, metadata) = self.session_icon_key(item);
+        if let Some((index, placement, location)) = self.session_sprite(identifier, metadata) {
             let mesh = self.mesh_for(MeshKey::Session(index), index, placement)?;
             return Some((mesh, location, glint_span(placement.uv_rect(), false)));
         }
@@ -330,8 +330,9 @@ impl EquipmentRuntime {
 
     /// Texel size of the sprite `held_icon_mesh` draws for this item.
     pub(super) fn held_icon_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        let (identifier, metadata) = self.session_icon_key(item);
         let sprite = self
-            .session_sprite(&item.identifier, item.metadata)
+            .session_sprite(identifier, metadata)
             .and_then(|(index, _, _)| self.session_sprite_pixels(index))
             .or_else(|| {
                 self.held_icon_index(item)
