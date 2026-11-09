@@ -26,6 +26,14 @@ pub const MAX_ITEM_TOOLTIP_LINES: usize = 8;
 pub const MAX_TOOLTIP_LINE_BYTES: usize = 96;
 /// Most UTF-8 bytes in one tooltip item identifier.
 pub const MAX_TOOLTIP_IDENTIFIER_BYTES: usize = 128;
+/// Most dropped-item identifiers one mod scales.
+pub const MAX_ITEM_SCALES: usize = 64;
+/// Bounds of one dropped-item scale.
+pub const MIN_ITEM_SCALE: f32 = 0.1;
+pub const MAX_ITEM_SCALE: f32 = 8.0;
+/// Bounds of a mod's fractional GUI scale; the upper bound also stops at the window's fit.
+pub const MIN_GUI_SCALE: f32 = 0.5;
+pub const MAX_GUI_SCALE: f32 = 8.0;
 /// Most clickable chat spans.
 pub const MAX_CHAT_ACTIONS: usize = 32;
 /// Most UTF-8 bytes of chat text one action matches.
@@ -245,6 +253,22 @@ pub struct ModPresentation {
     pub tints: BTreeMap<u64, Rgba>,
     pub tooltip_lines: Vec<TooltipLine>,
     pub chat_actions: Vec<ChatAction>,
+    /// Dropped-item size multipliers by item identifier.
+    pub item_scales: BTreeMap<Arc<str>, f32>,
+    /// A fractional physical GUI scale replacing the native integer one.
+    pub gui_scale: Option<f32>,
+}
+
+/// Rejects an empty, oversized or control-bearing identifier, or a scale out of bounds.
+pub fn validate_item_scale(identifier: &str, scale: f32) -> Result<(), String> {
+    if identifier.is_empty()
+        || identifier.len() > MAX_TOOLTIP_IDENTIFIER_BYTES
+        || identifier.chars().any(char::is_control)
+        || !(MIN_ITEM_SCALE..=MAX_ITEM_SCALE).contains(&scale)
+    {
+        return Err("invalid item scale".into());
+    }
+    Ok(())
 }
 
 impl ModPresentation {
@@ -318,6 +342,8 @@ pub struct Presentation {
     pub tints: HashMap<u64, ByKind<Rgba>>,
     pub tooltip_lines: Vec<TooltipLine>,
     pub chat_actions: Vec<ChatAction>,
+    pub item_scales: HashMap<Arc<str>, f32>,
+    pub gui_scale: Option<f32>,
 }
 
 impl Presentation {
@@ -363,6 +389,15 @@ impl Presentation {
             if merged.chat_actions.is_empty() {
                 merged.chat_actions.clone_from(&output.chat_actions);
             }
+            if merged.gui_scale.is_none() {
+                merged.gui_scale = output.gui_scale;
+            }
+            for (identifier, &scale) in &output.item_scales {
+                merged
+                    .item_scales
+                    .entry(Arc::clone(identifier))
+                    .or_insert(scale);
+            }
         }
         merged
     }
@@ -375,6 +410,11 @@ impl Presentation {
     /// The overlay tint for one actor of this kind.
     pub fn tint(&self, runtime_id: u64, player: bool) -> Option<Rgba> {
         self.tints.get(&runtime_id)?.get(player).copied()
+    }
+
+    /// The dropped-item size multiplier for one identifier, if any mod sets one.
+    pub fn item_scale(&self, identifier: &str) -> Option<f32> {
+        self.item_scales.get(identifier).copied()
     }
 
     /// The first [`MAX_ITEM_TOOLTIP_LINES`] lines for one item, in load order.
@@ -463,6 +503,7 @@ mod tests {
                 text: "Help".into(),
                 action: "help".into(),
             }],
+            ..Default::default()
         };
         let both = ActorGrants {
             players: true,
@@ -605,5 +646,40 @@ mod tests {
         assert!(line("minecraft:apple", "Food").validate().is_ok());
         assert!(line("", "Food").validate().is_err());
         assert!(line("minecraft:apple", "a\nb").validate().is_err());
+    }
+
+    #[test]
+    fn earliest_mod_owns_each_item_scale_and_the_gui_scale() {
+        let first = ModPresentation {
+            item_scales: [(Arc::from("minecraft:diamond"), 2.0)].into_iter().collect(),
+            gui_scale: Some(2.5),
+            ..ModPresentation::default()
+        };
+        let second = ModPresentation {
+            item_scales: [
+                (Arc::from("minecraft:diamond"), 0.5),
+                (Arc::from("minecraft:stick"), 3.0),
+            ]
+            .into_iter()
+            .collect(),
+            gui_scale: Some(1.5),
+            ..ModPresentation::default()
+        };
+        let merged = Presentation::merge([
+            (ActorGrants::default(), &first),
+            (ActorGrants::default(), &second),
+        ]);
+        assert_eq!(merged.item_scale("minecraft:diamond"), Some(2.0));
+        assert_eq!(merged.item_scale("minecraft:stick"), Some(3.0));
+        assert_eq!(merged.item_scale("minecraft:apple"), None);
+        assert_eq!(merged.gui_scale, Some(2.5));
+    }
+
+    #[test]
+    fn item_scales_reject_bad_identifiers_and_bounds() {
+        assert!(validate_item_scale("minecraft:diamond", 2.0).is_ok());
+        assert!(validate_item_scale("", 2.0).is_err());
+        assert!(validate_item_scale("minecraft:diamond", MAX_ITEM_SCALE + 1.0).is_err());
+        assert!(validate_item_scale("minecraft:diamond", f32::NAN).is_err());
     }
 }

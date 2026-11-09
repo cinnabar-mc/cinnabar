@@ -82,18 +82,14 @@ impl UiPresentationRuntime {
         let logical_width = physical_size[0] as f32 / dpi_scale.get();
         let logical_height = physical_size[1] as f32 / dpi_scale.get();
         let metrics =
-            TextMetrics::for_viewport(physical_size, dpi_scale, self.gui_scale_preference);
+            TextMetrics::for_gui_scale(dpi_scale, self.effective_gui_scale(physical_size));
         // The gameplay HUD lays out in Java GUI pixels; it fails closed to no
         // HUD when the safe viewport cannot contain the fixed-width hotbar.
         let safe_area = self.safe_area;
-        let hud_geometry = self.hud_textures.as_ref().and_then(|_| {
-            HudGeometry::new(
-                physical_size,
-                dpi_scale.get(),
-                safe_area,
-                self.gui_scale_preference,
-            )
-        });
+        let hud_geometry = self
+            .hud_textures
+            .as_ref()
+            .and_then(|_| self.hud_geometry(physical_size, dpi_scale.get()));
         let viewport = rect(0.0, 0.0, logical_width, logical_height)?;
         // Root nodes lay out relative to the safe content rect; the retained
         // tree translates them by the safe-area origin.

@@ -182,6 +182,11 @@ impl ModHost {
         self.instance.camera_view_tilt()
     }
 
+    /// Current-frame hand presentation; absence restores the native hand.
+    pub fn camera_hand_motion(&self) -> Option<mod_api::native_camera::HandMotion> {
+        self.instance.camera_hand_motion()
+    }
+
     /// Consumes a successful callback's jump request once.
     pub fn take_jump_pulse(&mut self) -> bool {
         self.instance.take_jump_pulse()

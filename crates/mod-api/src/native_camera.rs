@@ -71,6 +71,39 @@ impl ViewTilt {
     }
 }
 
+/// Current-frame local hand presentation, as the WIT `camera.hand-motion`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HandMotion {
+    /// Scales the hand trailing the look, 0..1; none keeps native.
+    pub sway: Option<f32>,
+    /// Scales the hand's walking bob, 0..1; none keeps native.
+    pub bob: Option<f32>,
+    /// Multiplies the local arm swing animation's speed; none keeps native.
+    pub swing_speed: Option<f32>,
+}
+
+impl HandMotion {
+    /// Accepts unit scales and a bounded swing speed.
+    pub fn is_valid(self) -> bool {
+        self.sway.is_none_or(|sway| (0.0..=1.0).contains(&sway))
+            && self.bob.is_none_or(|bob| (0.0..=1.0).contains(&bob))
+            && self.swing_speed.is_none_or(|speed| {
+                (crate::MIN_HAND_SWING_SPEED..=crate::MAX_HAND_SWING_SPEED).contains(&speed)
+            })
+    }
+
+    /// Fills each field this motion leaves native from `later`, so the earliest owner keeps it.
+    #[must_use]
+    pub fn or(self, later: Self) -> Self {
+        Self {
+            sway: self.sway.or(later.sway),
+            bob: self.bob.or(later.bob),
+            swing_speed: self.swing_speed.or(later.swing_speed),
+        }
+    }
+}
+
 /// Absolute view intent, evaluated against the current pose on every host frame.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -293,6 +326,33 @@ mod tests {
                 ..Default::default()
             }
             .is_valid()
+        );
+    }
+
+    #[test]
+    fn hand_motion_bounds() {
+        let motion = HandMotion {
+            sway: Some(0.5),
+            bob: None,
+            swing_speed: Some(2.0),
+        };
+        assert!(motion.is_valid());
+        assert!(!HandMotion { sway: Some(1.5), ..motion }.is_valid());
+        assert!(!HandMotion { bob: Some(-0.1), ..motion }.is_valid());
+        assert!(!HandMotion { swing_speed: Some(10.0), ..motion }.is_valid());
+        assert!(!HandMotion { swing_speed: Some(f32::NAN), ..motion }.is_valid());
+        let later = HandMotion {
+            sway: Some(0.0),
+            bob: Some(0.0),
+            swing_speed: None,
+        };
+        assert_eq!(
+            motion.or(later),
+            HandMotion {
+                sway: Some(0.5),
+                bob: Some(0.0),
+                swing_speed: Some(2.0),
+            }
         );
     }
 }

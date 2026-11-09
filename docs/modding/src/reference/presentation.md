@@ -185,6 +185,25 @@ record tooltip-line {
 
 Types: [`rgba`](render.md#type-rgba).
 
+<a id="type-item-scale"></a>
+
+### `item-scale`
+
+A size multiplier for dropped items of one identifier, `MIN_ITEM_SCALE` to
+`MAX_ITEM_SCALE`; it multiplies the native drop scale.
+
+```wit
+record item-scale {
+    identifier: string,
+    scale: f32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `identifier` | `string` |  |
+| `scale` | `f32` |  |
+
 <a id="type-chat-action"></a>
 
 ### `chat-action`
@@ -270,6 +289,31 @@ set-tooltip-lines: func(lines: list<tooltip-line>) -> result<_, string>;
 Retained; replaces every tooltip line from this mod, at most `MAX_TOOLTIP_LINES`.
 
 Types: [`tooltip-line`](presentation.md#type-tooltip-line).
+
+<a id="set-item-scales"></a>
+
+### `set-item-scales`
+
+```wit
+set-item-scales: func(scales: list<item-scale>) -> result<_, string>;
+```
+
+Retained; replaces every item scale from this mod, at most `MAX_ITEM_SCALES` distinct
+identifiers. The earliest mod scaling an identifier owns it.
+
+Types: [`item-scale`](presentation.md#type-item-scale).
+
+<a id="set-gui-scale"></a>
+
+### `set-gui-scale`
+
+```wit
+set-gui-scale: func(scale: option<f32>) -> result<_, string>;
+```
+
+Retained; a fractional physical GUI scale for every HUD and menu, `MIN_GUI_SCALE` to
+`MAX_GUI_SCALE`, which the client lowers to what the window fits; none restores the
+player's setting. One policy: the earliest mod setting one owns it.
 
 <a id="set-chat-actions"></a>
 

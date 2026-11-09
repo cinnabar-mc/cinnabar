@@ -155,6 +155,16 @@ interface presentation {
     record tooltip-line { identifier: string, metadata: option<u32>, text: string, color: rgba }
     /// Retained; replaces every tooltip line from this mod, at most `MAX_TOOLTIP_LINES`.
     set-tooltip-lines: func(lines: list<tooltip-line>) -> result<_, string>;
+    /// A size multiplier for dropped items of one identifier, `MIN_ITEM_SCALE` to
+    /// `MAX_ITEM_SCALE`; it multiplies the native drop scale.
+    record item-scale { identifier: string, scale: f32 }
+    /// Retained; replaces every item scale from this mod, at most `MAX_ITEM_SCALES` distinct
+    /// identifiers. The earliest mod scaling an identifier owns it.
+    set-item-scales: func(scales: list<item-scale>) -> result<_, string>;
+    /// Retained; a fractional physical GUI scale for every HUD and menu, `MIN_GUI_SCALE` to
+    /// `MAX_GUI_SCALE`, which the client lowers to what the window fits; none restores the
+    /// player's setting. One policy: the earliest mod setting one owns it.
+    set-gui-scale: func(scale: option<f32>) -> result<_, string>;
     /// A clickable span: a primary click or tap on `text` inside a message of the open chat
     /// history closes the chat and reports `action`, with value 1, among `input.read-controls`
     /// events on the owning mod's next frame; reading it requires controls authority. `text` is
@@ -913,6 +923,16 @@ interface camera {
     record damage-shake { roll: f32, pitch: f32 }
     /// Requires the camera grant.
     read-damage-shake: func() -> result<option<damage-shake>, string>;
+    /// Local first-person hand presentation. `sway` scales the hand trailing the look and
+    /// `bob` the hand's walking bob, each 0..1; `swing-speed` multiplies how fast the local
+    /// arm swing animation plays, `MIN_HAND_SWING_SPEED`..`MAX_HAND_SWING_SPEED`. Swing timing
+    /// sent to the server, attacks, the camera's own view bob and other players' views are
+    /// unchanged. Each field is owned separately by the earliest mod setting it; none keeps
+    /// native for that field.
+    record hand-motion { sway: option<f32>, bob: option<f32>, swing-speed: option<f32> }
+    /// Requires camera authority. Current frame only, including while a menu owns input; renew
+    /// while needed. None, omission, unload and failed callbacks restore the native hand.
+    set-hand-motion: func(motion: option<hand-motion>) -> result<_, string>;
 }
 
 /// Opt-in item-use policy; requires the explicit item-use grant.

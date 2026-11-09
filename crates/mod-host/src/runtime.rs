@@ -717,6 +717,13 @@ impl Instance {
             .flatten()
     }
 
+    /// Successful frame-local hand presentation, like a view tilt.
+    pub(super) fn camera_hand_motion(&self) -> Option<mod_api::native_camera::HandMotion> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_hand_motion)
+            .flatten()
+    }
+
     /// Consumes the committed cancellation once.
     pub(super) fn take_jump_cancel(&mut self) -> bool {
         std::mem::take(&mut self.store.data_mut().motion.jump_cancel)

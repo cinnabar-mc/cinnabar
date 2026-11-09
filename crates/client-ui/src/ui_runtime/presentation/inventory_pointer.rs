@@ -215,12 +215,7 @@ impl UiPresentationRuntime {
     }
 
     fn inventory_geometry(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<HudGeometry> {
-        HudGeometry::new(
-            physical_size,
-            dpi_scale,
-            self.safe_area,
-            self.gui_scale_preference,
-        )
+        self.hud_geometry(physical_size, dpi_scale)
     }
 }
 

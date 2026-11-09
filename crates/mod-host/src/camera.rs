@@ -1,7 +1,7 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::DamageShake;
 use anyhow::{Result, bail};
-use mod_api::native_camera::ViewTilt;
+use mod_api::native_camera::{HandMotion, ViewTilt};
 
 /// Ephemeral output published only after a successful frame callback.
 #[derive(Default)]
@@ -14,6 +14,8 @@ pub(super) struct CameraPolicy {
     pub committed_view_scale: Option<[f32; 2]>,
     pub pending_view_tilt: Option<ViewTilt>,
     pub committed_view_tilt: Option<ViewTilt>,
+    pub pending_hand_motion: Option<HandMotion>,
+    pub committed_hand_motion: Option<HandMotion>,
 }
 
 impl State {
@@ -25,6 +27,7 @@ impl State {
             || self.camera_policy.committed_perspective.is_some()
             || self.camera_policy.committed_view_scale.is_some()
             || self.camera_policy.committed_view_tilt.is_some()
+            || self.camera_policy.committed_hand_motion.is_some()
     }
 }
 
@@ -101,6 +104,35 @@ impl cinnabar::extension::camera::Host for State {
             ));
         }
         self.camera_policy.pending_view_tilt = tilt;
+        Ok(Ok(()))
+    }
+
+    /// Stages current-frame hand presentation, kept while a menu owns input.
+    fn set_hand_motion(
+        &mut self,
+        motion: Option<cinnabar::extension::camera::HandMotion>,
+    ) -> Result<Result<(), String>> {
+        self.camera_writes += 1;
+        if self.camera_writes > MAX_IMPORT_WRITES {
+            bail!("camera import budget exhausted");
+        }
+        if self.exclusive.camera {
+            return Ok(Err(self.exclusive.refuse()));
+        }
+        if !self.grants.camera {
+            return Ok(Err("camera capability denied".into()));
+        }
+        let motion = motion.map(|motion| HandMotion {
+            sway: motion.sway,
+            bob: motion.bob,
+            swing_speed: motion.swing_speed,
+        });
+        if !motion.is_none_or(HandMotion::is_valid) {
+            return Ok(Err(
+                "hand sway and bob must be within 0..1 and swing speed within its bounds".into(),
+            ));
+        }
+        self.camera_policy.pending_hand_motion = motion;
         Ok(Ok(()))
     }
 

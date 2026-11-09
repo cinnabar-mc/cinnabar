@@ -159,6 +159,7 @@ pub(super) fn drive_mod(
                     .and_then(|effects| effects.view_tilt)
                     .map(native_camera::view_tilt),
             );
+            camera.set_hand_motion(None);
             native_camera.apply(
                 camera,
                 gameplay.view.as_deref_mut(),
@@ -207,6 +208,7 @@ pub(super) fn drive_mod(
             camera.set_mod_perspective(None);
             camera.set_view_yaw_offset(None);
             camera.set_view_tilt(None);
+            camera.set_hand_motion(None);
             native_camera.apply(
                 camera,
                 gameplay.view.as_deref_mut(),
@@ -618,6 +620,7 @@ pub(super) fn drive_mod(
                 .or_else(|| native_effects.and_then(|effects| effects.view_tilt))
                 .map(native_camera::view_tilt),
         );
+        camera.set_hand_motion(merged.hand_motion.map(native_camera::hand_motion));
         native_camera.apply(
             &mut camera,
             gameplay.view.as_deref_mut(),

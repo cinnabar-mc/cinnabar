@@ -11,7 +11,8 @@ pub(in crate::ui_runtime::presentation) struct RetainedMenu {
     settings: Arc<crate::ui_runtime::scene_stack::ScreenSettingsTable>,
     text_generation: [usize; 3],
     session: u64,
-    scale: Option<u8>,
+    /// The preference and the effective scale's bits, so a mod override also invalidates.
+    scale: (Option<u8>, u32),
     look: oreui::Look,
     offsets: HashMap<String, f32>,
 }
@@ -80,7 +81,11 @@ impl UiPresentationRuntime {
         let saved = self.retained_menu.as_ref()?;
         ((Arc::ptr_eq(&saved.view, self.menu_view.as_ref()?) || saved.view.as_ref() == view)
             && saved.frame == frame
-            && saved.scale == self.gui_scale_preference
+            && saved.scale
+                == (
+                    self.gui_scale_preference,
+                    self.effective_gui_scale(frame.0).to_bits(),
+                )
             && Arc::ptr_eq(&saved.font, &self.font)
             && Arc::ptr_eq(&saved.textures, &self.textures)
             && Arc::ptr_eq(&saved.settings, &self.screen_settings)
@@ -118,7 +123,10 @@ impl UiPresentationRuntime {
             settings: Arc::clone(&self.screen_settings),
             text_generation: runtime.text_generation(),
             session: runtime.session_id(),
-            scale: self.gui_scale_preference,
+            scale: (
+                self.gui_scale_preference,
+                self.effective_gui_scale(frame.0).to_bits(),
+            ),
             look: self.screens.oreui.look,
             offsets: self.menu_scrolls.offsets().clone(),
         });

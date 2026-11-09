@@ -212,6 +212,7 @@ pub(super) fn commit_frame_outputs(store: &mut Store<State>, drawing_committed: 
         .then_some(state.camera_policy.pending_perspective)
         .flatten();
     state.camera_policy.committed_view_tilt = state.camera_policy.pending_view_tilt;
+    state.camera_policy.committed_hand_motion = state.camera_policy.pending_hand_motion;
     state.item_use_policy.commit(state.snapshot.is_some());
     state.camera_delta = state.pending_camera.take();
     state.exclusive.camera_claimed = state.camera_output();

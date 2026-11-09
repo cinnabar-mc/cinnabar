@@ -148,16 +148,37 @@ pub(super) struct HudGeometry {
 }
 
 impl HudGeometry {
+    /// Geometry at the native integer scale for a preference.
+    #[cfg(test)]
     pub(super) fn new(
         physical_size: [u32; 2],
         dpi_scale: f32,
         safe_area: SafeArea,
         preference: Option<u8>,
     ) -> Option<Self> {
-        if physical_size.contains(&0) || !dpi_scale.is_finite() || dpi_scale <= 0.0 {
+        Self::scaled(
+            physical_size,
+            dpi_scale,
+            safe_area,
+            gui_scale(physical_size, preference) as f32,
+        )
+    }
+
+    /// Geometry for an explicit, possibly fractional, physical GUI scale `k`.
+    pub(super) fn scaled(
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+        safe_area: SafeArea,
+        k: f32,
+    ) -> Option<Self> {
+        if physical_size.contains(&0)
+            || !dpi_scale.is_finite()
+            || dpi_scale <= 0.0
+            || !k.is_finite()
+            || k <= 0.0
+        {
             return None;
         }
-        let k = gui_scale(physical_size, preference) as f32;
         let scale = k / dpi_scale;
         let logical_width = physical_size[0] as f32 / dpi_scale;
         let logical_height = physical_size[1] as f32 / dpi_scale;

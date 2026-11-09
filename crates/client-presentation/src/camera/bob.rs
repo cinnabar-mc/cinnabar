@@ -28,6 +28,16 @@ impl ViewEffect {
         pitch_radians: 0.0,
     };
 
+    /// The effect at `scale` of its strength (0 is none, 1 unchanged).
+    #[must_use]
+    pub fn scaled(self, scale: f32) -> Self {
+        Self {
+            translation: self.translation * scale,
+            roll_radians: self.roll_radians * scale,
+            pitch_radians: self.pitch_radians * scale,
+        }
+    }
+
     /// View matrix: translate, then roll, then pitch.
     #[must_use]
     pub fn matrix(&self) -> Mat4 {

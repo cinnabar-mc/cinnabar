@@ -9,8 +9,8 @@ use anyhow::{Result, bail};
 use std::{collections::BTreeMap, sync::Arc};
 use ui::mod_presentation::{
     Annotation, ChatAction, HurtOverlay, MAX_ACTOR_TINTS, MAX_ANNOTATIONS, MAX_CHAT_ACTIONS,
-    MAX_TOOLTIP_LINES, ModPresentation, NametagStyle, Span, SpanPosition, Spans, TooltipLine,
-    validate_color,
+    MAX_ITEM_SCALES, MAX_TOOLTIP_LINES, ModPresentation, NametagStyle, Span, SpanPosition, Spans,
+    TooltipLine, validate_color, validate_item_scale,
 };
 
 // The guest-facing limits in `mod-api` are the ones the shared presentation types enforce.
@@ -26,6 +26,11 @@ const _: () = assert!(
             == ui::mod_presentation::MAX_ITEM_TOOLTIP_LINES
         && mod_api::presentation::MAX_TOOLTIP_LINE_BYTES
             == ui::mod_presentation::MAX_TOOLTIP_LINE_BYTES
+        && mod_api::presentation::MAX_ITEM_SCALES == MAX_ITEM_SCALES
+        && mod_api::presentation::MIN_ITEM_SCALE == ui::mod_presentation::MIN_ITEM_SCALE
+        && mod_api::presentation::MAX_ITEM_SCALE == ui::mod_presentation::MAX_ITEM_SCALE
+        && mod_api::presentation::MIN_GUI_SCALE == ui::mod_presentation::MIN_GUI_SCALE
+        && mod_api::presentation::MAX_GUI_SCALE == ui::mod_presentation::MAX_GUI_SCALE
         && mod_api::presentation::MAX_CHAT_ACTIONS == MAX_CHAT_ACTIONS
         && mod_api::presentation::MAX_CHAT_ACTION_TEXT_BYTES
             == ui::mod_presentation::MAX_CHAT_ACTION_TEXT_BYTES
@@ -304,6 +309,39 @@ impl wit::Host for State {
         }
         self.presentation
             .replace(|output| &mut output.tooltip_lines, lines);
+        Ok(Ok(()))
+    }
+
+    fn set_item_scales(&mut self, scales: Vec<wit::ItemScale>) -> Result<Result<(), String>> {
+        if let Err(error) = admit(self, false)? {
+            return Ok(Err(error));
+        }
+        let mut rows = BTreeMap::new();
+        for row in scales {
+            if let Err(error) = validate_item_scale(&row.identifier, row.scale) {
+                return Ok(Err(error));
+            }
+            rows.insert(Arc::<str>::from(row.identifier), row.scale);
+            if rows.len() > MAX_ITEM_SCALES {
+                return Ok(Err("too many item scales".into()));
+            }
+        }
+        self.presentation
+            .replace(|output| &mut output.item_scales, rows);
+        Ok(Ok(()))
+    }
+
+    fn set_gui_scale(&mut self, scale: Option<f32>) -> Result<Result<(), String>> {
+        if let Err(error) = admit(self, false)? {
+            return Ok(Err(error));
+        }
+        if scale.is_some_and(|scale| {
+            !(ui::mod_presentation::MIN_GUI_SCALE..=ui::mod_presentation::MAX_GUI_SCALE)
+                .contains(&scale)
+        }) {
+            return Ok(Err("invalid gui scale".into()));
+        }
+        self.presentation.replace(|output| &mut output.gui_scale, scale);
         Ok(Ok(()))
     }
 
