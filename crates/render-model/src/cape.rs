@@ -118,9 +118,28 @@ impl CapeRig {
         body: &[RenderBoneTransform],
         java: Option<&JavaCapeInput>,
     ) -> Arc<[RenderBoneTransform]> {
+        let mut output = Vec::new();
+        self.pose_bound_into(bindings, rest, body, java, &mut output);
+        output.into()
+    }
+
+    /// Retargets a cape into caller-owned scratch without allocating another frame.
+    pub fn pose_bound_into(
+        &self,
+        bindings: &[crate::CapeBoneBinding],
+        rest: impl Fn(usize) -> Option<RenderBoneTransform>,
+        body: &[RenderBoneTransform],
+        java: Option<&JavaCapeInput>,
+        output: &mut Vec<RenderBoneTransform>,
+    ) {
         match java {
-            Some(input) => pose::java_cape_pose(self, bindings, &rest, body, input),
-            None => pose::cape_pose(self, bindings, &rest, body),
+            Some(input) => pose::java_cape_pose(self, bindings, &rest, body, input, output),
+            None => pose::cape_pose(self, bindings, &rest, body, output),
         }
+    }
+
+    /// Identifies the names and parents used to bind this cape to a body skeleton.
+    pub fn binding_key(&self) -> [u8; 32] {
+        self.binding_key
     }
 }

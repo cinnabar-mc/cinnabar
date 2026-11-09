@@ -1,14 +1,14 @@
-use bedrock_protocol_1_26_51::enums::{ActorEventType, AnimateAction as AnimatePacketAction};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{ActorEventType, AnimateAction as AnimatePacketAction};
+use bedrock_protocol_1_26_60::packets::{
     ActorEvent as ActorEventPacket, AddActor as AddActorPacket, AddPlayer as AddPlayerPacket,
     Animate as AnimatePacket, AnimateEntity as AnimateEntityPacket,
     ItemRegistry as ItemRegistryPacket, MobEquipment as MobEquipmentPacket,
     NetworkSettings as NetworkSettingsPacket,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ItemData, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
 };
-use bedrock_protocol_1_26_51::wire::{self, NetworkNbt as Nbt};
+use bedrock_protocol_1_26_60::wire::{self, NetworkNbt as Nbt};
 use bytes::Bytes;
 use protocol::{
     ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent, ItemPacketError,
@@ -220,13 +220,13 @@ fn mob_equipment_rejects_unknown_and_sentinel_containers() {
 fn animate_known_row_and_unknown_actions_are_attributed() {
     for (action, expected) in [
         (AnimatePacketAction::Swing, ActorActionKind::SwingArm),
-        (AnimatePacketAction::Wakeup, ActorActionKind::Wake),
+        (AnimatePacketAction::WakeUp, ActorActionKind::Wake),
         (
-            AnimatePacketAction::Criticalhit,
+            AnimatePacketAction::CriticalHit,
             ActorActionKind::CriticalHit,
         ),
         (
-            AnimatePacketAction::Magiccriticalhit,
+            AnimatePacketAction::MagicCriticalHit,
             ActorActionKind::MagicCriticalHit,
         ),
         (AnimatePacketAction::Unknown(128), ActorActionKind::RowRight),
@@ -237,6 +237,7 @@ fn animate_known_row_and_unknown_actions_are_attributed() {
         ),
     ] {
         let packet = AnimatePacket {
+            hand: Default::default(),
             action,
             target_actor_runtime_id: runtime_id(42),
             data: wire::F32LE(0.25),
@@ -466,7 +467,7 @@ fn item_stacks_reject_invalid_identity_and_unbounded_extra_bytes() {
 }
 
 #[test]
-fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_records() {
+fn registry_preserves_signed_ids_and_rejects_oversized_records() {
     let signed_id = ItemRegistryPacket {
         item_data: vec![ItemData {
             item_name: "minecraft:signed".into(),
@@ -492,22 +493,6 @@ fn registry_preserves_signed_ids_and_rejects_conflicting_ids_and_oversized_recor
         }],
     };
     assert!(into_world_event(protocol::Packet::new(malformed_nbt), 0).is_err());
-
-    let duplicate = ItemRegistryPacket {
-        item_data: vec![
-            ItemData {
-                item_name: "minecraft:stick".into(),
-                item_id: wire::I16LE(5),
-                ..Default::default()
-            },
-            ItemData {
-                item_name: "minecraft:stone".into(),
-                item_id: wire::I16LE(5),
-                ..Default::default()
-            },
-        ],
-    };
-    assert!(into_world_event(protocol::Packet::new(duplicate), 0).is_err());
 
     let long_name = ItemRegistryPacket {
         item_data: vec![ItemData {

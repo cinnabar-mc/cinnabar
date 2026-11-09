@@ -2,12 +2,12 @@
 
 #[derive(Default)]
 pub(super) struct Environment {
+    pub surface_rules: Vec<mod_api::terrain_surface::Rule>,
+    pub pending_surface_rules: Option<Vec<mod_api::terrain_surface::Rule>>,
     pub time_override: Option<u32>,
     pub pending_time: Option<Option<u32>>,
     pub weather_override: Option<super::cinnabar::extension::environment::Weather>,
     pub pending_weather: Option<Option<super::cinnabar::extension::environment::Weather>>,
-    pub click_limits: [Option<u32>; 2],
-    pub pending_click_limits: Option<[Option<u32>; 2]>,
     pub fullbright: bool,
     pub pending_fullbright: Option<bool>,
     pub writes: u32,
@@ -24,6 +24,36 @@ pub(super) struct Movement {
 }
 
 impl Environment {
+    /// Revalidates exclusive presentation ownership at the publication boundary.
+    pub(super) fn accept(&mut self, transaction: Self, blocked: bool) {
+        self.pending_surface_rules = transaction.pending_surface_rules;
+        self.pending_fullbright = transaction.pending_fullbright;
+        if !blocked {
+            self.pending_time = transaction.pending_time;
+            self.pending_weather = transaction.pending_weather;
+        }
+    }
+
+    /// Drops failed override writes without revoking the last committed environment.
+    pub fn rollback(&mut self) {
+        let Self {
+            surface_rules: _,
+            pending_surface_rules,
+            time_override: _,
+            pending_time,
+            weather_override: _,
+            pending_weather,
+            fullbright: _,
+            pending_fullbright,
+            writes,
+        } = self;
+        *pending_surface_rules = None;
+        *pending_time = None;
+        *pending_weather = None;
+        *pending_fullbright = None;
+        *writes = 0;
+    }
+
     /// Charges all environment imports against their shared callback allowance.
     pub fn write(&mut self) -> anyhow::Result<()> {
         self.writes += 1;
@@ -39,18 +69,19 @@ impl Environment {
     }
     /// Starts the shared environment import budget for one guest callback.
     pub fn begin_callback(&mut self) {
+        self.pending_surface_rules = None;
         self.writes = 0;
     }
     /// Publishes staged retained values only after a successful frame or event.
     pub fn commit(&mut self) {
+        if let Some(rules) = self.pending_surface_rules.take() {
+            self.surface_rules = rules;
+        }
         if let Some(enabled) = self.pending_fullbright.take() {
             self.fullbright = enabled;
         }
         if let Some(value) = self.pending_weather.take() {
             self.weather_override = value;
-        }
-        if let Some(value) = self.pending_click_limits.take() {
-            self.click_limits = value;
         }
         if let Some(ticks) = self.pending_time.take() {
             self.time_override = ticks;

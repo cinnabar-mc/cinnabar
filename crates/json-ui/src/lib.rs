@@ -109,7 +109,7 @@ pub use resolve::Resolver;
 pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};
 pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, bind_screen_incremental, is_engine_screen,
-    rebind_screen, render_screen, resolve_screen, screen_settings,
+    rebind_screen, render_screen, resolve_screen, root_settings, screen_settings,
 };
 pub use sidecar::{
     AsepriteFrame, NineSlice, TextureMeta, parse_aseprite_frames, parse_texture_meta,

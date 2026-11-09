@@ -50,15 +50,6 @@ fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
 
 /// Emits cursor geometry for one visibility and blending combination.
 fn draw(engine: &FormEngine, visible: bool, blend: ui::UiBlendMode) -> (Vec<UiNode>, f32) {
-    draw_custom(engine, visible, blend, None)
-}
-
-fn draw_custom(
-    engine: &FormEngine,
-    visible: bool,
-    blend: ui::UiBlendMode,
-    custom: Option<ui::mod_hud::Crosshair>,
-) -> (Vec<UiNode>, f32) {
     let font = fixture_font();
     let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None);
     let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
@@ -89,17 +80,12 @@ fn draw_custom(
                 now: 0.0,
                 nodes: &mut nodes,
                 next: &mut next,
-                renderers: &mut [
-                    &mut mod_ui::crosshair::CrosshairRenderer {
-                        spec: custom.as_ref(),
-                        visible,
-                    },
-                    &mut HudRenderer {
-                        hud: &hud,
-                        hunger_update: None,
-                        bounds: None,
-                    },
-                ],
+                renderers: &mut [&mut HudRenderer {
+                    hud: &hud,
+                    hunger_update: None,
+                    bounds: None,
+                    effect_bounds: None,
+                }],
             },
         )
         .unwrap()
@@ -199,6 +185,10 @@ fn resource_pack_icons_sheet_replaces_the_crosshair() {
             [(width * scale) as u16, (height * scale) as u16]
         );
         assert_eq!(node.bounds().width(), width as f32 * px);
+        let (normal, _) = draw(&engine, true, ui::UiBlendMode::Alpha);
+        assert!(normal.iter().any(|node| matches!(node.visual(),
+            UiVisual::RgbCoverageSprite { texture_page: page, uv: region, .. }
+                if page == texture_page && region == uv)));
     }
 }
 
@@ -247,63 +237,40 @@ fn crosshair_color_toggle_preserves_pack_art_and_geometry() {
             .iter()
             .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
             .unwrap();
+        // Icons-sheet art keys out its background; standalone pack art keeps its own alpha.
         let normal = normal
             .iter()
-            .find(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+            .find(|node| {
+                matches!(
+                    node.visual(),
+                    UiVisual::Sprite { .. } | UiVisual::RgbCoverageSprite { .. }
+                )
+            })
             .unwrap();
         assert_eq!(inverted.bounds(), normal.bounds());
         let UiVisual::InvertedSprite { texture_page, uv } = inverted.visual() else {
             unreachable!()
         };
-        assert_eq!(
-            normal.visual(),
-            &UiVisual::Sprite {
+        let expected = if files.is_empty() {
+            UiVisual::RgbCoverageSprite {
                 texture_page: *texture_page,
                 uv: *uv,
-                color: [255; 4]
+                color: [255; 4],
             }
-        );
+        } else {
+            UiVisual::Sprite {
+                texture_page: *texture_page,
+                uv: *uv,
+                color: [255; 4],
+            }
+        };
+        assert_eq!(normal.visual(), &expected);
         let (hidden, _) = draw(&engine, false, ui::UiBlendMode::Alpha);
         assert!(!hidden.iter().any(|node| matches!(
             node.visual(),
-            UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
+            UiVisual::Sprite { .. }
+                | UiVisual::RgbCoverageSprite { .. }
+                | UiVisual::InvertedSprite { .. }
         )));
-    }
-}
-
-#[test]
-fn cosmetic_crosshair_replaces_only_visible_cursor_art_and_restores_on_clear() {
-    let engine = engine(&[]);
-    let vanilla = draw(&engine, true, ui::UiBlendMode::Invert).0;
-    for shape in [
-        ui::mod_hud::CrosshairShape::Cross,
-        ui::mod_hud::CrosshairShape::Dot,
-        ui::mod_hud::CrosshairShape::Circle,
-    ] {
-        let spec = ui::mod_hud::Crosshair {
-            shape,
-            ..Default::default()
-        };
-        let (custom, _) = draw_custom(&engine, true, ui::UiBlendMode::Invert, Some(spec.clone()));
-        let painted: Vec<_> = custom
-            .iter()
-            .filter(|node| !matches!(node.visual(), UiVisual::None))
-            .collect();
-        assert_eq!(painted.len(), 1, "custom cursor paints one visual");
-        assert!(matches!(painted[0].visual(), ui::UiVisual::Mesh(_)));
-        let bounds = painted[0].bounds();
-        assert_eq!((bounds.min().x() + bounds.max().x()) * 0.5, 640.);
-        assert_eq!((bounds.min().y() + bounds.max().y()) * 0.5, 360.);
-        assert!(
-            draw_custom(&engine, false, ui::UiBlendMode::Invert, Some(spec))
-                .0
-                .iter()
-                .all(|node| matches!(node.visual(), UiVisual::None)),
-            "a hidden native cursor also hides the custom cursor"
-        );
-        assert!(
-            draw_custom(&engine, true, ui::UiBlendMode::Invert, None).0 == vanilla,
-            "clearing the cosmetic cursor restores native geometry"
-        );
     }
 }

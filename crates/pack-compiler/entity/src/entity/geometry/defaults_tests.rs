@@ -107,3 +107,41 @@ fn authored_head_bob_flag_is_parsed_and_inherits_without_overriding_false() {
         );
     }
 }
+
+#[test]
+fn modern_1_21_60_geometry_retains_its_declared_cube_and_bounds() {
+    let source = serde_json::json!({"format_version":"1.21.60", "minecraft:geometry":[{
+        "description":{"identifier":"geometry.synthetic", "texture_width":32, "texture_height":16,
+            "visible_bounds_width":3, "visible_bounds_height":4, "visible_bounds_offset":[0,1,0]},
+        "bones":[{"name":"body", "cubes":[{"origin":[1,2,3],"size":[4,5,6],"uv":[0,0]}]}]
+    }]});
+    let mut payloads = BTreeMap::new();
+    parse_geometry(
+        "synthetic.geo.json",
+        Path::new("synthetic.geo.json"),
+        &source,
+        &mut BTreeMap::new(),
+        &mut payloads,
+    )
+    .unwrap();
+    let geometry = payloads.values().next().unwrap();
+    assert_eq!(geometry.identifier.as_ref(), "geometry.synthetic");
+    let bounds = geometry.visible_bounds.unwrap();
+    assert_eq!(bounds.center.map(|value| value.get()), [0.0, 1.0, 0.0]);
+    assert_eq!(
+        bounds.half_extents.map(|value| value.get()),
+        [1.5, 2.0, 1.5]
+    );
+    assert_eq!(
+        [geometry.texture_width, geometry.texture_height],
+        [Some(32), Some(16)]
+    );
+    assert_eq!(
+        geometry.bones[0].cubes[0].origin.map(|value| value.get()),
+        [1.0, 2.0, 3.0]
+    );
+    assert_eq!(
+        geometry.bones[0].cubes[0].size.map(|value| value.get()),
+        [4.0, 5.0, 6.0]
+    );
+}

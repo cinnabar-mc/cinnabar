@@ -325,7 +325,7 @@ fn world_backing_charge_does_not_replace_presented_crossbow_identity() {
         &[0; 10],
         &protocol::ItemNbtEdit {
             enchantments: Some(vec![(
-                i16::from(protocol_ids::Enchantment::Quickcharge.wire_value()),
+                i16::from(protocol_ids::Enchantment::QuickCharge.wire_value()),
                 3,
             )]),
             ..Default::default()

@@ -91,7 +91,7 @@ mod tests {
         let protocol = crate::active_content_registry_protocol();
         let records = crate::read_registry_for_protocol(registry, protocol).unwrap();
         let lights = crate::read_light_registry_for_protocol(
-            include_bytes!("../../data/block-light-registry-v2193.bin"),
+            include_bytes!("../../data/block-light-registry-v2225.bin"),
             registry,
             records.len(),
             protocol,

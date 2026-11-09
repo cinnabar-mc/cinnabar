@@ -6,6 +6,10 @@ use launcher::install_layout::InstallLayout;
 
 use launcher::menu::settings_storage::*;
 
+#[path = "settings_storage_worker.rs"]
+mod worker;
+pub use worker::StorageReader;
+
 /// Measures real world and downloaded-pack data once when Storage opens.
 pub fn read_storage(layout: &InstallLayout) -> StorageView {
     let mut view = StorageView {
@@ -17,8 +21,13 @@ pub fn read_storage(layout: &InstallLayout) -> StorageView {
         Ok(items) => view.worlds = items,
         Err(error) => view.error = Some(error.to_string()),
     }
-    match entries(&layout.resource_pack_cache_dir()) {
-        Ok(items) => view.cached = items,
+    match cached_packs(&layout.resource_pack_cache_dir()) {
+        Ok(items) => {
+            for (index, category) in CATEGORIES.iter().enumerate() {
+                view.expanded[index] = *category == "cache" && !items.is_empty();
+            }
+            view.cached = items;
+        }
         Err(error) => view.error = Some(error.to_string()),
     }
     match entries(&layout.screenshots_dir()) {
@@ -37,6 +46,29 @@ pub fn read_storage(layout: &InstallLayout) -> StorageView {
         Err(error) => view.error = Some(error.to_string()),
     }
     view
+}
+
+/// Inventories pack archives only; cache locks and partially written downloads stay private.
+pub fn cached_packs(root: &Path) -> io::Result<Vec<StorageItem>> {
+    let mut items = entries(root)?;
+    items.retain(|item| {
+        item.path
+            .extension()
+            .is_some_and(|extension| extension == "mcpack")
+            && fs::symlink_metadata(&item.path).is_ok_and(|metadata| metadata.is_file())
+    });
+    for item in &mut items {
+        if let Some(metadata) = fs::File::open(&item.path)
+            .ok()
+            .and_then(resource_pack::cached_pack_metadata)
+        {
+            item.icon = metadata.icon;
+            item.name = metadata.pack.name;
+            item.version = metadata.pack.version.map(|part| part.to_string()).join(".");
+            item.pack_id = metadata.pack.id.to_string();
+        }
+    }
+    Ok(items)
 }
 
 /// Counts ordinary entries without traversing links outside the requested directory.

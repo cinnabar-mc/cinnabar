@@ -3,7 +3,7 @@
 use super::Request;
 use arc_swap::ArcSwapOption;
 use mod_api::native_camera::Effects;
-use mod_api::native_frame::Frame;
+use mod_host::NativeFrame as Frame;
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -18,6 +18,10 @@ const MAX_RESULT_AGE: u64 = 2;
 #[derive(Default)]
 pub struct FrameOutput {
     pub camera: Option<Effects>,
+    /// The sequence of the frame whose callback produced `camera`.
+    pub camera_sequence: u64,
+    /// The sequence this exchange assigned to the frame it sent.
+    pub sequence: u64,
     pub drawing: Option<Arc<mod_api::native_render::Scene>>,
 }
 
@@ -56,6 +60,8 @@ impl FrameLink {
         });
         Some(FrameOutput {
             camera: output,
+            camera_sequence: self.frames.source.load(Ordering::Acquire),
+            sequence: self.frames.sequence.load(Ordering::Acquire),
             drawing,
         })
     }
@@ -113,6 +119,10 @@ pub(super) struct NativeFrames {
     output: ArcSwapOption<Output>,
     drawing: ArcSwapOption<mod_api::native_render::Scene>,
     sequence: AtomicU64,
+    /// The input sequence behind the effects the last exchange returned.
+    source: AtomicU64,
+    /// Look and real seconds of frames a busy worker turned away, folded into the next frame.
+    carry: Mutex<Increments>,
     ready: AtomicBool,
     stopped: AtomicBool,
     invalidate: AtomicBool,
@@ -136,6 +146,8 @@ impl NativeFrames {
             output: ArcSwapOption::empty(),
             drawing: ArcSwapOption::empty(),
             sequence: AtomicU64::new(0),
+            source: AtomicU64::new(0),
+            carry: Mutex::new(Increments::default()),
             ready: AtomicBool::new(false),
             stopped: AtomicBool::new(false),
             invalidate: AtomicBool::new(false),
@@ -168,7 +180,12 @@ impl NativeFrames {
     /// Packet and timed callbacks may change guest policy; older observations cannot outlive them.
     pub(super) fn fence_guest_state(&self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.pending = None;
+        if let Some(frame) = state.pending.take().and_then(|input| input.frame) {
+            self.carry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .add(Increments::of(&frame));
+        }
         if let Some(output) = self.output.load_full() {
             output.rotation_taken.store(true, Ordering::Release);
         }
@@ -195,7 +212,9 @@ impl NativeFrames {
             effects.movement = None;
         }
         if self.suspend.load(Ordering::Acquire) || frame.suspended || output.scope.2 {
-            effects.detached = None;
+            effects.view = None;
+            effects.capture_look = false;
+            effects.capture_movement = false;
         }
         if self.suspend.load(Ordering::Acquire)
             || frame.suspended
@@ -206,15 +225,18 @@ impl NativeFrames {
         {
             effects.rotation = None;
         }
+        self.source.store(output.sequence, Ordering::Release);
         (effects != Effects::default()).then_some(effects)
     }
 
     /// Coalesces work while retaining view configuration until its ownership is released.
+    /// A delivered frame's look and elapsed time include those of every frame coalesced into
+    /// it since the previous delivered frame, and start from zero after a reset.
     fn exchange(&self, frame: Option<Frame>) -> Option<(Option<Effects>, bool)> {
         if !self.available() {
             return None;
         }
-        let frame = frame.filter(Frame::is_valid);
+        let mut frame = frame.filter(Frame::is_valid);
         let sequence = self.sequence.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
         if frame.is_none() {
             self.invalidate.store(true, Ordering::Release);
@@ -224,6 +246,12 @@ impl NativeFrames {
             self.suspend.store(true, Ordering::Release);
         }
         let Ok(mut state) = self.state.try_lock() else {
+            if let Some(frame) = frame.as_ref() {
+                self.carry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .add(Increments::of(frame));
+            }
             return Some((self.read_output(frame.as_ref(), sequence), false));
         };
         let scope = frame
@@ -241,7 +269,25 @@ impl NativeFrames {
             self.output.store(None);
             return Some((None, false));
         }
-        if state.scope != scope || invalidated || self.suspend.load(Ordering::Acquire) {
+        let reset = state.scope != scope || invalidated || self.suspend.load(Ordering::Acquire);
+        let carry = std::mem::take(&mut *self.carry.lock().unwrap_or_else(PoisonError::into_inner));
+        if let Some(frame) = frame.as_mut() {
+            let coalesced = state
+                .pending
+                .as_ref()
+                .and_then(|input| input.frame.as_ref())
+                .filter(|_| !reset)
+                .map(Increments::of)
+                .unwrap_or_default();
+            let mut increments = Increments::default();
+            if !reset {
+                increments.add(Increments::of(frame));
+                increments.add(carry);
+                increments.add(coalesced);
+            }
+            increments.write(frame);
+        }
+        if reset {
             let same_world = state
                 .scope
                 .zip(scope)
@@ -255,7 +301,9 @@ impl NativeFrames {
                 self.output.load_full().map(|output| {
                     let mut effects = output.effects.clone();
                     effects.rotation = None;
-                    effects.detached = None;
+                    effects.view = None;
+                    effects.capture_look = false;
+                    effects.capture_movement = false;
                     effects.look = None;
                     effects.movement = None;
                     Arc::new(Output {
@@ -337,6 +385,36 @@ impl NativeFrames {
     }
 }
 
+/// Look and real seconds a frame reports since the previous delivered frame.
+#[derive(Clone, Copy, Default)]
+struct Increments {
+    look: [f32; 2],
+    elapsed: f32,
+}
+
+impl Increments {
+    /// The increments `frame` carries.
+    fn of(frame: &Frame) -> Self {
+        Self {
+            look: frame.look_delta,
+            elapsed: frame.elapsed,
+        }
+    }
+
+    /// Accumulates a later frame's increments.
+    fn add(&mut self, other: Self) {
+        self.look[0] += other.look[0];
+        self.look[1] += other.look[1];
+        self.elapsed += other.elapsed;
+    }
+
+    /// Reports these increments in `frame`.
+    fn write(self, frame: &mut Frame) {
+        frame.look_delta = self.look;
+        frame.elapsed = self.elapsed;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,8 +422,31 @@ mod tests {
     /// Uses the wire fixture's exact 64-bit identities in a deterministic input.
     fn frame() -> Frame {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../mod-api/native-frame-v1.json")).unwrap();
-        serde_json::from_value(fixture["frame"].clone()).unwrap()
+            serde_json::from_str(include_str!("../../../../mod-api/native-frame-v2.json")).unwrap();
+        {
+            let mut frame: Frame = serde_json::from_value(fixture["frame"].clone()).unwrap();
+            frame.attack_held = true;
+            frame
+        }
+    }
+
+    /// A finite presented view near the fixture frame's eye.
+    fn view() -> mod_api::native_camera::ViewPose {
+        mod_api::native_camera::ViewPose {
+            position: [1.25, 70.5, -2.0],
+            yaw: 0.5,
+            pitch: 0.0,
+            velocity: [0.0; 3],
+        }
+    }
+
+    /// A passive current-frame view tilt.
+    fn tilt() -> mod_api::native_camera::ViewTilt {
+        mod_api::native_camera::ViewTilt {
+            roll: 14.0,
+            pitch: 0.0,
+            suppress_hurt_shake: true,
+        }
     }
 
     #[test]
@@ -383,17 +484,16 @@ mod tests {
     }
 
     #[test]
-    fn presentation_survives_packet_fences_but_detachment_releases_on_input_loss() {
+    fn presentation_survives_packet_fences_but_view_releases_on_input_loss() {
         let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
         mailbox.activate(true);
         mailbox.exchange(Some(frame())).unwrap();
         let input = mailbox.take_input().unwrap();
         let effects = Effects {
-            detached: Some(mod_api::native_camera::DetachedView::Fly {
-                horizontal_speed: 8.0,
-                vertical_speed: 4.0,
-            }),
-            hurt_intensity: Some(0.0),
+            view: Some(view()),
+            capture_look: true,
+            capture_movement: true,
+            view_tilt: Some(tilt()),
             ..Default::default()
         };
         mailbox.complete(input, Some(effects.clone()));
@@ -404,9 +504,10 @@ mod tests {
         suspended.players.clear();
         suspended.attack_held = false;
         let passive = mailbox.exchange(Some(suspended)).unwrap().0.unwrap();
-        assert_eq!(passive.detached, None);
+        assert_eq!(passive.view, None);
+        assert!(!passive.capture_look && !passive.capture_movement);
         assert_eq!(passive.rotation, None);
-        assert_eq!(passive.hurt_intensity, Some(0.0));
+        assert_eq!(passive.view_tilt, Some(tilt()));
         assert_eq!(mailbox.exchange(None).unwrap().0, None);
     }
 
@@ -417,10 +518,7 @@ mod tests {
         mailbox.exchange(Some(frame()));
         let input = mailbox.take_input().unwrap();
         let effects = Effects {
-            detached: Some(mod_api::native_camera::DetachedView::Fly {
-                horizontal_speed: 8.0,
-                vertical_speed: 4.0,
-            }),
+            view: Some(view()),
             ..Default::default()
         };
         mailbox.complete(input, Some(effects.clone()));
@@ -437,6 +535,106 @@ mod tests {
         let mut elsewhere = frame();
         elsewhere.dimension += 1;
         assert_eq!(mailbox.exchange(Some(elsewhere)).unwrap().0, None);
+    }
+
+    /// A delivered frame reports the look and real time of every frame since the previous
+    /// delivery, including coalesced and turned-away frames; a reset starts from zero.
+    #[test]
+    fn delivered_frames_report_all_look_and_time_since_the_previous_delivery() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        let with = |look: [f32; 2], elapsed: f32| Frame {
+            look_delta: look,
+            elapsed,
+            ..frame()
+        };
+        let delivered = |mailbox: &NativeFrames| {
+            let frame = mailbox.take_input().unwrap().frame.unwrap();
+            (frame.look_delta, frame.elapsed)
+        };
+        mailbox.exchange(Some(with([0.5, 0.5], 0.5)));
+        assert_eq!(
+            delivered(&mailbox),
+            ([0.0; 2], 0.0),
+            "the first frame starts a run"
+        );
+        mailbox.exchange(Some(with([0.1, -0.2], 0.01)));
+        mailbox.exchange(Some(with([0.3, 0.1], 0.02)));
+        {
+            let _worker = mailbox.state.lock().unwrap();
+            mailbox.exchange(Some(with([0.05, 0.0], 0.03)));
+        }
+        mailbox.exchange(Some(with([0.0, 0.25], 0.04)));
+        let (look, elapsed) = delivered(&mailbox);
+        assert!((look[0] - 0.45).abs() < 1e-6 && (look[1] - 0.15).abs() < 1e-6);
+        assert!((elapsed - 0.1).abs() < 1e-6);
+        mailbox.exchange(Some(with([0.2, 0.0], 0.05)));
+        assert_eq!(delivered(&mailbox), ([0.2, 0.0], 0.05));
+        mailbox.exchange(Some(with([1.0, 1.0], 1.0)));
+        mailbox.exchange(None);
+        mailbox.exchange(Some(with([0.3, 0.3], 0.3)));
+        assert_eq!(delivered(&mailbox), ([0.0; 2], 0.0), "input loss resets");
+    }
+
+    #[test]
+    fn guest_fences_preserve_queued_increments_once_and_resets_discard_them() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        mailbox.take_input().unwrap();
+        let increment = Frame {
+            look_delta: [0.125, -0.25],
+            elapsed: 0.03125,
+            ..frame()
+        };
+        for _ in 0..2 {
+            mailbox.exchange(Some(increment.clone()));
+            mailbox.fence_guest_state();
+            mailbox.fence_guest_state();
+            assert!(mailbox.take_input().is_none());
+        }
+        mailbox.exchange(Some(increment.clone()));
+        let delivered = mailbox.take_input().unwrap().frame.unwrap();
+        assert_eq!(delivered.look_delta, [0.375, -0.75]);
+        assert_eq!(delivered.elapsed, 0.09375);
+        mailbox.exchange(Some(increment.clone()));
+        let delivered = mailbox.take_input().unwrap().frame.unwrap();
+        assert_eq!(delivered.look_delta, increment.look_delta);
+        assert_eq!(delivered.elapsed, increment.elapsed);
+
+        for reset in [
+            None,
+            Some(Frame {
+                dimension: 42,
+                ..frame()
+            }),
+        ] {
+            mailbox.exchange(Some(increment.clone()));
+            mailbox.fence_guest_state();
+            mailbox.exchange(reset);
+            mailbox.exchange(Some(increment.clone()));
+            let delivered = mailbox.take_input().unwrap().frame.unwrap();
+            assert_eq!(delivered.look_delta, [0.0; 2]);
+            assert_eq!(delivered.elapsed, 0.0);
+        }
+    }
+
+    #[test]
+    fn effects_name_the_frame_whose_callback_produced_them() {
+        let mailbox = NativeFrames::new(Arc::new(AtomicBool::new(true)));
+        mailbox.activate(true);
+        mailbox.exchange(Some(frame()));
+        mailbox.exchange(Some(frame()));
+        let input = mailbox.take_input().unwrap();
+        let source = input.sequence;
+        let effects = Effects {
+            view: Some(view()),
+            ..Default::default()
+        };
+        mailbox.complete(input, Some(effects.clone()));
+        assert_eq!(mailbox.exchange(Some(frame())).unwrap().0, Some(effects));
+        assert_eq!(mailbox.source.load(Ordering::Acquire), source);
+        assert_eq!(mailbox.sequence.load(Ordering::Acquire), source + 1);
     }
 
     #[test]
@@ -635,7 +833,7 @@ mod tests {
                     yaw: 0.1,
                     pitch: 0.0,
                 }),
-                hurt_intensity: Some(0.0),
+                view_tilt: Some(tilt()),
                 ..Default::default()
             };
             if cached {

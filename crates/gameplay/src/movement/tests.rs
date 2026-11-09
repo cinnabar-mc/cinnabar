@@ -113,6 +113,39 @@ fn action_rotation_updates_only_the_matching_unsent_actor_facing() {
     assert_eq!(changed.move_vector, previous.move_vector);
     assert_eq!(changed.position, previous.position);
     assert_eq!(changed.delta, previous.delta);
+    let packet = protocol::player_auth_input(changed).unwrap();
+    let wire = protocol::player_auth_input_trace_sample(&packet).unwrap();
+    assert!(
+        wire.interact_rotation
+            .iter()
+            .all(|angle| angle.abs() < 0.01)
+    );
+}
+
+#[test]
+fn interaction_direction_changes_only_its_unsent_tick_and_survives_action_facing() {
+    let mut ticker = held_release_ticker();
+    let before = ticker.outbox[0].snapshot;
+    assert!(!ticker.publish_interaction_aim(100, Some([1.0, 0.0, 0.0])));
+    assert!(!ticker.publish_interaction_aim(101, Some([0.0; 3])));
+    assert!(!ticker.publish_interaction_aim(101, Some([f32::INFINITY, 0.0, 0.0])));
+    assert_eq!(ticker.outbox[0].snapshot, before);
+    let next = ticker.outbox[1].snapshot;
+    assert!(ticker.publish_interaction_aim(101, Some([1.0, 1.0, 0.0])));
+    assert!(ticker.override_action_rotation(101, 20.0, 80.0));
+    let changed = ticker.outbox[0].snapshot;
+    let wire =
+        protocol::player_auth_input_trace_sample(&protocol::player_auth_input(changed).unwrap())
+            .unwrap();
+    assert!((wire.interact_rotation[0] + 45.0).abs() < 0.000_1);
+    assert_eq!(wire.interact_rotation[1], -90.0);
+    assert_eq!([wire.pitch, wire.yaw], [20.0, 80.0]);
+    assert_eq!(changed.head_yaw, before.head_yaw);
+    assert_eq!(changed.camera_orientation, before.camera_orientation);
+    assert_eq!(ticker.outbox[1].snapshot, next);
+    assert!(ticker.publish_interaction_aim(102, None));
+    let idle = ticker.outbox[1].snapshot;
+    assert_eq!(idle.interact_rotation, [idle.pitch, idle.yaw]);
 }
 
 /// Ticker with ticks 101 and 102 queued and a release held behind 101.

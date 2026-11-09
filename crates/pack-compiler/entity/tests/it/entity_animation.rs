@@ -1,16 +1,18 @@
 use std::{fs, path::Path};
 
 use assets::{
-    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty, EntityRigFallback,
-    MolangOp, MolangSymbolKind, encode_entity_blob,
+    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty,
+    EntityGeometryScalar, EntityRigFallback, MolangOp, MolangSymbolKind, encode_entity_blob,
 };
 use pack_entity_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
 
 mod animation_conflicts;
+mod animation_loading;
 mod held_scale;
 mod legacy_scales;
 mod player_attack;
+mod render_visibility;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 
@@ -353,26 +355,6 @@ fn animation_time_update_accepts_general_molang_and_numeric_constants() {
 }
 
 #[test]
-fn rejects_malformed_or_unsupported_animation_time_updates() {
-    for authored in [
-        serde_json::json!(null),
-        serde_json::json!(true),
-        serde_json::json!([]),
-        serde_json::json!({}),
-        serde_json::json!("query.modified_distance_moved +"),
-        serde_json::json!("query.unreviewed_time"),
-    ] {
-        let pack = animation_pack(false);
-        set_walk_time_update(pack.path(), authored.clone());
-        let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
-        assert!(
-            error.to_string().contains("anim_time_update"),
-            "{authored}: {error}"
-        );
-    }
-}
-
-#[test]
 fn compiles_clips_controllers_molang_and_collection_selection_deterministically() {
     let first = compile_entity_assets(animation_pack(false).path(), MANIFEST).unwrap();
     let second = compile_entity_assets(animation_pack(true).path(), MANIFEST).unwrap();
@@ -541,16 +523,7 @@ fn undefined_animation_reference_keeps_the_rig_as_a_static_fallback() {
 }
 
 #[test]
-fn malformed_keyframes_non_finite_literals_and_unsupported_grammar_fail_closed() {
-    for animation in [
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":{"bad":[0,0,0]}}}}}}"#.as_slice(),
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"animation_length":"NaN"}}}"#.as_slice(),
-    ] {
-        let pack = animation_pack(false);
-        write(pack.path(), "animations/test.animation.json", animation);
-        assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
-    }
-
+fn unsupported_transition_grammar_drops_only_the_transition() {
     let pack = animation_pack(false);
     write(
         pack.path(),

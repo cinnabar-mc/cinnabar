@@ -124,6 +124,7 @@ fn request(overlays: Vec<Overlay>, hit: Option<Pixel>) -> Request {
         snapshot: cells,
         network: None,
         inventory: None,
+        containers: None,
         call: Call::Interact {
             player: ACTOR.to_owned(),
             pos: ANCHOR,

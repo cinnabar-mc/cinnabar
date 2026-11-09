@@ -25,6 +25,7 @@ fn publish_hud(app: &mut App) {
             overlay_color: [0.0; 4],
         });
     let input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [SIDE; 2],
         safe_area: [0; 4],

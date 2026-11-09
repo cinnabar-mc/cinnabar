@@ -105,11 +105,25 @@ fn session_change_drops_runtime_id_keyed_caches() {
         None,
     );
     runtime.bell_rings.insert([0, 0, 0], (1, 0.0));
+    let window = columns::ColumnWindow {
+        terrain: 1,
+        columns: [0..=1, 0..=1],
+        eye_column: [0, 0],
+    };
+    runtime.settled = Some(window.clone());
     runtime.bind_session(Some((1, 0)));
     assert_eq!(runtime.blocks.len(), 1);
+    assert!(runtime.settled.as_ref() == Some(&window));
     runtime.bind_session(Some((2, 0)));
     assert!(runtime.blocks.is_empty() && runtime.shapes.is_empty());
     assert!(runtime.bell_rings.is_empty());
+    assert!(runtime.settled.is_none());
+    runtime.settled = Some(window);
+    runtime.bind_session(Some((2, 1)));
+    assert!(
+        runtime.settled.is_none(),
+        "a dimension change must rescan every column"
+    );
 }
 
 #[test]

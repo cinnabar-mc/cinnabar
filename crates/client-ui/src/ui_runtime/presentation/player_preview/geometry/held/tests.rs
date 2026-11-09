@@ -62,6 +62,7 @@ fn grip_snapshot(mesh: &ui::UiMesh) -> render_model::UiRenderInput {
         .collect::<Vec<_>>();
     let fixed_pages = pages.len();
     render_model::UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: size,
         safe_area: [0; 4],
@@ -83,7 +84,7 @@ fn unresolved_grips_do_not_borrow_the_cached_upright_placement() {
     let cached = model(
         render_model::held_sprite_vertices(16, 16, &rgba, [0.0, 0.0, 1.0, 1.0]).unwrap(),
         PreviewHeldPlacement::Sprite {
-            hand_equipped: true,
+            grip: render_model::equipment::SpriteGrip::HandEquipped,
         },
     );
     let resolved = cached.with_grip(Some(assets::item::grip::builtin_item_grip(
@@ -95,7 +96,7 @@ fn unresolved_grips_do_not_borrow_the_cached_upright_placement() {
     assert!(matches!(
         resolved.placements[0],
         PreviewHeldPlacement::Sprite {
-            hand_equipped: false
+            grip: render_model::equipment::SpriteGrip::Flat
         }
     ));
     assert_ne!(
@@ -169,7 +170,7 @@ fn sprite_extrusion_keeps_original_side_texel_centres() {
         render_model::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
             .unwrap(),
         PreviewHeldPlacement::Sprite {
-            hand_equipped: false,
+            grip: render_model::equipment::SpriteGrip::Flat,
         },
     );
     let mesh = draw([Some(&sprite), None]);
@@ -221,7 +222,7 @@ fn native_offhand_grip_is_not_a_main_hand_mirror() {
         render_model::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
             .unwrap(),
         PreviewHeldPlacement::Sprite {
-            hand_equipped: true,
+            grip: render_model::equipment::SpriteGrip::HandEquipped,
         },
     );
     let (main, _) = placement(&sprite, 0).unwrap();
@@ -315,5 +316,64 @@ fn held_glint_overrides_preserve_geometry_and_reach_both_hands() {
                 |vertex| (vertex.style_flags & u16::from(ui::UI_STYLE_GLINT) != 0) == expected
             )
         );
+    }
+}
+
+#[test]
+fn live_item_placement_matches_world_equipment_for_both_hands() {
+    use render_model::equipment::{BoneChannels, attach};
+    let parent = RenderBoneTransform {
+        rotation: Quat::from_euler(glam::EulerRot::XYZ, 0.4, -0.3, 0.8).to_array(),
+        translation_scale: [0.3, 1.2, -0.4, 1.3],
+        axis_scale: [0.8, 1.1, 1.2, 1.0],
+    };
+    for hand in 0..2 {
+        for upright in [false, true] {
+            let held = model(
+                vec![],
+                PreviewHeldPlacement::Sprite {
+                    grip: render_model::equipment::SpriteGrip::new(upright, false),
+                },
+            );
+            let mut display = held_sprite_display_for_hand(
+                render_model::equipment::SpriteGrip::new(upright, false),
+                hand == 1,
+            );
+            display.scale *= 1.7;
+            let expected = attach_to_bone(parent, display).unwrap();
+            let (actual, pivot) = placement_on_bone(&held, hand, parent, 1.7).unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(pivot, Vec3::ZERO);
+        }
+        let channels = BoneChannels {
+            translation: [1., 2., -3.],
+            rotation: [20., 30., -40.],
+            scale: [0.5, 0.7, 0.9],
+        };
+        let pivot = [0., 1.5, 0.];
+        let identity = RenderBoneTransform {
+            rotation: Quat::IDENTITY.to_array(),
+            translation_scale: [0., 0., 0., 1.],
+            axis_scale: render_model::UNIT_AXIS_SCALE,
+        };
+        let bone = attach(identity, pivot, channels, true).unwrap();
+        let held = model(vec![], PreviewHeldPlacement::Authored { bone, pivot });
+        let (actual, actual_pivot) = placement_on_bone(&held, hand, parent, 1.).unwrap();
+        let expected = attach(parent, pivot, channels, true).unwrap();
+        for (actual, expected) in actual
+            .rotation
+            .iter()
+            .zip(expected.rotation)
+            .chain(
+                actual
+                    .translation_scale
+                    .iter()
+                    .zip(expected.translation_scale),
+            )
+            .chain(actual.axis_scale.iter().zip(expected.axis_scale))
+        {
+            assert!((*actual - expected).abs() < 1e-5, "{actual} != {expected}");
+        }
+        assert_eq!(actual_pivot, Vec3::from_array(pivot));
     }
 }

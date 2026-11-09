@@ -1,5 +1,5 @@
 use assets::BlockFace;
-use assets::gui_item::{GuiBlockQuad, cube_face};
+use assets::gui_item::{GuiBlockQuad, GuiShading, cube_face};
 
 use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
@@ -36,7 +36,7 @@ fn quads_paint_in_supplied_order_through_the_cube_projection() {
         corner[1] = 0.0;
     }
     let quads = [(lower_top, tile(3)), (slab_top, tile(3))];
-    let mesh = mesh(&quads, Default::default(), BlockModelOrder::Paint).unwrap();
+    let mesh = mesh(&quads, GuiShading::Inventory, BlockModelOrder::Paint).unwrap();
     assert_eq!(mesh.vertices().len(), 8);
     assert_eq!(mesh.batches().len(), 1);
     let batch = &mesh.batches()[0];
@@ -64,7 +64,7 @@ fn overlapping_quads_preserve_paint_order_across_texture_pages() {
         (quad(BlockFace::South), tile(2)),
         (quad(BlockFace::West), tile(4)),
     ];
-    let mesh = mesh(&quads, Default::default(), BlockModelOrder::Paint).unwrap();
+    let mesh = mesh(&quads, GuiShading::Inventory, BlockModelOrder::Paint).unwrap();
     let pages: Vec<_> = mesh
         .batches()
         .iter()
@@ -80,7 +80,7 @@ fn a_uv_outside_its_tile_keeps_the_thumbnail() {
     assert!(
         mesh(
             &[(wrapped, tile(1))],
-            Default::default(),
+            GuiShading::Inventory,
             BlockModelOrder::Paint
         )
         .is_none()
@@ -94,7 +94,7 @@ fn rear_faces_do_not_fill_cutout_holes() {
             (quad(BlockFace::Up), tile(1)),
             (quad(BlockFace::Down), tile(1)),
         ],
-        Default::default(),
+        GuiShading::Inventory,
         BlockModelOrder::Paint,
     )
     .unwrap();
@@ -108,7 +108,7 @@ fn authored_two_sided_planes_remain_visible_from_the_back() {
     assert_eq!(
         mesh(
             &[(plane, tile(1))],
-            Default::default(),
+            GuiShading::Inventory,
             BlockModelOrder::Paint
         )
         .unwrap()
@@ -129,7 +129,7 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
         corner[1] = 0.5;
     }
     let quads = [(lower, tile(4)), (top, tile(2)), (top, tile(4))];
-    let mesh = mesh(&quads, Default::default(), BlockModelOrder::Depth).unwrap();
+    let mesh = mesh(&quads, GuiShading::Inventory, BlockModelOrder::Depth).unwrap();
     assert!(mesh.batches().iter().all(|b| b.depth_test && b.depth_write));
     let pages: Vec<_> = mesh
         .batches()
@@ -144,4 +144,25 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
             .fold(f32::MIN, f32::max)
     };
     assert!(nearest(4..8) > nearest(0..4));
+}
+
+#[test]
+fn world_shaded_quads_take_flat_world_brightness() {
+    let quads = [
+        (quad(BlockFace::Up), tile(1)),
+        (quad(BlockFace::South), tile(1)),
+        (quad(BlockFace::West), tile(1)),
+    ];
+    let shades = |shading| {
+        mesh(&quads, shading, BlockModelOrder::Paint)
+            .unwrap()
+            .vertices()
+            .chunks(4)
+            .map(|face| face[0].color[0])
+            .collect::<Vec<_>>()
+    };
+    // Bytes truncate `255 * brightness`, as the GUI tessellator does.
+    assert_eq!(shades(GuiShading::World), [255, 204, 153]);
+    assert_eq!(shades(GuiShading::Inventory), [255, 127, 186]);
+    assert_eq!(shades(GuiShading::Unshaded), [255; 3]);
 }
