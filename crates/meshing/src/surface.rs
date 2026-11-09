@@ -10,6 +10,8 @@ use world::MeshNeighbourhood;
 pub const QUAD_INDEX_MASK: u32 = 31;
 pub const TILE_SHIFT: u32 = 5;
 pub const TILE_MASK: u32 = 15;
+/// Tiles in the three-by-three face partition.
+pub const TILE_COUNT: u32 = 9;
 pub const BORDER_SHIFT: u32 = 9;
 pub const DRAW_WORD_MASK: u32 = 65535;
 const _: () = assert!(assets::MAX_MODEL_TEMPLATE_QUADS <= QUAD_INDEX_MASK as usize + 1);

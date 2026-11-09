@@ -240,11 +240,20 @@ fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
     return model_quad_at(model_ref_index, quad_index, metadata_index);
 }
 
+/// Admits a bare template quad index, or one carrying a partition tile and a non-zero border
+/// inside the draw word, as `PackedModelDrawRef::valid_surface_tile` does on upload.
+fn surface_draw_word_valid(encoded_quad: u32) -> bool {
+    return encoded_quad <= SURFACE_QUAD_INDEX_MASK
+        || (encoded_quad <= SURFACE_DRAW_WORD_MASK
+            && (encoded_quad >> SURFACE_BORDER_SHIFT) != 0u
+            && ((encoded_quad >> SURFACE_TILE_SHIFT) & SURFACE_TILE_MASK) < SURFACE_TILE_COUNT);
+}
+
 /// Decodes a stable model-ref address and template quad in an origin slot, validating all reads.
 fn model_quad_at(model_ref_index: u32, encoded_quad: u32, metadata_index: u32) -> ModelQuad {
     let quad_index = encoded_quad & SURFACE_QUAD_INDEX_MASK;
     let geometry_word_count = arrayLength(&geometry_streams);
-    if (quad_index >= 32u || model_ref_index > 0x3fffffffu) {
+    if (!surface_draw_word_valid(encoded_quad) || model_ref_index > 0x3fffffffu) {
         return invalid_model_quad();
     }
     let ref_word = model_ref_index * 4u;

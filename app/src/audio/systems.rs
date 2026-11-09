@@ -1,6 +1,6 @@
 //! App schedule and borrowed observations for presentation audio.
 use bevy::prelude::IntoScheduleConfigs;
-use bevy::prelude::{App, Local, MessageReader, Res, ResMut, Time, Update};
+use bevy::prelude::{App, Local, MessageReader, Real, Res, ResMut, Time, Update};
 use client_audio::audio::{
     AudioSettings,
     local::LocalMotion,
@@ -197,9 +197,14 @@ pub(crate) fn drive_weather_and_particles(
 }
 
 /// Samples the published listener and attributes only the output pump's work to audio.
+/// The pump owns the output device each frame, so it also raises the toast for an output
+/// that stays unopenable.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pump_audio(
     time: Res<Time>,
+    real_time: Res<Time<Real>>,
+    ui: Option<ResMut<client_shell::ui_resources::UiRuntimeResource>>,
+    mut outage: Local<launcher::menu::audio_output::OutageNotice>,
     view: Res<LocalViewPose>,
     camera: bevy::prelude::Query<
         &bevy::prelude::Transform,
@@ -208,10 +213,18 @@ pub(crate) fn pump_audio(
     server_camera: Option<Res<client_presentation::camera::ServerCameraView>>,
     settings: Res<AudioSettings>,
     engine: ResMut<AudioEngine>,
-    device: Option<bevy::prelude::NonSendMut<client_audio::named_audio::AudioDevice>>,
+    mut device: Option<bevy::prelude::NonSendMut<client_audio::named_audio::AudioDevice>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
     #[cfg(not(target_arch = "wasm32"))] mut mods: Option<ResMut<crate::modding::ModRuntime>>,
 ) {
+    if let (Some(device), Some(ui)) = (device.as_deref_mut(), ui) {
+        crate::named_audio::notify_audio_output_unavailable(
+            device,
+            ui,
+            real_time.elapsed(),
+            &mut outage,
+        );
+    }
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::Audio));
@@ -253,6 +266,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(profiler.clone())
             .init_resource::<Time>()
+            .init_resource::<Time<bevy::prelude::Real>>()
             .init_resource::<LocalViewPose>()
             .init_resource::<AudioSettings>()
             .init_resource::<AudioEngine>()

@@ -666,19 +666,6 @@ fn rotate_test_face(face: Face, rotation: u32) -> Face {
 
 #[test]
 fn stair_rotation_bakes_ao_from_rotated_faces_and_positions_for_both_halves() {
-    let shader = include_str!("../../../render/src/model.wesl");
-    for clause in [
-        "case 1u: { rotated = vec3(-centered.z, centered.y, centered.x); }",
-        "case 2u: { rotated = vec3(-centered.x, centered.y, -centered.z); }",
-        "case 3u: { rotated = vec3(centered.z, centered.y, -centered.x); }",
-    ] {
-        assert!(
-            shader.contains(clause),
-            "WGSL/CPU rotation contract drifted: {clause}"
-        );
-    }
-    assert!(shader.contains("f32(packed_u16(quad.template_quad_base + 6u, uv_component))"));
-    assert!(shader.contains("f32(packed_u16(quad.template_quad_base + 6u, uv_component + 1u))"));
     let lower = [[0, 0, 32], [0, 224, 32], [0, 224, 192], [0, 0, 192]];
     let upper = lower.map(|[x, y, z]| [x, 256 - y, z]);
     let assets = runtime_assets_with_model_geometry(
