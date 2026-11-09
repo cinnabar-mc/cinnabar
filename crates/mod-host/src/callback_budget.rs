@@ -43,7 +43,8 @@ impl CallbackBudget {
         Self::with_time(fuel, Default::default())
     }
 
-    /// Uses a caller-owned monotonic clock for deterministic scheduling boundaries.
+    /// Uses a caller-owned monotonic clock for deterministic scheduling boundaries. Frame
+    /// callbacks then yield only at fuel intervals, never on wall-clock epoch ticks.
     pub fn with_clock(
         fuel: u64,
         clock: impl Fn() -> std::time::Duration + Send + Sync + 'static,

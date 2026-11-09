@@ -157,6 +157,16 @@ impl TextureSet {
         self.lock().oversized()
     }
 
+    /// Ends a presented frame, comparing the oversized textures it drew with the `previous`
+    /// frame's and checking each for an installed full-resolution copy.
+    pub fn end_oversized_frame(
+        &self,
+        previous: &std::collections::BTreeSet<String>,
+    ) -> crate::atlas::OversizedFrame {
+        self.lock()
+            .end_oversized_frame(previous, |key| self.full_res.contains_key(key))
+    }
+
     /// Install a server atlas, wired to the vanilla and remote fallbacks.
     pub fn set_atlas(&mut self, atlas: ServerAtlas, server_page: u16) {
         *self

@@ -124,6 +124,29 @@ fn hidden_elements_are_retained_until_replaced() {
 }
 
 #[test]
+fn the_position_line_is_hidden_independently_of_elements() {
+    let (_dir, mut host) = load("call $hide-position call $hide-two", "call $show-all", true);
+    let hidden = host.hidden_hud_elements();
+    assert!(hidden.hides_position() && hidden.contains(VanillaElement::Hunger));
+    assert_eq!(hidden.iter().count(), 2);
+    host.frame(false).unwrap();
+    let hidden = host.hidden_hud_elements();
+    assert!(hidden.hides_position() && hidden.iter().next().is_none());
+    let (_dir, mut host) = load(
+        "call $hide-two call $hide-position",
+        "call $show-position",
+        true,
+    );
+    assert!(host.hidden_hud_elements().hides_position());
+    host.frame(false).unwrap();
+    let hidden = host.hidden_hud_elements();
+    assert!(!hidden.hides_position() && hidden.contains(VanillaElement::Crosshair));
+    let (_dir, mut host) = load("", "call $hide-position", false);
+    host.frame(false).unwrap();
+    assert!(host.hidden_hud_elements().is_empty());
+}
+
+#[test]
 fn viewport_reads_report_the_last_observed_root() {
     let (_dir, mut host) = load("call $require-no-viewport", "call $require-viewport", true);
     host.observe_hud(Some(VIEWPORT), [ElementState::default(); 4]);

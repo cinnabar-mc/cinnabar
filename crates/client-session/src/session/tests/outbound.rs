@@ -904,6 +904,7 @@ fn gameplay_packet_families_share_a_batch_in_admission_order() {
         camera_orientation: [0.0, 0.0, 1.0],
         flags: protocol::PlayerInputFlags::NONE,
         input_mode: protocol::PlayerInputMode::Mouse,
+        interaction_model: protocol::PlayerInteractionModel::Crosshair,
         vehicle: None,
     })
     .unwrap();

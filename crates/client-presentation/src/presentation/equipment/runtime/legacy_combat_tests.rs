@@ -439,3 +439,56 @@ fn worn_dissolve_layers_reject_owner_hurt_after_authored_style_and_combat() {
         }
     }
 }
+
+#[test]
+fn visibility_hides_both_held_slots_and_keeps_all_worn_armor() {
+    use actor_animation::{ControllerActivity, RenderVisibility};
+    let (mut runtime, pages) = pack_runtime(armor_pack(false));
+    let body = player_body(&mut runtime);
+    let icons = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
+    let staged = StagedSessionIcons::stage(Some(&icons)).unwrap();
+    let (_, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&icons), Some(staged), locations);
+    let mut held = stack("test:gem", false, false);
+    held.kind = HeldKind::Sprite;
+    let input = ActorEquipmentInput {
+        main: Some(held.clone()),
+        off: Some(held),
+        armor: ["helmet", "chestplate", "leggings", "boots"]
+            .map(|slot| Some(stack(&format!("minecraft:iron_{slot}"), false, false))),
+        ..Default::default()
+    };
+    let owner = owner();
+    let names = ["body", "head", "rightItem", "leftItem"].map(Box::from);
+    let mut rig = owner_rig(&owner, &names, 1);
+    for controllers in [ControllerActivity::Active, ControllerActivity::Inactive] {
+        for hide in [None, Some(false), Some(true), Some(false)] {
+            rig.visibility = RenderVisibility {
+                controllers,
+                hide_held_items: hide,
+            };
+            let layers = runtime.layers_for(
+                &body,
+                &input,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 0.0,
+                    delta_seconds: 0.05,
+                }),
+            );
+            let held = layers
+                .iter()
+                .filter(|layer| {
+                    matches!(
+                        layer.submission.input.identity.layer,
+                        crate::presentation::equipment::LAYER_MAIN_HAND
+                            | crate::presentation::equipment::LAYER_OFF_HAND
+                    )
+                })
+                .count();
+            assert_eq!(held, if hide == Some(true) { 0 } else { 2 });
+            assert_eq!(layers.len() - held, input.armor.len());
+        }
+    }
+}

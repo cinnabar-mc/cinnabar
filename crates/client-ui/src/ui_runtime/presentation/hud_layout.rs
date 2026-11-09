@@ -103,6 +103,8 @@ pub struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// The local player's floored feet position.
     pub player_block: Option<[i32; 3]>,
+    /// Rendered camera state used only to project server-supplied locator positions.
+    pub locator_view: Option<ui_screens::hud_renderers::LocatorView>,
     /// The absolute world tick, when the session has a clock.
     pub world_time: Option<f64>,
     /// A held filled map shows the position whatever the world rule says.

@@ -24,6 +24,7 @@ pub mod inbox;
 mod input;
 mod invite;
 mod join_requests;
+mod realm_leave;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
@@ -122,6 +123,7 @@ pub struct MenuRuntime {
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
     settings_query: ui::ChatEditor,
+    storage_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -220,6 +222,7 @@ pub struct MenuRuntime {
     settings_input: focus::SettingsInput,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
+    storage_reader: Option<launcher_host::settings_storage::StorageReader>,
     settings_dirty: bool,
     settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
     /// Worker startup failures wait until this deadline before another attempt.
@@ -232,7 +235,7 @@ pub struct MenuRuntime {
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
-    input_mode: input::MenuInputMode,
+    input_mode: input::mode::MenuInputMode,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
@@ -240,6 +243,7 @@ pub struct MenuRuntime {
     /// The pause screen's invite screen and the invites it queued.
     invite: invite::InviteUi,
     realm_membership: realm_membership::RealmUi,
+    realm_leave: realm_leave::RealmLeaveUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
 }
@@ -630,6 +634,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
+            MenuAction::LeaveRealmDialog(_) | MenuAction::ConfirmLeaveRealm(_) => {
+                self.activate_realm_leave(action)
+            }
             MenuAction::PlayRealm(index) => {
                 if let Some(realm) = self.realms.get(index) {
                     let target = if realm.target.is_empty() {
@@ -755,7 +762,6 @@ impl MenuRuntime {
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
             | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)

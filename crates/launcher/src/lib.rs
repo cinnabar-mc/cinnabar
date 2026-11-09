@@ -11,11 +11,25 @@ macro_rules! product_name {
 /// The product name shown in window titles, defaults and the install directory.
 pub const PRODUCT_NAME: &str = product_name!();
 
+/// The public source repository's web address as a literal, for `concat!` in compile-time text.
+#[macro_export]
+macro_rules! repository_url {
+    () => {
+        "https://github.com/cinnabar-mc/cinnabar"
+    };
+}
+
+/// The public source repository's web address.
+pub const REPOSITORY_URL: &str = repository_url!();
+
 /// The community Discord invite the client links to for help.
 pub const DISCORD_INVITE_URL: &str = "https://discord.gg/MeEz7BEHcM";
 
 /// The packaged client version from the workspace manifest.
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The `User-Agent` for every HTTP client this product runs, so services can attribute traffic to a release.
+pub const PRODUCT_USER_AGENT: &str = concat!(product_name!(), "/", env!("CARGO_PKG_VERSION"));
 
 /// Whether touch is this platform's primary input: Android and iOS show the on-screen gameplay
 /// controls and start menus in touch mode. A hardware keyboard, mouse or controller still works.
@@ -58,5 +72,14 @@ mod embedding_tests {
             assert_eq!(super::window_title(value), super::PRODUCT_NAME);
         }
         assert_eq!(super::window_title(Some("Zeno Client")), "Zeno Client");
+    }
+
+    // The literal agent must not drift from the name and version shown elsewhere.
+    #[test]
+    fn user_agent_names_the_product_and_release() {
+        assert_eq!(
+            super::PRODUCT_USER_AGENT,
+            format!("{}/{}", super::PRODUCT_NAME, super::PRODUCT_VERSION)
+        );
     }
 }

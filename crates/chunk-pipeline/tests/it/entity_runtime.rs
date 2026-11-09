@@ -273,6 +273,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
             scale_expressions: None,
             held_item_scale: None,
+            hide_held_items: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {

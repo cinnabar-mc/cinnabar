@@ -19,7 +19,7 @@ use bedrock_protocol_1_26_60::wire;
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{
     GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
-    ProtocolError, decode_batch, encode, player_auth_input,
+    PlayerInteractionModel, ProtocolError, decode_batch, encode, player_auth_input,
 };
 
 const NETWORK_SETTINGS: &[u8] = include_bytes!("../../fixtures/network_settings.bin");
@@ -285,6 +285,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     })
     .expect("valid movement snapshot");
@@ -459,6 +460,7 @@ fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     }
 }

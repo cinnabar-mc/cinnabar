@@ -388,7 +388,8 @@ impl MovementTicker {
             && !self.has_unresolved_position_authority_change()
     }
 
-    /// Unsent ticks newer than `after`, oldest first, with their post-tick motion.
+    /// Unsent ticks newer than `after`, oldest first, with the distance each moved and
+    /// its ground contact before moving.
     pub fn unstepped_interaction_ticks(
         &self,
         after: Option<u64>,
@@ -404,7 +405,8 @@ impl MovementTicker {
                     .map(|axis| axis * axis)
                     .sum::<f32>();
                 let motion = crate::survival_mining::TickMotion {
-                    on_ground: sample.evidence.grounded_after_tick,
+                    // Destroying runs before movement, so a landing tick still mines airborne.
+                    on_ground: sample.evidence.grounded_before_tick,
                     moved: if moved.is_finite() { moved.sqrt() } else { 0.0 },
                 };
                 (sample.snapshot.tick, motion)
@@ -602,6 +604,15 @@ impl MovementTicker {
     /// Whether a held release still waits; later uses must not overtake it.
     pub const fn has_held_release(&self) -> bool {
         self.held_release.is_some()
+    }
+
+    /// Whether a held release waits only on its facing tick's write: the tick already exists,
+    /// so the release goes out without further ticks. One whose facing tick is still to come
+    /// needs physics to produce it.
+    pub fn held_release_awaits_written_tick(&self) -> bool {
+        self.held_release
+            .as_ref()
+            .is_some_and(|held| held.tick <= self.completed_tick())
     }
 
     /// Sends a held release once its facing tick was written; a full queue keeps the fence.

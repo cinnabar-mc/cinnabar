@@ -117,7 +117,7 @@ pub(super) fn current_target(
                 None => true,
             }),
         |actor| authority.pick_hit_boxes(actor),
-        ui.gameplay_hud().mount_unique_id(),
+        authority.local_mount_unique_id(),
         ray_origin,
         ray.direction().to_array(),
         actor_reach,

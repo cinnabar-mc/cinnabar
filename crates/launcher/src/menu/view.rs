@@ -80,6 +80,24 @@ impl MenuRealmCard {
     pub fn can_play(&self) -> bool {
         !self.expired && self.state.eq_ignore_ascii_case("open")
     }
+
+    /// The positive service id of a Realm the player joined rather than owns; only such a Realm
+    /// can be left.
+    pub fn leave_id(&self) -> Option<u32> {
+        if !self.member {
+            return None;
+        }
+        self.target
+            .strip_prefix(REALM_ADDRESS_PREFIX)?
+            .parse()
+            .ok()
+            .filter(|id| *id > 0)
+    }
+}
+
+/// The listed Realm the player joined with this service id.
+pub fn joined_realm(realms: &[MenuRealmCard], id: u32) -> Option<&MenuRealmCard> {
+    realms.iter().find(|realm| realm.leave_id() == Some(id))
 }
 
 /// Marks a featured address as an experience's ID, joined when selected.
@@ -87,6 +105,9 @@ pub const EXPERIENCE_ADDRESS_PREFIX: &str = bridge::contract::GATHERING_TARGET_P
 
 /// Marks an address as the friend world hosted by this XUID.
 pub const FRIEND_ADDRESS_PREFIX: &str = bridge::contract::FRIEND_TARGET_PREFIX;
+
+/// Marks a Realm's join target, followed by its service id.
+pub const REALM_ADDRESS_PREFIX: &str = bridge::contract::REALM_TARGET_PREFIX;
 
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
@@ -431,6 +452,8 @@ pub struct MenuView {
     /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
     pub navigation_focus_visible: bool,
     pub gamepad_input: bool,
+    /// Touch drives the menu, which shows no keyboard or controller hints.
+    pub touch_input: bool,
     /// Touch hardware remains available when a mouse or controller becomes active.
     pub touch_available: bool,
     /// The touch-control draft owns this settings surface.
@@ -448,6 +471,7 @@ pub struct MenuView {
     pub friend_query: String,
     /// Transient text filtering settings across categories.
     pub settings_query: String,
+    pub storage_query: String,
     /// Command box drafts, including invalid edits that have not been saved.
     pub macro_commands: Option<[String; super::settings_options::COMMAND_MACRO_COUNT]>,
     pub message: Option<String>,
@@ -529,6 +553,8 @@ pub struct MenuView {
     pub world_settings: Option<std::sync::Arc<crate::local_worlds::in_world::View>>,
     /// The code invitation flow covering the Realms tab.
     pub realm_membership: Option<super::realm_membership::State>,
+    /// The service id of the joined Realm being left, until its outcome arrives.
+    pub leaving_realm: Option<u32>,
     /// The invite screen's friends and picks while it is up.
     pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
     /// Who sent the oldest open Discord join request.
@@ -725,6 +751,7 @@ impl MenuView {
             pressed: None,
             navigation_focus_visible: true,
             gamepad_input: false,
+            touch_input: false,
             touch_available: crate::TOUCH_PRIMARY,
             touch_editor_open: false,
             server_tab: MenuServerTab::Featured,
@@ -732,6 +759,7 @@ impl MenuView {
             dialog: None,
             friend_query: String::new(),
             settings_query: String::new(),
+            storage_query: String::new(),
             field: None,
             caret: MenuCaret {
                 shown: true,
@@ -796,6 +824,7 @@ impl MenuView {
             feeds: Default::default(),
             hosting: false,
             realm_membership: None,
+            leaving_realm: None,
             invite: None,
             join_request: None,
         }

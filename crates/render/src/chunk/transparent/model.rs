@@ -340,7 +340,8 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
     model_record_base: u32,
 ) -> Option<(Vec3, [u32; 2])> {
     let [chunk_x, chunk_y, chunk_z] = chunk_origin(key).map(|coordinate| coordinate as f32);
-    let [local_model_ref, quad_index] = draw_ref.words();
+    let [local_model_ref, encoded_quad] = draw_ref.words();
+    let quad_index = draw_ref.quad_index();
     let model_ref = model_refs.get(local_model_ref as usize)?.words();
     let template = model_templates.get(model_ref[1] as usize)?;
     if quad_index >= template.quad_count || model_ref[3] & (1_u32 << quad_index) == 0 {
@@ -357,6 +358,35 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
         let [x, y, z] = meshing::turn_model_position(position, turn);
         total + Vec3::new(f32::from(x), f32::from(y), f32::from(z))
     }) / (4.0 * 256.0);
+    if encoded_quad > meshing::surface::QUAD_INDEX_MASK {
+        let tile = (encoded_quad >> meshing::surface::TILE_SHIFT) & meshing::surface::TILE_MASK;
+        let border = (encoded_quad >> meshing::surface::BORDER_SHIFT) as f32 / 256.;
+        let edges = [0., border, 1. - border, 1.];
+        let u = (tile % 3) as usize;
+        let v = (tile / 3) as usize;
+        if u >= 3 || v >= 3 {
+            return None;
+        }
+        let mid = [
+            (edges[u] + edges[u + 1]) * 0.5,
+            (edges[v] + edges[v + 1]) * 0.5,
+        ];
+        match quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK {
+            1 | 2 => {
+                centroid.x = mid[0];
+                centroid.z = mid[1];
+            }
+            3 | 4 => {
+                centroid.z = mid[0];
+                centroid.y = mid[1];
+            }
+            5 | 6 => {
+                centroid.x = mid[0];
+                centroid.y = mid[1];
+            }
+            _ => return None,
+        }
+    }
     let has_offset = model_ref[0] & meshing::MODEL_REF_FLAG_RANDOM_OFFSET != 0;
     if bamboo {
         let transform = model_ref[0] >> 12;
@@ -381,7 +411,10 @@ pub(in crate::chunk) fn transparent_model_draw_candidate(
     );
     Some((
         Vec3::new(chunk_x, chunk_y, chunk_z) + block + centroid,
-        [local_model_ref.checked_add(model_record_base)?, quad_index],
+        [
+            local_model_ref.checked_add(model_record_base)?,
+            encoded_quad,
+        ],
     ))
 }
 

@@ -113,7 +113,7 @@ use {
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, log_shutdown_phase,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -173,6 +173,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
+        .add_systems(Update, crate::named_audio::notify_audio_output_unavailable)
         .add_systems(
             Update,
             crate::named_audio::drain_live_named_audio
@@ -594,8 +595,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
-    #[cfg(target_os = "macos")]
-    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::thread_budget::ThreadBudget::configure_frame_threads(&mut app);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     crate::frame_pacing::display_link::install(&mut app);
     #[cfg(target_os = "macos")]
@@ -869,15 +870,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    log_shutdown_phase("runner_returned");
     PlatformClipboard::shutdown();
+    log_shutdown_phase("clipboard");
     client_shell::discord_presence::shutdown(&mut app);
+    log_shutdown_phase("discord");
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()
     {
         network.shutdown();
     }
+    log_shutdown_phase("network");
     drop(app);
+    log_shutdown_phase("world_dropped");
     bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),
