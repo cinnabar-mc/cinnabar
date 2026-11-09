@@ -130,8 +130,8 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         page: first + 1,
         ..required
     };
-    let required_mesh = item_gui::cube([required; 6]).unwrap();
-    let optional_mesh = item_gui::cube([optional; 6]).unwrap();
+    let required_mesh = item_gui::cube([required; 6], Default::default()).unwrap();
+    let optional_mesh = item_gui::cube([optional; 6], Default::default()).unwrap();
     presentation.gui_models = GuiModels {
         enabled: true,
         sources: PreparedGuiModels {

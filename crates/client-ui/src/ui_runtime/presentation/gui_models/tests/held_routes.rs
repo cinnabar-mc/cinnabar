@@ -1,7 +1,7 @@
 //! Ordinary held models use the same routes and geometry in previews and world hands.
 
 use super::*;
-use assets::{ItemVisualKey, RuntimeIconCatalog};
+use assets::{ItemVisualDefinitionRoute, ItemVisualKey, RuntimeIconCatalog};
 use player_preview::PreviewHeldPlacement;
 
 /// Compiles original player hand bones and binds one item to a carried pane model.

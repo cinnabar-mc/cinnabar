@@ -16,7 +16,11 @@ fn cube_uses_native_design_projection_without_a_thumbnail_sampling_grid() {
         cube_project([0.0; 3]),
         CUBE_OFFSET.map(|value| value / GUI_ITEM_SIDE)
     );
-    let mesh = cube(std::array::from_fn(|face_index| face(face_index as u16))).unwrap();
+    let mesh = cube(
+        std::array::from_fn(|face_index| face(face_index as u16)),
+        Default::default(),
+    )
+    .unwrap();
     assert_eq!(mesh.vertices().len(), 12);
     assert_eq!(mesh.indices().len(), 18);
     assert_eq!(mesh.batches().len(), 3);
@@ -45,7 +49,7 @@ fn cube_uses_native_design_projection_without_a_thumbnail_sampling_grid() {
 fn cube_preserves_authored_face_uv_edges_and_glint() {
     let mut faces = [face(2); 6];
     faces[BlockFace::Up as usize].glint = true;
-    let mesh = cube(faces).unwrap();
+    let mesh = cube(faces, Default::default()).unwrap();
     assert_eq!(mesh.vertices()[0].uv, [32.0, 48.0]);
     assert_eq!(mesh.vertices()[1].uv, [32.0, 64.0]);
     assert_eq!(mesh.vertices()[2].uv, [48.0, 64.0]);
@@ -61,13 +65,13 @@ fn cube_preserves_authored_face_uv_edges_and_glint() {
             .all(|vertex| vertex.style_flags == 0)
     );
     faces[BlockFace::South as usize].uv[2] = faces[BlockFace::South as usize].uv[0];
-    assert!(cube(faces).is_none());
+    assert!(cube(faces, Default::default()).is_none());
 }
 
 #[test]
 fn cutout_cubes_show_outward_faces_with_the_sample_alpha_threshold() {
     let faces = std::array::from_fn(|index| face(index as u16));
-    let mesh = cutout_cube(faces).unwrap();
+    let mesh = cutout_cube(faces, Default::default()).unwrap();
     assert_eq!(mesh.vertices().len(), CUBE_FACES.len() * 4);
     assert_eq!(mesh.indices().len(), CUBE_FACES.len() * 6);
     for (face, _, _, _) in CUBE_FACES {
