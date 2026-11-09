@@ -1042,3 +1042,5 @@ fn menu_cancel_key_dismisses_a_form_without_an_edit_box() {
         assert_eq!(sent.is_empty(), menu_cancel.is_none(), "{menu_cancel:?}");
     }
 }
+
+mod hover_focus;
