@@ -34,6 +34,18 @@ fn downscaling_fully_transparent_colors_produces_clear_pixels() {
 }
 
 #[test]
+fn downscaling_clears_colors_when_alpha_rounds_to_zero() {
+    let mut texture = DecodedTexture {
+        width: 2,
+        height: 2,
+        rgba8: [[240, 120, 60, 1], [0; 4], [0; 4], [0; 4]].concat().into(),
+    };
+    texture.downscale_to_max(1);
+    assert_eq!([texture.width, texture.height], [1, 1]);
+    assert_eq!(texture.rgba8.as_ref(), &[0; 4]);
+}
+
+#[test]
 fn pack_json_matches_previous_normalized_bytes() {
     for bytes in [
         br#"{"texture_data":{"a":{"textures":"textures/first"},"a":{"textures":"textures/last"}},"number":1.0000000000000002}"#.as_slice(),
