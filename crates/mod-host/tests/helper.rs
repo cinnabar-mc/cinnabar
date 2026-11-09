@@ -17,6 +17,9 @@ use server_experience::{
     screen,
 };
 
+#[path = "../src/server/tests/guests.rs"]
+mod guests;
+
 /// Lets this process launch developer helpers. Every test sets the same value before any helper
 /// starts, and nothing else here reads the environment concurrently.
 fn developer() {
@@ -25,38 +28,9 @@ fn developer() {
     SET.call_once(|| unsafe { std::env::set_var(DEVELOPER_ENV, "1") });
 }
 
-/// The terminal test client part, built for wasm32 into a target directory of its own inside
-/// this test's, and turned into a component.
+/// The terminal test client part, built for wasm32 into the library tests' guest target.
 fn terminal_component() -> Vec<u8> {
-    let exe = std::env::current_exe().unwrap();
-    let target = exe
-        .ancestors()
-        .nth(3)
-        .unwrap()
-        .join(worktree_dir("mod-host-guests"));
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = std::process::Command::new(cargo)
-        .current_dir(&root)
-        .args(["build", "--locked", "--target", "wasm32-unknown-unknown"])
-        .args(["-p", "experience-terminal-client", "--target-dir"])
-        .arg(&target)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "building the terminal client part failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let module =
-        std::fs::read(target.join("wasm32-unknown-unknown/debug/experience_terminal_client.wasm"))
-            .unwrap();
-    wit_component::ComponentEncoder::default()
-        .module(&module)
-        .unwrap()
-        .validate(true)
-        .encode()
-        .unwrap()
+    guests::component("experience-terminal-client")
 }
 
 /// Grants only the terminal fixture's modal output by default.
@@ -228,17 +202,6 @@ fn a_failed_start_answers_with_its_reason() {
         "{}",
         failure.reason
     );
-}
-
-/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
-/// dep-info paths are relative to the workspace, so two worktrees building into one target would
-/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
-/// each worktree's guests its own.
-fn worktree_dir(name: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-    format!("{name}-{:016x}", hasher.finish())
 }
 
 /// A messaging guest's fresh initialization reaches the client in the failed call's own reply.

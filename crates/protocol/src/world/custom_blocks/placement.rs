@@ -4,7 +4,7 @@ use super::{CustomPlacement, Nbt};
 
 /// Reads the yaw offset once, applying the trait's quarter-turn rounding.
 pub(super) fn traits<'a>(
-    traits: impl IntoIterator<Item = &'a Nbt>,
+    traits: impl IntoIterator<Item = Nbt<'a>>,
     trait_state_count: usize,
 ) -> CustomPlacement {
     let offset = traits
@@ -35,7 +35,7 @@ mod tests;
 /// `minecraft:on_player_placing`) do not stop local prediction. The client places the block it
 /// holds, and the server's block update corrects a handler that changes or cancels it; without
 /// the local block, held bridging aims through cells only the server has filled and keeps placing.
-pub(super) fn components(placement: &mut CustomPlacement, components: Option<&Nbt>) {
+pub(super) fn components(placement: &mut CustomPlacement, components: Option<Nbt<'_>>) {
     let Some(components) = components else { return };
     placement.has_placement_filter |= components.field("minecraft:placement_filter").is_some();
 }

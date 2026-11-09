@@ -802,6 +802,35 @@ fn view_images(
             .collect();
     }
     if view.screen == MenuScreen::Settings
+        && view.settings.section == launcher::menu::settings_storage::SECTION_INDEX
+    {
+        let mut indices: Vec<_> = hits
+            .iter()
+            .filter_map(|(action, _)| match action {
+                MenuAction::SettingsStorage(
+                    launcher::menu::settings_storage::StorageAction::DeletePack(index),
+                ) => Some(*index),
+                _ => None,
+            })
+            .collect();
+        if indices.is_empty() {
+            indices.extend(
+                view.storage
+                    .cached
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| item.matches_query(&view.storage_query))
+                    .take(FIRST_BATCH)
+                    .map(|(index, _)| index),
+            );
+        }
+        return indices
+            .into_iter()
+            .filter_map(|index| view.storage.cached.get(index))
+            .filter_map(|item| Some((item.icon_key(), Arc::clone(item.icon.as_ref()?))))
+            .collect();
+    }
+    if view.screen == MenuScreen::Settings
         && view.settings.section
             == launcher::menu::settings_sections::SettingSection::Mods
                 .definition()

@@ -136,7 +136,13 @@ pub(super) fn remove_server() -> Fixture {
 
 /// Shows the cached-data deletion confirmation.
 pub(super) fn storage_delete() -> Fixture {
-    dialog(MenuDialog::StorageDelete)
+    let Fixture::Menu(mut view) = settings_storage() else {
+        unreachable!()
+    };
+    view.dialog = Some(MenuDialog::StorageDelete);
+    Arc::make_mut(&mut view.storage).delete_summary =
+        "Cloud Islands 1.2.3\naaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".into();
+    Fixture::Menu(view)
 }
 
 /// Shows a local storage failure.
@@ -289,7 +295,35 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
 /// Shows Storage as a desktop host fills it, with the folder buttons.
 pub(super) fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.opens_folders = true;
+    storage.expanded =
+        launcher::menu::settings_storage::CATEGORIES.map(|category| category == "cache");
+    storage.cached = [
+        (
+            "Cloud Islands",
+            "1.2.3",
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        ),
+        (
+            "Harbor Textures",
+            "2.0.0",
+            "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(name, version, id)| launcher::menu::settings_storage::StorageItem {
+            name: name.into(),
+            icon: (name == "Cloud Islands").then(super::mods::icon),
+            version: version.into(),
+            pack_id: id.into(),
+            bytes: 12 * 1024 * 1024,
+            path: format!("{id}.mcpack").into(),
+            ..Default::default()
+        },
+    )
+    .collect();
     Fixture::Menu(Box::new(view))
 }
 

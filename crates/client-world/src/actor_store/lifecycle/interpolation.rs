@@ -173,9 +173,12 @@ impl ActorStore {
             let (session_id, dimension) = (self.session_id, self.dimension);
             let (actors, unique_to_runtime) = (&self.actors, &self.unique_to_runtime);
             let (rider_to_ridden, items) = (&self.rider_to_ridden, &self.items);
+            // A local player that got off on the client no longer shows riding.
+            let left_rider = self.local_vehicle.left_rider;
             let rider_contexts = rider_contexts(
                 rider_to_ridden
                     .iter()
+                    .filter(|(rider, _)| Some(**rider) != left_rider)
                     .map(|(&rider, &ridden)| (rider, ridden)),
                 |rider| {
                     unique_to_runtime
@@ -335,7 +338,8 @@ impl ActorStore {
                     } else {
                         ticks - 1
                     }),
-                    is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    is_riding: rider_to_ridden.contains_key(&actor.unique_id)
+                        && left_rider != Some(actor.unique_id),
                     seat_facing: seat_facings.get(&actor.unique_id).copied(),
                     hand_charged,
                     main_hand,
@@ -386,6 +390,7 @@ impl ActorStore {
                     off_hand,
                     ridden: rider_to_ridden
                         .get(&actor.unique_id)
+                        .filter(|_| left_rider != Some(actor.unique_id))
                         .and_then(kind_of)
                         .map(|kind| match kind {
                             ActorKind::Player { .. } => std::sync::Arc::from(assets::facts::entity::NativeEntityClass::Player.identifier().expect("pinned player identity")),

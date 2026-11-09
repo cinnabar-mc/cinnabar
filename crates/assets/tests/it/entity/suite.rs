@@ -15,7 +15,6 @@ use entity::{
     EntityAnimationProperty, EntityControllerAnimation, EntityControllerState,
     EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
-    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
     MAX_ENTITY_RIG_BINDINGS, MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_EXPRESSIONS,
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH, MolangCollection, MolangCollectionItem,
@@ -783,7 +782,7 @@ fn carrier_rejects_adjacent_versions_and_hashes_extended_payload() {
 fn carrier_v4_header_bounds_precede_hash_or_payload_allocation_and_counts_match() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
     let mut excessive = encoded.to_vec();
-    excessive[64..68].copy_from_slice(&(MAX_ENTITY_ANIMATION_CLIPS as u32 + 1).to_le_bytes());
+    excessive[68..72].copy_from_slice(&(MAX_ENTITY_CONTROLLERS as u32 + 1).to_le_bytes());
     let error = RuntimeEntityAssetsV4::decode(&excessive).unwrap_err();
     assert!(error.to_string().contains("header counts exceed bounds"));
 
@@ -797,37 +796,8 @@ fn carrier_v4_header_bounds_precede_hash_or_payload_allocation_and_counts_match(
 }
 
 #[test]
-fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
+fn carrier_v4_accepts_exact_controller_bounds() {
     let mut compiled = carrier_v4_fixture();
-    compiled.animation_clips = (0..MAX_ENTITY_ANIMATION_CLIPS)
-        .map(|index| EntityAnimationClip {
-            first_channel: u32::from(index != 0),
-            channel_count: u32::from(index == 0),
-            ..compiled.animation_clips[0]
-        })
-        .collect();
-    assert!(compiled.validate().is_ok());
-
-    compiled = carrier_v4_fixture();
-    compiled.animation_channels = (0..MAX_ENTITY_ANIMATION_CHANNELS)
-        .map(|index| EntityAnimationChannel {
-            bone_name: None,
-            first_keyframe: u32::from(index != 0),
-            keyframe_count: u32::from(index == 0),
-            rotation_relative_to_entity: false,
-            ..compiled.animation_channels[0].clone()
-        })
-        .collect();
-    compiled.animation_clips[0].channel_count = MAX_ENTITY_ANIMATION_CHANNELS as u32;
-    assert!(compiled.validate().is_ok());
-
-    compiled = carrier_v4_fixture();
-    compiled.animation_keyframes =
-        vec![compiled.animation_keyframes[0]; MAX_ENTITY_ANIMATION_KEYFRAMES].into_boxed_slice();
-    compiled.animation_channels[0].keyframe_count = MAX_ENTITY_ANIMATION_KEYFRAMES as u32;
-    assert!(compiled.validate().is_ok());
-
-    compiled = carrier_v4_fixture();
     let state = compiled.controller_states[0];
     compiled.controller_states = (0..MAX_ENTITY_CONTROLLERS)
         .map(|index| EntityControllerState {
@@ -887,25 +857,8 @@ fn carrier_v4_accepts_the_animation_channels_of_a_large_server_pack() {
 }
 
 #[test]
-fn carrier_v4_rejects_animation_and_controller_limits_plus_one() {
+fn carrier_v4_rejects_controller_limits_plus_one() {
     let mut cases = Vec::new();
-    let mut compiled = carrier_v4_fixture();
-    compiled.animation_clips =
-        vec![compiled.animation_clips[0]; MAX_ENTITY_ANIMATION_CLIPS + 1].into_boxed_slice();
-    cases.push(compiled);
-
-    let mut compiled = carrier_v4_fixture();
-    compiled.animation_channels =
-        vec![compiled.animation_channels[0].clone(); MAX_ENTITY_ANIMATION_CHANNELS + 1]
-            .into_boxed_slice();
-    cases.push(compiled);
-
-    let mut compiled = carrier_v4_fixture();
-    compiled.animation_keyframes =
-        vec![compiled.animation_keyframes[0]; MAX_ENTITY_ANIMATION_KEYFRAMES + 1]
-            .into_boxed_slice();
-    cases.push(compiled);
-
     let mut compiled = carrier_v4_fixture();
     compiled.controllers =
         vec![compiled.controllers[0]; MAX_ENTITY_CONTROLLERS + 1].into_boxed_slice();

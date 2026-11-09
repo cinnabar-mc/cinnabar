@@ -13,7 +13,12 @@ pub(super) fn maintain_block_use(
 ) {
     let pick = runtime.pick(&movement);
     let simulates_tick = physics.as_deref().is_some_and(|physics| {
-        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+        gameplay::movement::frame_simulates_tick(
+            physics,
+            &movement,
+            &context.locomotion,
+            context.time.delta(),
+        )
     });
     // The native hit buffer is cleared by the tick, including ticks without a due build.
     let picks = if simulates_tick {
@@ -177,11 +182,12 @@ pub(super) fn maintain_block_use(
 pub(super) fn discard_tick_picks(
     time: Res<Time<Real>>,
     movement: Res<MovementTicker>,
+    locomotion: Res<client_interaction::movement::LocomotionState>,
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
     mut runtime: ResMut<BlockUseRuntime>,
 ) {
     if physics.as_deref().is_some_and(|physics| {
-        gameplay::movement::frame_simulates_tick(physics, &movement, time.delta())
+        gameplay::movement::frame_simulates_tick(physics, &movement, &locomotion, time.delta())
     }) {
         runtime.discard_pending_picks();
     }

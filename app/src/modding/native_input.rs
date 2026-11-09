@@ -89,12 +89,13 @@ impl NativeInput {
 }
 
 impl ModControlModes {
-    /// The player's gameplay settings with this frame's mod modes in place of their own.
+    /// The player's gameplay settings with this frame's mod modes turned on as well. Mods only
+    /// add modes; a mode the player turned on stays on.
     pub(crate) fn apply(&self, mut gameplay: ui::GameplaySettings) -> ui::GameplaySettings {
         if let Some(modes) = self.0 {
-            gameplay.toggle_sprint = modes.toggle_sprint;
-            gameplay.toggle_sneak = modes.toggle_sneak;
-            gameplay.always_sprint = modes.always_sprint;
+            gameplay.toggle_sprint |= modes.toggle_sprint;
+            gameplay.toggle_sneak |= modes.toggle_sneak;
+            gameplay.always_sprint |= modes.always_sprint;
         }
         gameplay
     }
@@ -277,9 +278,10 @@ mod tests {
         );
         assert!(delta.yaw > 0.0 && delta.yaw < 0.03);
     }
-    /// Control modes replace the player's three control settings only while present.
+    /// Control modes add to the player's three control settings only while present, and never
+    /// turn off one the player turned on.
     #[test]
-    fn control_modes_replace_the_player_settings_only_while_present() {
+    fn control_modes_add_to_the_player_settings_only_while_present() {
         let player = ui::GameplaySettings {
             toggle_sprint: false,
             always_sprint: true,
@@ -296,9 +298,18 @@ mod tests {
             ModControlModes(Some(modes)).apply(player),
             ui::GameplaySettings {
                 toggle_sprint: true,
-                toggle_sneak: false,
-                always_sprint: false,
+                toggle_sneak: true,
+                always_sprint: true,
                 ..player
+            },
+            "a mod's off modes leave the player's always sprint and toggle sneak on"
+        );
+        let own = ui::GameplaySettings::default();
+        assert_eq!(
+            ModControlModes(Some(modes)).apply(own),
+            ui::GameplaySettings {
+                toggle_sprint: true,
+                ..own
             }
         );
     }

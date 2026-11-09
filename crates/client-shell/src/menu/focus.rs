@@ -30,7 +30,7 @@ impl MenuRuntime {
             action => action,
         };
         if let Some(index) = self.focus_actions().iter().position(|candidate| {
-            if self.settings.dropdown.is_some() || self.settings.scale_picker {
+            if self.settings.dropdown.is_some() {
                 *candidate == action
             } else {
                 same_control(*candidate, action)
@@ -89,7 +89,15 @@ impl MenuRuntime {
         if self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && self.settings.dropdown.is_none()
-            && !self.settings.scale_picker
+            && self.settings_input.geometry.native
+            && let MenuAction::SettingsScale(_) = action
+        {
+            self.toggle_gui_scale_slider_selection();
+            return;
+        }
+        if self.screen == MenuScreen::Settings
+            && self.dialog.is_none()
+            && self.settings.dropdown.is_none()
             && let MenuAction::SettingsOption(index, _) = action
         {
             match SETTINGS_OPTIONS
@@ -139,7 +147,7 @@ impl MenuRuntime {
             return;
         }
         let previous = self.focus_actions().get(self.focused).copied();
-        let picker = self.settings.dropdown.is_some() || self.settings.scale_picker;
+        let picker = self.settings.dropdown.is_some();
         let mut visible = Vec::new();
         for action in actions {
             let action = match action {
@@ -209,6 +217,9 @@ impl MenuRuntime {
             return;
         }
         self.retain_settings_slider_selection();
+        if axis == SettingsFocusAxis::Horizontal && self.step_selected_gui_scale(direction) {
+            return;
+        }
         if axis == SettingsFocusAxis::Horizontal
             && self.screen == MenuScreen::Settings
             && self.dialog.is_none()
@@ -259,6 +270,41 @@ impl MenuRuntime {
         }
     }
 
+    /// Selects or releases the GUI-scale slider for directional adjustment, like other
+    /// settings sliders. A window with a single modifier has nothing to adjust.
+    fn toggle_gui_scale_slider_selection(&mut self) {
+        let row = MenuAction::SettingsScale(self.gui_scale_display_offset).settings_slider_row();
+        self.field = None;
+        let adjustable = self.gui_scale_choices.len() > 1;
+        let selected = self.settings.slider_selected;
+        self.settings.slider_selected = row.filter(|row| adjustable && selected != Some(*row));
+    }
+
+    /// Moves a selected GUI-scale slider one modifier in `direction`, stopping at either end.
+    /// Returns whether the GUI-scale slider owned the input.
+    fn step_selected_gui_scale(&mut self, direction: i32) -> bool {
+        let row = MenuAction::SettingsScale(self.gui_scale_display_offset).settings_slider_row();
+        if self.screen != MenuScreen::Settings
+            || self.dialog.is_some()
+            || self.settings.slider_selected != row
+        {
+            return false;
+        }
+        let current = self
+            .gui_scale_choices
+            .iter()
+            .position(|choice| choice.offset == self.gui_scale_display_offset);
+        let next = current.and_then(|index| {
+            index
+                .checked_add_signed(direction.signum() as isize)
+                .and_then(|next| self.gui_scale_choices.get(next))
+        });
+        if let Some(next) = next {
+            self.activate_from_navigation(MenuAction::SettingsScale(next.offset));
+        }
+        true
+    }
+
     pub(super) fn clear_settings_slider_selection(&mut self) -> bool {
         self.settings.slider_selected.take().is_some()
     }
@@ -267,9 +313,11 @@ impl MenuRuntime {
         let retained = self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && self.settings.dropdown.is_none()
-            && !self.settings.scale_picker
             && self.settings.slider_selected.is_some_and(|selected| {
-                matches!(self.focus_actions().get(self.focused), Some(MenuAction::SettingsOption(index, _)) if *index == selected)
+                self.focus_actions()
+                    .get(self.focused)
+                    .and_then(|action| action.settings_slider_row())
+                    == Some(selected)
             });
         if !retained {
             self.settings.slider_selected = None;
@@ -282,10 +330,6 @@ impl MenuRuntime {
         visible: &[MenuAction],
     ) -> Option<usize> {
         let replacement = match previous {
-            MenuAction::SettingsScale(_) => MenuAction::SettingsScalePicker,
-            MenuAction::SettingsScalePicker => {
-                MenuAction::SettingsScale(self.gui_scale_display_offset)
-            }
             MenuAction::SettingsOption(index, _) => MenuAction::SettingsDropdown(index),
             MenuAction::SettingsDropdown(index) => {
                 MenuAction::SettingsOption(index, self.settings_options.get(usize::from(index)))
@@ -686,7 +730,8 @@ pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
                     Some(SettingKind::Toggle | SettingKind::Slider)
                 )
         }
-        (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_)) => true,
+        (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_))
+        | (MenuAction::SettingsScale(_), MenuAction::SettingsScale(_)) => true,
         (
             MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(a, _)),
             MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(b, _)),
