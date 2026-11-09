@@ -214,10 +214,14 @@ impl LocomotionState {
                 .vehicle
                 .is_some_and(|vehicle| vehicle.revision == feed.revision)
         });
-        let seat = if feed.is_some() && current.is_none() {
-            facts.ride_seat.map(vec3)
-        } else {
+        // Other mounts move with the actor stream, so the streamed seat is the current one.
+        let seat = if current.is_some() {
             physics.state().map(|state| state.position)
+        } else {
+            facts
+                .ride_seat
+                .map(vec3)
+                .or_else(|| physics.state().map(|state| state.position))
         };
         let Some(seat) = seat else {
             return false;

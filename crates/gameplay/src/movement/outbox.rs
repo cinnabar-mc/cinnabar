@@ -104,6 +104,16 @@ impl TickEnds {
         self.0.push_back(view);
     }
 
+    /// Moves the retained end of `tick` to `position`; returns whether it was retained.
+    pub(super) fn place(&mut self, tick: u64, position: [f32; 3]) -> bool {
+        self.0
+            .iter_mut()
+            .rev()
+            .find(|view| view.tick == tick)
+            .map(|view| view.position = position)
+            .is_some()
+    }
+
     pub(super) fn get(&self, tick: u64) -> Option<UnsentSampleView> {
         self.0.iter().rev().find(|view| view.tick == tick).copied()
     }
@@ -435,7 +445,8 @@ impl MovementTicker {
     /// The end state of the last completed tick. Vanilla runs build actions before each
     /// simulation tick, so the next tick's build actions observe this state.
     pub fn build_action_state(&self) -> Option<UnsentSampleView> {
-        if !self.physics_is_authorized() {
+        // Builds wait, like movement, until a dismount request reaches transport.
+        if !self.physics_is_authorized() || self.dismount.fence.is_some() {
             return None;
         }
         self.tick_ends.get(self.completed_tick())
@@ -499,24 +510,21 @@ impl MovementTicker {
         self.reapply_dismount_placement();
     }
 
-    /// Ends the last completed tick where a dismount after it placed the player, also after
-    /// a correction rebuilds the tick ends.
+    /// Ends the tick a dismount placed the player after at the exit, also after a correction
+    /// rebuilds the tick ends, keeping the ticks after it.
     pub(super) fn reapply_dismount_placement(&mut self) {
-        let tick = self.completed_tick();
-        let Some((_, position)) = self.dismount.placed.filter(|(placed, _)| *placed == tick) else {
+        let Some((tick, position)) = self.dismount.placed else {
             return;
         };
-        let end = self.tick_ends.get(tick).map_or(
-            UnsentSampleView {
+        if !self.tick_ends.place(tick, position) && tick == self.completed_tick() {
+            self.tick_ends.record(UnsentSampleView {
                 tick,
                 position,
                 delta: [0.0; 3],
                 displacement: [0.0; 3],
                 sneaking: false,
-            },
-            |end| UnsentSampleView { position, ..end },
-        );
-        self.tick_ends.record(end);
+            });
+        }
     }
 
     /// Lets movement held back for a dismount request reach transport.

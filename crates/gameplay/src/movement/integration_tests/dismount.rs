@@ -629,6 +629,10 @@ fn movement_after_getting_off_waits_for_the_dismount_request() {
         None,
         "nor does an interaction before the first tick off the boat"
     );
+    assert!(
+        rider.ticker.build_action_state().is_none(),
+        "nor does a build"
+    );
 
     rider.locals.flush_dismount(position, |_| Ok(()));
     rider.locals.settle_dismount_fence(&mut rider.ticker);
