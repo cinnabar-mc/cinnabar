@@ -33,7 +33,7 @@ use bevy::{
     prelude::{ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Single, With},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatEditor, ToastPress, UiPoint};
+use ui::{ChatEditor, UiPoint};
 
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
@@ -80,11 +80,15 @@ pub struct GuiScaleDrag {
     mouse_cursor: MessageCursor<MouseButtonInput>,
     left_held: bool,
     captured: bool,
+    /// The GUI-scale track as laid out when the press captured it. Each step relayouts the
+    /// menu, so following the live track could flip between two stops at a boundary.
+    gui_scale_track: Option<ui::UiRect>,
     previous_pointer: Option<bevy::prelude::Vec2>,
     pointer_anchor: Option<bevy::prelude::Vec2>,
     touch_slider: Option<(u64, u16)>,
     pending_press: Option<launcher::menu::MenuAction>,
     touch_press: Option<(u64, launcher::menu::MenuAction, UiPoint)>,
+    touch_press_sound: touch::TouchPressSound,
     preview_touch: Option<u64>,
     server_list_touch: Option<u64>,
     scroll_touch: Option<u64>,
@@ -113,6 +117,7 @@ impl MenuRuntime {
         match field {
             MenuField::FriendQuery => &self.friend_query,
             MenuField::SettingsQuery => &self.settings_query,
+            MenuField::StorageQuery => &self.storage_query,
             MenuField::RealmCode => &self.realm_membership.code,
             MenuField::Name => &self.name,
             MenuField::Address => &self.address,
@@ -129,6 +134,7 @@ impl MenuRuntime {
         match field {
             MenuField::FriendQuery => &mut self.friend_query,
             MenuField::SettingsQuery => &mut self.settings_query,
+            MenuField::StorageQuery => &mut self.storage_query,
             MenuField::RealmCode => &mut self.realm_membership.code,
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
@@ -275,6 +281,14 @@ impl MenuRuntime {
     }
 }
 
+/// Selects the focused control by keyboard or gamepad, which sounds as it activates.
+fn select_focused(menu: &mut MenuRuntime, presentation: &UiPresentationRuntime) {
+    if let Some(action) = menu.focused_action() {
+        presentation.play_menu_press_sound(action);
+    }
+    menu.activate_focused();
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn drive_menu_input(
     context: MenuInputContext,
@@ -333,6 +347,7 @@ pub fn drive_menu_input(
             &mut gui_scale_drag.scroll_touch,
         );
     }
+    let now = time.as_ref().map_or(0.0, |time| time.elapsed_secs_f64());
     if let Some(time) = time {
         menu.advance_death_controls(time.delta_secs_f64());
     }
@@ -547,15 +562,14 @@ pub fn drive_menu_input(
             keys.reset_all();
         } else if cursor.grab_mode == CursorGrabMode::None
             && mouse_buttons.just_pressed(MouseButton::Left)
-            && window
+            && let Some(press) = window
                 .cursor_position()
                 .and_then(|position| UiPoint::new(position.x, position.y).ok())
                 .and_then(|point| presentation.toast_press_at(point))
-                == Some(ToastPress::JoinRequests)
         {
-            // A free cursor pressing the join request toast opens its popup, and nothing beneath;
+            // A free cursor pressing an actionable toast runs its press, and nothing beneath;
             // the held press is not a new one for the menu.
-            menu.open_join_requests();
+            menu.press_toast(press);
             menu.pointer_down = true;
             mouse_buttons.reset(MouseButton::Left);
         }
@@ -688,12 +702,9 @@ pub fn drive_menu_input(
     }
     if native_settings
         && let Some(point) = pointer
-        && let Some(index) = presentation.settings_slider_thumb_hit_test(point)
+        && let Some(row) = presentation.settings_slider_thumb_hit_test(point)
     {
-        menu.hovered = Some(launcher::menu::MenuAction::SettingsOption(
-            index,
-            menu.settings_options.get(usize::from(index)),
-        ));
+        menu.hovered = Some(settings_pointer::slider_thumb_action(&menu, row));
     }
     menu.pointer_down = pointer_pressed;
     if !pointer_pressed || menu.screen() != launcher::menu::MenuScreen::Settings {
@@ -724,14 +735,14 @@ pub fn drive_menu_input(
         gui_scale_drag.touch_press = None;
         menu.pressed = None;
     }
-    let press = |menu: &mut MenuRuntime, action| {
+    let press = |menu: &mut MenuRuntime, action, sound: bool| {
         let action = if native_settings {
             menu.live_settings_action(action)
         } else {
             action
         };
-        if let Some(sound) = presentation.menu_sound(action) {
-            client_ui::sound_requests::ui_control_sound(sound);
+        if sound {
+            presentation.play_menu_press_sound(action);
         }
         menu.activate_from_input(action);
     };
@@ -749,14 +760,21 @@ pub fn drive_menu_input(
             menu.hovered,
             Some(launcher::menu::MenuAction::SettingsScale(_))
         )
-        && pointer.is_some_and(|point| presentation.gui_scale_drag_action(point).is_some())
+        && pointer.is_some_and(|point| presentation.gui_scale_drag_action(point, None).is_some())
     {
         gui_scale_drag.captured = pointer_pressed;
+        gui_scale_drag.gui_scale_track = presentation.gui_scale_slider_track();
+        if native_settings && let Some(action) = menu.hovered {
+            menu.field = None;
+            menu.focus_pointer(action);
+        }
     }
     if gui_scale_drag.captured
         && pointer_pressed
         && let Some(action @ launcher::menu::MenuAction::SettingsScale(offset)) =
-            pointer.and_then(|point| presentation.gui_scale_drag_action(point))
+            pointer.and_then(|point| {
+                presentation.gui_scale_drag_action(point, gui_scale_drag.gui_scale_track)
+            })
     {
         menu.hovered = Some(action);
         if pointer_just_pressed || offset != menu.gui_scale_offset() {
@@ -780,8 +798,10 @@ pub fn drive_menu_input(
             if pointer_can_focus(action) {
                 menu.focus_pointer(action);
             }
+            // The press sounds now, though the control only acts on its release.
+            presentation.play_menu_press_sound(action);
         } else {
-            press(&mut menu, action);
+            press(&mut menu, action, true);
             caret_press = pointer.zip(action.text_field());
         }
     }
@@ -795,7 +815,7 @@ pub fn drive_menu_input(
         && native_settings
         && let Some(action) = native_release_action(action, menu.hovered)
     {
-        press(&mut menu, action);
+        press(&mut menu, action, false);
         caret_press = pointer.zip(action.text_field());
     }
     caret_press = touch::drive(
@@ -806,6 +826,7 @@ pub fn drive_menu_input(
         native_settings,
         server_list_owns_pointer,
         scrolled,
+        now,
     )
     .or(caret_press);
     if let Some((point, field)) = caret_press
@@ -842,7 +863,7 @@ pub fn drive_menu_input(
                 GamepadButton::South,
             ),
         ) {
-            menu.activate_focused();
+            select_focused(&mut menu, &presentation);
         }
         if gamepad.just_pressed(
             crate::menu::settings_options::control_bindings::gamepad_button(
@@ -937,9 +958,9 @@ pub fn drive_menu_input(
                     launcher::dressing_room::Action::SaveRename,
                 ));
             }
-            KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
+            KeyCode::Enter | KeyCode::NumpadEnter => select_focused(&mut menu, &presentation),
             KeyCode::Space if native_settings && !menu.has_focused_field() => {
-                menu.activate_focused()
+                select_focused(&mut menu, &presentation)
             }
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
@@ -986,3 +1007,6 @@ mod death_tests;
 
 #[cfg(test)]
 mod play_tab_tests;
+
+#[cfg(test)]
+mod press_sound_tests;

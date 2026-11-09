@@ -33,6 +33,7 @@ mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
+mod locator;
 pub mod mob_effects;
 mod mod_inventory;
 pub mod platform_clipboard;

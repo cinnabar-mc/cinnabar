@@ -142,6 +142,7 @@ pub(crate) fn advance(
                 attempt.due,
                 attempt.tick,
                 attempt.local_use,
+                attempt.local_use == LocalUse::Interact,
                 attempt.clock,
                 true,
             );

@@ -111,6 +111,7 @@ impl UiPresentationRuntime {
             // Every cursor style belongs to gameplay input, including pack image
             // replacements. Personal modal surfaces own input outside the scene stack.
             let crosshair_visible = stack.receives_input(Scene::Gameplay)
+                && !self.touch_hides_crosshair()
                 && !self.screens.mod_ui.mod_panel_open()
                 && !self.screens.mod_ui.experience_modal_open();
             if host.over_world {
@@ -390,7 +391,7 @@ impl UiPresentationRuntime {
                 content,
             );
             // Personal panels can admit host portraits while painting this frame.
-            self.sync_server_ui_pages();
+            self.end_ui_frame();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {

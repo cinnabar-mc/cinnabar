@@ -34,7 +34,7 @@ impl ItemSeed {
 
 /// Reads a seed declaration. An absent face means the top face, as the native item component
 /// defaults. A missing crop or an unknown face name leaves the rule unresolved.
-pub(super) fn parse_seed(component: Option<&Nbt>) -> Option<ItemSeed> {
+pub(super) fn parse_seed(component: Option<Nbt<'_>>) -> Option<ItemSeed> {
     let component = component.filter(|component| matches!(component, Nbt::Compound(_)))?;
     let crop_result = component
         .field("crop_result")
@@ -74,9 +74,10 @@ fn face_index(name: &str) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt_tree::test_tree::Nbt;
 
     fn seed(fields: Vec<(String, Nbt)>) -> Option<ItemSeed> {
-        parse_seed(Some(&Nbt::Compound(fields)))
+        parse_seed(Some(Nbt::Compound(fields).view()))
     }
 
     fn text(name: &str, value: &str) -> (String, Nbt) {
@@ -128,6 +129,6 @@ mod tests {
             ]),
             None
         );
-        assert_eq!(parse_seed(Some(&Nbt::Byte(1))), None);
+        assert_eq!(parse_seed(Some(Nbt::Byte(1).view())), None);
     }
 }

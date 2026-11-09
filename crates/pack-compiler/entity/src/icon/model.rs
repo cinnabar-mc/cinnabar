@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads, cube_face,
-    face_brightness, material_tile,
+    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, GuiShading, block_gui_quads,
+    cube_face, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
@@ -83,6 +83,7 @@ pub(super) struct Model<'a> {
     projection: fn([f32; 3]) -> [f32; 3],
     light: f32,
     face_lighting: bool,
+    shading: GuiShading,
 }
 
 impl<'a> Model<'a> {
@@ -111,6 +112,7 @@ impl<'a> Model<'a> {
             projection,
             light,
             face_lighting: true,
+            shading: GuiShading::Inventory,
         }
     }
 
@@ -227,6 +229,7 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            shading: GuiShading::of(kind, template, parts.templates),
         })
     }
 
@@ -257,6 +260,7 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            shading: GuiShading::Inventory,
         }
     }
 
@@ -266,7 +270,7 @@ impl<'a> Model<'a> {
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
         for face in &self.faces {
             let brightness = if self.face_lighting && face.face_dimming {
-                face_brightness(face.corners)
+                self.shading.brightness(face.corners)
             } else {
                 1.0
             } * self.light;

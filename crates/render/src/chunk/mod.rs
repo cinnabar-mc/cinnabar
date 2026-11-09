@@ -85,7 +85,7 @@ use {
         atmosphere_render::{AtmosphereGpu, install_atmosphere},
     },
     render_scene::{
-        AtmosphereFrame, RuntimeStage, VisibilityDiagnosticsInput,
+        RuntimeStage, VisibilityDiagnosticsInput,
         visibility_diagnostics::{
             ActiveVisibilityFrameProbe, ExtractedCameraIdentityTracker, VisibilityCompletionFence,
             VisibilityFrameProbe,

@@ -731,3 +731,111 @@ fn other_player_movement_modes_preserve_riding_links() {
         assert_eq!(store.ridden_unique_id(10), Some(20), "{mode:?}");
     }
 }
+
+/// Whether each reader of the client's mount view finds rider 10 on boat 20: its mount, its
+/// seat, and the collision that leaves the mount out.
+fn shown_on_boat(store: &ActorStore) -> [bool; 3] {
+    let rider = store.snapshot_by_unique(10).unwrap().runtime_id;
+    let colliders = store.effect_members.collidable.snapshot(rider, None).len();
+    [
+        store.ridden_unique_id(10) == Some(20),
+        store.rider_seat_pose(10).is_some(),
+        store.movement_collider_snapshot(rider, 10).len() < colliders,
+    ]
+}
+
+/// Rider 10 gets off boat 20 on the client and stands clear of it, so movement collides with
+/// the boat again.
+fn leave_beside_boat(store: &mut ActorStore) {
+    store.leave_local_vehicle(10);
+    assert!(store.passed_through_bounds(10).is_some());
+    store.release_passed_through(10);
+}
+
+/// Movement passes through the vehicle a rider got off inside until the caller releases it,
+/// through the server's unlink; boarding again ends it.
+#[test]
+fn a_rider_left_inside_its_vehicle_passes_through_it_until_released() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    store.leave_local_vehicle(10);
+    assert_eq!(shown_on_boat(&store), [false, false, true]);
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Remove));
+    assert!(
+        shown_on_boat(&store)[2],
+        "the unlink keeps the pass-through"
+    );
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Rider));
+    assert!(
+        store.passed_through_bounds(10).is_none(),
+        "boarding ends it"
+    );
+    store.leave_local_vehicle(10);
+    store.release_passed_through(10);
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+}
+
+/// A local player that gets off its vehicle on the client stops following the seat at once,
+/// while its committed link waits for the server's unlink; a new link seats it again.
+#[test]
+fn a_local_rider_leaving_on_the_client_keeps_its_link_until_the_server_unlinks() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    assert_eq!(shown_on_boat(&store), [true; 3]);
+    leave_beside_boat(&mut store);
+    assert!(store.left_local_vehicle(10));
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+    assert_eq!(
+        store.linked_unique_id(10),
+        Some(20),
+        "the committed link stays"
+    );
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Remove));
+    assert_eq!(
+        store.linked_unique_id(10),
+        None,
+        "the server's unlink commits"
+    );
+    assert!(!store.left_local_vehicle(10));
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Rider));
+    assert_eq!(shown_on_boat(&store), [true; 3]);
+}
+
+/// The server linking the rider to the same vehicle again after it got off on the client
+/// seats it again for every reader at once.
+#[test]
+fn a_resent_link_after_leaving_on_the_client_seats_the_rider_again() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    leave_beside_boat(&mut store);
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Rider));
+    assert!(!store.left_local_vehicle(10));
+    assert_eq!(shown_on_boat(&store), [true; 3]);
+}
+
+/// The server's cleanup of another vehicle's link keeps a rider that got off on the client off
+/// its current vehicle; only that vehicle's unlink or a new boarding link ends the leave.
+#[test]
+fn an_unlink_from_another_vehicle_keeps_a_client_side_leave() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    leave_beside_boat(&mut store);
+    store.apply_link(1, 4, link(10, 99, ActorLinkType::Remove));
+    assert!(store.left_local_vehicle(10));
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Remove));
+    assert!(!store.left_local_vehicle(10));
+    assert_eq!(store.linked_unique_id(10), None);
+}
+
+/// A rider that got off on the client collides with its vehicle before the server's unlink,
+/// so walking back into the boat stops at its side.
+#[test]
+fn a_rider_that_left_on_the_client_collides_with_its_vehicle() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    let rider = store.snapshot_by_unique(10).unwrap().runtime_id;
+    let seated = store.movement_collider_snapshot(rider, 10).len();
+    leave_beside_boat(&mut store);
+    assert_eq!(
+        store.movement_collider_snapshot(rider, 10).len(),
+        seated + 1,
+        "the boat collides again"
+    );
+}

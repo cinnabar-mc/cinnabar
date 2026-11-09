@@ -305,9 +305,11 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
-    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
-    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
+    // An authored USE_COLOR_MASK only changes dye weighting; legacy leather coverage stays per-draw.
+    let authored_mask = authored && (input.material & ACTOR_MATERIAL_COLOR_MASK_FLAG) != 0u;
+    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u || authored_mask;
+    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
     if (input.skin_info.y == 0u) {
         discard;
@@ -328,6 +330,15 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // decode before dye/overlay products, then transfer once at the output.
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
+    let masked_multitexture = (input.material & ACTOR_MATERIAL_MASKED_MULTITEXTURE_FLAG) != 0u
+        && input.multitexture_layers.x != 0xffffffffu;
+    if (masked_multitexture) {
+        let clothes = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        // Colored transparent texels keep the underlying clothes; black transparent
+        // texels cut them away. Other texels replace both RGB and coverage.
+        let keep_base = (clothes.r + clothes.g + clothes.b) * (1.0 - clothes.a) > 0.0;
+        color = select(clothes, color, keep_base);
+    }
     @if(ALPHA_TO_COVERAGE)
     let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u, actor_fragment_chart_bounds(input.chart_bounds, front));
     @if(ALPHA_TO_COVERAGE)
@@ -343,7 +354,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(!ALPHA_TO_COVERAGE)
     if (material == ACTOR_MATERIAL_GLINT && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
     if (legacy_mask && color.a == 0.0) { discard; }
-    let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
+    let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu)) && !masked_multitexture;
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
         if (emissive && (input.material & ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG) != 0u && (color.a == 0.0 || color.a == 1.0)) { discard; }
         if (emissive && all(color == vec4(0.0))) { discard; }

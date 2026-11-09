@@ -1,6 +1,7 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
 use json_ui::vanilla::Reference;
+pub mod audio_output;
 pub mod auth;
 pub mod death;
 pub mod dialogs;
@@ -102,6 +103,7 @@ pub enum MenuField {
     FriendQuery,
     /// Searches options across settings categories.
     SettingsQuery,
+    StorageQuery,
     Name,
     Address,
     Port,
@@ -174,7 +176,6 @@ pub enum MenuAction {
     /// Opens the native touch-control layout draft.
     EditTouchControls,
     SettingsScale(i8),
-    SettingsScalePicker,
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),

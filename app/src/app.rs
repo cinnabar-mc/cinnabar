@@ -173,6 +173,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
+        .add_systems(Update, crate::named_audio::notify_audio_output_unavailable)
         .add_systems(
             Update,
             crate::named_audio::drain_live_named_audio
@@ -594,8 +595,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
-    #[cfg(target_os = "macos")]
-    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::thread_budget::ThreadBudget::configure_frame_threads(&mut app);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     crate::frame_pacing::display_link::install(&mut app);
     #[cfg(target_os = "macos")]

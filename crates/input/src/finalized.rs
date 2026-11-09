@@ -126,6 +126,13 @@ impl MovementOverlay {
     /// The caller arbitrates focus, world identity and manual movement first.
     pub fn apply(&mut self, input: &mut FinalizedInput, intent: Option<([f32; 2], [bool; 3])>) {
         input.1 = intent.is_some();
+        self.remap(input, intent);
+    }
+
+    /// Replaces the walking axes and holds the buttons as if their bindings were held, so the
+    /// player's toggle and always-sprint modes still apply. Leaves any resolved movement from
+    /// [`Self::apply`] in place; `None` releases only this overlay's buttons.
+    pub fn remap(&mut self, input: &mut FinalizedInput, intent: Option<([f32; 2], [bool; 3])>) {
         if let (Some(snapshot), Some((axes, _))) = (input.0.as_mut(), intent) {
             snapshot.movement = axes;
             snapshot.raw_movement = axes;
@@ -236,6 +243,23 @@ mod tests {
         assert!(!input.request_mod_attack_press());
         assert_eq!(input.snapshot(), Some(&expected));
     }
+    /// A remapped vector holds buttons as bindings would, without claiming resolved movement,
+    /// and never clears resolution another overlay applied.
+    #[test]
+    fn remapped_vectors_hold_buttons_without_resolving_movement() {
+        let mut overlay = MovementOverlay::default();
+        let mut frame = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        overlay.remap(&mut frame, Some(([1.0, 1.0], [false, false, true])));
+        assert_eq!(frame.movement(), [1.0, 1.0]);
+        assert!(!frame.movement_is_resolved());
+        assert!(frame.phase(Action::Sprint).pressed && frame.phase(Action::Sprint).held);
+        let mut resolved = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        MovementOverlay::default().apply(&mut resolved, Some(([0.0, 1.0], [false; 3])));
+        overlay.remap(&mut resolved, None);
+        assert!(resolved.movement_is_resolved());
+        assert!(resolved.phase(Action::Sprint).released);
+    }
+
     #[test]
     fn held_intents_add_to_physical_bindings_without_walking() {
         let mut overlay = MovementOverlay::default();

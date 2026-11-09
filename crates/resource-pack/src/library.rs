@@ -300,7 +300,7 @@ impl GlobalPackLibrary {
             None,
             None,
         )?;
-        Ok(pack.read_file_with_limit("pack_icon.png", 4 * 1024 * 1024)?)
+        Ok(pack.read_file_with_limit("pack_icon.png", crate::MAX_PACK_ICON_BYTES as u64)?)
     }
 
     /// Adds a pack at the top of the staged stack, without duplicating it.

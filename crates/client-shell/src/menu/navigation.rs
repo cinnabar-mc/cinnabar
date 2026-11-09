@@ -199,6 +199,7 @@ impl MenuRuntime {
         }
         if screen != MenuScreen::Settings {
             self.settings_query.set_text("");
+            self.storage_query.set_text("");
         }
         self.screen = screen;
         self.navigation_focus.enter();
@@ -273,10 +274,6 @@ impl MenuRuntime {
         }
         if self.disconnect_message.is_some() && !self.is_connecting() {
             self.dismiss_disconnect();
-            return;
-        }
-        if self.screen == MenuScreen::Settings && self.settings.scale_picker {
-            self.activate(MenuAction::SettingsScalePicker);
             return;
         }
         if self.screen == MenuScreen::Settings

@@ -90,7 +90,7 @@ pub(crate) fn retain_block_use_pick(
     let endpoint = std::array::from_fn(|axis| origin[axis] + normalized[axis] * reach as f32);
     let actor = pick_actor(
         stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
+        stream.authority().local_mount_unique_id(),
         origin,
         direction,
         reach,

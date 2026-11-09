@@ -42,6 +42,11 @@ impl WorldAuthority {
     pub fn local_sleeping_bed(&self) -> Option<([i32; 3], f32)> {
         self.actor(self.local_player_runtime_id)?.sleeping_bed()
     }
+    /// Borrows the local player's admitted actor state, including data the server sent
+    /// before its presentation body exists.
+    pub fn local_actor(&self) -> Option<&ActorSnapshot> {
+        self.actors.actor_authority(self.local_player_runtime_id)
+    }
     /// Reads the committed form dimension epoch.
     pub const fn form_dimension_epoch(&self) -> u64 {
         self.form_dimension_epoch

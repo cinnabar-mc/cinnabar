@@ -3,7 +3,7 @@ use super::*;
 /// Lists the authored expressions that can affect an actor's rendered layers.
 pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     let mut expressions = rig_expressions(assets, binding);
-    expressions.extend(render_controller_expressions(assets, binding));
+    expressions.extend(render_output_expressions(assets, binding));
     expressions
 }
 
@@ -18,15 +18,18 @@ pub(super) fn rig_expressions(assets: &RuntimeEntityAssets, binding: usize) -> V
     expressions
 }
 
-/// Render-controller scripts run after body keyframes and before selected geometry sampling.
-pub(super) fn render_controller_expressions(
-    assets: &RuntimeEntityAssets,
-    binding: usize,
-) -> Vec<u32> {
+/// Controller and visibility scripts run after body keyframes and before selected geometry sampling.
+pub(super) fn render_output_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     assets
         .render_layers(binding)
         .iter()
         .flat_map(|layer| render_layer_expressions(assets, layer).expressions)
+        .chain(
+            assets
+                .rig_bindings()
+                .get(binding)
+                .and_then(|rig| rig.hide_held_items),
+        )
         .collect()
 }
 
@@ -163,8 +166,27 @@ pub(super) fn pose_expressions(
         expressions.extend(rig.initialize);
         expressions.extend(rig.scale_expressions.into_iter().flatten());
     }
-    let (selection, mut clips) = topology_expressions(assets, geometry, controllers);
-    expressions.extend(selection);
+    expressions.extend(animation_expressions(
+        assets,
+        rig,
+        geometry,
+        controllers,
+        extra_clips,
+    ));
+    expressions.sort_unstable();
+    expressions.dedup();
+    expressions
+}
+
+/// Expressions in clip selection and bone channels, excluding the rig's setup scripts.
+pub(super) fn animation_expressions(
+    assets: &RuntimeEntityAssets,
+    rig: usize,
+    geometry: usize,
+    controllers: &[ControllerState],
+    extra_clips: &[usize],
+) -> Vec<u32> {
+    let (mut expressions, mut clips) = topology_expressions(assets, geometry, controllers);
     clips.extend(extra_clips.iter().copied());
     let geometries = assets
         .render_layers(rig)
@@ -270,4 +292,34 @@ pub(super) fn topology_expressions(
         }
     }
     (expressions, clips)
+}
+
+/// Replays the frame's shared variable setup before controller selection or pose sampling.
+pub(super) fn prepare_variables(
+    evaluator: &Evaluator<'_>,
+    state: &ActorRigState,
+    swing: Option<f32>,
+    variables: &mut MolangVariables,
+    budget: &mut EvalBudget<'_>,
+) -> Result<Option<f32>, EvalError> {
+    let engine = &evaluator.layout.engine;
+    if let Some(swing) = swing {
+        variables.set(engine.attack_time, swing);
+    }
+    let rig = &evaluator.assets.rig_bindings()[state.rig_binding];
+    let held_item_scale = tick::scale::evaluate_held_item(evaluator, rig, variables, budget)?;
+    if let Some(script) = rig.pre_animation {
+        evaluator.run(script as usize, variables, 0.0, budget)?;
+    }
+    if state.complete_spear_variables {
+        engine.spear.apply(
+            variables,
+            evaluator.actor,
+            evaluator.context,
+            evaluator.input,
+            swing.unwrap_or(evaluator.input.attack_time),
+        );
+    }
+    tick::set_item_rotation_factor(engine, variables);
+    Ok(held_item_scale)
 }
