@@ -945,9 +945,11 @@ mod tests {
 
     #[test]
     fn lookat_quads_stay_upright_under_a_pitched_camera() {
+        use std::f32::consts::FRAC_1_SQRT_2;
+
         let pitched = ParticleView {
-            up: [0.0, 0.707_106_8, -0.707_106_8],
-            forward: [0.0, -0.707_106_8, -0.707_106_8],
+            up: [0.0, FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+            forward: [0.0, -FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
             ..view()
         };
         let (right, up) = basis_for(
