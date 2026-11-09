@@ -865,6 +865,8 @@ pub fn drive_menu_input(
                 | KeyCode::ArrowUp
                 | KeyCode::ArrowDown
                 | KeyCode::Tab
+                | KeyCode::BracketLeft
+                | KeyCode::BracketRight
         ) {
             menu.input_mode = MenuInputMode::Keyboard;
         }
@@ -981,3 +983,6 @@ mod sign_in_tests;
 
 #[cfg(test)]
 mod death_tests;
+
+#[cfg(test)]
+mod play_tab_tests;
