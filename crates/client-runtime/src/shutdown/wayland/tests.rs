@@ -64,8 +64,10 @@ fn read_requests(socket: &mut UnixStream) -> Vec<u32> {
     let error = socket.read_to_end(&mut bytes).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::WouldBlock);
     bytes
-        .chunks_exact(size_of::<u32>())
-        .map(|word| u32::from_ne_bytes(word.try_into().unwrap()))
+        .as_chunks::<{ size_of::<u32>() }>()
+        .0
+        .iter()
+        .map(|word| u32::from_ne_bytes(*word))
         .collect()
 }
 
