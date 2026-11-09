@@ -638,6 +638,7 @@ impl UiRuntime {
             self.observe_inventory_window(player_runtime);
         } else {
             self.session.screen.search_focused = false;
+            self.session.screen.anvil_focused = false;
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -656,6 +657,7 @@ impl UiRuntime {
         self.session.screen.container_close_armed = false;
         self.session.screen.inventory = None;
         self.session.screen.search_focused = false;
+        self.session.screen.anvil_focused = false;
         player_runtime
             .inventory
             .ledger_mut()
