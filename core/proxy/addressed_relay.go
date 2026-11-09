@@ -49,7 +49,8 @@ func newXboxRelay(account service.TokenSource, logger *slog.Logger) *xboxRelay {
 			}
 			// The graceful close has its own timeouts; it must not hold back the answer.
 			defer func() { go func() { _ = conn.Close() }() }()
-			return conn.Credentials(ctx)
+			// Credentials no longer waits for the pending request, and closing would cancel it.
+			return conn.AwaitCredentials(ctx)
 		},
 	}
 }
