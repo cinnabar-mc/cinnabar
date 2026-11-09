@@ -113,52 +113,6 @@ fn face_offset(face: Face, [u, v, n]: [i8; 3]) -> [i32; 3] {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn selectors_and_partitions_are_validated() {
-        let mut rule = SurfaceRule {
-            states: vec![2, 4],
-            border: 16,
-            clauses: vec![],
-        };
-        assert!(rule.validate());
-        rule.states.reverse();
-        assert!(!rule.validate());
-        rule.states.reverse();
-        rule.border = 128;
-        assert!(!rule.validate());
-        rule.border = 16;
-        rule.clauses.push(CoverageClause {
-            conditions: vec![],
-            tiles: 1 << 9,
-        });
-        assert!(!rule.validate());
-    }
-
-    #[test]
-    fn face_axes_preserve_diagonals_and_outward_normals() {
-        for (face, normal) in [
-            (Face::NegativeX, [-1, 0, 0]),
-            (Face::PositiveX, [1, 0, 0]),
-            (Face::NegativeY, [0, -1, 0]),
-            (Face::PositiveY, [0, 1, 0]),
-            (Face::NegativeZ, [0, 0, -1]),
-            (Face::PositiveZ, [0, 0, 1]),
-        ] {
-            assert_eq!(face_offset(face, [0, 0, 1]), normal);
-            let u = face_offset(face, [1, 0, 0]);
-            let v = face_offset(face, [0, 1, 0]);
-            assert_eq!(
-                face_offset(face, [1, -1, 0]),
-                std::array::from_fn(|i| u[i] - v[i])
-            );
-        }
-    }
-}
-
 /// Accepts only complete, untransformed axis-aligned cell faces.
 pub(crate) fn full_face(quad: &assets::ModelQuad) -> Option<Face> {
     let face = match quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK {
@@ -206,5 +160,51 @@ pub(crate) fn push_draws(
         }
     } else {
         output.push(draw);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selectors_and_partitions_are_validated() {
+        let mut rule = SurfaceRule {
+            states: vec![2, 4],
+            border: 16,
+            clauses: vec![],
+        };
+        assert!(rule.validate());
+        rule.states.reverse();
+        assert!(!rule.validate());
+        rule.states.reverse();
+        rule.border = 128;
+        assert!(!rule.validate());
+        rule.border = 16;
+        rule.clauses.push(CoverageClause {
+            conditions: vec![],
+            tiles: 1 << 9,
+        });
+        assert!(!rule.validate());
+    }
+
+    #[test]
+    fn face_axes_preserve_diagonals_and_outward_normals() {
+        for (face, normal) in [
+            (Face::NegativeX, [-1, 0, 0]),
+            (Face::PositiveX, [1, 0, 0]),
+            (Face::NegativeY, [0, -1, 0]),
+            (Face::PositiveY, [0, 1, 0]),
+            (Face::NegativeZ, [0, 0, -1]),
+            (Face::PositiveZ, [0, 0, 1]),
+        ] {
+            assert_eq!(face_offset(face, [0, 0, 1]), normal);
+            let u = face_offset(face, [1, 0, 0]);
+            let v = face_offset(face, [0, 1, 0]);
+            assert_eq!(
+                face_offset(face, [1, -1, 0]),
+                std::array::from_fn(|i| u[i] - v[i])
+            );
+        }
     }
 }
