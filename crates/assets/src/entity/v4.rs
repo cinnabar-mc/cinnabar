@@ -13,11 +13,10 @@ use super::{
     RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_scalars,
 };
 
-/// Clips are geometry-specific instances and share the retained rig animation instance budget.
-pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
-/// One channel per animated bone property of each clip; merged server packs reach six figures.
-pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 262_144;
-pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
+/// Most animation clips, channels, keyframes and rig animation bindings a catalog holds. They
+/// are addressed by `u32` indices and counts, which is the format's only limit on them: vanilla
+/// keeps every animation a pack defines, and the source and catalog byte limits bound memory.
+pub const MAX_ENTITY_ANIMATION_ENTRIES: usize = u32::MAX as usize;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
 pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
@@ -32,7 +31,6 @@ pub const MAX_MOLANG_COLLECTION_ITEMS_TOTAL: usize =
     MAX_MOLANG_COLLECTIONS * MAX_MOLANG_COLLECTION_ITEMS;
 pub const MAX_ENTITY_RIG_BINDINGS: usize = 8_192;
 pub const MAX_ENTITY_RIG_GEOMETRIES: usize = 262_144;
-pub const MAX_ENTITY_RIG_ANIMATIONS: usize = 262_144;
 pub const MAX_ENTITY_RIG_CONTROLLERS: usize = 262_144;
 
 #[path = "v4/preflight.rs"]
@@ -716,9 +714,9 @@ fn valid_item_raster_source(path: &str) -> bool {
 }
 
 fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
-    if compiled.animation_clips.len() > MAX_ENTITY_ANIMATION_CLIPS
-        || compiled.animation_channels.len() > MAX_ENTITY_ANIMATION_CHANNELS
-        || compiled.animation_keyframes.len() > MAX_ENTITY_ANIMATION_KEYFRAMES
+    if compiled.animation_clips.len() > MAX_ENTITY_ANIMATION_ENTRIES
+        || compiled.animation_channels.len() > MAX_ENTITY_ANIMATION_ENTRIES
+        || compiled.animation_keyframes.len() > MAX_ENTITY_ANIMATION_ENTRIES
     {
         return Err(invalid("entity animation payload count exceeds bound"));
     }

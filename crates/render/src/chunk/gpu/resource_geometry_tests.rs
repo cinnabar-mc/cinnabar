@@ -4,7 +4,7 @@ use crate::chunk::plugin::publication_schedule::{
     ChunkPublicationStage, configure_chunk_publication,
 };
 use crate::chunk::transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws,
+    transparent_frame_draws, transparent_frame_draws_for_range,
 };
 use meshing::PackedBiomeRecord;
 use render_scene::{
@@ -482,7 +482,10 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
         ChunkBiomeTintIdentity::default()
     ));
     assert_eq!(transparent_frame_draws(snapshot, &arena).len(), 1);
-    assert!(transparent_frame_draw_for_range(snapshot, &arena, 0..1).is_some());
+    assert_eq!(
+        transparent_frame_draws_for_range(snapshot, &arena, 0..1).len(),
+        1
+    );
 }
 
 /// Builds a resident model sort with a writable stream and one matching view.

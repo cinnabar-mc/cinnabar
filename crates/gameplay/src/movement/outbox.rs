@@ -606,6 +606,15 @@ impl MovementTicker {
         self.held_release.is_some()
     }
 
+    /// Whether a held release waits only on its facing tick's write: the tick already exists,
+    /// so the release goes out without further ticks. One whose facing tick is still to come
+    /// needs physics to produce it.
+    pub fn held_release_awaits_written_tick(&self) -> bool {
+        self.held_release
+            .as_ref()
+            .is_some_and(|held| held.tick <= self.completed_tick())
+    }
+
     /// Sends a held release once its facing tick was written; a full queue keeps the fence.
     pub fn send_held_release(
         &mut self,

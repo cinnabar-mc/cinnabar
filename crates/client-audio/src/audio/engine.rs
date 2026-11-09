@@ -327,6 +327,32 @@ impl AudioEngine {
         }
     }
 
+    /// Ends everything a world binding owned. Interface sounds keep playing, so the click of
+    /// the button that left the world is still heard.
+    pub fn stop_world_sounds(&mut self) {
+        let interface = |category| category == AudioCategory::Ui;
+        match self.bank.as_ref() {
+            Some(bank) => self.queue.retain(|request| {
+                bank.definition(&request.name).is_some_and(|definition| {
+                    interface(AudioCategory::from_definition(
+                        definition.category.as_deref(),
+                    ))
+                })
+            }),
+            None => self.queue.clear(),
+        }
+        self.pending.retain(|start| interface(start.category));
+        self.loops.clear();
+        self.echoes.clear();
+        for voice in self
+            .voices
+            .iter()
+            .filter(|voice| !interface(voice.category))
+        {
+            voice.shared.cancel();
+        }
+    }
+
     /// Declares (or clears) the looping ambience on `key`; reconciled on the next pump.
     pub fn set_loop(&mut self, key: &'static str, spec: Option<LoopSpec>) {
         self.pending.retain(|start| {

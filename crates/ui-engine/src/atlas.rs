@@ -29,7 +29,7 @@ pub mod jobs;
 mod local_sources;
 mod outlines;
 mod oversized;
-pub use oversized::OversizedTextures;
+pub use oversized::{OversizedFrame, OversizedTextures};
 mod client_rasters;
 pub use client_rasters::LOCAL_PLAYER_HEAD;
 pub mod native_sheets;
@@ -306,7 +306,7 @@ pub struct ServerAtlas {
     metadata_revision: u64,
     metadata_dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
-    oversized: OversizedTextures,
+    oversized: oversized::Registry,
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
@@ -715,11 +715,6 @@ impl ServerAtlas {
         self.resident.get(key).copied()
     }
 
-    /// Drawn textures a page had to shrink, by key, with their source bytes.
-    pub fn oversized(&self) -> OversizedTextures {
-        self.oversized.clone()
-    }
-
     /// Page images in order, for the reserved dynamic pages.
     pub fn images(&self) -> &[UiTexturePage] {
         &self.images
@@ -758,7 +753,10 @@ impl ServerAtlas {
                 }
             }
             match self.resident.get(key) {
-                Some(texture) => self.pages[usize::from(texture.page)].used = self.clock,
+                Some(texture) => {
+                    self.pages[usize::from(texture.page)].used = self.clock;
+                    self.oversized.draw_resident(key);
+                }
                 None => missing.push(key),
             }
         }
@@ -809,22 +807,26 @@ impl ServerAtlas {
     /// Pack `key`'s decoded pixels, returning the page it landed on; `None`
     /// while its decode is still on a worker or waits for a later frame.
     fn place(&mut self, key: &str, within_budget: bool) -> Option<usize> {
-        let (size, rgba) = if let Some(image) = self.client_rasters.get(key) {
-            (image.dimensions(), Arc::new(image.pixels().to_vec()))
+        let (size, rgba, fitted) = if let Some(image) = self.client_rasters.get(key) {
+            (image.dimensions(), Arc::new(image.pixels().to_vec()), None)
         } else {
             let source = match self.image(key) {
                 Some(source) => source,
                 None => self.fallback(key)?,
             };
-            if source.packed != source.size {
-                self.oversized.insert(key, &source.bytes);
+            let fitted = (source.packed != source.size).then(|| Arc::clone(&source.bytes));
+            if let Some(bytes) = &fitted {
+                self.oversized.draw(key, bytes);
             }
             let size = source.packed;
             let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
             let rgba = self.decodes.get(key, &source, decode_on)?;
-            (size, rgba)
+            (size, rgba, fitted)
         };
         let (index, origin) = self.slot(size)?;
+        if let Some(bytes) = fitted {
+            self.oversized.fitted(key, &bytes);
+        }
         let page = &mut self.pages[index];
         let row_bytes = PAGE_SIDE as usize * 4;
         let width = size[0] as usize * 4;
@@ -875,6 +877,7 @@ impl ServerAtlas {
                 .is_some_and(|slot| usize::from(slot.page) == index)
             {
                 self.resident.remove(&key);
+                self.oversized.evicted(&key);
             }
         }
         self.revision.bump();
@@ -894,9 +897,6 @@ fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
         packed: fitted(size),
     })
 }
-
-/// Oversized textures remembered for the art pages.
-const MAX_OVERSIZED: usize = 16;
 
 /// Largest source side decoded, as a desktop texture allows; bigger images are skipped.
 const MAX_SOURCE_SIDE: u32 = render_model::MAX_UI_NATIVE_SHEET_SIDE;

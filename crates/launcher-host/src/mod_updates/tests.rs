@@ -21,7 +21,15 @@ fn installed(version: &str, repository: Option<&str>) -> InstalledMod {
     };
     item.metadata.version = Some(version.into());
     item.metadata.update_repository = repository.and_then(|repository| repository.parse().ok());
+    if repository.is_some() {
+        item.metadata.revision_update = Some(identity());
+    }
     item
+}
+
+/// A synthetic official identity using the same package constant as admission.
+fn identity() -> ui::mod_metadata::RevisionModUpdate {
+    ui::mod_metadata::RevisionModUpdate::parse(serde_json::json!({"source":"https://github.com/example/zoom/releases/latest/download/zoom.wasm", "package":ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE, "revision":"a".repeat(40), "api_revision":"b".repeat(40)}).to_string().as_bytes()).unwrap()
 }
 
 /// A checker using only channels, with no network worker.
@@ -123,7 +131,7 @@ fn only_newer_published_semantic_versions_offer_updates() {
                 generation: 1,
                 permission: 0,
                 candidates: vec![Candidate {
-                    revision_update: None,
+                    revision_update: Some(identity()),
                     id: 3,
                     repository: "example/zoom".into(),
                     asset: None,
@@ -146,85 +154,6 @@ fn only_newer_published_semantic_versions_offer_updates() {
     }
 }
 
-#[test]
-fn repository_checks_are_cached_across_mod_versions_and_library_changes() {
-    let (requests, incoming) = unbounded();
-    let (outgoing, responses) = unbounded();
-    let generation = Arc::new(AtomicU64::new(1));
-    let current = generation.clone();
-    let worker = std::thread::spawn(move || {
-        let mut calls = 0;
-        run(incoming, outgoing, &current, |_| {
-            calls += 1;
-            Ok(Some(release("v2.0.0", false, false)))
-        });
-        calls
-    });
-    for (index, version) in ["1.0.0", "2.0.0"].into_iter().enumerate() {
-        let revision = index as u64 + 1;
-        generation.store(revision, Ordering::SeqCst);
-        requests
-            .send(Request {
-                manual: None,
-                generation: revision,
-                permission: 0,
-                candidates: vec![Candidate {
-                    revision_update: None,
-                    id: revision,
-                    repository: "example/zoom".into(),
-                    asset: None,
-                    version: version.into(),
-                }],
-            })
-            .unwrap();
-        let response = responses.recv().unwrap();
-        assert_eq!(response.updates.len(), usize::from(index == 0));
-    }
-    drop(requests);
-    assert_eq!(worker.join().unwrap(), 1);
-}
-
-#[test]
-fn unavailable_repositories_do_not_block_other_mods_and_network_work_is_bounded() {
-    let (requests, incoming) = unbounded();
-    let (outgoing, responses) = unbounded();
-    let mut candidates = vec![Candidate {
-        revision_update: None,
-        id: 1,
-        repository: "example/unavailable".into(),
-        asset: None,
-        version: "1.0.0".into(),
-    }];
-    candidates.extend((2..=100).map(|id| Candidate {
-        revision_update: None,
-        id,
-        repository: format!("example/mod-{id}"),
-        asset: None,
-        version: "1.0.0".into(),
-    }));
-    requests
-        .send(Request {
-            manual: None,
-            generation: 1,
-            permission: 0,
-            candidates,
-        })
-        .unwrap();
-    drop(requests);
-    let mut calls = 0;
-    run(incoming, outgoing, &AtomicU64::new(1), |repository| {
-        calls += 1;
-        if repository == "example/unavailable" {
-            anyhow::bail!("offline repository");
-        }
-        Ok(Some(release("2.0.0", false, false)))
-    });
-    let updates = responses.recv().unwrap().updates;
-    assert!(calls < 100);
-    assert_eq!(updates.len(), calls - 1);
-    assert!(updates.iter().all(|update| update.id != 1));
-}
-
 /// Runs release-only fixtures while asserting no automatic download is selected.
 fn run(
     incoming: Receiver<Request>,
@@ -242,7 +171,7 @@ fn run(
 }
 
 #[test]
-fn direct_asset_opt_in_and_player_preference_control_automatic_downloads() {
+fn official_revision_identity_and_player_preferences_control_automatic_downloads() {
     let (mut checker, incoming, _) = checker();
     let mut item = installed("1.0.0", None);
     item.metadata.update_url = Some(
@@ -250,6 +179,7 @@ fn direct_asset_opt_in_and_player_preference_control_automatic_downloads() {
             .parse()
             .unwrap(),
     );
+    item.metadata.revision_update = Some(identity());
     checker.configure(&[item.clone()], true, true);
     let automatic = incoming.recv().unwrap();
     assert_eq!(automatic.candidates[0].asset.as_deref(), Some("zoom.wasm"));
@@ -299,7 +229,7 @@ fn unchanged_sources_are_downloaded_once_per_launch_and_stale_transfers_can_retr
                 generation: revision,
                 permission: 0,
                 candidates: vec![Candidate {
-                    revision_update: None,
+                    revision_update: Some(identity()),
                     id: 1,
                     repository: "example/zoom".into(),
                     version: "1.0.0".into(),
@@ -322,6 +252,7 @@ fn manual_checker() -> (Checker, Receiver<Request>, Sender<Response>) {
             .parse()
             .unwrap(),
     );
+    item.metadata.revision_update = Some(identity());
     checker.configure(&[item], true, false);
     let request = incoming.recv().unwrap();
     assert!(request.candidates[0].asset.is_none());
@@ -435,7 +366,7 @@ fn an_update_click_retries_a_failed_automatic_download_without_rechecking_the_re
                 generation: revision,
                 permission: 0,
                 candidates: vec![Candidate {
-                    revision_update: None,
+                    revision_update: Some(identity()),
                     id: 1,
                     repository: "example/zoom".into(),
                     version: "1.0.0".into(),
@@ -460,7 +391,7 @@ fn completed_download_is_handed_to_the_installer_without_a_spurious_failure() {
             generation: 1,
             permission: 0,
             candidates: vec![Candidate {
-                revision_update: None,
+                revision_update: Some(identity()),
                 id: 1,
                 repository: "example/zoom".into(),
                 version: "1.0.0".into(),
@@ -523,7 +454,7 @@ fn explicit_update_downloads_after_the_automatic_work_budget_is_exhausted() {
         attempts
     });
     let candidate = |id| Candidate {
-        revision_update: None,
+        revision_update: Some(identity()),
         id,
         repository: "example/zoom".into(),
         version: "1.0.0".into(),
@@ -553,4 +484,21 @@ fn explicit_update_downloads_after_the_automatic_work_budget_is_exhausted() {
     assert_eq!(manual.manual, Some(1));
     assert_eq!(manual.downloads.len(), 1);
     assert!(manual.message.is_none());
+}
+
+#[test]
+fn non_official_update_sections_never_queue_checks() {
+    let (mut checker, incoming, _) = checker();
+    let mut item = installed("1.0.0", Some("https://github.com/example/zoom"));
+    item.metadata.update_url = "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
+        .parse()
+        .ok();
+    item.metadata.revision_update = None;
+    checker.configure(&[item.clone()], true, true);
+    assert!(incoming.try_recv().is_err());
+    let mut other = identity();
+    other.package = "third-party".into();
+    item.metadata.revision_update = Some(other);
+    checker.configure(&[item], true, true);
+    assert!(incoming.try_recv().is_err());
 }

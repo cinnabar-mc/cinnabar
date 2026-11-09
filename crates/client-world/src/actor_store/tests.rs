@@ -1080,3 +1080,27 @@ fn always_show_name_tag_sentinel_preserves_the_previous_effective_value() {
         );
     }
 }
+
+#[test]
+fn every_actor_data_update_advances_the_metadata_revision() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(7, 70));
+    assert_eq!(store.snapshot_by_unique(70).unwrap().metadata_revision, 0);
+    for sequence in [2, 5] {
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: Arc::from([]),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+        assert_eq!(
+            store.snapshot_by_unique(70).unwrap().metadata_revision,
+            sequence
+        );
+    }
+}

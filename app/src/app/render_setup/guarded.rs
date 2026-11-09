@@ -124,16 +124,7 @@ pub(super) fn render_plugin(
                         log(format_args!(
                             "Renderer probing {backend:?}; DX12 shader compiler: {compiler:?}"
                         ));
-                        let create = |compiler| {
-                            let display = app
-                                .world()
-                                .get_resource::<bevy::winit::DisplayHandleWrapper>()
-                                .map(|display| {
-                                    Box::new(display.0.clone())
-                                        as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
-                                });
-                            instance(backend, &settings, compiler, display)
-                        };
+                        let create = |compiler| backend_instance(app, backend, &settings, compiler);
                         let mut instance = create(compiler.clone());
                         if dxc_failed(backend, &compiler, &instance) {
                             log(format_args!(
@@ -200,7 +191,8 @@ pub(super) fn render_plugin(
                 rank(&mut adapters, platform, settings.power_preference);
                 try_candidates(adapters, guard, explicit, |candidate| {
                     let backend = candidate.backend;
-                    let (instance, adapter) = candidate.native;
+                    let compiler = dx12_shader_compiler.borrow().clone();
+                    let (instance, adapter) = fxc_on_warp(app, &settings, &compiler, candidate)?;
                     bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
                         .map(|creation| (creation, backend))
                 })
@@ -230,6 +222,46 @@ pub(super) fn render_plugin(
         synchronous_pipeline_compilation: false,
         ..Default::default()
     })
+}
+
+/// Builds one API's instance on the display winit opened, so surfaces share its connection.
+fn backend_instance(
+    app: &App,
+    backend: Backend,
+    settings: &WgpuSettings,
+    compiler: wgpu::Dx12Compiler,
+) -> wgpu::Instance {
+    let display = app
+        .world()
+        .get_resource::<bevy::winit::DisplayHandleWrapper>()
+        .map(|display| Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>);
+    instance(backend, settings, compiler, display)
+}
+
+/// Returns the candidate's instance and adapter, first rebuilding the instance with FXC and
+/// finding the same adapter again when the candidate is WARP, which faults compiling DXC's output.
+fn fxc_on_warp(
+    app: &App,
+    settings: &WgpuSettings,
+    compiler: &wgpu::Dx12Compiler,
+    candidate: Candidate<(wgpu::Instance, wgpu::Adapter)>,
+) -> Result<(wgpu::Instance, wgpu::Adapter)> {
+    let (instance, adapter) = candidate.native;
+    let info = adapter.get_info();
+    if !render::device_settings::software_adapter_requires_fxc(compiler, &info) {
+        return Ok((instance, adapter));
+    }
+    log(format_args!(
+        "Renderer DX12 shader compiler: FXC, since {} faults compiling DXC's output",
+        info.name
+    ));
+    drop((adapter, instance));
+    let instance = backend_instance(app, candidate.backend, settings, wgpu::Dx12Compiler::Fxc);
+    let adapter = bevy::tasks::block_on(instance.enumerate_adapters(flags(candidate.backend)))
+        .into_iter()
+        .find(|rebuilt| identity(rebuilt) == candidate.identity)
+        .with_context(|| format!("{} is missing after rebuilding DX12 with FXC", info.name))?;
+    Ok((instance, adapter))
 }
 
 /// A failed saved Graphics API, shown once the menu is on screen.

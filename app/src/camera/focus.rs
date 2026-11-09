@@ -132,6 +132,8 @@ pub(crate) fn update_cursor_capture(
     consent: Option<Res<client_state::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
+    effective_mode: Option<Res<client_state::EffectiveGameplayInputMode>>,
+    devices: Option<Res<client_state::ConnectedPhysicalDevices>>,
     captured_last_frame: Local<bool>,
     #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
@@ -154,6 +156,13 @@ pub(crate) fn update_cursor_capture(
             if !captured && !policy.driven {
                 clear_controller_input(&mut keys, &mut mouse_buttons, &mut mouse_motion);
             }
+            let pointer_capture_needed = captured
+                && effective_mode
+                    .is_none_or(|mode| mode.0 == semantic_input::InputMode::KeyboardMouse)
+                && devices.is_none_or(|dev| dev.mice > 0);
+            crate::platform_devices::ingress::request_platform_pointer_capture(
+                pointer_capture_needed,
+            );
             return;
         }
     }

@@ -48,6 +48,10 @@ pub(super) struct ControllerFrame {
     pub jump_repeated: bool,
     pub ride_delta: Option<[f32; 3]>,
     pub actor_position: Option<super::actor_move::ActorPositionUpdate>,
+    /// The Normal-mode `MovePlayer` ease this tick started with, which replay steps again.
+    pub movement_lerp: Option<super::movement_lerp::MovementLerp>,
+    /// Native height used by this tick's interpolation and completed sample.
+    pub network_height: Option<super::movement_lerp::NetworkHeight>,
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
@@ -83,7 +87,11 @@ impl ControllerFrame {
         posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
+            self.network_height = Some(position.height);
             anchor_state.note_hard_anchor();
+        }
+        if let Some(lerp) = self.movement_lerp {
+            lerp.replay(state, &mut self.network_height);
         }
         input.no_clip = self.intent.no_clip;
         let previous_sprinting = input.sprinting;

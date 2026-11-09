@@ -230,13 +230,13 @@ fn cube_bindings_resolve_new_catalog_keys_from_existing_carrier_raster_paths() {
 #[test]
 fn scalar_and_per_face_pillar_bindings_recompute_rotation_in_both_directions() {
     for (mapping, rotations) in [
-        ([2, 3, 1, 0, 4, 5], [false, false, true, true, true, true]),
-        ([0, 1, 5, 4, 2, 3], [true, true, true, true, false, false]),
+        ([2, 3, 1, 0, 4, 5], [0, 0, 3, 1, 1, 1]),
+        ([0, 1, 5, 4, 2, 3], [1, 1, 2, 2, 0, 0]),
     ] {
         for original_per_face in [false, true] {
-            let flags = rotations.map(|rotate| {
-                if original_per_face && rotate {
-                    assets::MATERIAL_FLAG_ROTATE_UV
+            let flags = rotations.map(|rotation| {
+                if original_per_face {
+                    u32::from(rotation)
                 } else {
                     0
                 }
@@ -279,18 +279,19 @@ fn scalar_and_per_face_pillar_bindings_recompute_rotation_in_both_directions() {
                 for face in BlockFace::ALL {
                     let material = runtime.material(visual.face(face).material_id());
                     assert_eq!(
-                        material.flags & assets::MATERIAL_FLAG_ROTATE_UV != 0,
-                        per_face && rotations[face as usize]
+                        material.flags & assets::MATERIAL_FLAG_UV_ROTATION_MASK,
+                        if per_face {
+                            u32::from(rotations[face as usize])
+                        } else {
+                            0
+                        }
                     );
                 }
-                assert!(
-                    overlay.vanilla_carried[0]
-                        .faces
-                        .iter()
-                        .all(|&id| overlay.overlay.materials[id as usize].flags
-                            & assets::MATERIAL_FLAG_ROTATE_UV
-                            == 0)
-                );
+                assert!(overlay.vanilla_carried[0].faces.iter().all(|&id| {
+                    overlay.overlay.materials[id as usize].flags
+                        & assets::MATERIAL_FLAG_UV_ROTATION_MASK
+                        == 0
+                }));
             }
         }
     }

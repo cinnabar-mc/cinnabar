@@ -381,7 +381,14 @@ fn maintain_attacks(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &mining_origin,
+                crate::survival_mining::DestroyPick {
+                    origin: &mining_origin,
+                    ticked: context
+                        .physics
+                        .as_deref()
+                        .and_then(|physics| physics.network_position()),
+                    held: mining.destroying_target().map(|(position, _)| position),
+                },
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),

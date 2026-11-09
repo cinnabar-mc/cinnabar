@@ -54,3 +54,41 @@ fn linked_roots_and_entries_are_never_deleted_or_counted() {
     assert_eq!(fs::read(outside).unwrap(), b"private");
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn downloaded_pack_inventory_excludes_housekeeping_and_reads_display_identity() {
+    use std::io::Write;
+    let root = fixture();
+    let path = root.join("opaque.mcpack");
+    let mut archive = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    archive
+        .start_file("manifest.json", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    archive.write_all(br#"{"format_version":2,"header":{"name":"pack.name","uuid":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","version":[1,2,3]},"modules":[{"type":"resources","uuid":"bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee","version":[1,2,3]}]}"#).unwrap();
+    archive
+        .start_file("texts/en_US.lang", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    archive.write_all(b"pack.name=Cloud Islands\n").unwrap();
+    archive
+        .start_file("pack_icon.png", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    archive.write_all(b"encoded icon").unwrap();
+    archive.finish().unwrap();
+    fs::write(root.join(".packcache.lock"), b"lease").unwrap();
+    fs::write(root.join(".packcache-partial"), b"partial").unwrap();
+    fs::write(root.join("broken.mcpack"), b"broken").unwrap();
+    let items = cached_packs(&root).unwrap();
+    assert_eq!(items.len(), 2);
+    let pack = items.iter().find(|item| item.path == path).unwrap();
+    assert_eq!(pack.name, "Cloud Islands");
+    assert_eq!(pack.version, "1.2.3");
+    assert_eq!(pack.icon.as_deref(), Some(b"encoded icon".as_slice()));
+    assert_eq!(pack.pack_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+    assert!(pack.matches_query("CLOUD"));
+    assert!(pack.matches_query("1.2.3"));
+    assert!(pack.matches_query("aaaaaaaa"));
+    assert!(pack.matches_query("opaque"));
+    assert!(!pack.matches_query("another pack"));
+    assert!(items.iter().any(|item| item.name == "broken.mcpack"));
+    fs::remove_dir_all(root).unwrap();
+}

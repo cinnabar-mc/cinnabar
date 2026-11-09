@@ -195,6 +195,8 @@ mod gpu_queue;
 mod gpu_queue_biomes;
 #[path = "gpu/session_tests.rs"]
 mod gpu_session;
+#[path = "transparent/liquid_evidence_tests.rs"]
+mod liquid_draw_evidence;
 #[path = "presentation/tests.rs"]
 mod presentation;
 #[path = "presentation/command_tests.rs"]

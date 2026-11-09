@@ -173,11 +173,11 @@ fn unfilterable_float_mipmaps_create_valid_bindings_and_average_texels() {
         pass.draw(0..3, 0..1);
     }
     gpu.queue.submit([encoder.finish()]);
-    let witness = crate::gpu_snapshot::Gpu {
-        device: gpu.device.clone(),
-        queue: gpu.queue.clone(),
-        backend: gpu.adapter.get_info().backend,
-    };
+    let witness = crate::gpu_snapshot::Gpu::from_device(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        gpu.adapter.get_info().backend,
+    );
     let result = witness.compute_readback(
         "@group(0) @binding(0) var image: texture_2d<f32>;
          @group(0) @binding(1) var<storage, read_write> result: vec4<u32>;
@@ -370,11 +370,11 @@ fn decoded_png_rows_reach_the_texture_in_their_original_order() {
 
 /// Reads both RGBA8 rows through the texture interface used by pack samplers.
 fn read_rows(gpu: &GpuContext, view: &wgpu::TextureView) -> Vec<[u32; 4]> {
-    let witness = crate::gpu_snapshot::Gpu {
-        device: gpu.device.clone(),
-        queue: gpu.queue.clone(),
-        backend: gpu.adapter.get_info().backend,
-    };
+    let witness = crate::gpu_snapshot::Gpu::from_device(
+        gpu.device.clone(),
+        gpu.queue.clone(),
+        gpu.adapter.get_info().backend,
+    );
     witness.compute_readback(
         "@group(0) @binding(0) var image: texture_2d<f32>;
          @group(0) @binding(1) var<storage, read_write> rows: array<vec4<u32>>;

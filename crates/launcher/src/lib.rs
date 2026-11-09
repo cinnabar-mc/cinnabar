@@ -11,6 +11,17 @@ macro_rules! product_name {
 /// The product name shown in window titles, defaults and the install directory.
 pub const PRODUCT_NAME: &str = product_name!();
 
+/// The public source repository's web address as a literal, for `concat!` in compile-time text.
+#[macro_export]
+macro_rules! repository_url {
+    () => {
+        "https://github.com/cinnabar-mc/cinnabar"
+    };
+}
+
+/// The public source repository's web address.
+pub const REPOSITORY_URL: &str = repository_url!();
+
 /// The community Discord invite the client links to for help.
 pub const DISCORD_INVITE_URL: &str = "https://discord.gg/MeEz7BEHcM";
 

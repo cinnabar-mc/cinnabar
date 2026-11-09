@@ -215,11 +215,6 @@ fn frame(app: &mut App, action: MenuAction) -> UiRect {
                         DpiScale::new(1.0).unwrap(),
                     )
                     .unwrap();
-                assert_eq!(presentation.gui_scale_slider_track(), None);
-                assert_eq!(
-                    presentation.gui_scale_drag_action(UiPoint::new(0.0, 0.0).unwrap()),
-                    None
-                );
                 if let Some(bounds) = presentation.menu_action_bounds(action) {
                     return bounds;
                 }
@@ -377,10 +372,10 @@ fn settings_slider_drag_keeps_tracking_outside_hover_until_released() {
 }
 
 #[test]
-fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
+fn native_gui_scale_slider_drag_relayouts_and_clamps_until_released() {
     let Some(presentation) = engine_presentation() else {
         eprintln!(
-            "skipping native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices: missing installed local carriers (make assets)"
+            "skipping native_gui_scale_slider_drag_relayouts_and_clamps_until_released: missing installed local carriers (make assets)"
         );
         return;
     };
@@ -422,61 +417,48 @@ fn native_gui_scale_click_relayouts_and_held_pointer_never_drags_choices() {
         (bounds.min().x() + bounds.max().x()) * 0.5,
         (bounds.min().y() + bounds.max().y()) * 0.5,
     );
-    pointer(&mut app, window, centre, Some(ButtonState::Pressed));
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), 0);
-    pointer(&mut app, window, centre, Some(ButtonState::Released));
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
-    assert_eq!(
+    let offset = |app: &App| app.world().resource::<MenuRuntime>().gui_scale_offset();
+    let preference = |app: &App| {
         app.world()
             .resource::<UiPresentationResource>()
-            .gui_scale_preference(),
-        Some(3)
-    );
-    let bounds = frame(&mut app, MenuAction::SettingsScale(-1));
-    let centre = Vec2::new(
-        (bounds.min().x() + bounds.max().x()) * 0.5,
-        (bounds.min().y() + bounds.max().y()) * 0.5,
-    );
+            .gui_scale_preference()
+    };
     pointer(&mut app, window, centre, Some(ButtonState::Pressed));
-    let inert = Vec2::new(PHYSICAL[0] as f32 * 0.75, 1.0);
-    assert_eq!(
-        app.world()
-            .resource::<UiPresentationResource>()
-            .hit_test_menu(UiPoint::new(inert.x, inert.y).unwrap()),
-        None
-    );
-    pointer(&mut app, window, inert, None);
-    assert_eq!(
-        app.world().resource::<MenuRuntime>().gui_scale_offset(),
-        -1,
-        "holding the pointer across relayout does not capture option buttons"
-    );
-    assert_eq!(
+    assert_eq!(offset(&app), -1, "pressing a stop applies its modifier");
+    assert_eq!(preference(&app), Some(3));
+    assert!(matches!(
         app.world().resource::<MenuRuntime>().view().focused_action,
-        Some(MenuAction::SettingsScale(-1))
-    );
-    assert!(
-        !app.world()
-            .resource::<MenuRuntime>()
-            .view()
-            .navigation_focus_visible
-    );
-    pointer(&mut app, window, inert, Some(ButtonState::Released));
-    let bounds = frame(&mut app, MenuAction::SettingsScale(0));
-    let centre = Vec2::new(
-        (bounds.min().x() + bounds.max().x()) * 0.5,
-        (bounds.min().y() + bounds.max().y()) * 0.5,
-    );
-    pointer(&mut app, window, centre, None);
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
-    pointer(&mut app, window, centre, Some(ButtonState::Pressed));
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), -1);
-    pointer(&mut app, window, centre, Some(ButtonState::Released));
-    assert_eq!(app.world().resource::<MenuRuntime>().gui_scale_offset(), 0);
+        Some(MenuAction::SettingsScale(_))
+    ));
+    pointer(&mut app, window, Vec2::ZERO, None);
     assert_eq!(
-        app.world()
-            .resource::<UiPresentationResource>()
-            .gui_scale_preference(),
-        Some(4)
+        offset(&app),
+        -2,
+        "a held drag leaves the track and clamps to its smallest modifier"
     );
+    let far = Vec2::new(PHYSICAL[0] as f32 - 1.0, PHYSICAL[1] as f32 - 1.0);
+    pointer(&mut app, window, far, None);
+    assert_eq!(offset(&app), 0);
+    assert_eq!(preference(&app), Some(4));
+    pointer(&mut app, window, far, Some(ButtonState::Released));
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(offset(&app), 0, "release ends the capture");
+    frame(&mut app, MenuAction::SettingsScale(0));
+    let presentation = app.world().resource::<UiPresentationResource>();
+    let track = presentation
+        .gui_scale_slider_track()
+        .expect("the OreUI GUI-scale row publishes its track");
+    let thumb = UiPoint::new(track.max().x(), (track.min().y() + track.max().y()) * 0.5).unwrap();
+    assert!(
+        presentation.settings_slider_thumb_hit_test(thumb).is_some(),
+        "the largest modifier's thumb sits at the track's right end"
+    );
+    pointer(
+        &mut app,
+        window,
+        Vec2::new(thumb.x(), thumb.y()),
+        Some(ButtonState::Pressed),
+    );
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(offset(&app), -2, "the thumb itself captures the drag");
 }
