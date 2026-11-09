@@ -1,7 +1,7 @@
 use super::*;
-use bedrock_protocol_1_26_51::enums::PlayerPositionModeComponentPositionMode;
-use bedrock_protocol_1_26_51::packets::{MoveActorAbsolute, MovePlayer};
-use bedrock_protocol_1_26_51::types::{MoveActorAbsoluteData, MovePlayerTeleportData};
+use bedrock_protocol_1_26_60::enums::PlayerPositionModeComponentPositionMode;
+use bedrock_protocol_1_26_60::packets::{MoveActorAbsolute, MovePlayer};
+use bedrock_protocol_1_26_60::types::{MoveActorAbsoluteData, MovePlayerTeleportData};
 
 const ACTORS: u64 = 8;
 const SEEK_TICKS: u32 = 300;

@@ -692,7 +692,7 @@ async fn large_batches_expand_in_bounded_windows_without_losing_order() {
         assert_eq!(raw.record, Some(PacketRecordId(index as u64)));
         assert!(matches!(
             *raw.decode().unwrap().data,
-            bedrock_protocol_1_26_51::packets::Packet::SetTime(time) if time.time.0 == index as i32
+            bedrock_protocol_1_26_60::packets::Packet::SetTime(time) if time.time.0 == index as i32
         ));
     }
     assert_eq!(tap.events().len(), COUNT);
