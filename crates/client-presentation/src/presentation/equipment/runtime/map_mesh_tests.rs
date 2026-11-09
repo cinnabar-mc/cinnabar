@@ -2,6 +2,50 @@
 use super::*;
 
 #[test]
+fn item_meshes_and_map_planes_preserve_every_reserved_cosmetic_geometry() {
+    let cosmetics: Vec<_> = (0..cosmetics::MAX_ITEMS)
+        .map(|index| {
+            ActorRigGeometry::synthetic_cuboid(
+                render_model::cosmetic_rig_id(index.try_into().unwrap()),
+                [0.0; 3],
+                [1.0; 3],
+                1,
+            )
+            .unwrap()
+        })
+        .collect();
+    let mut builder = render_model::ActorRigFrameBuilder::new(cosmetics.clone()).unwrap();
+    let (mut runtime, _, _) = block_fixture();
+    runtime.take_pending_geometries();
+    runtime.next_mesh = STARTUP_MESH_ID_CAPACITY as u32 - 1;
+    assert!(
+        runtime
+            .build_item_mesh(|id| {
+                ActorRigGeometry::synthetic_cuboid(id, [2.0; 3], [3.0; 3], 1).ok()
+            })
+            .is_some()
+    );
+    runtime.map_meshes();
+    for geometry in runtime.take_pending_geometries() {
+        builder.insert_geometry(geometry).unwrap();
+    }
+    for index in [0, session::MAX_SESSION_MESHES - 1] {
+        let id = session::session_mesh_id(index).unwrap();
+        builder
+            .insert_geometry(ActorRigGeometry::synthetic_cuboid(id, [2.0; 3], [3.0; 3], 1).unwrap())
+            .unwrap();
+    }
+    for cosmetic in cosmetics {
+        assert_eq!(
+            builder.geometry(cosmetic.id).unwrap().vertices,
+            cosmetic.vertices,
+            "item geometry replaced cosmetic {:?}",
+            cosmetic.id
+        );
+    }
+}
+
+#[test]
 fn map_planes_remain_distinct_when_the_item_mesh_range_is_full() {
     for next in [
         STARTUP_MESH_ID_CAPACITY as u32 - 1,

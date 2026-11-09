@@ -80,7 +80,7 @@ pub fn admit(
         animation,
     )?;
     let item = Item::admit(descriptor)?;
-    rig.geometry.id = EntityRigId(0xDFFF_FFFF - u32::from(item.index()));
+    rig.geometry.id = crate::actor::cosmetic_rig_id(item.index());
     rigs.push((item, Box::leak(Box::new(rig))));
     Some(item)
 }

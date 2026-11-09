@@ -93,10 +93,8 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
 }
 
 /// Startup meshes occupy the item namespace below session icons and map planes.
-const STARTUP_MESH_ID_CAPACITY: usize = (render_model::skin_rig_id(0).0 - item_mesh_rig_id(0).0)
-    as usize
-    - session::MAX_SESSION_MESHES
-    - maps::MAP_MESH_COUNT;
+const STARTUP_MESH_ID_CAPACITY: usize =
+    render_model::ITEM_MESH_RIG_ID_CAPACITY - session::MAX_SESSION_MESHES - maps::MAP_MESH_COUNT;
 
 /// Body bone index per armor bone; `None` where the body lacks it.
 type ArmorBoneMap = Arc<[Option<usize>]>;
