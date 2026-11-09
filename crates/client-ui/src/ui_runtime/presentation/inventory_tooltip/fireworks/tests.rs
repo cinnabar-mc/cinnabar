@@ -46,8 +46,13 @@ fn stack(identifier: &str, entries: impl FnOnce(&mut Vec<u8>)) -> NetworkItemSta
 }
 
 fn runtime() -> UiRuntime {
+    runtime_with_lang("")
+}
+
+/// A runtime whose server lang holds the test names followed by `extra` lines.
+fn runtime_with_lang(extra: &str) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
-    let input = "item.fireworks.name=Firework Rocket\n\
+    let names = "item.fireworks.name=Firework Rocket\n\
         item.fireworks.flight=Flight Duration:\n\
         item.fireworksCharge.name=Firework Star\n\
         item.fireworksCharge.type=Unknown shape explosion\n\
@@ -61,6 +66,7 @@ fn runtime() -> UiRuntime {
         item.fireworksCharge.fadeTo=Fade to\n\
         item.fireworksCharge.trail=Trail\n\
         item.fireworksCharge.flicker=Twinkle\n";
+    let input = format!("{names}{extra}");
     runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
         target.copy_from_slice(input.as_bytes());
         true
@@ -135,4 +141,25 @@ fn plain_rockets_and_other_items_add_no_firework_lines() {
         ..star_data
     };
     assert!(texts(&apple, "minecraft:apple").is_empty());
+}
+
+#[test]
+fn long_colour_lists_stop_after_the_bytes_the_label_shows() {
+    let identifier = assets::facts::FIREWORK_STAR_IDENTIFIER;
+    let name = "R".repeat(4096);
+    let runtime = runtime_with_lang(&format!("item.fireworksCharge.red={name}\n"));
+    let star = stack(identifier, |out| {
+        named(out, 10, "FireworksItem");
+        explosion(out, 0, &[1; 20_000], &[], false);
+    });
+    let lines = tooltip_lines(&runtime, &star, Some(identifier), None);
+    let colors = &lines[2].text;
+    let shown = ui::UiLimits::MAX_TEXT_BYTES;
+    assert!(
+        colors.len() < shown + name.len() + 2,
+        "{} bytes built",
+        colors.len()
+    );
+    let unbounded = vec![name.as_str(); 20_000].join(", ");
+    assert_eq!(colors[..shown], unbounded[..shown]);
 }
