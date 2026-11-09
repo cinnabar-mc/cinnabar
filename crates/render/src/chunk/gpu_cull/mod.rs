@@ -23,6 +23,7 @@ mod order;
 #[cfg(test)]
 mod pixel_tests;
 mod prepare;
+pub(in crate::chunk) mod publication;
 mod queue;
 mod raster;
 pub(in crate::chunk) use queue::GpuCullQueue;
@@ -278,36 +279,4 @@ pub(in crate::chunk) fn gpu_cull_view_eligible(
     layers: Option<&RenderLayers>,
 ) -> bool {
     frustum.is_some() && layers.is_none_or(|layers| layers.intersects(&RenderLayers::default()))
-}
-
-/// Forgets every culling decision so republished allocations rebuild their records.
-pub(in crate::chunk) fn invalidate_publication(world: &mut World) {
-    let device = world.resource::<RenderDevice>().clone();
-    let queue = world.resource::<RenderQueue>().clone();
-    if let Some(mut cull) = world.get_resource_mut::<GpuCull>() {
-        cull.invalidate_publication(&device, &queue);
-    }
-    if let Some(mut feedback) = world.get_resource_mut::<feedback::GpuCullFeedback>() {
-        feedback.select(None, None);
-    }
-    if let Some(mut direct) = world.get_resource_mut::<DirectOcclusion>() {
-        direct.invalidate_publication();
-    }
-    suppress_publication(world);
-}
-
-/// Removes draw routing for a terrain frame whose publication failed.
-pub(in crate::chunk) fn suppress_publication(world: &mut World) {
-    if let Some(mut cull) = world.get_resource_mut::<GpuCull>() {
-        cull.prepared_view = None;
-    }
-    if let Some(mut frame) = world.get_resource_mut::<GpuCullFrame>() {
-        frame.view = None;
-    }
-    if let Some(mut direct) = world.get_resource_mut::<DirectOcclusion>() {
-        direct.suppress_publication();
-    }
-    if let Some(mut frame) = world.get_resource_mut::<DirectOcclusionFrame>() {
-        frame.clear();
-    }
 }

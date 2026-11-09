@@ -136,7 +136,7 @@ pub(in crate::chunk) fn begin_recovery(world: &mut World) {
     if let Some(mut units) = world.get_resource_mut::<pipeline::units::TerrainUnitBatches>() {
         units.invalidate_publication();
     }
-    gpu_cull::invalidate_publication(world);
+    gpu_cull::publication::invalidate_publication(world);
     if let Some(mut far) = world.get_resource_mut::<crate::far_terrain::FarTerrainGpu>() {
         far.invalidate_publication();
     }
@@ -182,7 +182,7 @@ pub(in crate::chunk) fn finish_publication(world: &mut World) {
     let mut arena = world.resource_mut::<ChunkGpuArena>();
     arena.bind_group = None;
     arena.transparent_bind_group = None;
-    gpu_cull::suppress_publication(world);
+    gpu_cull::publication::suppress_publication(world);
     crate::far_terrain::suppress_publication(world);
     if let Some(mut geometry) =
         world.get_resource_mut::<crate::shaderpack::geometry::ShaderpackGeometry>()

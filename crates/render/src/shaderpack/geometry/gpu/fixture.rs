@@ -1,5 +1,6 @@
 //! Ready, empty terrain geometry for render-host tests that need no chunk carriers.
 
+use super::super::jobs::GeometryCategory;
 use super::*;
 
 impl ShaderpackGeometry {

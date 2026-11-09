@@ -436,7 +436,7 @@ fn publication_invalidation_clears_feedback_view_and_context() {
     world.insert_resource(device);
     world.insert_resource(bevy::render::renderer::RenderQueue::new(queue));
     world.insert_resource(feedback);
-    super::super::invalidate_publication(&mut world);
+    super::super::publication::invalidate_publication(&mut world);
     let mut feedback = world.resource_mut::<GpuCullFeedback>();
     assert_eq!(feedback.admission.view, None);
     assert_eq!(feedback.context, None);

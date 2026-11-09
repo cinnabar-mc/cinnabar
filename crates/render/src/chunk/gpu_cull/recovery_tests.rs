@@ -9,6 +9,7 @@ use std::{
 
 use bevy::{
     ecs::schedule::{ScheduleLabel, SingleThreadedExecutor},
+    prelude::DetectChangesMut,
     render::{ExtractSchedule, Render},
 };
 
