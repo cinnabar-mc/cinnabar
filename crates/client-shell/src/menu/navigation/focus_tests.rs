@@ -10,7 +10,7 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::menu::{
         MenuClipboard, MenuRuntime,
-        input::{MenuInputMode, drive_menu_input},
+        input::{drive_menu_input, mode::MenuInputMode},
     },
     launcher::menu::{MenuAction, MenuScreen},
 };

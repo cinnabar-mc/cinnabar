@@ -12,6 +12,7 @@ pub mod invite;
 pub mod join_progress;
 pub mod join_requests;
 mod list;
+pub mod play;
 pub mod profile;
 pub mod profile_achievements;
 pub mod realm_membership;
@@ -249,11 +250,6 @@ pub enum MenuAction {
     JoinRequest(bool),
     /// A press on the Shader Pack Settings screen or its Shaders-tab button.
     ShaderOptions(crate::shader_options::Action),
-}
-
-/// Joining the featured-list entry at `index`.
-pub fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
-    (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
 }
 
 /// The vanilla screen family used by both menu history and scene composition.

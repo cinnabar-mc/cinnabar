@@ -331,7 +331,11 @@ pub(crate) fn advance(
         crate::melee::selected_attack_timing(player_runtime, &context.client_world)
             .and_then(|timing| timing.swing_duration_ticks),
     );
-    if !runtime.may_attempt(tick, plan.local_use, swings) {
+    let target = gameplay::block_use::PlacementTarget {
+        position: observed.target.position,
+        face: observed.target.face,
+    };
+    if !runtime.may_attempt(tick, plan.local_use, target, swings) {
         return false;
     }
     let start_destination = runtime
@@ -389,6 +393,9 @@ pub(crate) fn advance(
         before_swing.defer_unadmitted_attempt(swings);
         *swings = before_swing;
         return false;
+    }
+    if trigger == ItemUseTrigger::SimulationTick && plan.local_use == LocalUse::Nothing {
+        runtime.record_failed_repeat(tick, target);
     }
     if plan.local_use == LocalUse::Place
         && plan

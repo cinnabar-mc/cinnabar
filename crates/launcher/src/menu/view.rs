@@ -441,6 +441,8 @@ pub struct MenuView {
     /// Keyboard and gamepad focus draws an outline; pointer focus still navigates.
     pub navigation_focus_visible: bool,
     pub gamepad_input: bool,
+    /// Touch drives the menu, which shows no keyboard or controller hints.
+    pub touch_input: bool,
     /// Touch hardware remains available when a mouse or controller becomes active.
     pub touch_available: bool,
     /// The touch-control draft owns this settings surface.
@@ -738,6 +740,7 @@ impl MenuView {
             pressed: None,
             navigation_focus_visible: true,
             gamepad_input: false,
+            touch_input: false,
             touch_available: crate::TOUCH_PRIMARY,
             touch_editor_open: false,
             server_tab: MenuServerTab::Featured,
