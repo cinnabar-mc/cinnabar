@@ -450,6 +450,7 @@ fn mesh_sub_chunk_core<
                                                 neighbourhood,
                                                 [x as i32, y as i32, z as i32],
                                                 face,
+                                                classifier.air_network_id(),
                                             );
                                             if coverage.tiles == 0 {
                                                 visible_quad_mask &= !(1 << index);

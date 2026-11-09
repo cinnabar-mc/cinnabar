@@ -557,10 +557,8 @@ fn twin_cube_assets() -> assets::RuntimeAssets {
     assets::RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap()
 }
 
-/// A server state change between visually identical states keeps every mesh; a visible one
-/// still remeshes the section and the neighbour its cell borders.
-#[test]
-fn mesh_neutral_block_changes_keep_their_meshes() {
+/// Exercises equivalent block identities with and without a retained surface selector.
+fn check_equivalent_state_change(surface_rules: bool) {
     let mut stream = WorldStream::new_with_assets(
         WorldBootstrap {
             local_player_unique_id: 1,
@@ -604,12 +602,34 @@ fn mesh_neutral_block_changes_keep_their_meshes() {
         );
     };
 
+    if surface_rules {
+        stream.surface_rules = std::sync::Arc::from([meshing::surface::SurfaceRule {
+            states: vec![1],
+            border: 16,
+            clauses: vec![],
+        }]);
+    }
     update(&mut stream, 2);
-    assert!(stream.mesh_jobs.pending.is_empty());
-    assert!(stream.revisions.dirty(source).is_none());
-    assert!(stream.revisions.dirty(east).is_none());
+    if surface_rules {
+        assert!(stream.mesh_jobs.pending.contains_key(&source));
+        assert!(stream.mesh_jobs.pending.contains_key(&east));
+    } else {
+        assert!(stream.mesh_jobs.pending.is_empty());
+        assert!(stream.revisions.dirty(source).is_none());
+        assert!(stream.revisions.dirty(east).is_none());
+    }
 
     update(&mut stream, 3);
     assert!(stream.mesh_jobs.pending.contains_key(&source));
     assert!(stream.mesh_jobs.pending.contains_key(&east));
+}
+
+#[test]
+fn mesh_neutral_block_changes_keep_their_meshes() {
+    check_equivalent_state_change(false);
+}
+
+#[test]
+fn surface_rules_invalidate_visually_equivalent_state_changes() {
+    check_equivalent_state_change(true);
 }

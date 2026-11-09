@@ -4,7 +4,7 @@
 //! storage, selection shapes, collision, or the separate destruction-overlay geometry.
 
 use crate::Face;
-use world::{MeshNeighbourhood, MeshSample};
+use world::MeshNeighbourhood;
 
 /// Packed draw ABI: low bits select one of the template's at most 32 quads.
 pub const QUAD_INDEX_MASK: u32 = 31;
@@ -72,6 +72,7 @@ impl SurfaceRule {
         neighbourhood: &MeshNeighbourhood<'_>,
         coordinate: [i32; 3],
         face: Face,
+        air_network_id: u32,
     ) -> Coverage {
         let mut tiles = 0;
         for clause in &self.clauses {
@@ -79,12 +80,13 @@ impl SurfaceRule {
             for condition in &clause.conditions {
                 let offset = face_offset(face, condition.offset);
                 let position = std::array::from_fn(|axis| coordinate[axis] + offset[axis]);
-                let MeshSample::Block(value) = neighbourhood.sample(0, position) else {
+                let Some((section, [x, y, z])) = neighbourhood.block_source(position) else {
                     return Coverage {
                         tiles: 0x1ff,
                         border: self.border,
                     };
                 };
+                let value = section.runtime_id(0, x, y, z).unwrap_or(air_network_id);
                 matches &= self.states.binary_search(&value).is_ok() == condition.present;
             }
             if matches {

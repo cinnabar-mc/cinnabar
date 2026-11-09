@@ -716,13 +716,50 @@ fn surface_conditions_follow_diagonal_neighbours_across_chunk_boundaries() {
         }],
     };
     assert_eq!(
-        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ)
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ, fixture.air)
             .tiles,
         0x1ff
     );
     assert!(neighbourhood.insert([1, 1, 0], &remote));
     assert_eq!(
-        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ)
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ, fixture.air)
+            .tiles,
+        0
+    );
+}
+
+#[test]
+fn surface_conditions_distinguish_loaded_empty_sections_from_missing_sections() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let source = sub_chunk(vec![]);
+    let empty = sub_chunk(vec![]);
+    let mut neighbourhood = world::MeshNeighbourhood::new(&source);
+    let mut rule = SurfaceRule {
+        states: vec![7],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![NeighbourCondition {
+                offset: [1, 0, 0],
+                present: false,
+            }],
+            tiles: 1,
+        }],
+    };
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        0x1ff
+    );
+    assert!(neighbourhood.insert([1, 0, 0], &empty));
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        1
+    );
+    // Implicit and explicitly stored air use the same session identity.
+    rule.states = vec![42];
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
             .tiles,
         0
     );
