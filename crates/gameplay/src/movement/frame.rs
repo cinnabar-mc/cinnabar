@@ -172,14 +172,14 @@ impl LocomotionState {
     }
 
     /// Takes the mount the player got off out of `facts` until the server's links drop it or
-    /// name another mount.
+    /// change; then the ride is over, and so is a request to leave it still waiting.
     fn unseat(&mut self, mut facts: LocalMovementFacts, session: u64) -> LocalMovementFacts {
         let Some(left) = self.left_mount else {
             return facts;
         };
-        if facts.ride.is_none() || !self.left(session, left.mount) {
-            self.left_mount = None;
-        } else if facts.mount_runtime_id == Some(left.mount)
+        if facts.ride.is_some()
+            && self.left(session, left.mount)
+            && facts.mount_runtime_id == Some(left.mount)
             && facts.mount_changes == left.mount_changes
         {
             facts.ride = None;
@@ -188,6 +188,12 @@ impl LocomotionState {
             facts.vehicle = None;
             facts.vehicle_controlled_locally = false;
         } else {
+            if self
+                .pending_dismount
+                .is_some_and(|(session, mount, _)| self.left(session, mount))
+            {
+                self.pending_dismount = None;
+            }
             self.left_mount = None;
         }
         facts

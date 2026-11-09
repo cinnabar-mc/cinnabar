@@ -531,10 +531,14 @@ impl MovementTicker {
     /// request follows it, so the server sees the player leave the seat in order.
     #[must_use]
     pub fn holds_movement_before_dismount(&self) -> bool {
+        // Replayed sends transport may still cancel come back ahead of the request too.
         self.dismount.fence.is_some_and(|fence| {
             self.outbox
                 .front()
                 .is_some_and(|sample| sample.snapshot.tick <= fence)
+                || self.pending_sends.iter().any(|pending| {
+                    pending.retry_after_cancellation && pending.sample.snapshot.tick <= fence
+                })
         })
     }
 

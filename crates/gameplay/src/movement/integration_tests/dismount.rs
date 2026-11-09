@@ -611,6 +611,22 @@ fn a_restored_link_seats_the_rider_again() {
     assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
 }
 
+/// A link restored while the request to leave it still waits for transport is a new ride,
+/// which the old request no longer leaves.
+#[test]
+fn a_restored_link_drops_a_waiting_dismount_request() {
+    let mut rider = Rider::new();
+    rider.get_off(speed_frame(Default::default()).delta);
+    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
+    for _ in 0..2 {
+        let mut relinked = boat_frame(false);
+        relinked.facts.mount_changes += 2;
+        rider.advance(relinked);
+    }
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.request(Ok(())).is_empty());
+}
+
 /// The server sees the seated movement, then the dismount request, then movement off the
 /// mount, even when transport backs up around it.
 #[test]
