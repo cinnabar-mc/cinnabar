@@ -378,9 +378,10 @@ impl AttachablesRuntime {
         state
             .history
             .push_back(selection::owner_frame(owner, owner_rig, input));
-        let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
+        let allowance = molang_tick_budget(&self.assets, binding);
+        let mut world_left = allowance;
         let mut budget = EvalBudget {
-            actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+            actor_left: allowance,
             world_left: &mut world_left,
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
             transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,

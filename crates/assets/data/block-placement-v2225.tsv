@@ -217,6 +217,7 @@ minecraft:chiseled_sulfur	Identity	Vanilla	-
 minecraft:chiseled_tuff	Identity	Vanilla	-
 minecraft:chiseled_tuff_bricks	Identity	Vanilla	-
 minecraft:chorus_flower	Unresolved	Vanilla	-
+minecraft:chorus_plant	Connections	Vanilla	-
 minecraft:cinnabar	Identity	Vanilla	-
 minecraft:cinnabar_brick_double_slab	DoubleSlab	Vanilla	-
 minecraft:cinnabar_brick_slab	Slab	Vanilla	minecraft:cinnabar_brick_double_slab

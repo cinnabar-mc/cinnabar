@@ -594,7 +594,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
             assert_eq!(source.body.is_some(), displayed == FILLED_MAP);
             if displayed == FILLED_MAP {
                 let atlas = &source.items[0].as_ref().unwrap().1;
-                assert_eq!(&atlas.rgba8[..4], &[200, 20, 40, 255]);
+                assert_eq!(&atlas.rgba8.joined()[..4], &[200, 20, 40, 255]);
                 assert_eq!(drawn, equipment.map_meshes()[1]);
             }
             if tick < 3 {

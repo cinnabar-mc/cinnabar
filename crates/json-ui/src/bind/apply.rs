@@ -153,7 +153,12 @@ impl Binder<'_> {
                     && (matches!(target, "#visible" | "#toggle_state")
                         || matches!(source, Source::Expression { .. })) =>
                 {
-                    own.insert(target.to_owned(), Scalar::Bool(false));
+                    // An unanswered toggle shows the state its component holds, which
+                    // `ToggleComponent::reset` starts at the authored default.
+                    let checked = target == "#toggle_state"
+                        && control.properties.get("toggle_default_state")
+                            == Some(&Value::Bool(true));
+                    own.insert(target.to_owned(), Scalar::Bool(checked));
                 }
                 None => {}
             }

@@ -248,3 +248,20 @@ fn idle_wait_consumes_the_wake_it_observes() {
     stream.idle_wait().wait(&wake, false, Duration::ZERO);
     assert!(wake.is_empty());
 }
+
+/// A consumed notification cannot hide a result that is still queued for the service.
+#[test]
+fn idle_wait_returns_for_a_queued_result_after_its_doorbell_is_drained() {
+    let stream = stream_with_completed_columns();
+    let wait = stream.idle_wait();
+    assert!(wait.decode.doorbell().try_recv().is_ok());
+    let (_sent, wake) = bounded(1);
+    let waiter = std::thread::spawn(move || {
+        wait.wait(&wake, false, Duration::from_secs(60));
+    });
+    test_time::eventually("the queued result prevents an idle sleep", || {
+        waiter.is_finished()
+    });
+    waiter.join().unwrap();
+    assert_eq!(stream.decode_rx.len(), 2);
+}

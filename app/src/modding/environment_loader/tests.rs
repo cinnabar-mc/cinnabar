@@ -108,7 +108,7 @@ fn panel_surface(name: &str) -> serde_json::Value {
 /// A guest keeps its panel in the host; the bundle and font never enter linear memory.
 fn component(title: &str, font: Option<&[u8]>) -> Vec<u8> {
     let mut bytes = executable();
-    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+    let bundle = serde_json::json!({"panel":{"controls":[],
         "surface":panel_surface(title)},"surfaces":{}})
     .to_string();
     section(&mut bytes, mod_api::PANEL_BUNDLE_SECTION, bundle.as_bytes());
@@ -282,7 +282,7 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
         assert!(prepare(candidate(digest), &mut attempted, Instant::now()).is_none());
 
         let repaired = serde_json::json!({
-            "panel":{"toggle_key":"ShiftRight","controls":[],"surface":panel_surface("Repaired")},
+            "panel":{"controls":[],"surface":panel_surface("Repaired")},
             "surfaces":{}
         });
         std::fs::write(&ui, repaired.to_string()).unwrap();

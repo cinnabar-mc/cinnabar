@@ -6,8 +6,7 @@ use thiserror::Error;
 mod bundle;
 mod carrier;
 pub use bundle::{
-    FONT_FACE_BUNDLE_MAGIC, FONT_FACE_BUNDLE_SCHEMA, FontFaceRaster, decode_font_face_bundle,
-    encode_font_face_bundle,
+    FONT_FACE_BUNDLE_SCHEMA, FontFaceRaster, decode_font_face_bundle, encode_font_face_bundle,
 };
 pub use carrier::encode_font_catalog;
 use carrier::{

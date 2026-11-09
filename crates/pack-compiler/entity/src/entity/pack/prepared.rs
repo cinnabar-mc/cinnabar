@@ -29,8 +29,9 @@ pub(super) struct PreparedFile {
 impl PreparedFile {
     /// Retains authored input without parsing or hashing it before admission.
     pub(super) fn new(source: PackSource) -> Self {
-        let length =
-            (!source.path.starts_with("models/entity/")).then_some(Some(source.bytes.len()));
+        let length = (!(source.path.starts_with("models/entity/")
+            && source.path.ends_with(".json")))
+        .then_some(Some(source.bytes.len()));
         Self {
             source,
             length,
@@ -46,7 +47,9 @@ impl PreparedFile {
             check_admission(length, remaining)?;
         }
         if self.products.is_none() {
-            let (bytes, document) = if self.source.path.starts_with("models/entity/") {
+            let (bytes, document) = if self.source.path.starts_with("models/entity/")
+                && self.source.path.ends_with(".json")
+            {
                 let normalized = normalize_geometry(
                     &self.source.bytes,
                     #[cfg(test)]

@@ -714,7 +714,7 @@ fn animation_blend_targets_keep_encoded_colour() {
 fn malformed_pbr_pages_keep_neutral_texels() {
     let empty = TextureArray {
         layers: 1,
-        mips: Box::new([]),
+        mips: Default::default(),
     };
     let authored = AuthoredPbr::new(
         [&empty, &empty],

@@ -34,6 +34,7 @@ impl<'a> Source<'a> {
             screen: ScreenView {
                 mount_equipment: Default::default(),
                 anvil_name: "",
+                anvil_caret: None,
                 anvil_cost: None,
                 recipe_choice: None,
                 beacon: (0, 0),
@@ -50,7 +51,9 @@ impl<'a> Source<'a> {
                 ),
                 creative_expanded: groups,
                 search: "",
+                search_caret: None,
                 container_scroll: scrolls,
+                storage_radios: const { &BTreeMap::new() },
                 text_focused: false,
                 book: None,
             },

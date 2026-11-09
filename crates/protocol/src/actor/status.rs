@@ -46,6 +46,12 @@ pub enum ActorStatusKind {
     ActorGrowUp,
     /// Event 80 starts the held kinetic weapon's impact feedback.
     KineticDamageDealt,
+    /// Event 12: a fishing hook's approaching fish leaves its trail.
+    FishHookPosition,
+    /// Event 13: a fish bites a fishing hook.
+    FishHookBite,
+    /// Event 14: a fish teases a fishing hook.
+    FishHookTease,
 }
 
 /// One actor status event, addressed by runtime id (the wire carries no dimension).
@@ -145,6 +151,9 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
         ActorEventType::BabyAge => ActorStatusKind::BabyAge,
         ActorEventType::ActorGrowUp => ActorStatusKind::ActorGrowUp,
         ActorEventType::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
+        ActorEventType::FishHookFishPos => ActorStatusKind::FishHookPosition,
+        ActorEventType::FishHookHookTime => ActorStatusKind::FishHookBite,
+        ActorEventType::FishHookTease => ActorStatusKind::FishHookTease,
         _ => return None,
     };
     Some(ActorEvent::Status(ActorStatusEvent {
@@ -191,6 +200,33 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn fishing_hook_events_normalize() {
+        for (event, kind) in [
+            (
+                ActorEventType::FishHookFishPos,
+                ActorStatusKind::FishHookPosition,
+            ),
+            (
+                ActorEventType::FishHookHookTime,
+                ActorStatusKind::FishHookBite,
+            ),
+            (
+                ActorEventType::FishHookTease,
+                ActorStatusKind::FishHookTease,
+            ),
+        ] {
+            assert_eq!(
+                normalize_actor_event(packet(event)),
+                Some(ActorEvent::Status(ActorStatusEvent {
+                    runtime_id: 9,
+                    kind,
+                    data: 4,
+                }))
+            );
+        }
     }
 
     #[test]

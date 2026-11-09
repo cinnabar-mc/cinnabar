@@ -81,7 +81,6 @@ fn fuel_recovery_reverts_native_edits_when_reinitializing_controls() {
     );
     let panel = serde_json::json!({
         "surface": crate::tests::panel_surface("text"),
-        "toggle_key": "ShiftRight",
         "controls": [{"kind":"text","id":"name","label":"Name","value":"Main",
             "min_chars":1,"max_chars":8,"live":true}]
     });
@@ -310,8 +309,7 @@ fn fuel_recovery_seeds_the_initial_panel_before_sparse_init() {
     use cinnabar::extension::panel::Host as _;
     let (engine, _ticker) = crate::execution::engine().unwrap();
     let bundle: ui::mod_panel::PanelBundle = serde_json::from_value(serde_json::json!({
-        "panel": {"surface": crate::tests::panel_surface("initial"), "toggle_key":"F10",
-            "controls":[{"kind":"toggle","id":"initial","label":"Initial","value":false}]},
+        "panel": {"surface": crate::tests::panel_surface("initial"), "controls":[{"kind":"toggle","id":"initial","label":"Initial","value":false}]},
         "surfaces":{"other":crate::tests::panel_surface("other")},
         "control_schemas":{"other":[{"kind":"toggle","id":"other","label":"Other","value":false}]}
     }))

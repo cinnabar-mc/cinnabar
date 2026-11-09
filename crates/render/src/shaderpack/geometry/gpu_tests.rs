@@ -30,7 +30,7 @@ fn expansion_sources_must_share_carrier_revision_and_authored_bindings() {
     ));
     let page = || assets::TextureArray {
         layers: 0,
-        mips: Box::new([]),
+        mips: Default::default(),
     };
     let authored =
         selected.with_updated_enhanced(Some(Arc::new(render_scene::EnhancedTextureAssets {

@@ -67,7 +67,10 @@ fn core_stream_fixture_decodes_in_order() {
         ),
         ("00112233-4455-6677-8899-aabbccddeeff", "1.0.0", "high")
     );
-    assert_eq!((selected.content_key.expose(), selected.size), ("key", 3));
+    assert_eq!(
+        (selected.content_key.expose(), selected.size),
+        (b"\xffkey\x00".as_slice(), 3)
+    );
     assert_eq!(
         handoff.startup,
         [
@@ -227,7 +230,7 @@ fn handoff_with_sizes(sizes: &[u64]) -> SessionHandoff {
                 uuid: String::new(),
                 version: String::new(),
                 sub_pack: String::new(),
-                content_key: PackContentKey("secret-key".into()),
+                content_key: PackContentKey(b"secret-key".to_vec()),
                 size,
                 cache: None,
                 sha256: None,
@@ -376,4 +379,20 @@ fn connect_keeps_diagnostic_identity_separate_from_login_claims() {
             .get("join_profile_id")
             .is_none()
     );
+}
+
+/// Content keys cross the endpoint as base64 so any key bytes survive; anything else is malformed.
+#[test]
+fn content_keys_decode_from_base64_bytes() {
+    let pack = |key: &str| {
+        serde_json::from_value::<HandoffPack>(serde_json::json!({
+            "uuid": "", "version": "", "sub_pack": "", "content_key": key, "size": 0
+        }))
+    };
+    assert_eq!(
+        pack("/2tleQA=").unwrap().content_key.expose(),
+        b"\xffkey\x00"
+    );
+    assert_eq!(pack("").unwrap().content_key.expose(), b"");
+    assert!(pack("not base64!").is_err());
 }

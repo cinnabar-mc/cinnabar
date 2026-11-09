@@ -1,7 +1,10 @@
-use pack_compile_input::{read_pack, resolve_texture_key};
+use pack_compile_input::{pack::MISSING_TILE_TEXTURE_KEY, read_pack, resolve_texture_key};
 use {
     super::support::*,
-    assets::{AssetError, BlockFace},
+    assets::{
+        AssetError, BlockFace, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_ROTATE_180,
+        MATERIAL_FLAG_UV_ROTATE_270,
+    },
 };
 
 #[test]
@@ -69,7 +72,7 @@ fn pack_reader_strips_leading_comments_and_selects_first_terrain_variant() {
         assert_key(
             resolve_texture_key(&pack.blocks, &record("minecraft:stone", "{}"), face),
             "stone",
-            false,
+            0,
         );
     }
 
@@ -90,18 +93,18 @@ fn pack_reader_strips_leading_comments_and_selects_first_terrain_variant() {
         assert_key(
             resolve_texture_key(&pack.blocks, &column, face),
             "column_side",
-            false,
+            0,
         );
     }
     assert_key(
         resolve_texture_key(&pack.blocks, &column, BlockFace::Down),
         "column_bottom",
-        false,
+        0,
     );
     assert_key(
         resolve_texture_key(&pack.blocks, &column, BlockFace::Up),
         "column_top",
-        false,
+        0,
     );
 
     let explicit = [
@@ -116,7 +119,7 @@ fn pack_reader_strips_leading_comments_and_selects_first_terrain_variant() {
         assert_key(
             resolve_texture_key(&pack.blocks, &record("minecraft:six", "{}"), face),
             expected,
-            false,
+            0,
         );
     }
 }
@@ -134,11 +137,10 @@ fn pack_reader_skips_untextured_and_carried_only_block_entries() {
     let pack = read_pack(directory.path()).expect("untextured entries are valid");
 
     for name in ["minecraft:air", "minecraft:light_block"] {
-        assert!(
-            resolve_texture_key(&pack.blocks, &record(name, "{}"), BlockFace::Up)
-                .key
-                .is_none(),
-            "{name} must resolve to the diagnostic texture"
+        assert_key(
+            resolve_texture_key(&pack.blocks, &record(name, "{}"), BlockFace::Up),
+            MISSING_TILE_TEXTURE_KEY,
+            0,
         );
     }
     assert_key(
@@ -148,12 +150,12 @@ fn pack_reader_skips_untextured_and_carried_only_block_entries() {
             BlockFace::Up,
         ),
         "stone",
-        false,
+        0,
     );
 }
 
 #[test]
-fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic() {
+fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_use_the_missing_tile() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -177,12 +179,12 @@ fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic
     assert_key(
         resolve_texture_key(&pack.blocks, &grass, BlockFace::Down),
         "grass_bottom",
-        false,
+        0,
     );
     assert_key(
         resolve_texture_key(&pack.blocks, &grass, BlockFace::Up),
         "grass_top",
-        false,
+        0,
     );
     for face in [
         BlockFace::West,
@@ -193,7 +195,7 @@ fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic
         assert_key(
             resolve_texture_key(&pack.blocks, &grass, face),
             "grass_side",
-            false,
+            0,
         );
     }
 
@@ -202,17 +204,16 @@ fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic
         assert_key(
             resolve_texture_key(&pack.blocks, &sea_lantern, face),
             "sea_lantern",
-            false,
+            0,
         );
     }
 
     let invisible = record("minecraft:invisible_bedrock", "null");
     for face in BlockFace::ALL {
-        assert!(
-            resolve_texture_key(&pack.blocks, &invisible, face)
-                .key
-                .is_none(),
-            "unlisted blocks must not acquire a legacy alias"
+        assert_key(
+            resolve_texture_key(&pack.blocks, &invisible, face),
+            MISSING_TILE_TEXTURE_KEY,
+            0,
         );
     }
 }
@@ -322,20 +323,26 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
     assert_key(
         resolve_texture_key(&pack.blocks, &x, BlockFace::West),
         "bottom",
-        false,
+        0,
     );
     assert_key(
         resolve_texture_key(&pack.blocks, &x, BlockFace::East),
         "top",
-        false,
+        0,
     );
-    for face in [
-        BlockFace::Down,
-        BlockFace::Up,
-        BlockFace::North,
-        BlockFace::South,
+    // `BlockTessellator::tessellateTreeInWorld` turns an x-axis bottom by native code 2 and
+    // its top, north and south by native code 1, opposite quarter turns.
+    for (face, rotation) in [
+        (BlockFace::Down, MATERIAL_FLAG_UV_ROTATE_270),
+        (BlockFace::Up, MATERIAL_FLAG_ROTATE_UV),
+        (BlockFace::North, MATERIAL_FLAG_ROTATE_UV),
+        (BlockFace::South, MATERIAL_FLAG_ROTATE_UV),
     ] {
-        assert_key(resolve_texture_key(&pack.blocks, &x, face), "side", true);
+        assert_key(
+            resolve_texture_key(&pack.blocks, &x, face),
+            "side",
+            rotation,
+        );
     }
 
     let y = record(
@@ -345,17 +352,17 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
     assert_key(
         resolve_texture_key(&pack.blocks, &y, BlockFace::Down),
         "bottom",
-        false,
+        0,
     );
     assert_key(
         resolve_texture_key(&pack.blocks, &y, BlockFace::Up),
         "top",
-        false,
+        0,
     );
     assert_key(
         resolve_texture_key(&pack.blocks, &y, BlockFace::West),
         "side",
-        false,
+        0,
     );
 
     let z = record(
@@ -365,27 +372,32 @@ fn pillar_axis_permutations_move_caps_and_rotate_horizontal_sides() {
     assert_key(
         resolve_texture_key(&pack.blocks, &z, BlockFace::North),
         "bottom",
-        false,
+        0,
     );
     assert_key(
         resolve_texture_key(&pack.blocks, &z, BlockFace::South),
         "top",
-        false,
+        0,
     );
-    for face in [
-        BlockFace::West,
-        BlockFace::East,
-        BlockFace::Down,
-        BlockFace::Up,
+    // A z-axis log's top and bottom bark turns half a turn so its grain runs along the log.
+    for (face, rotation) in [
+        (BlockFace::West, MATERIAL_FLAG_ROTATE_UV),
+        (BlockFace::East, MATERIAL_FLAG_ROTATE_UV),
+        (BlockFace::Down, MATERIAL_FLAG_UV_ROTATE_180),
+        (BlockFace::Up, MATERIAL_FLAG_UV_ROTATE_180),
     ] {
-        assert_key(resolve_texture_key(&pack.blocks, &z, face), "side", true);
+        assert_key(
+            resolve_texture_key(&pack.blocks, &z, face),
+            "side",
+            rotation,
+        );
     }
 
     let legacy = record("minecraft:column", r#"{"axis":"z"}"#);
     assert_key(
         resolve_texture_key(&pack.blocks, &legacy, BlockFace::North),
         "bottom",
-        false,
+        0,
     );
 }
 
@@ -417,7 +429,7 @@ fn malformed_tagged_pillar_axes_fail_closed_to_diagnostic() {
             resolved.key, None,
             "malformed state was admitted: {malformed}"
         );
-        assert!(!resolved.rotate_uv);
+        assert_eq!(resolved.uv_rotation, 0);
     }
 }
 

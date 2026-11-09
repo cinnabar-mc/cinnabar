@@ -43,6 +43,7 @@ mod tests {
             active: true,
             input_authority_released: false,
             resolved_movement: false,
+            movement_override: false,
             movement: [0.0; 2],
             raw_movement: [0.0; 2],
             analogue_movement: [0.0; 2],

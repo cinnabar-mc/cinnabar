@@ -241,6 +241,16 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         .route()
         .overrides_fallback
         || super::heavy_core::is_record(record)
+        || super::speleothem::is_record(record)
+        || super::chorus::is_flower(record)
+        || super::chorus::is_plant(record)
+        || super::spore_blossom::is_record(record)
+        || super::redstone_wire::is_record(record)
+        || super::dried_ghast::is_record(record)
+        || super::turtle_egg::is_record(record)
+        || super::dripleaf::is_record(record)
+        || super::trip_wire::is_record(record)
+        || super::scaffolding::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
@@ -396,16 +406,14 @@ mod tests {
             material_by_descriptor: &descriptors,
             vanilla_fallback_material: 1,
             fallback: inventory(protocol).unwrap(),
+            sheet_tiles: &Default::default(),
         };
         let mut templates = Vec::new();
         let mut quads = Vec::new();
         let mut interned = BTreeMap::new();
         let mut seen = 0;
         for record in records.iter().filter(|record| {
-            record
-                .traits
-                .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
-                || block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
+            block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
         }) {
             let (min, max, _) = inputs.fallback.entry(record).unwrap();
             let CompileRuleResult::Compiled(visual) = compile_rule(
@@ -454,10 +462,7 @@ mod tests {
             assert_eq!(templates[ordinary as usize].flags, 0);
             seen += 1;
         }
-        assert!(
-            seen >= 4,
-            "both chorus and azalea block types are registered"
-        );
+        assert!(seen >= 2, "both azalea block types are registered");
     }
 
     #[test]
@@ -466,7 +471,7 @@ mod tests {
         for (table_bytes, entries) in EMBEDDED_TABLES
             .iter()
             .map(|table| table.bytes)
-            .zip([2_031, 3_550])
+            .zip([2_031, 3_614])
         {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
             assert_eq!(table.entry_count, entries);
@@ -537,8 +542,8 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 3_550);
-        assert_eq!(names.len(), 334);
+        assert_eq!(matched.len(), 3_614);
+        assert_eq!(names.len(), 335);
         assert!(
             matched
                 .iter()
@@ -789,6 +794,7 @@ mod tests {
                 material_by_descriptor: &BTreeMap::new(),
                 vanilla_fallback_material: DIAGNOSTIC_MATERIAL,
                 fallback,
+                sheet_tiles: &Default::default(),
             };
             compile_rule(
                 &record,
