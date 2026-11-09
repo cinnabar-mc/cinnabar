@@ -14,11 +14,11 @@ world server-bundle {
     /// The session's items, under the `items` permission; a component built without this
     /// import still runs.
     import cinnabar:session/items@0.1.0;
-    import cinnabar:world-draw/drawing@0.1.0;
-    import cinnabar:world-draw/masks@0.1.0;
+    import cinnabar:world-draw/drawing@0.2.0;
+    import cinnabar:world-draw/masks@0.2.0;
     import render;
     import environment;
-    import cinnabar:world-draw/assets@0.1.0;
+    import cinnabar:world-draw/assets@0.2.0;
     /// Initializes this instance after its signed bundle and capabilities have been admitted.
     export init: func();
     /// Runs when the host admits a presentation frame; older components may omit it.

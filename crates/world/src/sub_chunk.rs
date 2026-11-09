@@ -5,6 +5,26 @@ use crate::{
     palette::{BLOCKS_PER_SUB_CHUNK, PACKED_BITS, word_count},
 };
 
+#[cfg(test)]
+mod construction_tests {
+    #[test]
+    fn runtime_id_constructor_preserves_storage_order_and_large_ids() {
+        let values = std::array::from_fn(|index| u32::MAX - index as u32);
+        let section = super::SubChunk::from_runtime_ids(&values);
+        for x in 0..16 {
+            for z in 0..16 {
+                for y in 0..16 {
+                    assert_eq!(
+                        section.runtime_id(0, x, y, z),
+                        Some(values[((x as usize * 16 + z as usize) * 16) + y as usize])
+                    );
+                }
+            }
+        }
+        assert_eq!(section.storages().len(), 1);
+    }
+}
+
 /// Client limit for block layers addressed by block updates.
 pub const MAX_STORAGE_COUNT: usize = 16;
 
@@ -94,6 +114,24 @@ impl PartialEq for SubChunk {
 impl Eq for SubChunk {}
 
 impl SubChunk {
+    /// Creates one block layer in x,z,y order for callers that own resolved runtime IDs.
+    pub fn from_runtime_ids(values: &[u32; crate::SUB_CHUNK_SIDE.pow(3)]) -> Self {
+        let mut storage = PalettedStorage::uniform(values[0]);
+        let updates: Vec<_> = values
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| **value != values[0])
+            .map(|(index, value)| (index, *value))
+            .collect();
+        storage.apply_runtime_updates(&updates);
+        Self {
+            version: 8,
+            y_index: None,
+            storages: vec![storage].into_boxed_slice(),
+            inline_payload: payload::InlinePayloadCache::default(),
+        }
+    }
+
     /// Compares resolved block values and layers, independent of wire headers and palette packing.
     #[must_use]
     pub fn blocks_match(&self, other: &Self) -> bool {

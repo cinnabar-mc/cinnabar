@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 use bytes::Bytes;
 
 /// Which way a packet travelled relative to this client. The discriminant is its wire value
@@ -289,7 +289,7 @@ pub(crate) fn record_serverbound_picks(
     replaced: bool,
 ) {
     let mut used = vec![false; picks.len()];
-    for entry in bedrock_protocol_1_26_51::wire::Frames::new(frame.slice(1..), usize::MAX).flatten()
+    for entry in bedrock_protocol_1_26_60::wire::Frames::new(frame.slice(1..), usize::MAX).flatten()
     {
         let original = picks
             .iter()

@@ -76,11 +76,16 @@ pub(crate) fn publish_retained(
     {
         frame.live_owners.insert((handle.owner, handle.generation));
     }
-    for draw in resources.instances.values() {
+    for anchor in resources
+        .instances
+        .values()
+        .map(|draw| draw.anchor)
+        .chain(resources.clips.values().map(|clip| clip.anchor))
+    {
         if let mod_render::retained::Anchor::Block {
             dimension,
             position,
-        } = draw.anchor
+        } = anchor
         {
             let key = world::SubChunkKey {
                 dimension,

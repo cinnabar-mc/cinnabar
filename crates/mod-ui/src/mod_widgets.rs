@@ -1,9 +1,7 @@
 //! Card artwork the host layout editor previews, and the vanilla HUD elements mods hide.
 
 pub(crate) mod cells;
-pub(crate) mod compass;
 pub(super) mod template;
-pub(crate) mod text_plate;
 
 use crate::ModUi;
 use ui::mod_hud::HiddenElements;

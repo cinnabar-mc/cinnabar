@@ -2,11 +2,11 @@
 
 # World drawing: masks
 
-`cinnabar:world-draw/masks@0.1.0`
+`cinnabar:world-draw/masks@0.2.0`
 
 Retained union silhouettes. Tokens are private to one component and session.
 
-**Grants:** `entity_highlight`; actor lookup also requires `entity_observe` and `render_through_walls`, elevated coverage requires `render_through_walls`, and effects require `render_post`.
+**Grants:** `entity_highlight`; actor lookup also requires `entity_observe` and resolves only observed actors without `render_through_walls`, elevated coverage requires `render_through_walls`, and effects require `render_post`.
 
 Imported type `handle`: [`handle`](world-draw-drawing.md#type-handle).
 

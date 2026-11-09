@@ -21,8 +21,8 @@ pub(super) fn lower() -> std::io::Result<()> {
     }
 }
 
-/// Linux niceness applies to the calling worker's task ID, not the whole process.
-#[cfg(target_os = "linux")]
+/// Linux and Android niceness applies to the calling worker's task ID, not the whole process.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(super) fn lower() -> std::io::Result<()> {
     // These calls address the current task; an inherited lower priority stays lower.
     let task = unsafe { libc::gettid() as libc::id_t };
@@ -71,7 +71,12 @@ pub(super) fn restore() -> std::io::Result<()> {
 }
 
 /// Other targets retain queue isolation and bounded worker counts without an OS priority hint.
-#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android",
+    windows
+)))]
 pub(super) fn lower() -> std::io::Result<()> {
     Ok(())
 }
@@ -87,7 +92,7 @@ pub(super) fn is_lowered() -> bool {
 }
 
 /// Whether the calling thread runs below normal priority, as [`lower`] leaves it.
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, any(target_os = "linux", target_os = "android")))]
 pub(super) fn is_lowered() -> bool {
     // These calls address the current task only.
     unsafe { libc::getpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t) > 0 }

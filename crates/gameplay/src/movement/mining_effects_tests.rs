@@ -10,7 +10,7 @@ use crate::movement::{
     PhysicsMovementSample, PhysicsSampleContext,
 };
 
-// Protocol-2193 identities: gophertunnel b725d82563e9,
+// Protocol-2225 identities: gophertunnel b725d82563e9,
 // minecraft/protocol/packet/mob_effect.go. These tests do not apply mining rates.
 const MINING_IDS: [i32; 3] = [3, 4, 26];
 

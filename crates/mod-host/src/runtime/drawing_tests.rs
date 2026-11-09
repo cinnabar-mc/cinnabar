@@ -226,6 +226,7 @@ fn frame_draw(geometry: wit::Handle) -> wit::Instance {
     wit::Instance {
         geometry,
         material: None,
+        clip: None,
         params: Vec::new(),
         anchor: wit::Anchor::Camera,
         transform: wit::Transform {
@@ -453,4 +454,37 @@ fn dimension_rebind_invalidates_old_drawing_and_observations_before_callbacks() 
     );
     let resources = state.render.retained.snapshot();
     assert_eq!((resources.connection, resources.dimension), (1, 1));
+}
+
+#[test]
+fn block_creation_requires_both_generic_drawing_grants() {
+    let mut instance = instance();
+    let grid = wit::GeometrySpec::Blocks(wit::BlockGrid {
+        size: (1, 1, 1),
+        palette: vec![wit::BlockState::RuntimeId(1)],
+        cells: vec![
+            mod_api::drawing::pack_block_cell(mod_api::drawing::api::BlockCell {
+                palette: 0,
+                sky_light: None,
+                block_light: None,
+            })
+            .unwrap(),
+        ],
+    });
+    let state = instance.store.data_mut();
+    assert!(matches!(
+        state
+            .create_geometry(grid.clone())
+            .unwrap()
+            .unwrap_err()
+            .code,
+        wit::ErrorCode::Denied
+    ));
+    state.grants.render_material = true;
+    assert!(state.create_geometry(grid.clone()).unwrap().is_ok());
+    state.grants.world_draw = false;
+    assert!(matches!(
+        state.create_geometry(grid).unwrap().unwrap_err().code,
+        wit::ErrorCode::Denied
+    ));
 }

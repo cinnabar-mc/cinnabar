@@ -3,6 +3,105 @@ use ::protocol::test_support::recipes::{
     CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
 };
 
+/// The observed Realm bed recipe repeats metadata in the name and aux field.
+#[test]
+fn suffixed_recipe_bed_matches_the_shifted_workbench_grid() {
+    let mut ingredients = vec![IngredientFixture::named("minecraft:white_wool:0", 0); 3];
+    ingredients.extend(vec![IngredientFixture::tagged("minecraft:planks"); 3]);
+    let bed = RecipeFixture::shaped(
+        "bed_color_15",
+        3,
+        2,
+        ingredients,
+        vec![OutputFixture::new(421, 1)],
+    );
+    let catalog = catalog(vec![bed]);
+    for offset in [0, 3] {
+        let mut grid = [None; 9];
+        grid[offset..offset + 3].fill(item("minecraft:white_wool"));
+        grid[offset + 3..offset + 6].fill(item("minecraft:oak_planks"));
+        let CraftGridMatch::Unique(recipe) = match_crafting_grid(&catalog, 3, &grid) else {
+            panic!("the advertised white bed recipe must match at either row offset");
+        };
+        assert_eq!(recipe.output().network_id, 421);
+        assert_eq!(recipe.output().aux, 0);
+        assert_eq!(recipe.output().count, 1);
+        assert_eq!(
+            recipe.ingredient_views()[0].as_ref().unwrap().name.as_ref(),
+            "minecraft:white_wool"
+        );
+    }
+}
+
+/// Removing a redundant suffix must retain exact color and wildcard semantics.
+#[test]
+fn suffixed_recipe_names_preserve_metadata_constraints() {
+    for aux in [14, i32::from(protocol::RECIPE_ANY_AUX)] {
+        let descriptor = IngredientFixture::named(&format!("minecraft:bed:{aux}"), aux);
+        let recipe = RecipeFixture::shapeless(
+            "test:bed_color",
+            vec![descriptor],
+            vec![OutputFixture::new(421, 1)],
+        );
+        let catalog = catalog(vec![recipe]);
+        for metadata in [13, 14] {
+            let mut bed = item("minecraft:bed");
+            bed.as_mut().unwrap().metadata = metadata;
+            let result = match_crafting_grid(&catalog, 2, &[bed, None, None, None]);
+            assert_eq!(
+                matches!(result, CraftGridMatch::Unique(_)),
+                aux == i32::from(protocol::RECIPE_ANY_AUX) || metadata == 14
+            );
+        }
+    }
+}
+
+/// Bedrock's item-ID parser lets a suffix in `0..=255` replace the descriptor
+/// aux and keeps the descriptor aux for any other suffix.
+#[test]
+fn suffixed_recipe_names_resolve_aux_as_bedrock_does() {
+    for (name, aux, expected) in [
+        ("minecraft:white_wool:1", 0, 1),
+        ("minecraft:white_wool:255", 0, 255),
+        ("minecraft:white_wool:256", 3, 3),
+        ("minecraft:white_wool:65536", 3, 3),
+        ("minecraft:white_wool:-1", 3, 3),
+        ("minecraft:white_wool:color", 3, 3),
+        ("minecraft:white_wool::0", 3, 3),
+        ("minecraft:white_wool:", 3, 3),
+        ("minecraft:white_wool:2:9", 0, 2),
+    ] {
+        let catalog = catalog(vec![RecipeFixture::shapeless(
+            "test:suffix",
+            vec![IngredientFixture::named(name, aux)],
+            vec![OutputFixture::new(421, 1)],
+        )]);
+        for metadata in [0, 1, 2, 3, 255] {
+            let mut wool = item("minecraft:white_wool");
+            wool.as_mut().unwrap().metadata = metadata;
+            let result = match_crafting_grid(&catalog, 2, &[wool, None, None, None]);
+            assert_eq!(
+                matches!(result, CraftGridMatch::Unique(_)),
+                metadata == expected,
+                "{name} with aux {aux} against metadata {metadata}"
+            );
+        }
+    }
+}
+
+/// Tags are not item IDs, so a metadata suffix leaves the tag unusable.
+#[test]
+fn suffixed_recipe_tags_are_not_admitted() {
+    let mut input = IngredientFixture::named("minecraft:planks:0", 0);
+    input.descriptor[0].0 = "item_tag".into();
+    let catalog = catalog(vec![RecipeFixture::shapeless(
+        "test:invalid",
+        vec![input],
+        vec![OutputFixture::new(421, 1)],
+    )]);
+    assert_eq!(catalog.crafting_recipes().count(), 0);
+}
+
 /// Encode an ingredient through the same descriptor grammar used on the wire.
 fn named(name: Option<&str>) -> IngredientFixture {
     name.map_or_else(IngredientFixture::empty, |name| {

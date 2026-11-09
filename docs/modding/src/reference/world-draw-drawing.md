@@ -2,7 +2,7 @@
 
 # World drawing: drawing
 
-`cinnabar:world-draw/drawing@0.1.0`
+`cinnabar:world-draw/drawing@0.2.0`
 
 Owner and connection scoped resources. Every mutation is a callback transaction.
 
@@ -164,16 +164,129 @@ record polyline {
 
 Types: [`vertex`](world-draw-drawing.md#type-vertex).
 
+<a id="type-named-block"></a>
+
+### `named-block`
+
+Named states use the canonical JSON state object returned by terrain observations.
+
+```wit
+record named-block {
+    name: string,
+    states: string,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `name` | `string` |  |
+| `states` | `string` |  |
+
+<a id="type-block-state"></a>
+
+### `block-state`
+
+Selects a session runtime ID or an exact named state.
+
+```wit
+variant block-state {
+    runtime-id(u32),
+    named(named-block),
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `runtime-id` | `u32` |  |
+| `named` | `named-block` |  |
+
+Types: [`named-block`](world-draw-drawing.md#type-named-block).
+
+<a id="type-block-cell"></a>
+
+### `block-cell`
+
+Light channels are 0..15. Missing light uses sky 15 and block 0.
+
+```wit
+record block-cell {
+    palette: u32,
+    sky-light: option<u8>,
+    block-light: option<u8>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `palette` | `u32` |  |
+| `sky-light` | `option<u8>` |  |
+| `block-light` | `option<u8>` |  |
+
+<a id="type-block-cell-word"></a>
+
+### `block-cell-word`
+
+Low 16 bits select the palette; the next byte is sky light, the high byte block light.
+Each light byte is 0..15, or 255 for absent. SDK pack-block-cell builds these words.
+
+```wit
+type block-cell-word = u32;
+```
+
+<a id="type-block-grid"></a>
+
+### `block-grid`
+
+Dense packed cells in x,z,y order (y changes fastest). Outside cells are air.
+Plain words upload without a guest-side record conversion loop.
+
+```wit
+record block-grid {
+    size: tuple<u32, u32, u32>,
+    palette: list<block-state>,
+    cells: list<block-cell-word>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `size` | `tuple<u32, u32, u32>` |  |
+| `palette` | `list<block-state>` |  |
+| `cells` | `list<block-cell-word>` |  |
+
+Types: [`block-cell-word`](world-draw-drawing.md#type-block-cell-word), [`block-state`](world-draw-drawing.md#type-block-state).
+
+<a id="type-block-edit"></a>
+
+### `block-edit`
+
+Updates one existing cell, retaining the grid's size and palette.
+
+```wit
+record block-edit {
+    position: tuple<u32, u32, u32>,
+    cell: block-cell,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `position` | `tuple<u32, u32, u32>` |  |
+| `cell` | `block-cell` |  |
+
+Types: [`block-cell`](world-draw-drawing.md#type-block-cell).
+
 <a id="type-geometry-spec"></a>
 
 ### `geometry-spec`
 
-Chooses indexed triangles or a host-expanded polyline.
+Chooses indexed triangles, a polyline or host-meshed blocks.
 
 ```wit
 variant geometry-spec {
     triangles(mesh),
     line(polyline),
+    blocks(block-grid),
 }
 ```
 
@@ -181,8 +294,27 @@ variant geometry-spec {
 | --- | --- | --- |
 | `triangles` | `mesh` |  |
 | `line` | `polyline` |  |
+| `blocks` | `block-grid` |  |
 
-Types: [`mesh`](world-draw-drawing.md#type-mesh), [`polyline`](world-draw-drawing.md#type-polyline).
+Types: [`block-grid`](world-draw-drawing.md#type-block-grid), [`mesh`](world-draw-drawing.md#type-mesh), [`polyline`](world-draw-drawing.md#type-polyline).
+
+<a id="type-geometry-state"></a>
+
+### `geometry-state`
+
+Pending worker admission or completed geometry; failures return a draw error.
+
+```wit
+enum geometry-state {
+    pending,
+    ready,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `pending` |  |  |
+| `ready` |  |  |
 
 <a id="type-world-anchor"></a>
 
@@ -284,6 +416,30 @@ record transform {
 | `rotation` | `tuple<f32, f32, f32, f32>` |  |
 | `scale` | `tuple<f32, f32, f32>` |  |
 
+<a id="type-clip-spec"></a>
+
+### `clip-spec`
+
+A visible triangle mask. A parent intersects coverage and gives nesting its own depth.
+
+```wit
+record clip-spec {
+    geometry: handle,
+    anchor: anchor,
+    transform: transform,
+    parent: option<handle>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `geometry` | `handle` |  |
+| `anchor` | `anchor` |  |
+| `transform` | `transform` |  |
+| `parent` | `option<handle>` |  |
+
+Types: [`anchor`](world-draw-drawing.md#type-anchor), [`handle`](world-draw-drawing.md#type-handle), [`transform`](world-draw-drawing.md#type-transform).
+
 <a id="type-depth"></a>
 
 ### `depth`
@@ -380,12 +536,13 @@ enum cap {
 
 ### `instance`
 
-One retained geometry placement; geometry and material handles belong to the same owner.
+One retained placement. Block grids use host materials and require white tint; handles belong to the same owner.
 
 ```wit
 record instance {
     geometry: handle,
     material: option<handle>,
+    clip: option<handle>,
     params: list<f32>,
     anchor: anchor,
     transform: transform,
@@ -403,6 +560,7 @@ record instance {
 | --- | --- | --- |
 | `geometry` | `handle` |  |
 | `material` | `option<handle>` |  |
+| `clip` | `option<handle>` |  |
 | `params` | `list<f32>` |  |
 | `anchor` | `anchor` |  |
 | `transform` | `transform` |  |
@@ -486,6 +644,54 @@ create-geometry: func(spec: geometry-spec) -> result<handle, draw-error>;
 Allocates validated geometry owned by this component; mutations commit only on callback success.
 
 Types: [`draw-error`](world-draw-drawing.md#type-draw-error), [`geometry-spec`](world-draw-drawing.md#type-geometry-spec), [`handle`](world-draw-drawing.md#type-handle).
+
+<a id="geometry-status"></a>
+
+### `geometry-status`
+
+```wit
+geometry-status: func(id: handle) -> result<geometry-state, draw-error>;
+```
+
+Block geometry requires render-material. Worker failures are returned here.
+
+Types: [`draw-error`](world-draw-drawing.md#type-draw-error), [`geometry-state`](world-draw-drawing.md#type-geometry-state), [`handle`](world-draw-drawing.md#type-handle).
+
+<a id="update-blocks"></a>
+
+### `update-blocks`
+
+```wit
+update-blocks: func(id: handle, edits: list<block-edit>) -> result<_, draw-error>;
+```
+
+Changes cells atomically. Wait for readiness before submitting another edit batch.
+
+Types: [`block-edit`](world-draw-drawing.md#type-block-edit), [`draw-error`](world-draw-drawing.md#type-draw-error), [`handle`](world-draw-drawing.md#type-handle).
+
+<a id="create-clip"></a>
+
+### `create-clip`
+
+```wit
+create-clip: func(spec: clip-spec) -> result<handle, draw-error>;
+```
+
+Creates a world-depth-tested mask with an independent content depth buffer.
+
+Types: [`clip-spec`](world-draw-drawing.md#type-clip-spec), [`draw-error`](world-draw-drawing.md#type-draw-error), [`handle`](world-draw-drawing.md#type-handle).
+
+<a id="clip-status"></a>
+
+### `clip-status`
+
+```wit
+clip-status: func(id: handle) -> result<geometry-state, draw-error>;
+```
+
+Reports mask attachment admission or an explicit GPU budget failure.
+
+Types: [`draw-error`](world-draw-drawing.md#type-draw-error), [`geometry-state`](world-draw-drawing.md#type-geometry-state), [`handle`](world-draw-drawing.md#type-handle).
 
 <a id="create"></a>
 

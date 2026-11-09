@@ -353,6 +353,7 @@ fn faded(visual: &UiVisual, opacity: f32, meshes: &mut BTreeMap<usize, Arc<UiMes
         UiVisual::TintedMesh { color, .. }
         | UiVisual::Solid { color, .. }
         | UiVisual::Sprite { color, .. }
+        | UiVisual::RgbCoverageSprite { color, .. }
         | UiVisual::ColorMaskSprite { color, .. }
         | UiVisual::RotatedSprite { color, .. }
         | UiVisual::GlintSprite { color, .. }
@@ -367,6 +368,7 @@ fn faded(visual: &UiVisual, opacity: f32, meshes: &mut BTreeMap<usize, Arc<UiMes
             alpha(&mut color);
             let vertices: Vec<_> = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
                 .map(|position| UiMeshVertex {
+                    terrain_mips: false,
                     position,
                     clip_z: 0.0,
                     clip_w: 1.0,

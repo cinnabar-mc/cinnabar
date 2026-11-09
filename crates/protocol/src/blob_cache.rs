@@ -4,11 +4,11 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
-use bedrock_protocol_1_26_51::types::{DimensionType, MissingBlobData, SubChunkData};
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
+use bedrock_protocol_1_26_60::types::{DimensionType, MissingBlobData, SubChunkData};
 #[cfg(test)]
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.

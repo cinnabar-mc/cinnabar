@@ -230,3 +230,42 @@ fn inventory_search_click_retains_focus_in_personal_and_workbench_screens() {
         assert!(!runtime.screen_state().text_focused());
     }
 }
+
+/// The focused recipe search box draws its caret where typing goes, follows caret keys, and
+/// highlights a selection instead.
+#[test]
+fn focused_recipe_search_draws_its_caret_at_the_edit_point() {
+    use super::super::super::forms::pack_harness::{drawn_texts, font};
+    use semantic_input::KeyboardKey;
+
+    let Some(mut presentation) = engine_presentation_with(font()) else {
+        eprintln!(
+            "skipping focused_recipe_search_draws_its_caret_at_the_edit_point: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = personal(&mut player);
+    edit_search(&mut presentation, &mut player, &mut runtime);
+    let dpi = DpiScale::new(1.0).unwrap();
+    let mut drawn = |runtime: &UiRuntime, now: u64| {
+        presentation
+            .build(&player, runtime, now, [1280, 720], dpi)
+            .unwrap();
+        drawn_texts(&presentation.last_frame.as_ref().expect("a frame").nodes)
+    };
+    let caret = json_ui::CARET_GLYPH;
+    let texts = drawn(&runtime, 1_000);
+    assert!(texts.contains(&format!("iro{caret}")), "{texts:?}");
+    assert!(
+        runtime
+            .screen_state_mut()
+            .edit_text_key(KeyboardKey::ArrowLeft, false, false)
+    );
+    let texts = drawn(&runtime, 2_000);
+    assert!(texts.contains(&format!("ir{caret}o")), "{texts:?}");
+    assert!(runtime.screen_state_mut().select_all_text());
+    let texts = drawn(&runtime, 3_000);
+    assert!(texts.iter().any(|text| text == "iro"), "{texts:?}");
+    assert!(!texts.iter().any(|text| text.contains(caret)), "{texts:?}");
+}

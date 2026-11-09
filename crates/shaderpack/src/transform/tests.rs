@@ -80,7 +80,10 @@ fn a_version_120_program_becomes_vulkan_glsl_naga_validates() {
             "iris_DrawOrigin",
         ]
     );
-    assert_eq!(fragment.0.frag_outputs, [(0, "iris_FragData0".to_owned())]);
+    assert_eq!(
+        fragment.0.frag_outputs,
+        [(0, ALPHA_TESTED_OUTPUT.to_owned())]
+    );
     assert!(
         fragment
             .0
@@ -96,8 +99,21 @@ fn a_version_120_program_becomes_vulkan_glsl_naga_validates() {
             origins: &origins,
             lines: &lines,
         };
-        if let Err(errors) = compile(stage, &map) {
-            panic!("{stage:?} does not validate: {errors:?}\n{glsl}");
+        let compiled = compile(stage, &map)
+            .unwrap_or_else(|errors| panic!("{stage:?} does not validate: {errors:?}\n{glsl}"));
+        if stage == StageKind::Fragment {
+            // The host finds the alpha-tested output by this name in the compiled module.
+            let module = &compiled.module;
+            let result = module.entry_points[0].function.result.as_ref();
+            let result = result.expect("the fragment stage has outputs");
+            let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+                panic!("the fragment result is a struct of outputs");
+            };
+            assert!(
+                members
+                    .iter()
+                    .any(|m| m.name.as_deref() == Some(ALPHA_TESTED_OUTPUT))
+            );
         }
     }
 }
@@ -195,4 +211,29 @@ fn loop_shadowing_preserves_a_valid_shader() {
         },
     );
     assert!(result.is_ok(), "{result:?}\n{glsl}");
+}
+
+#[test]
+fn only_compatibility_stages_write_the_alpha_tested_output() {
+    let text = "#version 150\nvoid main() { gl_FragData[0] = vec4(1.0); }\n";
+    let source = PackSource::from_files([("gbuffers_basic.fsh", text)]);
+    let expanded =
+        expand(&source, "gbuffers_basic.fsh", &[], &OptionValues::new()).expect("expands");
+    let pp = preprocess(expanded, &[]).expect("preprocesses");
+    let outputs = |normalize_legacy| {
+        let names = ResourceNames {
+            software_fused_dot: false,
+            image_formats: &HashMap::new(),
+            sampler_classes: &SamplerClasses::default(),
+            normalize_legacy,
+            geometry: true,
+            vertex_clip: true,
+        };
+        let mut iface = ProgramInterface::default();
+        transform(&pp, StageKind::Fragment, &mut iface, &names)
+            .expect("transforms")
+            .frag_outputs
+    };
+    assert_eq!(outputs(true), [(0, ALPHA_TESTED_OUTPUT.to_owned())]);
+    assert_ne!(outputs(false), [(0, ALPHA_TESTED_OUTPUT.to_owned())]);
 }

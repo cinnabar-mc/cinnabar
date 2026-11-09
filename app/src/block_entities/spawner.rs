@@ -14,10 +14,7 @@ use client_presentation::{
 use client_world::DisplayActorStore;
 use render_model::spawner::{SpawnerDisplayClock, spawner_actor_transform};
 use render_model::{ActorArtworkPages, ActorCullView, matrix_rows};
-use std::{
-    collections::BTreeSet,
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 use world::{BlockEntityKey, BlockEntityNbt, Chunk, ChunkKey, SUB_CHUNK_SIDE};
 
 use super::system::{SCAN_RADIUS_BLOCKS as DISPLAY_SCAN_RADIUS, columns};
@@ -25,6 +22,44 @@ const DEFAULT_ACTIVATION_RANGE: f32 = 16.0;
 const DEFAULT_SPAWN_DELAY: i32 = 0;
 
 type EntityIndex = std::collections::BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>;
+type Candidate = (ChunkKey, usize);
+/// A resolved lifetime and its frame's placement inputs.
+type Display = (u64, [i32; 3], SpawnerDisplayClock);
+
+/// Temporary request order retained by one display publisher.
+#[derive(Default)]
+struct PreparationScratch {
+    candidates: Vec<Candidate>,
+    offscreen: Vec<Candidate>,
+    positions: Vec<[i32; 3]>,
+    players: Vec<Vec3>,
+    displays: Vec<Display>,
+}
+
+impl PreparationScratch {
+    /// Filters requests and puts in-view candidates first without changing either group's scan order.
+    fn prepare_candidates(
+        &mut self,
+        requests: impl Iterator<Item = Candidate>,
+        mut in_range: impl FnMut(Candidate) -> bool,
+        mut in_view: impl FnMut(Candidate) -> bool,
+    ) {
+        self.candidates.clear();
+        self.offscreen.clear();
+        for request in requests {
+            if !in_range(request) {
+                continue;
+            }
+            if in_view(request) {
+                self.candidates.push(request);
+            } else {
+                self.offscreen.push(request);
+            }
+        }
+        self.candidates.append(&mut self.offscreen);
+    }
+}
+
 struct Column {
     source: Weak<EntityIndex>,
     displays: Vec<Request>,
@@ -77,6 +112,37 @@ struct Pool {
     layers: LayerPoseCache,
     /// The last column pass, reused while its inputs and the terrain are unchanged.
     listing: Option<Listing>,
+    scratch: PreparationScratch,
+}
+
+impl Pool {
+    /// Starts fresh display lifetimes, reusing catalog analysis only for the same asset source.
+    fn replacement(
+        previous: Option<Self>,
+        catalog: actor_animation::ActorAnimationCatalog,
+        session: (u64, i32),
+    ) -> Self {
+        let source = Arc::clone(catalog.assets());
+        let actors = match previous {
+            Some(previous) if Arc::ptr_eq(&previous.source, &source) => {
+                previous.actors.restart(session.1)
+            }
+            _ => DisplayActorStore::new(session.1, catalog),
+        };
+        Self {
+            actors,
+            source,
+            session,
+            pack: None,
+            columns: Default::default(),
+            rescans: Default::default(),
+            spins: Default::default(),
+            poses: Default::default(),
+            layers: Default::default(),
+            listing: None,
+            scratch: PreparationScratch::default(),
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -255,18 +321,14 @@ pub(crate) fn prepare_spawner_actors(
         .as_ref()
         .is_none_or(|pool| pool.session != session || !Arc::ptr_eq(&pool.source, assets))
     {
-        publisher.0 = Some(Pool {
-            source: Arc::clone(assets),
+        publisher.0 = Some(Pool::replacement(
+            publisher.0.take(),
+            stream
+                .authority()
+                .actor_animation_catalog()
+                .unwrap_or_else(|| actor_animation::ActorAnimationCatalog::new(Arc::clone(assets))),
             session,
-            pack: None,
-            actors: DisplayActorStore::new(session.1, Arc::clone(assets)),
-            columns: Default::default(),
-            rescans: Default::default(),
-            spins: Default::default(),
-            poses: Default::default(),
-            layers: Default::default(),
-            listing: None,
-        });
+        ));
     }
     let pool = publisher.0.as_mut().unwrap();
     let pack_changed = match (&pool.pack, &world.pack_entities) {
@@ -318,16 +380,7 @@ pub(crate) fn prepare_spawner_actors(
         Some(listing) if listing.settled.as_ref() == Some(&inputs) => listing,
         _ => list_spawners(pool, stream.collision_store(), session.1, inputs),
     };
-    let mut candidates: Vec<(ChunkKey, usize)> = listing
-        .requests
-        .iter()
-        .copied()
-        .filter(|&(key, index)| {
-            display_center(pool.columns[&key].displays[index].position).distance_squared(eye)
-                <= DISPLAY_SCAN_RADIUS * DISPLAY_SCAN_RADIUS
-        })
-        .collect();
-    pool.listing = Some(listing);
+    let mut scratch = std::mem::take(&mut pool.scratch);
     let view = camera
         .single()
         .ok()
@@ -336,41 +389,48 @@ pub(crate) fn prepare_spawner_actors(
             camera_position: transform.translation,
             max_distance: DISPLAY_SCAN_RADIUS * 2.0,
         });
-    // Stable, so spawners in view keep their scan order ahead of those outside it.
-    candidates.sort_by_cached_key(|&(key, index)| {
-        !block_in_view(view, pool.columns[&key].displays[index].position)
-    });
+    scratch.prepare_candidates(
+        listing.requests.iter().copied(),
+        |(key, index)| {
+            display_center(pool.columns[&key].displays[index].position).distance_squared(eye)
+                <= DISPLAY_SCAN_RADIUS * DISPLAY_SCAN_RADIUS
+        },
+        |(key, index)| block_in_view(view, pool.columns[&key].displays[index].position),
+    );
+    pool.listing = Some(listing);
     // Retire every lifetime outside the wanted set first so in-view newcomers find free slots.
-    let wanted = candidates
-        .iter()
-        .map(|&(key, index)| &pool.columns[&key].displays[index])
-        .filter(|request| !request.rigless)
-        .take(client_world::MAX_DISPLAY_ACTORS)
-        .map(|request| request.position)
-        .collect();
-    pool.actors.retain(&wanted);
-    let players = if candidates.is_empty() {
-        Vec::new()
-    } else {
+    scratch.positions.clear();
+    scratch.positions.extend(
+        scratch
+            .candidates
+            .iter()
+            .map(|&(key, index)| &pool.columns[&key].displays[index])
+            .filter(|request| !request.rigless)
+            .take(client_world::MAX_DISPLAY_ACTORS)
+            .map(|request| request.position),
+    );
+    scratch.positions.sort_unstable();
+    pool.actors
+        .retain(|position| scratch.positions.binary_search(&position).is_ok());
+    scratch.players.clear();
+    if !scratch.candidates.is_empty() {
         let authority = stream.authority();
         let local = authority.actor(authority.local_player_runtime_id());
-        let mut players: Vec<Vec3> = authority
-            .present_remote_players()
-            .filter_map(|actor| {
+        scratch
+            .players
+            .extend(authority.present_remote_players().filter_map(|actor| {
                 actor
                     .interpolated_position(step.partial_tick)
                     .map(Vec3::from_array)
-            })
-            .collect();
+            }));
         if local.is_some_and(|actor| authority.camera_aim_assist_eligible(actor) == Some(true)) {
-            players.push(feet);
+            scratch.players.push(feet);
         }
-        players
-    };
-    let mut visible = BTreeSet::new();
-    let mut displays = Vec::new();
-    for (key, index) in candidates {
-        if displays.len() >= client_world::MAX_DISPLAY_ACTORS {
+    }
+    scratch.positions.clear();
+    scratch.displays.clear();
+    for &(key, index) in &scratch.candidates {
+        if scratch.displays.len() >= client_world::MAX_DISPLAY_ACTORS {
             break;
         }
         let request = &mut pool.columns.get_mut(&key).unwrap().displays[index];
@@ -382,7 +442,7 @@ pub(crate) fn prepare_spawner_actors(
             request.rigless = true;
             continue;
         };
-        visible.insert(request.position);
+        scratch.positions.push(request.position);
         let clock = pool.spins.entry(request.position).or_insert_with(|| Clock {
             source: Arc::clone(&request.nbt),
             spin: SpawnerDisplayClock {
@@ -397,15 +457,20 @@ pub(crate) fn prepare_spawner_actors(
         let center = display_center(request.position);
         clock.spin.advance(
             step.ticks,
-            players.iter().any(|player| {
+            scratch.players.iter().any(|player| {
                 center.distance_squared(*player)
                     <= request.activation_range * request.activation_range
             }),
         );
-        displays.push((runtime, request.position, clock.spin));
+        scratch
+            .displays
+            .push((runtime, request.position, clock.spin));
     }
-    pool.spins.retain(|position, _| visible.contains(position));
-    pool.actors.retain(&visible);
+    scratch.positions.sort_unstable();
+    pool.spins
+        .retain(|position, _| scratch.positions.binary_search(position).is_ok());
+    pool.actors
+        .retain(|position| scratch.positions.binary_search(&position).is_ok());
     pool.actors.advance(step.ticks);
     let artwork = state.actor_artwork(&artwork.0);
     pending.extend_entities(display_batch(
@@ -413,8 +478,9 @@ pub(crate) fn prepare_spawner_actors(
         stream,
         artwork,
         step.partial_tick,
-        displays,
+        &scratch.displays,
     ));
+    pool.scratch = scratch;
 }
 
 /// Whether any part of the spawner block at `position` lies in the view; fails open without one.
@@ -442,7 +508,7 @@ fn display_batch(
     stream: &chunk_pipeline::WorldStream,
     artwork: &ActorArtworkPages,
     partial_tick: f32,
-    displays: Vec<(u64, [i32; 3], SpawnerDisplayClock)>,
+    displays: &[Display],
 ) -> ActorPresentationBatch {
     let mut batch = ActorPresentationBatch {
         submissions: Vec::new(),
@@ -451,7 +517,7 @@ fn display_batch(
     };
     pool.poses.begin_frame();
     let mut sampled = pool.actors.frame(partial_tick);
-    for (runtime, position, spin) in displays {
+    for &(runtime, position, spin) in displays {
         let (Some(actor), Some(rig)) = (pool.actors.actor(runtime), pool.actors.rig(runtime))
         else {
             continue;
@@ -502,7 +568,7 @@ fn display_batch(
     pool.layers.begin_frame();
     apply_render_layers_cached(
         &mut batch,
-        |runtime| sampled.layers(runtime),
+        |runtime| sampled.layers_with_skin(runtime),
         artwork,
         &mut pool.layers,
     );

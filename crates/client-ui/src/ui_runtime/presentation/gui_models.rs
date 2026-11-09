@@ -23,8 +23,13 @@ mod cosmetic_previews;
 mod fire;
 mod held;
 pub(super) mod hud_model;
+mod live_equipment;
 mod live_player;
 mod pack_equipment;
+mod player_layers;
+mod shield_icons;
+mod world_shield;
+pub use world_shield::WorldShieldArtwork;
 mod sources;
 use sources::{ModulatedMeshes, gui_cube_sheet, modulated};
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
@@ -124,6 +129,7 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 
 #[derive(Default)]
 pub(super) struct GuiModels {
+    pub(super) shield_icons: shield_icons::ShieldIcons,
     pub(super) enabled: bool,
     #[cfg(test)]
     hud_cpu_reference: bool,
@@ -131,7 +137,12 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    pub(super) live_equipment: live_equipment::LiveEquipment,
+    pub(super) player_layers: player_layers::PlayerLayers,
     pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
+    /// A screen's live renderer draws beside the HUD doll with its own head turn.
+    pub(super) screen_model: std::sync::Mutex<hud_model::HudModel>,
+    live_renderer_shown: std::sync::atomic::AtomicBool,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     pub(super) wearing_elytra: bool,
@@ -144,6 +155,7 @@ pub(super) struct GuiModels {
 /// Static item meshes and atlas pages prepared off the menu frame.
 #[derive(Default)]
 pub struct PreparedGuiModels {
+    pub(super) shield: Option<Arc<shield_icons::Source>>,
     pub(super) color_masks: super::color_icons::MaskRefs,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) cape: Option<render_model::cape::CapeRig>,
@@ -153,10 +165,29 @@ pub struct PreparedGuiModels {
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: held::HeldModels,
+    /// Ordinary items that retained their sprite because a held texture could not fit.
+    pub(super) held_texture_fallbacks: usize,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
 }
 
+impl PreparedGuiModels {
+    /// Reports held items that used resident sprites after their model artwork could not fit.
+    pub const fn held_texture_fallbacks(&self) -> usize {
+        self.held_texture_fallbacks
+    }
+}
+
 impl GuiModels {
+    /// The retained model of the doll the HUD paints, or of the one an open screen paints,
+    /// whichever renderer each uses.
+    pub(super) fn doll_model(&self, in_hud: bool) -> &std::sync::Mutex<hud_model::HudModel> {
+        if in_hud {
+            &self.hud_model
+        } else {
+            &self.screen_model
+        }
+    }
+
     /// Clears selected hand models when their equipment catalog changes.
     pub(super) fn clear_selected_hands(&mut self) {
         self.selected_held = [None, None];
@@ -251,6 +282,7 @@ impl GuiModelPreparation {
             }
         }
         let mut models = BTreeMap::new();
+        let mut shield = None;
         if let Some(equipment) = equipment {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
@@ -270,10 +302,14 @@ impl GuiModelPreparation {
                 let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
                 if let Some(mesh) = item_gui::shield(geometry, texture, source) {
                     models.insert(icon_key(icon), mesh);
+                    shield = Some(Arc::new(shield_icons::Source {
+                        geometry: geometry.clone(),
+                        texture: texture.clone(),
+                    }));
                 }
             }
         }
-        let held = held::prepare(
+        let (held, held_texture_fallbacks) = held::prepare(
             &mut atlas,
             entities,
             icons,
@@ -281,7 +317,7 @@ impl GuiModelPreparation {
                 .as_deref()
                 .ok_or(UiPresentationError::InvalidFontTexture)?,
             equipment,
-            &held_sources,
+            world,
         )?;
         let required_pages = atlas.page_count();
         let mut optional_models = BTreeSet::new();
@@ -387,6 +423,7 @@ impl GuiModelPreparation {
             render_model::hats::rig(hat);
         }
         Ok(PreparedGuiModels {
+            shield,
             color_masks: super::color_icons::prepare(
                 entities,
                 icons,
@@ -399,6 +436,7 @@ impl GuiModelPreparation {
             required_pages,
             textures,
             held,
+            held_texture_fallbacks,
             hand_pivots: held::player_hands(entities),
             cape: render_model::cape::CapeRig::resolve(entities),
         })
@@ -441,6 +479,7 @@ impl UiPresentationRuntime {
         sources: PreparedGuiModels,
     ) -> Result<(), UiPresentationError> {
         self.gui_models.sources = sources;
+        self.gui_models.shield_icons = Default::default();
         self.gui_models.clear_selected_hands();
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
@@ -495,6 +534,7 @@ impl UiPresentationRuntime {
     }
 
     /// Admits player geometry against the actual frame, measuring coalescing only near batch limits.
+    /// Publishes whether a screen showed a live renderer, so the next frame can capture for it.
     /// `hud` holds the nodes the HUD painted, whose doll keeps its own pose.
     pub(super) fn apply_gui_models_in(
         &self,
@@ -504,6 +544,17 @@ impl UiPresentationRuntime {
         effects: TextEffects<'_>,
         hud: std::ops::Range<usize>,
     ) {
+        self.gui_models
+            .live_renderer_shown
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        // Node identities change between frames, so no doll keeps another frame's controls.
+        for in_hud in [true, false] {
+            self.gui_models
+                .doll_model(in_hud)
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clear_scopes();
+        }
         if !self.gui_models.enabled {
             return;
         }
@@ -526,6 +577,9 @@ impl UiPresentationRuntime {
             },
             |mesh, color, glint| modulated_meshes.get(mesh, color, glint),
         );
+        self.gui_models
+            .shield_icons
+            .apply(nodes, &mut modulated_meshes);
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
         if let Some(key) = self.player_preview_icon.map(icon_key) {
@@ -572,9 +626,23 @@ impl UiPresentationRuntime {
         {
             return;
         }
-        if view == player_preview::PreviewView::Hud
+        let live_renderer = matches!(view, player_preview::PreviewView::Live { .. });
+        if live_renderer {
+            self.gui_models
+                .live_renderer_shown
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if (view == player_preview::PreviewView::Hud
+            || (targets.in_hud
+                && matches!(
+                    view,
+                    player_preview::PreviewView::Doll { .. }
+                        | player_preview::PreviewView::DollLook { .. }
+                )
+                && self.gui_models.player_layers.has_layers())
+            || (live_renderer && self.gui_models.live_player.fresh))
             && !self.hud_cpu_reference()
-            && self.gui_models.live_player.body.geometry.is_some()
+            && (live_renderer || self.gui_models.live_player.body.geometry.is_some())
         {
             let instances = nodes
                 .iter()
@@ -582,47 +650,57 @@ impl UiPresentationRuntime {
                 .filter(|(index, node)| is_preview(*index, node.visual()))
                 .count();
             let held = self.preview_held_models([true; 2]);
-            let player = self.hud_player_mesh(held, |cache, mask, indices, batches| {
-                let prospective = ui::UiTree::check_visual_budget_with_mesh(
-                    nodes
-                        .iter()
-                        .enumerate()
-                        .filter(|(index, node)| !is_preview(*index, node.visual()))
-                        .map(|(_, node)| node.visual()),
-                    indices,
-                    batches,
-                    instances,
-                );
-                match prospective {
-                    Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
-                    Ok(_) => {
-                        let Some(probe) = cache.batch_probe(mask) else {
-                            return false;
-                        };
-                        let mut baseline = nodes.to_vec();
-                        replace_model_icons(
-                            &mut baseline,
-                            Some(targets),
-                            &self.gui_models.sources.faded_thumbnails,
-                            || Some(probe),
-                            |_| None,
-                            modulated,
-                        );
-                        RetainedDraw::build(
-                            &baseline,
-                            viewport,
-                            UiScale::default(),
-                            safe_area,
-                            effects,
-                        )
-                        .is_ok_and(|draw| {
-                            draw.draw_list().batches.len() <= UiLimits::MAX_DRAW_BATCHES
-                        })
+            let player = self.live_player_mesh(
+                view,
+                targets.in_hud,
+                held,
+                |cache, mask, indices, batches| {
+                    let prospective = ui::UiTree::check_visual_budget_with_mesh(
+                        nodes
+                            .iter()
+                            .enumerate()
+                            .filter(|(index, node)| !is_preview(*index, node.visual()))
+                            .map(|(_, node)| node.visual()),
+                        indices,
+                        batches,
+                        instances,
+                    );
+                    match prospective {
+                        Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
+                        Ok(_) => {
+                            let Some(probe) = cache.batch_probe(mask) else {
+                                return false;
+                            };
+                            let mut baseline = nodes.to_vec();
+                            replace_model_icons(
+                                &mut baseline,
+                                Some(targets),
+                                &self.gui_models.sources.faded_thumbnails,
+                                || Some(probe),
+                                |_| None,
+                                modulated,
+                            );
+                            RetainedDraw::build(
+                                &baseline,
+                                viewport,
+                                UiScale::default(),
+                                safe_area,
+                                effects,
+                            )
+                            .is_ok_and(|draw| {
+                                draw.draw_list().batches.len() <= UiLimits::MAX_DRAW_BATCHES
+                            })
+                        }
+                        Err(_) => false,
                     }
-                    Err(_) => false,
-                }
-            });
+                },
+            );
             if let Some(player) = player {
+                let mut model = self
+                    .gui_models
+                    .doll_model(targets.in_hud)
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
                 for (index, node) in nodes.iter_mut().enumerate() {
                     if !targets.shows(index, node.visual()) {
                         continue;
@@ -638,9 +716,17 @@ impl UiPresentationRuntime {
                         Some(Arc::clone(&player))
                     };
                     if let Some(mesh) = mesh {
+                        model.add_scope(node.id().get());
                         *node = node
                             .clone()
                             .with_visual(UiVisual::TintedMesh { mesh, color });
+                    }
+                }
+            } else if live_renderer {
+                // A completed empty actor draw must not reveal the placeholder player raster.
+                for (index, node) in nodes.iter_mut().enumerate() {
+                    if targets.shows(index, node.visual()) {
+                        *node = node.clone().with_visual(UiVisual::None);
                     }
                 }
             }
@@ -766,86 +852,6 @@ impl UiPresentationRuntime {
     #[cfg(test)]
     fn gui_player_mesh_with_held(&self, include_held: [bool; 2]) -> Option<Arc<UiMesh>> {
         self.gui_player_mesh_with_models(self.preview_held_models(include_held))
-    }
-
-    /// Resolves cached source geometry without projecting or allocating UI vertices.
-    fn preview_held_models(
-        &self,
-        include_held: [bool; 2],
-    ) -> [Option<player_preview::PreviewHeldModel>; 2] {
-        std::array::from_fn(|index| {
-            let hand = &self.player_preview_gear.hands[index];
-            if !include_held[index] {
-                return None;
-            }
-            let hand = hand.as_ref()?;
-            let pack_model_suppressed = !self.player_preview_gear.show_custom_item_models
-                && self
-                    .gui_models
-                    .pack_equipment
-                    .source
-                    .as_ref()
-                    .is_some_and(|pack| {
-                        self.gui_models.selected_held[index]
-                            .as_ref()
-                            .is_some_and(|selected| Arc::ptr_eq(&selected.artwork, pack))
-                    });
-            if let Some(selected) = self.gui_models.selected_held[index]
-                .as_ref()
-                .filter(|_| !pack_model_suppressed)
-                && selected.ready
-                && selected.item.identifier.as_ref() == hand.identifier.as_ref()
-                && selected.item.metadata == hand.metadata
-            {
-                return Some(
-                    selected
-                        .model
-                        .as_ref()?
-                        .with_grip(hand.grip)
-                        .with_glint(hand.glint),
-                );
-            }
-            let (identifier, metadata) = Self::item_icon_key(
-                &hand.identifier,
-                hand.metadata,
-                hand.use_animation,
-                hand.charged_projectile,
-                None,
-            );
-            let held = |metadata| self.gui_models.sources.held.get(identifier)?.get(&metadata);
-            let base = (!pack_model_suppressed)
-                .then(|| held(metadata).or_else(|| held(0)))
-                .flatten();
-            let model = if !pack_model_suppressed
-                && let Some((source, vertices)) =
-                    self.session_icons.held_block(identifier, metadata)
-            {
-                player_preview::PreviewHeldModel {
-                    source,
-                    vertices,
-                    hand_pivots: self.gui_models.sources.hand_pivots?,
-                    placements: [player_preview::PreviewHeldPlacement::Block; 2],
-                }
-            } else if base.is_none_or(held::HeldModel::is_sprite)
-                && self.session_item_icon(identifier, metadata).is_some()
-            {
-                let (source, vertices) = self.session_icons.held_sprite(identifier, metadata)?;
-                match base {
-                    Some(base) => base.with_sprite(source, vertices),
-                    None => player_preview::PreviewHeldModel {
-                        source,
-                        vertices,
-                        hand_pivots: self.gui_models.sources.hand_pivots?,
-                        placements: [player_preview::PreviewHeldPlacement::Sprite {
-                            hand_equipped: false,
-                        }; 2],
-                    },
-                }
-            } else {
-                base?.model(self.icon_catalog.as_deref()?)?
-            };
-            Some(model.with_grip(hand.grip).with_glint(hand.glint))
-        })
     }
 
     /// Builds a test preview directly from prepared source layers and selected hand models.

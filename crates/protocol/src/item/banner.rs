@@ -1,14 +1,8 @@
 //! Bounded banner pattern metadata from an item's fixed little-endian NBT.
 
 use super::{decode_extra_nbt, read_i32_le, read_u8, read_u16_le, root_tag, skip_le_payload};
+use render_api::BannerPattern;
 use std::sync::Arc;
-
-/// One banner overlay in its original NBT order.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ItemBannerPattern {
-    pub pattern: Arc<str>,
-    pub color: u8,
-}
 
 /// Reads a root Int banner Type; absent and differently typed values remain unspecified.
 pub fn item_banner_type(extra_data: &[u8]) -> Option<i32> {
@@ -18,12 +12,12 @@ pub fn item_banner_type(extra_data: &[u8]) -> Option<i32> {
 }
 
 /// Reads up to sixteen valid banner overlays; malformed metadata returns no overlays.
-pub fn item_banner_patterns(extra_data: &[u8]) -> Vec<ItemBannerPattern> {
+pub fn item_banner_patterns(extra_data: &[u8]) -> Vec<BannerPattern> {
     parse(extra_data).unwrap_or_default()
 }
 
 /// Validates the pattern list without allocating from untrusted counts or string lengths.
-fn parse(extra_data: &[u8]) -> Option<Vec<ItemBannerPattern>> {
+fn parse(extra_data: &[u8]) -> Option<Vec<BannerPattern>> {
     let nbt = decode_extra_nbt(extra_data)?;
     let mut cursor = nbt;
     let mut list = root_tag(&mut cursor, 9, b"Patterns")?;
@@ -63,7 +57,7 @@ fn parse(extra_data: &[u8]) -> Option<Vec<ItemBannerPattern>> {
             }
         }
         if let (Some(pattern), Some(color)) = (pattern, color) {
-            patterns.push(ItemBannerPattern { pattern, color });
+            patterns.push(BannerPattern { pattern, color });
         }
     }
     Some(patterns)
@@ -96,11 +90,11 @@ mod tests {
         assert_eq!(
             item_banner_patterns(&fixture(2)),
             vec![
-                ItemBannerPattern {
+                BannerPattern {
                     pattern: Arc::from("bs"),
                     color: 1
                 },
-                ItemBannerPattern {
+                BannerPattern {
                     pattern: Arc::from("bo"),
                     color: 4
                 },

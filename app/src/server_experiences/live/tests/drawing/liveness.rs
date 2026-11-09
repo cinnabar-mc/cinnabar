@@ -140,3 +140,47 @@ fn failed_callback_drops_despawned_references_without_a_transport_fault() {
     assert_eq!(instance.strikes.len(), 1);
     assert_eq!(instance.presentation.stale_references, 1);
 }
+
+#[test]
+fn mask_references_beyond_nearest_candidate_limits_remain_live() {
+    let mut live = initialized(1);
+    let actor = EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 1,
+        spawn_revision: 1,
+    };
+    let references: Vec<_> = (0..mod_api::drawing::MAX_MASKS * mod_api::drawing::MAX_MASK_ENTITIES)
+        .map(|index| EntityKey {
+            runtime_id: index as u64 + actor.runtime_id,
+            ..actor
+        })
+        .collect();
+    assert!(references.len() > mod_api::MAX_DRAW_ENTITIES * 3);
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance
+        .dispatch(None, Event::Frame, 1, None, None)
+        .unwrap();
+    // Several masks and target tokens can share each actor without multiplying reference entries.
+    instance.helper.as_mut().unwrap().references =
+        references.iter().chain(&references).copied().collect();
+    live.poll(1, CALLBACK_INTERVAL_MS, false, |_| true).unwrap();
+    let instance = &live.instances["bundle0"];
+    assert!(instance.stopped.is_none());
+    assert!(instance.helper.is_some());
+    assert!(instance.strikes.is_empty());
+    assert_eq!(instance.drawing_references, references);
+    live.bind_drawing(&context(1), |_| true).unwrap();
+    assert_eq!(live.instances["bundle0"].drawing_context.live, references);
+    live.bind_drawing(&context(1), |key| key != actor).unwrap();
+    assert!(
+        !live.instances["bundle0"]
+            .drawing_context
+            .live
+            .contains(&actor)
+    );
+    assert_eq!(
+        live.instances["bundle0"].drawing_context.live.len(),
+        references.len() - 1
+    );
+}

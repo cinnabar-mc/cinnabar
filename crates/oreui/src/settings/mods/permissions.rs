@@ -120,6 +120,9 @@ fn chips(content: &mut Content<'_, '_>, item: &InstalledMod) -> Result<(), Paint
 }
 
 /// Keeps batch actions, a requested-first grid and the full-list disclosure together.
+///
+/// A marketplace mod can only receive its requested permissions, so its card offers neither
+/// Grant all nor the full-list disclosure.
 fn customize(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
@@ -134,16 +137,20 @@ fn customize(
             available.then_some(command(Action::AllowRequested(item.id))),
         ));
     }
-    let (label, variant, action) = if item.permissions.iter().any(|permission| permission.enabled) {
-        (
+    let marketplace = item.marketplace();
+    if item.permissions.iter().any(|permission| permission.enabled) {
+        buttons.push((
             "Revoke all",
             Variant::Destructive,
-            Action::RevokeAll(item.id),
-        )
-    } else {
-        ("Grant all", Variant::Primary, Action::GrantAll(item.id))
-    };
-    buttons.push((label, variant, available.then_some(command(action))));
+            available.then_some(command(Action::RevokeAll(item.id))),
+        ));
+    } else if !marketplace {
+        buttons.push((
+            "Grant all",
+            Variant::Primary,
+            available.then_some(command(Action::GrantAll(item.id))),
+        ));
+    }
     buttons.push((
         "Done",
         Variant::Secondary,
@@ -151,11 +158,15 @@ fn customize(
     ));
     actions(content, &buttons)?;
     content.y += content.canvas.r(1.2);
-    let indices = item.permission_order(snapshot.show_all_permissions);
+    let indices = item.permission_order(snapshot.show_all_permissions && !marketplace);
     if indices.is_empty() {
         caption(
             content,
-            "No declared requests. Show all permissions to choose.",
+            if marketplace {
+                "No permissions requested."
+            } else {
+                "No declared requests. Show all permissions to choose."
+            },
         )?;
     }
     grid(content, item, &indices, available)?;
@@ -177,6 +188,9 @@ fn customize(
             |permission| permission.description.as_str(),
         ),
     )?;
+    if marketplace {
+        return Ok(());
+    }
     let [left, right] = content.inset();
     let y = content.y;
     let action = command(Action::ShowAllPermissions(item.id));

@@ -66,11 +66,11 @@ fn fixture(platform: Platform) -> (PathBuf, Options) {
 #[test]
 fn platform_destination_table_matches_runtime_layouts() {
     let cases = [
-        (Platform::Windows, "resources/assets/vanilla-v2193.mcbea"),
-        (Platform::Linux, "share/cinnabar/assets/vanilla-v2193.mcbea"),
+        (Platform::Windows, "resources/assets/vanilla-v2225.mcbea"),
+        (Platform::Linux, "share/cinnabar/assets/vanilla-v2225.mcbea"),
         (
             Platform::Macos,
-            "Cinnabar.app/Contents/Resources/assets/vanilla-v2193.mcbea",
+            "Cinnabar.app/Contents/Resources/assets/vanilla-v2225.mcbea",
         ),
     ];
     for (platform, expected) in cases {

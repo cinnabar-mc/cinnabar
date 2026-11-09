@@ -424,11 +424,7 @@ impl PlayerInventoryLedger {
                 if self.negotiated_item_entry(output.network_id).is_none() {
                     return Err(InventoryGestureError::InvalidRequest);
                 }
-                let user_data: Arc<[u8]> = if output.empty_envelope {
-                    Arc::from([0; 10])
-                } else {
-                    Arc::from([])
-                };
+                let user_data: Arc<[u8]> = output.user_data.bytes();
                 let stack = protocol::NetworkItemStack {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),

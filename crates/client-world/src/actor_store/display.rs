@@ -20,10 +20,22 @@ pub struct DisplayActorStore {
 
 impl DisplayActorStore {
     /// Creates the normal actor evaluator with bounded display-only storage.
-    pub fn new(dimension: i32, assets: Arc<assets::RuntimeEntityAssets>) -> Self {
+    pub fn new(dimension: i32, assets: impl Into<actor_animation::ActorAnimationCatalog>) -> Self {
         let session = crate::authority::allocate_actor_session_id();
-        let mut store = ActorStore::with_capacity(session, dimension, MAX_DISPLAY_ACTORS, 0);
-        store.animation = actor_animation::ActorAnimationStore::with_assets(assets);
+        let store = ActorStore::with_limits_and_animation(
+            session,
+            dimension,
+            MAX_DISPLAY_ACTORS,
+            0,
+            MAX_TRACKED_PLAYER_SKIN_BYTES,
+            actor_animation::ActorAnimationStore::with_assets(assets),
+            crate::item::ItemStateStore::empty(),
+        );
+        Self::with_store(store)
+    }
+
+    /// Starts display bookkeeping for an independent actor namespace.
+    fn with_store(store: ActorStore) -> Self {
         Self {
             store,
             positions: BTreeMap::new(),
@@ -32,6 +44,14 @@ impl DisplayActorStore {
             sequence: 0,
             next_runtime: 0,
         }
+    }
+
+    /// Retires displays and pack bindings while retaining base catalog analysis and item rules.
+    pub fn restart(self, dimension: i32) -> Self {
+        Self::with_store(
+            self.store
+                .restart_display(crate::authority::allocate_actor_session_id(), dimension),
+        )
     }
 
     /// Rebinds the same displayed lifetimes when the active pack changes.
@@ -154,13 +174,13 @@ impl DisplayActorStore {
         }
     }
 
-    /// Retires displays whose blocks are no longer admitted for this frame.
-    pub fn retain(&mut self, positions: &std::collections::BTreeSet<[i32; 3]>) {
+    /// Retires rejected displays, testing `keep` once per stored position in position order.
+    pub fn retain(&mut self, mut keep: impl FnMut([i32; 3]) -> bool) {
         let removed = self
             .positions
             .keys()
-            .filter(|position| !positions.contains(*position))
             .copied()
+            .filter(|position| !keep(*position))
             .collect::<Vec<_>>();
         for position in removed {
             self.remove(position);
@@ -191,5 +211,34 @@ impl DisplayActorStore {
     /// Gives display rendering the same bounded sampled expression context as world actors.
     pub fn frame(&self, alpha: f32) -> actor_animation::ActorRenderFrame<'_> {
         self.store.render_frame(alpha)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Removing unused item tables must preserve the ordinary display evaluator's visible pose.
+    #[test]
+    fn equipment_free_display_keeps_the_same_pose_as_a_retail_item_store() {
+        let assets = actor_animation::test_support::counting_random_assets();
+        let catalog = actor_animation::ActorAnimationCatalog::new(assets);
+        let mut display = DisplayActorStore::new(0, catalog.clone());
+        let mut reference = DisplayActorStore::new(0, catalog);
+        reference.store.items = crate::item::ItemStateStore::diagnostic();
+        reference.store.session_id = display.store.session_id;
+        let runtime = display.resolve([0; 3], "minecraft:test").unwrap();
+        let expected = reference.resolve([0; 3], "minecraft:test").unwrap();
+        assert_eq!(runtime, expected);
+        for ticks in [0, 1, 3] {
+            display.advance(ticks);
+            reference.advance(ticks);
+            let actual = display.rig(runtime).unwrap();
+            let expected = reference.rig(runtime).unwrap();
+            assert_eq!(actual.current, expected.current);
+            assert_eq!(actual.previous, expected.previous);
+            assert_eq!(actual.render, expected.render);
+            assert_eq!(actual.scale, expected.scale);
+        }
     }
 }

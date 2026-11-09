@@ -212,11 +212,7 @@ fn render_first_person_held_item_frames() {
                 )
                 .unwrap();
                 let display = if third {
-                    held_sprite_display(
-                        assets::item::grip::builtin_item_grip(identifier)
-                            .upright()
-                            .unwrap_or(false),
-                    )
+                    held_sprite_display(assets::item::grip::builtin_item_grip(identifier).into())
                 } else {
                     first_person_display(
                         FirstPersonShape::Sprite {

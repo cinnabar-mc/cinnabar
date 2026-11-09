@@ -34,8 +34,8 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `entities` | Entities | Non-player actor rows and `gameplay.read-mobs` |
 | `hud` | HUD | HUD surfaces, nametag and annotation policy, hurt overlay, tooltip lines, chat actions |
 | `controls` | Controls | Key edges, reserved keys, text input, touch buttons, the panel, chat-action clicks |
-| `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport aim preservation |
-| `interaction` | Attack reach | Bounded attack reach and held-attack press pulses |
+| `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport handlers |
+| `interaction` | Attack reach | Bounded attack reach, held-attack press pulses and ordinary crosshair mining holds |
 | `item_use` | Item use | Item-use press pulses |
 | `movement` | Movement | Movement snapshots, jump pulses, movement intents and control modes |
 | `commands` | Commands | Requesting the named commands only; the list is part of the grant |
@@ -54,7 +54,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `items` | Items | Reading the session's items (`player-mod` packages) |
 | `recipes` | Recipes | Reading the session's recipes (`player-mod` packages) |
 | `keys` | Keys | Delivering a package's declared keys |
-| `inventory` | Inventory requests | Creative takes and recipe fills the vanilla screens can make |
+| `inventory` | Inventory requests | Offhand exchanges, creative takes and recipe fills |
 | `block_highlights` | Block highlights | A packet mod's full-block highlights in its render frame |
 | `packets` | Session packets | A packet mod relaying every session packet |
 | `wasi` | WASI runtime | WASI clocks, randomness and captured output for a packet mod; never files or network |

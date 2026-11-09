@@ -150,7 +150,7 @@ fn cutout_raster(gpu: &Gpu, samples: u32, coverage: bool, square: bool) -> Vec<u
         &crate::gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO),
         wgpu::BufferUsages::UNIFORM,
     );
-    let atmosphere = gpu.buffer(&[0.0; 32], wgpu::BufferUsages::UNIFORM);
+    let atmosphere = gpu.buffer(&[0.0; 40], wgpu::BufferUsages::UNIFORM);
     let bindings = [
         wgpu::BindGroupEntry {
             binding: 0,
