@@ -6,6 +6,41 @@ use {
 };
 
 #[test]
+fn play_tab_focus_order_stays_left_to_right_when_any_tab_is_raised() {
+    let screens = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
+    let expected = screens.map(MenuAction::Navigate);
+    for (selected, screen) in screens.into_iter().enumerate() {
+        for focused in expected {
+            let mut view = MenuView::new(true, "Fixture".into());
+            view.screen = screen;
+            view.navigation_focus_visible = true;
+            view.focused_action = Some(focused);
+            crate::review_tests::paint(Default::default(), |canvas| {
+                canvas.capture_focus = true;
+                draw(canvas, &view, [100.0, 100.0, 1000.0, 160.0], selected).unwrap();
+                let actions: Vec<_> = canvas
+                    .focus_hits
+                    .iter()
+                    .map(|(action, _)| *action)
+                    .collect();
+                assert_eq!(
+                    actions, expected,
+                    "selected {screen:?}, focused {focused:?}"
+                );
+                assert_eq!(canvas.hits.len(), expected.len() - 1);
+                assert!(
+                    canvas
+                        .hits
+                        .iter()
+                        .all(|(action, _)| *action != expected[selected]),
+                    "the open tab takes focus without taking clicks"
+                );
+            });
+        }
+    }
+}
+
+#[test]
 fn focused_middle_play_tab_keeps_its_right_outline_above_the_next_tab() {
     use crate::{review_tests::paint, test_support::solids};
     let mut view = MenuView::new(true, "Fixture".into());

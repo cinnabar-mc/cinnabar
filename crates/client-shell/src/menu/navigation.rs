@@ -2,6 +2,7 @@
 //! pushes and pops screens, and how the menu sits in the scene stack.
 
 mod focus;
+mod regions;
 pub(super) use focus::NavigationFocus;
 
 use {

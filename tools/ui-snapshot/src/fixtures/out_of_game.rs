@@ -195,8 +195,14 @@ pub(super) fn reset_settings() -> Fixture {
     ))
 }
 
-/// Joined Realm selection and leave confirmation.
-pub(super) const REALM_STATES: &[State] = &[
+/// Play keyboard focus, joined Realm selection and leave confirmation.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "play-worlds-keyboard-focus",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: play_worlds_keyboard_focus,
+    },
     State {
         name: "realms-joined",
         size: SIZE,
@@ -261,6 +267,16 @@ pub(super) fn play_worlds_gamepad() -> Fixture {
         unreachable!("play_worlds is a menu fixture")
     };
     view.gamepad_input = true;
+    view.navigation_focus_visible = true;
+    Fixture::Menu(view)
+}
+
+/// The Worlds tab with keyboard focus on the first world, outlined on every side.
+pub(super) fn play_worlds_keyboard_focus() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!("play_worlds is a menu fixture")
+    };
+    view.focused_action = Some(MenuAction::PlayLocalWorld(0));
     view.navigation_focus_visible = true;
     Fixture::Menu(view)
 }

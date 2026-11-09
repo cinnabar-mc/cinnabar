@@ -785,6 +785,7 @@ impl MenuRuntime {
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
+            MenuAction::ServerDetail(_) => {}
             MenuAction::ServerList(action) => {
                 self.settings_dirty |=
                     std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);

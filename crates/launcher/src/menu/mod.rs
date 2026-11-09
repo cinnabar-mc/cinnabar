@@ -231,6 +231,7 @@ pub enum MenuAction {
     SelectFeatured(usize),
     /// Show a saved server's details on the Servers tab.
     SelectSaved(usize),
+    ServerDetail(view::ServerDetailPart),
     /// Show a Realm's details on the Realms tab.
     SelectRealm(usize),
     /// Flip the info panel's description (0) or news (1) past "read more".

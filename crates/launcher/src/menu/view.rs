@@ -114,6 +114,17 @@ pub fn pingable(address: &str) -> bool {
     !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
 }
 
+/// A readable part of the shown server's details panel. As
+/// [`super::MenuAction::ServerDetail`] it takes keyboard focus so arrow keys
+/// read down the panel, and does nothing when activated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ServerDetailPart {
+    Description,
+    /// An activity card, by position.
+    Activity(usize),
+    News,
+}
+
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {
