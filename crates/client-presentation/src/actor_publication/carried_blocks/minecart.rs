@@ -6,6 +6,9 @@ use client_world::ActorSnapshot;
 use protocol::ActorMetadataValue;
 use protocol_ids::ActorDataKey;
 
+/// The hopper display's default height, in model pixels.
+pub(super) const HOPPER_DISPLAY_OFFSET: i32 = 1;
+
 /// Resolves contents only for admitted minecart constructors, including advertised native bases.
 pub(super) fn display(actor: &ActorSnapshot) -> Option<(CarriedBlockId, i32)> {
     if actor.entity_fact.native_class != NativeEntityClass::Minecart {
@@ -13,18 +16,16 @@ pub(super) fn display(actor: &ActorSnapshot) -> Option<(CarriedBlockId, i32)> {
     }
     let custom = matches!(actor.metadata.get(&ActorDataKey::CustomDisplay.wire_value()),
         Some(ActorMetadataValue::Byte(value)) if *value != 0);
-    let block = if custom {
-        match actor
-            .metadata
-            .get(&ActorDataKey::DisplayBlockState.wire_value())?
-        {
-            ActorMetadataValue::Int(id) => {
-                CarriedBlockId::Wire(u32::from_ne_bytes(id.to_ne_bytes()))
-            }
-            _ => return None,
-        }
-    } else {
-        CarriedBlockId::Pinned(*default_blocks().get(&actor.entity_fact.class_key)?)
+    if !custom {
+        let &(block, offset) = default_displays().get(&actor.entity_fact.class_key)?;
+        return Some((CarriedBlockId::Pinned(block), offset));
+    }
+    let block = match actor
+        .metadata
+        .get(&ActorDataKey::DisplayBlockState.wire_value())?
+    {
+        ActorMetadataValue::Int(id) => CarriedBlockId::Wire(u32::from_ne_bytes(id.to_ne_bytes())),
+        _ => return None,
     };
     let offset = match actor
         .metadata
@@ -36,10 +37,10 @@ pub(super) fn display(actor: &ActorSnapshot) -> Option<(CarriedBlockId, i32)> {
     Some((block, offset))
 }
 
-/// Derives each built-in variant's block from its pinned constructor, never a server's suffix.
-fn default_blocks() -> &'static HashMap<u16, u32> {
-    static BLOCKS: OnceLock<HashMap<u16, u32>> = OnceLock::new();
-    BLOCKS.get_or_init(|| {
+/// Derives each built-in variant's display from its pinned constructor, never a server's suffix.
+fn default_displays() -> &'static HashMap<u16, (u32, i32)> {
+    static DISPLAYS: OnceLock<HashMap<u16, (u32, i32)>> = OnceLock::new();
+    DISPLAYS.get_or_init(|| {
         EntityFacts::pinned()
             .records
             .iter()
@@ -49,7 +50,12 @@ fn default_blocks() -> &'static HashMap<u16, u32> {
                 }
                 let name = record.identifier.strip_suffix("_minecart")?;
                 let block = assets::pinned_block_state_by_name(name)?;
-                Some((record.fact.class_key, block))
+                let offset = if name == assets::facts::pack::PackBlock::Hopper.identifier() {
+                    HOPPER_DISPLAY_OFFSET
+                } else {
+                    render_model::dropped_item::MINECART_DEFAULT_DISPLAY_OFFSET
+                };
+                Some((record.fact.class_key, (block, offset)))
             })
             .collect()
     })
@@ -72,13 +78,13 @@ mod tests {
                     "minecraft:minecart",
                     "new bare cart needs qualification"
                 );
-                assert!(!default_blocks().contains_key(&record.fact.class_key));
+                assert!(!default_displays().contains_key(&record.fact.class_key));
                 continue;
             };
-            let id = default_blocks()
+            let &(id, _) = default_displays()
                 .get(&record.fact.class_key)
                 .expect("new cart variant needs a display block");
-            assert_eq!(assets::pinned_block_identity(*id).unwrap().0, name);
+            assert_eq!(assets::pinned_block_identity(id).unwrap().0, name);
         }
     }
 }

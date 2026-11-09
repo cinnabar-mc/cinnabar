@@ -738,8 +738,9 @@ and version-matched in-game acceptance remain incomplete.
   until sheared, turning with the head part's own X and Y rotation at the native offset and scale;
   its hurt overlay, invisible-carrier behavior and which part it reads under a controller's
   alternate geometry are unverified. Minecarts publish constructor display blocks, including
-  the hopper, and typed custom-display overrides through the carried-block renderer. Their
-  three-quarter block scale and pixel-offset placement are provisional; exact native transforms,
+  the hopper, and typed custom-display overrides through the carried-block renderer. The
+  constructor offsets return when custom display is disabled, including the lower hopper offset.
+  Their three-quarter block scale and pixel-offset placement are provisional; exact native transforms,
   directional default states, overlays, invisibility and slope/curve alignment remain incomplete.
   The iron golem and mooshroom additional-rendering layers remain unaudited.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact

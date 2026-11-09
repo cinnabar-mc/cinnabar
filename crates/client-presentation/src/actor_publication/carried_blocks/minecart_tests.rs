@@ -100,6 +100,10 @@ fn hopper_minecart_draws_its_hopper_without_a_custom_display_override() {
         "minecraft:hopper"
     );
     assert_eq!(draw.light, (15, 15));
+    let mut metadata = custom(-2);
+    metadata[2].value = ActorMetadataValue::Int(minecart::HOPPER_DISPLAY_OFFSET);
+    let explicit = displays(&cart("minecraft:hopper_minecart", metadata));
+    assert_eq!(draw.world_from_block, explicit[0].world_from_block);
 }
 
 #[test]
@@ -119,18 +123,51 @@ fn a_plain_cart_and_an_unrelated_actor_do_not_gain_default_contents() {
 }
 
 #[test]
-fn minecart_disabled_override_restores_the_constructor_contents() {
-    let mut metadata = custom(-2);
-    metadata[0].value = ActorMetadataValue::Byte(0);
-    let draws = displays(&cart("minecraft:hopper_minecart", metadata));
-    assert_eq!(draws.len(), 1);
-    let CarriedBlockId::Pinned(id) = draws[0].block else {
-        panic!("disabled override must restore the hopper, ignoring the synced block");
-    };
-    assert_eq!(
-        assets::pinned_block_identity(id).unwrap().0,
-        "minecraft:hopper"
-    );
+fn minecart_display_toggle_restores_constructor_contents_and_placement() {
+    for identifier in ["minecraft:chest_minecart", "minecraft:hopper_minecart"] {
+        let default = displays(&cart(identifier, Vec::new()));
+        assert_eq!(default.len(), 1, "{identifier}");
+        let mut metadata = custom(-2);
+        metadata[2].value = ActorMetadataValue::Int(32);
+        let mut stream = cart(identifier, metadata);
+        let overridden = displays(&stream);
+        assert_eq!(overridden.len(), 1, "{identifier}");
+        assert_eq!(overridden[0].block, CarriedBlockId::Wire(u32::MAX - 1));
+        assert_ne!(default[0].world_from_block, overridden[0].world_from_block);
+
+        for (sequence, enabled) in [(2, 0), (3, 1), (4, 0)] {
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::Actor(ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: CART,
+                        metadata: Arc::from([protocol::ActorMetadata {
+                            key: ActorDataKey::CustomDisplay.wire_value(),
+                            value: ActorMetadataValue::Byte(enabled),
+                        }]),
+                        properties: Arc::from([]),
+                        tick: sequence,
+                    })),
+                )
+                .unwrap();
+            test_time::eventually("minecart display toggle admission", || {
+                stream.poll([0.0, 64.0, 0.0], 0);
+                stream
+                    .authority()
+                    .actor(CART)
+                    .unwrap()
+                    .metadata
+                    .get(&ActorDataKey::CustomDisplay.wire_value())
+                    == Some(&ActorMetadataValue::Byte(enabled))
+            });
+            assert_eq!(
+                &displays(&stream),
+                if enabled == 0 { &default } else { &overridden },
+                "{identifier}, custom display {enabled}"
+            );
+        }
+    }
 }
 
 #[test]
