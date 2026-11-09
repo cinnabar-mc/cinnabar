@@ -19,6 +19,10 @@ mod world;
 pub mod ambient;
 pub mod tiles;
 
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 pub use atlas::{ATLAS_SIDE, AtlasPatch, FALLBACK_TEXEL, TILE_SLOT, particle_textures_fit};
 pub use dragon_egg::dragon_egg_teleport_requests;
 pub use draw::{DrawLists, ParticleInstance, ParticleView};
