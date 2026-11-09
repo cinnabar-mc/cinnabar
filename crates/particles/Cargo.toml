@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 pack-json = { path = "../pack-json" }
 assets = { path = "../assets" }
+protocol-ids = { path = "../protocol-ids" }
 render-model = { path = "../render-model" }
 bytemuck = { version = "1", features = ["derive"] }
 serde_json = "1"

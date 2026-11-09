@@ -253,10 +253,13 @@ pub(super) fn published_frame(
         ui_layers: vec![pack.to_vec()],
         ..Default::default()
     })));
-    runtime.hud.set_title(Arc::from(title), 1, 0);
-    runtime.hud.set_subtitle(Arc::from(subtitle), 2, 0);
+    runtime.session.hud.set_title(Arc::from(title), 1, 0);
+    runtime.session.hud.set_subtitle(Arc::from(subtitle), 2, 0);
     if !actionbar.is_empty() {
-        runtime.hud.set_actionbar(Arc::from(actionbar), 3, 0);
+        runtime
+            .session
+            .hud
+            .set_actionbar(Arc::from(actionbar), 3, 0);
     }
     let input = presentation
         .build(
@@ -298,10 +301,8 @@ fn subtitle_bindings_keep_fields_beyond_the_visible_label_limit() {
 }
 
 #[test]
-fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
-    if vanilla("subtitle_binding_survives_the_native_title_fade_and_works_without_a_title")
-        .is_none()
-    {
+fn subtitle_binding_survives_the_native_title_fade_and_waits_for_a_title() {
+    if vanilla("subtitle_binding_survives_the_native_title_fade_and_waits_for_a_title").is_none() {
         return;
     }
     let pack = layer(br##"{
@@ -322,12 +323,16 @@ fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
             ..Default::default()
         })));
         if with_title {
-            runtime.hud.set_title(Arc::from("Transient title"), 1, 0);
+            runtime
+                .session
+                .hud
+                .set_title(Arc::from("Transient title"), 1, 0);
         }
         runtime
+            .session
             .hud
             .set_subtitle(Arc::from("Retained overlay"), 2, 0);
-        runtime.hud.expire(10_000);
+        runtime.session.hud.expire(10_000);
         presentation
             .build(
                 &player,
@@ -338,9 +343,12 @@ fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
             )
             .unwrap();
         let texts = pack_harness::drawn_texts(&presentation.last_frame.as_ref().unwrap().nodes);
-        assert!(
+        // Vanilla binds the shown title's subtitle: it outlives the fade, but a subtitle sent
+        // before any title waits for one.
+        assert_eq!(
             texts.contains(&"Retained overlay".to_owned()),
-            "subtitle input disappeared: {texts:?}"
+            with_title,
+            "subtitle binding: {texts:?}"
         );
         assert!(
             !texts.contains(&"Transient title".to_owned()),

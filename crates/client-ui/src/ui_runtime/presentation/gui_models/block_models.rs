@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, block_gui_quads, material_tile};
+use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, material_tile};
 use assets::{
     BlockFace, BlockVisualId, Material, ModelQuad, ModelTemplate, NetworkIdMode, RuntimeAssets,
     TexturePage, VisualKind,
@@ -60,6 +60,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         shape.quads,
     )
     .ok()?;
+    let shading = GuiShading::of(shape.kind, shape.template, shape.templates);
     let mut sources = BTreeMap::new();
     for quad in &quads {
         let std::collections::btree_map::Entry::Vacant(source) = sources.entry(quad.material)
@@ -109,7 +110,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            item_gui::block_model(&placed)
+            item_gui::block_model(&placed, shading)
         },
     )
 }

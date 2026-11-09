@@ -219,11 +219,11 @@ fn attack_admission_uncached_actor_press_does_not_mine_the_block_behind_it() {
 
 #[test]
 fn attack_admission_uncached_actor_press_holds_native_item_use() {
-    for delay_fix in [false, true] {
+    for pulse in [false, true] {
         let (mut world, mut captured) = unpublished_attack_fixture(7.5);
-        let scope = item_use_tests::hold_snowball(&mut world);
-        if delay_fix {
-            world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
+        item_use_tests::hold_snowball(&mut world);
+        if pulse {
+            world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });
         }
         let mut router = crate::semantic_controls::SemanticInputRuntime::default();
         hold(&mut world, &mut router, Vec::new(), vec![1, 2]);
@@ -243,8 +243,8 @@ fn attack_admission_uncached_actor_press_holds_native_item_use() {
             .count();
         assert_eq!(
             throws,
-            usize::from(delay_fix),
-            "native use respects the attack; the explicit override permits it"
+            usize::from(pulse),
+            "native use respects the attack; a use pulse skips that hold-off"
         );
     }
 }
@@ -277,6 +277,9 @@ fn attack_admission_assisted_reach_uses_the_box_without_replacing_its_selected_p
     ] {
         let distance = gameplay::mining::creative_reach(wire) as f32 + 0.2;
         let (mut world, mut captured) = assisted_fixture(distance, true);
+        let mut physics = client_interaction::movement::LocalPhysicsController::default();
+        physics.reanchor_network_position([4.5, 2.620_01, 8.5], 101, false);
+        world.insert_resource(physics);
         assisted_attack(&mut world, input);
         let attacks = actor_attacks(&mut captured);
         assert_eq!(attacks.len(), 1, "the near box edge remains in pick reach");

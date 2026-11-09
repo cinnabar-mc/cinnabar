@@ -16,6 +16,7 @@ use ui::{IconRef, LoadingStage, UiNode, UiPoint, UiRect};
 
 use super::super::player_preview::MenuPreviewConfig;
 use super::super::{UiPresentationError, UiPresentationRuntime};
+use super::menu_sounds::MenuSounds;
 use crate::ui_runtime::UiRuntime;
 use ui_engine::engine::screen::{PaintFrame, Screen, Translate};
 use ui_engine::text_metrics::TextMetrics;
@@ -187,7 +188,7 @@ impl UiPresentationRuntime {
         } else {
             paint.apply_entrance(nodes, size)?;
         }
-        self.screens.menu_sounds.clear();
+        self.screens.menu_sounds = MenuSounds::OreUi;
         Ok(Some(hits))
     }
 
@@ -224,7 +225,7 @@ impl UiPresentationRuntime {
         let scrolls = self.window_scrolls(scrolls)?;
         let hits = self.window_hits(output.hits)?;
         self.menu_scrolls.set_areas(scrolls);
-        self.screens.menu_sounds.clear();
+        self.screens.menu_sounds = MenuSounds::OreUi;
         Ok(hits)
     }
 

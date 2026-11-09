@@ -1,18 +1,21 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{ContainerEnumName, ItemStackNetResult};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{ContainerEnumName, ItemStackNetResult};
+use bedrock_protocol_1_26_60::packets::{
     ContainerClose, ContainerOpen, ContainerRegistryCleanup, ContainerSetData, InventoryContent,
     InventorySlot, ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
 };
-use bedrock_protocol_1_26_51::types::FullContainerName;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::FullContainerName;
+use bedrock_protocol_1_26_60::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 mod address;
+mod armor_damage;
+pub(crate) use armor_damage::normalize_armor_damage;
+pub use armor_damage::{ArmorDamage, ArmorDamageEvent};
 mod container_policy;
 mod creative;
 pub use container_policy::{
@@ -71,13 +74,14 @@ pub(crate) use transaction::normalize_transaction;
 pub use windows::{
     LEGACY_TRADE_SLOTS, MAX_GENERIC_STORAGE_SLOTS, MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE,
     OpenCells, UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
-    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
-    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
-    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
-    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
-    WINDOW_TYPE_TRADE, WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name,
-    is_open_window_name, is_result_preview_name, open_cell_request, open_name_first_cell,
-    ui_slot_container_name, ui_slot_for_name, ui_slot_request_container,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_COMMAND_BLOCK,
+    WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER,
+    WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER,
+    WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE,
+    WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_TRADE, WINDOW_TYPE_WORKBENCH,
+    WindowKind, WindowSegment, is_chest_like_name, is_open_window_name, is_result_preview_name,
+    open_cell_request, open_name_first_cell, ui_slot_container_name, ui_slot_for_name,
+    ui_slot_request_container,
 };
 mod registry_snapshot;
 pub use recipes::{
@@ -264,6 +268,8 @@ pub enum InventoryEvent {
     FurnaceOptions(FurnaceOptionsEvent),
     Options(InventoryOptions),
     Creative(CreativeContentEvent),
+    /// New absolute damage for worn armor pieces, from `PlayerArmorDamage`.
+    ArmorDamage(ArmorDamageEvent),
 }
 
 impl InventoryEvent {
@@ -294,7 +300,7 @@ pub enum InventoryPacketError {
     #[error("item stack request slot {slot} is invalid for {container:?}")]
     InvalidStackRequestSlot {
         container: StackRequestContainer,
-        slot: u8,
+        slot: u16,
     },
     #[error("item stack request network ID {0} is invalid")]
     InvalidRequestStackNetworkId(i32),
@@ -467,7 +473,7 @@ impl VerifiedNetworkItemStack {
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
 type ItemStackDescriptor =
-    bedrock_protocol_1_26_51::types::NetworkItemStackDescriptorSerializedData;
+    bedrock_protocol_1_26_60::types::NetworkItemStackDescriptorSerializedData;
 
 #[must_use]
 pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {

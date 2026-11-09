@@ -16,6 +16,7 @@ mod tests {
 
     use assets::{RuntimeAssets, SequentialIdRemap};
     use protocol::{LevelParticleEvent, ParticleEvent, WorldBootstrap, WorldEvent};
+    use protocol_ids::{LevelEvent, ParticleType};
 
     use crate::WorldStream;
 
@@ -39,7 +40,10 @@ mod tests {
         for (index, (event_id, data)) in [
             (2001, 7),
             (2021, 7),
-            (0x4000 | 19, 7),
+            (
+                LevelEvent::ParticleLegacyEvent.wire_value() | ParticleType::Terrain.wire_value(),
+                7,
+            ),
             (2014, (5 << 24) | 7),
             (2002, 7),
         ]

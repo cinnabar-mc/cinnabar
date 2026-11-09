@@ -41,6 +41,25 @@ func compileDefinition(t *testing.T, name string) *jsonschema.Schema {
 	return schema
 }
 
+// The API revision list must compile with Go's regexp engine and preserve its public bounds.
+func TestModUpdateRevisionListMatchesPortableSchema(t *testing.T) {
+	schema := compileDefinition(t, "ModUpdateQuery")
+	for _, count := range []int{1, 32, 33} {
+		revisions := make([]string, count)
+		for i := range revisions {
+			revisions[i] = strings.Repeat("a", 40)
+		}
+		value := map[string]any{
+			"host_revision": strings.Repeat("b", 40), "current_version": "1.0.0",
+			"current_revision": strings.Repeat("c", 40), "api_revisions": strings.Join(revisions, ","),
+		}
+		err := schema.Validate(value)
+		if (err == nil) != (count <= 32) {
+			t.Fatalf("revision list of length %d: %v", count, err)
+		}
+	}
+}
+
 func validate(t *testing.T, definition string, value any) {
 	t.Helper()
 	payload, err := json.Marshal(value)

@@ -101,7 +101,7 @@ const DURABLE_PRIMARY: u32 = 0x81_1E7F;
 const DURABLE_SECONDARY: u32 = 0x72_E1C0;
 
 /// Every enchantment, indexed by id.
-pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value() as usize] = [
+pub const ENCHANTMENTS: [Enchantment; EnchantmentId::NumEnchantments.wire_value() as usize] = [
     e(
         EnchantmentId::Protection,
         "enchantment.protect.all",
@@ -112,7 +112,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         3,
     ),
     e(
-        EnchantmentId::Fireprotection,
+        EnchantmentId::FireProtection,
         "enchantment.protect.fire",
         10,
         ARMOR,
@@ -121,7 +121,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         3,
     ),
     e(
-        EnchantmentId::Featherfalling,
+        EnchantmentId::FeatherFalling,
         "enchantment.protect.fall",
         10,
         FEET,
@@ -130,7 +130,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Blastprotection,
+        EnchantmentId::BlastProtection,
         "enchantment.protect.explosion",
         3,
         ARMOR,
@@ -139,7 +139,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         3,
     ),
     e(
-        EnchantmentId::Projectileprotection,
+        EnchantmentId::ProjectileProtection,
         "enchantment.protect.projectile",
         10,
         ARMOR,
@@ -166,7 +166,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Depthstrider,
+        EnchantmentId::DepthStrider,
         "enchantment.waterWalker",
         3,
         FEET,
@@ -175,7 +175,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         4,
     ),
     e(
-        EnchantmentId::Aquaaffinity,
+        EnchantmentId::AquaAffinity,
         "enchantment.waterWorker",
         3,
         HEAD,
@@ -202,7 +202,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         1,
     ),
     e(
-        EnchantmentId::Baneofarthropods,
+        EnchantmentId::BaneOfArthropods,
         "enchantment.damage.arthropods",
         10,
         SWORD | MACE | SPEAR,
@@ -220,7 +220,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Fireaspect,
+        EnchantmentId::FireAspect,
         "enchantment.fire",
         3,
         SWORD | MACE | SPEAR,
@@ -247,7 +247,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Silktouch,
+        EnchantmentId::SilkTouch,
         "enchantment.untouching",
         1,
         DIGGERS,
@@ -310,7 +310,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         5,
     ),
     e(
-        EnchantmentId::Luckofthesea,
+        EnchantmentId::LuckOfTheSea,
         "enchantment.lootBonusFishing",
         3,
         FISHING_ROD,
@@ -328,7 +328,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Frostwalker,
+        EnchantmentId::FrostWalker,
         "enchantment.frostwalker",
         3,
         FEET,
@@ -346,7 +346,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         5,
     ),
     e(
-        EnchantmentId::Curseofbinding,
+        EnchantmentId::CurseOfBinding,
         "enchantment.curse.binding",
         1,
         ARMOR | ELYTRA | COSMETIC_HEAD,
@@ -355,7 +355,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Curseofvanishing,
+        EnchantmentId::CurseOfVanishing,
         "enchantment.curse.vanishing",
         1,
         ALL,
@@ -418,7 +418,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Quickcharge,
+        EnchantmentId::QuickCharge,
         "enchantment.crossbowQuickCharge",
         10,
         CROSSBOW,
@@ -427,7 +427,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Soulspeed,
+        EnchantmentId::SoulSpeed,
         "enchantment.soul_speed",
         1,
         FEET,
@@ -436,7 +436,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Swiftsneak,
+        EnchantmentId::SwiftSneak,
         "enchantment.swift_sneak",
         1,
         LEGS,
@@ -445,7 +445,7 @@ pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value(
         0,
     ),
     e(
-        EnchantmentId::Windburst,
+        EnchantmentId::WindBurst,
         "enchantment.heavy_weapon.windburst",
         3,
         MACE,
@@ -608,7 +608,7 @@ mod tests {
             assert_eq!(usize::try_from(enchantment.id).unwrap(), index);
         }
         for id in EnchantmentId::ALL {
-            if id.wire_value() < EnchantmentId::Numenchantments.wire_value() {
+            if id.wire_value() < EnchantmentId::NumEnchantments.wire_value() {
                 assert_eq!(
                     enchantment(i16::from(id.wire_value())).unwrap().id,
                     i16::from(id.wire_value())

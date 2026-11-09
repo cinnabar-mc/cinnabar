@@ -5,7 +5,6 @@ use bevy::{ecs::system::RunSystemOnce, render::renderer::PendingCommandBuffers};
 use render_scene::RuntimeStage;
 
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn shaderpack_owned_query_policy_claims_only_detailed_owned_passes() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     for detailed in [false, true] {
@@ -24,7 +23,6 @@ fn shaderpack_owned_query_policy_claims_only_detailed_owned_passes() {
 }
 
 #[test]
-#[cfg(feature = "shaderpacks")]
 fn shaderpack_owned_pass_queries_follow_frame_detail() {
     let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
     for detailed in [false, true] {
@@ -930,4 +928,33 @@ fn idle_pairing_preserves_recording_identity_and_coverage() {
         assert!(whole);
         assert_eq!(frame.get(RuntimeStage::GpuIdle), None);
     });
+}
+
+/// Raster profiling includes both the reset compute pass and the fragment box test.
+#[test]
+fn raster_pass_queries_include_compute_and_render_work_only_in_detailed_frames() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for detailed in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, detailed).unwrap();
+        timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let reset = compute_pass_timestamps(&world, RuntimeStage::GpuCullRaster);
+        let draw = render_pass_timestamps(&world, RuntimeStage::GpuCullRaster);
+        let expected = detailed && !cfg!(target_os = "macos");
+        assert_eq!(reset.is_some(), expected);
+        assert_eq!(
+            draw.is_some(),
+            expected,
+            "box fragments must be included in the raster GPU span"
+        );
+        assert_eq!(
+            world
+                .resource::<GpuTimestamps>()
+                .frame
+                .passes
+                .load(Ordering::Relaxed),
+            if expected { 2 } else { 0 }
+        );
+    }
 }

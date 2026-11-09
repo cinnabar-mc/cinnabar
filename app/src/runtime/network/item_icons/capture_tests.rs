@@ -94,7 +94,7 @@ fn captured_hotbar_survives_network_registry_and_inventory_publication() {
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         client_presentation::camera::CameraSettingsAuthority::default().perspective(),
         0,
     );

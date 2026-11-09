@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode, RewindType,
 };
 
@@ -193,6 +193,14 @@ pub struct OpenSignEvent {
     pub front: bool,
 }
 
+/// The server opening the command block editor for the block at `position`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenCommandBlockEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+}
+
 /// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockEventEvent {
@@ -296,7 +304,7 @@ impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
             MovePlayerPacketPositionMode::Teleport => Self::Teleport,
-            MovePlayerPacketPositionMode::Onlyheadrot => Self::Rotation,
+            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
             MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }
@@ -494,6 +502,7 @@ pub enum WorldEvent {
     BlockEvent(BlockEventEvent),
     MapData(MapDataEvent),
     OpenSign(OpenSignEvent),
+    OpenCommandBlock(OpenCommandBlockEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),

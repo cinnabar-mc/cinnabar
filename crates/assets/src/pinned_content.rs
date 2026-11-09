@@ -61,11 +61,11 @@ pub(crate) fn physics_registry_source() -> &'static str {
 }
 
 const VANILLA_SOURCE_JSON: &str = crate::VANILLA_SOURCE_MANIFEST;
-const BLOCK_REGISTRY_BYTES: &[u8] = include_bytes!("../data/block-registry-v2193.bin");
-const LIGHT_REGISTRY_BYTES: &[u8] = include_bytes!("../data/block-light-registry-v2193.bin");
-const BIOME_REGISTRY_BYTES: &[u8] = include_bytes!("../data/biome-registry-v2193.bin");
+const BLOCK_REGISTRY_BYTES: &[u8] = include_bytes!("../data/block-registry-v2225.bin");
+const LIGHT_REGISTRY_BYTES: &[u8] = include_bytes!("../data/block-light-registry-v2225.bin");
+const BIOME_REGISTRY_BYTES: &[u8] = include_bytes!("../data/biome-registry-v2225.bin");
 
-/// The checked-in protocol-2193 block registry, shared with the collision
+/// The checked-in protocol-2225 block registry, shared with the collision
 /// consumer so one embed feeds both physics and provenance validation.
 pub const fn pinned_block_registry_bytes() -> &'static [u8] {
     BLOCK_REGISTRY_BYTES
@@ -86,7 +86,7 @@ pub fn pinned_block_sequential_id(network_hash: u32) -> Option<u32> {
 }
 
 /// The exact world-carrier identity this checkout pins: the canonical
-/// vanilla source manifest plus each consumed protocol-2193 registry input.
+/// vanilla source manifest plus each consumed protocol-2225 registry input.
 #[must_use]
 pub fn pinned_world_provenance() -> &'static BlobProvenance {
     static PINNED: OnceLock<BlobProvenance> = OnceLock::new();

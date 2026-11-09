@@ -1,4 +1,6 @@
-//! The actor's inventory and the stacks a guest makes: `inventory`, `set-slot` and `drop-item`.
+//! The actor's inventory and the stacks a guest makes: `inventory`, `set-slot` and `drop-item`;
+//! the actor's game mode; and whether a break harvests, when the guest drops what its block
+//! leaves to it.
 
 use anyhow::Result;
 use experience_sdk::artifact::MAX_STACK_SIZE;
@@ -9,7 +11,7 @@ use crate::host::cinnabar::experience_server::types::{self as wit, WorldError};
 use crate::limits::MAX_ITEM_DATA_BYTES;
 use crate::load::Catalog;
 use crate::protocol::{
-    BlockPos, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, NewStack, Op,
+    BlockPos, GameMode, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, NewStack, Op,
 };
 
 /// Checks the actor's inventory as the adapter snapshotted it: [`INVENTORY_SLOTS`] slots, the
@@ -36,30 +38,41 @@ pub(super) fn check_inventory(
         ));
     }
     for (slot, stack) in inventory.slots.iter().enumerate() {
-        let Some(stack) = stack else { continue };
-        if stack.count == 0 || stack.max_count == 0 || stack.count > stack.max_count {
-            return Err(format!(
-                "slot {slot} holds {} of {}, more than its most, {}, or none",
-                stack.count, stack.id, stack.max_count
-            ));
-        }
-        let Some(data) = &stack.data else { continue };
-        if !own.items.contains_key(&stack.id) {
-            return Err(format!(
-                "slot {slot} has data on {}, which is not its own item",
-                stack.id
-            ));
-        }
-        let data = hex::decode(data)
-            .map_err(|error| format!("slot {slot}: item data is not lowercase hex: {error}"))?;
-        if data.len() > MAX_ITEM_DATA_BYTES {
-            return Err(format!(
-                "slot {slot} has {} bytes of item data; the limit is {MAX_ITEM_DATA_BYTES}",
-                data.len()
-            ));
+        if let Some(stack) = stack {
+            check_stack(own, &format!("slot {slot}"), stack)?;
         }
     }
     Ok(())
+}
+
+/// Checks one stack of a snapshot, `what` naming where it is: within its most, and data only on
+/// the Experience's own items, lowercase hex of at most [`MAX_ITEM_DATA_BYTES`]. Returns the bytes
+/// of its data.
+pub(super) fn check_stack(own: &Catalog, what: &str, stack: &ItemStack) -> Result<usize, String> {
+    if stack.count == 0 || stack.max_count == 0 || stack.count > stack.max_count {
+        return Err(format!(
+            "{what} holds {} of {}, more than its most, {}, or none",
+            stack.count, stack.id, stack.max_count
+        ));
+    }
+    let Some(data) = &stack.data else {
+        return Ok(0);
+    };
+    if !own.items.contains_key(&stack.id) {
+        return Err(format!(
+            "{what} has data on {}, which is not its own item",
+            stack.id
+        ));
+    }
+    let data = hex::decode(data)
+        .map_err(|error| format!("{what}: item data is not lowercase hex: {error}"))?;
+    if data.len() > MAX_ITEM_DATA_BYTES {
+        return Err(format!(
+            "{what} has {} bytes of item data; the limit is {MAX_ITEM_DATA_BYTES}",
+            data.len()
+        ));
+    }
+    Ok(data.len())
 }
 
 impl CallbackRes {
@@ -67,6 +80,23 @@ impl CallbackRes {
     pub(crate) fn inventory(&mut self) -> Result<Result<Inventory, WorldError>> {
         self.host_call()?;
         Ok(self.inventory.clone().ok_or(WorldError::PlayerUnavailable))
+    }
+
+    /// The actor's game mode as the snapshot holds it; `player-unavailable` without an actor.
+    pub(crate) fn game_mode(&mut self) -> Result<Result<wit::GameMode, WorldError>> {
+        self.host_call()?;
+        Ok(self
+            .inventory
+            .as_ref()
+            .map(|inventory| inventory.game_mode.into())
+            .ok_or(WorldError::PlayerUnavailable))
+    }
+
+    /// Whether this is a break that harvests: its player broke the block in a game mode that
+    /// drops what is broken.
+    pub(crate) fn harvested(&mut self) -> Result<bool> {
+        self.host_call()?;
+        Ok(self.harvest)
     }
 
     /// Stages a slot's new content, a stack the guest may make, or none; a slot written again
@@ -139,7 +169,7 @@ impl CallbackRes {
 
 /// Builds a staged inventory entry using its catalogue rules and adapter classification.
 /// Own items may carry data; block and vanilla stacks require no data.
-fn made(own: &Catalog, stack: &NewStack) -> Result<ItemStack, WorldError> {
+pub(super) fn made(own: &Catalog, stack: &NewStack) -> Result<ItemStack, WorldError> {
     let data_len = stack.data.as_ref().map_or(0, |data| data.len() / 2);
     if stack.count == 0 {
         return Err(WorldError::UnsupportedState);
@@ -155,6 +185,9 @@ fn made(own: &Catalog, stack: &NewStack) -> Result<ItemStack, WorldError> {
         max
     } else {
         let max = if own.blocks.contains_key(&stack.id) {
+            if own.itemless_blocks.contains(&stack.id) {
+                return Err(WorldError::UnknownBlock);
+            }
             if stack.metadata != 0 {
                 return Err(WorldError::UnsupportedState);
             }
@@ -198,9 +231,9 @@ impl From<wit::NewStack> for NewStack {
     }
 }
 
-impl From<Inventory> for wit::Inventory {
-    fn from(inventory: Inventory) -> Self {
-        let stack = |stack: ItemStack| wit::ItemStack {
+impl From<ItemStack> for wit::ItemStack {
+    fn from(stack: ItemStack) -> Self {
+        Self {
             id: stack.id,
             metadata: stack.metadata,
             count: stack.count,
@@ -211,14 +244,30 @@ impl From<Inventory> for wit::Inventory {
                 .data
                 .map(|data| hex::decode(&data).expect("checked item data")),
             plain: stack.plain,
-        };
+        }
+    }
+}
+
+impl From<Inventory> for wit::Inventory {
+    fn from(inventory: Inventory) -> Self {
         Self {
             selected: inventory.selected,
             slots: inventory
                 .slots
                 .into_iter()
-                .map(|slot| slot.map(stack))
+                .map(|slot| slot.map(Into::into))
                 .collect(),
+        }
+    }
+}
+
+impl From<GameMode> for wit::GameMode {
+    fn from(mode: GameMode) -> Self {
+        match mode {
+            GameMode::Survival => Self::Survival,
+            GameMode::Creative => Self::Creative,
+            GameMode::Adventure => Self::Adventure,
+            GameMode::Spectator => Self::Spectator,
         }
     }
 }

@@ -151,6 +151,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
                 position: movement.position,
                 surface_anchor: None,
             },
+            riding_actor_resolved: false,
             source_cohort: None,
         }]
     );

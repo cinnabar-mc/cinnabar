@@ -7,11 +7,11 @@
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
 
-use bedrock_protocol_1_26_51::enums::MovementEffectType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::MovementEffectType;
+use bedrock_protocol_1_26_60::packets::{
     MoveActorAbsolute, MoveActorDelta, MovementEffect, NetworkStackLatency, SetActorMotion,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, MoveActorAbsoluteData, MoveActorDeltaData, PlayerInputTick,
 };
 

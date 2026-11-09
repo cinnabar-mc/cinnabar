@@ -7,9 +7,9 @@ import (
 	"sync"
 )
 
-// v2193EducationStateCount counts supported names in the independently pinned source palette.
-var v2193EducationStateCount = sync.OnceValue(func() int {
-	states, err := readV2193BlockStates()
+// v2225EducationStateCount counts supported names in the independently pinned source palette.
+var v2225EducationStateCount = sync.OnceValue(func() int {
+	states, err := readV2225BlockStates()
 	if err != nil {
 		panic(err)
 	}

@@ -26,3 +26,22 @@ func (s *Service) RealmMembership(ctx context.Context, code string, accept bool)
 	}
 	return realm, ctx.Err()
 }
+
+// LeaveRealm removes the active account from a joined Realm and reports an account change made
+// while the request ran, so its outcome is never published for another identity.
+func (s *Service) LeaveRealm(ctx context.Context, realmID int) error {
+	src, err := s.source()
+	if err != nil {
+		return err
+	}
+	if realmID <= 0 {
+		return control.ErrInvalidTarget
+	}
+	if err := s.cfg.LeaveRealm(ctx, src, realmID); err != nil {
+		return err
+	}
+	if _, err := s.source(); err != nil {
+		return err
+	}
+	return ctx.Err()
+}

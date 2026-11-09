@@ -99,7 +99,13 @@ fn publish_biome_mesh(stream: &mut WorldStream, key: SubChunkKey) -> PackedBiome
     let assets = stream.authority.runtime_assets();
     let mode = stream.authority.network_id_mode();
     let biome = pack_biome_record(&snapshot.biomes, &stream.resolved_biome_tints_snapshot());
-    let mesh = snapshot.mesh(stream.classifier, assets, mode, &biome);
+    let mesh = snapshot.mesh(
+        stream.classifier,
+        assets,
+        mode,
+        &biome,
+        &mut ::meshing::MeshScratch::default(),
+    );
     assert!(!mesh.is_empty());
     let dependency_mask = snapshot.dependency_mask(stream.classifier, assets, mode);
     stream.accept_mesh_completion(MeshCompletion {
