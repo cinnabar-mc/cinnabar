@@ -16,7 +16,7 @@ import java.util.Set;
 
 /** Hosts the client, whose JSON-UI engine draws every game screen. */
 public final class CinnabarActivity extends NativeActivity {
-    private volatile int bottomObstruction;
+    private volatile int[] safeAreaInsets = new int[4];
     private StartupScreen startup;
     private volatile boolean startupActive;
     private volatile long startupGeneration;
@@ -44,11 +44,11 @@ public final class CinnabarActivity extends NativeActivity {
         immersiveMode = new ImmersiveMode(getWindow());
         final View decor = getWindow().getDecorView();
         decor.setOnApplyWindowInsetsListener((view, insets) -> {
-            updateKeyboardGeometry(decor, insets);
+            updateWindowGeometry(decor, insets);
             return view.onApplyWindowInsets(insets);
         });
         decor.getViewTreeObserver().addOnGlobalLayoutListener(() ->
-                updateKeyboardGeometry(decor, decor.getRootWindowInsets()));
+                updateWindowGeometry(decor, decor.getRootWindowInsets()));
         decor.requestApplyInsets();
         if (Build.VERSION.SDK_INT >= 26) {
             decor.setOnCapturedPointerListener((view, event) -> {
@@ -159,9 +159,10 @@ public final class CinnabarActivity extends NativeActivity {
         });
     }
 
-    /** Publishes the keyboard overlap while leaving the Vulkan surface at full size. */
-    private void updateKeyboardGeometry(View decor, WindowInsets insets) {
+    /** Publishes UI obstructions while leaving the Vulkan surface at full size. */
+    private void updateWindowGeometry(View decor, WindowInsets insets) {
         if (insets == null) return;
+        final int bottomObstruction;
         if (Build.VERSION.SDK_INT >= 30) {
             bottomObstruction = insets.getInsets(
                     WindowInsets.Type.ime() | WindowInsets.Type.systemBars()).bottom;
@@ -174,11 +175,12 @@ public final class CinnabarActivity extends NativeActivity {
             bottomObstruction = Math.max(0, location[1] + decor.getHeight() - visible.bottom);
             immersiveMode.keyboardVisibilityChanged(bottomObstruction > insets.getStableInsetBottom());
         }
+        safeAreaInsets = WindowGeometry.safeAreaInsetsPixels(insets, bottomObstruction);
     }
 
-    /** Returns bottom system-window obstruction relative to the full native surface. */
-    public int bottomObstructionPixels() {
-        return bottomObstruction;
+    /** Returns a left, top, right, bottom snapshot in physical surface pixels. */
+    public int[] safeAreaInsetsPixels() {
+        return safeAreaInsets;
     }
 
     @Override protected void onDestroy() {
