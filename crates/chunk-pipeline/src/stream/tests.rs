@@ -518,7 +518,7 @@ fn block_entity_visual_assets() -> RuntimeAssets {
                     rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
@@ -828,7 +828,7 @@ fn cave_test_assets() -> RuntimeAssets {
                     rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
