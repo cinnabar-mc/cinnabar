@@ -84,7 +84,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 // A nil trust joins any NetherNet server. A nil relay, for signed-out joins, gathers local
 // NetherNet candidates only.
 func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) addressedServerNetwork {
-	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	dialer := nethernet.Dialer{Log: logger, API: remoteNetherNetAPI(logger), AllowIdentitylessServer: true}
 	if relay != nil {
 		dialer.Credentials = relay.Credentials
 	}
@@ -351,7 +351,7 @@ func parseNetherNetTarget(address string) (string, string, error) {
 // fails, never trying RakNet, when none answers, as vanilla joins a NETHERNET experience
 // assignment. Signed-in joins gather through the account's relay config.
 func httpNetherNetNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) minecraft.NetherNetHTTP {
-	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	dialer := nethernet.Dialer{Log: logger, API: remoteNetherNetAPI(logger), AllowIdentitylessServer: true}
 	if relay != nil {
 		dialer.Credentials = relay.Credentials
 	}
@@ -426,7 +426,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, logger *slog.L
 func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
 	return minecraft.NetherNet{
 		DialSignaling: network.signal,
-		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true},
+		Dialer:        nethernet.Dialer{Log: network.logger, API: remoteNetherNetAPI(network.logger), AllowIdentitylessServer: true},
 	}
 }
 
