@@ -59,6 +59,7 @@ fn elytra_cells_select_worn_artwork_from_stack_damage() {
             visual: assets::ItemVisualRoute::Missing,
             charged_projectile: None,
             map_id: None,
+            shield_pattern: None,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             damage: Some(damage),
             durability,

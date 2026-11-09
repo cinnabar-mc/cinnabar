@@ -1,4 +1,4 @@
-use super::super::*;
+use super::super::{preparation::cube_shape_admitted, sources::gui_cube_sheet, *};
 use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
 use ui::{UiNodeId, UiPoint, UiRect};
 
