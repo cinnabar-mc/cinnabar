@@ -2,7 +2,7 @@
 use crate::{gpu_snapshot, shader_source};
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::Gpu;
-use meshing::{Face, PackedLiquidQuad, PackedModelRef, PackedQuad};
+use meshing::{Face, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad};
 
 const OUTPUT_BINDING: u32 = 28;
 const LIGHTMAP_BINDING: u32 = 27;
@@ -130,14 +130,30 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     // Visibility word: 1 = visible, 4 = every UV inside one tile (the fixture's UVs are zero).
     let mut repeating = template.clone();
     repeating[10] = 4097; // First UV word: u past one tile.
+    let mut patched = geometry.clone();
+    patched[1] = PackedModelDrawRef::new(1, 0)
+        .with_surface_tile(4, 16)
+        .words()[1];
     let mut cases = vec![
         ("visible", geometry.clone(), template.clone(), 0, 1 | 4),
         ("repeating", geometry.clone(), repeating, 0, 1),
+        ("surface tile", patched, template.clone(), 0, 1 | 4),
     ];
+    let border = 16 << meshing::surface::BORDER_SHIFT;
     for (name, word, value) in [
         ("masked", 7, 0),
         ("padded", 1, 1),
         ("quad overflow", 1, 32),
+        (
+            "tile overflow",
+            1,
+            (meshing::surface::TILE_COUNT << meshing::surface::TILE_SHIFT) | border,
+        ),
+        (
+            "draw word overflow",
+            1,
+            meshing::surface::DRAW_WORD_MASK + 1,
+        ),
         ("reference overflow", 0, 0x4000_0000),
         ("missing reference", 0, 3),
         ("missing template", 5, 1),
