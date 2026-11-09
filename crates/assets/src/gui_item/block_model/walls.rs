@@ -51,9 +51,9 @@ pub(super) fn inventory_quads(materials: [u32; 6]) -> Vec<GuiBlockQuad> {
     out
 }
 
-/// Builds both posts and separate rail halves on the carried wall's longitudinal axis.
+/// Builds both posts and separate rail halves, retaining each face's material.
 #[must_use]
-pub fn carried_quads(material: u32) -> Vec<GuiBlockQuad> {
+pub fn carried_quads(materials: [u32; 6]) -> Vec<GuiBlockQuad> {
     let [
         (far_min, far_max),
         (near_min, near_max),
@@ -92,7 +92,7 @@ pub fn carried_quads(material: u32) -> Vec<GuiBlockQuad> {
                 GuiBlockQuad {
                     corners,
                     uvs,
-                    material,
+                    material: materials[face as usize],
                     two_sided: false,
                 }
             })

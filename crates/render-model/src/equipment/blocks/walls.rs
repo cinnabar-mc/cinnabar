@@ -16,6 +16,6 @@ pub(super) fn model(
         return None;
     }
     template_quads(&assets::gui_item::carried_wall_quads(
-        block.face(BlockFace::South).material_id(),
+        BlockFace::ALL.map(|face| block.face(face).material_id()),
     ))
 }
