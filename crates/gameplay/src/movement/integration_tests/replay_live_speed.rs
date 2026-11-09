@@ -50,6 +50,7 @@ fn replay_control(trigger: ReplayTrigger, anchor: &PhysicsMovementSample) -> Com
                 subject: protocol::MovementCorrectionSubject::Player,
                 on_ground: anchor.grounded_after_tick,
                 tick: anchor.tick,
+                vehicle_angular_velocity: None,
             },
             resolved: ResolvedServerPosition {
                 position,
