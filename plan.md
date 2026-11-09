@@ -1770,6 +1770,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Native UI receives display-cutout insets combined with
   keyboard overlap at the window's DPI, while the world surface stays full size.
+  The crosshair uses that full viewport while edge controls stay inside the safe area.
   Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
