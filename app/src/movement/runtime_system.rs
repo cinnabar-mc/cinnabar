@@ -206,15 +206,17 @@ pub(crate) fn advance_local_physics(
     publish_physics_view(&mut physics, &mut view);
 }
 
-/// Sends a retained dismount request, then lets through the movement it held back once
-/// transport admits it.
+/// Sends a retained dismount request once the movement before it has gone out, then lets
+/// through the movement it held back once transport admits it.
 fn flush_dismount(
     locals: &mut LocomotionState,
     physics: &LocalPhysicsController,
     movement_ticker: &mut MovementTicker,
     network: Option<&NetworkHandle<PackApplication>>,
 ) {
-    if let (Some(position), Some(network)) = (physics.network_position(), network) {
+    if let (Some(position), Some(network)) = (physics.network_position(), network)
+        && !movement_ticker.holds_movement_before_dismount()
+    {
         locals.flush_dismount(position, |packet| {
             network.send_inventory_packets(vec![packet])
         });

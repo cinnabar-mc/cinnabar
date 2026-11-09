@@ -527,6 +527,17 @@ impl MovementTicker {
         }
     }
 
+    /// Whether movement from before getting off still waits for transport; the dismount
+    /// request follows it, so the server sees the player leave the seat in order.
+    #[must_use]
+    pub fn holds_movement_before_dismount(&self) -> bool {
+        self.dismount.fence.is_some_and(|fence| {
+            self.outbox
+                .front()
+                .is_some_and(|sample| sample.snapshot.tick <= fence)
+        })
+    }
+
     /// Lets movement held back for a dismount request reach transport.
     pub(super) fn release_dismount_fence(&mut self) {
         self.dismount.fence = None;

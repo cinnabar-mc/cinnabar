@@ -614,12 +614,17 @@ fn movement_after_getting_off_waits_for_the_dismount_request() {
     rider.advance(press);
     assert!(rider.ticker.completed_tick() > seated);
 
+    assert!(
+        rider.ticker.holds_movement_before_dismount(),
+        "seated movement still queued goes ahead of the request"
+    );
     let position = rider.physics.network_position().unwrap();
     rider
         .locals
         .flush_dismount(position, |_| Err(protocol::BatchSendError::Full));
     rider.locals.settle_dismount_fence(&mut rider.ticker);
     let before = rider.flush_movement();
+    assert!(!rider.ticker.holds_movement_before_dismount());
     assert!(
         before.iter().all(|tick| *tick <= seated),
         "only seated movement goes ahead of the request: {before:?}"
