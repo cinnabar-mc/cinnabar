@@ -1,6 +1,7 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
 use json_ui::vanilla::Reference;
+pub mod audio_output;
 pub mod auth;
 pub mod death;
 pub mod dialogs;
