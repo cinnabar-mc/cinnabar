@@ -166,7 +166,16 @@ pub struct PreparedGuiModels {
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: held::HeldModels,
+    /// Ordinary items that retained their sprite because a held texture could not fit.
+    pub(super) held_texture_fallbacks: usize,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
+}
+
+impl PreparedGuiModels {
+    /// Reports held items that used resident sprites after their model artwork could not fit.
+    pub const fn held_texture_fallbacks(&self) -> usize {
+        self.held_texture_fallbacks
+    }
 }
 
 impl GuiModels {

@@ -99,14 +99,19 @@ impl HudElements {
         };
     }
 
-    /// Records the crosshair overlay: whether vanilla draws it and where.
-    pub fn observe_crosshair(&mut self, nodes: &[DrawNode], visible: bool) {
+    /// Records the crosshair overlay with the HUD root's GUI-unit origin removed.
+    pub fn observe_crosshair(&mut self, nodes: &[DrawNode], visible: bool, hud_origin: [f32; 2]) {
         self.states[VanillaElement::Crosshair.index()] = ElementState {
             visible,
             bounds: union(
                 nodes,
                 |node| matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == CURSOR_RENDERER),
-            ),
+            )
+            .map(|mut bounds| {
+                bounds[0] -= hud_origin[0];
+                bounds[1] -= hud_origin[1];
+                bounds
+            }),
         };
     }
 
@@ -248,6 +253,7 @@ mod tests {
         elements.observe_crosshair(
             &[node("cross", CURSOR_RENDERER, [312., 172., 16., 16.])],
             true,
+            [0., 0.],
         );
         assert_eq!(
             state(&elements, VanillaElement::Crosshair).bounds,

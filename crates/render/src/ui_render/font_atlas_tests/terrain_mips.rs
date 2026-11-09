@@ -189,14 +189,14 @@ fn projected_item_vertices_use_half_precision_before_rasterization() {
             .as_chunks::<4>()
             .0
             .iter()
-            .zip(expected.as_chunks::<4>().0.iter())
+            .zip(expected.as_chunks::<4>().0)
             .enumerate()
             .find(|(_, (a, b))| a != b),
         actual
             .as_chunks::<4>()
             .0
             .iter()
-            .zip(expected.as_chunks::<4>().0.iter())
+            .zip(expected.as_chunks::<4>().0)
             .filter(|(a, b)| a != b)
             .count(),
     );

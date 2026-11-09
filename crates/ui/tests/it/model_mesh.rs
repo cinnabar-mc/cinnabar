@@ -49,15 +49,60 @@ fn terrain_sampling_survives_mesh_draw_conversion() {
     tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
         .unwrap();
     let draw = tree.build_draw_list().unwrap();
-    assert!(draw.vertices.iter().all(|vertex| {
-        vertex.style_flags & render_api::UI_STYLE_TERRAIN_MIPS != 0
-            && vertex.style_flags & render_api::UI_STYLE_ALPHA_TEST != 0
-            && vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0
-            && vertex.style_flags & render_api::UI_STYLE_UNORM16_UV != 0
-            && vertex.style_flags
-                & (render_api::UI_STYLE_MODEL_VERTEX | render_api::UI_STYLE_RGB_COVERAGE)
-                == 0
-    }));
+    assert_eq!(draw.vertices.len(), 3);
+    for vertex in &draw.vertices {
+        assert_eq!(
+            vertex.style_flags,
+            render_api::UI_STYLE_TERRAIN_MIPS
+                | render_api::UI_STYLE_ALPHA_TEST
+                | render_api::UI_STYLE_HALF_FLOAT_XY
+                | render_api::UI_STYLE_UNORM16_UV,
+        );
+        assert_eq!(
+            vertex.style_flags
+                & (render_api::UI_STYLE_MODEL_VERTEX | render_api::UI_STYLE_RGB_COVERAGE),
+            0,
+        );
+    }
+}
+
+#[test]
+fn skinned_mesh_draws_keep_model_positions_without_terrain_styles() {
+    let source = vertex([3.0, 5.0], 2.0);
+    let geometry = UiMesh::skinned(
+        vec![source; 3].into(),
+        vec![0, 1, 2].into(),
+        vec![batch(1, 0..3)].into(),
+    )
+    .unwrap();
+    let ordinary = UiMesh::new(
+        geometry.vertices().into(),
+        geometry.indices().into(),
+        geometry.batches().into(),
+    )
+    .unwrap();
+    assert_ne!(geometry, ordinary);
+    let bounds = rect(10.0, 20.0, 16.0, 16.0);
+    let mut tree = UiTree::new(vec![
+        UiNode::new(UiNodeId::new(1), None, bounds).with_visual(UiVisual::Mesh(Arc::new(geometry))),
+    ])
+    .unwrap();
+    tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.vertices.len(), 3);
+    for vertex in &draw.vertices {
+        assert_eq!(vertex.position, source.position);
+        assert_eq!(vertex.clip_w, source.clip_w);
+        assert_eq!(vertex.style_flags, render_api::UI_STYLE_MODEL_VERTEX);
+        assert_eq!(
+            vertex.style_flags
+                & (render_api::UI_STYLE_TERRAIN_MIPS
+                    | render_api::UI_STYLE_HALF_FLOAT_XY
+                    | render_api::UI_STYLE_UNORM16_UV),
+            0,
+        );
+    }
 }
 
 fn batch(page: u16, range: std::ops::Range<u32>) -> UiMeshBatch {

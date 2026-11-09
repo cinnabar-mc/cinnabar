@@ -152,6 +152,7 @@ fn presentation(pack: Arc<assets::SessionEntityPack>) -> UiPresentationRuntime {
     ui.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
     ui.set_preview_player_layers(Some(pack));
     let held = PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: IconRef {
             page: 0,
             uv: [0, 0, 1, 1],
@@ -269,6 +270,7 @@ fn triangles(vertices: &[UiMeshVertex]) -> usize {
 fn wear_helmet_block(ui: &mut UiPresentationRuntime) {
     ui.set_player_preview_gear([None; 4], None);
     let block = PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: IconRef {
             page: 0,
             uv: [0, 0, 1, 1],
