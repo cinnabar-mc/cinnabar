@@ -5,9 +5,10 @@ use super::*;
 impl ItemUseRuntime {
     /// Starts the held use an admitted item use on a block begins on its build tick, as
     /// vanilla's `BrushItem::_useOn` starts using the brush with its maximum use duration.
-    /// A running use is kept, since vanilla's start ignores the item it is already using.
-    /// The use button owns the use, so button-up sends the release. Returns whether a use
-    /// started, so the caller can flag that tick's input.
+    /// A running use of the same selection is kept, since vanilla's start ignores the item it
+    /// is already using; a stale use of another selection is replaced. The use button owns
+    /// the use, so button-up sends the release. Returns whether a use started, so the caller
+    /// can flag that tick's input.
     pub fn start_use_on(
         &mut self,
         selection: FrozenMiningSelection,
@@ -15,7 +16,10 @@ impl ItemUseRuntime {
         slowdown: f64,
         tick: u64,
     ) -> bool {
-        if self.active.is_some() {
+        if self.active.as_ref().is_some_and(|active| {
+            active.selection.slot == selection.slot
+                && active.selection.item.network_id() == selection.item.network_id()
+        }) {
             return false;
         }
         self.active = Some(ActiveUse {
