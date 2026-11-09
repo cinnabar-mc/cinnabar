@@ -6,6 +6,52 @@ use crate::{
 use anyhow::{Result, bail};
 
 impl cinnabar::extension::terrain::Host for State {
+    /// Admits bounded visual rules as part of the normal callback transaction.
+    fn set_surface_rules(
+        &mut self,
+        rules: Vec<cinnabar::extension::terrain::SurfaceRule>,
+    ) -> Result<Result<(), String>> {
+        use mod_api::terrain_surface::{Clause, Condition, Rule};
+        self.environment.write()?;
+        if !self.grants.render_material {
+            return Ok(Err("render material capability denied".into()));
+        }
+        if rules.len() > mod_api::terrain_surface::MAX_RULES {
+            return Ok(Err("too many terrain surface rules".into()));
+        }
+        let rules: Vec<_> = rules
+            .into_iter()
+            .map(|rule| Rule {
+                groups: rule.groups,
+                border: rule.border,
+                clauses: rule
+                    .clauses
+                    .into_iter()
+                    .map(|clause| Clause {
+                        tiles: clause.tiles,
+                        conditions: clause
+                            .conditions
+                            .into_iter()
+                            .map(|condition| Condition {
+                                offset: [
+                                    condition.offset.0,
+                                    condition.offset.1,
+                                    condition.offset.2,
+                                ],
+                                present: condition.present,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        if !mod_api::terrain_surface::validate(&rules) {
+            return Ok(Err("invalid terrain surface rules".into()));
+        }
+        self.environment.pending_surface_rules = Some(rules);
+        Ok(Ok(()))
+    }
+
     fn read_region(
         &mut self,
         query: TerrainQuery,
@@ -136,6 +182,44 @@ mod tests {
         });
         value
     }
+    #[test]
+    fn surface_rules_require_material_authority_and_commit_transactionally() {
+        use cinnabar::extension::terrain::{SurfaceClause, SurfaceRule};
+        let rules = vec![SurfaceRule {
+            groups: vec![vec!["test:panel".into()]],
+            border: 16,
+            clauses: vec![SurfaceClause {
+                conditions: vec![],
+                tiles: 1,
+            }],
+        }];
+        let mut denied = state(ModGrants {
+            terrain: true,
+            ..Default::default()
+        });
+        assert!(denied.set_surface_rules(rules.clone()).unwrap().is_err());
+        let mut owner = state(ModGrants {
+            render_material: true,
+            ..Default::default()
+        });
+        owner.set_surface_rules(rules.clone()).unwrap().unwrap();
+        assert!(owner.environment.surface_rules.is_empty());
+        owner.environment.commit();
+        assert_eq!(owner.environment.surface_rules.len(), 1);
+        owner.environment.begin_callback();
+        owner.set_surface_rules(vec![]).unwrap().unwrap();
+        owner.environment.rollback();
+        owner.environment.commit();
+        assert_eq!(owner.environment.surface_rules.len(), 1);
+        owner.set_surface_rules(vec![]).unwrap().unwrap();
+        owner.environment.commit();
+        assert!(owner.environment.surface_rules.is_empty());
+        owner.set_surface_rules(rules).unwrap().unwrap();
+        owner.environment.commit();
+        owner.reset_presentation();
+        assert!(owner.environment.surface_rules.is_empty());
+    }
+
     fn query(x: i32) -> TerrainQuery {
         TerrainQuery {
             min: TerrainPosition { x, y: 0, z: 0 },

@@ -1,5 +1,35 @@
 use super::*;
 
+#[test]
+fn frame_work_above_the_action_filter_limit_completes_without_restarting() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("bounded-work.wat");
+    let source = format!(
+        r#"(component
+        (core module $m
+            (global $done (mut i32) (i32.const 0))
+            (func (export "init"))
+            (func (export "frame") (local $i i32)
+                global.get $done if return end
+                i32.const {} local.set $i
+                (loop $work local.get $i i32.const 1 i32.sub local.tee $i br_if $work)
+                i32.const 1 global.set $done))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#,
+        mod_api::ACTION_FILTER_FUEL / 2
+    );
+    std::fs::write(&path, source).unwrap();
+    let mut host = ModHost::load(&path).unwrap();
+    host.frame(false).unwrap();
+    assert!(host.last_fuel_used() > mod_api::ACTION_FILTER_FUEL);
+    assert!(host.last_fuel_used() < FRAME_FUEL);
+    assert!(!host.is_recovering());
+    host.frame(false).unwrap();
+    assert!(host.last_fuel_used() < mod_api::ACTION_FILTER_FUEL);
+    assert!(!host.is_recovering());
+}
+
 /// Loads a guest that stages a different label before overrunning on pressed frames.
 fn host() -> (tempfile::TempDir, ModHost) {
     let directory = tempfile::tempdir().unwrap();
@@ -70,7 +100,7 @@ fn repeated_frame_fuel_overruns_quarantine_the_guest() {
 fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
     let (_directory, mut host) = host();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
         host.frame(true).unwrap_err();
         budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -96,7 +126,7 @@ fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
 fn busy_loading_lane_defers_recovery_without_reentering_the_trapped_guest() {
     let (_directory, mut host) = host();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     host.frame(true).unwrap_err();
     assert_eq!(
         budget.remaining(),
@@ -138,7 +168,7 @@ fn fuel_recovery_preserves_committed_settings_and_rejects_failed_writes() {
     host.frame(true).unwrap_err();
     assert_eq!(host.settings_snapshot(), Some(settings));
     // Successful init of a fresh store must retain the committed in-memory preferences.
-    host.set_frame_authority(CallbackBudget::new(0), false, false, 0);
+    host.set_frame_authority(CallbackBudget::new(0), false, false);
     host.frame(false).unwrap();
     assert!(host.is_active());
     assert_eq!(host.settings_snapshot(), Some(settings));

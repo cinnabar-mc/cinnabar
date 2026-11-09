@@ -40,7 +40,7 @@
                     "background": {
                       "type": "image",
                       "texture": "textures/ui/Black",
-                      "alpha": 0.5,
+                      "alpha": 0.78,
                       "size": [
                         "100%",
                         "100%"
@@ -48,15 +48,49 @@
                     }
                   },
                   {
-                    "title": {
+                    "server_header": {
                       "type": "label",
                       "size": [
-                        "100% - 4px",
+                        "100% - 12px",
                         "$row_height"
                       ],
                       "offset": [
                         0,
-                        2
+                        4
+                      ],
+                      "anchor_from": "top_middle",
+                      "anchor_to": "top_middle",
+                      "text": "#server_header",
+                      "text_alignment": "center",
+                      "localize": false,
+                      "color": [
+                        1.0,
+                        0.82,
+                        0.1
+                      ],
+                      "shadow": true,
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#server_header"
+                        },
+                        {
+                          "binding_name": "#server_header_visible",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "title": {
+                      "type": "label",
+                      "size": [
+                        "100% - 12px",
+                        "$row_height"
+                      ],
+                      "offset": [
+                        0,
+                        "$title_top"
                       ],
                       "anchor_from": "top_middle",
                       "anchor_to": "top_middle",

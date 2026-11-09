@@ -29,7 +29,7 @@ pub struct ActorAnimationStore {
 
 #[derive(Debug)]
 pub(super) struct PackCatalog {
-    /// Rig geometry bindings with artwork; a pack entity without any draws as vanilla does.
+    /// Rig geometry bindings with pack artwork; players may use session skin artwork instead.
     pub(super) artwork: std::collections::BTreeSet<u32>,
     pub(super) assets: Arc<RuntimeEntityAssets>,
     pub(super) layout: Arc<VariableLayout>,
@@ -198,7 +198,9 @@ impl ActorAnimationStore {
                 identifier,
                 self.completed_tick,
             )?;
-            if !pack.artwork.contains(&state.rig.0) {
+            if !pack.artwork.contains(&state.rig.0)
+                && !matches!(actor.kind(), ActorKind::Player { .. })
+            {
                 return None;
             }
             state.pack = true;
@@ -382,6 +384,40 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Borrows owner variables from the same successful evaluation as the live UI pose.
+    pub fn ui_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
+        self.ui_pose(runtime_id)?;
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let ui = state.ui_animation.as_ref()?;
+        let mut rig = self.get(runtime_id)?;
+        rig.animation_variables = rig.animation_variables.with_variables(&ui.variables);
+        rig.held_item_scale = ui.held_item_scale;
+        rig.visibility = ui.visibility;
+        Some(rig)
+    }
+
+    /// Whether a local actor's bone is `ancestor` or one of its descendants in the rig.
+    pub fn bone_descends_from(&self, runtime_id: u64, bone: usize, ancestor: usize) -> bool {
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .and_then(|lifetime| self.rigs.get(lifetime))
+        else {
+            return false;
+        };
+        // UI poses index the skin's skeleton when the skin brings its own geometry.
+        let bones = state.posed_bones();
+        let mut current = Some(bone);
+        for _ in 0..=bones.len() {
+            match current {
+                Some(index) if index == ancestor => return true,
+                Some(index) => current = bones.get(index).and_then(|bone| bone.parent),
+                None => return false,
+            }
+        }
+        false
+    }
+
     /// Full-body controller output from the same UI evaluation as [`Self::ui_pose`].
     pub fn ui_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
         let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
@@ -389,6 +425,20 @@ impl ActorAnimationStore {
         let ui = state.ui_animation.as_ref()?;
         Some(ActorRenderLayers {
             render: std::borrow::Cow::Borrowed(&ui.render),
+            visibility: ui.visibility,
+            skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
+            held_item_scale: ui.held_item_scale,
+            head_rotation: None,
+        })
+    }
+
+    /// Completed controller layers for a paper doll drawn over the level view.
+    pub fn paper_doll_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let ui = state.paper_doll_animation.as_ref()?;
+        Some(ActorRenderLayers {
+            render: std::borrow::Cow::Borrowed(&ui.render),
+            visibility: ui.visibility,
             skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
             held_item_scale: ui.held_item_scale,
             head_rotation: None,
@@ -449,6 +499,7 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
+            visibility: state.visibility,
             attachments: Some(
                 state
                     .skin_skeleton()

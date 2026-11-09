@@ -186,8 +186,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row; `hud.read-elements` reports whether vanilla
-draws each this frame, ignoring hiding, and its bounds in GUI units when laid out.
+status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
+line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
+hiding, and its bounds in GUI units when laid out.
 
 ## Action filtering
 
@@ -208,7 +209,7 @@ repeats on a physically held control.
 
 With the `controls` grant, `touch.set-buttons` retains up to four labelled buttons,
 drawn in the built-in touch style while touch controls are shown. Each has a default
-anchor, inward offset and size; players move it in the touch layout editor, and the
+anchor, inward offset and size; players move and resize it in the touch layout editor, and the
 placement is saved under the button id, so prefix ids with the mod's name. Across mods
 the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
 when the finger lifts inside the button without interrupting other fingers, and
@@ -258,48 +259,34 @@ invalid icon/metadata affects only the card. `CINNABAR_MOD_FONT` and
 `CINNABAR_MOD_UI` sidecars override embedded font/panel data. Mod cards read standard
 component name, description, version, authors and licenses metadata.
 
-## Optional GitHub update checks
+## Mod updates
 
-A component can append top-level UTF-8 `cinnabar:extension/update-repository@1`
-containing its public GitHub repository URL for release notifications. For automatic
-installation, use `cinnabar:extension/update-url@1` containing an exact latest-release
-WASM asset URL of the form
-`https://github.com/owner/repo/releases/latest/download/mod.wasm`.
-A download URL takes precedence over a repository-only declaration.
+Marketplace mods receive signed compatible updates through the marketplace. Do not
+embed update URLs or repositories: the client ignores `update-repository@1` and
+`update-url@1`. Local imports other than the official Cinnabar mod have no automatic
+update channel.
 
-Updates require standard SemVer version metadata and the same declaration in the
-replacement. Drafts, prereleases and older/equal versions are skipped. Downloads
-require GitHub's SHA-256 digest, compatible components and matching versions.
-Only unchanged files in the managed mods directory are replaced automatically;
-external files can receive notifications. Companion settings and grants survive.
-The Mods tab's Update action works when automatic installation is disabled.
-Settings → Updates controls mod checks and automatic installation separately.
-Mods without either declaration make no update requests.
+Only the official Cinnabar mod uses `cinnabar:extension/revision-update@1`. Its
+package must match the client's official package constant in
+`ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE`; its JSON also names `source` (the
+exact release asset), `revision` (the full mod source commit), and `api_revision`.
+The existing revision-checked `/v1/mod/update` path verifies the native build's
+stamped revision, supported API revisions and the downloaded replacement identity.
+It never falls back to GitHub latest.
 
-For host-compatible automatic updates, declare only
-`cinnabar:extension/revision-update@1`, a top-level JSON object with `source` (the
-same exact GitHub asset URL), `package` (a stable package identifier), `revision`
-(the full lowercase mod source commit), and `api_revision` (the stable API revision
-of the host source used to build and test it). Do not also declare a legacy update URL:
-older hosts ignore the new section and cannot enforce its compatibility contract.
-On supporting hosts, this declaration disables legacy latest-release fallback even
-when malformed or duplicated.
+Marketplace updates use `/v1/mods/{slug}/update` with the same native revision and
+supported API list, plus the installed version and digest. The signed statement
+must name a supported `api_revision` and a strictly newer version. Settings →
+Updates controls checks and automatic installation; with automatic installation
+off, use Update in Mods. Updates with unchanged or fewer signed grants preserve
+enabled state and the player's remaining permission choices. Additional signed
+grants require a disabled successor and explicit Enable and permission review;
+the old version keeps running until that selection.
 
-The updater queries the Cinnabar API with the native build's full stamped commit,
-supported API revisions and installed mod identity. Unstamped builds and unsupported
-API revisions receive no update. The API selects the newest mod requiring any
-supported API revision.
-The mod's native build pin is an example tested build, not an eligibility restriction.
 `crates/mod-api/compatibility-revisions.json` lists supported API revisions, oldest
-to newest. Unrelated native commits keep this list. Adding capabilities appends the
-full source commit identifying the new API revision and keeps older supported entries.
-A breaking change removes revisions that can no longer run. Mods built against an
-older supported revision remain eligible on newer native builds without changing
-their build pin. A mod using a newly added capability requires the newer API revision,
-so older hosts cannot receive it. The
-client verifies returned host, package, source, asset, size, digest and replacement
-identity before using the existing bounded installer. API failures never fall back
-to GitHub latest. Existing update preferences and manual installation still apply.
+to newest. Adding capabilities appends their stable revision while retaining older
+supported entries. Breaking changes remove revisions that can no longer run.
+Local installation still admits binaries through the native compatibility checks.
 
 ## Trusted packet mods
 
@@ -319,8 +306,9 @@ even though the version number is unchanged.
 
 With the `movement` grant, `read_movement_input` returns admitted walking axes and
 jump, sneak and sprint holds before mod output is applied. `set_movement_input`
-accepts a complete replacement walking vector with additive button holds for
-input remapping and assisted controls. Both axes must be finite and within -1..1.
+accepts a complete replacement walking vector for input remapping and assisted
+controls. Its buttons hold their controls as if bound, so the player's toggle
+sprint, toggle sneak and always-sprint modes still apply. Both axes must be finite and within -1..1.
 The earliest active mod supplying a vector owns it for that frame.
 
 The host preserves camera direction and applies sprint to the supplied movement
@@ -343,8 +331,22 @@ navigation. Packet reactors use [panel and input imports](packet-panels.md).
 
 This behavior change retires earlier supported mod API revisions from update
 eligibility. Manual installation still admits compatible binaries; revision-update
-metadata on newly published mods must name the new supported revision. The WIT
+metadata on the official mod and signed marketplace release statements must name a supported revision. The WIT
 package remains `cinnabar:extension@0.1.0` because these existing component function
 signatures have not changed. Server-experience client parts use the separate
 `cinnabar:extension/server-bundle@0.1.0` world and do not import the personal-mod panel interface, so this change
 does not alter their bundle contract.
+
+`camera.set-perspective` selects first person, third-person back or third-person
+front for a successful focused gameplay frame under the camera grant. Renew the
+request each frame while needed. Omission, menus, focus loss, callback failure and
+unload restore the player's own perspective; cycling the player's perspective
+while overridden still updates the choice restored afterwards.
+
+`camera.set-view-yaw-offset` adds a world-up heading offset in -180..180 degrees
+to the presented camera for a successful focused gameplay frame. The camera grant
+is required. The eye position, player look, movement and interaction direction are
+unchanged. Off-axis views hide the body-aligned first-person hand; body visibility
+follows the chosen perspective. Use `camera.set-perspective(first-person)` when a
+view should stay at the eye with the local body hidden. Omission, neutral zero,
+menus, focus loss, traps and unload restore the aligned view.

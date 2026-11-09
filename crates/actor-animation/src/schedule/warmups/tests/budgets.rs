@@ -10,7 +10,7 @@ pub(super) fn cost_assets(cost: usize) -> Arc<RuntimeEntityAssets> {
     compiled.rig_animations = Box::new([]);
     compiled.render = assets::EntityRenderData::default();
     let scalar = crate::test_support::scalar;
-    let (mut ops, max_stack) = if cost <= assets::MAX_MOLANG_OPS_PER_EXPRESSION {
+    let (mut ops, max_stack) = if cost <= MAX_MOLANG_OPS_PER_ACTOR_TICK {
         let mut ops = vec![MolangOp::Push(scalar(0.0))];
         ops.extend(std::iter::repeat_n(
             MolangOp::Negate,
@@ -19,7 +19,7 @@ pub(super) fn cost_assets(cost: usize) -> Arc<RuntimeEntityAssets> {
         (ops, 1)
     } else {
         // Three setup operations and three operations per iteration fit costs above the
-        // per-expression storage bound without changing the exact runtime charge.
+        // ordinary actor allowance without changing the exact runtime charge.
         let iterations = ((cost - 3) / 3).min(assets::MAX_MOLANG_LOOP_ITERATIONS as usize);
         let mut ops = vec![
             MolangOp::Push(scalar(0.0)),

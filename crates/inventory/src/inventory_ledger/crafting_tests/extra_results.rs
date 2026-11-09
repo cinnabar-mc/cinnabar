@@ -333,7 +333,7 @@ fn identical_extras_share_the_room_left_in_one_matching_stack() {
     let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
     ledger.apply(&craft_slot(28, stack(COBBLE, 101, 1)));
     ledger.apply(&craft_slot(29, stack(PLANKS, 103, 60)));
-    ledger.begin_craft(&two_extras(), 1).unwrap();
+    let request = ledger.begin_craft(&two_extras(), 1).unwrap();
     let grid = format!("{:?}", StackRequestContainer::CraftingInput);
     let placed: Vec<_> = tail(&ledger)
         .into_iter()
@@ -343,7 +343,7 @@ fn identical_extras_share_the_room_left_in_one_matching_stack() {
         placed,
         [
             format!("place 1 {grid} 29 103"),
-            format!("place 1 {grid} 29 103")
+            format!("place 1 {grid} 29 {request}")
         ]
     );
     assert_eq!(

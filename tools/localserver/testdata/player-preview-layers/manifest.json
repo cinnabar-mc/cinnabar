@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Player preview layers",
+    "description": "Original player-controller geometry and HUD preview fixture",
+    "uuid": "cff32e78-c061-4c99-a9b4-df54a4cfa0ad",
+    "version": [
+      1,
+      0,
+      0
+    ],
+    "min_engine_version": [
+      1,
+      26,
+      0
+    ]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "602eec93-06be-42af-aacb-3d56b410b955",
+      "version": [
+        1,
+        0,
+        0
+      ]
+    }
+  ]
+}

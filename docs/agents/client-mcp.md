@@ -42,6 +42,17 @@ schemas document every argument. Agents drive the client only through this endpo
 - `state.client_part_screens` lists each running client part's open modal screen: its `bundle`,
   its `template` (such as `ui/terminal.json`), whether it is `focused` (owns input) and whether
   the last frame `drawn` it. `state.screens` lists only the client's own scenes.
+- The endpoint's inventory commands drive the inventory screen through the player's own
+  click path. `inventory_open` opens the inventory as its key does and replies once the screen
+  accepts clicks. `inventory_click` takes `container` (`inventory` 0–35 with the hotbar at 0–8,
+  `armor`, `offhand`, `container`, `crafting_input` in row-major order, `crafting_output`),
+  `slot`, `button` (`left` or `right`) and `shift`. `inventory_close` closes the screen as Escape
+  does. Clicks reply once the client has predicted them, without waiting for the server.
+  `inventory` and `state.inventory` report the screen, cursor, slots and crafting grid as
+  `{identifier, count}` or null; `crafting.output` is the crafting grid's result, never a
+  station's. `wait_for` `inventory_settled` waits for the server's answers. Like the player's
+  input, the commands refuse while another screen (a form, sign editor, menu or a mod's view)
+  is in front.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
   `fixed_clock: false`. Audio is captured to a WAV and muxed in. A real-time recording never

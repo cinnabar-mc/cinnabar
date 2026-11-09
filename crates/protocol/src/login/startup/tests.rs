@@ -88,8 +88,7 @@ fn deferred_packets_are_detached_and_bounded() {
         })
     };
     let mut deferred = DeferredPackets::default();
-    let chunks = decode_batch_body(body(&[half(), half()]), usize::MAX).unwrap();
-    let mut chunks = chunks.into_iter();
+    let mut chunks = decode_batch_body(body(&[half(), half()]), usize::MAX).unwrap();
     deferred.push(chunks.next().unwrap()).unwrap();
     assert!(matches!(
         deferred.push(chunks.next().unwrap()),
@@ -110,7 +109,7 @@ mod session {
     use bedrock_protocol_1_26_60::types::ItemData;
 
     use super::*;
-    use crate::raw_packet::MAX_RAW_BATCH_PACKETS;
+    use crate::session_transport::STARTUP_BATCH_PACKETS;
     use crate::session_transport::tests::packet_bytes;
     use crate::session_transport::tests::unix::{Pair, pair, write_frame};
 
@@ -371,11 +370,11 @@ mod session {
     }
 
     /// Optional packets are deferred to play in order, ahead of a packet the spawning batch
-    /// still held, even when they span more packets than one batch may hold.
+    /// still held, even when they span several local startup groups.
     #[tokio::test]
     async fn deferred_packets_keep_their_order_across_batches() {
-        let half = MAX_RAW_BATCH_PACKETS / 2;
-        let mut second: Vec<Packet> = (half..=MAX_RAW_BATCH_PACKETS)
+        let half = STARTUP_BATCH_PACKETS / 2;
+        let mut second: Vec<Packet> = (half..=STARTUP_BATCH_PACKETS)
             .map(|time| set_time(time as i32))
             .collect();
         second.extend([
@@ -389,7 +388,7 @@ mod session {
         await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
             .await
             .expect("spawn");
-        for expected in 0..=MAX_RAW_BATCH_PACKETS {
+        for expected in 0..=STARTUP_BATCH_PACKETS {
             assert_eq!(next_time(transport).await, expected as i32);
         }
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {

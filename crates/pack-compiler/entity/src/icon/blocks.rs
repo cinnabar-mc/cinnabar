@@ -140,6 +140,48 @@ impl IconBlocks {
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
+        if matches!(
+            assets::facts::pack::face_slots(&record.name),
+            Some(assets::facts::pack::FaceSlots::Pumpkin)
+        ) {
+            // The item routes to the north state, whose carved or lit face lands on the side the
+            // GUI cube hides. The icon shows the placed south pose, with that face on the left.
+            return self
+                .records
+                .iter()
+                .filter(|candidate| candidate.name == record.name)
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    state[assets::facts::BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                        == "south"
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::Lectern
+        {
+            // The stand turns its reading surface toward the viewer, like the placed south pose.
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    candidate.name == record.name
+                        && state[BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                            == "south"
+                        && state[BlockProperty::PoweredBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
         if crafter
             || assets::facts::block_render_fact(&record.name).kind
@@ -357,9 +399,12 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    /// Keeps a flat carried override only for pane-family shapes without an item model.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+        let record = self.records.get(visual.0 as usize)?;
+        if record.model_family != ModelFamily::Pane
+            || !assets::facts::block_render_fact(&record.name).flat_icon
+        {
             return None;
         }
         self.texture_path(visual)
@@ -624,3 +669,11 @@ mod lightning_rod_tests;
 #[cfg(test)]
 #[path = "blocks/button_tests.rs"]
 mod button_tests;
+
+#[cfg(test)]
+#[path = "blocks/lectern_tests.rs"]
+mod lectern_tests;
+
+#[cfg(test)]
+#[path = "blocks/pumpkin_tests.rs"]
+mod pumpkin_tests;

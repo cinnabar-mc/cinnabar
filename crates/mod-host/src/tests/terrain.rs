@@ -123,13 +123,13 @@ fn polling_crosses_the_component_boundary() {
 fn deferred_callbacks_keep_their_subscriptions() {
     let mut host = load(&expect_reads(&[PENDING, CHANGED, UNCHANGED]), true);
     let budget = CallbackBudget::new;
-    host.set_frame_authority(budget(mod_api::TOTAL_MOD_FRAME_FUEL), false, false, 0);
+    host.set_frame_authority(budget(mod_api::TOTAL_MOD_FRAME_FUEL), false, false);
     run(&mut host).unwrap();
     frame(&mut host, STALE, 8).unwrap();
-    host.set_frame_authority(budget(0), false, false, 0);
+    host.set_frame_authority(budget(0), false, false);
     frame(&mut host, TerrainCheck::Current, 8).unwrap();
     assert_eq!(host.instance.terrain_subscriptions(), 1);
-    host.set_frame_authority(budget(mod_api::TOTAL_MOD_FRAME_FUEL), false, false, 0);
+    host.set_frame_authority(budget(mod_api::TOTAL_MOD_FRAME_FUEL), false, false);
     frame(&mut host, TerrainCheck::Current, 8).unwrap();
 }
 

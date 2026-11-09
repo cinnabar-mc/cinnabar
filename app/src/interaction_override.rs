@@ -5,10 +5,15 @@ use bevy::prelude::Resource;
 /// The host validates outputs before publishing them; absence keeps vanilla reach.
 #[derive(Resource, Debug, Default)]
 pub struct ModInteraction {
+    /// Committed explicit requests waiting for a movement carrier in this world.
+    pub block_breaks: Vec<[i32; 3]>,
+    pub block_break_scope: Option<(u64, i32)>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.
     pub block_mining: bool,
+    /// Destination for physically held mining; does not change the view or attack input.
+    pub block_mining_target: Option<[f32; 3]>,
 }
 
 /// Applies a bounded personal actor reach without enabling attacks forbidden by the mode.

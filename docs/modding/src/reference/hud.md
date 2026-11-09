@@ -206,6 +206,17 @@ Retained; the listed elements are not drawn. An empty list restores them all.
 
 Types: [`vanilla-element`](hud.md#type-vanilla-element).
 
+<a id="set-position-hidden"></a>
+
+### `set-position-hidden`
+
+```wit
+set-position-hidden: func(hidden: bool) -> result<_, string>;
+```
+
+Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
+a held filled map) is not drawn. Independent of `set-hidden-elements`.
+
 <a id="read-elements"></a>
 
 ### `read-elements`

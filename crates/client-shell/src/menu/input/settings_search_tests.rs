@@ -1,5 +1,6 @@
 //! Search editing yields keyboard input when pointer focus moves to a result control.
 
+use super::mode::MenuInputMode;
 use super::*;
 use launcher::menu::{MenuAction, MenuScreen, settings_options::SettingId};
 

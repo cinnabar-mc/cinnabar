@@ -4,7 +4,7 @@ use super::{Candidate, download::Asset, worker::Release};
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 
-const HOST_REPOSITORY: &str = "https://github.com/cinnabar-mc/cinnabar.git";
+const HOST_REPOSITORY: &str = concat!(launcher::repository_url!(), ".git");
 const MAX_METADATA_BYTES: usize = 16 * 1024;
 
 #[derive(Deserialize)]
@@ -134,7 +134,6 @@ fn select(bytes: &[u8], candidate: &Candidate, api_revisions: &[String]) -> Resu
     identity.revision = m.revision;
     identity.api_revision = m.host.api_revision;
     let asset = Asset {
-        id: 0,
         name: m.artifact.filename,
         size: m.artifact.size,
         digest: Some(format!("sha256:{}", m.artifact.sha256)),
@@ -172,7 +171,7 @@ mod tests {
         let identity = ui::mod_metadata::RevisionModUpdate::parse(
             serde_json::json!({
                 "source": "https://github.com/example/mod/releases/latest/download/mod.wasm",
-                "package": "example-mod", "api_revision": "a".repeat(40), "revision": "b".repeat(40),
+                "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE, "api_revision": "a".repeat(40), "revision": "b".repeat(40),
             })
             .to_string()
             .as_bytes(),
@@ -186,7 +185,7 @@ mod tests {
             revision_update: Some(identity),
         };
         let record = serde_json::json!({"manifest": {
-            "schema_version": 1, "package": "example-mod", "version": "1.1.0", "revision": "c".repeat(40),
+            "schema_version": 1, "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE, "version": "1.1.0", "revision": "c".repeat(40),
             "host": {"repository": HOST_REPOSITORY, "revision": "e".repeat(40), "api_revision": host},
             "artifact": {"filename": "mod.wasm", "size": 8, "sha256": "d".repeat(64)}
         }, "download_url": format!("{}/v1/mod/assets/{}", bridge::contract::CINNABAR_API_BASE_URL, "d".repeat(64))});

@@ -63,7 +63,10 @@ fn texture_array(layers: u32) -> TextureArray {
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    TextureArray { layers, mips }
+    TextureArray {
+        layers,
+        mips: mips.into(),
+    }
 }
 
 fn compiled_assets() -> CompiledAssets {
@@ -704,7 +707,7 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     mutate(quads + 40, 2, "quad material ID");
     mutate(
         quads + 44,
-        assets::MODEL_QUAD_FLAG_INHERITED_SHADE << 1,
+        assets::MODEL_QUAD_FLAG_WORLD_ALIGNED_UV << 1,
         "quad unknown flags",
     );
     mutate(animations, 1, "noncanonical animation start");
