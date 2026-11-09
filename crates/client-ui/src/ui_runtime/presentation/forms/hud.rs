@@ -172,7 +172,7 @@ impl UiPresentationRuntime {
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
         if crosshair && paint.crosshair.is_none() {
-            self.hud_elements.observe_crosshair(&[], false);
+            self.hud_elements.observe_crosshair(&[], false, [0., 0.]);
             return Ok(true);
         }
         let drawn_elements = Drawn::of(&paint, sidebar_shown);
@@ -237,8 +237,13 @@ impl UiPresentationRuntime {
             *next = rollback.1;
         }
         if crosshair {
-            self.hud_elements
-                .observe_crosshair(self.screens.hud.crosshair.nodes(), true);
+            let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+            let hud_origin = [self.safe_area.left(), self.safe_area.top()].map(|inset| inset / px);
+            self.hud_elements.observe_crosshair(
+                self.screens.hud.crosshair.nodes(),
+                true,
+                hud_origin,
+            );
         } else {
             self.hud_elements
                 .observe_hud(self.screens.hud.hud.nodes(), &drawn_elements);
