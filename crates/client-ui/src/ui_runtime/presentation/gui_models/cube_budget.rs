@@ -157,25 +157,52 @@ fn full_required_cube_atlas_keeps_cutout_thumbnail_without_failing_installation(
 }
 
 #[test]
-fn cutout_cube_pages_are_reclaimed_without_changing_required_cube_texels() {
+fn gui_cube_pages_follow_gui_coverage_independently_of_held_sheets() {
     let (entities, icons) = catalog(sheets_at_capacity(1));
+    let [cutout, opaque] = [icons.block_sheets()[0], icons.block_sheets()[1]];
+    let icons = RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_gui_cube_sheets(
+            entities.source_manifest_sha256(),
+            icons.sprites(),
+            icons.entries(),
+            icons.block_sheets(),
+            icons.block_models(),
+            &[],
+            &[
+                IconBlockSheet {
+                    sprite: opaque.sprite,
+                    ..cutout
+                },
+                IconBlockSheet {
+                    sprite: cutout.sprite,
+                    ..opaque
+                },
+            ],
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let mut presentation = UiPresentationRuntime::with_hud_and_icons(
         ui_engine::test_support::fixture_font(),
         crate::test_support::fixture_hud(),
         Arc::new(icons),
     )
     .unwrap();
-    let cutout = presentation.item_icon("fixture:cube_00000", 0).unwrap();
-    let opaque = presentation.item_icon("fixture:cube_00001", 0).unwrap();
+    let cutout = presentation.item_icon("fixture:cube_00001", 0).unwrap();
+    let opaque = presentation.item_icon("fixture:cube_00000", 0).unwrap();
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .unwrap();
     assert_eq!(presentation.gui_models.sources.required_pages, 1);
     assert_eq!(presentation.gui_models.sources.pages.len(), 2);
     let required = presentation.gui_models.sources.pages[0].pixels().to_vec();
-    let mut drawn = [node(cutout)];
+    let mut drawn = [node(cutout), node(opaque)];
     presentation.apply_gui_models(&mut drawn);
-    assert!(matches!(drawn[0].visual(), UiVisual::Mesh(_)));
+    assert!(
+        drawn
+            .iter()
+            .all(|node| matches!(node.visual(), UiVisual::Mesh(_)))
+    );
     let first = presentation.textures.dynamic_start() + MODEL_PAGE;
     assert!(presentation.gui_models.discard_optional_models(first));
     assert_eq!(presentation.gui_models.sources.pages.len(), 1);

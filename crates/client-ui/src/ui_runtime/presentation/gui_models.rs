@@ -274,7 +274,7 @@ impl GuiModelPreparation {
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
             if let Some(mesh) = item_gui::cube(sheet_faces(icon), lighting_for_visual(*visual)) {
-                meshes.insert(*visual, mesh);
+                meshes.insert(*visual, (mesh, false));
             }
         }
         let mut models = BTreeMap::new();
@@ -345,8 +345,8 @@ impl GuiModelPreparation {
             }) {
                 continue;
             }
-            let mesh = if let Some(mesh) = meshes.get(&block_visual.0) {
-                Arc::clone(mesh)
+            let (mesh, optional) = if let Some((mesh, optional)) = meshes.get(&block_visual.0) {
+                (Arc::clone(mesh), *optional)
             } else {
                 // World model thumbnails retain full-resolution tiles and directional UVs.
                 // Only authored carried sheets define the canonical cube shortcut.
@@ -381,11 +381,11 @@ impl GuiModelPreparation {
                 ) else {
                     continue;
                 };
-                meshes.insert(block_visual.0, Arc::clone(&mesh));
-                mesh
+                meshes.insert(block_visual.0, (Arc::clone(&mesh), true));
+                (mesh, true)
             };
             models.insert(key, mesh);
-            if !held_sources.contains_key(&block_visual.0) {
+            if optional {
                 optional_models.insert(key);
                 faded_thumbnails.insert(key);
             }
