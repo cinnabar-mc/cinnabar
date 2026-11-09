@@ -27,9 +27,6 @@ type DeviceFlow struct {
 	// Pending is the token cache whose prompt is saved while it awaits approval, so a process
 	// ended meanwhile resumes the same code; empty saves nothing. See authcache.SavePendingPrompt.
 	Pending string
-	// Owner tags the saved prompt, so only the client whose helper last saved it removes it when
-	// the player abandons the sign-in. A resumed prompt is taken over by the new owner.
-	Owner string
 	// Logger records a prompt that could not be saved; nil discards it.
 	Logger *slog.Logger
 }
@@ -61,9 +58,9 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 	var lostAnswer atomic.Bool
 	token, err := f.Token(tolerantPollContext(ctx, &lostAnswer), response)
 	if err == nil || ctx.Err() == nil {
-		// The code is settled. A cancelled flow that got no token keeps it: the lifeline
-		// cancels when the client's process ends, which is exactly when a later launch
-		// should resume it.
+		// The code is settled. A cancelled flow that got no token keeps it, whether the
+		// client's process ended or the player cancelled: the next sign-in resumes the
+		// unexpired code, which completes at once if the player already approved it.
 		f.forget()
 	}
 	if err != nil {
@@ -92,7 +89,6 @@ func (f DeviceFlow) resume() (*oauth2.DeviceAuthResponse, bool) {
 		f.forget()
 		return nil, false
 	}
-	f.save(response)
 	return response, true
 }
 
@@ -101,7 +97,7 @@ func (f DeviceFlow) save(response *oauth2.DeviceAuthResponse) {
 	if f.Pending == "" {
 		return
 	}
-	if err := authcache.SavePendingPrompt(f.Pending, response, f.Owner); err != nil && f.Logger != nil {
+	if err := authcache.SavePendingPrompt(f.Pending, response); err != nil && f.Logger != nil {
 		f.Logger.Warn("sign-in prompt not saved for resuming", "diagnostic", authcache.FailureDiagnostic(err))
 	}
 }

@@ -28,7 +28,7 @@ func TestDeviceSignInResumesTheSameCodeAfterTheProcessEnds(t *testing.T) {
 	ctx, end := context.WithCancel(context.Background())
 	var first bytes.Buffer
 	err := Run(ctx, Config{
-		Path: path, Writer: &first, Refresh: staticRefresh, PromptOwner: "first-client",
+		Path: path, Writer: &first, Refresh: staticRefresh,
 		DeviceAuth: savedPromptFlow("ABCD-1234", time.Now().Add(15*time.Minute)),
 		DeviceToken: func(ctx context.Context, _ *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
 			// The phone ends the client while the player approves the code in the browser.
@@ -45,7 +45,7 @@ func TestDeviceSignInResumesTheSameCodeAfterTheProcessEnds(t *testing.T) {
 
 	var second bytes.Buffer
 	err = Run(context.Background(), Config{
-		Path: path, Writer: &second, Refresh: staticRefresh, PromptOwner: "next-client",
+		Path: path, Writer: &second, Refresh: staticRefresh,
 		DeviceAuth: func(context.Context) (*oauth2.DeviceAuthResponse, error) {
 			t.Fatal("the next launch requested a new code instead of resuming the approved one")
 			return nil, errors.New("unreachable")
@@ -53,10 +53,6 @@ func TestDeviceSignInResumesTheSameCodeAfterTheProcessEnds(t *testing.T) {
 		DeviceToken: func(_ context.Context, response *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
 			if response.DeviceCode != "device-ABCD-1234" || response.Interval != 5 {
 				t.Fatalf("resumed prompt = %q every %ds, want the saved one", response.DeviceCode, response.Interval)
-			}
-			saved, err := os.ReadFile(authcache.PendingPromptPath(path))
-			if err != nil || !bytes.Contains(saved, []byte(`"owner":"next-client"`)) {
-				t.Fatalf("the resuming client did not take over the prompt: %s, %v", saved, err)
 			}
 			return validToken("access", "refresh"), nil
 		},
@@ -93,7 +89,7 @@ func TestDeviceSignInForgetsSettledAndExpiredCodes(t *testing.T) {
 	if err := authcache.SavePendingPrompt(path, &oauth2.DeviceAuthResponse{
 		DeviceCode: "device-OLD", UserCode: "OLD-CODE", VerificationURI: "https://login.example.test/device",
 		Expiry: time.Now().Add(-time.Minute),
-	}, ""); err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
@@ -120,7 +116,7 @@ func TestPendingPromptIsPrivateAndCarriesAnAbsoluteExpiry(t *testing.T) {
 	expiry := time.Unix(time.Now().Add(10*time.Minute).Unix(), 0)
 	if err := authcache.SavePendingPrompt(path, &oauth2.DeviceAuthResponse{
 		DeviceCode: "device", UserCode: "ABCD-1234", VerificationURI: "https://login.example.test/device", Expiry: expiry,
-	}, ""); err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if resumed := authcache.LoadPendingPrompt(path, expiry.Add(-time.Second)); resumed == nil || !resumed.Expiry.Equal(expiry) {

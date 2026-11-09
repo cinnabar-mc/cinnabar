@@ -77,11 +77,11 @@ impl MenuRuntime {
         self.cancel_join_fallback_prompt();
         // Cached validation also runs when a signed-out account core is already
         // attached, as happens before opening the menu in a direct session.
-        if self.visible && !self.is_connecting() {
-            self.resume_saved_sign_in(std::time::SystemTime::now());
-            if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
-                self.start_cached_sign_in();
-            }
+        if self.visible
+            && !self.is_connecting()
+            && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
+        {
+            self.start_cached_sign_in();
         }
         self.update_sign_in_browser(false);
         self.poll_catalog_art();
@@ -117,37 +117,10 @@ impl MenuRuntime {
             (!catalog.errors.is_empty()).then(|| "Social: Refresh to try again.".to_owned());
     }
 
-    /// Once per launch, before any other sign-in, reopens a prompt the helper saved before the
-    /// system ended the client, as phones do to an app left for the browser. The helper resumes
-    /// polling the same code, so approving it there still signs the player in.
-    fn resume_saved_sign_in(&mut self, now: std::time::SystemTime) {
-        if std::mem::replace(&mut self.saved_sign_in_checked, true)
-            || self.auth_attempted
-            || self.auth_process.is_some()
-        {
-            return;
-        }
-        let code = if let Some(code) =
-            launcher::pending_sign_in::awaiting(&self.layout.auth_cache(), now)
-        {
-            self.start_sign_in();
-            code
-        } else if let Some(code) =
-            launcher::pending_sign_in::awaiting(&self.account_store().pending_cache(), now)
-        {
-            self.resume_add_account();
-            code
-        } else {
-            return;
-        };
-        // An Add account that could not open started nothing to resume.
-        self.sign_in_resumed = self.auth_process.is_some().then_some(code);
-    }
-
     /// The token cache the current sign-in writes: the pending one while adding an account.
     fn sign_in_cache(&self) -> PathBuf {
         if self.feeds.account_adding {
-            self.account_store().pending_cache()
+            launcher::accounts::AccountStore::new(self.layout.auth_cache()).pending_cache()
         } else {
             self.layout.auth_cache()
         }
@@ -294,7 +267,12 @@ impl MenuRuntime {
             self.message = Some(failure.into());
             return;
         };
-        match AuthSupervisor::spawn(&executable, &self.sign_in_cache()) {
+        let cache = self.sign_in_cache();
+        // The helper resumes an unexpired prompt saved before the system ended the client, as
+        // phones do to an app left for the browser. The player already took that code there.
+        self.sign_in_resumed =
+            launcher::pending_sign_in::awaiting(&cache, std::time::SystemTime::now());
+        match AuthSupervisor::spawn(&executable, &cache) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
                 self.auth_process = None;
@@ -518,8 +496,6 @@ impl MenuRuntime {
         self.auth_restart_requested = false;
         if let Some(mut process) = self.auth_process.take() {
             process.cancel_prompt();
-            // Only the prompt this client's helper saved; another client may share the install.
-            process.abandon_prompt();
             self.auth_process = Some(process);
         }
     }

@@ -33,7 +33,7 @@ impl MenuRuntime {
             || self.accounts.work.is_some()
     }
 
-    pub(super) fn account_store(&self) -> AccountStore {
+    fn account_store(&self) -> AccountStore {
         AccountStore::new(self.layout.auth_cache())
     }
 
@@ -170,16 +170,6 @@ impl MenuRuntime {
     }
 
     pub(super) fn add_account(&mut self) {
-        self.open_add_account(false);
-    }
-
-    /// Reopens an Add account sign-in whose saved prompt outlived the previous launch.
-    pub(super) fn resume_add_account(&mut self) {
-        self.open_add_account(true);
-    }
-
-    /// Starts adding an account; `resume` keeps the unfinished sign-in's saved prompt.
-    fn open_add_account(&mut self, resume: bool) {
         if self.over_world()
             || self.is_connecting()
             || self.feeds.account_adding
@@ -204,10 +194,10 @@ impl MenuRuntime {
         self.feeds.account_error = None;
         self.feeds.account_adding = true;
         self.accounts.pending_ready = false;
-        // Each Add account starts a fresh device flow, even after an abandoned attempt.
-        if !resume {
-            let _ = self.account_store().discard_pending();
-        }
+        // Each Add account drops an abandoned attempt's credentials. Its sign-in resumes an
+        // unexpired saved prompt, so a code the player approved before the phone ended the
+        // client still completes.
+        let _ = self.account_store().discard_pending();
         self.start_sign_in();
     }
 

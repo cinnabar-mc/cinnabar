@@ -6,22 +6,17 @@ use super::*;
 
 const SAVED_CODE: &str = "SAVED-CODE";
 
-/// Installs a sign-in helper that resumes `SAVED_CODE`, taking over its saved prompt with the
-/// owner tag it was given as the real helper does, and waits for approval.
+/// Installs a sign-in helper that resumes `SAVED_CODE` and waits for approval.
 fn install_resuming_helper(menu: &mut MenuRuntime) {
     let helper = menu.layout.user_data_root.join("resuming-helper.sh");
     fs::create_dir_all(&menu.layout.user_data_root).unwrap();
-    let suffix = launcher::pending_sign_in::path(Path::new(""));
     fs::write(
         &helper,
         format!(
             "#!/bin/sh\n\
-             while [ $# -gt 0 ]; do case \"$1\" in -auth-cache) cache=$2; shift;; -auth-prompt-owner) owner=$2; shift;; esac; shift; done\n\
-             printf '{{\"user_code\":\"{SAVED_CODE}\",\"expires_at\":4102444800,\"owner\":\"%s\"}}' \"$owner\" > \"$cache{}\"\n\
              printf '%s\\n' '{{\"v\":1,\"event\":\"checking_cache\"}}'\n\
              printf '%s\\n' '{{\"v\":1,\"event\":\"device_code\",\"verification_uri\":\"https://example.invalid\",\"user_code\":\"{SAVED_CODE}\"}}'\n\
-             exec sleep 30\n",
-            suffix.display()
+             exec sleep 30\n"
         ),
     )
     .unwrap();
@@ -29,7 +24,7 @@ fn install_resuming_helper(menu: &mut MenuRuntime) {
     menu.layout.core_executable = helper;
 }
 
-/// Saves a prompt for `cache` that is valid for another hour.
+/// Saves a prompt for `cache` that is valid for another hour, as the helper does.
 fn save_prompt(cache: &Path) {
     let expires_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -59,15 +54,23 @@ fn browser_state(menu: &MenuRuntime) -> BrowserState {
     })
 }
 
-/// A launch after the phone ended the client mid sign-in reopens the prompt, without sending the
-/// player back to the browser they just came from. Cancelling forgets it for later launches.
+/// After the phone ended the client mid sign-in, signing in again shows the saved code without
+/// sending the player back to the browser they came from. Nothing opens until they ask, and
+/// cancelling leaves the code for the next sign-in to resume.
 #[test]
-fn a_saved_sign_in_reopens_on_launch_without_reopening_the_browser() {
+fn signing_in_again_resumes_the_saved_code_without_reopening_the_browser() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
     install_resuming_helper(&mut menu);
     let cache = menu.layout.auth_cache();
     save_prompt(&cache);
+    menu.poll_catalog(true);
+    assert!(
+        menu.auth_process.is_none(),
+        "a launch opened sign-in unasked"
+    );
+    assert!(!menu.view().sign_in_prompt_open());
 
+    menu.activate(MenuAction::StartSignIn);
     wait_for_saved_prompt(&mut menu);
     assert!(menu.view().sign_in_prompt_open());
     assert_eq!(menu.view().focused_action, Some(MenuAction::OpenSignInLink));
@@ -80,38 +83,26 @@ fn a_saved_sign_in_reopens_on_launch_without_reopening_the_browser() {
     );
 
     menu.activate(MenuAction::CancelSignIn);
-    assert!(!launcher::pending_sign_in::path(&cache).exists());
+    assert!(launcher::pending_sign_in::path(&cache).exists());
     let user_data = menu.layout.user_data_root.clone();
     drop(menu);
     fs::remove_dir_all(user_data).unwrap();
 }
 
+/// Add account drops an abandoned attempt's credentials but keeps its unexpired code to resume.
 #[test]
-fn a_saved_add_account_sign_in_reopens_in_the_accounts_dialog() {
+fn add_account_resumes_the_saved_code() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
     install_resuming_helper(&mut menu);
-    let pending = menu.account_store().pending_cache();
+    let pending = launcher::accounts::AccountStore::new(menu.layout.auth_cache()).pending_cache();
     save_prompt(&pending);
 
+    menu.activate(MenuAction::AddAccount);
     wait_for_saved_prompt(&mut menu);
     assert!(menu.feeds.account_adding);
     assert_eq!(menu.dialog, Some(MenuDialog::Accounts));
-    assert!(
-        launcher::pending_sign_in::path(&pending).exists(),
-        "resuming keeps the prompt"
-    );
-    let user_data = menu.layout.user_data_root.clone();
-    drop(menu);
-    fs::remove_dir_all(user_data).unwrap();
-}
-
-#[test]
-fn a_launch_without_a_saved_sign_in_starts_none() {
-    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
-    install_resuming_helper(&mut menu);
-    menu.poll_catalog(true);
-    assert!(menu.auth_process.is_none());
-    assert!(!menu.view().sign_in_prompt_open());
+    assert!(launcher::pending_sign_in::path(&pending).exists());
+    assert_eq!(browser_state(&menu), BrowserState::Waiting);
     let user_data = menu.layout.user_data_root.clone();
     drop(menu);
     fs::remove_dir_all(user_data).unwrap();
@@ -143,22 +134,4 @@ fn a_resumed_sign_in_still_opens_a_fresh_code_or_a_later_xbox_signup_page() {
     menu.apply_control_auth(signup.clone());
     menu.update_sign_in_browser(false);
     assert_ne!(menu.sign_in_browser.state(&signup), BrowserState::Waiting);
-}
-
-/// A client without a sign-in of its own, as when it joins a world or closes, leaves the prompt
-/// another client sharing the install is waiting on.
-#[test]
-fn stopping_without_an_own_sign_in_keeps_another_clients_prompt() {
-    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
-    let cache = menu.layout.auth_cache();
-    save_prompt(&cache);
-    menu.stop_sign_in();
-    assert!(launcher::pending_sign_in::path(&cache).exists());
-    let user_data = menu.layout.user_data_root.clone();
-    drop(menu);
-    assert!(
-        launcher::pending_sign_in::path(&cache).exists(),
-        "closing removed another client's prompt"
-    );
-    fs::remove_dir_all(user_data).unwrap();
 }

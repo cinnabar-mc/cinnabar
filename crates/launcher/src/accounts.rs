@@ -160,15 +160,13 @@ impl AccountStore {
         Ok(profile)
     }
 
-    /// Removes only unfinished sign-in credentials and any prompt saved for resuming that
-    /// sign-in; saved and active accounts remain untouched.
+    /// Removes only unfinished sign-in credentials; saved and active accounts remain untouched.
     pub fn discard_pending(&self) -> io::Result<()> {
         let _lease = self.lease()?;
         let pending = self.pending_cache();
         let _pending = cache_leases(&pending)?;
         remove_optional(&pending)?;
-        remove_optional(&derived_path(&pending))?;
-        crate::pending_sign_in::forget(&pending)
+        remove_optional(&derived_path(&pending))
     }
 
     /// The caller stops its cores before removing the selected account's saved credentials.

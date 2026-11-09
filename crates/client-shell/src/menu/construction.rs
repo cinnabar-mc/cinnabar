@@ -168,7 +168,6 @@ impl MenuRuntime {
             auth_process: None,
             auth_attempted: false,
             auth_restart_requested: false,
-            saved_sign_in_checked: false,
             sign_in_resumed: None,
             account_core: None,
             layout,

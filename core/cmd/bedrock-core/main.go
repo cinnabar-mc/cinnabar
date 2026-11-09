@@ -105,7 +105,6 @@ type options struct {
 	language                  string
 	catalogFile               string
 	authEvents                bool
-	authPromptOwner           string
 	resourcePackCacheDir      string
 	resourcePackCacheQuota    uint64
 	resourcePackCacheQuotaSet bool
@@ -144,7 +143,6 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.StringVar(&opts.language, "language", locale.Default, "active UI language (BCP 47)")
 	flags.StringVar(&opts.catalogFile, "catalog-file", "", "write the authenticated launcher catalog and exit")
 	flags.BoolVar(&opts.authEvents, "auth-events", false, "perform one-shot authentication and emit bounded JSONL events")
-	flags.StringVar(&opts.authPromptOwner, "auth-prompt-owner", "", "tag written into a saved sign-in prompt so only the client that started this helper removes it")
 	flags.StringVar(&opts.resourcePackCacheDir, "resource-pack-cache-dir", "", "enable the persistent verified resource-pack cache in this directory")
 	flags.Uint64Var(&opts.resourcePackCacheQuota, "resource-pack-cache-quota-bytes", packcache.DefaultQuota, "maximum resource-pack cache bytes (requires -resource-pack-cache-dir)")
 	flags.BoolVar(&opts.controlStatus, "control-status", false, "enable the local read-only Status v1 control endpoint")
@@ -259,7 +257,7 @@ func runWithResourcePackCacheFactory(
 			return errors.New("auth-events mode cannot be combined with proxy or catalog options")
 		}
 		return authflow.Run(ctx, authflow.Config{
-			Path: opts.authCache, Writer: stdout, Logger: logger, PromptOwner: opts.authPromptOwner,
+			Path: opts.authCache, Writer: stdout, Logger: logger,
 			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
 				return authcache.CompleteSignIn(ctx, path, source, logger)
 			},

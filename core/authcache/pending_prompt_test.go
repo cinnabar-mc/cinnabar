@@ -18,7 +18,7 @@ func TestPendingPromptMatchesTheClientFixture(t *testing.T) {
 	if err := SavePendingPrompt(path, &oauth2.DeviceAuthResponse{
 		DeviceCode: "device-ABCD-1234", UserCode: "ABCD-1234", VerificationURI: "https://login.example.test/device",
 		Expiry: time.Unix(1893456000, 0), Interval: 5,
-	}, "client-1"); err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 	decode := func(file string) map[string]any {
