@@ -38,16 +38,11 @@ func latencySampler(upstream upstreamSession) func() *uint32 {
 	}
 }
 
-// pingMillis rounds a measured round trip up to full milliseconds. A measured zero stays zero
-// rather than becoming unknown.
+// pingMillis rounds a measured round trip down to whole milliseconds, as vanilla averages its ping
+// history. A measured zero stays zero rather than becoming unknown.
 func pingMillis(rtt time.Duration) *uint32 {
 	const maxMillis = uint64(^uint32(0))
-	rtt = max(rtt, 0)
-	millis := uint64(rtt / time.Millisecond)
-	if rtt%time.Millisecond != 0 {
-		millis++
-	}
-	value := uint32(min(maxMillis, millis))
+	value := uint32(min(maxMillis, uint64(max(rtt, 0)/time.Millisecond)))
 	return &value
 }
 

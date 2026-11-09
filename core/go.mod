@@ -56,7 +56,7 @@ require (
 )
 
 replace (
-	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261109173634-07a89135e11f
+	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261109175723-02028a203372
 	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261109173732-b729d810a9b8
 )
 

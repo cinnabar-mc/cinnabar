@@ -60,7 +60,7 @@ func TestLatencySamplerPrefersConnectedPingRoundTrip(t *testing.T) {
 		want     *uint32
 	}{
 		// The acknowledgement estimate includes the server's ACK hold; pongs do not.
-		{"ping", measuredUpstream{fakeUpstream: base, ping: 30600 * time.Microsecond, pinged: true, halfRTT: 47 * time.Millisecond, estimate: true}, new(uint32(31))},
+		{"ping", measuredUpstream{fakeUpstream: base, ping: 30600 * time.Microsecond, pinged: true, halfRTT: 47 * time.Millisecond, estimate: true}, new(uint32(30))},
 		{"zero ping", measuredUpstream{fakeUpstream: base, pinged: true, halfRTT: 47 * time.Millisecond, estimate: true}, new(uint32(0))},
 		{"no pong yet", measuredUpstream{fakeUpstream: base, halfRTT: 47 * time.Millisecond, estimate: true}, new(uint32(94))},
 		{"unmeasured", measuredUpstream{fakeUpstream: base}, nil},
