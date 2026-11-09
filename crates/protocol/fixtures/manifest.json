@@ -1,5 +1,12 @@
 [
   {
+    "name": "ItemStackRequestPartialMoves",
+    "file": "item_stack_request_partial_moves.bin",
+    "id": 147,
+    "byte_length": 63,
+    "sha256": "e50d89a919722fe2482ca4909d700b81164b96801cdf4578b51bfe0a66b35005"
+  },
+  {
     "name": "NetworkSettings",
     "file": "network_settings.bin",
     "id": 143,
