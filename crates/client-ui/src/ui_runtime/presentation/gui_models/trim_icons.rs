@@ -34,6 +34,7 @@ struct Cache {
 struct SourceCell {
     _page: UiTexturePage,
     pixels: Arc<[u8]>,
+    used: bool,
 }
 
 #[derive(Default)]
@@ -44,14 +45,12 @@ pub(in crate::ui_runtime::presentation) struct TrimIcons {
 impl TrimIcons {
     /// Retires unused stack appearances without doing pixel work for unchanged frames.
     pub(in crate::ui_runtime::presentation) fn begin_frame(&self) {
-        for image in self
-            .cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .images
-            .values_mut()
-        {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        for image in cache.images.values_mut() {
             image.used = false;
+        }
+        for cell in cache.cells.values_mut() {
+            cell.used = false;
         }
     }
     pub(in crate::ui_runtime::presentation) fn clear(&mut self) {
@@ -107,26 +106,21 @@ impl UiPresentationRuntime {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             let key = (page.pixels().as_ptr() as usize, base_icon.uv);
-            Arc::clone(
-                &cache
-                    .cells
-                    .entry(key)
-                    .or_insert_with(|| {
-                        // Admitted mask and session art are immutable; retain one extracted cell per appearance.
-                        let mut pixels =
-                            Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
-                        for row in y..bottom {
-                            let at = (usize::from(row) * pw as usize + usize::from(x)) * 4;
-                            pixels
-                                .extend_from_slice(&page.pixels()[at..at + usize::from(width) * 4]);
-                        }
-                        SourceCell {
-                            _page: page.clone(),
-                            pixels: pixels.into(),
-                        }
-                    })
-                    .pixels,
-            )
+            let cell = cache.cells.entry(key).or_insert_with(|| {
+                // Admitted mask and session art are immutable; retain one extracted cell per appearance.
+                let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
+                for row in y..bottom {
+                    let at = (usize::from(row) * pw as usize + usize::from(x)) * 4;
+                    pixels.extend_from_slice(&page.pixels()[at..at + usize::from(width) * 4]);
+                }
+                SourceCell {
+                    _page: page.clone(),
+                    pixels: pixels.into(),
+                    used: true,
+                }
+            });
+            cell.used = true;
+            Arc::clone(&cell.pixels)
         };
         let startup = self.equipment_catalog.as_deref()?;
         let binding = startup.binding(identifier)?;
@@ -262,6 +256,8 @@ impl UiPresentationRuntime {
                 .cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
+            // Cells of rebuilt pages are no longer referenced, so their retained pages are released here.
+            cache.cells.retain(|_, cell| cell.used);
             let count = cache.images.len();
             cache.images.retain(|_, image| image.used);
             if count != cache.images.len() {

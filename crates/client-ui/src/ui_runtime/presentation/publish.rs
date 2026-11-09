@@ -202,9 +202,10 @@ pub(super) fn prepare_shield_art(
         for stack in recipes::screen_previews(player, runtime).stacks() {
             observe(stack);
         }
-        for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
-            observe(stack);
-        }
+    }
+    // Worn armor icons are resolved every frame, so their trims stay packed while the inventory is closed.
+    for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
+        observe(stack);
     }
     for stack in ledger
         .cursor_stack()
