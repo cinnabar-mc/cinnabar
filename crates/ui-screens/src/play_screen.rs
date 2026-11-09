@@ -7,7 +7,7 @@ use json_ui::{CollectionItem, DataSource, HitRegion, Scalar};
 
 use launcher::menu::{
     MenuAction, MenuRealmCard, MenuScreen, MenuServerCard, MenuView, PingInfo, pingable,
-    play_featured,
+    play::play_featured,
 };
 
 const FEATURED: &str = "third_party_server_network_worlds";

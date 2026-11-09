@@ -1088,6 +1088,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   full menu visual and hardware frame-work acceptance remains open.
   Mods use explicit open, close and toggle requests for their panels; the latest opening owns
   input and closes other panels. Panel content rejects the removed shortcut metadata.
+  Play tabs switch with `[` / `]` and the bumpers, as Bedrock's view-scoped
+  `button.menu_tab_left` / `button.menu_tab_right`, with keycap hints beside the tab bar.
+  Incomplete: stopping at the first and last tab is unverified against native, and the
+  bumper hint always reads LB / RB rather than the connected controller's own glyph.
   Packet reactors use grant-gated panel and physical-input imports; hardware acceptance
   remains pending.
   Client-owned panel collections support bounded five-column card grids with

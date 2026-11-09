@@ -33,6 +33,7 @@ impl MenuRuntime {
             pressed: self.pressed,
             navigation_focus_visible: self.input_mode.navigation(),
             gamepad_input: self.input_mode.gamepad(),
+            touch_input: self.input_mode.touch(),
             touch_available: self.touch_available,
             touch_editor_open: self.touch_editor_active(),
             server_tab: self.server_tab,
