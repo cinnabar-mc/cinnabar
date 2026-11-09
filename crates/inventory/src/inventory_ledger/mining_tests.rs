@@ -102,6 +102,83 @@ fn a_client_broken_tool_stays_empty_after_an_older_reply_and_a_replacement_wins(
 }
 
 #[test]
+fn closing_an_empty_client_inventory_does_not_restore_committed_wear_history() {
+    for damage in [6, 251] {
+        let mut ledger = ledger_with_slot_zero();
+        ledger.apply(&InventoryEvent::Authority(
+            protocol::InventoryAuthority::Client,
+        ));
+        let mut stack = ledger.backing_stack(0).unwrap().clone();
+        stack.count = 1;
+        ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+            identity: protocol::SlotIdentity {
+                container: protocol::ContainerIdentity::window(0),
+                slot: 0,
+            },
+            stack,
+            storage_item: None,
+        }));
+        let first = destroy_change(&ledger, 4, 250);
+        assert!(ledger.settle_destroy_slot_change(0, &first));
+        acknowledge_personal_open(&mut ledger, 2);
+        ledger.request_personal_close();
+        let second = destroy_change(&ledger, damage, 250);
+        assert!(ledger.settle_destroy_slot_change(0, &second));
+        assert_eq!(ledger.displayed_stack(0), ledger.backing_stack(0));
+        assert_eq!(second.to.is_empty(), damage > 250);
+        if second.to.is_empty() {
+            assert!(ledger.displayed_stack(0).is_none());
+        } else {
+            assert_eq!(
+                ledger.displayed_stack(0).unwrap().stack_network_id,
+                second.legacy_request_id
+            );
+        }
+    }
+}
+
+#[test]
+fn revoked_wear_rebases_an_unsent_inventory_gesture() {
+    let mut ledger = ledger_with_slot_zero();
+    let original = ledger.backing_stack(0).unwrap().clone();
+    let change = destroy_change(&ledger, 6, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &change));
+    acknowledge_personal_open(&mut ledger, 2);
+    let pickup = ledger.begin_click(0).unwrap();
+    ledger.revoke_destroy_slot_change(0, change.legacy_request_id, true);
+    let cursor = ledger.cursor_stack().unwrap();
+    assert_eq!(cursor.nbt_digest, original.nbt_digest);
+    assert_eq!(cursor.extra_data, original.extra_data);
+    assert!(ledger.mark_transport_enqueued(20));
+    ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
+        responses: [StackResponse {
+            status: StackResponseStatus::Rejected,
+            request_id: pickup,
+            containers: [].into(),
+        }]
+        .into(),
+    }));
+    assert_eq!(ledger.displayed_stack(0), Some(&original));
+    assert!(ledger.cursor_stack().is_none());
+}
+
+#[test]
+fn revoked_wear_with_expired_history_requires_a_slot_refresh() {
+    for damage in [6, 251] {
+        let mut ledger = ledger_with_slot_zero();
+        let change = destroy_change(&ledger, damage, 250);
+        assert!(ledger.settle_destroy_slot_change(0, &change));
+        ledger.poll_timeout(0);
+        ledger.poll_timeout(INVENTORY_REQUEST_TIMEOUT_MILLIS + 1);
+        ledger.revoke_destroy_slot_change(0, change.legacy_request_id, true);
+        assert!(ledger.resync_required());
+        if let Some(stack) = ledger.backing_stack(0) {
+            assert_eq!(stack.stack_network_id, 0);
+        }
+    }
+}
+
+#[test]
 fn retiring_client_wear_history_keeps_the_latest_backing_damage() {
     let mut ledger = ledger_with_slot_zero();
     for damage in 1..=40 {

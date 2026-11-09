@@ -5,6 +5,52 @@ use super::queue::{CellPrediction, RollbackAuthority};
 use super::{Cell, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
+    /// Reconciles wear whose movement carrier was revoked before a socket receipt.
+    pub fn revoke_destroy_slot_change(
+        &mut self,
+        slot: u8,
+        legacy_request_id: i32,
+        definitely_unsent: bool,
+    ) {
+        if slot >= protocol::HOTBAR_SLOT_COUNT || !protocol::is_legacy_request_id(legacy_request_id)
+        {
+            return;
+        }
+        let cell = Cell::Inventory(slot);
+        let index = self.queue.iter().position(|request| {
+            request.mining.as_ref().is_some_and(|mining| {
+                mining.slot == slot && mining.legacy_request_id == Some(legacy_request_id)
+            })
+        });
+        if definitely_unsent && let Some(index) = index {
+            let request = self.queue.remove(index).expect("destroy request observed");
+            self.reject_request(&request);
+            self.finish_request_retirement(request.request_id, false);
+        } else if index.is_some()
+            || self
+                .confirmed
+                .get(cell)
+                .is_none_or(|held| held.stack.stack_network_id == legacy_request_id)
+        {
+            // Retired history or a pending socket write cannot prove a rollback safe.
+            let before = self.confirmed.get(cell).cloned();
+            let mut unverified = before.clone();
+            if let Some(held) = &mut unverified {
+                held.stack.stack_network_id = 0;
+            }
+            self.confirmed.set(cell, unverified.clone());
+            self.rebase_predictions(
+                i32::MAX,
+                cell,
+                before.as_ref(),
+                unverified,
+                RollbackAuthority::Unknown,
+            );
+            self.require_rollback_recovery(cell);
+        }
+        self.refold();
+    }
+
     /// Commits an admitted destroy's exact slot change, retaining its response and rollback.
     /// A replaced or already committed source cannot be applied a second time.
     pub fn settle_destroy_slot_change(
