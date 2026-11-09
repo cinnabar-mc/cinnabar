@@ -35,6 +35,7 @@ fn baby_age_status_emits_the_growth_effect_at_the_actors_body() {
             position,
             height: Some(height),
             eating_position: position,
+            fishing: None,
         },
     );
     system.tick(0.001, &EmptyWorld);
