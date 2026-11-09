@@ -104,7 +104,7 @@ fn new_crates_accept_the_domain_and_presentation_dependency_direction() {
     set_dependencies(
         root,
         "client-ui",
-        "[dependencies]\nlauncher={path='../launcher'}\nplayer-state={path='../player-state'}\nrender-model={path='../render-model'}\nclient-world={package='chunk-pipeline',path='../chunk-pipeline'}\n[dev-dependencies]\npack-compiler={path='../pack-compiler'}",
+        "[dependencies]\nlauncher={path='../launcher'}\nplayer-state={path='../player-state'}\nrender-model={path='../render-model'}\nclient-world={path='../client-world'}\n[dev-dependencies]\nchunk-pipeline={path='../chunk-pipeline'}\npack-compiler={path='../pack-compiler'}",
     );
     write(
         &root.join("app/Cargo.toml"),

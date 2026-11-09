@@ -3,6 +3,9 @@
 #[path = "map_mesh_tests.rs"]
 mod map_mesh_tests;
 
+#[path = "retained_block_tests.rs"]
+mod retained_block_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -35,6 +38,9 @@ mod held_scale_tests;
 
 #[path = "third_person_hand_tests.rs"]
 mod third_person_hand_tests;
+
+#[path = "shield_tests.rs"]
+mod shield_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -300,6 +306,7 @@ fn block_fixture_with_visuals(
     };
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
@@ -906,7 +913,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
                 },
                 |endpoint, index| {
                     work.set(work.get() + 1);
-                    modern::compose_parent(
+                    actor_animation::attachment::compose_parent(
                         if endpoint == 0 {
                             body.input.previous_bones[index]
                         } else {
@@ -971,4 +978,49 @@ fn attachment_placement_shared_endpoint_composes_once() {
         .unwrap();
     assert_eq!(work, 1);
     assert!(Arc::ptr_eq(&poses[0], &poses[1]));
+}
+
+#[test]
+fn held_dial_frames_draw_without_a_static_item_icon() {
+    for strip in &assets::icon::dial::DIAL_STRIPS {
+        let (base, _, mut item) = block_fixture();
+        let icons = RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog(
+                base.assets.source_manifest_sha256(),
+                &[IconSprite {
+                    width: 16,
+                    height: 16,
+                    rgba8: vec![255; 16 * 16 * 4].into(),
+                }],
+                &[assets::IconEntry {
+                    identifier: strip.frames_identifier.into(),
+                    metadata: 0,
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let (mut runtime, _, _) = EquipmentRuntime::build(
+            Arc::clone(&base.assets),
+            None,
+            Arc::new(icons),
+            None,
+            None,
+            ActorArtworkPages::default(),
+        );
+        runtime.set_dial_frames(inventory::DialFrames {
+            compass: Some(0),
+            recovery_compass: Some(0),
+            clock: Some(0),
+        });
+        item.identifier = strip.item.into();
+        item.kind = HeldKind::Sprite;
+        assert!(runtime.icons.lookup_held_index(strip.item, 0).is_none());
+        assert!(runtime.held_icon_index(&item).is_some());
+        let (_, _, block, _) = runtime
+            .held_mesh(&item, true)
+            .expect("the selected dial frame remains drawable");
+        assert!(!block);
+    }
 }

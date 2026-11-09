@@ -92,3 +92,49 @@ fn shell_controls_publish_hide_hud() {
         );
     }
 }
+
+fn fixture_presentation() -> client_ui::ui_runtime::presentation::UiPresentationRuntime {
+    client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+        ui_engine::test_support::fixture_font(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn shell_controls_syncs_presentation_from_effective_input_mode() {
+    for mode in [InputMode::Touch, InputMode::KeyboardMouse] {
+        let mut app = App::new();
+        let mut menu = MenuRuntime::new(false, 2, "Controls".into());
+        menu.set_touch_available(true);
+
+        app.init_resource::<GameplayScreenControls>()
+            .insert_resource(client_state::EffectiveGameplayInputMode(mode))
+            .insert_resource(UiPresentationResource(fixture_presentation()))
+            .insert_resource(menu);
+
+        app.world_mut()
+            .run_system_once(publish_gameplay_screen_controls)
+            .unwrap();
+
+        let pres = app.world().resource::<UiPresentationResource>();
+        assert_eq!(pres.touch_controls_enabled(), mode == InputMode::Touch);
+    }
+}
+
+#[test]
+fn shell_controls_disables_touch_presentation_when_touch_unavailable() {
+    let mut app = App::new();
+    let mut menu = MenuRuntime::new(false, 2, "Controls".into());
+    menu.set_touch_available(false);
+
+    app.init_resource::<GameplayScreenControls>()
+        .insert_resource(UiPresentationResource(fixture_presentation()))
+        .insert_resource(menu);
+
+    app.world_mut()
+        .run_system_once(publish_gameplay_screen_controls)
+        .unwrap();
+
+    let pres = app.world().resource::<UiPresentationResource>();
+    assert!(!pres.touch_controls_enabled());
+}

@@ -1,12 +1,22 @@
-//! Validates unused store traffic without exposing a UI action.
+//! Validates unsupported packet surfaces before discarding them.
 
 use super::{PacketId, PlaySession, ProtocolError, RawPacket};
 
-/// Identifies store packets whose payloads still require wire validation.
+/// Identifies unsupported packet surfaces whose payloads still require wire validation.
 pub(super) fn is_unused(id: PacketId) -> bool {
     matches!(
         id,
-        PacketId::ShowStoreOffer | PacketId::PurchaseReceipt | PacketId::ServerStoreInfo
+        PacketId::ShowStoreOffer
+            | PacketId::PurchaseReceipt
+            | PacketId::ServerStoreInfo
+            | PacketId::ClientboundMatchmakingState
+            | PacketId::ServerboundMatchmakingCancel
+            | PacketId::ClientboundStonecutterSetRecipe
+            | PacketId::ServerboundStonecutterSetRecipe
+            | PacketId::ServerboundCursorItemDrag
+            | PacketId::SetPassengerOfBlock
+            | PacketId::ServerboundRegisterAudioContent
+            | PacketId::ClientboundPlayAudioContent
     )
 }
 
@@ -21,7 +31,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         Ok(())
     }
 
-    /// Number of well-formed packets decoded and discarded because their UI is unavailable.
+    /// Number of well-formed packets decoded and discarded because their feature is unavailable.
     pub fn unused_packet_count(&self) -> u64 {
         self.unused_packets
     }

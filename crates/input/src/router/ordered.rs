@@ -124,13 +124,7 @@ impl SemanticInputRouter {
                     }
                 }
             }
-            let filtered = without_quarantined_controls(
-                &state,
-                &self.quarantined_controls,
-                &[],
-                &[],
-                &self.settings,
-            );
+            let filtered = self.admitted_desktop_frame(&state);
             let resolved = self.sample_against(&filtered, mode, &previous);
             let before = self.sample_desktop(&previous, mode);
             for action in Action::ALL {
@@ -168,13 +162,7 @@ impl SemanticInputRouter {
 
     /// Applies desktop quarantine consistently to held state and event-time samples.
     fn sample_desktop(&self, frame: &DeviceFrame, mode: InputMode) -> Sample {
-        let filtered = without_quarantined_controls(
-            frame,
-            &self.quarantined_controls,
-            &[],
-            &[],
-            &self.settings,
-        );
+        let filtered = self.admitted_desktop_frame(frame);
         self.sample(&filtered, mode)
     }
 }

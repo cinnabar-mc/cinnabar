@@ -3,15 +3,15 @@ use std::{
     sync::Arc,
 };
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     AnimateAction as AnimatePacketAction, ItemVersion as ItemDataItemVersion,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     Animate as AnimatePacket, AnimateEntity as AnimateEntityPacket,
     ItemRegistry as ItemRegistryPacket, MobEquipment as MobEquipmentPacket,
 };
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -19,11 +19,17 @@ use thiserror::Error;
 mod animation_tests;
 mod attack;
 mod banner;
+mod block_items;
+pub(crate) use block_items::with_block_items;
 mod components;
 mod digger;
 mod display;
 mod equipment;
 mod facts;
+mod fireworks;
+mod render_offsets;
+mod seed;
+mod shield;
 mod shooter;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
@@ -32,22 +38,30 @@ pub use facts::{ItemStackFacts, ItemStackFactsCache};
 pub use map::item_map_id;
 mod nbt_edit;
 mod nbt_equal;
+mod registry;
 mod registry_properties;
 mod user_data;
 
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
-pub use banner::{ItemBannerPattern, item_banner_patterns, item_banner_type};
+pub use banner::{item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};
 pub use digger::{DiggerBlock, DiggerSpeed, DiggerStates, ItemDigger};
 pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
     item_enchantment_mask, item_has_enchantment_list, item_id_aux,
 };
+pub use fireworks::{FireworkExplosion, ItemFireworks, item_firework_star, item_fireworks};
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
-    ItemAnvilData, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra, item_anvil_data,
-    item_custom_name, item_filtered_custom_name, item_has_trim, item_repair_cost,
+    ItemAnvilData, ItemNbtEdit, apply_banner_to_shield, book_init_extra, book_needs_init,
+    edit_item_extra, item_anvil_data, item_custom_name, item_filtered_custom_name, item_has_trim,
+    item_repair_cost,
 };
+pub use registry::{
+    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, vanilla_item_registry,
+};
+pub use seed::ItemSeed;
+pub use shield::item_shield_pattern;
 pub use shooter::ItemShooter;
 pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 
@@ -59,16 +73,16 @@ pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 /// descriptor whose trailing user data is an opaque length-prefixed buffer, so
 /// the shield ID is no longer needed to decode an item.
 type ItemStackDescriptor =
-    bedrock_protocol_1_26_51::types::NetworkItemStackDescriptorSerializedData;
+    bedrock_protocol_1_26_60::types::NetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
 /// Packs a held-use particle event from the negotiated item ID and signed auxiliary value.
 pub fn item_use_progress_packet(runtime_id: u64, item_id: i16, auxiliary: i16) -> crate::Packet {
-    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorEvent {
+    crate::Packet::new(bedrock_protocol_1_26_60::packets::ActorEvent {
         target_runtime_id: ActorRuntimeID(runtime_id),
-        event_id: bedrock_protocol_1_26_51::enums::ActorEventType::Feed,
+        event_id: bedrock_protocol_1_26_60::enums::ActorEventType::Feed,
         data: wire::ZigZag32((i32::from(item_id as u16) << 16) | i32::from(auxiliary)),
         fire_at_position: None,
     })
@@ -412,71 +426,6 @@ fn skip_le_payload(cursor: &mut &[u8], tag: u8, depth: u32) -> Option<()> {
     Some(())
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum ItemRegistryVersion {
-    Legacy,
-    DataDriven,
-    None,
-    Unknown(i32),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemRegistryEntry {
-    /// Client-facing components parsed once from the validated registry payload.
-    pub components: Option<Arc<ItemComponents>>,
-    pub identifier: Arc<str>,
-    pub network_id: i32,
-    pub component_based: bool,
-    pub version: ItemRegistryVersion,
-    pub component_digest: [u8; 32],
-    /// Exact positive stack capacity retained from the negotiated component path.
-    ///
-    /// This is evidence only: it neither supplies a fallback nor binds a later
-    /// inventory decision to the registry or session generation.
-    pub negotiated_max_stack_size: Option<u8>,
-    /// Whether the component payload is the exact canonical empty compound.
-    pub canonical_empty_component_data: bool,
-    /// Item tags a component-based entry declares for itself.
-    pub item_tags: Arc<[Arc<str>]>,
-}
-
-/// Returns the retail-positive item registry for the pinned Bedrock protocol.
-///
-/// The compact table contains only entries referenced by the default creative
-/// inventory. Numeric network IDs come from the matching ItemRegistry packet;
-/// omitted entries remain unsupported gaps and are never renumbered.
-#[must_use]
-pub fn vanilla_item_registry() -> Arc<[ItemRegistryEntry]> {
-    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_50.tsv");
-
-    let mut entries = Vec::with_capacity(RETAIL_ITEMS.lines().count());
-    for line in RETAIL_ITEMS.lines() {
-        let (network_id, identifier) = line
-            .split_once('\t')
-            .expect("retail item row must contain an ID and identifier");
-        let network_id = network_id
-            .parse::<i32>()
-            .expect("retail item ID must be an i32");
-        entries.push(ItemRegistryEntry {
-            identifier: Arc::from(identifier),
-            network_id,
-            component_based: false,
-            version: ItemRegistryVersion::Legacy,
-            components: None,
-            component_digest: [0; 32],
-            negotiated_max_stack_size: None,
-            canonical_empty_component_data: true,
-            item_tags: std::sync::Arc::from([]),
-        });
-    }
-    Arc::from(entries)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemRegistryEvent {
-    pub entries: Arc<[ItemRegistryEntry]>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EquipmentEvent {
     pub actor_runtime_id: u64,
@@ -538,8 +487,6 @@ pub enum ItemPacketError {
     TooManyRegistryEntries { count: usize, max: usize },
     #[error("item identifier has {bytes} UTF-8 bytes, exceeding {max}")]
     ItemIdentifierTooLong { bytes: usize, max: usize },
-    #[error("item registry contains duplicate network ID")]
-    DuplicateRegistryEntry,
     #[error("item network ID {0} is invalid")]
     InvalidItemNetworkId(i32),
     #[error("non-empty item network ID has an empty stack count")]
@@ -558,8 +505,6 @@ pub enum ItemPacketError {
     InvalidItemNbt,
     #[error("item packet has malformed or truncated canonical wire data")]
     MalformedWire,
-    #[error("failed to encode validated item data")]
-    ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
     #[error("equipment container ID {0} is unknown")]
@@ -651,24 +596,6 @@ fn make_stack(
     })
 }
 
-/// Encodes `value` through a writer capped at [`MAX_ITEM_EXTRA_BYTES`].
-fn encode_extra<T: wire::Encode>(value: &T) -> Result<Vec<u8>, ItemPacketError> {
-    let mut bytes = Vec::new();
-    match value.encode(&mut wire::Writer::with_limit(
-        &mut bytes,
-        MAX_ITEM_EXTRA_BYTES,
-    )) {
-        Ok(()) => Ok(bytes),
-        Err(wire::EncodeError::OutputLimitExceeded { needed, .. }) => {
-            Err(ItemPacketError::ItemExtraTooLarge {
-                bytes: needed,
-                max: MAX_ITEM_EXTRA_BYTES,
-            })
-        }
-        Err(_) => Err(ItemPacketError::ItemEncodingFailed),
-    }
-}
-
 /// Bounds an item's user-data buffer and checks the compound it may carry.
 ///
 /// The generated decoder hands this over as opaque bytes, so the header
@@ -720,6 +647,8 @@ fn validate_registry_nbt(nbt: &wire::NetworkNbt) -> Result<(), ItemPacketError> 
     Ok(())
 }
 
+/// Normalizes a server item registry. Repeated entries for one network ID merge
+/// when they describe the same item; otherwise the later entry keeps the ID.
 pub(crate) fn normalize_item_registry(
     packet: ItemRegistryPacket,
 ) -> Result<ItemRegistryEvent, ItemPacketError> {
@@ -731,6 +660,7 @@ pub(crate) fn normalize_item_registry(
     }
     let mut network_ids = HashMap::with_capacity(packet.item_data.len());
     let mut entries = Vec::with_capacity(packet.item_data.len());
+    let mut reassigned_ids = 0usize;
     for item in packet.item_data {
         if item.item_name.len() > MAX_ACTION_IDENTIFIER_BYTES {
             return Err(ItemPacketError::ItemIdentifierTooLong {
@@ -740,10 +670,12 @@ pub(crate) fn normalize_item_registry(
         }
         let network_id = i32::from(item.item_id.0);
         validate_registry_nbt(&item.item_component_data)?;
-        let component_bytes = encode_extra(&item.item_component_data)?;
+        // Bedrock reads the component compound straight from the packet with no
+        // size cap of its own, so any size the packet carries is admitted.
+        let component_bytes = item.item_component_data.0;
         let version = match item.item_version {
             ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
-            ItemDataItemVersion::Datadriven => ItemRegistryVersion::DataDriven,
+            ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,
             ItemDataItemVersion::None => ItemRegistryVersion::None,
             ItemDataItemVersion::Unknown(value) => ItemRegistryVersion::Unknown(value),
         };
@@ -780,15 +712,23 @@ pub(crate) fn normalize_item_registry(
                 || (!current.canonical_empty_component_data
                     && !entry.canonical_empty_component_data)
             {
-                return Err(ItemPacketError::DuplicateRegistryEntry);
-            }
-            if current.canonical_empty_component_data {
+                // Bedrock maps IDs in packet order, so a later entry takes
+                // over an ID that an earlier entry named.
+                *current = entry;
+                reassigned_ids += 1;
+            } else if current.canonical_empty_component_data {
                 *current = entry;
             }
         } else {
             network_ids.insert(network_id, entries.len());
             entries.push(entry);
         }
+    }
+    if reassigned_ids > 0 {
+        tracing::warn!(
+            reassigned_ids,
+            "item registry repeats network IDs for different items; the later entries keep them"
+        );
     }
     Ok(ItemRegistryEvent {
         entries: Arc::from(entries),
@@ -868,12 +808,12 @@ pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent,
     }
     let kind = match packet.action {
         AnimatePacketAction::Swing => ActorActionKind::SwingArm,
-        AnimatePacketAction::Wakeup => ActorActionKind::Wake,
-        AnimatePacketAction::Criticalhit => ActorActionKind::CriticalHit,
-        AnimatePacketAction::Magiccriticalhit => ActorActionKind::MagicCriticalHit,
+        AnimatePacketAction::WakeUp => ActorActionKind::Wake,
+        AnimatePacketAction::CriticalHit => ActorActionKind::CriticalHit,
+        AnimatePacketAction::MagicCriticalHit => ActorActionKind::MagicCriticalHit,
         AnimatePacketAction::Unknown(128u8) => ActorActionKind::RowRight,
         AnimatePacketAction::Unknown(129u8) => ActorActionKind::RowLeft,
-        AnimatePacketAction::Noaction => ActorActionKind::Ignored { action_id: 0 },
+        AnimatePacketAction::NoAction => ActorActionKind::Ignored { action_id: 0 },
         AnimatePacketAction::Unknown(action_id) => ActorActionKind::Ignored { action_id },
     };
     Ok(ItemActorEvent::Action(ActorActionEvent {

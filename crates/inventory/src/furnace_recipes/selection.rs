@@ -20,7 +20,7 @@ impl PlayerInventoryLedger {
     }
 
     /// Preview stacks never enter inventory authority or gesture addressing.
-    pub fn furnace_ghost_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+    pub fn furnace_ghost_stack(&self, slot: u16) -> Option<&NetworkItemStack> {
         self.furnace_selection()?
             .ghosts
             .get(usize::from(slot))?
@@ -28,7 +28,7 @@ impl PlayerInventoryLedger {
     }
 
     /// Actual station items take precedence over preview items in presentation.
-    pub fn furnace_visual_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+    pub fn furnace_visual_stack(&self, slot: u16) -> Option<&NetworkItemStack> {
         self.storage_stack(slot)
             .or_else(|| self.furnace_ghost_stack(slot))
     }
@@ -153,7 +153,9 @@ impl PlayerInventoryLedger {
         let mut last_request = None;
         if let Some(previous) = previous {
             for (slot, original) in previous.original.iter().enumerate() {
-                let (Some(stack), Some(original)) = (self.storage_stack(source), original) else {
+                let (Some(stack), Some(original)) =
+                    (self.storage_stack(u16::from(source)), original)
+                else {
                     continue;
                 };
                 if !Self::same_item(stack, original) {
@@ -171,10 +173,10 @@ impl PlayerInventoryLedger {
                 }
             }
         }
-        if self.storage_stack(source).is_some() {
+        if self.storage_stack(u16::from(source)).is_some() {
             last_request = Some(self.begin_return_furnace_cell(source)?);
         }
-        if self.storage_stack(source).is_some() {
+        if self.storage_stack(u16::from(source)).is_some() {
             return Err(InventoryGestureError::InvalidRequest);
         }
         Ok(last_request)

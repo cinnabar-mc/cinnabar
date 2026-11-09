@@ -16,7 +16,7 @@ use mipmaps::{UiMip, storage_bytes};
 /// Buckets bind independently; page count and byte limits bound their residency.
 pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
 /// Replaceable pages after static UI: models, session glyphs, server UI, local font and particles.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PARTICLE_PAGE_OFFSET + 1;
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
@@ -40,10 +40,21 @@ const fn model_atlas_texels() -> usize {
     }
     texels
 }
-/// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
-pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
+/// Dedicated local-font slot after the glyphs and sixteen server, modal and mod UI pages.
+pub const UI_LOCAL_FONT_PAGE_OFFSET: usize =
+    UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES + 16;
 /// Dedicated original-resolution atlas for particles in player previews.
 pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
+/// Recoverable per-stack shield artwork follows the other fixed dynamic producers.
+pub const UI_SHIELD_PAGE_OFFSET: usize = UI_PARTICLE_PAGE_OFFSET + 1;
+pub const MAX_UI_SHIELD_PAGES: usize = 8;
+/// Session art of the worn armor and held items, apart from the model atlas that base items
+/// can fill. Four armor slots and two hands each get a whole page.
+pub const UI_PACK_EQUIPMENT_PAGE_OFFSET: usize = UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES;
+pub const MAX_UI_PACK_EQUIPMENT_PAGES: usize = 6;
+/// Shield artwork and pack equipment: whole model-atlas pages that resize within their capacity.
+const UI_SESSION_MODEL_PAGES: std::ops::Range<usize> =
+    UI_SHIELD_PAGE_OFFSET..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
 /// Dense local icon fonts use coverage texels, keeping the ordinary RGBA page's byte budget.
 pub const UI_LOCAL_ICON_FONT_PAGE_SIDE: u32 = UI_LOCAL_FONT_PAGE_SIDE * 2;
@@ -54,6 +65,9 @@ pub const UI_ART_PAGE_SIDE: u32 = 1024;
 /// Original-resolution UI images occupy independent, bounded logical slots.
 pub const UI_NATIVE_SHEET_PAGE_OFFSET: usize = MAX_UI_DYNAMIC_PAGES + MAX_UI_ART_PAGES;
 pub const MAX_UI_NATIVE_SHEET_PAGES: usize = 8;
+/// Selected model sources follow fixed producers and share the catalog's layer and byte budgets.
+pub const UI_SELECTED_MODEL_PAGE_OFFSET: usize =
+    UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES;
 pub const MAX_UI_NATIVE_SHEET_BYTES: usize = 96 * 1024 * 1024;
 /// Virtual sheets are tiled into ordinary device-supported texture extents.
 pub const MAX_UI_NATIVE_SHEET_SIDE: u32 = MAX_UI_TEXTURE_SIDE * 4;
@@ -70,6 +84,10 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
     + MAX_UI_NATIVE_SHEET_BYTES
+    + (MAX_UI_SHIELD_PAGES + MAX_UI_PACK_EQUIPMENT_PAGES)
+        * (UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
+            - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
+        * UiTextureFormat::Rgba8.bytes_per_texel()
     + (MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
         - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
         * UiTextureFormat::Rgba8.bytes_per_texel();
@@ -523,8 +541,12 @@ impl UiTextureCatalog {
                     && page.dimensions == [UI_ART_PAGE_SIDE; 2]
             })
             .count();
-        let native = dynamic.len().saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET);
-        let small = dynamic.len() - art - native;
+        let native = dynamic
+            .len()
+            .saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET)
+            .min(MAX_UI_NATIVE_SHEET_PAGES);
+        let selected = dynamic.len().saturating_sub(UI_SELECTED_MODEL_PAGE_OFFSET);
+        let small = dynamic.len() - art - native - selected;
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
             || native > MAX_UI_NATIVE_SHEET_PAGES
@@ -573,7 +595,12 @@ impl UiTextureCatalog {
         static_pages.update((dynamic_start as u64).to_le_bytes());
         // Reserved logical slots keep their identity when model or session icon pages resize.
         all.update((pages.len() as u64).to_le_bytes());
-        static_pages.update((pages.len() as u64).to_le_bytes());
+        // Selected sources may enter and leave after admission. Their count belongs to the
+        // full catalog identity; the fixed identity describes only the retained producers.
+        let fixed_pages = pages
+            .len()
+            .min(dynamic_start + UI_SELECTED_MODEL_PAGE_OFFSET);
+        static_pages.update((fixed_pages as u64).to_le_bytes());
         for (index, page) in pages.iter().enumerate() {
             for side in page.dimensions {
                 all.update(side.to_le_bytes());
@@ -602,7 +629,9 @@ impl UiTextureCatalog {
         &self,
         replacement: Vec<UiTexturePage>,
     ) -> Result<Self, UiRenderRejectReason> {
-        if replacement.len() != self.pages.len() - self.dynamic_start
+        let fixed = UI_SELECTED_MODEL_PAGE_OFFSET;
+        let old_len = self.pages.len() - self.dynamic_start;
+        if (replacement.len() != old_len && (replacement.len() < fixed || old_len < fixed))
             || replacement
                 .iter()
                 .zip(&self.pages[self.dynamic_start..])
@@ -663,7 +692,9 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
-    offset == UI_LOCAL_FONT_PAGE_OFFSET
+    offset >= UI_SELECTED_MODEL_PAGE_OFFSET
+        || offset == UI_LOCAL_FONT_PAGE_OFFSET
+        || UI_SESSION_MODEL_PAGES.contains(&offset)
         || offset == UI_PARTICLE_PAGE_OFFSET
         || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
         || (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
@@ -678,9 +709,7 @@ fn valid_dynamic_dimensions(
     [width, height]: [u32; 2],
     format: UiTextureFormat,
 ) -> bool {
-    if (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
-        .contains(&offset)
-    {
+    if offset >= UI_NATIVE_SHEET_PAGE_OFFSET {
         return width > 0
             && height > 0
             && width <= MAX_UI_TEXTURE_SIDE
@@ -693,6 +722,9 @@ fn valid_dynamic_dimensions(
     }
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
+    }
+    if UI_SESSION_MODEL_PAGES.contains(&offset) {
+        return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
     }
     if (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
         .contains(&offset)
@@ -733,6 +765,21 @@ mod tests {
         assert_eq!(left.repeat_content(), Some([0, 0, 1, 2]));
         for bounds in [[0, 0, 3, 2], [2, 0, 1, 2], [0, 1, 2, 1]] {
             assert!(page.clone().with_repeat_content(bounds).is_err());
+        }
+    }
+
+    /// Pack equipment takes whole model-atlas pages, resizing within the native growth budget.
+    #[test]
+    fn pack_equipment_slots_hold_model_atlas_pages() {
+        for offset in UI_PACK_EQUIPMENT_PAGE_OFFSET
+            ..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES
+        {
+            assert!(valid_dynamic_dimensions(
+                offset,
+                [UI_MODEL_ATLAS_SIDE; 2],
+                UiTextureFormat::Rgba8
+            ));
+            assert!(is_resizable_slot(offset));
         }
     }
 

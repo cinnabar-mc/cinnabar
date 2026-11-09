@@ -26,6 +26,7 @@ names! {
         HorseJumpRenderer = "horse_jump_renderer",
         HotbarCooldownRenderer = "hotbar_cooldown_renderer",
         HotbarRenderer = "hotbar_renderer",
+        HotbarSlotsRenderer = "hotbar_slots_renderer",
         HoverTextRenderer = "hover_text_renderer",
         HudPlayerRenderer = "hud_player_renderer",
         HungerRenderer = "hunger_renderer",

@@ -183,6 +183,16 @@ pub(in crate::compiler) const fn is_stair(record: &RegistryRecord) -> bool {
 pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
     block_render_fact(&record.name).kind.route().cutout
         || visuals::heavy_core::is_record(record)
+        || visuals::speleothem::is_record(record)
+        || visuals::chorus::is_flower(record)
+        || visuals::chorus::is_plant(record)
+        || visuals::spore_blossom::is_record(record)
+        || visuals::redstone_wire::is_record(record)
+        || visuals::dried_ghast::is_record(record)
+        || visuals::turtle_egg::is_record(record)
+        || visuals::dripleaf::is_record(record)
+        || visuals::trip_wire::is_record(record)
+        || visuals::scaffolding::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross

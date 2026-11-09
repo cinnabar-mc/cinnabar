@@ -1,5 +1,5 @@
 use crate::{ActorEvent, ActorKind, WorldEvent, into_world_event};
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     packets::AddPainting,
     types::{ActorRuntimeID, ActorUniqueID},
     wire,
@@ -74,7 +74,7 @@ fn painting_spawn_rejects_nonfinite_centres_and_bounds_motive_text() {
 #[test]
 fn painting_pick_uses_the_persistent_unique_id_and_inventory_capacity() {
     let packet = protocol::actor_pick_request_packet(-73, false);
-    let bedrock_protocol_1_26_51::packets::Packet::ActorPickRequest(pick) = *packet.data else {
+    let bedrock_protocol_1_26_60::packets::Packet::ActorPickRequest(pick) = *packet.data else {
         panic!("actor pick request");
     };
     assert_eq!(pick.actor_id.0, -73);

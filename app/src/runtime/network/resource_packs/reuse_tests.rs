@@ -116,7 +116,7 @@ fn assert_shares_stack_outputs(left: &PackApplication, right: &PackApplication) 
 fn payload_fingerprint(application: &PackApplication) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut payload = application.clone();
-    payload.dependencies.clear();
+    payload.dependencies = Arc::default();
     if let Some(ui) = &mut payload.server_ui {
         Arc::make_mut(ui)
             .ui_layers

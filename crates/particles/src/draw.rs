@@ -38,6 +38,13 @@ pub struct ParticleView {
     pub half_diagonal: f32,
 }
 
+impl ParticleView {
+    /// Retains the draw path's angular guard around the frustum diagonal.
+    pub(crate) fn cos_limit(&self) -> f32 {
+        (self.half_diagonal + 0.15).min(3.0).cos()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct DrawLists {
     /// Cutout and opaque materials that write depth, sorted far to near.
@@ -54,6 +61,14 @@ pub struct DrawLists {
 }
 
 pub const MAX_DRAW_DISTANCE: f32 = 128.0;
+
+/// Uses the draw path's distance and guarded view cone without evaluating particle expressions.
+pub(super) fn particle_may_draw(view: &ParticleView, cos_limit: f32, position: [f32; 3]) -> bool {
+    let relative = sub(position, view.position);
+    let distance_sq = dot(relative, relative);
+    !(distance_sq > MAX_DRAW_DISTANCE * MAX_DRAW_DISTANCE
+        || (distance_sq > 4.0 && dot(relative, view.forward) < cos_limit * distance_sq.sqrt()))
+}
 
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -294,11 +309,7 @@ fn emit_emitter(
             p.pos
         };
         let relative = sub(position, view.position);
-        let distance_sq = dot(relative, relative);
-        if distance_sq > MAX_DRAW_DISTANCE * MAX_DRAW_DISTANCE {
-            continue;
-        }
-        if distance_sq > 4.0 && dot(relative, view.forward) < cos_limit * distance_sq.sqrt() {
+        if !particle_may_draw(view, cos_limit, position) {
             continue;
         }
         if let Some(per_render) = &def.particle.per_render {
@@ -413,6 +424,8 @@ fn emit_emitter(
 pub(super) struct DrawScratch {
     instances: Vec<(f32, ParticleInstance, Material)>,
     cells: Vec<([i32; 3], usize)>,
+    lists: DrawLists,
+    retention: [render_model::CapacityRetention; 5],
 }
 
 impl ParticleSystem {
@@ -427,9 +440,35 @@ impl ParticleSystem {
         &mut self,
         view: &ParticleView,
         world: &dyn ParticleWorld,
-        mut hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
+        hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
     ) -> DrawLists {
-        let cos_limit = (view.half_diagonal + 0.15).min(3.0).cos();
+        let mut lists = DrawLists::default();
+        self.build_draw_into_with_visibility(view, world, hides_box, &mut lists);
+        lists
+    }
+
+    /// Rebuilds system-owned output without discarding its capacity between rendered frames.
+    pub fn build_draw_reusing_with_visibility(
+        &mut self,
+        view: &ParticleView,
+        world: &dyn ParticleWorld,
+        hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
+    ) -> &DrawLists {
+        let mut lists = std::mem::take(&mut self.draw_scratch.lists);
+        self.build_draw_into_with_visibility(view, world, hides_box, &mut lists);
+        self.draw_scratch.lists = lists;
+        &self.draw_scratch.lists
+    }
+
+    /// Replaces caller-owned lists, preserving expression evaluation and material order.
+    pub fn build_draw_into_with_visibility(
+        &mut self,
+        view: &ParticleView,
+        world: &dyn ParticleWorld,
+        mut hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
+        lists: &mut DrawLists,
+    ) {
+        let cos_limit = view.cos_limit();
         let mut scratch = std::mem::take(&mut self.draw_scratch);
         let collected = &mut scratch.instances;
         collected.clear();
@@ -455,14 +494,17 @@ impl ParticleSystem {
                 Material::Add => add += 1,
             }
         }
-        let mut lists = DrawLists {
-            opaque: Vec::with_capacity(opaque),
-            blend: Vec::with_capacity(collected.len() - opaque - add),
-            add: Vec::with_capacity(add),
-            cave_hidden,
-            light_lookups,
-            light_cache_hits,
-        };
+        for (list, count) in [
+            (&mut lists.opaque, opaque),
+            (&mut lists.blend, collected.len() - opaque - add),
+            (&mut lists.add, add),
+        ] {
+            list.clear();
+            list.reserve(count);
+        }
+        lists.cave_hidden = cave_hidden;
+        lists.light_lookups = light_lookups;
+        lists.light_cache_hits = light_cache_hits;
         for &(_, instance, material) in collected.iter() {
             match material {
                 Material::Alpha | Material::Opaque => lists.opaque.push(instance),
@@ -470,12 +512,31 @@ impl ParticleSystem {
                 Material::Add => lists.add.push(instance),
             }
         }
+        trim(collected, &mut scratch.retention[0]);
+        trim(&mut scratch.cells, &mut scratch.retention[1]);
+        for (list, retention) in [&mut lists.opaque, &mut lists.blend, &mut lists.add]
+            .into_iter()
+            .zip(&mut scratch.retention[2..])
+        {
+            trim(list, retention);
+        }
         self.draw_scratch = scratch;
-        lists
+    }
+}
+
+/// Releases an oversized draw allocation only after consecutive low-use frames.
+fn trim<T>(values: &mut Vec<T>, retention: &mut render_model::CapacityRetention) {
+    let target = retention.target(values.capacity(), values.len(), 0);
+    if target < values.capacity() {
+        values.shrink_to(target);
     }
 }
 
 const _: () = assert!(std::mem::size_of::<ParticleInstance>() == 96);
+
+#[cfg(test)]
+#[path = "draw/reuse_tests.rs"]
+mod reuse_tests;
 
 #[cfg(test)]
 mod tests {

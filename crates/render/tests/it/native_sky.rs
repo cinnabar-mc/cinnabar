@@ -1,7 +1,7 @@
 use crate::gpu_snapshot;
 use crate::shader_source;
 
-/// The 1.26.50.26 sky mesh stores a black centre and white
+/// The 1.26.60.26 sky mesh stores a black centre and white
 /// decagon rim. Vanilla translates it to Y256 and scales it by2000.
 /// The native Sky vertex shader uses that red channel to interpolate sky→fog.
 #[test]

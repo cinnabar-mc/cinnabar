@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+};
 
 use crate::{
     BiomeStorage, BlockEntityKey, BlockEntityNbt, DecodedBiomeColumn, SubChunk,
@@ -207,5 +210,22 @@ impl Chunk {
     /// references, so a held `Weak` shows whether the column's block entities changed.
     pub fn shared_block_entities(&self) -> Arc<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>> {
         Arc::clone(&self.block_entities)
+    }
+
+    /// Whether `index`, taken from [`Self::shared_sub_chunks`], still names this column's
+    /// section index, without touching reference counts: a held `Weak` keeps its allocation
+    /// alive, and every edit after it was taken moves the index to another allocation.
+    #[must_use]
+    pub fn holds_sub_chunks(&self, index: &Weak<BTreeMap<i32, Arc<SubChunk>>>) -> bool {
+        std::ptr::eq(index.as_ptr(), Arc::as_ptr(&self.sub_chunks))
+    }
+
+    /// [`Self::holds_sub_chunks`] for the index from [`Self::shared_block_entities`].
+    #[must_use]
+    pub fn holds_block_entities(
+        &self,
+        index: &Weak<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>>,
+    ) -> bool {
+        std::ptr::eq(index.as_ptr(), Arc::as_ptr(&self.block_entities))
     }
 }

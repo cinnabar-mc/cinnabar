@@ -62,7 +62,7 @@ func TestSessionStreamMatchesBridgeFixture(t *testing.T) {
 		Identity:      sessionIdentity{DisplayName: "Steve", XUID: "2535400000000000", UUID: "00000000-0000-4000-8000-000000000001"},
 		ClientCache:   true,
 		PacksRequired: true,
-		Packs:         []sessionPack{{UUID: "00112233-4455-6677-8899-aabbccddeeff", Version: "1.0.0", SubPack: "high", ContentKey: "key", Size: 3}},
+		Packs:         []sessionPack{{UUID: "00112233-4455-6677-8899-aabbccddeeff", Version: "1.0.0", SubPack: "high", ContentKey: sessionContentKey("\xffkey\x00"), Size: 3}},
 	}, [][]byte{{0xb4, 0x01, 0x09}, {0x0b, 0x01, 0x02}})
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +95,34 @@ func TestSessionStreamMatchesBridgeFixture(t *testing.T) {
 	}
 }
 
+// Content keys are bytes, not text: a key that is not valid UTF-8 reaches the client unchanged,
+// and a pack without a key hands over an empty key rather than null.
+func TestSessionHandoffKeepsContentKeyBytes(t *testing.T) {
+	key := "\xff\x00binary-key\x80 "
+	frame, err := encodeSessionHandoff(sessionHandoff{Packs: []sessionPack{{ContentKey: sessionContentKey(key)}, {}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata struct {
+		Packs []struct {
+			ContentKey *string `json:"content_key"`
+		} `json:"packs"`
+	}
+	if err := json.Unmarshal(frame[5:5+binary.BigEndian.Uint32(frame[1:5])], &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.Packs) != 2 || metadata.Packs[0].ContentKey == nil || metadata.Packs[1].ContentKey == nil {
+		t.Fatalf("packs = %+v, want two string keys", metadata.Packs)
+	}
+	got, err := base64.StdEncoding.DecodeString(*metadata.Packs[0].ContentKey)
+	if err != nil || string(got) != key {
+		t.Fatalf("content key = %q (%v), want %q", got, err, key)
+	}
+	if *metadata.Packs[1].ContentKey != "" {
+		t.Fatalf("keyless pack content key = %q, want empty", *metadata.Packs[1].ContentKey)
+	}
+}
+
 // The Rust bridge's Connect fixture decodes to the request it encodes.
 func TestSessionConnectFixtureDecodes(t *testing.T) {
 	request, err := decodeSessionConnect(sessionFixture(t, "connect.bin"))
@@ -105,8 +133,8 @@ func TestSessionConnectFixtureDecodes(t *testing.T) {
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
 		t.Fatal(err)
 	}
-	if request.Protocol != 2193 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
-		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != "1.26.50" {
+	if request.Protocol != 2225 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
+		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != bridgecontract.GameVersion {
 		t.Fatalf("connect = %+v, client data = %+v", request, clientData)
 	}
 }
@@ -152,7 +180,7 @@ func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *test
 // The core's device replaces whatever device the client claims, so a client that sends none still
 // logs in, and every login claims the platform the core signs in as.
 func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
-	profile := device.New(protocol.DeviceAndroid)
+	profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	request := testSessionConnect(t)
 	var claims map[string]any
 	if err := json.Unmarshal(request.ClientData, &claims); err != nil {
@@ -213,7 +241,7 @@ func TestSessionDownstreamPreservesSignedClientRandomID(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			profile := device.New(protocol.DeviceAndroid)
+			profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 			downstream, err := newSessionDownstream(decoded, &profile)
 			if err != nil {
 				t.Fatal(err)
@@ -370,7 +398,7 @@ func TestChooseSessionPacksKeepsTheFirstOfARepeatedOfferIdentity(t *testing.T) {
 	entries := []sessionStackEntry{{uuid: pack.UUID().String(), version: pack.Version()}}
 	for _, required := range []bool{false, true} {
 		selected, _, err := chooseSessionPacks(offers, entries, required, nil)
-		if err != nil || len(selected) != 1 || selected[0].ContentKey != "first-key" || selected[0].SubPack != "" {
+		if err != nil || len(selected) != 1 || string(selected[0].ContentKey) != "first-key" || selected[0].SubPack != "" {
 			t.Fatalf("required=%t: selected %+v, %v", required, selected, err)
 		}
 	}

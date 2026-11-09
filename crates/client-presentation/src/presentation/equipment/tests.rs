@@ -335,6 +335,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
     };
     let worn = |identifier: &str| WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -406,6 +407,7 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
             main: Some(WornItem {
                 variant: Default::default(),
                 map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip(identifier),
@@ -628,6 +630,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let body = player_body(&mut runtime);
     let crown = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:crown"),
@@ -663,6 +666,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let body = player_body(&mut runtime);
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -730,6 +734,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
         main: Some(WornItem {
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: if identifier == "test:blade" {
@@ -794,6 +799,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let body = player_body(&mut runtime);
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:controller"),
@@ -958,6 +964,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
         main: Some(WornItem {
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -999,6 +1006,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
     body.overlay_rgba8 = 0x6600_00ff;
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -1085,6 +1093,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let body = player_body(&mut runtime);
     let plain = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -1159,4 +1168,29 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
             "an atlas sprite spans less than its page, so the glint scale exceeds 0.5"
         );
     }
+}
+
+#[test]
+fn canonical_humanoid_armor_geometry_aliases_to_native_player_armor() {
+    use super::runtime::canonical_armor_geometry_identifier;
+    assert_eq!(
+        canonical_armor_geometry_identifier("geometry.humanoid.armor.helmet"),
+        "geometry.player.armor.helmet"
+    );
+    assert_eq!(
+        canonical_armor_geometry_identifier("geometry.humanoid.armor.chestplate"),
+        "geometry.player.armor.chestplate"
+    );
+    assert_eq!(
+        canonical_armor_geometry_identifier("geometry.humanoid.armor.leggings"),
+        "geometry.player.armor.leggings"
+    );
+    assert_eq!(
+        canonical_armor_geometry_identifier("geometry.humanoid.armor.boots"),
+        "geometry.player.armor.boots"
+    );
+    assert_eq!(
+        canonical_armor_geometry_identifier("geometry.custom.model"),
+        "geometry.custom.model"
+    );
 }

@@ -1,64 +1,12 @@
-use json_ui::{Catalog, DataSource, Scalar};
+use json_ui::{DataSource, Scalar};
 use serde_json::{Value, json};
 use ui::mod_hud::{Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
-/// Keeps canonical artwork away from viewport edges until its actual bounds are measured.
-pub(super) const CANVAS_INSET: f64 = ui::mod_panel::preview::MAX_PREVIEW_EXTENT;
 
 #[cfg(test)]
 mod tests;
 
-/// Rebuilds only when card geometry, row font or icon topology changes.
-pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
-    super::world_labels::same_shape(&a.world_labels, &b.world_labels)
-        && same_cards_shape(&a.cards, &b.cards)
-}
-
-/// Compares only card template inputs, without cloning unrelated HUD presentation data.
-pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(left, right)| {
-            left.id == right.id
-                && left.scale == right.scale
-                && left.row_layout == right.row_layout
-                && left.width == right.width
-                && left.editor_size == right.editor_size
-                && left.row_height == right.row_height
-                && left.icon_size == right.icon_size
-                && left.text_scale == right.text_scale
-                && left.font == right.font
-                && left.shadow == right.shadow
-                && left.title.is_empty() == right.title.is_empty()
-                && left.compass.is_some() == right.compass.is_some()
-                && left.crosshair == right.crosshair
-                && left.text_plate.is_some() == right.text_plate.is_some()
-                && left.background_radius == right.background_radius
-                && left
-                    .text_plate
-                    .as_ref()
-                    .map(|p| (p.style.border_width, p.style.radius))
-                    == right
-                        .text_plate
-                        .as_ref()
-                        .map(|p| (p.style.border_width, p.style.radius))
-                && left.cells.len() == right.cells.len()
-                && left.cells.iter().zip(&right.cells).all(|(a, b)| {
-                    a.rect == b.rect
-                        && a.shadow == b.shadow
-                        && a.value.is_empty() == b.value.is_empty()
-                })
-                && left.rows.len() == right.rows.len()
-                && left.rows.iter().zip(&right.rows).all(|(a, b)| {
-                    a.effect_id == b.effect_id
-                        && a.localized == b.localized
-                        && a.item.is_some() == b.item.is_some()
-                        && a.progress.is_some() == b.progress.is_some()
-                        && (left.row_layout != RowLayout::IconRight
-                            || a.label.is_empty() == b.label.is_empty())
-                })
-        })
-}
 pub(super) fn named(name: &str, node: Value) -> Value {
     json!({name: node})
 }
@@ -120,10 +68,6 @@ fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value 
             )],
         );
     }
-    if card.text_plate.is_some() {
-        *row_index += card.rows.len();
-        return super::text_plate::control(card, card_index);
-    }
     let k = f64::from(card.scale);
     let width = f64::from(card.width);
     let row_height = f64::from(card.row_height);
@@ -164,13 +108,6 @@ fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value 
     controls[0]["surface"]["bindings"] = json!([{ "binding_name":format!("#card_{card_index}_background"),"binding_name_override":"#color" }]);
     if card.title.is_empty() {
         controls.truncate(1);
-    }
-    if card.compass.is_some() {
-        controls.push(named(
-            "compass",
-            super::compass::control(card, card_index, header),
-        ));
-        return panel_for_card(card_index, size, controls);
     }
     if !card.cells.is_empty() {
         controls.extend(super::cells::controls(card, card_index, header));
@@ -362,58 +299,6 @@ fn grid(card: &Card, row_index: &mut usize, header: f64) -> Vec<Value> {
 fn grid_columns(card: &Card) -> usize {
     ((card.width / card.row_height).floor() as usize).max(1)
 }
-pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
-    let mut document = json!({"namespace":"cinnabar_personal_hud"});
-    let mut row = 0;
-    let mut controls = Vec::new();
-    let mut gameplay = Vec::new();
-    for (index, source) in hud.cards.iter().enumerate() {
-        let mut body = card(source, index, &mut row);
-        let mut placement = body["bindings"].clone();
-        placement
-            .as_array_mut()
-            .expect("card bindings")
-            .push(json!({
-            "binding_name":format!("#card_{index}_visible"),"binding_name_override":"#visible"}));
-        body["bindings"]
-            .as_array_mut()
-            .expect("card bindings")
-            .retain(|binding| {
-                !matches!(
-                    binding["binding_name_override"].as_str(),
-                    Some("#offset" | "#visible")
-                )
-            });
-        body["offset"] = json!([CANVAS_INSET, CANVAS_INSET]);
-        document[format!("card_{index}")] = body;
-        controls.push(named(
-            &format!("{}@cinnabar_personal_hud.card_{index}", source.id),
-            json!({"bindings":placement}),
-        ));
-        gameplay.push(named(
-            &format!("card_{index}"),
-            json!({"type":"custom","renderer":"cinnabar_gameplay_card",
-            "card_index":index,"size":["100%","100%"]}),
-        ));
-    }
-    for (index, label) in hud.world_labels.iter().enumerate() {
-        let control = super::world_labels::control(index, label);
-        controls.push(control.clone());
-        gameplay.push(control);
-    }
-    document["cards"] = json!({"type":"panel","size":["100%","100%"],"controls":controls});
-    document["gameplay"] = json!({"type":"panel","size":["100%","100%"],"controls":gameplay});
-    let definition = document.to_string();
-    Catalog::from_files([
-        ("ui/_global_variables.json", &b"{}"[..]),
-        (
-            "ui/_ui_defs.json",
-            &br#"{"ui_defs":["ui/personal_hud.json"]}"#[..],
-        ),
-        ("ui/personal_hud.json", definition.as_bytes()),
-    ])
-    .map_err(|error| error.to_string())
-}
 pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
@@ -446,8 +331,6 @@ pub(super) fn card_data(
         Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
     );
     super::cells::data(data, card, n);
-    super::text_plate::data(data, card, n, viewport);
-    super::compass::data(data, card, n);
     for row in &card.rows {
         data.set_global(
             format!("#row_{index}_label"),
@@ -477,17 +360,6 @@ pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
     }
     if card.crosshair.is_some() {
         return [f64::from(card.width * card.scale); 2];
-    }
-    if card.text_plate.is_some() {
-        return super::text_plate::dimensions(card);
-    }
-    if card.compass.is_some() {
-        return [
-            f64::from(card.width * card.scale),
-            (if card.title.is_empty() { 0. } else { HEADER }
-                + f64::from(ui::mod_hud::COMPASS_HEIGHT))
-                * f64::from(card.scale),
-        ];
     }
     if card.row_layout == RowLayout::Grid {
         return [

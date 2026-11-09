@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use world::{ChunkCollisionRevision, ChunkKey};
 
@@ -9,10 +9,12 @@ use super::{
 use crate::{Aabb, Vec3};
 
 mod camera;
+mod inspected;
 mod overlays;
 mod placement;
 mod precision;
 pub use camera::CameraBlockHit;
+use inspected::InspectedCells;
 pub use overlays::OverlayHit;
 pub use placement::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y};
 use precision::FloatRay;
@@ -155,7 +157,7 @@ impl PaletteWorld<'_> {
         let halo = self.registry.selection_ray_halo();
         let inspection_limit = inspection_limit(ray, halo)?;
         let mut state = TraversalState::new(origin, direction, max_distance)?;
-        let mut inspected = BTreeSet::new();
+        let mut inspected = InspectedCells::new(ray, halo);
         let mut inspected_count = 0_usize;
         let mut revisions = BTreeMap::new();
         let mut best: Option<Candidate> = None;
@@ -229,7 +231,7 @@ impl PaletteWorld<'_> {
         direction: Vec3,
         max_distance: f64,
         expected: Option<&WorldCollisionIdentity>,
-        inspected: &mut BTreeSet<[i32; 3]>,
+        inspected: &mut InspectedCells,
         inspected_count: &mut usize,
         inspection_limit: usize,
         revisions: &mut BTreeMap<ChunkKey, ChunkCollisionRevision>,
