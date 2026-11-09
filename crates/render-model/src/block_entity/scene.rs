@@ -8,6 +8,9 @@ use assets::block_entity_geometry::heads::HeadModel;
 mod cache;
 use cache::{CachedSubmission, PreviousFragments};
 
+/// Retired arrays cover multiple draw layers and overlapping render frames.
+type LayerBuffers = crate::FrameBuffers<BlockEntityVertex, 16>;
+
 use super::{
     artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork},
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
@@ -23,7 +26,9 @@ use super::{
     dragon_death::DragonDeathModel,
     frame::ItemFrameModel,
     heads::HeadModels,
+    loyalty_rope::LoyaltyRopeModel,
     mesh::{BlockEntityVertex, MeshBuilder},
+    piston::PistonArmModel,
     pot::DecoratedPotModel,
     shulker::ShulkerModel,
     sign::SignModel,
@@ -36,6 +41,7 @@ use super::{
 pub enum BlockEntityKind {
     Chest(ChestModel),
     Shulker(ShulkerModel),
+    PistonArm(PistonArmModel),
     Skull(SkullModel),
     Banner(BannerModel),
     Bed(BedModel),
@@ -44,9 +50,9 @@ pub enum BlockEntityKind {
     EnchantTable {
         book: super::book::BookPose,
     },
+    /// The open book on a lectern; terrain draws the stand.
     Lectern {
         facing_yaw_degrees: f32,
-        has_book: bool,
     },
     Bell(BellModel),
     ItemFrame(ItemFrameModel),
@@ -54,6 +60,7 @@ pub enum BlockEntityKind {
     DecoratedPot(DecoratedPotModel),
     Beacon(BeaconModel),
     CrystalBeam(CrystalBeamModel),
+    LoyaltyRope(LoyaltyRopeModel),
     DragonDeath(DragonDeathModel),
     Statue(StatueModel),
     EndPortal,
@@ -69,7 +76,7 @@ impl BlockEntityKind {
     pub const fn renders_globally(&self) -> bool {
         matches!(
             self,
-            Self::Beacon(_) | Self::CrystalBeam(_) | Self::DragonDeath(_)
+            Self::Beacon(_) | Self::CrystalBeam(_) | Self::LoyaltyRope(_) | Self::DragonDeath(_)
         )
     }
 
@@ -82,9 +89,11 @@ impl BlockEntityKind {
             | Self::Statue(_)
             | Self::Beacon(_)
             | Self::CrystalBeam(_)
+            | Self::LoyaltyRope(_)
             | Self::DragonDeath(_) => false,
             Self::Chest(_)
             | Self::Shulker(_)
+            | Self::PistonArm(_)
             | Self::Banner(_)
             | Self::Sign(_)
             | Self::EnchantTable { .. }
@@ -210,6 +219,8 @@ pub struct BlockEntityScene {
     spare_submissions: Vec<Option<Box<CachedSubmission>>>,
     /// Layer buffers kept between rebuilds; each frame copies them into its shared layers.
     mesh: Option<MeshBuilder>,
+    /// Immutable layer arrays available again after their last reader releases them.
+    buffers: LayerBuffers,
     #[cfg(test)]
     static_rebuilds: usize,
 }
@@ -431,11 +442,11 @@ impl BlockEntityScene {
             } else {
                 Arc::clone(&self.frame.dynamic_rgba8)
             },
-            solid: shared_layer(&self.frame.solid, &builder.solid),
-            overlay: shared_layer(&self.frame.overlay, &builder.overlay),
-            crack: shared_layer(&self.frame.crack, &builder.crack),
-            portal: shared_layer(&self.frame.portal, &builder.portal),
-            additive: shared_layer(&self.frame.additive, &builder.additive),
+            solid: shared_layer(&self.frame.solid, &builder.solid, &mut self.buffers),
+            overlay: shared_layer(&self.frame.overlay, &builder.overlay, &mut self.buffers),
+            crack: shared_layer(&self.frame.crack, &builder.crack, &mut self.buffers),
+            portal: shared_layer(&self.frame.portal, &builder.portal, &mut self.buffers),
+            additive: shared_layer(&self.frame.additive, &builder.additive, &mut self.buffers),
             portal_star_rect: self.frame.portal_star_rect,
             portal_time_seconds: self.frame.portal_time_seconds,
         };
@@ -468,15 +479,21 @@ impl BlockEntityScene {
 }
 
 /// `previous` itself when it holds exactly the bytes of `vertices`, so consumers that compare
-/// allocations skip an unchanged layer; otherwise a new shared copy of `vertices`.
+/// allocations skip an unchanged layer; otherwise publishes a reusable exclusive array.
 fn shared_layer(
     previous: &Arc<[BlockEntityVertex]>,
     vertices: &[BlockEntityVertex],
+    buffers: &mut LayerBuffers,
 ) -> Arc<[BlockEntityVertex]> {
     if bytemuck::cast_slice::<_, u8>(previous) == bytemuck::cast_slice::<_, u8>(vertices) {
         Arc::clone(previous)
     } else {
-        Arc::from(vertices)
+        buffers
+            .write(vertices.len(), |output| {
+                output.copy_from_slice(vertices);
+                Ok::<_, std::convert::Infallible>(())
+            })
+            .expect("infallible layer copy")
     }
 }
 
@@ -503,6 +520,7 @@ fn emit_submission(
     match &submission.kind {
         BlockEntityKind::Chest(model) => super::chest::emit(builder, atlas, block, model),
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
+        BlockEntityKind::PistonArm(model) => super::piston::emit(builder, atlas, block, model),
         BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model, bed),
@@ -513,10 +531,9 @@ fn emit_submission(
         BlockEntityKind::EnchantTable { book } => {
             super::book::emit_enchant_table(builder, atlas, block, *book);
         }
-        BlockEntityKind::Lectern {
-            facing_yaw_degrees,
-            has_book,
-        } => super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees, *has_book),
+        BlockEntityKind::Lectern { facing_yaw_degrees } => {
+            super::book::emit_lectern_book(builder, atlas, block, *facing_yaw_degrees);
+        }
         BlockEntityKind::Bell(model) => super::bell::emit(builder, atlas, block, model),
         BlockEntityKind::ItemFrame(model) => super::frame::emit(builder, atlas, block, model),
         BlockEntityKind::Conduit(model) => {
@@ -525,6 +542,7 @@ fn emit_submission(
         BlockEntityKind::DecoratedPot(model) => super::pot::emit(builder, atlas, block, model),
         BlockEntityKind::Beacon(model) => super::beam::emit(builder, atlas, block, model, clock),
         BlockEntityKind::CrystalBeam(model) => super::crystal_beam::emit(builder, atlas, model),
+        BlockEntityKind::LoyaltyRope(model) => super::loyalty_rope::emit(builder, atlas, model),
         BlockEntityKind::DragonDeath(model) => super::dragon_death::emit(builder, model),
         BlockEntityKind::Statue(model) => super::statue::emit(builder, atlas, heads, block, model),
         BlockEntityKind::EndPortal => super::portal::emit(builder, atlas, block, false, clock),

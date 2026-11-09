@@ -87,6 +87,7 @@ impl Atlas {
         }
         let [left, top] = [0, 1].map(|axis| self.cursor[axis] + lead[axis]);
         let icon = IconRef {
+            color_mask: None,
             page: self
                 .first
                 .checked_add((self.pages.len() - 1) as u16)
@@ -164,6 +165,14 @@ impl Atlas {
     /// Returns the pages already occupied by required model textures.
     pub(super) fn page_count(&self) -> usize {
         self.pages.len()
+    }
+
+    /// Shares a new immutable page generation after a stack adds source or thumbnail texels.
+    pub(super) fn pages(&self) -> Option<Vec<UiTexturePage>> {
+        self.pages
+            .iter()
+            .map(|pixels| UiTexturePage::owned([SIDE as u32; 2], Arc::from(pixels.clone())).ok())
+            .collect()
     }
 
     pub(super) fn finish(

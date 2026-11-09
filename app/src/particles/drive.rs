@@ -5,14 +5,15 @@ use assets::{NetworkIdMode, RuntimeIconCatalog};
 use bevy::camera::Projection;
 use bevy::prelude::{
     App, DetectChangesMut, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform,
-    Update, With,
+    Update, With, resource_exists,
 };
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
-    ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
-    block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
-    critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
+    Fluid, ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, ParticleWorld, SpawnRequest,
+    block_break_request, block_crack_request, burst_requests, classify_level_event,
+    crack_cadence_due, critical_hit_request, dragon_egg_teleport_requests, eating_item_request,
+    face_toward, fish_tease_cell, fish_tease_request, fish_trail_requests, fishing_bite_requests,
     item_icon_request, named_request, native_request, parse_molang_variables, terrain_request,
     tiles::item_tile, totem_activation_request,
 };
@@ -53,6 +54,14 @@ mod totem_tests;
 #[cfg(test)]
 #[path = "drive/break_tests.rs"]
 mod break_tests;
+
+#[cfg(test)]
+#[path = "drive/crack_tests.rs"]
+mod crack_tests;
+
+#[cfg(test)]
+#[path = "drive/fishing_tests.rs"]
+mod fishing_tests;
 
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
@@ -108,7 +117,7 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
     let room = MAX_QUEUED_INBOX.saturating_sub(inbox.status_audio.len());
     inbox
         .status_audio
-        .extend(notices.iter().take(room).copied());
+        .extend(notices.iter().take(room).cloned());
     inbox.notices.extend(notices);
     let events_excess = inbox.events.len().saturating_sub(MAX_QUEUED_INBOX);
     inbox.events.drain(..events_excess);
@@ -120,6 +129,7 @@ pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
         drive_particles
+            .run_if(resource_exists::<PhysicsCollisionRegistries>)
             .after(client_presentation::camera::FlyCameraUpdateSet)
             .after(client_state::ClientFrameSet::ActorPreparation)
             // Cosmetic emitters follow the attachments this frame's actor finalization placed.
@@ -224,10 +234,22 @@ fn admit_break_echo(
         )
 }
 
+/// Emits a local mining crack using the block currently in the world.
 fn spawn_crack(system: &mut ParticleSystem, routing: &Routing<'_>, block: [i32; 3], face: u8) {
     let Some(runtime_id) = routing.world.block_runtime_id(block) else {
         return;
     };
+    spawn_block_crack(system, routing, block, runtime_id, face);
+}
+
+/// Emits a crack for the supplied block identity, even if the world cell has since changed.
+fn spawn_block_crack(
+    system: &mut ParticleSystem,
+    routing: &Routing<'_>,
+    block: [i32; 3],
+    runtime_id: u32,
+    face: u8,
+) {
     if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id, block) {
         system.spawn_terrain(&block_crack_request(
             BLOCK_BREAK_EFFECT,
@@ -322,8 +344,14 @@ fn route_level_event(
                 ));
             }
         }
-        Some(LevelParticle::BlockCrack { face, .. }) => {
-            spawn_crack(system, routing, floor_cell(position), face);
+        Some(LevelParticle::BlockCrack { runtime_id, face }) => {
+            spawn_block_crack(
+                system,
+                routing,
+                floor_cell(position),
+                runtime_id as u32,
+                face,
+            );
         }
         Some(LevelParticle::ItemIcon { network_id, aux }) => {
             spawn_item_icon_by_id(system, routing, network_id, aux, position);
@@ -421,6 +449,46 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 && let Some(tile) = item_tile(icons, &identifier, (notice.data & 0xffff) as u32)
             {
                 system.spawn(&eating_item_request(notice.eating_position, tile));
+            }
+        }
+        ActorStatusKind::FishHookPosition
+        | ActorStatusKind::FishHookBite
+        | ActorStatusKind::FishHookTease => route_fishing(system, routing, notice),
+        _ => {}
+    }
+}
+
+/// Draws a fishing hook's effects for one of its events; other actors draw nothing for them.
+fn route_fishing(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &ActorStatusNotice) {
+    let Some(hook) = &notice.fishing else {
+        return;
+    };
+    match notice.kind {
+        ActorStatusKind::FishHookBite => {
+            for request in fishing_bite_requests(notice.position, hook.bottom, hook.width) {
+                system.spawn(&request);
+            }
+        }
+        ActorStatusKind::FishHookPosition => {
+            // The synced angle and offset change every event, so each event rolls afresh.
+            let seed = notice.runtime_id
+                ^ u64::from(hook.fish_angle.to_bits())
+                ^ (u64::from(hook.fish_offset[0].to_bits()) << 32);
+            for request in fish_trail_requests(
+                notice.position,
+                hook.bottom,
+                hook.fish_offset,
+                hook.fish_angle,
+                seed,
+            ) {
+                system.spawn(&request);
+            }
+        }
+        ActorStatusKind::FishHookTease => {
+            if let Some(cell) = fish_tease_cell(notice.position, hook.bottom, hook.fish_offset)
+                && routing.world.fluid(cell) == Fluid::Water
+            {
+                system.spawn(&fish_tease_request(cell));
             }
         }
         _ => {}
@@ -602,9 +670,7 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.map_or(semantic_input::PerspectiveMode::FirstPerson, |settings| {
-            settings.perspective()
-        }),
+        camera_settings.as_deref(),
         server_camera.as_deref(),
     );
     system.set_camera(view.position);
@@ -621,21 +687,19 @@ fn drive_particles(
     // destroyed id because the world already predicts air; a missing local texture must not
     // consume the server packet's echo slot.
     for cue in block_cues.read() {
-        if let client_audio::audio::LocalBlockCue::Break {
+        let client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
-        } = *cue
-        {
-            route_block_break(
-                &mut system,
-                &routing,
-                &mut break_echoes,
-                client_audio::audio::EchoOrigin::Client,
-                block_runtime_id,
-                position,
-                time.elapsed_secs_f64(),
-            );
-        }
+        } = *cue;
+        route_block_break(
+            &mut system,
+            &routing,
+            &mut break_echoes,
+            client_audio::audio::EchoOrigin::Client,
+            block_runtime_id,
+            position,
+            time.elapsed_secs_f64(),
+        );
     }
     for committed in inbox.events.drain(..) {
         match &committed.event {
@@ -731,6 +795,18 @@ fn drive_particles(
                 high,
             )
         },
+    );
+    cosmetics.retire_hidden(
+        &mut system,
+        cosmetic_placements
+            .as_deref()
+            .map_or(&[], |placements| &placements.0),
+        &view,
+    );
+    ground.retire_hidden(
+        &mut system,
+        ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
+        &view,
     );
     if changed {
         frame.set_changed();

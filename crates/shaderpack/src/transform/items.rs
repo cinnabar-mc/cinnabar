@@ -1,7 +1,34 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
+use super::TransformError;
 use crate::token::{Tok, TokKind, id, int, p};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+/// Rejects unbalanced token groups before a compatibility parser inspects their contents.
+pub(super) fn validate_delimiters(tokens: &[Tok]) -> Result<(), TransformError> {
+    let mut delimiters = Vec::new();
+    for token in tokens {
+        if token.is("(") || token.is("[") || token.is("{") {
+            delimiters.push(token);
+        } else if token.is(")") || token.is("]") || token.is("}") {
+            let expected = match token.text() {
+                ")" => "(",
+                "]" => "[",
+                _ => "{",
+            };
+            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
+                return Err(TransformError::new(
+                    "unmatched closing delimiter",
+                    token.line,
+                ));
+            }
+        }
+    }
+    if let Some(open) = delimiters.last() {
+        return Err(TransformError::new("unclosed delimiter", open.line));
+    }
+    Ok(())
+}
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
 pub(super) const QUALIFIERS: &[&str] = &[
@@ -35,7 +62,7 @@ pub(super) const QUALIFIERS: &[&str] = &[
 /// A top-level declaration: `layout(...) quals type[arr] a[arr] = init, b;`, a block
 /// `quals Name { members } inst;`, or a struct definition.
 #[derive(Debug, Clone)]
-pub(super) struct Decl {
+pub(crate) struct Decl {
     pub layout: Vec<Tok>,
     pub quals: Vec<String>,
     /// The type name; `"struct"` / `"block"` for those forms; empty for `layout(...) in;`.
@@ -62,7 +89,7 @@ pub(super) enum Item {
 }
 
 /// Splits the token stream into top-level statements and function definitions.
-pub(super) fn split_items(toks: &[Tok]) -> Vec<Vec<Tok>> {
+pub(crate) fn split_items(toks: &[Tok]) -> Vec<Vec<Tok>> {
     let mut items = vec![];
     let mut cur: Vec<Tok> = vec![];
     let mut brace = 0i32;
@@ -150,8 +177,9 @@ pub(super) fn func_params(toks: &[Tok]) -> Option<(usize, Vec<Param>)> {
     Some((lp, params))
 }
 
-/// Gives `T[] x = T[](a, b)` / `T x[] = T[](...)` explicit sizes. GLSL infers them from the
-/// initializer; naga's GLSL frontend would make a runtime-sized array instead.
+/// Gives `T[] x = T[](a, b)` / `T x[] = T[N](...)` explicit sizes: the constructor's own size,
+/// or its argument count when that is unsized too. GLSL infers them from the initializer;
+/// naga's GLSL frontend would make a runtime-sized array instead.
 pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
     let ctor_len = |open: usize| -> usize {
         let close = matching(src, open, "(", ")");
@@ -168,13 +196,16 @@ pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
             continue;
         }
         let mut j = i + 2;
-        while j + 3 < src.len() && !src[j].is(";") {
-            if src[j].is("=")
-                && src[j + 2].is("[")
-                && src[j + 3].is("]")
-                && src.get(j + 4).is_some_and(|t| t.is("("))
-            {
-                out.push(int(ctor_len(j + 4)).at(src[i].line));
+        while j + 2 < src.len() && !src[j].is(";") {
+            if src[j].is("=") && src[j + 1].ident().is_some() && src[j + 2].is("[") {
+                let close = matching(src, j + 2, "[", "]");
+                if src.get(close + 1).is_some_and(|t| t.is("(")) {
+                    if close == j + 3 {
+                        out.push(int(ctor_len(close + 1)).at(src[i].line));
+                    } else {
+                        out.extend_from_slice(&src[j + 3..close]);
+                    }
+                }
                 break;
             }
             j += 1;
@@ -184,7 +215,7 @@ pub(super) fn size_unsized_arrays(src: &[Tok]) -> Vec<Tok> {
 }
 
 /// Parses one top-level statement as a declaration; `None` for prototypes and anything else.
-pub(super) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
+pub(crate) fn parse_decl(toks: &[Tok]) -> Option<Decl> {
     let mut i = 0;
     let mut layout = vec![];
     let mut quals = vec![];
@@ -363,7 +394,7 @@ pub(super) fn mat_cols(ty: &str) -> Option<(u32, &'static str)> {
 }
 
 /// The integer value of `key = N` inside a layout qualifier.
-pub(super) fn layout_key(layout: &[Tok], key: &str) -> Option<u32> {
+pub(crate) fn layout_key(layout: &[Tok], key: &str) -> Option<u32> {
     let i = layout.iter().position(|t| t.ident() == Some(key))?;
     if let (
         Some(e),
@@ -418,7 +449,7 @@ pub(super) fn local_declarators(toks: &[Tok]) -> HashSet<usize> {
 }
 
 /// Finds declaration statements and their inclusive token ranges with the shared parser.
-fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
+pub(super) fn declarations(toks: &[Tok]) -> Vec<(usize, usize, Decl)> {
     let mut declarations = Vec::new();
     let mut fields_end = 0;
     for start in 0..toks.len() {
@@ -615,32 +646,47 @@ fn statement_end(tokens: &[Tok], start: usize) -> usize {
 pub(super) fn shadowed_bindings<'a>(
     tokens: &[Tok],
     names: impl IntoIterator<Item = &'a str>,
-) -> std::collections::HashSet<usize> {
-    let names: std::collections::HashSet<_> = names.into_iter().collect();
+) -> HashSet<usize> {
+    binding_uses(tokens, names).into_keys().collect()
+}
+
+/// Maps declarations and their uses to the nearest visible declarator, including loop scopes.
+pub(super) fn binding_uses<'a>(
+    tokens: &[Tok],
+    names: impl IntoIterator<Item = &'a str>,
+) -> HashMap<usize, usize> {
+    let names: HashSet<_> = names.into_iter().collect();
     let declarators = local_declarators(tokens);
-    let mut scopes: Vec<(Vec<&str>, usize)> = vec![(vec![], tokens.len() + 1)];
+    let parameters = parameter_bindings(tokens);
+    let mut scopes = vec![(HashMap::new(), tokens.len() + 1)];
     let mut pending = None;
     let mut depth = 0;
-    let mut shadowed = std::collections::HashSet::new();
+    let mut bindings = HashMap::new();
     for (i, token) in tokens.iter().enumerate() {
         while scopes.last().is_some_and(|(_, end)| *end <= i) {
             scopes.pop();
         }
         if token.ident() == Some("for") && tokens.get(i + 1).is_some_and(|token| token.is("(")) {
             let header_end = matching(tokens, i + 1, "(", ")");
-            scopes.push((vec![], statement_end(tokens, header_end + 1)));
+            scopes.push((HashMap::new(), statement_end(tokens, header_end + 1)));
         } else if token.is("{") {
-            scopes.push((vec![], matching(tokens, i, "{", "}") + 1));
+            let params = parameters
+                .get(&i)
+                .into_iter()
+                .flatten()
+                .filter_map(|&index| Some((tokens[index].ident()?, index)))
+                .collect();
+            scopes.push((params, matching(tokens, i, "{", "}") + 1));
         }
         if token.is("(") {
             depth += 1;
         } else if token.is(")") {
             depth -= 1;
         } else if (token.is(";") || token.is(","))
-            && let Some((name, declared_depth)) = pending
+            && let Some((name, index, declared_depth)) = pending
             && declared_depth == depth
         {
-            scopes.last_mut().unwrap().0.push(name);
+            scopes.last_mut().unwrap().0.insert(name, index);
             pending = None;
         }
         let Some(name) = token.ident().filter(|name| names.contains(name)) else {
@@ -650,13 +696,42 @@ pub(super) fn shadowed_bindings<'a>(
             continue;
         }
         if declarators.contains(&i) {
-            pending = Some((name, depth));
-            shadowed.insert(i);
-        } else if scopes.iter().any(|(scope, _)| scope.contains(&name)) {
-            shadowed.insert(i);
+            pending = Some((name, i, depth));
+            bindings.insert(i, i);
+        } else if let Some(bound) = scopes.iter().rev().find_map(|(scope, _)| scope.get(name)) {
+            bindings.insert(i, *bound);
         }
     }
-    shadowed
+    bindings
+}
+
+/// Finds parameter declarators to install when each function body opens its scope.
+fn parameter_bindings(tokens: &[Tok]) -> HashMap<usize, Vec<usize>> {
+    let mut parameters = HashMap::new();
+    let mut offset = 0;
+    for item in split_items(tokens) {
+        if let Some(brace) = item.iter().position(|token| token.is("{"))
+            && brace > 0
+            && item[brace - 1].is(")")
+            && let Some((open, params)) = func_params(&item)
+        {
+            let mut cursor = offset + open + 1;
+            let mut indices = Vec::new();
+            for param in params {
+                let mut declaration = param.toks.clone();
+                declaration.push(p(";"));
+                if let Some(declaration) = parse_decl(&declaration)
+                    && let Some((_, array, _)) = declaration.decls.first()
+                {
+                    indices.push(cursor + param.toks.len() - array.len() - 1);
+                }
+                cursor += param.toks.len() + 1;
+            }
+            parameters.insert(offset + brace, indices);
+        }
+        offset += item.len();
+    }
+    parameters
 }
 
 #[cfg(test)]

@@ -85,7 +85,19 @@ impl ProfiledQueue for wgpu::Queue {
         layout: wgpu::TexelCopyBufferLayout,
         size: wgpu::Extent3d,
     ) {
-        self.write_texture(texture, data, layout, size);
+        render_scene::startup_timing::measure_repeated("texture_upload", || {
+            self.write_texture(texture, data, layout, size)
+        });
+        if let Some(timing) = render_scene::startup_timing::current()
+            && timing.is_recording()
+        {
+            let site = std::panic::Location::caller();
+            timing.count("texture_upload_bytes", data.len() as u64);
+            timing.count(
+                &format!("texture_upload_bytes@{}:{}", site.file(), site.line()),
+                data.len() as u64,
+            );
+        }
         record(UploadKind::Texture, UploadPath::Queue, data.len() as u64);
     }
 }

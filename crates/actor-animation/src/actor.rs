@@ -8,6 +8,8 @@ pub const MAX_ANIMATED_ACTORS: usize = 8_192;
 
 /// One live actor's authoritative state, as animation queries and clocks read it.
 pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
+    /// The server's persistent actor unique id.
+    fn unique_id(&self) -> i64;
     fn runtime_id(&self) -> u64;
     /// Distinguishes a respawned actor from the one that held its runtime id before.
     fn spawn_revision(&self) -> u64;
@@ -50,6 +52,11 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     fn swell_full_ticks(&self) -> f32;
     /// Red damage overlay alpha; zero while no overlay shows.
     fn overlay_alpha(&self) -> f32;
+    /// Whether a render controller's `is_hurt_color` replaces its `overlay_color`. Native reads it
+    /// only while the actor shows damage, so a pack's constant hurt colour leaves it untinted otherwise.
+    fn shows_damage(&self) -> bool {
+        self.overlay_alpha() > 0.0
+    }
     fn hurt_time(&self) -> u8;
     fn shake_time(&self) -> i32;
     fn hurt_direction(&self) -> Option<f32>;

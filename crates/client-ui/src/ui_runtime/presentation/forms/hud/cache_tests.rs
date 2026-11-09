@@ -181,7 +181,10 @@ fn retained_semantics_keep_hotbar_hits_during_idle_and_text_updates() {
     let before = presentation.hud_component_constructions();
     for now in [1, 2, 3] {
         if now == 3 {
-            runtime.hud.set_actionbar(Arc::from("Updated"), 1, now);
+            runtime
+                .session
+                .hud
+                .set_actionbar(Arc::from("Updated"), 1, now);
         }
         presentation
             .build(

@@ -150,6 +150,7 @@ pub(super) fn owner_rig<'a>(
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        visibility: Default::default(),
         attachments: None,
         bone_names: names,
         skin_geometry: None,
@@ -173,6 +174,8 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
             None,
             Some(WornItem {
                 variant: Default::default(),
+                map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip("minecraft:elytra"),

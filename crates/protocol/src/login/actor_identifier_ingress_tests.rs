@@ -1,6 +1,6 @@
 use crate::raw_packet::decode_packet_raw;
-use bedrock_protocol_1_26_51::packets::AvailableActorIdentifiers;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::AvailableActorIdentifiers;
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 /// Network NBT for an `idlist` holding one custom actor built on a native one.

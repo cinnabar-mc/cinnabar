@@ -375,26 +375,54 @@ fn settings_long_choice_picker_owns_pointer_input_and_scroll_views() {
 }
 
 #[test]
-fn settings_scale_picker_owns_input_and_keeps_each_modifier_action() {
-    let mut view = settings_view("video_forced_index");
-    view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
+fn settings_gui_scale_is_one_slider_with_a_stop_per_modifier_at_every_width() {
+    let mut view = settings_view("accessibility_forced_index");
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
         .choices()
         .collect();
-    view.settings.scale_picker = true;
-    let frame = paint(&view, [640.0, 720.0], HashMap::new());
-    assert_eq!(frame.areas.len(), 1);
-    assert!(frame.hits.iter().all(|(action, _)| matches!(
-        action,
-        MenuAction::SettingsScale(_) | MenuAction::SettingsScalePicker
-    )));
-    for choice in &view.gui_scale_choices {
-        let action = MenuAction::SettingsScale(choice.offset);
-        let bounds = frame
-            .hits
+    assert!(view.gui_scale_choices.len() > 2);
+    view.gui_scale_offset = view.gui_scale_choices[0].offset;
+    for width in [640.0, 1280.0] {
+        let mut tracks = Vec::new();
+        let (_, hits, _) = super::review_tests::paint(HashMap::new(), |canvas| {
+            settings::draw(
+                canvas,
+                &view,
+                [width, 2000.0],
+                &|_| None,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap();
+            tracks.extend(
+                canvas
+                    .slider_tracks
+                    .iter()
+                    .filter(|(action, _, _)| matches!(action, MenuAction::SettingsScale(_)))
+                    .map(|(_, track, _)| *track),
+            );
+        });
+        let [track] = tracks[..] else {
+            panic!("the GUI-scale row draws exactly one slider track at width {width}");
+        };
+        let stops: Vec<_> = view
+            .gui_scale_choices
             .iter()
-            .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
-            .expect("each GUI modifier is independently selectable");
-        assert_eq!(hit(&frame.hits, centre(bounds)), Some(action));
+            .map(|choice| {
+                let action = MenuAction::SettingsScale(choice.offset);
+                let bounds = hits
+                    .iter()
+                    .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
+                    .expect("each GUI modifier has its own slider stop");
+                assert_eq!(hit(&hits, centre(bounds)), Some(action));
+                assert!(bounds.min().y() <= track.min().y() && bounds.max().y() >= track.max().y());
+                centre(bounds).x()
+            })
+            .collect();
+        assert!(
+            stops.windows(2).all(|pair| pair[0] < pair[1]),
+            "modifier stops run left to right in order at width {width}"
+        );
     }
 }
 
@@ -887,18 +915,22 @@ fn server_settings_tab_is_available_only_over_a_session() {
 }
 
 /// Party offered only inert Xbox party rows and is gone from the sidebar. Every remaining page
-/// still paints and lists every remaining tab, so navigation between them is unchanged.
+/// still paints and lists every available tab, so navigation between them is unchanged.
 #[test]
 fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
     use launcher::menu::settings_sections::{SETTINGS_TABS, SettingSection};
-    let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
-        .iter()
-        .map(|(name, _)| settings::section_index(name))
-        .collect();
-    assert!(!expected.contains(&SettingSection::Party.definition().index));
     for (name, _) in SETTINGS_TABS {
         let mut view = settings_view(name);
         view.over_world = true;
+        let expected: std::collections::BTreeSet<_> = SETTINGS_TABS
+            .iter()
+            .filter_map(|(name, _)| {
+                let section = SettingSection::from_name(name).expect("registered settings tab");
+                view.settings_section_shown(section)
+                    .then_some(section.definition().index)
+            })
+            .collect();
+        assert!(!expected.contains(&SettingSection::Party.definition().index));
         let frame = paint(&view, [1280.0, 4000.0], HashMap::new());
         let tabs: std::collections::BTreeSet<_> = frame
             .hits
@@ -910,4 +942,82 @@ fn removed_party_tab_is_absent_and_remaining_tabs_still_navigate() {
             .collect();
         assert_eq!(tabs, expected, "from {name}");
     }
+}
+
+#[test]
+fn video_render_resolution_slider_edits_every_integer_percentage() {
+    use launcher::menu::settings_options::SettingId;
+    let index = SettingId::RenderResolution.index();
+    for size in [[640.0, 720.0], [1280.0, 720.0]] {
+        let mut view = settings_view("video_forced_index");
+        assert_eq!(
+            view.settings_options
+                .user_settings()
+                .video
+                .render_scale_percent,
+            ui::DEFAULT_RENDER_SCALE_PERCENT
+        );
+        let offsets = centered_option(&view, index, size);
+        let frame = paint(&view, size, offsets.clone());
+        assert!(
+            !frame
+                .hits
+                .iter()
+                .any(|(action, _)| { *action == MenuAction::SettingsDropdown(index as u16) })
+        );
+        for percent in ui::MIN_RENDER_SCALE_PERCENT..=ui::MAX_RENDER_SCALE_PERCENT {
+            let action = MenuAction::SettingsOption(index as u16, i32::from(percent));
+            let bounds = frame
+                .hits
+                .iter()
+                .find_map(|(found, bounds)| (*found == action).then_some(*bounds))
+                .expect("every integer render percentage is selectable");
+            assert_eq!(hit(&frame.hits, centre(bounds)), Some(action));
+            Arc::make_mut(&mut view.settings_options).set(index, i32::from(percent));
+            assert_eq!(
+                view.settings_options
+                    .user_settings()
+                    .video
+                    .render_scale_percent,
+                percent
+            );
+        }
+        for percent in [
+            ui::MIN_RENDER_SCALE_PERCENT,
+            37,
+            ui::MAX_RENDER_SCALE_PERCENT,
+        ] {
+            Arc::make_mut(&mut view.settings_options).set(index, i32::from(percent));
+            let (_, _, nodes) = super::review_tests::paint(offsets.clone(), |canvas| {
+                settings::draw(
+                    canvas,
+                    &view,
+                    size,
+                    &|_| None,
+                    None,
+                    &mut Default::default(),
+                )
+                .unwrap();
+            });
+            let caption = format!("{percent}%");
+            assert!(nodes.iter().any(|node| matches!(node.visual(),
+                ui::UiVisual::Text { layout, .. }
+                    if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == caption
+            )), "the slider must display the selected percentage");
+        }
+    }
+}
+
+#[test]
+fn enhanced_video_keeps_render_resolution_editable() {
+    use launcher::menu::settings_options::SettingId;
+    let size = [1280.0, 720.0];
+    let mut view = settings_view("video_forced_index");
+    let index = SettingId::RenderResolution.index();
+    view.render_mode = ui::RenderMode::Enhanced;
+    let offsets = centered_option(&view, index, size);
+    let frame = paint(&view, size, offsets);
+    assert!(frame.hits.iter().any(|(action, _)| matches!(action,
+        MenuAction::SettingsOption(at, _) if usize::from(*at) == index
+    )));
 }

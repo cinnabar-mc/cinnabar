@@ -45,10 +45,10 @@ fn large_definition(axes: u32, large_values: bool) -> Vec<u8> {
 #[test]
 fn budget_rejections_preserve_vanilla_ids_in_both_modes_and_admission_palettes() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -167,10 +167,10 @@ fn budget_rejections_preserve_vanilla_ids_in_both_modes_and_admission_palettes()
 #[test]
 fn empty_server_block_definitions_preserve_sequential_wire_identities() {
     let version = assets::active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        include_bytes!("../../../../../assets/data/block-physics-v2193.bin"),
+        BREG_V2225,
+        include_bytes!("../../../../../assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();
@@ -206,10 +206,10 @@ fn empty_server_block_definitions_preserve_sequential_wire_identities() {
 #[test]
 fn omitted_server_definitions_remap_the_pinned_sequential_palette() {
     let version = assets::active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        include_bytes!("../../../../../assets/data/block-physics-v2193.bin"),
+        BREG_V2225,
+        include_bytes!("../../../../../assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();

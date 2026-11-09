@@ -192,7 +192,7 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
     let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("packed chunk biome tints"),
         contents: bytemuck::cast_slice(&entries),
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let query_tables = match gpu.prepared.take() {
         Some(prepared) => prepared.query_tables,
@@ -292,8 +292,16 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
     staged: Option<StagedTextures>,
+    bootstrap: Option<reload::BootstrapTextures>,
     #[cfg(feature = "enhanced")]
     authored_pending: Option<AuthoredUpload>,
+}
+
+impl crate::pipeline_warmup::PendingPipelines for ChunkGpuTextureAssets {
+    /// Keeps world readiness closed while the initial atlas is being uploaded.
+    fn pending(&self) -> bool {
+        self.bootstrap.is_some()
+    }
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -366,12 +374,20 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     pipeline_cache: Res<PipelineCache>,
     view_uniforms: Res<ViewUniforms>,
     render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    mut compact: ResMut<super::compact::CompactTerrain>,
     texture_assets: Res<ChunkGpuTextureAssets>,
     clock: Res<ChunkGpuAnimationClock>,
     biome_tints: Res<ChunkGpuBiomeTints>,
     atmosphere: Res<AtmosphereGpu>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
+    if compact.release_if_idle(&arena) {
+        arena.bind_group = None;
+        arena.transparent_bind_group = None;
+        arena.bind_group_buffers = None;
+        return;
+    }
     let Some(texture_assets) = texture_assets.prepared.as_ref() else {
         arena.bind_group = None;
         arena.transparent_bind_group = None;
@@ -426,6 +442,55 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         arena.bind_group_buffers = None;
         return;
     };
+    let mut entries = entries(
+        view_binding,
+        &arena,
+        texture_assets,
+        &clock,
+        biome_tints,
+        &atmosphere,
+    );
+    if pipeline.compact {
+        if !compact.prepare(&render_device, &render_queue, &mut entries) {
+            arena.bind_group = None;
+            arena.transparent_bind_group = None;
+            arena.bind_group_buffers = None;
+            return;
+        }
+        entries
+            .iter_mut()
+            .find(|entry| entry.binding == 2)
+            .unwrap()
+            .resource = compact.binding();
+    }
+    let transparent_bind_group = render_device.create_bind_group(
+        "transparent packed chunk bind group",
+        &pipeline_cache.get_bind_group_layout(&pipeline.transparent_bind_group_layout),
+        &entries,
+    );
+    let opaque_entries: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
+        .collect();
+    let bind_group = render_device.create_bind_group(
+        "opaque packed chunk bind group",
+        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+        &opaque_entries,
+    );
+    arena.bind_group = Some(bind_group);
+    arena.transparent_bind_group = Some(transparent_bind_group);
+    arena.bind_group_buffers = Some(buffers);
+}
+
+/// Builds the canonical terrain bindings for both world and independently placed geometry.
+pub(in crate::chunk) fn entries<'a>(
+    view_binding: BindingResource<'a>,
+    arena: &'a ChunkGpuArena,
+    texture_assets: &'a PreparedChunkTextureAssets,
+    clock: &'a ChunkGpuAnimationClock,
+    biome_tints: &'a PreparedChunkBiomeTints,
+    atmosphere: &'a AtmosphereGpu,
+) -> Vec<BindGroupEntry<'a>> {
     let mut entries = vec![
         BindGroupEntry {
             binding: 0,
@@ -510,23 +575,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
                 resource: BindingResource::TextureView(view),
             }),
     );
-    let transparent_bind_group = render_device.create_bind_group(
-        "transparent packed chunk bind group",
-        &pipeline_cache.get_bind_group_layout(&pipeline.transparent_bind_group_layout),
-        &entries,
-    );
-    let opaque_entries: Vec<_> = entries
-        .into_iter()
-        .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
-        .collect();
-    let bind_group = render_device.create_bind_group(
-        "opaque packed chunk bind group",
-        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-        &opaque_entries,
-    );
-    arena.bind_group = Some(bind_group);
-    arena.transparent_bind_group = Some(transparent_bind_group);
-    arena.bind_group_buffers = Some(buffers);
+    entries
 }
 
 /// Adds runtime source dimensions when a layer's physical page uses another pixel scale.

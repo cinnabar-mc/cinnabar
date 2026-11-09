@@ -192,6 +192,7 @@ pub(in crate::chunk) struct ViewTerrainLists {
     /// Indirect views: drawable entities and keys by entity, and the queued cube order.
     by_entity: Vec<(Entity, SubChunkKey)>,
     cubes: Vec<Entity>,
+    other_order: Vec<Entity>,
     indirect_built: bool,
     /// The view transform `cubes` was sorted for.
     cube_view: Option<Mat4>,
@@ -260,6 +261,11 @@ impl ViewTerrainLists {
         &self.drawable
     }
 
+    /// Current cube/cutout order and model/liquid order after indirect-list refresh.
+    pub(in crate::chunk) fn cull_orders(&self) -> [&[Entity]; 2] {
+        [&self.cubes, &self.other_order]
+    }
+
     /// The indirect lists that changed since the view's batches were queued. `requeue` rebuilds
     /// them all; otherwise only a moved view sorts its cubes again, and an unchanged order keeps
     /// the queued batches and their commands. Call after [`Self::drawable`].
@@ -276,6 +282,7 @@ impl ViewTerrainLists {
                     .iter()
                     .map(|terrain| (terrain.entity, terrain.key)),
             );
+            self.other_order = self.by_entity.iter().map(|(entity, _)| *entity).collect();
             self.indirect_built = true;
         }
         let mut cubes = None;
@@ -292,7 +299,7 @@ impl ViewTerrainLists {
             }
         }
         IndirectListUpdate {
-            visible: rebuilt.then(|| self.by_entity.iter().map(|(entity, _)| *entity).collect()),
+            visible: rebuilt.then(|| self.other_order.clone()),
             cubes,
             sorted,
         }

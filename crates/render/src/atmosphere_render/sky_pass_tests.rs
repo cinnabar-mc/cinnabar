@@ -73,11 +73,7 @@ fn fixture() -> Option<Fixture> {
     }))
     .expect("finite skybox render schedule device");
     Some(Fixture {
-        gpu: crate::gpu_snapshot::Gpu {
-            device,
-            queue,
-            backend: adapter.get_info().backend,
-        },
+        gpu: crate::gpu_snapshot::Gpu::from_device(device, queue, adapter.get_info().backend),
         instance,
         adapter,
     })

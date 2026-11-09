@@ -2,11 +2,22 @@ use crate::chunk::*;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
 pub(in crate::chunk) mod buffers;
+mod free_ranges;
 mod priority;
 
-use buffers::{
-    create_identity_vertex_offsets, identity_vertex_offset_words, indirect_buffer_descriptor,
-};
+pub(in crate::chunk) use free_ranges::FreeRanges;
+
+/// Storage retained before the first chunk and after an idle arena is released.
+pub(in crate::chunk::gpu) const INITIAL_ARENA_CAPACITIES: ArenaRequiredLengths =
+    ArenaRequiredLengths {
+        quads: 1,
+        geometry_stream_words: 1,
+        origins: 1,
+        biome_words: FALLBACK_BIOME_WORDS,
+    };
+
+/// Command slots retained by an empty arena.
+pub(in crate::chunk::gpu) const INITIAL_INDIRECT_CAPACITY: usize = 1;
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkGpuUploadStats {
@@ -24,6 +35,7 @@ pub(in crate::chunk) struct ChunkGpuUploadStats {
     pub(in crate::chunk) model_streams_validated: usize,
     pub(in crate::chunk) range_plans: usize,
     pub(in crate::chunk) candidates_deferred: usize,
+    pub(in crate::chunk) time_limited: bool, // preparation stopped at its elapsed allowance
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,7 +114,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) biome_buffer: Buffer,
     pub(in crate::chunk) index_buffer: Buffer,
     pub(in crate::chunk) model_index_buffer: Buffer,
-    /// Vertex buffer 0 of CPU-planned terrain draws; see [`buffers::identity_vertex_offsets`].
+    /// Identity vertex offsets for CPU-planned terrain draws.
     pub(in crate::chunk) vertex_offset_buffer: Buffer,
     pub(in crate::chunk) indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_indirect_buffer: Buffer,
@@ -124,14 +136,17 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) origin_len: usize,
     pub(in crate::chunk) biome_len: usize,
     pub(in crate::chunk) limits: ArenaLimits,
-    pub(in crate::chunk) free_quads: Vec<Range<u32>>,
-    pub(in crate::chunk) free_geometry_stream_words: Vec<Range<u32>>,
+    pub(in crate::chunk) free_quads: FreeRanges,
+    pub(in crate::chunk) free_geometry_stream_words: FreeRanges,
     pub(in crate::chunk) free_origins: Vec<u32>,
-    pub(in crate::chunk) free_biomes: Vec<Range<u32>>,
+    pub(in crate::chunk) free_biomes: FreeRanges,
     pub(in crate::chunk) shared_biome_ranges: SharedBiomeRanges,
     pub(in crate::chunk) allocations: HashMap<Entity, ArenaAllocation>,
     /// The transparent water of `allocations`, updated wherever an allocation changes.
     pub(in crate::chunk) transparent_liquids: TransparentLiquidResidents,
+    /// Changes to the transparent models of `allocations`, recorded wherever an allocation
+    /// changes and consumed by the model draw orders.
+    pub(in crate::chunk) transparent_model_changes: TransparentModelResidentChanges,
     pub(in crate::chunk) retired_allocations: Vec<RetiredArenaAllocation>,
     pub(in crate::chunk) pending_removals: BTreeSet<Entity>,
     pub(in crate::chunk) retirement_budget: TransparentRetirementBudget,
@@ -140,6 +155,9 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) growth_blocked: bool,
     /// Advances only when owned ranges become reusable.
     pub(in crate::chunk) release_revision: u64,
+    pub(in crate::chunk) memory: super::telemetry::ArenaMemoryTelemetry,
+    /// Queue completion for an empty arena; new work cancels this release attempt.
+    pub(in crate::chunk) idle_completion: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 pub(in crate::chunk) fn init_chunk_gpu_arena(
@@ -150,89 +168,47 @@ pub(in crate::chunk) fn init_chunk_gpu_arena(
 }
 
 impl ChunkGpuArena {
-    pub(in crate::chunk) fn new(render_device: &RenderDevice) -> Self {
-        let device_limits = render_device.limits();
-        let limits = arena_limits_from_device_limits(
-            device_limits.max_buffer_size,
-            device_limits.max_storage_buffer_binding_size,
-        );
-        let arena = Self {
-            quad_buffer: create_storage_buffer(
-                render_device,
-                "packed chunk quads",
-                PACKED_QUAD_BYTES,
-            ),
-            geometry_stream_buffer: create_storage_buffer(
-                render_device,
-                "packed chunk geometry streams",
-                GEOMETRY_STREAM_WORD_BYTES,
-            ),
-            origin_buffer: create_storage_buffer(
-                render_device,
-                "packed chunk origins",
-                CHUNK_ORIGIN_BYTES,
-            ),
-            biome_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("packed chunk biome records"),
-                contents: bytemuck::cast_slice(&FALLBACK_BIOME_RECORD),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            }),
-            index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("shared chunk quad indices"),
-                contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
-                usage: BufferUsages::INDEX,
-            }),
-            model_index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("shared model template quad indices"),
-                contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
-                usage: BufferUsages::INDEX,
-            }),
-            vertex_offset_buffer: create_identity_vertex_offsets(
-                render_device,
-                &identity_vertex_offset_words(1),
-            ),
-            indirect_buffer: render_device.create_buffer(&indirect_buffer_descriptor(1)),
-            transparent_indirect_buffer: render_device
-                .create_buffer(&indirect_buffer_descriptor(1)),
-            transparent_ref_buffer: transparent_ref_buffer(
-                render_device,
-                INITIAL_TRANSPARENT_SLOT_REFS,
-            ),
-            transparent_slot_refs: INITIAL_TRANSPARENT_SLOT_REFS,
-            bind_group: None,
-            transparent_bind_group: None,
-            bind_group_buffers: None,
-            quad_capacity: 1,
-            geometry_stream_capacity: 1,
-            origin_capacity: 1,
-            biome_capacity: FALLBACK_BIOME_WORDS,
-            indirect_capacity: 1,
-            uploaded_indirect_bytes: Vec::new(),
-            quad_len: 0,
-            geometry_stream_len: 0,
-            origin_len: 0,
-            biome_len: FALLBACK_BIOME_WORDS,
-            limits,
-            free_quads: Vec::new(),
-            free_geometry_stream_words: Vec::new(),
-            free_origins: Vec::new(),
-            free_biomes: Vec::new(),
-            shared_biome_ranges: SharedBiomeRanges::default(),
-            allocations: HashMap::new(),
-            transparent_liquids: TransparentLiquidResidents::default(),
-            retired_allocations: Vec::new(),
-            pending_removals: BTreeSet::new(),
-            retirement_budget: TransparentRetirementBudget::with_limits(
-                MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
-                MAX_TRANSPARENT_RETIRED_BYTES,
-            ),
-            migration: None,
-            growth_blocked: false,
-            release_revision: 0,
-        };
-        super::telemetry::log_initial_arena_capacity(&arena, render_device);
-        arena
+    /// Records for the model draw orders that `entity`'s resident allocation becomes `next`;
+    /// call before changing `allocations`.
+    pub(in crate::chunk) fn record_transparent_model_change(
+        &mut self,
+        entity: Entity,
+        next: Option<&GpuChunkAllocation>,
+    ) {
+        let previous = self.allocations.get(&entity).map(|resident| &resident.gpu);
+        self.transparent_model_changes
+            .record(entity, previous, next);
     }
+}
+
+/// Describes unmapped terrain storage for queue uploads and migration copies.
+pub(in crate::chunk::gpu) fn storage_buffer_descriptor(
+    label: &'static str,
+    size: u64,
+) -> BufferDescriptor<'static> {
+    BufferDescriptor {
+        label: Some(label),
+        size,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    }
+}
+
+pub(in crate::chunk) fn create_storage_buffer(
+    render_device: &RenderDevice,
+    label: &'static str,
+    size: u64,
+) -> Buffer {
+    render_device.create_buffer(&storage_buffer_descriptor(label, size))
+}
+
+/// [`create_storage_buffer`], or `None` when the device is out of memory.
+pub(in crate::chunk) fn try_create_storage_buffer(
+    render_device: &RenderDevice,
+    label: &'static str,
+    size: u64,
+) -> Option<Buffer> {
+    crate::gpu_allocation::buffer(render_device, &storage_buffer_descriptor(label, size))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -429,14 +405,14 @@ pub(in crate::chunk) struct FreshChunkRanges {
 /// resulting arena length.
 fn probe_range(
     len: usize,
-    free: &[Range<u32>],
+    free: &FreeRanges,
     required: u32,
     max_items: usize,
 ) -> Option<(u32, usize)> {
     if required == 0 {
         return Some((0, len));
     }
-    if let Some((_, start)) = best_free_range(free, required, 1) {
+    if let Some((_, start)) = free.best_fit(required, 1) {
         return Some((start, len));
     }
     let next = len.checked_add(required as usize)?;
@@ -448,7 +424,7 @@ fn probe_range(
 
 fn probe_aligned_range(
     len: usize,
-    free: &[Range<u32>],
+    free: &FreeRanges,
     required: u32,
     max_items: usize,
     alignment: u32,
@@ -456,7 +432,7 @@ fn probe_aligned_range(
     if required == 0 {
         return Some((0, len));
     }
-    if let Some((_, start)) = best_free_range(free, required, alignment) {
+    if let Some((_, start)) = free.best_fit(required, alignment) {
         return Some((start, len));
     }
     let start = checked_align_up(u32::try_from(len).ok()?, alignment)?;
@@ -590,11 +566,11 @@ pub(in crate::chunk) struct ChunkRangePlan {
     pub(in crate::chunk) biome_start: u32,
     pub(in crate::chunk) biome_capacity: u32,
     pub(in crate::chunk) quad_len: usize,
-    pub(in crate::chunk) free_quads: Vec<Range<u32>>,
+    pub(in crate::chunk) free_quads: FreeRanges,
     pub(in crate::chunk) geometry_stream_len: usize,
-    pub(in crate::chunk) free_geometry_stream_words: Vec<Range<u32>>,
+    pub(in crate::chunk) free_geometry_stream_words: FreeRanges,
     pub(in crate::chunk) biome_len: usize,
-    pub(in crate::chunk) free_biomes: Vec<Range<u32>>,
+    pub(in crate::chunk) free_biomes: FreeRanges,
 }
 
 #[cfg(test)]
@@ -612,7 +588,7 @@ pub(in crate::chunk) fn plan_chunk_range_update(
     preserve_old_geometry: bool,
     limits: ArenaLimits,
 ) -> Option<ChunkRangePlan> {
-    let mut free_quads = current_free_quads.to_vec();
+    let mut free_quads = current_free_quads.iter().cloned().collect();
     let (quad_start, quad_capacity) = allocate_range_for_update(
         &mut quad_len,
         &mut free_quads,
@@ -628,7 +604,8 @@ pub(in crate::chunk) fn plan_chunk_range_update(
 
     let geometry_layout = required.layout()?;
     let geometry_words_required = geometry_layout.word_count;
-    let mut free_geometry_stream_words = current_free_geometry_stream_words.to_vec();
+    let mut free_geometry_stream_words =
+        current_free_geometry_stream_words.iter().cloned().collect();
     let (geometry_stream_start, geometry_stream_capacity) = allocate_aligned_range_for_update(
         &mut geometry_stream_len,
         &mut free_geometry_stream_words,
@@ -657,7 +634,7 @@ pub(in crate::chunk) fn plan_chunk_range_update(
     let cube_lighting_start =
         geometry_stream_start.checked_add(geometry_layout.cube_lighting_offset)?;
 
-    let mut free_biomes = current_free_biomes.to_vec();
+    let mut free_biomes = current_free_biomes.iter().cloned().collect();
     let (biome_start, biome_capacity) = allocate_range_for_update(
         &mut biome_len,
         &mut free_biomes,
@@ -691,7 +668,7 @@ pub(in crate::chunk) fn plan_chunk_range_update(
 
 pub(in crate::chunk) fn allocate_range_for_update(
     len: &mut usize,
-    free: &mut Vec<Range<u32>>,
+    free: &mut FreeRanges,
     required: u32,
     old: Option<(u32, u32)>,
     max_items: usize,
@@ -717,7 +694,7 @@ pub(in crate::chunk) fn allocate_range_for_update(
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn allocate_aligned_range_for_update(
     len: &mut usize,
-    free: &mut Vec<Range<u32>>,
+    free: &mut FreeRanges,
     required: u32,
     old: Option<(u32, u32)>,
     max_items: usize,
@@ -745,16 +722,12 @@ pub(in crate::chunk) fn allocate_aligned_range_for_update(
 
 pub(in crate::chunk) fn allocate_aligned_quad_range(
     len: &mut usize,
-    free: &mut Vec<Range<u32>>,
+    free: &mut FreeRanges,
     required: u32,
     max_items: usize,
     alignment: u32,
 ) -> Option<u32> {
-    if let Some((index, start)) = best_free_range(free, required, alignment) {
-        let end = start.checked_add(required)?;
-        let source = free.remove(index);
-        insert_free_quad_range(free, source.start..start);
-        insert_free_quad_range(free, end..source.end);
+    if let Some(start) = free.take(required, alignment) {
         return Some(start);
     }
 
@@ -764,18 +737,18 @@ pub(in crate::chunk) fn allocate_aligned_quad_range(
     if end as usize > max_items {
         return None;
     }
-    insert_free_quad_range(free, current..start);
+    free.insert(current..start);
     *len = end as usize;
     Some(start)
 }
 
 pub(in crate::chunk) fn allocate_quad_range(
     len: &mut usize,
-    free: &mut Vec<Range<u32>>,
+    free: &mut FreeRanges,
     required: u32,
     max_items: usize,
 ) -> Option<u32> {
-    if let Some(start) = take_free_quad_range(free, required) {
+    if let Some(start) = free.take(required, 1) {
         return Some(start);
     }
     let required = required as usize;
@@ -790,56 +763,11 @@ pub(in crate::chunk) fn allocate_quad_range(
 
 pub(in crate::chunk) fn release_quad_range(
     len: &mut usize,
-    free: &mut Vec<Range<u32>>,
+    free: &mut FreeRanges,
     freed: Range<u32>,
 ) {
-    insert_free_quad_range(free, freed);
-    while let Some(last) = free.last() {
-        if last.end as usize != *len {
-            break;
-        }
-        *len = last.start as usize;
-        free.pop();
-    }
-}
-
-pub(in crate::chunk) fn insert_free_quad_range(free: &mut Vec<Range<u32>>, mut freed: Range<u32>) {
-    if freed.is_empty() {
-        return;
-    }
-
-    let index = free.partition_point(|range| range.end < freed.start);
-    while index < free.len() && free[index].start <= freed.end {
-        let adjacent = free.remove(index);
-        freed.start = freed.start.min(adjacent.start);
-        freed.end = freed.end.max(adjacent.end);
-    }
-    free.insert(index, freed);
-}
-
-/// Chooses the smallest fitting hole, preserving larger contiguous ranges for large uploads.
-fn best_free_range(free: &[Range<u32>], required: u32, alignment: u32) -> Option<(usize, u32)> {
-    free.iter()
-        .enumerate()
-        .filter_map(|(index, range)| {
-            let start = checked_align_up(range.start, alignment)?;
-            let end = start.checked_add(required)?;
-            (end <= range.end).then_some((range.end - range.start, index, start))
-        })
-        .min_by_key(|&(size, index, _)| (size, index))
-        .map(|(_, index, start)| (index, start))
-}
-
-pub(in crate::chunk) fn take_free_quad_range(
-    free: &mut Vec<Range<u32>>,
-    required: u32,
-) -> Option<u32> {
-    let (index, start) = best_free_range(free, required, 1)?;
-    free[index].start += required;
-    if free[index].is_empty() {
-        free.remove(index);
-    }
-    Some(start)
+    free.insert(freed);
+    free.trim_tail(len);
 }
 
 pub(in crate::chunk) fn allocate_origin(arena: &mut ChunkGpuArena) -> Option<u32> {

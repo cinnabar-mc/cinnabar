@@ -28,6 +28,30 @@ impl BlockFace {
         Self::South,
     ];
 
+    /// Faces in the native facing order (down, up, north, south, west, east) that
+    /// `facing_direction` state values index.
+    pub const FACING_ORDER: [Self; 6] = [
+        Self::Down,
+        Self::Up,
+        Self::North,
+        Self::South,
+        Self::West,
+        Self::East,
+    ];
+
+    /// This face's index in [`Self::FACING_ORDER`].
+    #[must_use]
+    pub const fn facing_index(self) -> usize {
+        match self {
+            Self::Down => 0,
+            Self::Up => 1,
+            Self::North => 2,
+            Self::South => 3,
+            Self::West => 4,
+            Self::East => 5,
+        }
+    }
+
     /// Encodes this face for the model carrier's face flag field.
     #[must_use]
     pub const fn model_quad_face_id(self) -> u32 {
@@ -51,15 +75,25 @@ impl BlockFace {
 pub const DIAGNOSTIC_MATERIAL: u32 = 0;
 /// Layer capacity of a texture reference. Runtime pages also check the device limit.
 pub const MAX_TEXTURE_LAYERS: usize = 8_192;
-/// Offline page budget for carriers that must fit a 2,048-layer device.
-pub const MAX_CARRIER_TEXTURE_LAYERS: usize = 2_048;
+/// Offline page budget for carriers on every platform.
+///
+/// Common Android GPUs such as Mali-G52 report `max_texture_array_layers = 1024`, so
+/// larger pages are rejected at upload there.
+pub const MAX_CARRIER_TEXTURE_LAYERS: usize = 1_024;
 /// Compiled carriers carry the base page plus at most one vanilla page.
 pub const MAX_CARRIER_TEXTURE_PAGES: usize = 2;
 /// Layer bits shared by carrier references and GPU shader encoders.
 pub const TEXTURE_LAYER_MASK: u32 = MAX_TEXTURE_LAYERS as u32 - 1;
 pub const MAX_MATERIALS: usize = 65_536;
+/// The value within `MATERIAL_FLAG_UV_ROTATION_MASK` that turns a face's UVs by a quarter turn.
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by 180 degrees.
+pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by three quarter turns.
+pub const MATERIAL_FLAG_UV_ROTATE_270: u32 = 3;
+/// The rotation code within `MATERIAL_FLAG_UV_MASK`; the remaining bits reflect U and V.
+pub const MATERIAL_FLAG_UV_ROTATION_MASK: u32 = 0x0000_0003;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
@@ -135,16 +169,23 @@ const _: () = assert!(MATERIAL_FLAGS_MASK == u32::MAX);
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
-            || flags
+            || (flags
                 & (MATERIAL_FLAG_TINT_MASK
-                    | MATERIAL_LEAF_METADATA_MASK
+                    | (MATERIAL_LEAF_METADATA_MASK & !crate::redstone_wire::SIGNAL_MASK)
                     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
                     | MATERIAL_FLAG_CAULDRON_WATER)
-                == 0)
+                == 0
+                && match crate::redstone_wire::encoded_signal(flags) {
+                    Some(signal) => {
+                        signal <= crate::redstone_wire::MAX_SIGNAL
+                            && flags & crate::stem::GROWTH_MASK == 0
+                    }
+                    None => true,
+                }))
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
         && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0)
+            || flags & (MATERIAL_FLAG_NATIVE_LEAF_COLOUR | crate::stem::MATERIAL_FLAG) != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)

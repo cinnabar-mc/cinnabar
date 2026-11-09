@@ -10,11 +10,13 @@ mod compiler_contracts;
 mod compute;
 mod dimensions;
 mod draw_buffers;
+mod geometry;
 mod includes;
 mod legacy;
 mod options;
 mod progress;
 mod samplers;
+mod translation_protections;
 mod zip_source;
 
 use shaderpack::{PackTranslation, ProgramReflection, ProgramTranslation, ShaderPack};

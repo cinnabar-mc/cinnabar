@@ -28,10 +28,12 @@ pub(super) struct Key {
     pub hdr: bool,
     pub always: bool,
     pub additive: bool,
+    pub clipped: bool,
 }
 #[derive(Resource)]
 pub(super) struct Pipeline {
     pub variants: Variants<RenderPipeline, Specialization>,
+    pub masks: Variants<RenderPipeline, super::clips::MaskSpecialization>,
     pub layout: BindGroupLayoutDescriptor,
 }
 impl FromWorld for Pipeline {
@@ -67,6 +69,7 @@ impl FromWorld for Pipeline {
             ..default()
         };
         Self {
+            masks: Variants::new(super::clips::MaskSpecialization, descriptor.clone()),
             variants: Variants::new(Specialization, descriptor),
             layout,
         }
@@ -128,14 +131,22 @@ impl Specializer<RenderPipeline> for Specialization {
 /// Applies the same host-owned depth state to shared and procedural pipelines.
 pub(super) fn depth(key: Key) -> DepthStencilState {
     DepthStencilState {
-        format: CORE_3D_DEPTH_FORMAT,
-        depth_write_enabled: Some(false),
+        format: if key.clipped {
+            super::clips::FORMAT
+        } else {
+            CORE_3D_DEPTH_FORMAT
+        },
+        depth_write_enabled: Some(key.clipped),
         depth_compare: Some(if key.always {
             CompareFunction::Always
         } else {
             CompareFunction::GreaterEqual
         }),
-        stencil: default(),
+        stencil: if key.clipped {
+            super::clips::content_stencil()
+        } else {
+            default()
+        },
         bias: default(),
     }
 }
@@ -173,6 +184,10 @@ pub(super) fn bindings(
 ) {
     let Gpu { meshes, views, .. } = &mut *gpu;
     for view in views.values_mut() {
+        let Some(buffer) = view.buffer.as_ref() else {
+            view.bindings.clear();
+            continue;
+        };
         view.bindings
             .retain(|handle, _| meshes.contains_key(handle));
         for batch in &view.batches {
@@ -194,7 +209,7 @@ pub(super) fn bindings(
                         },
                         BindGroupEntry {
                             binding: 2,
-                            resource: view.buffer.as_entire_binding(),
+                            resource: buffer.as_entire_binding(),
                         },
                     ],
                 )
@@ -223,10 +238,17 @@ impl RenderCommand<Transparent3d> for DrawBatch {
         let (gpu, materials) = gpu;
         let gpu = gpu.into_inner();
         let materials = materials.into_inner();
-        let Some(view) = gpu.views.get(&item.entity()) else {
+        let Some(&(owner, index)) = gpu
+            .draws
+            .get(&item.entity())
+            .and_then(|draws| draws.get(item.batch_range().start as usize))
+        else {
             return RenderCommandResult::Skip;
         };
-        let Some(batch) = view.batches.get(item.batch_range().start as usize) else {
+        let Some(view) = gpu.views.get(&(item.entity(), owner)) else {
+            return RenderCommandResult::Skip;
+        };
+        let Some(batch) = view.batches.get(index) else {
             return RenderCommandResult::Skip;
         };
         let (Some(mesh), Some(binding)) = (
@@ -255,19 +277,32 @@ impl crate::pipeline_warmup::PrewarmPipelines for Pipeline {
         view: crate::pipeline_warmup::WarmView,
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
-        for always in [false, true] {
-            for additive in [false, true] {
-                ids.push(self.variants.specialize(
-                    cache,
-                    Key {
-                        msaa: view.msaa,
-                        hdr: view.hdr,
-                        always,
-                        additive,
-                    },
-                )?);
+        for clipped in [false, true] {
+            for always in [false, true] {
+                for additive in [false, true] {
+                    ids.push(self.variants.specialize(
+                        cache,
+                        Key {
+                            msaa: view.msaa,
+                            hdr: view.hdr,
+                            always,
+                            additive,
+                            clipped,
+                        },
+                    )?);
+                }
             }
         }
+        ids.push(self.masks.specialize(
+            cache,
+            Key {
+                msaa: view.msaa,
+                hdr: view.hdr,
+                always: false,
+                additive: false,
+                clipped: true,
+            },
+        )?);
         Ok(())
     }
 }

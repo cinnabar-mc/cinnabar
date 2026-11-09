@@ -343,7 +343,7 @@ fn drawn_rig(rig: render_model::EntityRigId, bones: usize) -> render_model::Acto
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 42,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: Some(1),
                 movement_revision: 1,
@@ -435,15 +435,15 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
     world.resource_mut::<ClientWorld>().prepared_actor_artwork = Some(prepared);
     let published = publish(&mut world);
     same_artwork(published.artwork_pages(), &expected);
-    assert!(Arc::ptr_eq(
-        &published
+    assert!(
+        published
             .artwork_pages()
             .pages()
             .last()
             .unwrap()
-            .shared_pixels(),
-        &pixel_page,
-    ));
+            .shared_pixels()
+            .ptr_eq(&pixel_page)
+    );
 
     let replacement = textured_pack(entities.clone(), 71);
     let expected = world
@@ -454,15 +454,15 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
     world.resource_mut::<ClientWorld>().pack_entities = Some(replacement.clone());
     let changed_pack = publish(&mut world);
     same_artwork(changed_pack.artwork_pages(), &expected);
-    assert!(!Arc::ptr_eq(
-        &changed_pack
+    assert!(
+        !changed_pack
             .artwork_pages()
             .pages()
             .last()
             .unwrap()
-            .shared_pixels(),
-        &pixel_page,
-    ));
+            .shared_pixels()
+            .ptr_eq(&pixel_page)
+    );
 
     let prepared = Arc::new(PreparedActorArtwork::new(
         world.resource::<render_scene::ActorArtworkResource>(),

@@ -45,8 +45,14 @@ impl UiPresentationRuntime {
         self.screens.chat.paint(
             renderer,
             ChatInput {
+                local_player: &runtime.session.local_player_display_name,
                 editor: runtime.chat_editor(),
                 messages: runtime.chat().messages(),
+                first_message_id: runtime
+                    .chat()
+                    .observed_rows()
+                    .next()
+                    .map_or(0, |(id, _)| id),
                 suggestions: runtime.chat_suggestions(),
                 usage: runtime.chat_usage_hint(),
                 selected_suggestion: runtime.chat_selected_suggestion(),
@@ -142,6 +148,7 @@ impl UiPresentationRuntime {
         if &self.screens.touch.saved != snapshot.0.touch_layout() {
             self.screens.touch.saved = snapshot.0.touch_layout().clone();
         }
+        self.set_touch_control_mode(snapshot.0.touch_control_mode());
         self.screens.chat.settings.set_snapshot(snapshot);
     }
 

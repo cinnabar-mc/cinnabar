@@ -10,8 +10,52 @@ pub struct RecipeOutput {
     pub aux: u16,
     pub count: u8,
     pub block_runtime_id: u32,
-    /// The output carried the canonical empty user-data envelope.
-    pub empty_envelope: bool,
+    /// Plain item data, including a shield's trailing blocking timestamp.
+    pub user_data: RecipeOutputData,
+}
+
+/// User data on a recipe result with no saved tags or item restrictions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecipeOutputData {
+    /// No user-data buffer was supplied.
+    Absent,
+    /// An empty compound header and two empty restriction lists.
+    Empty,
+    /// The empty envelope followed by a shield's blocking timestamp.
+    Shield { blocking_tick: i64 },
+}
+
+impl RecipeOutputData {
+    /// Reads a plain result's complete envelope and retains its runtime-only fields.
+    pub(super) fn decode(extra: &[u8]) -> Option<Self> {
+        if super::canonical_empty_extra(extra) {
+            return Some(if extra.is_empty() {
+                Self::Absent
+            } else {
+                Self::Empty
+            });
+        }
+        let (envelope, tick) = extra.split_at_checked(10)?;
+        if !super::canonical_empty_extra(envelope) {
+            return None;
+        }
+        Some(Self::Shield {
+            blocking_tick: i64::from_le_bytes(tick.try_into().ok()?),
+        })
+    }
+
+    /// Recreates exactly the plain item data advertised by the recipe.
+    pub fn bytes(self) -> std::sync::Arc<[u8]> {
+        match self {
+            Self::Absent => std::sync::Arc::from([]),
+            Self::Empty => std::sync::Arc::from([0; 10]),
+            Self::Shield { blocking_tick } => {
+                let mut bytes = [0; 18];
+                bytes[10..].copy_from_slice(&blocking_tick.to_le_bytes());
+                std::sync::Arc::from(bytes)
+            }
+        }
+    }
 }
 
 /// One ingredient of a crafting recipe as callers may read it.

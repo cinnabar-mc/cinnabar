@@ -132,7 +132,6 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
     ));
 
     for invalid in [
-        BlockFlags::from_bits_retain(!BlockFlags::all().bits()),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
         BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,

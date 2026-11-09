@@ -26,7 +26,7 @@ use crate::chunk::*;
 use crate::gpu_timing::readback::{ReadbackRing, SLOTS};
 
 use super::{
-    kernels::{CullKernels, OcclusionStorage, occlusion_bytes},
+    kernels::CullKernels,
     model::{CullPhase, CullViewUniform},
     occlusion::{OcclusionBasis, OcclusionHistory, VerdictTag},
     prepare::{
@@ -34,9 +34,9 @@ use super::{
         sampleable_depth, write_dirty_records,
     },
     slots::{CullSlots, cull_record},
+    storage::{OcclusionStorage, occlusion_bytes},
 };
 
-const MIN_CAPACITY: u32 = 1024;
 const PENDING: u8 = 0;
 const MAPPED: u8 = 1;
 const FAILED: u8 = 2;
@@ -45,8 +45,10 @@ pub(in crate::chunk) fn direct_occlusion_supported(
     draw_mode: ChunkDrawMode,
     downlevel: DownlevelFlags,
     forced_cpu: bool,
+    limits: &wgpu::Limits,
 ) -> bool {
-    !forced_cpu
+    super::model::cull_workgroup(limits).is_some()
+        && !forced_cpu
         && draw_mode == ChunkDrawMode::Direct
         && downlevel.contains(DownlevelFlags::COMPUTE_SHADERS)
 }
@@ -199,6 +201,8 @@ pub(in crate::chunk) struct DirectOcclusion {
     capture_masks: bool,
     depth_pipelines: HashMap<CachedRenderPipelineId, CachedRenderPipelineId>,
     storage: Option<OcclusionStorage>,
+    pub(super) ready: bool,
+    failed: crate::gpu_allocation::FailedRequests<u32>,
     readbacks: Vec<wgpu::Buffer>,
     table: CullSlots,
     generations: HashMap<Entity, u64>,
@@ -220,6 +224,8 @@ impl DirectOcclusion {
     /// Forgets derived records and verdicts while retaining allocated GPU storage.
     pub(super) fn invalidate_publication(&mut self) {
         self.table = default();
+        self.ready = false;
+        self.failed = default();
         self.generations.clear();
         self.tint = None;
         self.history.invalidate_world();
@@ -237,16 +243,6 @@ impl DirectOcclusion {
         {
             self.verdicts.release(slot);
         }
-    }
-
-    /// Whether this device can test all current terrain slots without exceeding one binding.
-    pub(super) fn supports_slots(device: &RenderDevice, slots: u32) -> bool {
-        super::prepare::binding_capacity(
-            &device.limits(),
-            slots.max(MIN_CAPACITY),
-            occlusion_storage_largest_buffer,
-        )
-        .is_some()
     }
 
     /// Whether this run uses a current-frame depth prepass and GPU-written unit masks.
@@ -300,6 +296,8 @@ impl DirectOcclusion {
             capture_masks: crate::gpu_timing::query_health_requested(),
             depth_pipelines: default(),
             storage: None,
+            ready: false,
+            failed: default(),
             readbacks: Vec::new(),
             table: CullSlots::default(),
             generations: HashMap::new(),
@@ -384,50 +382,6 @@ impl DirectOcclusion {
         self.table.trim();
     }
 
-    fn upload(
-        &mut self,
-        device: &RenderDevice,
-        queue: &RenderQueue,
-    ) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
-        let slots = self.table.slot_count();
-        if self
-            .storage
-            .as_ref()
-            .is_none_or(|storage| storage.capacity < slots)
-        {
-            let grown = super::prepare::binding_capacity(
-                &device.limits(),
-                slots.max(MIN_CAPACITY),
-                occlusion_storage_largest_buffer,
-            )
-            .and_then(|capacity| {
-                #[cfg(feature = "tracy")]
-                let _span = bevy::log::info_span!(
-                    "terrain.occlusion_allocate",
-                    capacity,
-                    readback_bytes = occlusion_bytes(capacity) * SLOTS as u64
-                )
-                .entered();
-                crate::gpu_allocation::terrain_checked(
-                    device,
-                    "terrain occlusion storage",
-                    occlusion_storage_largest_buffer(capacity),
-                    || occlusion_buffers(device.wgpu_device(), capacity),
-                )
-            });
-            let Some((storage, readbacks)) = grown else {
-                return Err(crate::gpu_allocation::TerrainWriteError);
-            };
-            self.verdicts.reset();
-            self.bind_group = None;
-            self.storage = Some(storage);
-            self.readbacks = readbacks;
-            self.table.mark_all_dirty();
-        }
-        let storage = self.storage.as_ref().expect("storage was just ensured");
-        write_dirty_records(&mut self.table, device, queue, &storage.records)
-    }
-
     /// Consumes settled readbacks for legacy history and optional current-frame work diagnostics.
     #[expect(
         clippy::print_stderr,
@@ -493,46 +447,18 @@ type ChangedAllocations<'w, 's> = Query<
     Changed<GpuChunkAllocation>,
 >;
 
-/// The largest occlusion storage buffer at `capacity`; it must fit one storage binding.
-fn occlusion_storage_largest_buffer(capacity: u32) -> u64 {
-    (u64::from(capacity) * std::mem::size_of::<super::model::CullRecord>() as u64)
-        .max(occlusion_bytes(capacity))
-}
-
-/// Occlusion storage and its readback ring for `capacity` slots.
-fn occlusion_buffers(
-    device: &wgpu::Device,
-    capacity: u32,
-) -> (OcclusionStorage, Vec<wgpu::Buffer>) {
-    let readbacks = (0..SLOTS)
-        .map(|_| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("terrain occlusion readback"),
-                size: occlusion_bytes(capacity),
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        })
-        .collect();
-    (OcclusionStorage::new(device, capacity), readbacks)
-}
-
+/// Publishes complete occlusion storage before deciding whether to reroute direct draws.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::chunk) fn prepare_direct_occlusion(
+fn upload_direct_occlusion(
     mut occlusion: ResMut<DirectOcclusion>,
     mut hidden: ResMut<ChunkHiddenEntities>,
-    frame: Res<DirectOcclusionFrame>,
     changed: ChangedAllocations,
-    allocations: Query<(&GpuChunkAllocation, &MainEntity)>,
     mut removed: RemovedComponents<GpuChunkAllocation>,
     mut removed_instances: RemovedComponents<ChunkRenderInstance>,
     biome_tints: Res<ChunkBiomeTints>,
-    views: Query<CullViewComponents>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     profiler: Option<Res<RuntimeStageProfiler>>,
-    cache: Res<PipelineCache>,
-    draws: Res<DrawFunctions<Opaque3d>>,
 ) {
     let _timer = profiler
         .as_deref()
@@ -541,7 +467,6 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
     occlusion.frame += 1;
     occlusion.suppress_publication();
     occlusion.skip_view = None;
-    occlusion.last_view = None;
     occlusion.skipped.clear();
     for entity in removed_instances.read() {
         hidden.hidden.remove(&entity);
@@ -552,13 +477,26 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
         biome_tints.table_identity(),
         &mut hidden,
     );
-    if occlusion.upload(&device, &queue).is_err() {
-        return;
-    }
+    occlusion.ready = occlusion.upload(&device, &queue).is_ok();
     // Readbacks mapped by the previous frame's device poll.
     occlusion.apply_verdicts();
+}
 
-    let Some(queued) = frame.view else {
+/// Plans the direct terrain pass only after queueing has admitted complete storage.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::chunk) fn prepare_direct_occlusion(
+    mut occlusion: ResMut<DirectOcclusion>,
+    frame: Res<DirectOcclusionFrame>,
+    allocations: Query<(&GpuChunkAllocation, &MainEntity)>,
+    views: Query<CullViewComponents>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    cache: Res<PipelineCache>,
+    draws: Res<DrawFunctions<Opaque3d>>,
+) {
+    let occlusion = &mut *occlusion;
+    occlusion.last_view = None;
+    let Some(queued) = frame.view.filter(|_| occlusion.ready) else {
         return;
     };
     let Ok((extracted, frustum, depth, msaa, resolution_override)) = views.get(queued.entity)
@@ -615,7 +553,13 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
             prepared.pyramid.depth_size,
             prepared.pyramid.mip_count(),
         );
-        let uniform = CullViewUniform::new(&input, CullPhase::Late, slots, storage.capacity);
+        let uniform = CullViewUniform::new(
+            &input,
+            CullPhase::Late,
+            slots,
+            storage.capacity,
+            occlusion.kernels.workgroup,
+        );
         {
             #[cfg(feature = "tracy")]
             let _span =
@@ -796,7 +740,9 @@ pub(crate) fn terrain_pass(
     let view_entity = query.entity();
     let (camera, target, scene_target, depth, resolution_override) = query.into_inner();
     let render_context = &mut render_context;
-    let occlusion = world.resource::<DirectOcclusion>();
+    let Some(occlusion) = world.get_resource::<DirectOcclusion>() else {
+        return Ok(());
+    };
     let batches = world.resource::<pipeline::units::TerrainUnitBatches>();
     if occlusion.same_frame || occlusion.reset_masks {
         batches.encode_masks(
@@ -957,7 +903,7 @@ fn select_visibility(
                 .get(entity)
                 .is_ok_and(|(view, msaa)| !occlusion.wants_verdict(entity, view, *msaa))
         });
-        let frame = occlusion.frame + 1;
+        let frame = occlusion.frame;
         let candidates = occlusion.stats.candidates as usize;
         occlusion.same_frame = !settled && occlusion.admission.select(frame, candidates);
     }
@@ -966,13 +912,18 @@ fn select_visibility(
 
 /// Inserts the direct occlusion path's resources, systems and graph node.
 pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
+    let worker_device = device.clone();
+    crate::deferred_resource::install(render_app, move || DirectOcclusion::new(&worker_device));
     render_app
-        .insert_resource(DirectOcclusion::new(device))
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, super::prepare::extract_hidden_chunks)
         .add_systems(
             Render,
             (
+                upload_direct_occlusion
+                    .after(super::super::plugin::publication_schedule::ChunkPublicationStage::ModelSort)
+                    .before(select_visibility)
+                    .before(RenderSystems::Queue),
                 select_visibility
                     .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue),
@@ -981,7 +932,7 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
                     .after(prepare_gpu_chunks)
                     .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                 submit_direct_occlusion.in_set(crate::device_poll::FrameSubmissions),
-            ),
+            ).run_if(bevy::prelude::resource_exists::<DirectOcclusion>),
         );
     install_graph(render_app.world_mut());
 }
@@ -993,3 +944,10 @@ mod visibility_tests;
 #[cfg(test)]
 #[path = "direct_publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+#[path = "direct_allocation_tests.rs"]
+mod allocation_tests;
+
+#[path = "direct_upload.rs"]
+mod upload;

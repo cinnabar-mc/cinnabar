@@ -69,10 +69,11 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
-        // Folder buttons outside Storage (the Shaders tab folder) need this before
-        // Storage is first measured.
-        std::sync::Arc::make_mut(&mut initial.storage).opens_folders =
-            launcher_host::desktop::opens_folders();
+        // The Shaders tab's folder button and drop prompt need these before Storage is first
+        // measured.
+        let storage = std::sync::Arc::make_mut(&mut initial.storage);
+        storage.opens_folders = launcher_host::desktop::opens_folders();
+        storage.accepts_file_drops = launcher_host::desktop::accepts_file_drops();
         if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
             initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
         }
@@ -103,7 +104,7 @@ impl MenuRuntime {
             hovered: initial.hovered,
             pressed: initial.pressed,
             pointer_down: false,
-            touch_available: cfg!(target_os = "android"),
+            touch_available: launcher::TOUCH_PRIMARY,
             touch_editor_open: false,
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,
@@ -125,6 +126,7 @@ impl MenuRuntime {
             skin_name: field_editor(MenuField::SkinName),
             friend_query: field_editor(MenuField::FriendQuery),
             settings_query: field_editor(MenuField::SettingsQuery),
+            storage_query: field_editor(MenuField::StorageQuery),
             macro_commands: macro_editors(&settings_options),
             message,
             gui_scale_preference: gui_scale
@@ -148,6 +150,7 @@ impl MenuRuntime {
             shader_pack_reload: false,
             shader_pack_removing: None,
             shader_pack_remove_request: None,
+            shader_pack_import: Default::default(),
             vsync_override: None,
             display_name: initial.display_name,
             servers: loaded.servers.into(),
@@ -167,6 +170,9 @@ impl MenuRuntime {
             auth_restart_requested: false,
             account_core: None,
             layout,
+            default_player_skin: player_skin
+                .default_fallback
+                .then(|| player_skin.standard_skin()),
             player_skin,
             dressing_room: initial.dressing_room,
             dressing_room_worker: None,
@@ -205,6 +211,7 @@ impl MenuRuntime {
             settings_input: focus::SettingsInput::default(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
+            storage_reader: None,
             settings_dirty: false,
             settings_writer: None,
             settings_retry_at: None,
@@ -214,12 +221,13 @@ impl MenuRuntime {
             language_choices,
             language_pending,
             language_asset_path,
-            input_mode: input::MenuInputMode::default(),
+            input_mode: input::mode::MenuInputMode::default(),
             local_world_joined: false,
             local_world_active: false,
             feeds: initial.feeds,
             invite: Default::default(),
             realm_membership: Default::default(),
+            realm_leave: Default::default(),
             join_requests: Default::default(),
         }
     }

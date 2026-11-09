@@ -520,6 +520,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
         );
         sender
             .try_send(NetworkControlEvent::Bootstrap {
+                player_rotation: [0.0, 180.0],
                 identity: Default::default(),
                 session_generation: simulation_clock::identity::SessionGeneration::new(generation),
                 world: WorldBootstrap {
@@ -553,6 +554,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 player_game_mode_uses_world_default: false,
                 server_authoritative_block_breaking: true,
                 rewind_history_size: 20,
+                base_game_version: protocol::BaseGameVersion::Any,
                 hardcore: false,
                 hud_rules: protocol::HudRules::default(),
                 death_rules: protocol::DeathRules::default(),
@@ -560,6 +562,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 packs,
                 terrain_before_spawn: true,
                 level_identity: None,
+                level_name: Default::default(),
             })
             .unwrap();
         app.insert_resource(handle);

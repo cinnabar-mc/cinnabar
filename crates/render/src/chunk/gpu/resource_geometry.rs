@@ -6,7 +6,7 @@ use bevy::ecs::system::RunSystemOnce;
 use render_scene::{ChunkRenderInstance, ChunkTextureAssets, ChunkUploadAcknowledgements};
 
 pub(in crate::chunk) struct PreparedResourceGeometry {
-    arena: ChunkGpuArena,
+    pub(in crate::chunk) arena: ChunkGpuArena,
     liquids: TransparentSortRuntime,
     models: TransparentModelSortRuntime,
 }
@@ -38,7 +38,7 @@ impl PreparedResourceGeometry {
         if let Some(instance) = instances.first() {
             tints.identity = instance.tint_identity;
         }
-        app.insert_resource(ChunkGpuArena::new(&device))
+        app.insert_resource(ChunkGpuArena::try_new(&device)?)
             .insert_resource(device)
             .insert_resource(queue)
             .insert_resource(assets)
@@ -162,6 +162,7 @@ impl PreparedResourceGeometry {
                 .iter()
                 .map(|(&entity, allocation)| (entity, &allocation.gpu)),
         );
+        self.arena.transparent_model_changes.record_all();
         let keys: HashMap<_, _> = instances
             .iter()
             .map(|(entity, instance)| (instance.key, entity))

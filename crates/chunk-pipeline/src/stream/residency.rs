@@ -75,6 +75,12 @@ impl WorldStream {
         // A sorted, deduplicated Vec visits keys in the same ascending order a BTreeSet
         // would, without a node allocation per key on a full-view teleport.
         let mut changed = self.resident_keys_in_columns(&columns);
+        // Capture acknowledged absence before detaching sources and pruning applied state.
+        let mut skip_removals = changed
+            .iter()
+            .copied()
+            .filter(|&key| self.has_settled_air_publication(key))
+            .collect::<HashSet<_>>();
         let removing_all = changed.len() == self.resident.len();
         for &column in &columns {
             if let Some(range) = self.authority.dimension_range(column.dimension) {
@@ -82,6 +88,9 @@ impl WorldStream {
                     let key =
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
                     if self.authority.terrain().biome_storage(key).is_some() {
+                        if !self.has_mesh_retirement_work(key) {
+                            skip_removals.insert(key);
+                        }
                         changed.push(key);
                     }
                 }
@@ -135,6 +144,9 @@ impl WorldStream {
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
         }
+        if removing_all {
+            self.reserve_connectivity_for_view();
+        }
         let (light_dirty, mesh_dirty) = if removing_all {
             self.lighting.retire_all();
             Default::default()
@@ -147,7 +159,9 @@ impl WorldStream {
                 self.lighting.remove_key(key);
             }
             // Removals publish whatever detail the column had, so no mesh outlives it.
-            self.mark_dirty_exact_ungated(key, now, false);
+            if !skip_removals.contains(&key) {
+                self.mark_dirty_exact_ungated(key, now, false);
+            }
         }
         for key in light_dirty {
             self.mark_light_dirty_exact_with_priority(key, false);
@@ -158,13 +172,33 @@ impl WorldStream {
         if !retired.is_empty() || retired_indexes.is_some() {
             #[cfg(feature = "tracy")]
             let _zone = tracing::info_span!("stream.retire_drop_dispatch").entered();
-            workers::retire(move || {
+            workers::detach(move || {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("stream.retired_drop").entered();
                 drop((retired, retired_indexes));
             });
         }
         self.spawn_far_summaries(far_retiring);
+    }
+
+    /// Proves current air was acknowledged with no newer or unfinished mesh work.
+    pub(super) fn has_settled_air_publication(&self, key: SubChunkKey) -> bool {
+        self.is_mesh_clean(key)
+            && self.applied_mesh_generations.contains_key(&key)
+            && !self.mesh_jobs.pending.contains_key(&key)
+            && !self.mesh_jobs.in_flight.contains_key(&key)
+            && self.terrain_removal_kind(key) == render_api::TerrainRemovalKind::Empty
+    }
+
+    /// Checks section and publication ownership before eviction prunes it. Dirty revisions
+    /// cover pending jobs and staged, queued or extracted output until acknowledgement;
+    /// an in-flight predecessor can survive a newer acknowledgement.
+    fn has_mesh_retirement_work(&self, key: SubChunkKey) -> bool {
+        self.resident.contains(&key)
+            || self.authority.terrain().contains_sub_chunk(key)
+            || self.revisions.dirty(key).is_some()
+            || self.applied_mesh_generations.contains_key(&key)
+            || self.mesh_jobs.in_flight.contains_key(&key)
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours
@@ -240,6 +274,7 @@ impl WorldStream {
         let chunks = chunks.clamp(0, MAX_VIEW_RADIUS_CHUNKS);
         if self.requested_radius != Some(chunks) {
             self.requested_radius = Some(chunks);
+            self.reserve_connectivity_for_view();
             self.request_chunk_retention();
         }
     }

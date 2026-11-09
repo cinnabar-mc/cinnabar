@@ -49,8 +49,12 @@ mod item_glint;
 #[cfg(test)]
 #[path = "ui_render/page_uniform_tests.rs"]
 mod page_uniform_tests;
+#[path = "ui_render/target.rs"]
+mod target;
 #[path = "ui_render/textures.rs"]
 mod textures;
+#[path = "ui_render/upscale.rs"]
+mod upscale;
 pub(crate) use textures::DeviceObservation;
 use textures::{UiGpuTextures, prepare_ui_bind_group};
 #[path = "ui_render/backdrop.rs"]
@@ -70,10 +74,14 @@ pub(crate) mod harness;
 mod layer;
 #[path = "ui_render/model_depth.rs"]
 mod model_depth;
+#[path = "ui_render/models.rs"]
+mod models;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
 pub(crate) mod pipeline;
+#[path = "ui_render/presentation.rs"]
+pub(crate) mod presentation;
 #[path = "ui_render/profile.rs"]
 pub(crate) mod profile;
 #[path = "ui_render/resources.rs"]
@@ -140,6 +148,7 @@ fn install_ui_render(app: &mut App) {
         ExtractResourcePlugin::<UiGlintSettings>::default(),
         ExtractResourcePlugin::<UiItemGlintTexture>::default(),
     ));
+    upscale::install(app);
     load_internal_asset!(app, UI_SHADER_HANDLE, "ui.wgsl", shader::from_wgsl);
     load_internal_asset!(
         app,
@@ -161,6 +170,13 @@ fn install_ui_render(app: &mut App) {
     );
     app.sub_app_mut(RenderApp)
         .insert_resource(UiRenderInstalled)
+        .init_resource::<presentation::UiFrameContent>()
+        .add_systems(
+            Render,
+            presentation::observe_ui_frame
+                .after(bevy::render::renderer::render_system)
+                .before(crate::device_poll::FrameSubmissions),
+        )
         .init_resource::<pipeline::UiPipeline>()
         .init_resource::<composite::UiCompositePipeline>()
         .init_resource::<backdrop::UiBackdropPipeline>()
@@ -179,14 +195,19 @@ fn install_ui_render(app: &mut App) {
 fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     (
         resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
+        target::prepare_native_ui_targets
+            .in_set(RenderSystems::PrepareResources)
+            .after(bevy::render::view::prepare_view_targets),
         composite::prepare_ui_layers
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(resources::prepare_ui_resources),
+            .after(resources::prepare_ui_resources)
+            .after(target::prepare_native_ui_targets),
         backdrop::prepare_ui_backdrops
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets)
-            .after(resources::prepare_ui_resources),
+            .after(resources::prepare_ui_resources)
+            .after(target::prepare_native_ui_targets),
         prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
         queue_ui_overlay
             .in_set(RenderSystems::PrepareBindGroups)
@@ -206,6 +227,7 @@ pub(crate) struct UiGpu {
     vertex_arena_id: u64,
     index_arena_id: u64,
     viewport_buffer: Buffer,
+    models: models::UiModels,
     viewport_uploads: viewport::ViewportUploads,
     #[cfg(test)]
     geometry_writes: [usize; 2],
@@ -248,6 +270,13 @@ pub(crate) struct UiGpu {
 #[cfg(test)]
 #[path = "ui_render/geometry_tests.rs"]
 mod geometry_tests;
+
+#[cfg(test)]
+#[path = "ui_render/culled_model_tests.rs"]
+mod culled_model_tests;
+#[cfg(test)]
+#[path = "ui_render/masked_model_tests.rs"]
+mod masked_model_tests;
 
 #[cfg(test)]
 #[path = "ui_render/ordered_command_tests.rs"]

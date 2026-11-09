@@ -138,14 +138,15 @@ impl PlayerInventoryLedger {
     }
 
     pub(super) fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
+        let byte = || u8::try_from(slot.slot).ok();
         Some(match slot.container {
             StackRequestContainer::PlayerInventory | StackRequestContainer::CombinedInventory => {
-                Cell::Inventory(slot.slot)
+                Cell::Inventory(byte()?)
             }
             StackRequestContainer::Cursor => Cell::Cursor,
-            StackRequestContainer::Armor => Cell::Armor(slot.slot),
+            StackRequestContainer::Armor => Cell::Armor(byte()?),
             StackRequestContainer::Offhand => Cell::Offhand,
-            StackRequestContainer::CraftingInput => Cell::Craft(slot.slot),
+            StackRequestContainer::CraftingInput => Cell::Craft(byte()?),
             StackRequestContainer::CreatedOutput => Cell::CreatedOutput,
             StackRequestContainer::LevelEntity { .. } => Cell::Storage(slot.slot),
             StackRequestContainer::OpenWindow { name, dynamic_id } => {
@@ -155,7 +156,7 @@ impl PlayerInventoryLedger {
                         slot_type: Some(name),
                         dynamic_id,
                     },
-                    u16::from(slot.slot),
+                    slot.slot,
                 );
             }
         })
@@ -221,7 +222,7 @@ pub(super) fn request_slot(
     window: Option<WindowAddress>,
 ) -> Result<StackRequestSlot, InventoryGestureError> {
     let (container, slot) = match cell {
-        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, slot),
+        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, u16::from(slot)),
         Cell::Cursor => (StackRequestContainer::Cursor, 0),
         Cell::Storage(slot) => {
             let window = window.ok_or(InventoryGestureError::InvalidRequest)?;
@@ -233,16 +234,16 @@ pub(super) fn request_slot(
             )
             .ok_or(InventoryGestureError::InvalidRequest)?
         }
-        Cell::Armor(slot) => (StackRequestContainer::Armor, slot),
+        Cell::Armor(slot) => (StackRequestContainer::Armor, u16::from(slot)),
         Cell::Offhand => (StackRequestContainer::Offhand, 1),
         Cell::Craft(slot) => (
             protocol::ui_slot_request_container(slot)
                 .ok_or(InventoryGestureError::InvalidRequest)?,
-            slot,
+            u16::from(slot),
         ),
         Cell::CreatedOutput => (
             StackRequestContainer::CreatedOutput,
-            protocol::CREATED_OUTPUT_SLOT,
+            u16::from(protocol::CREATED_OUTPUT_SLOT),
         ),
     };
     Ok(StackRequestSlot {

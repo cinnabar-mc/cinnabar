@@ -204,7 +204,7 @@ fn remote_armour_and_attachable_keep_artwork_bound_and_shell_outside_skin() {
             * usize::from(page.width)
             * usize::from(page.height)
             * 4;
-        &page.rgba8[offset..offset + 4]
+        page.rgba8.range(offset, 4).into_owned()
     };
     let equipment: Vec<_> = remote
         .iter()

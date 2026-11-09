@@ -4,7 +4,11 @@ use json_ui::ScreenSettings;
 
 use ui_screens::menu_screens;
 use {
-    crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime},
+    crate::ui_runtime::{
+        UiRuntime,
+        presentation::UiPresentationRuntime,
+        scene_stack::{Scene, SceneHost},
+    },
     launcher::menu::MenuView,
 };
 
@@ -61,12 +65,6 @@ impl UiPresentationRuntime {
         {
             return false;
         }
-        let engine = self.engine.as_deref();
-        let settings = |reference: &str| {
-            engine.map_or_else(ScreenSettings::default, |engine| {
-                engine.scene_settings(reference, engine.context())
-            })
-        };
         if let Some(menu) = menu
             && menu.is_visible()
             && (!self.menu_settings(runtime, &menu.view()).render_game_behind
@@ -74,28 +72,19 @@ impl UiPresentationRuntime {
         {
             return false;
         }
-        if runtime.chat_focused()
-            && !settings(ui_screens::chat_screen::CHAT_SCREEN).render_game_behind
-        {
-            return false;
-        }
-        if runtime.emotes().is_open()
-            && !settings(ui_screens::emote_screen::EMOTE_SCREEN).render_game_behind
-        {
-            return false;
-        }
-        if runtime.inventory_open()
-            && let Some(layout) = super::containers::screen_layout(player_runtime, runtime, None)
-            && !settings(layout.screen().0).render_game_behind
-        {
-            return false;
-        }
-        if runtime.server_forms().owns_input()
-            && !settings("server_form.third_party_server_screen").render_game_behind
-        {
-            return false;
-        }
-        true
+        // Every other screen follows its resolved pack policy through the same scene
+        // construction that composes the frame; menus resolve their overlays above.
+        let mut covered = false;
+        runtime.visit_scenes_in(
+            player_runtime,
+            SceneHost::of(menu, runtime),
+            &self.screen_settings,
+            |scene, settings| {
+                covered |= !matches!(scene, Scene::Menu(_) | Scene::Loading)
+                    && !settings.render_game_behind;
+            },
+        );
+        !covered
     }
 
     /// Resolves the menu and any popup above it; a popup cannot uncover an opaque parent.

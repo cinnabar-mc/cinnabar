@@ -74,10 +74,14 @@ pub(super) fn emit_mesh(
             let mapped = u32::try_from(vertices.len()).map_err(|_| UiError::DrawIndexOverflow)?;
             remap[index as usize].index = mapped;
             indices.push(mapped);
-            let position = [
-                bounds.min().x() * vertex.clip_w + vertex.position[0] * bounds.width(),
-                bounds.min().y() * vertex.clip_w + vertex.position[1] * bounds.height(),
-            ];
+            let position = if mesh.is_skinned() {
+                vertex.position
+            } else {
+                [
+                    bounds.min().x() * vertex.clip_w + vertex.position[0] * bounds.width(),
+                    bounds.min().y() * vertex.clip_w + vertex.position[1] * bounds.height(),
+                ]
+            };
             if !position.iter().all(|value| value.is_finite()) {
                 return Err(UiError::DrawIndexOverflow);
             }
@@ -87,8 +91,17 @@ pub(super) fn emit_mesh(
                 clip_w: vertex.clip_w,
                 uv: vertex.uv,
                 color: vertex.color,
-                style_flags: vertex.style_flags,
-                alpha_test: vertex.alpha_test,
+                style_flags: u32::from(vertex.style_flags)
+                    | if mesh.is_skinned() {
+                        render_api::UI_STYLE_MODEL_VERTEX
+                    } else {
+                        0
+                    }
+                    | if vertex.alpha_test {
+                        render_api::UI_STYLE_ALPHA_TEST
+                    } else {
+                        0
+                    },
                 alpha_cutoff: material.alpha_cutoff.unwrap_or(-1.0),
                 model_light: vertex.model_light,
                 overlay_color: vertex.overlay_color,
@@ -139,6 +152,7 @@ mod tests {
         let vertex_count = 100_000;
         let material_count = 128;
         let source = UiMeshVertex {
+            alpha_test: false,
             position: [0.25, 0.5],
             clip_z: 0.0,
             clip_w: 1.0,
@@ -147,7 +161,6 @@ mod tests {
             model_light: 1.0,
             overlay_color: [0.0; 4],
             style_flags: 0,
-            alpha_test: false,
         };
         let mesh = Arc::new(
             UiMesh::new(

@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_item_quads, cube_face,
-    face_brightness, material_tile,
+    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, GuiShading, block_gui_quads,
+    cube_face, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TextureArray, TexturePage, VisualKind,
+    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, TexturePage, VisualKind,
 };
 
 use super::cube::Reject;
@@ -23,6 +23,14 @@ struct Face<'a> {
     size: [usize; 2],
     blend: bool,
     face_dimming: bool,
+}
+
+/// A source-textured quad with independently controlled face dimming.
+pub(super) struct TexturedQuad<'a> {
+    pub corners: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
+    pub texture: &'a IconSprite,
+    pub face_dimming: bool,
 }
 
 /// Carrier texels remain borrowed; processed texels share one immutable allocation.
@@ -48,6 +56,8 @@ struct Tile<'a> {
     side: usize,
     blend: bool,
     uv_scale: f32,
+    /// The material turns this tile's UVs by 180 degrees.
+    rotated: bool,
 }
 
 /// Where a visual's material tiles live.
@@ -55,14 +65,8 @@ struct Tile<'a> {
 enum Textures<'a> {
     /// World carrier pages, indexed by each material's page.
     World(&'a [TexturePage]),
-    /// A session overlay's shards, addressed from page one.
-    Overlay(&'a [TextureArray], &'a [u8], Option<&'a RuntimeAssets>),
-}
-
-/// Selects the overlay shard a material's reference page addresses.
-fn overlayshard(shards: &[TextureArray], page: u32) -> Option<&TextureArray> {
-    let shard = page.checked_sub(1)? as usize;
-    shards.get(shard)
+    /// A session overlay's shards, addressed after its reserved base pages.
+    Overlay(&'a BlockOverlay, Option<&'a RuntimeAssets>),
 }
 
 #[derive(Clone, Copy)]
@@ -79,24 +83,28 @@ pub(super) struct Model<'a> {
     projection: fn([f32; 3]) -> [f32; 3],
     light: f32,
     face_lighting: bool,
+    shading: GuiShading,
 }
 
 impl<'a> Model<'a> {
     /// Builds a model from source rectangles and its own inventory projection.
     pub(super) fn textured(
-        quads: impl IntoIterator<Item = ([[f32; 3]; 4], [[f32; 2]; 4], &'a IconSprite)>,
+        quads: impl IntoIterator<Item = TexturedQuad<'a>>,
         projection: fn([f32; 3]) -> [f32; 3],
         light: f32,
     ) -> Self {
         let faces = quads
             .into_iter()
-            .map(|(corners, uvs, sprite)| Face {
-                corners,
-                uvs,
-                tile: Pixels::Borrowed(&sprite.rgba8),
-                size: [usize::from(sprite.width), usize::from(sprite.height)],
+            .map(|quad| Face {
+                corners: quad.corners,
+                uvs: quad.uvs,
+                tile: Pixels::Borrowed(&quad.texture.rgba8),
+                size: [
+                    usize::from(quad.texture.width),
+                    usize::from(quad.texture.height),
+                ],
                 blend: false,
-                face_dimming: true,
+                face_dimming: quad.face_dimming,
             })
             .collect();
         Self {
@@ -104,6 +112,7 @@ impl<'a> Model<'a> {
             projection,
             light,
             face_lighting: true,
+            shading: GuiShading::Inventory,
         }
     }
 
@@ -144,7 +153,7 @@ impl<'a> Model<'a> {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids, base),
+            textures: Textures::Overlay(overlay, base),
             tint,
         };
         let template = (block.model_template != NO_MODEL_TEMPLATE).then_some(block.model_template);
@@ -161,7 +170,7 @@ impl<'a> Model<'a> {
             materials: &overlay.materials,
             templates: &overlay.model_templates,
             quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay.textures, &overlay.texture_source_grids, base),
+            textures: Textures::Overlay(overlay, base),
             tint: None,
         };
         Self::build(parts, VisualKind::Cube, faces, None)
@@ -183,9 +192,10 @@ impl<'a> Model<'a> {
                 }
             }
         }
-        let faces = block_item_quads(kind, materials, template, parts.templates, parts.quads)
+        let faces = block_gui_quads(kind, materials, template, parts.templates, parts.quads)
             .map_err(reject)?
             .into_iter()
+            .filter(|quad| quad.visible_in_gui())
             .map(|quad| {
                 let tile = match tiles.entry(quad.material) {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -195,9 +205,16 @@ impl<'a> Model<'a> {
                 };
                 Ok(Face {
                     corners: quad.corners,
-                    uvs: quad
-                        .uvs
-                        .map(|uv| uv.map(|component| component * tile.uv_scale)),
+                    uvs: quad.uvs.map(|uv| {
+                        uv.map(|component| {
+                            let turned = if tile.rotated {
+                                1.0 - component
+                            } else {
+                                component
+                            };
+                            turned * tile.uv_scale
+                        })
+                    }),
                     tile: tile.pixels.clone(),
                     size: [tile.side; 2],
                     blend: tile.blend,
@@ -212,6 +229,7 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            shading: GuiShading::of(kind, template, parts.templates),
         })
     }
 
@@ -242,6 +260,7 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            shading: GuiShading::Inventory,
         }
     }
 
@@ -251,7 +270,7 @@ impl<'a> Model<'a> {
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
         for face in &self.faces {
             let brightness = if self.face_lighting && face.face_dimming {
-                face_brightness(face.corners)
+                self.shading.brightness(face.corners)
             } else {
                 1.0
             } * self.light;
@@ -301,18 +320,16 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     if tint.is_some() {
         sampled.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
     }
+    let rotated =
+        material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+    if rotated {
+        sampled.flags &= !assets::MATERIAL_FLAG_UV_MASK;
+    }
     let (tile, side, blend) =
         material_tile(&[Material::unvaried(), sampled], 1, |page| {
             match parts.textures {
                 Textures::World(pages) => pages.get(page as usize).map(|page| &page.texture),
-                Textures::Overlay(shards, _, base) => {
-                    if page == 0 {
-                        base.and_then(|base| base.texture_pages().first())
-                            .map(|page| &page.texture)
-                    } else {
-                        overlayshard(shards, page)
-                    }
-                }
+                Textures::Overlay(overlay, base) => overlay.texture_page(page, base),
             }
         })
         .map_err(reject)?;
@@ -326,17 +343,11 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     };
     let grid = match parts.textures {
         Textures::World(_) => 0,
-        Textures::Overlay(_, _, _) if material.texture.page() == 0 => 0,
-        Textures::Overlay(shards, grids, _) => {
-            // Source grids are flat across the concatenated shards.
-            let shard = material.texture.page().saturating_sub(1) as usize;
-            let flat = shards[..shard.min(shards.len())]
-                .iter()
-                .map(|shard| shard.layers as usize)
-                .sum::<usize>()
-                .saturating_add(material.texture.layer() as usize);
-            grids.get(flat).copied().unwrap_or(0)
-        }
+        Textures::Overlay(overlay, _) => overlay
+            .flat_texture_layer(material.texture)
+            .and_then(|flat| overlay.texture_source_grids.get(flat))
+            .copied()
+            .unwrap_or(0),
     };
     if side
         .checked_shr(u32::from(grid))
@@ -349,6 +360,7 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
         side,
         blend,
         uv_scale: 1.0 / (1u32 << grid) as f32,
+        rotated,
     })
 }
 
@@ -521,9 +533,135 @@ mod review_tests {
     }
 
     #[test]
+    fn model_thumbnail_hides_rear_faces_but_preserves_two_sided_planes() {
+        let texture = assets::TextureArray {
+            layers: 1,
+            mips: vec![assets::TextureMip {
+                size: 1,
+                rgba8: vec![255, 0, 0, 255].into(),
+            }]
+            .into(),
+        };
+        let overlay = BlockOverlay {
+            textures: vec![texture],
+            ..Default::default()
+        };
+        let materials = [
+            Material::unvaried(),
+            Material {
+                texture: assets::TextureRef::new(1, 0).unwrap(),
+                flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                ..Material::unvaried()
+            },
+        ];
+        for two_sided in [false, true] {
+            let (corners, uvs) = cube_face(BlockFace::Down);
+            let quads = [ModelQuad {
+                positions: corners.map(|p| p.map(|v| (v * 256.0) as i16)),
+                uvs: uvs.map(|p| p.map(|v| (v * 4096.0) as u16)),
+                material: 1,
+                flags: if two_sided {
+                    assets::MODEL_QUAD_FLAG_TWO_SIDED
+                } else {
+                    0
+                },
+            }];
+            let templates = [ModelTemplate {
+                quad_start: 0,
+                quad_count: 1,
+                flags: 0,
+            }];
+            let icon = Model::build(
+                Parts {
+                    materials: &materials,
+                    templates: &templates,
+                    quads: &quads,
+                    textures: Textures::Overlay(&overlay, None),
+                    tint: None,
+                },
+                VisualKind::Model,
+                [1; 6],
+                Some(0),
+            )
+            .unwrap()
+            .raster();
+            let visible = icon
+                .rgba8
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] != 0);
+            assert_eq!(visible, two_sided, "one-sided rear faces stay transparent");
+        }
+    }
+
+    /// Full cubes declared through the versioned geometry turn their bottom face's UVs.
+    #[test]
+    fn a_rotated_cube_face_keeps_the_cube_drawable_with_turned_uvs() {
+        let plain = assets::TextureRef::new(1, 0).unwrap();
+        let material = |flags| Material {
+            texture: plain,
+            flags,
+            ..Material::unvaried()
+        };
+        let overlay = BlockOverlay {
+            visuals: vec![assets::BlockVisual {
+                faces: [1, 1, 2, 1, 1, 1],
+                kind: VisualKind::Cube,
+                flags: assets::BlockFlags::CUBE_GEOMETRY,
+                ..assets::BlockVisual::diagnostic(
+                    assets::BlockFlags::empty(),
+                    assets::ContributorRole::Primary,
+                )
+            }],
+            materials: vec![
+                Material::unvaried(),
+                material(0),
+                material(assets::MATERIAL_FLAG_UV_ROTATE_180),
+            ],
+            textures: vec![assets::TextureArray {
+                layers: 1,
+                mips: vec![assets::TextureMip {
+                    size: 16,
+                    rgba8: [90, 90, 90, 255].repeat(16 * 16).into(),
+                }]
+                .into(),
+            }],
+            ..Default::default()
+        };
+        assert!(
+            Model::overlay(&overlay, 0, None, None).is_ok(),
+            "a hidden rotated face must not cost the cube its icon"
+        );
+        let parts = Parts {
+            materials: &overlay.materials,
+            templates: &overlay.model_templates,
+            quads: &overlay.model_quads,
+            textures: Textures::Overlay(&overlay, None),
+            tint: None,
+        };
+        let uvs = |faces| {
+            Model::build(parts, VisualKind::Cube, faces, None)
+                .ok()
+                .unwrap()
+                .faces
+                .iter()
+                .map(|face| face.uvs)
+                .collect::<Vec<_>>()
+        };
+        let (upright, turned) = (uvs([1; 6]), uvs([2; 6]));
+        assert!(!upright.is_empty());
+        for (upright, turned) in upright.iter().zip(&turned) {
+            for (upright, turned) in upright.iter().zip(turned) {
+                assert_eq!(*turned, upright.map(|component| 1.0 - component));
+            }
+        }
+    }
+
+    #[test]
     fn repeated_tinted_faces_share_one_material_tile() {
         let side = assets::gui_item::MAX_GUI_TILE_SIDE;
-        let texture = TextureArray {
+        let texture = assets::TextureArray {
             layers: 1,
             mips: vec![assets::TextureMip {
                 size: side as u32,
@@ -552,6 +690,10 @@ mod review_tests {
             flags: 0,
         }];
         let resolved = std::cell::Cell::new(0);
+        let overlay = BlockOverlay {
+            textures: vec![texture],
+            ..Default::default()
+        };
         let tint = |_| {
             resolved.set(resolved.get() + 1);
             Some([80, 180, 120])
@@ -561,7 +703,7 @@ mod review_tests {
                 materials: &materials,
                 templates: &templates,
                 quads: &quads,
-                textures: Textures::Overlay(std::slice::from_ref(&texture), &[], None),
+                textures: Textures::Overlay(&overlay, None),
                 tint: Some(&tint),
             },
             VisualKind::Model,

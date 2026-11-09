@@ -10,7 +10,9 @@ use client_audio::audio_ingress::SequencedAudioEvent;
 use render_scene::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
 use std::collections::HashSet;
 use {
-    super::predicted::{drive_actor_audio, drive_block_cues, drive_consume_audio},
+    super::predicted::{
+        drive_actor_audio, drive_attack_cues, drive_block_cues, drive_consume_audio,
+    },
     client_audio::audio::AudioEngine,
 };
 use {
@@ -34,9 +36,15 @@ pub(crate) fn configure(app: &mut App) {
         drive_block_cues
             .after(crate::melee::produce_attacks)
             .after(crate::block_use::produce_block_use),
+        // Attacks dispatched before or after movement sound in the frame they are sent.
+        drive_attack_cues
+            .after(crate::melee::produce_attacks)
+            .after(crate::item_use::produce_item_use),
         drive_consume_audio,
         drive_actor_audio,
-        pump_audio.after(client_state::ClientFrameSet::Camera),
+        pump_audio
+            .after(client_state::ClientFrameSet::Camera)
+            .after(client_state::ModCameraInputSet),
     )
         .chain()
         .after(crate::named_audio::drain_live_named_audio);
@@ -202,18 +210,34 @@ pub(crate) fn pump_audio(
     engine: ResMut<AudioEngine>,
     device: Option<bevy::prelude::NonSendMut<client_audio::named_audio::AudioDevice>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    #[cfg(not(target_arch = "wasm32"))] mut mods: Option<ResMut<crate::modding::ModRuntime>>,
 ) {
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::Audio));
     let listener = client_audio::audio::listener::camera_listener(
         view.eye_translation(),
-        view.camera_rotation(),
+        view.player_camera_rotation(),
         camera.single().ok(),
         server_camera
             .as_deref()
             .and_then(|camera| camera.active_listener()),
     );
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(hosts) = mods
+        .as_deref_mut()
+        .and_then(crate::modding::ModRuntime::sound_handlers)
+    {
+        client_audio::audio::systems::pump_audio_filtered(
+            time,
+            listener,
+            settings,
+            engine,
+            device,
+            |events| Some(super::filter::apply(hosts, events)),
+        );
+        return;
+    }
     client_audio::audio::systems::pump_audio(time, listener, settings, engine, device);
 }
 

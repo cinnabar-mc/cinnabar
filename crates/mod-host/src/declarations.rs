@@ -3,12 +3,13 @@
 use crate::{ModGrants, SourceKind, packet_mod::native_capabilities, read_source};
 use anyhow::{Result, anyhow, ensure};
 use std::{io::Cursor, path::Path, sync::Arc};
-use ui::mod_metadata::{GitHubModAsset, GitHubRepository, MAX_VERSION_BYTES, ModMetadata};
+use ui::mod_metadata::{MAX_VERSION_BYTES, ModMetadata};
 use wasmparser::{ComponentName, KnownCustom, Name, Parser, Payload};
 
 /// The optional top-level component custom section containing a JSON grant request.
 pub const REQUESTED_GRANTS_SECTION: &str = "cinnabar:grants";
-const MAX_REQUESTED_GRANTS_BYTES: usize = 16 * 1024;
+/// Largest JSON permission request accepted by the component loader and pack tool.
+pub const MAX_REQUESTED_GRANTS_BYTES: usize = 16 * 1024;
 /// Byte bounds of the standard metadata fields; a longer field is ignored, not truncated.
 const MAX_NAME_BYTES: usize = 64;
 const MAX_DESCRIPTION_BYTES: usize = 512;
@@ -47,8 +48,7 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let mut icons = Vec::new();
     let packet = SourceKind::of(bytes) == SourceKind::Packet;
     let mut native = native_capabilities::Metadata::default();
-    let mut update_repositories = Vec::new();
-    let mut update_urls = Vec::new();
+    let mut revision_updates = Vec::new();
     for payload in Parser::new(0).parse_all(bytes) {
         let payload = payload?;
         if packet && depth == 0 {
@@ -97,23 +97,15 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
             ("licenses", _) => metadata.licenses = text(data, MAX_LICENSES_BYTES),
             (REQUESTED_GRANTS_SECTION, _) => grants.push(data),
             (mod_api::ICON_SECTION, _) => icons.push(data),
-            (mod_api::UPDATE_REPOSITORY_SECTION, _) => update_repositories.push(data),
-            (mod_api::UPDATE_URL_SECTION, _) => update_urls.push(data),
+            (mod_api::REVISION_UPDATE_SECTION, _) => revision_updates.push(data),
             _ => {}
         }
     }
     if let [icon] = icons.as_slice() {
         metadata.icon = valid_icon(icon).then(|| Arc::from(*icon));
     }
-    if let [repository] = update_repositories.as_slice() {
-        metadata.update_repository = std::str::from_utf8(repository)
-            .ok()
-            .and_then(GitHubRepository::parse);
-    }
-    if let [url] = update_urls.as_slice() {
-        metadata.update_url = std::str::from_utf8(url)
-            .ok()
-            .and_then(GitHubModAsset::parse);
+    if let [data] = revision_updates.as_slice() {
+        metadata.revision_update = ui::mod_metadata::RevisionModUpdate::parse(data);
     }
     let requested = match grants.as_slice() {
         [] if packet => Ok(Some(ModGrants {

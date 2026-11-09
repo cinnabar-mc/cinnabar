@@ -201,6 +201,8 @@ impl ChunkGpuArena {
         }
         self.allocations.clear();
         self.transparent_liquids = default();
+        self.transparent_model_changes = TransparentModelResidentChanges::all_changed();
+        self.idle_completion = None;
         self.retired_allocations.clear();
         self.retirement_budget.items = 0;
         self.retirement_budget.bytes = 0;
@@ -209,10 +211,10 @@ impl ChunkGpuArena {
         self.geometry_stream_len = 0;
         self.origin_len = 0;
         self.biome_len = FALLBACK_BIOME_WORDS;
-        self.free_quads.clear();
-        self.free_geometry_stream_words.clear();
+        self.free_quads = default();
+        self.free_geometry_stream_words = default();
         self.free_origins.clear();
-        self.free_biomes.clear();
+        self.free_biomes = default();
         self.shared_biome_ranges = default();
         self.uploaded_indirect_bytes.clear();
         self.bind_group = None;

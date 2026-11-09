@@ -13,8 +13,8 @@ reads = [
 ]
 
 [dependencies]
-block-transform = { path = "../block-transform" }
 assets = { path = "../assets" }
+block-transform = { path = "../block-transform" }
 bytemuck = { version = "1", features = ["derive"] }
 world = { path = "../world" }
 

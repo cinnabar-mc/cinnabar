@@ -267,6 +267,7 @@ fn recovery_table(hardware: bool) {
         ("terrain cull records upload", true, false),
         ("terrain cull enabled upload", true, false),
         ("terrain cull uniform upload", true, false),
+        ("terrain cull order upload", true, false),
         ("terrain occlusion storage", true, true),
         ("terrain occlusion uniform upload", true, true),
         ("far terrain quads", false, false),

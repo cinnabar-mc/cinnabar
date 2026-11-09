@@ -1,9 +1,11 @@
 //! Bounded pack inputs, source validation and shared texture decoding.
 
+pub mod barrel;
 pub mod geometry_key;
 pub mod image;
 pub mod json;
 pub mod lightning_rod;
+pub mod mapped_face;
 pub mod pack;
 pub mod respawn_anchor;
 pub mod source;

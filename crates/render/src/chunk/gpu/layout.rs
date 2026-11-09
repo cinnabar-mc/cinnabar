@@ -332,9 +332,9 @@ pub(in crate::chunk) fn first_arena_growth(
     Ok(first)
 }
 
-/// Starts growing `stream` into a new buffer of `growth.new_capacity` items. Returns false,
-/// leaving the arena as it was, when the device is out of memory for the new buffer; uploads
-/// that need the room then wait for a later frame.
+/// Starts growing `stream` into a new buffer of `growth.new_capacity` items, retrying with
+/// host-visible storage if supported. Returns false if neither allocation succeeds,
+/// leaving the active storage unchanged so uploads can wait for a later frame.
 #[must_use]
 pub(in crate::chunk) fn begin_arena_migration(
     arena: &mut ChunkGpuArena,
@@ -354,26 +354,42 @@ pub(in crate::chunk) fn begin_arena_migration(
         bytes = growth.new_capacity as u64 * stream.item_bytes(),
     )
     .entered();
-    let Some(buffer) = super::arena::buffers::try_create_storage_buffer(
-        render_device,
-        stream.label(),
-        growth.new_capacity as u64 * stream.item_bytes(),
-        requirement,
-    ) else {
+    let bytes = growth.new_capacity as u64 * stream.item_bytes();
+    let allocated = requirement.attempt(render_device, || {
+        let buffer = super::allocation::terrain_buffer(
+            render_device,
+            super::arena::storage_buffer_descriptor(stream.label(), bytes),
+            &mut arena.memory,
+        )?;
+        let offsets = if stream == ArenaStream::Origins {
+            Some(super::allocation::try_identity_vertex_offsets(
+                render_device,
+                growth.new_capacity,
+                &mut arena.memory,
+            )?)
+        } else {
+            None
+        };
+        Some((buffer, offsets))
+    });
+    let Some(((buffer, host_visible), offsets)) = allocated else {
         arena.growth_blocked |= requirement == Requirement::Optional;
         return false;
     };
-    if stream == ArenaStream::Origins {
+    if let Some((offsets, host_visible)) = offsets {
+        if host_visible {
+            arena.memory.record_host_visible_allocation(
+                super::allocation::IDENTITY_VERTEX_OFFSETS_LABEL,
+                offsets.size(),
+            );
+        }
         // Slots up to the new capacity may be drawn before the copy lands.
-        let Some(offsets) = super::arena::buffers::identity_vertex_offsets(
-            render_device,
-            growth.new_capacity,
-            requirement,
-        ) else {
-            arena.growth_blocked |= requirement == Requirement::Optional;
-            return false;
-        };
         arena.vertex_offset_buffer = offsets;
+    }
+    if host_visible {
+        arena
+            .memory
+            .record_host_visible_allocation(stream.label(), bytes);
     }
     arena.migration = Some(ArenaMigration {
         stream,

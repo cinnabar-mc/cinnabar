@@ -3,7 +3,7 @@ module github.com/hashimthearab/rust-mcbe/tools/registrygen
 go 1.26.1
 
 require (
-	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261028003444-2aaf70061542
 	github.com/df-mc/dragonfly v0.11.5
 	github.com/sandertv/gophertunnel v1.62.0
 	github.com/segmentio/fasthash v1.0.3
@@ -19,7 +19,15 @@ require (
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/onsi/ginkgo v1.16.5 // indirect
 	github.com/onsi/gomega v1.17.0 // indirect
-	golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329 // indirect
-	golang.org/x/net v0.50.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
+	golang.org/x/net v0.56.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 )
+
+replace github.com/df-mc/dragonfly => github.com/cinnabar-mc/dragonfly v0.0.0-20261028135505-5e4c2e16fb50
+
+replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261109084346-4a55fcfa068d
+
+replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261108113906-d4f2a990a702
+
+replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f

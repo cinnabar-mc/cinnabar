@@ -30,7 +30,7 @@ fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAsset
     compile_pack_with_lights(root, records, &lights)
 }
 use bevy::{
-    camera::primitives::Aabb,
+    camera::visibility::NoCpuCulling,
     prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
 use image::{ExtendedColorType, codecs::png::PngEncoder};
@@ -55,35 +55,6 @@ use {
     },
 };
 
-const CHUNK_RENDERER_SOURCE: &str = concat!(
-    include_str!("../../src/chunk/transparent/sort.rs"),
-    include_str!("../../src/chunk/transparent/sort/state.rs"),
-    include_str!("../../src/chunk/transparent/retirement.rs"),
-    include_str!("../../src/chunk/transparent/model.rs"),
-    include_str!("../../../render-scene/src/chunk/biome_tints.rs"),
-    include_str!("../../../render-scene/src/chunk/textures.rs"),
-    include_str!("../../../render-scene/src/chunk/api.rs"),
-    include_str!("../../../render-scene/src/chunk/instance.rs"),
-    include_str!("../../src/chunk/presentation/frame_probe.rs"),
-    include_str!("../../../render-scene/src/chunk/queue.rs"),
-    include_str!("../../src/chunk/queue.rs"),
-    include_str!("../../src/chunk/plugin.rs"),
-    include_str!("../../src/chunk/extract.rs"),
-    include_str!("../../src/chunk/pipeline/layouts.rs"),
-    include_str!("../../src/chunk/pipeline/opaque.rs"),
-    include_str!("../../src/chunk/pipeline/model.rs"),
-    include_str!("../../src/chunk/pipeline/liquid.rs"),
-    include_str!("../../src/chunk/gpu/types.rs"),
-    include_str!("../../src/chunk/gpu/bind_groups.rs"),
-    include_str!("../../src/chunk/gpu/arena.rs"),
-    include_str!("../../src/chunk/gpu/upload.rs"),
-    include_str!("../../src/chunk/gpu/upload/arena_writes.rs"),
-    include_str!("../../src/chunk/transparent/sort/prepare.rs"),
-    include_str!("../../src/chunk/gpu/layout.rs"),
-    include_str!("../../src/chunk/pipeline/commands.rs"),
-    include_str!("../../src/chunk/draw.rs"),
-    include_str!("../../src/chunk/transparent/liquid.rs"),
-);
 use world::{DecodedBiomeColumn, RawBiomeIds, RawBlockIds, SubChunk, SubChunkKey};
 
 use crate::material_shader;

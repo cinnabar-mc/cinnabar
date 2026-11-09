@@ -3,11 +3,13 @@
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
 
-use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
-use bedrock_protocol_1_26_51::types::{ActorUniqueID, BlockPos};
+use bedrock_protocol_1_26_60::packets::{
+    BlockEvent, ClientboundMapItemData, ContainerOpen, OpenSign,
+};
+use bedrock_protocol_1_26_60::types::{ActorUniqueID, BlockPos};
 
 use super::*;
-use crate::{BlockEventEvent, MapDataEvent, OpenSignEvent, WorldEvent};
+use crate::{BlockEventEvent, MapDataEvent, OpenCommandBlockEvent, OpenSignEvent, WorldEvent};
 
 #[test]
 fn block_event_packets_normalize_with_the_current_dimension() {
@@ -69,6 +71,7 @@ fn map_pixel_updates_normalize_and_out_of_range_rectangles_are_skipped() {
         decode_map(map_packet(2, 4, vec![1, 2, 3, 4])),
         Some(WorldEvent::MapData(MapDataEvent {
             map_id: 77,
+            initialized_ids: Default::default(),
             start_x: 4,
             start_y: 3,
             width: 2,
@@ -101,4 +104,89 @@ fn open_sign_packets_normalize_with_position_side_and_dimension() {
             front: false,
         })
     );
+}
+
+#[test]
+fn map_wire_colors_normalize_without_losing_channels_or_alpha() {
+    let wire_pixels = [0xff00_00ff, 0x4433_2211, 0x0056_3412, 0x80ff_0000];
+    let Some(WorldEvent::MapData(event)) = decode_map(map_packet(2, 0, wire_pixels.to_vec()))
+    else {
+        panic!("valid map pixels must reach the world");
+    };
+    let rgba: Vec<_> = event
+        .pixels
+        .iter()
+        .map(|pixel| pixel.to_le_bytes())
+        .collect();
+    assert_eq!(
+        rgba,
+        [
+            [0xff, 0x00, 0x00, 0xff],
+            [0x11, 0x22, 0x33, 0x44],
+            [0x12, 0x34, 0x56, 0x00],
+            [0x00, 0x00, 0xff, 0x80]
+        ],
+        "wire map colors must become canonical RGBA"
+    );
+}
+
+#[test]
+fn creation_without_pixels_announces_an_unpainted_saved_map() {
+    assert_eq!(
+        decode_map(ClientboundMapItemData {
+            map_id: ActorUniqueID(77),
+            creation_map_ids: Some(vec![ActorUniqueID(77)]),
+            scale: Some(wire::I8(4)),
+            ..Default::default()
+        }),
+        Some(WorldEvent::MapData(MapDataEvent {
+            map_id: 77,
+            initialized_ids: vec![77].into(),
+            start_x: 0,
+            start_y: 0,
+            width: 0,
+            height: 0,
+            pixels: Default::default(),
+        }))
+    );
+    assert_eq!(decode_map(ClientboundMapItemData::default()), None);
+}
+
+/// A `ContainerOpen` for `container_type` over `target_actor`.
+fn decode_container_open(container_type: u8, target_actor: i64) -> WorldEvent {
+    let packet: Packet = crate::Packet::new(ContainerOpen {
+        container_id: bedrock_protocol_1_26_60::wire::U8(2),
+        container_type: bedrock_protocol_1_26_60::wire::U8(container_type),
+        position: block_pos(2, -60, 0),
+        target_actor_id: ActorUniqueID(target_actor),
+    });
+    let mut batch = crate::encode(&packet).expect("encode container open");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw container open");
+    decode_world_raw_with(raw, 1, super::decode_test_raw)
+        .expect("decode container open")
+        .expect("world event")
+}
+
+#[test]
+fn a_command_block_window_over_a_block_opens_the_command_block_editor() {
+    assert_eq!(
+        decode_container_open(16, -1),
+        WorldEvent::OpenCommandBlock(OpenCommandBlockEvent {
+            dimension: 1,
+            position: [2, -60, 0],
+        })
+    );
+}
+
+#[test]
+fn other_windows_and_a_minecart_command_block_stay_inventory_events() {
+    assert!(matches!(
+        decode_container_open(16, 7),
+        WorldEvent::Inventory(_)
+    ));
+    assert!(matches!(
+        decode_container_open(0, -1),
+        WorldEvent::Inventory(_)
+    ));
 }

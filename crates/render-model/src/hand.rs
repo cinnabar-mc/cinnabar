@@ -1,10 +1,13 @@
 //! CPU inputs shared by first-person presentation and the hand pass.
 use glam::{Mat4, Vec3};
-use std::{mem::size_of, sync::Arc};
+use std::mem::size_of;
 /// Instance texture-selector bits shared with the hand shader.
 pub const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
 pub const HAND_OFFHAND_LAYER_FLAG: u32 = 0x4000_0000;
+
+/// Selects the shared map paper texture, independently of either hand image.
+pub const HAND_MAP_BACKGROUND_FLAG: u32 = 0x0800_0000;
 
 pub const HAND_BLEND_LAYER_FLAG: u32 = 0x2000_0000;
 
@@ -13,7 +16,8 @@ pub const HAND_CUTOUT_LAYER_FLAG: u32 = 0x1000_0000;
 pub const HAND_TEXTURE_LAYER_MASK: u32 = !(HAND_ITEM_LAYER_FLAG
     | HAND_OFFHAND_LAYER_FLAG
     | HAND_BLEND_LAYER_FLAG
-    | HAND_CUTOUT_LAYER_FLAG);
+    | HAND_CUTOUT_LAYER_FLAG
+    | HAND_MAP_BACKGROUND_FLAG);
 
 /// Alpha treatment selected from a held block's admitted face materials.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -73,5 +77,5 @@ pub struct HandItemAtlas {
     pub width: u16,
     pub height: u16,
     pub layers: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: crate::PagePixels,
 }

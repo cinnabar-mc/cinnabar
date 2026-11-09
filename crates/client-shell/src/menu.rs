@@ -24,6 +24,7 @@ pub mod inbox;
 mod input;
 mod invite;
 mod join_requests;
+mod realm_leave;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
@@ -122,6 +123,7 @@ pub struct MenuRuntime {
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
     settings_query: ui::ChatEditor,
+    storage_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -148,6 +150,7 @@ pub struct MenuRuntime {
     shader_pack_reload: bool,
     shader_pack_removing: Option<std::sync::Arc<str>>,
     shader_pack_remove_request: Option<String>,
+    shader_pack_import: renderer::PackImport,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -174,6 +177,8 @@ pub struct MenuRuntime {
     player_skin: crate::player_skin::LocalPlayerSkin,
     dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
     dressing_room_worker: Option<dressing_room::Worker>,
+    /// Fallback pixels for catalog entries created before world assets were ready.
+    default_player_skin: Option<render_api::StandardSkin>,
     skin_update_pending: bool,
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,
@@ -217,6 +222,7 @@ pub struct MenuRuntime {
     settings_input: focus::SettingsInput,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
+    storage_reader: Option<launcher_host::settings_storage::StorageReader>,
     settings_dirty: bool,
     settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
     /// Worker startup failures wait until this deadline before another attempt.
@@ -229,7 +235,7 @@ pub struct MenuRuntime {
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
-    input_mode: input::MenuInputMode,
+    input_mode: input::mode::MenuInputMode,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
@@ -237,6 +243,7 @@ pub struct MenuRuntime {
     /// The pause screen's invite screen and the invites it queued.
     invite: invite::InviteUi,
     realm_membership: realm_membership::RealmUi,
+    realm_leave: realm_leave::RealmLeaveUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
 }
@@ -329,6 +336,9 @@ impl MenuRuntime {
     }
 
     pub fn set_visible(&mut self, visible: bool) {
+        if !visible {
+            self.apply_global_resources_on_leave();
+        }
         self.visible = visible;
         if !visible {
             self.field = None;
@@ -385,10 +395,10 @@ impl MenuRuntime {
         if launcher::menu::disconnect::requires_client_update(&message) {
             launcher_host::lifecycle::update::protocol_required();
         }
+        bevy::log::warn!(error = %message, kind = ?self.feeds.join.kind, "join failed");
         if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
-            bevy::log::warn!(error = %message, "join failed");
             self.message = None;
             self.disconnect_message = Some(message);
             self.focused = 0;
@@ -432,6 +442,10 @@ impl MenuRuntime {
 
     pub fn take_disconnect_request(&mut self) -> bool {
         std::mem::take(&mut self.intents.disconnect)
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.intents.exit
     }
 
     pub fn take_exit_request(&mut self) -> bool {
@@ -559,14 +573,14 @@ impl MenuRuntime {
                     self.death_loading = true;
                     self.death_presentation.exiting_world = true;
                     self.death_presentation.respawn_seconds = Some(0.0);
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.dialog = None;
                 }
             }
             MenuAction::ConfirmDeathQuit => {
                 if self.dialog == Some(MenuDialog::DeathQuit) {
                     self.dialog = None;
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.set_visible(false);
                 }
             }
@@ -620,6 +634,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
+            MenuAction::LeaveRealmDialog(_) | MenuAction::ConfirmLeaveRealm(_) => {
+                self.activate_realm_leave(action)
+            }
             MenuAction::PlayRealm(index) => {
                 if let Some(realm) = self.realms.get(index) {
                     let target = if realm.target.is_empty() {
@@ -696,6 +713,7 @@ impl MenuRuntime {
             MenuAction::AddBack => self.go_back(),
             MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
             MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::ImportShaderPacks => self.request_shader_pack_import(),
             MenuAction::RemoveShaderPackDialog(index, revision) => {
                 self.remove_shader_pack_dialog(index, revision)
             }
@@ -717,7 +735,7 @@ impl MenuRuntime {
             }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
-                self.intents.disconnect = true;
+                self.request_disconnect();
                 self.set_visible(false);
             }
             MenuAction::PauseSettings => {
@@ -744,7 +762,6 @@ impl MenuRuntime {
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
             | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
@@ -768,6 +785,7 @@ impl MenuRuntime {
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
+            MenuAction::ServerDetail(_) => {}
             MenuAction::ServerList(action) => {
                 self.settings_dirty |=
                     std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);
@@ -778,6 +796,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
                 if !self.over_world() {
+                    self.apply_global_resources_on_leave();
                     self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
                         .definition()
                         .index;
@@ -807,6 +826,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::WorldSettings(action) => self.activate_world_settings(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
             MenuAction::Invite(action) => self.activate_invite(action),
             MenuAction::JoinRequest(accept) => self.answer_join_request(accept),

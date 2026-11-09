@@ -1,5 +1,5 @@
 use crate::chunk::transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws,
+    transparent_frame_draws, transparent_frame_draws_for_range,
 };
 use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
@@ -410,11 +410,9 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
             args.first_instance..args.first_instance + args.instance_count,
         );
         let frame_probe = frame_probe.into_inner();
-        if frame_probe.is_active()
-            && let Some(draw) = transparent_frame_draw_for_range(snapshot, arena, ref_range)
-        {
-            frame_probe.record_transparent_draw(snapshot.generation(), [draw]);
-        }
+        frame_probe.record_transparent_draw(snapshot.generation(), || {
+            transparent_frame_draws_for_range(snapshot, arena, ref_range)
+        });
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
         RenderCommandResult::Success
@@ -511,12 +509,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         pass.draw_indexed_indirect(&arena.transparent_indirect_buffer, 0);
         let frame_probe = frame_probe.into_inner();
-        if frame_probe.is_active() {
-            frame_probe.record_transparent_draw(
-                snapshot.generation(),
-                transparent_frame_draws(snapshot, arena),
-            );
-        }
+        frame_probe.record_transparent_draw(snapshot.generation(), || {
+            transparent_frame_draws(snapshot, arena)
+        });
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
         RenderCommandResult::Success

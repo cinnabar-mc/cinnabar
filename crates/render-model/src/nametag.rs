@@ -59,13 +59,18 @@ fn line_backgrounds(
     })
 }
 
+/// The `text` value of a mod annotation glyph: drawn as any glyph, but nametag styles keep
+/// its own colour.
+pub const NAMETAG_ANNOTATION_TEXT: u32 = 2;
+
 /// One quad of a tag as the GPU reads it: a plate when `uv[2] < 0`, else a text line.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct NametagRecord {
     /// World point the tag's font-pixel origin hangs at.
     pub anchor: [f32; 3],
-    /// 1 for glyphs, which write depth only in the tested pass; 0 for a backing plate.
+    /// Nonzero for glyphs, which write depth only in the tested pass; 0 for a backing plate.
+    /// Mod annotation glyphs use [`NAMETAG_ANNOTATION_TEXT`].
     pub text: u32,
     /// `[x0, y0, x1, y1]` in font pixels; +x is the viewer's right, +y is down.
     pub rect: [f32; 4],
