@@ -328,7 +328,7 @@ fn launcher_scene_policy_ignores_json_ui_menu_roots() {
     let mut player = player_state::PlayerState::new(1);
     let mut hostile = ScreenSettingsTable::default();
     hostile.0.insert(
-        launcher::menu::menu_reference(MenuScreen::Home).unwrap(),
+        launcher::menu::flow::menu_reference(MenuScreen::Home).unwrap(),
         ScreenSettings {
             should_steal_mouse: true,
             always_accepts_input: true,

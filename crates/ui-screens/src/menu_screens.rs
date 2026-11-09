@@ -65,7 +65,7 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     }
 }
 
-use launcher::menu::menu_reference;
+use launcher::menu::flow::menu_reference;
 
 /// The in-session screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them). `now_unix` is the wall-clock time in seconds.

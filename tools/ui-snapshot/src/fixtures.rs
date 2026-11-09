@@ -595,18 +595,6 @@ const STATES: &[State] = &[
         fixture: out_of_game::remove_server,
     },
     State {
-        name: "realms-joined",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::realms_joined(None),
-    },
-    State {
-        name: "leave-realm",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || out_of_game::realms_joined(Some(launcher::menu::MenuDialog::LeaveRealm(7))),
-    },
-    State {
         name: "storage-delete",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -996,6 +984,7 @@ pub fn settings(section: &str) -> MenuView {
 pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
+        .chain(out_of_game::REALM_STATES)
         .chain(out_of_game::WORLD_FORM_STATES)
         .chain(updates::STATES)
         .chain(shader_pack::STATES)

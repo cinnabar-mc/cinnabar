@@ -195,6 +195,22 @@ pub(super) fn reset_settings() -> Fixture {
     ))
 }
 
+/// Joined Realm selection and leave confirmation.
+pub(super) const REALM_STATES: &[State] = &[
+    State {
+        name: "realms-joined",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || realms_joined(None),
+    },
+    State {
+        name: "leave-realm",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || realms_joined(Some(MenuDialog::LeaveRealm(7))),
+    },
+];
+
 /// Shows the Realms tab with an owned and a selected joined Realm, optionally under a dialog.
 pub(super) fn realms_joined(dialog: Option<MenuDialog>) -> Fixture {
     let mut view = menu();

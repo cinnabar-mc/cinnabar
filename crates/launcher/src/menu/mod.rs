@@ -1,6 +1,5 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
-use json_ui::vanilla::Reference;
 pub mod audio_output;
 pub mod auth;
 pub mod death;
@@ -250,25 +249,6 @@ pub enum MenuAction {
     JoinRequest(bool),
     /// A press on the Shader Pack Settings screen or its Shaders-tab button.
     ShaderOptions(crate::shader_options::Action),
-}
-
-/// The vanilla screen family used by both menu history and scene composition.
-pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
-    Some(match screen {
-        MenuScreen::Death => Reference::DeathDeathScreen.as_str(),
-        MenuScreen::Pause => Reference::PausePauseScreen.as_str(),
-        MenuScreen::Home => Reference::StartStartScreen.as_str(),
-        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-            Reference::PlayPlayScreen.as_str()
-        }
-        MenuScreen::AddServer => Reference::AddExternalServerAddExternalServerScreenNew.as_str(),
-        MenuScreen::Settings => Reference::SettingsScreenControlsAndSettings.as_str(),
-        MenuScreen::Invite => Reference::InviteInviteScreen.as_str(),
-        MenuScreen::Profile
-        | MenuScreen::DressingRoom
-        | MenuScreen::Inbox
-        | MenuScreen::Friends => return None,
-    })
 }
 
 /// The default Bedrock server port displayed by launcher address fields.
