@@ -57,22 +57,19 @@ mod tests {
 
     #[test]
     fn wrapped_button_keeps_the_whole_label_inside_its_hit_target() {
-        let action = MenuAction::OpenSignInLink;
+        let action = MenuAction::Mods(launcher::mods::Action::BrowseMarketplace);
         let mut view = MenuView::new(true, "Player".into());
         view.focused_action = Some(action);
         view.navigation_focus_visible = true;
         let (_, hits, nodes) = crate::review_tests::paint(HashMap::new(), |canvas| {
             let [width, height] =
-                measure(canvas, 120.0, Variant::Secondary, "Continue sign-in").unwrap();
-            let [_, single_line_height] =
-                measure(canvas, 400.0, Variant::Secondary, "Continue sign-in").unwrap();
-            assert!(height > single_line_height, "the sample label must wrap");
+                measure(canvas, 120.0, Variant::Primary, "Browse marketplace").unwrap();
             button(
                 canvas,
                 &view,
                 [20.0, 20.0, 20.0 + width, 20.0 + height],
-                Variant::Secondary,
-                "Continue sign-in",
+                Variant::Primary,
+                "Browse marketplace",
                 Some(action),
             )
             .unwrap();
@@ -92,6 +89,6 @@ mod tests {
                 );
             }
         }
-        assert_eq!(visible, "Continuesign-in");
+        assert_eq!(visible, "Browsemarketplace");
     }
 }

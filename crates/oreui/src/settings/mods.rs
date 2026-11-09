@@ -69,6 +69,11 @@ fn draw_sections(
     content.heading("Mods", "Manage your mods.")?;
     let buttons = [
         (
+            "Browse marketplace",
+            Variant::Primary,
+            Some(command(Action::BrowseMarketplace)),
+        ),
+        (
             "Import mod…",
             Variant::Secondary,
             (!library.busy).then_some(command(Action::Import)),
@@ -82,7 +87,7 @@ fn draw_sections(
     actions(
         content,
         if library.active.is_empty() {
-            &buttons[..1]
+            &buttons[..2]
         } else {
             &buttons
         },
@@ -144,7 +149,7 @@ fn draw_sections(
                     } else {
                         "No other mods"
                     },
-                    "Import a .wasm file to add a mod.",
+                    "Browse the marketplace or import a .wasm file.",
                 )
             })?;
             cards(content, motion, Group::Available, |content, card| {
