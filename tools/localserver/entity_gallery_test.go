@@ -18,7 +18,7 @@ import (
 )
 
 func TestEntityGalleryCoversTheRetailRegistryAcrossPages(t *testing.T) {
-	registry := "../../crates/protocol/data/retail_actors_1_26_50.txt"
+	registry := "../../crates/protocol/data/retail_actors_1_26_60.txt"
 	gallery, err := loadEntityGallery(registry, "")
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestEntityGalleryRejectsStaleAppearancesAndFiltersBeforePaging(t *testing.T
 	if err := os.WriteFile(path, []byte(`[{"identifier":"minecraft:removed","name":"baby"}]`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_50.txt", path); err == nil {
+	if _, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_60.txt", path); err == nil {
 		t.Fatal("stale appearance accepted")
 	}
 	gallery := []entityAppearance{{Identifier: "minecraft:pig"}, {Identifier: "minecraft:sheep", Name: "baby"}}
@@ -120,7 +120,7 @@ func TestEntityGalleryRejectsStaleAppearancesAndFiltersBeforePaging(t *testing.T
 func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 	ordinary := &packet.CommandRequest{CommandLine: "/give stone"}
 	inner := &cameraFixtureConn{read: []packet.Packet{&packet.CommandRequest{CommandLine: "/entitygallery sheep"}, &packet.CommandRequest{CommandLine: "/entitygallery clear"}, ordinary}}
-	conn := &galleryConn{Conn: inner, gallery: []entityAppearance{{Identifier: "minecraft:sheep"}}}
+	conn := &entityGalleryPacketConn{Conn: inner, gallery: []entityAppearance{{Identifier: "minecraft:sheep"}}}
 	if got, err := conn.ReadPacket(); err != nil || got != ordinary {
 		t.Fatal("ordinary command was intercepted")
 	}
@@ -130,6 +130,24 @@ func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 	for i, pk := range inner.written[2:] {
 		if pk.(*packet.RemoveActor).EntityUniqueID != int64(entityGalleryFirstID+i) {
 			t.Fatal("removed another fixture's actor")
+		}
+	}
+}
+
+func TestEntityCloudAppearancePreservesMetadataTypes(t *testing.T) {
+	appearance := entityAppearance{Identifier: "minecraft:area_effect_cloud", Cloud: &entityCloudAppearance{
+		Radius: 3.5, Duration: -1, Particle: 32, Color: -1,
+	}}
+	metadata := appearance.metadata()
+	for key, expected := range map[uint32]any{
+		protocol.EntityDataKeyDataRadius:     float32(3.5),
+		protocol.EntityDataKeyDataDuration:   int32(-1),
+		protocol.EntityDataKeyDataParticle:   int32(32),
+		protocol.EntityDataKeyEffectColor:    int32(-1),
+		protocol.EntityDataKeyDataChangeRate: float32(0),
+	} {
+		if metadata[key] != expected {
+			t.Errorf("cloud metadata %d = %#v, want %#v", key, metadata[key], expected)
 		}
 	}
 }
@@ -281,7 +299,7 @@ func TestInvalidEntityGalleryFailsBeforeExperiencesStart(t *testing.T) {
 			if input == "registry" {
 				args = append(args, "-entity-gallery", invalid)
 			} else {
-				args = append(args, "-entity-gallery", "../../crates/protocol/data/retail_actors_1_26_50.txt", "-entity-gallery-appearances", invalid)
+				args = append(args, "-entity-gallery", "../../crates/protocol/data/retail_actors_1_26_60.txt", "-entity-gallery-appearances", invalid)
 			}
 			var stdout bytes.Buffer
 			err := run(args, strings.NewReader("stop\n"), &stdout, io.Discard)
@@ -327,7 +345,7 @@ func TestEntityGallerySupportsEveryProtocolFlag(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	gallery, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_50.txt", path)
+	gallery, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_60.txt", path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,5 +410,34 @@ func TestEntityGalleryPreservesPlayerPropertiesAndAttributes(t *testing.T) {
 	}
 	if !spawned || !updated {
 		t.Fatal("player spawn or configured attribute update missing")
+	}
+}
+
+func TestEntityGalleryShulkerAppearanceAndPeekUpdates(t *testing.T) {
+	face, peek, yaw := uint8(1), int32(30), float32(45)
+	page := []entityAppearance{{Identifier: "minecraft:shulker", Name: "ceiling", AttachFace: &face, Peek: &peek, Yaw: &yaw}}
+	actor := entityGalleryPackets(page, mgl32.Vec3{})[0].(*packet.AddActor)
+	if actor.EntityMetadata[protocol.EntityDataKeyAttachFace] != uint8(1) || actor.EntityMetadata[protocol.EntityDataKeyPeekID] != int32(30) || actor.Yaw != 45 || actor.BodyYaw != 45 {
+		t.Fatal("shulker appearance lost its attach face, peek or yaw")
+	}
+	ordinary := &packet.CommandRequest{CommandLine: "/give stone"}
+	inner := &cameraFixtureConn{read: []packet.Packet{&packet.CommandRequest{CommandLine: "/entitygallery peek 100"}, ordinary}}
+	conn := &entityGalleryPacketConn{Conn: inner, count: 2}
+	if got, err := conn.ReadPacket(); err != nil || got != ordinary {
+		t.Fatal("peek command was not consumed")
+	}
+	if len(inner.written) != 2 {
+		t.Fatalf("peek updated %d actors, want 2", len(inner.written))
+	}
+	for i, pk := range inner.written {
+		update := pk.(*packet.SetActorData)
+		if update.EntityRuntimeID != uint64(entityGalleryFirstID+i*2) || update.EntityMetadata[protocol.EntityDataKeyPeekID] != int32(100) {
+			t.Fatal("peek update addressed a label or lost its value")
+		}
+	}
+	for _, command := range []string{"/entitygallery peek", "/entitygallery peek open", "/entitygallery peek 1 2"} {
+		if _, ok := entityGalleryPeek(command); ok {
+			t.Fatalf("invalid peek command accepted: %s", command)
+		}
 	}
 }

@@ -17,6 +17,26 @@ use {
     ui_engine::test_support::fixture_font,
 };
 
+#[test]
+fn server_only_block_availability_expires_without_a_personal_publisher() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::mod_scene::retained::DrawingFrame;
+    let mut app = join_app(State::Disabled);
+    app.world_mut()
+        .resource_mut::<DrawingFrame>()
+        .loaded_blocks
+        .insert([0; 3]);
+    app.world_mut()
+        .run_system_once(crate::modding::anchors::publish_frame)
+        .unwrap();
+    assert!(
+        app.world()
+            .resource::<DrawingFrame>()
+            .loaded_blocks
+            .is_empty()
+    );
+}
+
 /// Finds a real production system node in Bevy's unbuilt schedule graph.
 fn system_node<M>(graph: &ScheduleGraph, system: impl IntoSystemSet<M>) -> NodeId {
     let parent = NodeId::Set(
@@ -67,7 +87,7 @@ fn offer() -> VerifiedOffer {
 fn join_app(state: State) -> App {
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let mut runtime = UiRuntime::new(1);
-    runtime.experiences.session.state = state;
+    runtime.session.experiences.session.state = state;
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(UiRuntimeResource(runtime))
@@ -159,6 +179,7 @@ fn popup_keys_answer_the_offer_and_then_release_input() {
             matches!(
                 app.world()
                     .resource::<UiRuntimeResource>()
+                    .session
                     .experiences
                     .session
                     .state,
@@ -318,9 +339,9 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         expires_unix: u64::MAX,
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.experiences.epoch = old_epoch;
-    runtime.experiences.active = true;
-    runtime.experiences.session.state = State::Granted(grant.clone());
+    runtime.session.experiences.epoch = old_epoch;
+    runtime.session.experiences.active = true;
+    runtime.session.experiences.session.state = State::Granted(grant.clone());
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(UiRuntimeResource(runtime))
@@ -352,7 +373,11 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         super::super::live::Live::start(
             grant,
             Vec::new(),
-            old_epoch,
+            &mod_host::presentation::Context {
+                connection: 1,
+                epoch: old_epoch,
+                ..Default::default()
+            },
             0,
             PathBuf::new().as_path(),
             PathBuf::new().as_path(),
@@ -360,7 +385,11 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         .unwrap(),
     );
     app.update();
-    let extension = &app.world().resource::<UiRuntimeResource>().experiences;
+    let extension = &app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .session
+        .experiences;
     assert_eq!(extension.epoch, new_epoch);
     assert!(matches!(extension.session.state, State::Disabled));
     assert!(!extension.active);
@@ -499,6 +528,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
         assert!(!matches!(
             app.world()
                 .resource::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state,
@@ -564,4 +594,41 @@ fn a_modal_hotbar_key_over_an_inventory_slot_sends_its_swap() {
     assert!(ledger.displayed_stack(9).is_none());
     assert_eq!(ledger.displayed_stack(2).unwrap().count, 32);
     assert!(ledger.pending_batch().unwrap().is_some());
+}
+
+#[test]
+fn changing_a_signed_bundle_set_drops_the_previous_runtime() {
+    let mut app = join_app(State::Disabled);
+    let mut grant = Grant {
+        offer: offer(),
+        session: "session".into(),
+        connection: "connection".into(),
+        subclient: 0,
+        wire: server_experience::negotiation::Wire::v1(),
+        expires_unix: u64::MAX,
+    };
+    let mut service = app.world_mut().resource_mut::<ExperienceService>();
+    assert!(!service.select_deployment(&grant));
+    service.attempted = true;
+    service.live = Some(
+        super::super::live::Live::start(
+            grant.clone(),
+            Vec::new(),
+            &mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
+            0,
+            PathBuf::new().as_path(),
+            PathBuf::new().as_path(),
+        )
+        .unwrap(),
+    );
+    assert!(!service.select_deployment(&grant));
+    assert!(service.live.is_some());
+    grant.offer.digest = "another-signed-bundle-set".into();
+    assert!(service.select_deployment(&grant));
+    assert!(service.live.is_none());
+    assert!(!service.attempted);
 }

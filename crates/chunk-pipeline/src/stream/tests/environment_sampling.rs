@@ -16,6 +16,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         }),
     };
     let snapshot = MeshSnapshot {
+        surface_rules: Arc::from([]),
         rendering: ::meshing::MeshRenderSettings::default(),
         center: Arc::new(uniform_sub_chunk(1)),
         biomes: std::array::from_fn(|_| None),
@@ -24,6 +25,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         center_y: key.y,
         light_halo,
         java_meshing: None,
+        overlays: Default::default(),
     };
 
     let mesh = snapshot.mesh(
@@ -31,6 +33,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         &RuntimeAssets::diagnostic(),
         NetworkIdMode::Sequential,
         &PackedBiomeRecord::fallback(),
+        &mut ::meshing::MeshScratch::default(),
     );
 
     assert!(!mesh.cube_lighting().is_empty());

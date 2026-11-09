@@ -13,8 +13,8 @@ pub use player_identity::{valid_cinnabar_uuid, valid_cinnabar_xuid};
 mod cinnabar_api;
 #[cfg(not(target_arch = "wasm32"))]
 pub use cinnabar_api::{
-    CinnabarApiConfig, CinnabarLookup, configure_cinnabar_api, lookup_cinnabar_players,
-    sync_cinnabar_players,
+    CinnabarApiConfig, CinnabarLookup, cinnabar_mods, configure_cinnabar_api,
+    lookup_cinnabar_players, remove_cinnabar_mod, sync_cinnabar_players,
 };
 /// Shared values and wire enums for the Rust and Go bridge.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -30,6 +30,7 @@ mod error;
 mod framed;
 pub mod join_profile;
 pub mod latency_trace;
+pub mod leave_profile;
 #[cfg(not(target_arch = "wasm32"))]
 mod packet_delay;
 #[cfg(not(target_arch = "wasm32"))]
@@ -56,7 +57,7 @@ pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader,
 pub use account::{
     Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
     MessageImage, Profile, Realm, RealmMembership, ServerDisconnect, ServerPing, ServerTrustPrompt,
-    account_status, answer_server_trust, connect_target, home, list_featured_servers,
+    account_status, answer_server_trust, connect_target, home, leave_realm, list_featured_servers,
     list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
     poll_events, profile, realm_membership, report_message_event, sign_out,
 };

@@ -55,8 +55,16 @@ pub(super) fn draw(
         let bottom = y + total * progress;
         let clip_top = y.max(viewport[0]);
         let clip_bottom = bottom.min(viewport[1]);
-        if progress > 0.0 && clip_bottom > clip_top {
-            let clip = canvas.begin_clip([span[0], clip_top, span[1], clip_bottom])?;
+        let visible = progress > 0.0 && clip_bottom > clip_top;
+        // Rows scrolled out of an open group keep their place in the focus
+        // order, so keyboard focus reaches and reveals them instead of skipping ahead.
+        let focus_hidden = !collapsed;
+        if visible || focus_hidden {
+            let clip = if visible {
+                Some(canvas.begin_clip([span[0], clip_top, span[1], clip_bottom])?)
+            } else {
+                None
+            };
             let alpha = canvas.alpha;
             canvas.alpha *= progress;
             let first_hit = canvas.hits.len();
@@ -65,16 +73,11 @@ pub(super) fn draw(
             let mut row_top = y;
             for &index in entries {
                 let height = row_height(canvas, view, *group, index, images);
-                if row_top + height > clip_top && row_top < clip_bottom {
-                    entry(
-                        canvas,
-                        view,
-                        *group,
-                        index,
-                        [span[0], row_top, span[1], row_top + height],
-                        selected,
-                        images,
-                    )?;
+                let bounds = [span[0], row_top, span[1], row_top + height];
+                if visible && row_top + height > clip_top && row_top < clip_bottom {
+                    entry(canvas, view, *group, index, bounds, selected, images)?;
+                } else if focus_hidden {
+                    canvas.focus_target(row_action(*group, index), bounds)?;
                 }
                 row_top += height;
             }
@@ -84,7 +87,9 @@ pub(super) fn draw(
                 canvas.focus_hits.truncate(first_focus_hit);
             }
             canvas.alpha = alpha;
-            canvas.end_clip(clip);
+            if let Some(clip) = clip {
+                canvas.end_clip(clip);
+            }
         }
         if let Some(transitions) = canvas.transitions.as_deref_mut() {
             transitions
@@ -154,6 +159,14 @@ fn row_height(
     canvas.r(if tall { 6.0 } else { 4.0 })
 }
 
+/// The action a server row selects, shared by drawn rows and scrolled-off focus targets.
+fn row_action(group: ServerGroup, index: usize) -> MenuAction {
+    match group {
+        ServerGroup::Saved => MenuAction::SelectSaved(index),
+        ServerGroup::Featured | ServerGroup::Creator => MenuAction::SelectFeatured(index),
+    }
+}
+
 fn entry(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -171,7 +184,7 @@ fn entry(
             view,
             b,
             selected == Some(Selection::Saved(index)),
-            MenuAction::SelectSaved(index),
+            row_action(group, index),
         )?;
         let caption = view
             .feeds
@@ -192,7 +205,7 @@ fn entry(
         view,
         b,
         selected == Some(Selection::Featured(index)),
-        MenuAction::SelectFeatured(index),
+        row_action(group, index),
     )?;
     let mut text_left = b[0] + pad;
     if let Some(icon) = images.get(&server.image_path) {

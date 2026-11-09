@@ -117,8 +117,8 @@ func (relay *Relay) allow(client netip.Addr) bool {
 
 // openControl creates or resumes an account and replaces its previous controller.
 // A valid bearer retires the old controller before the new generation becomes available.
-func (relay *Relay) openControl(client netip.Addr, token string, now time.Time) (*sessionController, func(time.Time), error) {
-	session, err := relay.controlSession(client, token, now)
+func (relay *Relay) openControl(client netip.Addr, token string, now time.Time, userAgent string, appleMobile bool) (*sessionController, func(time.Time), error) {
+	session, err := relay.controlSession(client, token, now, userAgent, appleMobile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -180,7 +180,7 @@ func (relay *Relay) openControl(client netip.Addr, token string, now time.Time) 
 }
 
 // controlSession finds or creates an account without waiting for existing session work.
-func (relay *Relay) controlSession(client netip.Addr, token string, now time.Time) (*webSession, error) {
+func (relay *Relay) controlSession(client netip.Addr, token string, now time.Time, userAgent string, appleMobile bool) (*webSession, error) {
 	relay.mu.Lock()
 	defer relay.mu.Unlock()
 	if relay.ctx.Err() != nil {
@@ -195,7 +195,7 @@ func (relay *Relay) controlSession(client netip.Addr, token string, now time.Tim
 	if len(relay.sessions) >= maxSessions || relay.perIP[client] >= maxPerIP {
 		return nil, errAdmission
 	}
-	session, err := newWebSession(relay, client, now)
+	session, err := newWebSession(relay, client, now, userAgent, appleMobile)
 	if err != nil {
 		return nil, err
 	}

@@ -117,7 +117,7 @@ impl PlayerInventoryLedger {
     /// The authoritative response overlay retained for one open generic
     /// storage slot.
     #[must_use]
-    pub fn storage_slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
+    pub fn storage_slot_overlay(&self, slot: u16) -> Option<&StackResponseOverlay> {
         self.confirmed.get(Cell::Storage(slot))?.overlay.as_ref()
     }
 
@@ -141,9 +141,7 @@ impl PlayerInventoryLedger {
             }
             let Some(index) = self.queue.iter().position(|pending| {
                 if pending.locally_committed() {
-                    pending
-                        .world_drop
-                        .is_some_and(|drop| drop.legacy_request_id == response.request_id)
+                    pending.legacy_request_id() == Some(response.request_id)
                 } else {
                     pending.request_id == response.request_id
                 }

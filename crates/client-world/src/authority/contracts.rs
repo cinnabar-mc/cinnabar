@@ -106,6 +106,13 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
+    /// A local-player game-mode update, ordered with the flag writes it may
+    /// supersede: vanilla's spectator change stops item use.
+    LocalGameMode {
+        sequence: u64,
+        /// The update makes the player a spectator.
+        spectator: bool,
+    },
     /// Movement flags and dimensions from local metadata or an accepted spawn.
     LocalMovementFlags {
         sequence: u64,
@@ -136,6 +143,8 @@ pub enum CommittedControlEvent {
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,
+        /// Whether the riding ID resolved to an actor at this packet's ordered commit.
+        riding_actor_resolved: bool,
         resolved: ResolvedServerPosition,
         source_cohort: Option<ViewCohort>,
     },
@@ -143,6 +152,15 @@ pub enum CommittedControlEvent {
         sequence: u64,
         correction: PlayerMovementCorrectionEvent,
         resolved: ResolvedServerPosition,
+    },
+    /// A server correction of the vehicle the local player steers and predicts.
+    VehicleMovementCorrection {
+        sequence: u64,
+        correction: PlayerMovementCorrectionEvent,
+        /// The vehicle the local player steered when the correction committed.
+        vehicle_runtime_id: u64,
+        /// That vehicle's revision when the correction committed.
+        vehicle_revision: crate::VehicleRevision,
     },
     /// A server-authoritative velocity impulse for the local player
     /// (knockback, explosion, launch). Other actors have no velocity consumer.
@@ -232,6 +250,11 @@ pub enum CommittedUiEvent {
         sequence: u64,
         dimension_epoch: u64,
         event: protocol::FormRequestEvent,
+    },
+    /// A request for the block command block editor, with the same dimension fence as a form.
+    OpenCommandBlock {
+        dimension_epoch: u64,
+        position: [i32; 3],
     },
     Ui {
         sequence: u64,

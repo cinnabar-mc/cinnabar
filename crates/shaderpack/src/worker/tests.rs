@@ -61,3 +61,11 @@ fn payload_limits_reject_extra_bytes_before_deserialization() {
     );
     assert_eq!(output, b"ab");
 }
+
+/// Process CPU time sums every compile thread, so the budget must cover all of them at once.
+#[test]
+fn cpu_budget_lets_every_compile_thread_use_the_elapsed_limit() {
+    let threads = std::thread::available_parallelism().map_or(1, |threads| threads.get());
+    assert_eq!(cpu_time_limit(), TIME_LIMIT * threads as u32);
+    assert!(cpu_time_limit() >= TIME_LIMIT);
+}

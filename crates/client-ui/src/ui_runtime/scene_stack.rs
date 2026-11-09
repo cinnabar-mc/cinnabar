@@ -27,8 +27,13 @@ pub enum Scene {
     Container,
     Chat,
     Emote,
+    /// Vanilla's list of the local player's active effects.
+    MobEffects,
     Loading,
+    /// Client-owned cover while an in-session global resource-pack replacement publishes.
+    ResourcePackLoading,
     SignEditor,
+    CommandBlock,
     ServerForm,
     /// A script form shown through data-driven UI.
     DataDriven,
@@ -46,7 +51,10 @@ impl Scene {
             Self::Bed
             | Self::Container
             | Self::Emote
+            | Self::MobEffects
+            | Self::ResourcePackLoading
             | Self::SignEditor
+            | Self::CommandBlock
             | Self::ServerForm
             | Self::DataDriven
             | Self::ServerSettingsForm
@@ -60,9 +68,32 @@ impl Scene {
         }
     }
 
+    /// This scene's place in the stack, bottom first, which [`UiRuntime::scenes`] visits in order.
+    pub const fn layer(self) -> u8 {
+        match self {
+            Self::Gameplay => 0,
+            Self::Crosshair => 1,
+            Self::Hud => 2,
+            Self::Bed => 3,
+            Self::Container => 4,
+            Self::Chat => 5,
+            Self::Emote => 6,
+            Self::MobEffects => 7,
+            Self::Loading => 8,
+            Self::SignEditor => 9,
+            Self::CommandBlock => 10,
+            Self::ServerForm => 11,
+            Self::DataDriven => 12,
+            Self::Menu(_) => 13,
+            Self::ServerSettingsForm => 14,
+            Self::Credits => 15,
+            Self::ResourcePackLoading => 16,
+        }
+    }
+
     /// Whether both draw one vanilla screen (menu tabs share theirs).
     fn same_screen(self, other: Self) -> bool {
-        use launcher::menu::menu_reference;
+        use launcher::menu::flow::menu_reference;
         match (self, other) {
             (Self::Menu(a), Self::Menu(b)) => {
                 a == b || menu_reference(a).is_some_and(|r| menu_reference(b) == Some(r))
@@ -190,6 +221,46 @@ impl UiRuntime {
             .all(|scene| !scene.settings.absorbs_input)
     }
 
+    /// The scene that takes keyboard and pointer input: the top of the stack. Gameplay stands for
+    /// its overlays, and for a stack with nothing up.
+    pub fn input_scene(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        host: SceneHost,
+    ) -> Scene {
+        let mut top = Scene::Gameplay;
+        self.visit_scenes_in(
+            player_runtime,
+            host,
+            &ScreenSettingsTable::default(),
+            |scene, _| top = scene,
+        );
+        top
+    }
+
+    /// Whether a screen other than `own` is up over the world, whatever its pack input policy:
+    /// any scene the stack pushes above gameplay and its HUD overlays, launcher menus aside.
+    /// Shortcuts that open a screen, and command macros, check it so screens never open
+    /// over one another.
+    pub fn screen_open_besides(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        own: Option<Scene>,
+    ) -> bool {
+        let mut open = false;
+        let table = ScreenSettingsTable::default();
+        self.visit_scenes_in(
+            player_runtime,
+            SceneHost::of(None, self),
+            &table,
+            |scene, _| {
+                open |= !matches!(scene, Scene::Gameplay | Scene::Crosshair | Scene::Hud)
+                    && Some(scene) != own;
+            },
+        );
+        open
+    }
+
     /// Whether the top scene is one a touchscreen drives through the mouse pointer.
     pub fn top_scene_reads_only_pointer(
         &self,
@@ -234,8 +305,19 @@ impl UiRuntime {
             .is_showing_menu
     }
 
+    /// Whether the command block editor, open or asked for earlier in the server's order, counts
+    /// as a menu, by the same rule as a container.
+    pub(super) fn command_block_shows_menu(&self) -> bool {
+        (self.command_block().is_open() || self.command_block().requested())
+            && self
+                .screen_settings
+                .get(ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN)
+                .unwrap_or_default()
+                .is_showing_menu
+    }
+
     pub fn note_player_hurt(&mut self) {
-        self.hurt_pending = true;
+        self.session.hurt_pending = true;
     }
 }
 
@@ -311,7 +393,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         menu: Option<&dyn MenuScene>,
     ) {
-        if !std::mem::take(&mut self.hurt_pending) {
+        if !std::mem::take(&mut self.session.hurt_pending) {
             return;
         }
         let host = SceneHost::of(menu, self);
@@ -320,6 +402,7 @@ impl UiRuntime {
                 self.close_inventory(player_runtime);
             }
             Some(Scene::SignEditor) => self.sign_editor_mut().close_on_hurt(),
+            Some(Scene::MobEffects) => self.close_mob_effect_screen(),
             _ => {}
         }
     }

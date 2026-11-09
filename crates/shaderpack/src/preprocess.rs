@@ -627,7 +627,14 @@ fn preprocess_limited(
             TokenValue::Version(value) => {
                 for token in value.tokens {
                     match token.value {
-                        TokenValue::Integer(value) => out.version = value.value as u32,
+                        TokenValue::Integer(value) => {
+                            out.version = pp_rs::token::parse_integer(&value)
+                                .map_err(|error| {
+                                    Diagnostic::new(Phase::Preprocess, format!("{error:?}"))
+                                        .at(expanded.map.locate(line))
+                                })?
+                                .value as u32;
+                        }
                         TokenValue::Ident(name) => out.profile = Some(name),
                         _ => {}
                     }

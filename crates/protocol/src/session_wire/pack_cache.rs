@@ -74,7 +74,11 @@ impl CachedArchive {
         let limit = size
             .checked_add(1)
             .ok_or(invalid("cached archive size overflows"))?;
-        let mut archive = Vec::new();
+        // The archive stays resident for the session, so it is read into an exact-size buffer:
+        // growing from empty would retain up to as much unused capacity again.
+        let capacity =
+            usize::try_from(size).map_err(|_| invalid("cached archive size overflows"))?;
+        let mut archive = Vec::with_capacity(capacity);
         file.take(limit).read_to_end(&mut archive)?;
         if archive.len() as u64 != size {
             return Err(invalid("cached archive size changed while reading"));

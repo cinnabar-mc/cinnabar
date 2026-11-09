@@ -882,3 +882,21 @@ fn frontend_iris_unclosed_condition_at_end() {
     let result = run(&[("a.fsh", "#if 1\nint selected;\n")], "a.fsh", &[]);
     assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
 }
+
+#[test]
+fn frontend_iris_conditions_truncate_before_exponent_scaling() {
+    for (literal, expected) in [
+        ("0.99999999", "0"),
+        ("1.999999999999999999", "1"),
+        ("16777217.0", "16777217"),
+        ("0.999e2", "0"),
+        (".5e3", "0"),
+        ("1.5e2", "100"),
+    ] {
+        let source = format!(
+            "#if {literal} == {expected}\nint selected;\n#else\n#error wrong condition\n#endif\n"
+        );
+        let result = run(&[("a.fsh", &source)], "a.fsh", &[]);
+        assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+    }
+}

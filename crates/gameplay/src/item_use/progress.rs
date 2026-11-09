@@ -12,7 +12,7 @@ impl ItemUseRuntime {
         animation: Option<ItemUseAnimationFact>,
         send: impl FnOnce(protocol::Packet) -> Result<(), E>,
     ) -> Result<(), E> {
-        if self.release_pending
+        if self.has_pending_release()
             || !matches!(
                 animation,
                 Some(ItemUseAnimationFact::Eat | ItemUseAnimationFact::Drink)
@@ -27,7 +27,7 @@ impl ItemUseRuntime {
             return Ok(());
         };
         if active.selection_changed(Some(selection)) || selection.item.is_empty() {
-            self.stop_active_use();
+            self.stop_without_release();
             return Ok(());
         }
         if active.last_progress_tick.is_some_and(|last| tick <= last)

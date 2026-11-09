@@ -114,14 +114,10 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
   budget before the exit sweep escalates to SIGTERM and kill.
-- **Standby (translated BDS):** translated servers take minutes to start, so once the menu is up the
-  most recently played world starts in the background if it runs on an installed BDS. Leaving a
-  running BDS world keeps its server for five minutes when it already holds every saved setting;
-  settings for the next start or a missed live command stop it instead. Until the same world is opened, such a server is
-  hidden: status and the core report no open world. Opening it reuses the server after reconciling the
-  host's operator grant. Opening another world, editing or deleting this one, a core restart and
-  client exit save and stop it first. A start still in progress is killed instead. A hidden server
-  that exits is logged, not shown as a failure. Native and container servers stop when left.
+- **World lifetime:** saved worlds start only on an explicit open. Leaving requests a save and
+  stop immediately on every backend, including translated BDS. Reopening waits for the previous
+  server's save and backend cleanup before starting another server. Android setup prepares
+  reusable startup code in a temporary world; attaching the launcher never starts a saved world.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
@@ -134,6 +130,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   `/flyspeed off` restores the previous flight abilities; `/speed` also switches back to ability flight.
   Direct flight has no speed multiplier cap, but motion must fit the protocol's floating-point values.
   Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
+  `/time set <ticks|sunrise|day|noon|sunset|night|midnight>` sets the world's time of day and stops its
+  daylight cycle so captures see the same sky; `/time cycle` resumes it. The local server's
+  `-time <ticks|name>` flag opens every world at that time, frozen.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account

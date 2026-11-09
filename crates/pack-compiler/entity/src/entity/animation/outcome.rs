@@ -5,6 +5,9 @@ use serde::Serialize;
 pub enum FallbackReason {
     UnsupportedOptionalExpression,
     UnreferencedDefinition,
+    AmbiguousAnimationReference,
+    /// The definition is malformed, so its animation is skipped.
+    InvalidDefinition,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

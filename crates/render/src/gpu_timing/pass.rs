@@ -51,7 +51,6 @@ pub(crate) fn ui_pass_timestamps(
 
 impl GpuTimestamps {
     /// Times an owned pack render pass on detailed Metal frames without marker passes.
-    #[cfg(feature = "shaderpacks")]
     pub(crate) fn shaderpack_render_pass(
         &self,
         stage: RuntimeStage,
@@ -65,7 +64,6 @@ impl GpuTimestamps {
     }
 
     /// Claims pack queries only when the backend needs owned passes and detail is requested.
-    #[cfg(feature = "shaderpacks")]
     pub(super) fn shaderpack_owned_span(
         &self,
         stage: RuntimeStage,
@@ -78,7 +76,6 @@ impl GpuTimestamps {
     }
 
     /// Times an owned pack compute pass under the same policy as pack render passes.
-    #[cfg(feature = "shaderpacks")]
     pub(crate) fn shaderpack_compute_pass(
         &self,
         stage: RuntimeStage,
@@ -98,14 +95,17 @@ impl GpuTimestamps {
                 && (stage == RuntimeStage::GpuUi || RuntimeStage::GPU_UI.contains(&stage)))
     }
 
-    /// Uses owned queries on Metal, for UI diagnostics, and for detailed late terrain.
+    /// Uses owned queries on Metal, for UI diagnostics, and for detailed terrain culling.
     pub(super) fn render_pass(
         &self,
         stage: RuntimeStage,
     ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         let ui_pass = self.ui_categories
             && (stage == RuntimeStage::GpuUi || RuntimeStage::GPU_UI.contains(&stage));
-        if stage == RuntimeStage::GpuTerrainLate {
+        if matches!(
+            stage,
+            RuntimeStage::GpuTerrainLate | RuntimeStage::GpuCullRaster
+        ) {
             if cfg!(target_os = "macos") || !self.pass_detail {
                 return None;
             }

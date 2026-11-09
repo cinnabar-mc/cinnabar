@@ -201,6 +201,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: false,
         tick: 55,
+        vehicle_angular_velocity: None,
     };
     let correction_control = CommittedControlEvent::PlayerMovementCorrection {
         sequence: 7,
@@ -226,6 +227,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             position: movement.position,
             surface_anchor: None,
         },
+        riding_actor_resolved: false,
         source_cohort: None,
     };
     let change = protocol::ChangeDimensionEvent {
@@ -254,6 +256,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             &mut view,
             &mut camera_settings,
             &mut pending_surface_spawn,
+            &mut |_| None,
         );
     }
     assert_eq!(acceptance.mutation_surface_anchor(), Some([240, -18]));
@@ -291,6 +294,7 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
             position: movement.position,
             surface_anchor: None,
         },
+        riding_actor_resolved: false,
         source_cohort: None,
     };
     let expected_marker = format!(
@@ -310,6 +314,7 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: false,
         tick: 1,
+        vehicle_angular_velocity: None,
     };
     assert!(
         model_gallery_camera_committed_marker(

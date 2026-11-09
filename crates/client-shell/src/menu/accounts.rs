@@ -194,7 +194,9 @@ impl MenuRuntime {
         self.feeds.account_error = None;
         self.feeds.account_adding = true;
         self.accounts.pending_ready = false;
-        // Each Add account starts a fresh device flow, even after an abandoned attempt.
+        // Each Add account drops an abandoned attempt's credentials. Its sign-in resumes an
+        // unexpired saved prompt, so a code the player approved before the phone ended the
+        // client still completes.
         let _ = self.account_store().discard_pending();
         self.start_sign_in();
     }

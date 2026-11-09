@@ -4,11 +4,10 @@ use super::super::theme;
 use super::super::transitions::resources::{Group, Listing, Mods};
 use super::super::widgets::Variant;
 use super::Content;
+mod marketplace;
 mod permissions;
 mod update;
-use super::resources::{
-    Face, accordion, actions, caption, card_with_summary, cards, empty, note, reveal,
-};
+use super::resources::{Face, accordion, caption, cards, compact_card, empty, note, reveal};
 use launcher::menu::{MenuAction, file_size};
 use launcher::mods::{Action, InstalledMod, Snapshot, Status};
 use ui_engine::engine::screen::PaintError;
@@ -67,23 +66,29 @@ fn draw_sections(
     motion: &Mods,
 ) -> Result<(), PaintError> {
     let library = &snapshot.library;
-    content.heading("Mods", "Add features to your game with WebAssembly mods.")?;
+    content.heading("Mods", "Manage your mods.")?;
+    let buttons = [
+        (
+            "Import mod…",
+            Variant::Secondary,
+            (!library.busy).then_some(command(Action::Import)),
+        ),
+        (
+            "Reload all",
+            Variant::Secondary,
+            (!library.busy).then_some(command(Action::ReloadAll)),
+        ),
+    ];
     actions(
         content,
-        &[
-            (
-                "Import mod…",
-                Variant::Secondary,
-                (!library.busy).then_some(command(Action::Import)),
-            ),
-            (
-                "Reload all",
-                Variant::Secondary,
-                (!library.busy && !library.active.is_empty()).then_some(command(Action::ReloadAll)),
-            ),
-        ],
+        if library.active.is_empty() {
+            &buttons[..1]
+        } else {
+            &buttons
+        },
     )?;
     content.y += content.canvas.r(1.2);
+    marketplace::draw(content)?;
     if !library.message.is_empty() {
         note(content, &library.message, theme::NEUTRAL80.fill)?;
     }
@@ -111,7 +116,11 @@ fn draw_sections(
             })?;
             caption(
                 content,
-                "Higher mods take priority. Reorder Active mods to choose which wins.",
+                if library.active.is_empty() {
+                    "Enable mods from My mods."
+                } else {
+                    "Higher mods take priority. Reorder Active mods to choose which wins."
+                },
             )
         },
     )?;
@@ -135,7 +144,7 @@ fn draw_sections(
                     } else {
                         "No other mods"
                     },
-                    "Import a .wasm mod component to add it here.",
+                    "Import a .wasm file to add a mod.",
                 )
             })?;
             cards(content, motion, Group::Available, |content, card| {
@@ -200,106 +209,136 @@ fn mod_card(
         details,
         interactive,
     };
-    card_with_summary(
-        content,
-        face,
-        |content| {
-            let available = interactive && !library.busy;
-            let update = library.updates.iter().find(|update| update.id == item.id);
-            let progress = library
-                .update_progress
-                .iter()
-                .find(|progress| progress.id == item.id);
-            if let Some(progress) = progress {
-                update::draw(content, progress)?;
-            } else if let Some(update) = update {
-                caption(content, &format!("Update available · {}", update.version))?;
-            }
-            let toggle = if active {
-                (
-                    "Disable",
-                    Variant::Secondary,
-                    available.then_some(command(Action::Disable(item.id))),
-                )
+    compact_card(content, face, |content| {
+        let available = interactive && !library.busy;
+        let update = library
+            .available_updates()
+            .find(|update| update.id == item.id);
+        let progress = library
+            .update_progress
+            .iter()
+            .find(|progress| progress.id == item.id);
+        if let Some(progress) = progress {
+            update::draw(content, progress)?;
+        } else if let Some(update) = update {
+            caption(content, &format!("Update available · {}", update.version))?;
+        }
+        let toggle = if active {
+            (
+                "Disable",
+                Variant::Secondary,
+                available.then_some(command(Action::Disable(item.id))),
+            )
+        } else {
+            (
+                "Enable",
+                Variant::Primary,
+                available.then_some(command(Action::Enable(item.id))),
+            )
+        };
+        let mut buttons = vec![toggle];
+        if update.is_some() || progress.is_some() {
+            let installable = item.can_update();
+            let updating = progress.is_some();
+            let label = if let Some(progress) = progress {
+                progress.phase.label()
+            } else if installable {
+                "Update"
             } else {
-                (
-                    "Enable",
-                    Variant::Primary,
-                    available.then_some(command(Action::Enable(item.id))),
-                )
+                "View release"
             };
-            let mut buttons = vec![toggle];
-            if update.is_some() || progress.is_some() {
-                let installable = item.metadata.update_url.is_some();
-                let updating = progress.is_some();
-                let label = if let Some(progress) = progress {
-                    progress.phase.label()
-                } else if installable {
-                    "Update"
-                } else {
-                    "View release"
-                };
-                let action = if installable {
-                    Action::Update(item.id)
-                } else {
-                    Action::OpenUpdate(item.id)
-                };
-                buttons.push((
-                    label,
-                    if installable {
-                        Variant::Primary
-                    } else {
-                        Variant::Secondary
-                    },
-                    (available && !updating).then_some(command(action)),
-                ));
-            }
-            if active {
-                buttons.push((
-                    "Reload",
-                    Variant::Secondary,
-                    available.then_some(command(Action::Reload(item.id))),
-                ));
-                let position = library.active.iter().position(|entry| entry.id == item.id);
-                if position.is_some_and(|position| position > 0) {
-                    buttons.push((
-                        "Move up",
-                        Variant::Neutral,
-                        available.then_some(command(Action::MoveUp(item.id))),
-                    ));
-                }
-                if position.is_some_and(|position| position + 1 < library.active.len()) {
-                    buttons.push((
-                        "Move down",
-                        Variant::Neutral,
-                        available.then_some(command(Action::MoveDown(item.id))),
-                    ));
-                }
-            }
+            let action = if installable {
+                Action::Update(item.id)
+            } else {
+                Action::OpenUpdate(item.id)
+            };
             buttons.push((
-                "Remove",
-                Variant::Destructive,
-                available.then_some(command(Action::Remove(item.id))),
+                label,
+                if installable {
+                    Variant::Primary
+                } else {
+                    Variant::Secondary
+                },
+                (available && !updating).then_some(command(action)),
             ));
-            actions(content, &buttons)?;
-            permissions::draw(content, snapshot, item, active, available)
-        },
-        |content| {
-            if let Some(description) = &metadata.description {
-                caption(content, description)?;
+        }
+        if active {
+            buttons.push((
+                "Reload",
+                Variant::Secondary,
+                available.then_some(command(Action::Reload(item.id))),
+            ));
+            let position = library.active.iter().position(|entry| entry.id == item.id);
+            if position.is_some_and(|position| position > 0) {
+                buttons.push((
+                    "Move up",
+                    Variant::Neutral,
+                    available.then_some(command(Action::MoveUp(item.id))),
+                ));
             }
-            if let Some(authors) = &metadata.authors {
-                caption(content, &format!("By {authors}"))?;
+            if position.is_some_and(|position| position + 1 < library.active.len()) {
+                buttons.push((
+                    "Move down",
+                    Variant::Neutral,
+                    available.then_some(command(Action::MoveDown(item.id))),
+                ));
             }
-            let mut source = format!("{} · {}", item.file, file_size(item.bytes));
-            if let Some(licenses) = &metadata.licenses {
-                source = format!("{source} · {licenses}");
-            }
-            caption(content, &source)?;
-            if let Some(message) = failure {
-                caption(content, message)?;
-            }
-            Ok(())
-        },
-    )
+        }
+        buttons.push((
+            "Remove",
+            Variant::Destructive,
+            available.then_some(command(Action::Remove(item.id))),
+        ));
+        actions(content, &buttons)?;
+        permissions::draw(content, snapshot, item, active, available)?;
+        if let Some(description) = &metadata.description {
+            caption(content, description)?;
+        }
+        if let Some(authors) = &metadata.authors {
+            caption(content, &format!("By {authors}"))?;
+        }
+        let mut source = format!("{} · {}", item.file, file_size(item.bytes));
+        if let Some(licenses) = &metadata.licenses {
+            source = format!("{source} · {licenses}");
+        }
+        caption(content, &source)?;
+        if let Some(message) = failure {
+            caption(content, message)?;
+        }
+        Ok(())
+    })
+}
+
+/// Fits buttons to their labels, wrapping only when the viewport cannot hold the row.
+fn actions(
+    content: &mut Content<'_, '_>,
+    buttons: &[(&str, Variant, Option<MenuAction>)],
+) -> Result<(), PaintError> {
+    let [left, right] = content.inset();
+    let gap = content.canvas.r(0.8);
+    let mut x = left;
+    let mut row_height: f32 = 0.0;
+    for (label, variant, action) in buttons {
+        let [width, height] =
+            crate::widgets::wrapped_button_size(content.canvas, right - left, *variant, label)?;
+        if x > left && x + width > right {
+            x = left;
+            content.y += row_height + gap;
+            row_height = 0.0;
+        }
+        crate::widgets::wrapped_button(
+            content.canvas,
+            content.view,
+            [x, content.y, x + width, content.y + height],
+            *variant,
+            label,
+            *action,
+        )?;
+        row_height = row_height.max(height);
+        x += width + gap;
+    }
+    if !buttons.is_empty() {
+        content.y += row_height;
+    }
+    Ok(())
 }

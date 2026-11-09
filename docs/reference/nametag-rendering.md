@@ -7,8 +7,8 @@ camera-right and camera-up, including the front-view pitch sign, with a fixed
 `1.6 / 60` blocks per font pixel. The head anchor uses Java's fixed `1.8`-block
 standing height for upright players, so crouching collision height does not lower
 it again. Swimming, crawling and gliding players use their live published height,
-as do other actors. Height plus `0.5` blocks of
-clearance follows the actor's Scale metadata. Sneaking players lower it by
+as do other actors. The height follows the actor's Scale metadata, and vanilla's
+fixed `0.7` blocks of clearance sit above it. Sneaking players lower it by
 `0.125` blocks and move the quad `0.25` blocks along
 camera-down; sleeping players lower their anchor by `1.5` blocks.
 Each line's black plate has alpha `0.25`, one pixel of side padding,

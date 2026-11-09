@@ -9,6 +9,7 @@ fn press(tick: u64) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick,
         player_position: [10.0, 50.0, -3.0],
         input_mode: PlayerInputMode::Mouse,

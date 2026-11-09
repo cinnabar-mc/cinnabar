@@ -4,7 +4,7 @@ use super::*;
 use crate::prepared_actor_artwork::{PreparedActorArtwork, session_resources};
 
 /// Encodes an original cuboid carrier with independently variable height, color and alpha mode.
-fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
+pub(crate) fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
     let quads = assets::BlockFace::ALL.map(|face| {
         let (corners, uvs) = assets::gui_item::cube_face(face);
         let mut quad = assets::ModelQuad {
@@ -199,9 +199,7 @@ fn held_sheet(runtime: &EquipmentRuntime, pages: &ActorArtworkPages) -> Vec<u8> 
                 * usize::from(width)
                 + usize::from(placement.x))
                 * 4;
-            page.pixels()[start..start + usize::from(placement.width) * 4]
-                .iter()
-                .copied()
+            page.pixels()[start..start + usize::from(placement.width) * 4].to_vec()
         })
         .collect()
 }

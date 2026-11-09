@@ -49,7 +49,7 @@ pub(super) fn compile(
     report: &Path,
 ) -> Result<()> {
     let mut manifest: Manifest =
-        serde_json::from_slice(&read(&root.join("assets/biome-projection-v2193.json"))?)?;
+        serde_json::from_slice(&read(&root.join("assets/biome-projection-v2225.json"))?)?;
     check(
         facts.protocol == manifest.protocol
             && facts.game_version == manifest.game_version

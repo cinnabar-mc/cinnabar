@@ -136,6 +136,7 @@ impl Category {
                 "bridge",
                 "crash_monitor",
                 "diagnostics",
+                "first_run",
                 "launcher",
                 "cinnabar::lifecycle",
             ],

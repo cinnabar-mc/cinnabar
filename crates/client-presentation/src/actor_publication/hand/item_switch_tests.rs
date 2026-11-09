@@ -7,6 +7,7 @@ fn item(identifier: &str) -> WornItem {
     WornItem {
         variant: Default::default(),
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         identifier: identifier.into(),
         metadata: 0,

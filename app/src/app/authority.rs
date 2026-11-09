@@ -12,6 +12,10 @@ struct OrdinaryInputSet;
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
+    app.init_resource::<crate::ui_runtime::touch_pointer::UiTouchStarts>();
+    if cfg!(target_os = "android") {
+        crate::platform_devices::configure_hybrid_input(app);
+    }
     app.add_systems(
         bevy::prelude::Startup,
         (
@@ -27,7 +31,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_message::<bevy::input::mouse::MouseWheel>()
     .init_resource::<WorldStreamFramePoll>()
     .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
-    .init_resource::<client_state::EmoteInputConsumed>()
+    .init_resource::<client_state::ScreenInputConsumed>()
+    .init_resource::<client_shell::ui_resources::FrameInputOwner>()
     .add_systems(
         Update,
         (drive_gameplay_touch_targets, collect_raw_input)
@@ -38,7 +43,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         bevy::prelude::PreUpdate,
         crate::ui_runtime::touch_pointer::emulate_ui_pointer
             .before(bevy::input::InputSystems)
-            .run_if(|| cfg!(target_os = "android")),
+            .run_if(|| launcher::TOUCH_PRIMARY),
     )
     .add_systems(
         bevy::prelude::PreUpdate,
@@ -53,12 +58,15 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         (
+            crate::ui_runtime::input_owner::decide_input_owner,
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
             drive_sign_editor.in_set(OrdinaryInputSet),
+            drive_command_block.in_set(OrdinaryInputSet),
             drive_server_form_input.in_set(OrdinaryInputSet),
             // Runs while consent owns input too, to drain the ordered events it must not replay.
             crate::ui_runtime::data_driven::drive_data_driven_input,
             crate::ui_runtime::emotes::drive_emote_input,
+            crate::ui_runtime::mob_effects::drive_mob_effect_screen_input,
             drive_chat_ui_actions.in_set(OrdinaryInputSet),
             drain_inventory_authority,
             drive_chat_keyboard_input
@@ -66,6 +74,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 .before(client_state::ShellFrameSet::MenuInput),
             drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
             drive_menu_services,
+            crate::session::hide_window_before_exit,
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
@@ -107,6 +116,13 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .before(drain_committed_ui_before_authority)
             .before(ClientFrameSet::UiAuthority)
             .before(ClientFrameSet::Physics),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::outbound::reconcile_mining_inventory
+            .after(reconcile_world_stream_before_physics)
+            .before(drain_committed_ui_before_authority)
+            .before(ClientFrameSet::UiAuthority),
     )
     .add_systems(
         Update,

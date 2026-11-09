@@ -60,7 +60,9 @@ func verifyBundle(data []byte) (Bundle, error) {
 	cmd := exec.CommandContext(ctx, binary, "verify", "--stdin")
 	cmd.WaitDelay = time.Second
 	cmd.Stdin = bytes.NewReader(data)
-	out := cappedOutput{limit: MaxMarkerBytes}
+	// The metadata carries the verified manifest, whose payload the client caps at half of
+	// MaxManifestBytes, beside the archive's digest and size.
+	out := cappedOutput{limit: MaxManifestBytes}
 	diagnostic := cappedOutput{limit: 4096}
 	cmd.Stdout = &out
 	cmd.Stderr = &diagnostic

@@ -56,17 +56,19 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
             Update,
             (
                 advance_actor_frame,
+                crate::runtime::network::complete_actor_motion_trace,
                 crate::runtime::network::publish_local_actor_damage,
             )
                 .chain()
                 .in_set(ClientFrameSet::ActorPreparation),
         )
-        // Picks in Interaction and NetworkSend read this frame's remote actor positions.
+        // Vehicle look and collision queries use staged motion; interaction boxes keep
+        // completed remote actor steps until actor preparation.
         .add_systems(
             Update,
             crate::runtime::network::advance_actor_motion
-                .after(ClientFrameSet::Camera)
-                .before(ClientFrameSet::Interaction),
+                .after(ClientFrameSet::Physics)
+                .before(ClientFrameSet::Camera),
         )
         .add_systems(
             Update,
@@ -92,7 +94,12 @@ pub(crate) fn configure_world(app: &mut App) {
     interaction::configure(app);
     app.add_systems(
         Update,
-        advance_local_physics
+        (
+            crate::item_use::adopt_server_item_use,
+            advance_local_physics,
+            crate::movement::record_simulation_tick,
+        )
+            .chain()
             .in_set(LocalPlayerFrameSet::Physics)
             .in_set(ClientFrameSet::Physics),
     )
@@ -101,6 +108,16 @@ pub(crate) fn configure_world(app: &mut App) {
         send_movement_prediction_sync
             .after(advance_local_physics)
             .in_set(ClientFrameSet::NetworkSend),
+    )
+    // Look following reads this frame's predicted and streamed vehicle headings before the
+    // camera resolves.
+    .init_resource::<client_presentation::camera::VehicleLookFollow>()
+    .add_systems(
+        Update,
+        crate::runtime::world::vehicle_look::follow_vehicle_look
+            .after(advance_local_physics)
+            .after(crate::runtime::network::advance_actor_motion)
+            .before(resolve_local_player_presentation),
     )
     .add_systems(
         Update,
@@ -119,6 +136,7 @@ pub(crate) fn configure_world(app: &mut App) {
             publish_local_player_frame,
             publish_interaction_origin,
             crate::camera::aim_assist::publish_assisted_interaction,
+            crate::camera::freeform_pick::publish,
             crate::camera::aim_highlight::publish,
         )
             .chain()

@@ -9,6 +9,11 @@ struct CompiledConnectedFixture {
     gate_facing_x: u32,
     wall: u32,
     cube: u32,
+    glass: u32,
+    scaffolding: u32,
+    powder_snow: u32,
+    /// Registry-unclassified see-through cubes: ice, tinted glass and honey.
+    see_through: [u32; 3],
 }
 
 fn write_connected_render_pack(root: &Path, cube_name: &str) {
@@ -23,7 +28,10 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
                 "nether_brick_fence":{{"textures":"nether_fence"}},
                 "fence_gate":{{"textures":"oak_fence_gate"}},
                 "cobblestone_wall":{{"textures":"wall"}},
-                "{cube_name}":{{"textures":"cube"}}
+                "{cube_name}":{{"textures":"cube"}},
+                "glass":{{"textures":"glass"}},
+                "scaffolding":{{"textures":"wall"}},
+                "powder_snow":{{"textures":"cube"}}
             }}"#
         ),
     )
@@ -39,7 +47,8 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
             "nether_fence":{"textures":"textures/blocks/nether_fence"},
             "oak_fence_gate":{"textures":"textures/blocks/oak_fence_gate"},
             "wall":{"textures":"textures/blocks/wall"},
-            "cube":{"textures":"textures/blocks/cube"}
+            "cube":{"textures":"textures/blocks/cube"},
+            "glass":{"textures":"textures/blocks/glass"}
         }}"#,
     )
     .expect("write connected terrain routing");
@@ -55,13 +64,18 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
         "oak_fence_gate",
         "wall",
         "cube",
+        "glass",
     ]
     .into_iter()
     .enumerate()
     {
         let mut rgba = vec![0_u8; 16 * 16 * 4];
-        for pixel in rgba.as_chunks_mut::<4>().0 {
-            pixel.copy_from_slice(&[20 + index as u8 * 25, 70, 110, 255]);
+        for (texel, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            // Glass keeps an opaque frame around clear texels, as the vanilla art does.
+            let (x, y) = (texel % 16, texel / 16);
+            let clear = name == "glass" && (1..15).contains(&x) && (1..15).contains(&y);
+            let alpha = if clear { 0 } else { 255 };
+            pixel.copy_from_slice(&[20 + index as u8 * 25, 70, 110, alpha]);
         }
         let mut png = Vec::new();
         PngEncoder::new(&mut png)
@@ -75,8 +89,12 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
 fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
     static FIXTURE: OnceLock<CompiledConnectedFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode connected registry");
+        // The active registry, so pinned connection facts read the same sequential IDs.
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .expect("decode connected registry");
         let named = |name: &str| {
             records
                 .iter()
@@ -112,6 +130,12 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             })
             .expect("full cube")
             .clone();
+        let glass = named("minecraft:glass");
+        let scaffolding = named("minecraft:scaffolding");
+        let scaffolding_id = scaffolding.sequential_id;
+        let see_through = ["minecraft:ice", "minecraft:tinted_glass", "minecraft:honey_block"]
+            .map(named);
+        let see_through_ids = see_through.each_ref().map(|record| record.sequential_id);
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
         let directory = tempfile::tempdir().expect("connected fixture directory");
         write_connected_render_pack(directory.path(), cube_name);
@@ -125,24 +149,34 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             gate_facing_x.sequential_id,
             wall.sequential_id,
             cube.sequential_id,
+            glass.sequential_id,
         ];
-        let compiled = compile_pack(
-            directory.path(),
-            &[
-                air,
-                pane,
-                other_pane,
-                wood_fence,
-                nether_fence,
-                gate_facing_z,
-                gate_facing_x,
-                wall,
-                cube,
-            ],
-        )
+        let mut records = vec![
+            air,
+            pane,
+            other_pane,
+            wood_fence,
+            nether_fence,
+            gate_facing_z,
+            gate_facing_x,
+            wall,
+            cube,
+            glass,
+            scaffolding,
+        ];
+        let powder_snow = named("minecraft:powder_snow");
+        let powder_snow_id = powder_snow.sequential_id;
+        records.push(powder_snow);
+        records.extend(see_through);
+        let compiled = compile_pack(directory.path(), &records)
         .expect("compile connected fixture");
         let blob = encode_blob(&compiled).expect("encode connected fixture");
         let assets = RuntimeAssets::decode(&blob).expect("decode connected fixture");
+        let glass_flags = assets.resolve(NetworkIdMode::Sequential, ids[9]).flags();
+        assert!(
+            !glass_flags.contains(BlockFlags::OCCLUDES_FULL_FACE),
+            "see-through glass must not occlude, or it would connect as an opaque cube: {glass_flags:?}"
+        );
         let pane_base = assets
             .resolve(NetworkIdMode::Sequential, ids[1])
             .model_template()
@@ -178,6 +212,10 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             gate_facing_x: ids[6],
             wall: ids[7],
             cube: ids[8],
+            glass: ids[9],
+            scaffolding: scaffolding_id,
+            powder_snow: powder_snow_id,
+            see_through: see_through_ids,
         }
     })
 }
@@ -211,6 +249,76 @@ fn mesh_connected(center_id: u32, neighbours: &[(usize, u32)]) -> ChunkMesh {
         &Neighbourhood::empty(),
         &sub,
     )
+}
+
+/// Meshes scaffolding at the fixture centre above `below`, returning its template refs.
+fn mesh_scaffolding_above(below: u32) -> Vec<u32> {
+    let fixture = compiled_connected_fixture();
+    let sub = sub_chunk(vec![packed_storage(
+        4,
+        &[fixture.air, fixture.scaffolding, below],
+        &[([8, 8, 8], 1), ([8, 7, 8], 2)],
+    )]);
+    let mesh = mesh_sub_chunk(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+    mesh.model_refs()
+        .iter()
+        .filter(|reference| reference.words()[0] & 0xfff == 8 | (8 << 4) | (8 << 8))
+        .map(|reference| reference.words()[1])
+        .collect()
+}
+
+#[test]
+fn scaffolding_draws_its_foot_ring_only_with_nothing_to_stand_on() {
+    let fixture = compiled_connected_fixture();
+    let base = fixture
+        .assets
+        .resolve(NetworkIdMode::Sequential, fixture.scaffolding)
+        .model_template()
+        .expect("scaffolding compiles to a model");
+    assert_eq!(
+        fixture.assets.model_templates()[base as usize].flags,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_SCAFFOLDING
+    );
+    assert_eq!(
+        mesh_scaffolding_above(fixture.air),
+        [base, base + 1, base + 2]
+    );
+    for below in [fixture.cube, fixture.scaffolding] {
+        assert_eq!(mesh_scaffolding_above(below), [base + 1, base + 2]);
+    }
+}
+
+#[test]
+fn scaffolding_highlights_and_cracks_resolve_the_template_its_terrain_draws() {
+    let fixture = compiled_connected_fixture();
+    let template_above = |below: Option<u32>| {
+        fixture.assets.model_template_at(
+            NetworkIdMode::Sequential,
+            fixture.scaffolding,
+            [0, 8, 0],
+            |position| {
+                assert_eq!(position, [0, 7, 0]);
+                below
+            },
+        )
+    };
+    let base = fixture
+        .assets
+        .resolve(NetworkIdMode::Sequential, fixture.scaffolding)
+        .model_template()
+        .expect("scaffolding compiles to a model");
+    for below in [None, Some(fixture.air)] {
+        assert_eq!(template_above(below), Some(base));
+    }
+    for below in [fixture.cube, fixture.scaffolding] {
+        assert_eq!(template_above(Some(below)), Some(base + 1));
+    }
 }
 
 #[test]
@@ -251,23 +359,56 @@ fn panes_select_all_sixteen_palette_native_connection_masks() {
     );
 }
 
+/// Vanilla connects thin and wooden fences to every neighbour without a connection rule,
+/// so non-occluding full cubes such as glass, ice, tinted glass and honey connect like
+/// opaque ones.
 #[test]
-fn equal_panes_suppress_only_internal_edge_caps_and_different_materials_retain_them() {
+fn panes_and_fences_connect_to_non_occluding_full_cubes() {
     let fixture = compiled_connected_fixture();
-    let same = mesh_connected(fixture.pane, &[(0, fixture.pane)]);
-    let different = mesh_connected(fixture.pane, &[(0, fixture.other_pane)]);
-    let same_ref = center_stair_ref(&same, [8, 8, 8]);
-    let different_ref = center_stair_ref(&different, [8, 8, 8]);
-    assert_eq!(same_ref.words()[1], different_ref.words()[1]);
-    assert_eq!(
-        different_ref.words()[3].count_ones(),
-        same_ref.words()[3].count_ones() + 1,
-        "only the equal-material boundary cap is suppressed"
-    );
-    assert_eq!(
-        different_ref.words()[3].count_ones(),
-        fixture.assets.model_templates()[different_ref.words()[1] as usize].quad_count
-    );
+    let template = |id| {
+        fixture
+            .assets
+            .resolve(NetworkIdMode::Sequential, id)
+            .model_template()
+            .unwrap()
+    };
+    for cube in std::iter::once(fixture.glass).chain(fixture.see_through) {
+        let north_and_east = [(0, cube), (1, cube)];
+        let pane = mesh_connected(fixture.pane, &north_and_east);
+        assert_eq!(
+            center_stair_ref(&pane, [8, 8, 8]).words()[1],
+            template(fixture.pane) + 3,
+            "pane beside {cube}"
+        );
+        let fence = mesh_connected(fixture.wood_fence, &north_and_east);
+        let arms = fence
+            .model_refs()
+            .iter()
+            .filter(|reference| reference.words()[0] & 0xfff == 8 | (8 << 4) | (8 << 8))
+            .map(|reference| reference.words()[1])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            arms,
+            [
+                template(fixture.wood_fence),
+                template(fixture.wood_fence) + 1 + 3
+            ],
+            "fence beside {cube}"
+        );
+    }
+}
+
+#[test]
+fn pane_arms_end_open_so_every_neighbouring_pane_keeps_all_template_quads() {
+    let fixture = compiled_connected_fixture();
+    for neighbour in [fixture.pane, fixture.other_pane] {
+        let mesh = mesh_connected(fixture.pane, &[(0, neighbour)]);
+        let reference = center_stair_ref(&mesh, [8, 8, 8]);
+        assert_eq!(
+            reference.words()[3].count_ones(),
+            fixture.assets.model_templates()[reference.words()[1] as usize].quad_count
+        );
+    }
 }
 
 #[test]
@@ -499,4 +640,208 @@ fn fence_gate_axis_connections_cross_all_four_horizontal_subchunk_boundaries() {
         assert_eq!(refs[0].words()[1], fence_base, "face={face:?}");
         assert_eq!(refs[1].words()[1], fence_base + 1 + bit, "face={face:?}");
     }
+}
+
+#[test]
+fn surface_rules_crop_pack_faces_without_changing_block_identity_or_materials() {
+    use meshing::surface::{CoverageClause, SurfaceRule};
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([8, 8, 8], 1)],
+    )]);
+    let neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rules = [SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![],
+            tiles: (1 << 0) | (1 << 8),
+        }],
+    }];
+    let baseline = meshing::mesh_sub_chunk_in_neighbourhood(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+    );
+    let masked = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert_eq!(source.runtime_id(0, 8, 8, 8), Some(fixture.glass));
+    assert_eq!(baseline.model_refs(), masked.model_refs());
+    assert_eq!(baseline.model_lighting(), masked.model_lighting());
+    assert_eq!(
+        masked.model_draw_refs().len(),
+        baseline.model_draw_refs().len() * 2
+    );
+    for pair in masked.model_draw_refs().as_chunks::<2>().0 {
+        assert_eq!(pair[0].quad_index(), pair[1].quad_index());
+        assert_eq!((pair[0].words()[1] >> 5) & 15, 0);
+        assert_eq!((pair[1].words()[1] >> 5) & 15, 8);
+        assert!(
+            pair.iter()
+                .all(|draw| draw.valid_surface_tile() && draw.words()[1] >> 9 == 16)
+        );
+    }
+}
+
+#[test]
+fn surface_conditions_follow_diagonal_neighbours_across_chunk_boundaries() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([15, 15, 8], 1)],
+    )]);
+    let remote = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([0, 0, 8], 1)],
+    )]);
+    let mut neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rule = SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![NeighbourCondition {
+                offset: [1, 1, 0],
+                present: false,
+            }],
+            tiles: 1 << 8,
+        }],
+    };
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ, fixture.air)
+            .tiles,
+        0x1ff
+    );
+    assert!(neighbourhood.insert([1, 1, 0], &remote));
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ, fixture.air)
+            .tiles,
+        0
+    );
+}
+
+#[test]
+fn surface_conditions_distinguish_loaded_empty_sections_from_missing_sections() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let source = sub_chunk(vec![]);
+    let empty = sub_chunk(vec![]);
+    let mut neighbourhood = world::MeshNeighbourhood::new(&source);
+    let mut rule = SurfaceRule {
+        states: vec![7],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![NeighbourCondition {
+                offset: [1, 0, 0],
+                present: false,
+            }],
+            tiles: 1,
+        }],
+    };
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        0x1ff
+    );
+    assert!(neighbourhood.insert([1, 0, 0], &empty));
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        1
+    );
+    // Implicit and explicitly stored air use the same session identity.
+    rule.states = vec![42];
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        0
+    );
+}
+
+#[test]
+fn surface_rules_preserve_opaque_model_faces_and_only_reserve_matching_draws() {
+    use meshing::surface::SurfaceRule;
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.powder_snow],
+        &[([8, 8, 8], 1)],
+    )]);
+    let neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rules = [SurfaceRule {
+        states: vec![fixture.powder_snow],
+        border: 16,
+        clauses: vec![],
+    }];
+    let baseline = meshing::mesh_sub_chunk_in_neighbourhood(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+    );
+    assert!(!baseline.model_draw_refs().is_empty());
+    let masked = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert_eq!(baseline.model_draw_refs(), masked.model_draw_refs());
+    let bounds = meshing::MeshOutputBounds::new(&fixture.assets);
+    assert_eq!(
+        bounds.for_sub_chunk(&source, &fixture.assets, NetworkIdMode::Sequential),
+        bounds.for_sub_chunk_with_surface_patches(
+            &source,
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &rules
+        )
+    );
+    let glass = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([8, 8, 8], 1)],
+    )]);
+    assert_eq!(
+        bounds.for_sub_chunk(&glass, &fixture.assets, NetworkIdMode::Sequential),
+        bounds.for_sub_chunk_with_surface_patches(
+            &glass,
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &rules
+        )
+    );
+    let glass_rule = [SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![],
+    }];
+    let extra = bounds.for_sub_chunk_with_surface_patches(
+        &glass,
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &glass_rule,
+    ) - bounds.for_sub_chunk(&glass, &fixture.assets, NetworkIdMode::Sequential);
+    assert_eq!(
+        extra,
+        4096 * 2 * 6 * 7 * std::mem::size_of::<meshing::PackedModelDrawRef>() as u64
+    );
 }

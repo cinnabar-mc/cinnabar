@@ -13,6 +13,11 @@ impl CandidateQueue {
         self.heap.first()
     }
 
+    /// Looks up one queued key without changing heap ownership or rank.
+    pub(in crate::stream) fn get(&self, key: &SubChunkKey) -> Option<&PendingSchedulerCandidate> {
+        self.positions.get(key).map(|&index| &self.heap[index])
+    }
+
     /// Reports whether the lane has no candidates.
     pub(in crate::stream) fn is_empty(&self) -> bool {
         self.heap.is_empty()

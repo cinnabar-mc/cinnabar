@@ -142,6 +142,26 @@ pub(super) fn compile(
     let geometry_selections =
         compile_geometry_selections(root, payloads, sources, geometries, &environments, molang)?;
 
+    let animation_symbols = rig::unique_symbol_indices(
+        &RigSources {
+            root,
+            payloads,
+            sources,
+            symbols,
+            geometries,
+        },
+        EntityAssetKind::Animation,
+    )?;
+    let controller_symbols = rig::unique_symbol_indices(
+        &RigSources {
+            root,
+            payloads,
+            sources,
+            symbols,
+            geometries,
+        },
+        EntityAssetKind::AnimationController,
+    )?;
     let mut pending_clips = Vec::new();
     for source in sources
         .iter()
@@ -167,8 +187,39 @@ pub(super) fn compile(
     let mut channels = Vec::new();
     let mut keyframes = Vec::new();
     let mut clip_indices = ClipIndices::new();
+    // A player's skin can replace its model with one that adds bones, whichever geometry the
+    // player's controllers select, so every player geometry keeps those bones' channels.
+    let player = assets::facts::entity::NativeEntityClass::Player.identifier();
+    let mut skin_modelled = std::collections::BTreeSet::<u32>::new();
+    for environment in environments.iter().filter(|environment| {
+        Some(
+            symbols[environment.entity_symbol as usize]
+                .identifier
+                .as_ref(),
+        ) == player
+    }) {
+        skin_modelled.extend(environment.geometry);
+        if let Some(GeometrySelection::Supported(selectable)) =
+            selection_for(environment, &geometry_selections)
+        {
+            skin_modelled.extend(selectable.iter().map(|candidate| candidate.geometry));
+        }
+        skin_modelled.extend(environment.alias_geometries.iter().copied());
+    }
     for (symbol, source, definition) in pending_clips {
         let identifier = symbols[symbol as usize].identifier.as_ref();
+        // Omit conflicting definitions from every lookup path, including server requests.
+        if animation_symbols
+            .get(identifier)
+            .is_some_and(Option::is_none)
+        {
+            outcomes.push(fallback(
+                source,
+                symbol,
+                FallbackReason::AmbiguousAnimationReference,
+            ));
+            continue;
+        }
         let used_geometries = environments
             .iter()
             .flat_map(|environment| {
@@ -213,9 +264,12 @@ pub(super) fn compile(
             ));
             continue;
         }
-        let definition = definition
-            .as_object()
-            .ok_or_else(|| invalid("animation definition must be an object"))?;
+        // An invalid definition loses only its own clips; the stack's other animations and
+        // entities still apply.
+        let Some(definition) = definition.as_object() else {
+            outcomes.push(fallback(source, symbol, FallbackReason::InvalidDefinition));
+            continue;
+        };
         if definition
             .get("animation_length")
             .and_then(Value::as_str)
@@ -228,57 +282,81 @@ pub(super) fn compile(
             ));
             continue;
         }
-        let mut partial = false;
-        if retain_server_clips {
-            let names: Vec<Box<str>> = definition
-                .get("bones")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(|bones| bones.keys())
-                .map(|name| name.to_ascii_lowercase().into())
-                .collect();
-            match compile_clip_for_geometry(
-                symbol,
-                source,
-                definition,
-                (None, &names),
-                ClipOutputs {
-                    clips: &mut clips,
-                    channels: &mut channels,
-                    keyframes: &mut keyframes,
-                    molang,
-                },
-            ) {
-                Ok((_, dropped)) => partial |= dropped > 0,
-                Err(ClipCompileError::Invalid(error)) => return Err(error),
+        let checkpoint = (clips.len(), channels.len(), keyframes.len(), molang.mark());
+        let mut compiled = Vec::new();
+        let result: Result<bool, AssetError> = 'clip: {
+            let mut partial = false;
+            if retain_server_clips {
+                let names: Vec<Box<str>> = definition
+                    .get("bones")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|bones| bones.keys())
+                    .map(|name| name.to_ascii_lowercase().into())
+                    .collect();
+                match compile_clip_for_geometry(
+                    symbol,
+                    source,
+                    definition,
+                    (None, &names, false),
+                    ClipOutputs {
+                        clips: &mut clips,
+                        channels: &mut channels,
+                        keyframes: &mut keyframes,
+                        molang,
+                    },
+                ) {
+                    Ok((_, dropped)) => partial |= dropped > 0,
+                    Err(ClipCompileError::Invalid(error)) => break 'clip Err(error),
+                }
             }
-        }
-        for geometry in used_geometries {
-            match compile_clip_for_geometry(
-                symbol,
-                source,
-                definition,
-                (Some(geometry), &effective_bones[geometry as usize]),
-                ClipOutputs {
-                    clips: &mut clips,
-                    channels: &mut channels,
-                    keyframes: &mut keyframes,
-                    molang,
-                },
-            ) {
-                Ok((clip, dropped)) => {
-                    partial |= dropped > 0;
+            for geometry in used_geometries {
+                match compile_clip_for_geometry(
+                    symbol,
+                    source,
+                    definition,
+                    (
+                        Some(geometry),
+                        &effective_bones[geometry as usize],
+                        skin_modelled.contains(&geometry),
+                    ),
+                    ClipOutputs {
+                        clips: &mut clips,
+                        channels: &mut channels,
+                        keyframes: &mut keyframes,
+                        molang,
+                    },
+                ) {
+                    Ok((clip, dropped)) => {
+                        partial |= dropped > 0;
+                        compiled.push((geometry, clip));
+                    }
+                    Err(ClipCompileError::Invalid(error)) => break 'clip Err(error),
+                }
+            }
+            Ok(partial)
+        };
+        match result {
+            Ok(partial) => {
+                for (geometry, clip) in compiled {
                     clip_indices.insert((identifier.into(), geometry), clip);
                 }
-                Err(ClipCompileError::Invalid(error)) => return Err(error),
+                if partial {
+                    outcomes.push(fallback(
+                        source,
+                        symbol,
+                        FallbackReason::UnsupportedOptionalExpression,
+                    ));
+                }
             }
-        }
-        if partial {
-            outcomes.push(fallback(
-                source,
-                symbol,
-                FallbackReason::UnsupportedOptionalExpression,
-            ));
+            Err(_) => {
+                let (clip_count, channel_count, keyframe_count, mark) = checkpoint;
+                clips.truncate(clip_count);
+                channels.truncate(channel_count);
+                keyframes.truncate(keyframe_count);
+                molang.rollback(mark);
+                outcomes.push(fallback(source, symbol, FallbackReason::InvalidDefinition));
+            }
         }
     }
     let PendingControllers {
@@ -291,6 +369,7 @@ pub(super) fn compile(
         sources,
         ControllerInputs {
             symbol_indices: &symbol_indices,
+            controller_symbols: &controller_symbols,
             clip_indices: &clip_indices,
             environments: &environments,
             geometry_selections: &geometry_selections,
@@ -325,7 +404,12 @@ pub(super) fn compile(
         outcomes.push(fallback(
             definition.source_index,
             symbol as u32,
-            if referenced {
+            if controller_symbols
+                .get(definition.identifier.as_ref())
+                .is_some_and(Option::is_none)
+            {
+                FallbackReason::AmbiguousAnimationReference
+            } else if referenced {
                 FallbackReason::UnsupportedOptionalExpression
             } else {
                 FallbackReason::UnreferencedDefinition
@@ -347,6 +431,7 @@ pub(super) fn compile(
             geometries,
         },
         RigInputs {
+            animation_symbols: &animation_symbols,
             clip_indices: &clip_indices,
             controllers: &pending_controllers,
             geometry_selections: &geometry_selections,

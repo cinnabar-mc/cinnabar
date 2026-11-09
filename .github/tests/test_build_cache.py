@@ -473,6 +473,55 @@ class ArchiveTests(unittest.TestCase):
                 self.assertTrue(all((go / name).exists() for name in go_cache))
                 self.assertEqual(sum(sizes.left_out.values()), 10 * len(left_out))
 
+    def test_units_the_build_no_longer_uses_are_left_out(self):
+        """Superseded units would otherwise accumulate in every saved cache, past its budget."""
+        live, stale, script, run = "0123456789abcdef", "fedcba9876543210", "1111111111111111", "2222222222222222"
+        messages = "\n".join(json.dumps(message) for message in [
+            {"reason": "compiler-artifact", "fresh": True,
+             "filenames": [f"D:\\a\\target\\debug\\deps\\libdemo-{live}.rlib"]},
+            {"reason": "compiler-artifact", "filenames": [f"/a/target/debug/build/sys-{script}/build-script-build"]},
+            {"reason": "build-script-executed", "out_dir": f"/a/target/debug/build/sys-{run}/out"},
+            {"reason": "compiler-message", "message": {"rendered": f"deps/libdemo-{stale}.rlib"}},
+            {"reason": "build-finished", "success": True},
+        ]) + "\nnot json\n"
+        kept = [
+            f"deps/libdemo-{live}.rlib", f"deps/libdemo-{live}.rmeta", f"deps/demo-{live}.d",
+            f"build/sys-{script}/build-script-build", f"build/sys-{run}/out/libnative.a",
+            f".fingerprint/demo-{stale}/lib-demo", "libdemo.rlib",
+        ]
+        left_out = [f"deps/libdemo-{stale}.rlib", f"deps/demo-{stale}.d", f"build/sys-{stale}/out/libnative.a"]
+        self.assertEqual(cache.live_units(messages), {live, script, run})
+        failed = messages + json.dumps({"reason": "build-finished", "success": False})
+        self.assertIsNone(cache.live_units(failed), "a failed build has not reported every unit")
+        for store in ("artifact", "cache"):
+            with self.subTest(store=store), tempfile.TemporaryDirectory() as temp:
+                source, archive = Path(temp) / "runner", Path(temp) / "cache.tar.gz"
+                profile = source / "target/debug"
+                for name in kept + left_out:
+                    (profile / name).parent.mkdir(parents=True, exist_ok=True)
+                    (profile / name).write_bytes(b"x" * 10)
+                (Path(temp) / "units.jsonl").write_text(messages)
+                units = cache.read_live_units({"CACHE_CARGO_MESSAGES": str(Path(temp) / "units.jsonl")})
+                if store == "artifact":
+                    cache.pack([str(profile)], archive, units)
+                    shutil.rmtree(source)
+                    with open(archive, "rb") as stream:
+                        cache.unpack([str(profile)], stream)
+                else:
+                    cache.drop_linked_outputs([str(profile)], units)
+                restored = {path.relative_to(profile).as_posix()
+                            for path in profile.rglob("*") if path.is_file()}
+                self.assertEqual(restored, set(kept))
+
+    def test_missing_or_failed_cargo_messages_keep_every_unit(self):
+        """Without a complete record of the build's units, nothing may be pruned."""
+        with tempfile.TemporaryDirectory() as temp:
+            failed = Path(temp) / "failed.jsonl"
+            failed.write_text(json.dumps({"reason": "build-finished", "success": False}))
+            for name in ("", str(Path(temp) / "missing.jsonl"), str(failed)):
+                with self.subTest(name=name):
+                    self.assertIsNone(cache.read_live_units({"CACHE_CARGO_MESSAGES": name}))
+
 
     def test_entries_outside_their_root_are_rejected(self):
         """A tampered archive cannot write outside the planned paths or plant links and devices."""
@@ -629,7 +678,7 @@ class ArtifactRetentionTests(unittest.TestCase):
             env = {"RUNNER_TEMP": temporary, "CACHE_PREFIX": "compiler-", "CACHE_BUCKET": "linux-ci-",
                    "CACHE_PATHS": "source", "GITHUB_RUN_ID": "123"}
             names = []
-            def pack(paths, archive):
+            def pack(paths, archive, live=None):
                 """Create a small compressed archive without invoking a compiler."""
                 archive.write_bytes(b"archive")
             for attempt in ("1", "2"):
@@ -645,7 +694,7 @@ class ArtifactRetentionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             env = {"RUNNER_TEMP": temporary, "CACHE_PREFIX": "linux-ci-compiler-", "CACHE_BUCKET": "linux-ci-",
                    "CACHE_PATHS": "source"}
-            def pack(paths, archive):
+            def pack(paths, archive, live=None):
                 """Write an already compressed fixture archive that exceeds the allocation."""
                 archive.write_bytes(b"x" * 31)
             with patch.object(cache, "pack", side_effect=pack), patch.object(cache, "budget", return_value=30), \

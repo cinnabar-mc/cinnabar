@@ -78,6 +78,17 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
         self.inner.shutdown();
     }
 
+    /// Closes old ingress immediately and destroys buffered payloads away from the menu frame.
+    pub fn retire(&mut self) {
+        let mut retired = std::mem::replace(self, Self::disconnected());
+        retired.inner.control_events_mut().close();
+        retired.inner.world_events_mut().close();
+        retired.shutdown();
+        let release =
+            bridge::leave_profile::LeaveProfile::current().section("network_buffers_release");
+        crate::session::release_off_frame((retired, release));
+    }
+
     /// Supplies an idle session until the launcher starts a join.
     pub fn disconnected() -> Self {
         client_session::NetworkHandle::disconnected().into()
@@ -162,14 +173,17 @@ fn advance_network_simulation<P: Send + Sync + 'static>(
 /// Records each extracted frame, and each that reached a window's swap chain, in the latency trace
 /// while tracing; needs the render sub-app.
 pub(crate) fn trace_presented_frames(app: &mut App) {
-    if bridge::latency_trace::active().is_none() && !bridge::join_profile::ENABLED {
-        return;
-    }
     if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
         render_app
             .init_resource::<HeldSwapChains>()
             .init_resource::<PresentedJoin>()
             .add_systems(ExtractSchedule, trace_frame_extracted)
+            .add_systems(
+                Render,
+                finish_leave_preparation
+                    .after(RenderSystems::Prepare)
+                    .before(RenderSystems::Render),
+            )
             .add_systems(
                 Render,
                 (
@@ -190,7 +204,9 @@ struct HeldSwapChains(usize);
 #[derive(Resource, Default)]
 struct PresentedJoin {
     profile: Option<bridge::join_profile::JoinProfile>,
+    leave: bridge::leave_profile::LeaveProfile,
     hidden: bool,
+    prepare: Option<bridge::leave_profile::Section>,
 }
 
 /// Stamps the main frame as the render world extracts it, the count pairing it with its present.
@@ -201,6 +217,14 @@ fn trace_frame_extracted(
         Query<&bevy::window::Window, bevy::prelude::With<bevy::window::PrimaryWindow>>,
     >,
 ) {
+    let leave = bridge::leave_profile::LeaveProfile::pending_presentation();
+    pending.leave = if leave.presentation_pending() {
+        leave
+    } else {
+        Default::default()
+    };
+    pending.prepare = pending.leave.section_once("render_prepare_and_release");
+    pending.leave.mark("menu_extracted");
     pending.hidden = windows.single().is_ok_and(|window| !window.visible);
     let profile = bridge::join_profile::JoinProfile::current();
     pending.profile = profile.presentation_pending().then_some(profile);
@@ -210,6 +234,11 @@ fn trace_frame_extracted(
             &[i64::from(frames.0), trace.now()],
         );
     }
+}
+
+/// Ends CPU preparation, including old-resource retirement, before menu command submission.
+fn finish_leave_preparation(mut pending: ResMut<PresentedJoin>) {
+    pending.prepare.take();
 }
 
 fn count_held_swap_chains(windows: Query<&ExtractedWindow>, mut held: ResMut<HeldSwapChains>) {
@@ -224,11 +253,26 @@ fn trace_frame_presented(
     held: Res<HeldSwapChains>,
     queue: Res<RenderQueue>,
     mut pending: ResMut<PresentedJoin>,
+    content: Option<Res<render::UiFrameContent>>,
 ) {
     if presented(held.0, held_swap_chains(&windows)) {
         trace_frame(bridge::latency_trace::kind::PRESENTED, frames);
     }
     let was_presented = presented(held.0, held_swap_chains(&windows));
+    if (was_presented || pending.hidden)
+        && content
+            .as_deref()
+            .is_some_and(|content| content.complete(pending.hidden))
+        && pending.leave.presentation_pending()
+    {
+        let leave = std::mem::take(&mut pending.leave);
+        let hidden = pending.hidden;
+        leave.mark("menu_submitted");
+        queue.on_submitted_work_done(move || {
+            leave.mark("gpu_retirement_fence");
+            leave.menu_completed(hidden);
+        });
+    }
     if (was_presented || pending.hidden)
         && let Some(profile) = pending.profile.take()
     {
