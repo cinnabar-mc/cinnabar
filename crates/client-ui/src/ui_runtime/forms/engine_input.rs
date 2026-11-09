@@ -194,9 +194,10 @@ pub fn dispatch(
     // one the pointer was over, and keys continue from it.
     if engine.keyboard_hover.is_none()
         && let Some(key) = engine.view.hovered.clone()
-        && frame.hits.iter().any(|region| {
-            region.key == key && region.focus.as_ref().is_some_and(|focus| focus.enabled)
-        })
+        && frame
+            .hits
+            .iter()
+            .any(|region| region.key == key && region.takes_focus())
     {
         json_ui::set_focus(&mut engine.view, &frame.hits, Some(key));
     }
