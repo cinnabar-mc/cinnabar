@@ -23,8 +23,9 @@ pub struct BlockTextureSource {
     pub name: Box<str>,
     pub binding_name: Box<str>,
     pub source_faces: [u8; 6],
-    /// Quarter-turn UV rotation for each world face when the binding is per-face.
-    pub source_rotations: [bool; 6],
+    /// Packed UV rotation code (`MATERIAL_FLAG_UV_ROTATION_MASK`) for each world face when
+    /// the binding is per-face.
+    pub source_rotations: [u8; 6],
     /// Both world faces and carried art may be rebound only for admitted full cubes.
     pub cube_binding_eligible: bool,
     pub carried_keys: [Option<Box<str>>; 6],

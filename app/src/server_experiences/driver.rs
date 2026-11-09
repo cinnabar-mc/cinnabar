@@ -68,6 +68,7 @@ pub(crate) fn configure(app: &mut App) {
         (
             super::drawing::present,
             crate::modding::anchors::publish_frame,
+            crate::modding::block_geometry::prepare,
         )
             .chain()
             .after(crate::modding::DrawingPublication)
@@ -181,7 +182,7 @@ fn drive(
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let world = &drawing.world;
     let generation = runtime.session_id();
-    let extension = &mut runtime.experiences;
+    let extension = &mut runtime.session.experiences;
     if service.generation != generation {
         service.generation = generation;
         service.deployment = None;

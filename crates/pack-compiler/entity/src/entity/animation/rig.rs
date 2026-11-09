@@ -43,6 +43,7 @@ struct PendingRig {
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
     held_item_scale: Option<u32>,
+    hide_held_items: Option<u32>,
 }
 
 /// `(alias, target, weight, authored order)` of one root binding.
@@ -118,6 +119,7 @@ impl PendingRigPayload {
                 scale: rig.scale,
                 scale_expressions: rig.scale_expressions,
                 held_item_scale: rig.held_item_scale,
+                hide_held_items: rig.hide_held_items,
             });
         }
         Ok(FinalRigPayload {
@@ -222,6 +224,7 @@ pub(super) fn compile_rigs(
                 scale: EntityGeometryScalar::new(1.0).expect("unit scale is valid"),
                 scale_expressions: None,
                 held_item_scale: None,
+                hide_held_items: None,
             });
             index
         });
@@ -408,6 +411,7 @@ pub(super) fn compile_rigs(
             scale: scripts.scale,
             scale_expressions: scripts.scale_expressions,
             held_item_scale: scripts.held_item_scale,
+            hide_held_items: scripts.hide_held_items,
         };
         let rig_index = match selection_rig {
             Some(index) => {
@@ -430,6 +434,7 @@ struct RigScripts {
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
     held_item_scale: Option<u32>,
+    hide_held_items: Option<u32>,
     dropped: usize,
 }
 
@@ -513,12 +518,27 @@ impl RigScripts {
                 compiled
             }
         };
+        let hide_held_items = match description.get("hide_held_items") {
+            None => None,
+            Some(value) => {
+                let expression = match value {
+                    Value::Bool(value) => Some(u8::from(*value).to_string()),
+                    Value::Number(number) => Some(number.to_string()),
+                    Value::String(text) => Some(text.clone()),
+                    _ => None,
+                };
+                let compiled = expression.and_then(|text| molang.compile(&text).ok());
+                dropped += usize::from(compiled.is_none());
+                compiled
+            }
+        };
         Ok(Self {
             initialize,
             pre_animation,
             scale,
             scale_expressions,
             held_item_scale,
+            hide_held_items,
             dropped,
         })
     }

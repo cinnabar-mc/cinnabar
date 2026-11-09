@@ -13,21 +13,25 @@ fn png(width: u32, height: u32) -> Vec<u8> {
 }
 
 pub(super) fn view() -> LayeredPackView {
-    let id = "00000000-0000-0000-0000-000000000002";
-    let manifest = format!(
-        r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
-    );
     let catalog = r#"{"texture_data": {"test:gem": {"textures": "textures/items/gem"},
         "test:strip": {"textures": ["textures/items/strip"]},
         "test:huge": {"textures": "textures/items/huge"}}}"#;
-    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (path, bytes) in [
-        ("manifest.json", manifest.into_bytes()),
+    view_with(vec![
         ("textures/item_texture.json", catalog.as_bytes().to_vec()),
         ("textures/items/gem.png", png(16, 16)),
         ("textures/items/strip.png", png(16, 48)),
         ("textures/items/huge.png", png(128, 96)),
-    ] {
+    ])
+}
+
+/// A one-pack stack holding `files` beside its manifest.
+pub(super) fn view_with(files: Vec<(&str, Vec<u8>)>) -> LayeredPackView {
+    let id = "00000000-0000-0000-0000-000000000002";
+    let manifest = format!(
+        r#"{{"format_version":2,"header":{{"uuid":"{id}","version":[1,0,0]}},"modules":[{{"type":"resources"}}]}}"#
+    );
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, bytes) in std::iter::once(("manifest.json", manifest.into_bytes())).chain(files) {
         writer
             .start_file(path, zip::write::SimpleFileOptions::default())
             .unwrap();
@@ -605,4 +609,111 @@ fn oversized_item_strips_resolve_to_valid_first_frame_icons() {
             });
         }
     }
+}
+
+/// A vertical strip of `frames` square frames whose red channel is the frame index.
+fn dial_strip_png(side: u32, frames: u32) -> Vec<u8> {
+    let image = image::RgbaImage::from_fn(side, side * frames, |_, y| {
+        image::Rgba([(y / side) as u8, 9, 9, 255])
+    });
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    bytes.into_inner()
+}
+
+/// The pack's frames of the strip carried under `identifier`, as `(frame, side, red)`.
+fn carried_frames(
+    icons: &client_ui::ui_runtime::presentation::SessionIcons,
+    identifier: &str,
+) -> Vec<(u32, u32, u8)> {
+    icons
+        .icons
+        .iter()
+        .filter(|icon| icon.identifier.as_ref() == identifier)
+        .map(|icon| (icon.metadata, icon.width, icon.rgba8[0]))
+        .collect()
+}
+
+fn dial_icons(
+    files: Vec<(&str, Vec<u8>)>,
+) -> Option<Arc<client_ui::ui_runtime::presentation::SessionIcons>> {
+    compile_session_icons(&view_with(files), &[], BlockIcons::default())
+}
+
+// A pack's compass and clock strips animate, so each frame is carried and none is a still icon.
+#[test]
+fn pack_dial_atlases_carry_every_native_frame() {
+    let icons = dial_icons(vec![
+        ("textures/items/compass_atlas.png", dial_strip_png(16, 32)),
+        ("textures/items/watch_atlas.png", dial_strip_png(8, 64)),
+    ])
+    .expect("icons");
+    let compass = carried_frames(&icons, "minecraft:compass_atlas");
+    assert_eq!(compass.len(), 32);
+    assert!(
+        compass
+            .iter()
+            .all(|&(frame, side, red)| side == 16 && red == frame as u8)
+    );
+    assert_eq!(compass.first().map(|c| c.0), Some(0));
+    let clock = carried_frames(&icons, "minecraft:watch_atlas");
+    assert_eq!(clock.len(), 64);
+    assert!(
+        clock
+            .iter()
+            .all(|&(frame, side, red)| side == 8 && red == frame as u8)
+    );
+    assert!(carried_frames(&icons, "minecraft:recovery_compass_atlas").is_empty());
+}
+
+// A Java-named strip in a Bedrock pack is the same animation; only an exact frame count is one.
+#[test]
+fn java_named_strips_carry_frames_only_at_the_native_count() {
+    let icons = dial_icons(vec![
+        ("textures/items/compass.png", dial_strip_png(16, 32)),
+        ("textures/items/clock.png", dial_strip_png(16, 32)),
+    ])
+    .expect("icons");
+    assert_eq!(carried_frames(&icons, "minecraft:compass_atlas").len(), 32);
+    assert!(
+        carried_frames(&icons, "minecraft:watch_atlas").is_empty(),
+        "a clock strip needs 64 frames"
+    );
+    assert!(dial_icons(vec![("textures/items/compass.png", dial_strip_png(16, 64))]).is_none());
+    assert!(dial_icons(vec![("textures/items/compass.png", png(16, 16))]).is_none());
+}
+
+#[test]
+fn partial_or_oversized_atlases_never_mix_with_base_frames() {
+    assert!(
+        dial_icons(vec![(
+            "textures/items/compass_atlas.png",
+            dial_strip_png(16, 31)
+        )])
+        .is_none()
+    );
+    let icons = dial_icons(vec![(
+        "textures/items/compass_atlas.png",
+        dial_strip_png(16, 40),
+    )])
+    .expect("icons");
+    assert_eq!(
+        carried_frames(&icons, "minecraft:compass_atlas").len(),
+        32,
+        "native count only"
+    );
+}
+
+#[test]
+fn an_atlas_outranks_a_java_named_strip() {
+    let named = image::RgbaImage::from_pixel(16, 16 * 32, image::Rgba([200, 9, 9, 255]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    named.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    let icons = dial_icons(vec![
+        ("textures/items/compass.png", bytes.into_inner()),
+        ("textures/items/compass_atlas.png", dial_strip_png(16, 32)),
+    ])
+    .expect("icons");
+    let frames = carried_frames(&icons, "minecraft:compass_atlas");
+    assert!(frames.iter().all(|&(frame, _, red)| red == frame as u8));
 }

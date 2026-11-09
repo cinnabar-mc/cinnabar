@@ -357,7 +357,7 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
         .unwrap()
         .into(),
         placements: [super::super::PreviewHeldPlacement::Sprite {
-            hand_equipped: false,
+            grip: render_model::equipment::SpriteGrip::Flat,
         }; 2],
         hand_pivots: [
             [6.0 / 16.0, 15.0 / 16.0, 1.0 / 16.0],

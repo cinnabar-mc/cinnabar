@@ -39,6 +39,7 @@ fn item(position: [f32; 3]) -> DroppedItemView {
             identifier: Some("test:item".into()),
             visual: ItemVisualRoute::Missing,
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             charged_projectile_role: Default::default(),
             damage: None,

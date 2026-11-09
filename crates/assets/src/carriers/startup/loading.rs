@@ -102,21 +102,24 @@ pub fn load_runtime_assets_observed(
     })
 }
 
-/// Loads the menu's required atmosphere and font without touching world-only carriers.
+/// Validates required startup artwork without decoding the world or physics registry.
 pub fn load_menu_assets(
     path: &Path,
     observer: &impl CarrierLoadObserver,
 ) -> Result<super::MenuAssets, AssetStartupError> {
-    let (atmosphere, fonts) = std::thread::scope(|scope| {
+    let (atmosphere, fonts, entities) = std::thread::scope(|scope| {
         let fonts = scope.spawn(|| observer.observe("font", || load_font_assets(path)));
+        let entities = scope.spawn(|| observer.observe("entity", || load_entity_assets(path)));
         (
             observer.observe("atmosphere", || load_atmosphere_assets(path)),
             join(fonts),
+            join(entities),
         )
     });
     Ok(super::MenuAssets {
         atmosphere: atmosphere?,
         fonts: fonts?,
+        entities: entities?,
     })
 }
 
@@ -127,18 +130,16 @@ pub fn load_world_assets_observed(
     observer: &impl CarrierLoadObserver,
 ) -> Result<LoadedAssets, AssetStartupError> {
     let path = selection.path.as_path();
-    let (world, entities, item_facts) = std::thread::scope(|scope| {
-        let entities = scope.spawn(|| observer.observe("entity", || load_entity_assets(path)));
+    let (world, item_facts) = std::thread::scope(|scope| {
         let item_facts =
             scope.spawn(|| observer.observe("item-facts", || super::require_item_facts(path)));
         (
             observer.observe("world", || load_world_carrier(path)),
-            join(entities),
             join(item_facts),
         )
     });
     let world = world?;
-    let entities = entities?;
+    let entities = menu.entities;
     observer.observe("entity facts", || require_entity_facts(path))?;
     let source = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let Some(world) = world else {
@@ -332,19 +333,21 @@ mod tests {
     }
 
     #[test]
-    fn menu_loading_never_opens_world_entity_or_physics_carriers() {
+    fn menu_validates_required_entities_without_opening_world_or_physics_carriers() {
         let directory = tempfile::tempdir().unwrap();
         let world = directory.path().join(crate::carriers::WORLD.output);
         std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
-        // Corrupt world-only siblings must remain unread until world admission.
+        // World-only data stays unread, but required artwork must fail on main.
         std::fs::write(&world, b"not a world carrier").unwrap();
         std::fs::write(entity_asset_path(&world), b"not an entity carrier").unwrap();
+        assert!(load_menu_assets(&world, &()).is_err());
+        std::fs::write(entity_asset_path(&world), synthetic_entity_blob(0)).unwrap();
         let observer = Loads::default();
         let loaded = load_menu_assets(&world, &observer).unwrap();
         assert!(loaded.fonts.is_diagnostic());
         let mut loads = observer.0.into_inner().unwrap();
         loads.sort_unstable();
-        assert_eq!(loads, ["atmosphere", "font"]);
+        assert_eq!(loads, ["atmosphere", "entity", "font"]);
         assert!(
             load_world_assets_observed(
                 super::super::select_asset_path(Some(&world), None),
@@ -353,6 +356,27 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn world_preparation_reuses_the_entity_carrier_validated_before_the_menu() {
+        let directory = tempfile::tempdir().unwrap();
+        let world = directory.path().join(crate::carriers::WORLD.output);
+        write_pinned_facts(&world);
+        std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
+        std::fs::write(entity_asset_path(&world), synthetic_entity_blob(0)).unwrap();
+        let menu = load_menu_assets(&world, &()).unwrap();
+        let entities = Arc::clone(menu.entities.runtime());
+        std::fs::remove_file(entity_asset_path(&world)).unwrap();
+        let observer = Loads::default();
+        let loaded = load_world_assets_observed(
+            super::super::select_asset_path(Some(&world), None),
+            menu,
+            &observer,
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(&entities, loaded.entities.runtime()));
+        assert!(!observer.0.into_inner().unwrap().contains(&"entity"));
     }
 
     #[test]

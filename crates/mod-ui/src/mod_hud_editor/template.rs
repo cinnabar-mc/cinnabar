@@ -11,7 +11,7 @@ fn rect(size: [f64; 2], offset: [f64; 2], color: [f64; 4]) -> Value {
         "size":size,"offset":offset,"color":color,"anchor_from":"top_left","anchor_to":"top_left"})
 }
 /// Creates a literal, clipped editor label using the active carrier font.
-fn label(style: ui::mod_hud::EditorStyle, text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
+fn label(style: EditorStyle, text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
     json!({"type":"label","text":text,"size":[size[0],"default"],"max_size":size,
         "offset":[offset[0],offset[1]+size[1]*0.5-1.],"localize":false,
         "font_type":style.font.name(),"font_scale_factor":style.text_scale,"color":[1,1,1,1],"shadow":true,"text_alignment":"left",
@@ -30,7 +30,7 @@ pub(super) fn catalog(
     viewport: [f64; 2],
     history_buttons: bool,
 ) -> Result<Catalog, String> {
-    let style = hud.editor_style.unwrap_or_default();
+    let style = EditorStyle::default();
     let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
     if hud.surface.is_none() {

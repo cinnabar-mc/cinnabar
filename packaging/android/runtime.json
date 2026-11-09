@@ -80,5 +80,6 @@
     "guest_bytes": 178760,
     "guest_directory": "x64lib"
   },
-  "compiler_library": "libassetc.so"
+  "compiler_library": "libassetc.so",
+  "shaderpack_worker_library": "libshaderpack_worker.so"
 }

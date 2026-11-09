@@ -100,7 +100,7 @@ fn held_scale_keeps_tick_and_frame_script_order() {
     for alpha in [0.25, 0.75] {
         let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
         assert_eq!(
-            frame.sample_held_item_scale(tick).held_item_scale,
+            frame.sample_equipment_properties(tick).held_item_scale,
             tick.held_item_scale.map(|value| value + alpha),
             "held scale uses the same script order at the tick and each frame"
         );
@@ -117,7 +117,7 @@ fn held_scale_samples_once_without_committing_owner_variables() {
         let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
         frame.layers(1).unwrap();
         let body_remaining = frame.remaining_ops();
-        let sampled = frame.sample_held_item_scale(tick);
+        let sampled = frame.sample_equipment_properties(tick);
         assert_eq!(
             sampled.held_item_scale,
             tick.held_item_scale.map(|scale| scale + alpha)
@@ -133,7 +133,7 @@ fn held_scale_samples_once_without_committing_owner_variables() {
             sampled.held_item_scale
         );
         assert_eq!(
-            frame.sample_held_item_scale(tick).held_item_scale,
+            frame.sample_equipment_properties(tick).held_item_scale,
             sampled.held_item_scale
         );
         assert_eq!(frame.remaining_ops(), remaining);
@@ -157,7 +157,10 @@ fn held_scale_lifetime_stays_live_during_isolated_rotation_sampling() {
     let tick = store.get(1).unwrap();
     for alpha in [0.25, 0.75] {
         let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
-        let sampled = frame.sample_held_item_scale(tick).held_item_scale.unwrap();
+        let sampled = frame
+            .sample_equipment_properties(tick)
+            .held_item_scale
+            .unwrap();
         let expected = tick.held_item_scale.unwrap() + alpha * ACTOR_TICK_DURATION.as_secs_f32();
         assert!(
             (sampled - expected).abs() < 1.0e-6,
@@ -175,7 +178,7 @@ fn exhausted_held_scale_sample_keeps_completed_tick_value() {
         let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.5);
         frame.set_remaining_ops(budget);
         assert_eq!(
-            frame.sample_held_item_scale(tick).held_item_scale,
+            frame.sample_equipment_properties(tick).held_item_scale,
             tick.held_item_scale
         );
     }
@@ -188,7 +191,7 @@ fn culled_held_scale_samples_without_changing_completed_state() {
     let tick = store.get(1).unwrap();
     let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.5);
     assert_eq!(
-        frame.sample_held_item_scale(tick).held_item_scale,
+        frame.sample_equipment_properties(tick).held_item_scale,
         tick.held_item_scale.map(|scale| scale + 0.5)
     );
 }

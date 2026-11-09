@@ -110,7 +110,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             })
             .take(8)
             .collect::<Vec<_>>();
-        // Textures past the pack's equipment texture budget leave their attachable undrawn.
+        // Textures past the pack's equipment pixel budget leave their attachable undrawn.
         let textured = |item: &str| {
             compiled.equipment_bindings.iter().any(|binding| {
                 binding.identifier.as_ref() == item
@@ -175,6 +175,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             input.armor[slot as usize] = Some(WornItem {
                 variant: Default::default(),
                 map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::ItemGrip::Unresolved,

@@ -2,7 +2,7 @@ use super::*;
 
 /// Creates a granted mask during init and traps when a later message arrives.
 const MASK_GUEST: &str = r#"(component
-        (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+        (import "cinnabar:world-draw/drawing@0.2.0" (instance $drawing
             (type $handle (record (field "owner" u64) (field "generation" u64) (field "slot" u64)))
             (export "handle" (type $h (eq $handle)))
             (type $code (enum "denied" "invalid" "budget-exceeded" "stale-handle" "unsupported" "in-use"))
@@ -11,7 +11,7 @@ const MASK_GUEST: &str = r#"(component
             (export "draw-error" (type $e (eq $error)))))
         (alias export $drawing "handle" (type $h))
         (alias export $drawing "draw-error" (type $e))
-        (import "cinnabar:world-draw/masks@0.1.0" (instance $masks
+        (import "cinnabar:world-draw/masks@0.2.0" (instance $masks
             (export "handle" (type (eq $h)))
             (export "draw-error" (type (eq $e)))
             (type $depth (enum "test" "always"))
@@ -139,6 +139,7 @@ fn placement(host: &mut BundleHost) -> crate::runtime::cinnabar::world_draw::dra
     draw::Instance {
         geometry,
         material: None,
+        clip: None,
         params: Vec::new(),
         anchor: draw::Anchor::Camera,
         transform: draw::Transform {

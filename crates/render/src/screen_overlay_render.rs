@@ -568,12 +568,12 @@ fn queue_overlay(
             OverlayPipelineKey {
                 msaa: *msaa,
                 hdr: extracted_camera.hdr,
-                after_hand: ui.is_some() || (cfg!(feature = "shaderpacks") && pack_view),
+                after_hand: ui.is_some() || (pack_view),
             },
         ) else {
             continue;
         };
-        if ui.is_some() || (cfg!(feature = "shaderpacks") && pack_view) {
+        if ui.is_some() || (pack_view) {
             gpu.view_pipelines.insert(view_entity, pipeline_id);
             continue;
         }

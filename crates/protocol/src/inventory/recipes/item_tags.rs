@@ -58,7 +58,7 @@ mod tests {
             .next()
             .unwrap();
         let manifest: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../assets/block-projection-v2193.json"
+            "../../../../../assets/block-projection-v2225.json"
         ))
         .unwrap();
         assert_eq!(

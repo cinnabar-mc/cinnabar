@@ -48,7 +48,7 @@ fn fixture() -> Option<(
         Err(error) => panic!("Enhanced bamboo carrier {}: {error}", path.display()),
     };
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../assets/data/block-registry-v2225.bin"),
         target["wire_protocol"].as_u64().unwrap() as u32,
     )
     .unwrap()

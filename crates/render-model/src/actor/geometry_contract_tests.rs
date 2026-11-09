@@ -3,6 +3,39 @@ use assets::block_entity_geometry::heads::HeadModel;
 
 const SOURCE: &str = include_str!("fixtures/cube_defaults.geo.json");
 
+#[test]
+fn named_model_parts_keep_palette_indices_when_drawing_in_key_order() {
+    let geometry = super::super::fixture::masked_parts();
+    let parts = geometry
+        .vertices
+        .iter()
+        .map(|vertex| vertex.bone_index)
+        .collect::<Vec<_>>();
+    assert_eq!(parts, [vec![1; 12], vec![0; 6]].concat());
+    assert_eq!(geometry.bone_pivots.len(), 2);
+}
+
+#[test]
+fn named_parent_registers_its_children_before_the_next_root() {
+    let catalog = catalog_from_source(
+        r#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.original_hierarchy","texture_width":8,"texture_height":8},
+        "bones":[
+            {"name":"z_child","parent":"A_PARENT","cubes":[{"origin":[2,0,0],"size":[1,1,1],"uv":[0,0]}]},
+            {"name":"a_parent","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]},
+            {"name":"m_other","cubes":[{"origin":[4,0,0],"size":[1,1,1],"uv":[0,0]}]}
+        ]}]}"#,
+    );
+    let index = find_geometry_index(&catalog, "geometry.original_hierarchy").unwrap() as usize;
+    let geometry = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
+    let parts = geometry
+        .vertices
+        .iter()
+        .map(|vertex| vertex.bone_index)
+        .collect::<Vec<_>>();
+    assert_eq!(parts, [vec![1; 36], vec![0; 36], vec![2; 36]].concat());
+}
+
 /// Compiles only original geometry into a normally admitted catalog, without local game assets.
 fn catalog() -> RuntimeEntityAssets {
     catalog_from_source(SOURCE)
@@ -206,4 +239,54 @@ fn inherited_armour_inflation_keeps_the_shell_outside_the_player_body() {
     let index = find_geometry_index(&catalog, "geometry.armour_shell").unwrap() as usize;
     let mesh = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
     assert_bounds(&mesh.vertices, [-5.0, 11.0, -3.0], [5.0, 25.0, 3.0]);
+}
+
+/// Geometry made only of a polygon mesh keeps it through the pack compile and the carrier, and
+/// draws on an entity and as a held attachable.
+#[test]
+fn pack_entity_with_only_a_polygon_mesh_draws() {
+    let geometry = serde_json::json!({"format_version": "1.16.0", "minecraft:geometry": [{
+        "description": {
+            "identifier": "geometry.fixture", "texture_width": 64, "texture_height": 64
+        },
+        "bones": [{"name": "root", "pivot": [0, 0, 0], "poly_mesh": {
+            "normalized_uvs": true,
+            "positions": [[-8, 0, 0], [8, 0, 0], [8, 16, 0], [-8, 16, 0]],
+            "normals": [[0, 0, -1]],
+            "uvs": [[0, 0], [1, 0], [1, 1], [0, 1]],
+            "polys": [[[0, 0, 0], [1, 0, 1], [2, 0, 2], [3, 0, 3]]]
+        }}]
+    }]});
+    let entity = serde_json::json!({"format_version": "1.10.0", "minecraft:client_entity": {
+        "description": {
+            "identifier": "fixture:model", "geometry": {"default": "geometry.fixture"}
+        }
+    }});
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
+        (
+            "entity/fixture.json".into(),
+            entity.to_string().into_bytes(),
+        ),
+        (
+            "models/entity/fixture.geo.json".into(),
+            geometry.to_string().into_bytes(),
+        ),
+    ])
+    .unwrap()
+    .unwrap();
+    let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&bytes).unwrap();
+    let built = entity_geometry(&runtime, 0, EntityRigId(0)).unwrap();
+    assert_eq!(built.vertices.len(), 6);
+    assert_eq!(built.vertices[0].position, [0.5, 0.0, 0.0]);
+    // Held attachables build through their own mesher.
+    let texture = assets::EquipmentTexture {
+        identifier: "fixture".into(),
+        width: 64,
+        height: 64,
+        rgba8: Arc::from(vec![255; 64 * 64 * 4]),
+    };
+    let held = super::super::attachable_geometry(&runtime, 0, EntityRigId(0), &texture).unwrap();
+    assert_eq!(held.vertices.len(), 6);
+    assert_eq!(held.vertices[0].position, [0.5, 0.0, 0.0]);
 }

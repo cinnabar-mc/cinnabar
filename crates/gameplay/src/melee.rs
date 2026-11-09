@@ -14,8 +14,8 @@ mod hit_position_tests;
 mod target;
 pub use target::{
     ActorHit, Crosshair, actor_is_pickable, actor_pick_unique_id, block_pick_distance, classify,
-    classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_distance,
-    ray_box_entry,
+    classify_block_hit, obstructs_placement, pick_actor, pick_actor_by, pick_box, pick_distance,
+    ray_box_entry, trim_actor_pick,
 };
 
 /// Bedrock swing length in ticks, with the stronger Haste or Conduit Power taking priority.
@@ -62,6 +62,8 @@ pub struct PressContext {
     pub item_attack: Option<ItemAttackPress>,
     /// The reached block when the game mode or held item refuses to start destroying it.
     pub refused_destroy: Option<RefusedDestroy>,
+    /// Current target life sampled for this admission attempt, never retained with a queued press.
+    pub actor_life: Option<u64>,
 }
 
 /// A block press whose destroy fails at its start, as vanilla reports it.
@@ -94,7 +96,7 @@ impl RefusedDestroy {
         // An abort carries the progress percent, which no refused start has made.
         let abort = action(protocol::BlockActionKind::AbortDestroy, 0);
         if self.reason == RefusedDestroyReason::CreativeNoBreak {
-            let _ = payload
+            payload
                 .actions
                 .push(action(protocol::BlockActionKind::StartDestroy, self.face));
             payload.creative_destroy = Some(crate::survival_mining::CreativeDestroyBlock {
@@ -103,8 +105,7 @@ impl RefusedDestroy {
                 face: self.face,
             });
         }
-        // At most two actions, within the bounded list.
-        let _ = payload.actions.push(abort);
+        payload.actions.push(abort);
         payload
     }
 }
@@ -129,6 +130,8 @@ pub struct AdmittedActorAttack {
     pub sequence: u64,
     pub tick: u64,
     pub hit: ActorHit,
+    /// Target life at outbound admission, retained even if packets change it before observation.
+    pub life: Option<u64>,
 }
 
 /// Attack-press state; `actor_in_front` vetoes mining behind a targeted actor.
@@ -209,10 +212,26 @@ impl MeleeRuntime {
 
     /// Records this frame's attack input; returns whether a press is waiting.
     pub fn observe_input(&mut self, pressed: bool, held: bool) -> bool {
+        self.observe_input_with_capture(pressed, held, None)
+    }
+
+    /// Retains a capture-only press identity with its FIFO entry through admission retries.
+    pub fn observe_input_with_capture(
+        &mut self,
+        pressed: bool,
+        held: bool,
+        frame: Option<[u64; 2]>,
+    ) -> bool {
         if pressed {
-            self.queue.push();
+            self.queue.push(frame);
         }
         self.queue.pending() || held
+    }
+
+    /// Expires old presses before returning the next waiting press's captured input boundary.
+    pub fn pending_capture_frame(&mut self, now_millis: u64) -> Option<[u64; 2]> {
+        self.defer(now_millis);
+        self.queue.first_pending()?.capture_frame
     }
 
     /// Records whether actor picking consumes the current attack target.
@@ -451,6 +470,7 @@ pub fn resolve_and_send(
                     sequence,
                     tick: press.tick,
                     hit,
+                    life: press.actor_life,
                 });
             }
             outcome.missed_swing

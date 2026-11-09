@@ -1,5 +1,9 @@
 $expectedAxolotlStackRevision = 'c4540512dc47833bb40363da7ad1161110d64b67'
-$expectedProtocolgenRevision = [string](Get-BedrockTargetManifest -ProjectRoot $ProjectRoot).protocolgen_commit
+$bedrockTarget = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
+$expectedProtocolgenRevision = [string]$bedrockTarget.protocolgen_commit
+$codecAlias = [string]$bedrockTarget.codec_crate
+$codecPackage = [string]$bedrockTarget.codec_package
+$codecDeclaration = "$codecAlias = { package = `"$codecPackage`", path = `"vendor/$codecAlias`" }"
 $expectedLicenseSha256 = '62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 # Both acceptance implementations must follow the same target-owned generator identity.
@@ -201,7 +205,7 @@ Assert-Equal $expectedAxolotlStackRevision $protocolMetadata.pinned_axolotl_stac
 Assert-Equal $expectedProtocolgenRevision $protocolMetadata.pinned_protocolgen_commit 'protocolgen metadata drifted'
 Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_jolyne_license_sha256 'retained license metadata drifted'
 
-# Copies every workspace member tree resolved by Cargo, including new parent directories.
+# Copies Cargo's workspace member trees and the target policy used by acceptance.
 function Copy-ProtocolDependencyProvenanceFixture {
     param(
         [Parameter(Mandatory = $true)][string]$SourceRoot,
@@ -212,6 +216,9 @@ function Copy-ProtocolDependencyProvenanceFixture {
     if ($LASTEXITCODE -ne 0) {
         throw 'could not copy the workspace for protocol dependency provenance'
     }
+    $assets = Join-Path $DestinationRoot 'assets'
+    New-Item -ItemType Directory -Force -Path $assets | Out-Null
+    Copy-Item -LiteralPath (Join-Path $SourceRoot 'assets/bedrock-target.json') -Destination $assets
 }
 
 function Assert-TestProtocolDependencyProvenance {
@@ -250,26 +257,27 @@ $null = Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 
 $manifestPath = Join-Path $fixtureRoot 'crates\protocol\Cargo.toml'
 $canonicalManifest = Get-Content -Raw -LiteralPath $manifestPath
+Assert-True ($canonicalManifest.Contains($codecDeclaration)) 'codec fixture did not find its dependency declaration'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value `
-    $canonicalManifest.Replace('path = "vendor/bedrock-protocol-1-26-51"', 'path = "..\outside\bedrock-protocol-1-26-51"')
+    $canonicalManifest.Replace("path = `"vendor/$codecAlias`"", "path = `"../outside/$codecAlias`"")
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*cargo metadata*' 'protocol provenance accepted a drifted codec path declaration'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 $vendorRoot = Join-Path $fixtureRoot 'crates\protocol\vendor'
-Copy-Item -LiteralPath (Join-Path $vendorRoot 'bedrock-protocol-1-26-51') `
-    -Destination (Join-Path $vendorRoot 'bedrock-protocol-1-26-51-decoy') -Recurse
-$canonicalStringDecoys = @'
+Copy-Item -LiteralPath (Join-Path $vendorRoot $codecAlias) `
+    -Destination (Join-Path $vendorRoot "$codecAlias-decoy") -Recurse
+$canonicalStringDecoys = @"
 [dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
-'@
+$codecDeclaration
+"@
 $quotedWrongPaths = $canonicalManifest.Replace(
+    $codecDeclaration,
+    "`"$codecAlias`" = { package = `"$codecPackage`", path = `"vendor/$codecAlias-decoy`" }"
+).Replace(
     'publish = false',
     "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
-).Replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
-    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }'
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
@@ -277,28 +285,52 @@ Assert-ThrowsLike {
 } '*vendored path*' 'protocol provenance accepted canonical declarations inside a multiline string while quoted real keys resolved wrong paths'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
-Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
+Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @"
 
 [target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
-'@)
+$codecDeclaration
+"@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*bedrock-protocol-1-26-51*exactly once*' 'protocol provenance accepted an additional target-table codec declaration'
+} "*$codecPackage*exactly once*" 'protocol provenance accepted an additional target-table codec declaration'
 
 $inactiveDecoy = $canonicalManifest.Replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    $codecDeclaration,
     '# active codec declaration removed'
-) + @'
+) + @"
 
 [target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
-'@
+$codecDeclaration
+"@
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*bedrock-protocol-1-26-51*normal non-target*' 'protocol provenance accepted an inactive target-table codec decoy'
+} "*$codecPackage*normal non-target*" 'protocol provenance accepted an inactive target-table codec decoy'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
+
+Set-Content -LiteralPath $manifestPath -NoNewline -Value `
+    $canonicalManifest.Replace("$codecAlias = {", 'unexpected-codec-alias = {')
+Assert-ThrowsLike {
+    Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+} '*target codec package and alias*' 'protocol provenance accepted an unexpected codec alias'
+Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
+
+$targetPath = Join-Path $fixtureRoot 'assets/bedrock-target.json'
+$canonicalTarget = Get-Content -Raw -LiteralPath $targetPath
+foreach ($package in @($null, 'unexpected-codec-package')) {
+    $target = $canonicalTarget | ConvertFrom-Json
+    if ($null -eq $package) {
+        $target.PSObject.Properties.Remove('codec_package')
+    }
+    else {
+        $target.codec_package = $package
+    }
+    $target | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $targetPath -Encoding UTF8
+    Assert-ThrowsLike {
+        Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
+    } '*codec*' 'protocol provenance accepted missing or drifted target codec identity'
+}
+Set-Content -LiteralPath $targetPath -NoNewline -Value $canonicalTarget
 
 $upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'
 $canonicalUpstream = Get-Content -Raw -LiteralPath $upstreamPath
@@ -324,16 +356,11 @@ Set-Content -LiteralPath $licensePath -NoNewline -Value $canonicalLicense
 
 $lockPath = Join-Path $fixtureRoot 'Cargo.lock'
 $canonicalLock = Get-Content -Raw -LiteralPath $lockPath
+$codecLockHeader = "name = `"$codecPackage`""
 $driftedLock = $canonicalLock.Replace(
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+    $codecLockHeader,
+    "$codecLockHeader`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
 )
-if ($driftedLock -ceq $canonicalLock) {
-    $driftedLock = $canonicalLock.Replace(
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
-    )
-}
 Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate codec resolution'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {
@@ -342,15 +369,9 @@ Assert-ThrowsLike {
 Set-Content -LiteralPath $lockPath -NoNewline -Value $canonicalLock
 
 $driftedLock = $canonicalLock.Replace(
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
+    $codecLockHeader,
+    "$codecLockHeader`n`tchecksum = `"$('2' * 64)`""
 )
-if ($driftedLock -ceq $canonicalLock) {
-    $driftedLock = $canonicalLock.Replace(
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
-    )
-}
 Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate codec resolution'
 Set-Content -LiteralPath $lockPath -NoNewline -Value $driftedLock
 Assert-ThrowsLike {

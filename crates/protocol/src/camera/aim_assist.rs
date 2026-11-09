@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::{enums, packets, types, wire};
+use bedrock_protocol_1_26_60::{enums, packets, types, wire};
 
 use super::{CameraEvent, MAX_CAMERA_PRESETS, bounded_identifier, validate_count, validate_finite};
 use crate::WorldPacketError;
@@ -34,7 +34,7 @@ pub fn camera_aim_assist_activation_packet(
         action: if clear {
             enums::ClientCameraAimAssistAction::Clear
         } else {
-            enums::ClientCameraAimAssistAction::Setfromcamerapreset
+            enums::ClientCameraAimAssistAction::SetFromCameraPreset
         },
         allow_aim_assist: allow,
     })
@@ -226,7 +226,7 @@ pub(crate) fn normalize_aim_presets(
     )?;
     let replace = match packet.operation {
         enums::CameraAimAssistPresetOperation::Set => true,
-        enums::CameraAimAssistPresetOperation::Addtoexisting => false,
+        enums::CameraAimAssistPresetOperation::AddToExisting => false,
         _ => {
             return Err(WorldPacketError::InvalidCameraField {
                 field: "aim_assist.operation",

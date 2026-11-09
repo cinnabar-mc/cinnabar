@@ -2,8 +2,9 @@ use {
     super::support::*,
     assets::{
         BlockFace, BlockFlags, CollisionBox, CollisionConfidence, ContributorRole,
-        DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ROTATE_UV, ModelFamily, ModelStateField, NetworkIdMode,
-        RegistryRecord, RuntimeAssets, VisualKind, encode_blob, read_registry,
+        DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_UV_ROTATE_180,
+        MATERIAL_FLAG_UV_ROTATE_270, ModelFamily, ModelStateField, NetworkIdMode, RegistryRecord,
+        RuntimeAssets, VisualKind, encode_blob, read_registry,
     },
     std::{collections::HashSet, fs, path::Path, process::Command},
     tempfile::TempDir,
@@ -702,7 +703,12 @@ fn compiler_emits_exact_selector_alias_cube_faces_aliases_and_uv_rotations() {
         for material in visual.faces {
             assert_ne!(material, DIAGNOSTIC_MATERIAL);
             let material = compiled.materials[material as usize];
-            assert!(matches!(material.flags, 0 | MATERIAL_FLAG_ROTATE_UV));
+            assert!(matches!(
+                material.flags,
+                0 | MATERIAL_FLAG_ROTATE_UV
+                    | MATERIAL_FLAG_UV_ROTATE_180
+                    | MATERIAL_FLAG_UV_ROTATE_270
+            ));
             assert_eq!(material.animation, assets::NO_ANIMATION);
         }
     }
@@ -743,30 +749,30 @@ fn compiler_emits_exact_selector_alias_cube_faces_aliases_and_uv_rotations() {
             assert_eq!(material.texture.layer(), y_cap.texture.layer());
             assert_eq!(material.flags, 0);
         }
-        for face in [
-            BlockFace::Down,
-            BlockFace::Up,
-            BlockFace::North,
-            BlockFace::South,
+        for (face, rotation) in [
+            (BlockFace::Down, MATERIAL_FLAG_UV_ROTATE_270),
+            (BlockFace::Up, MATERIAL_FLAG_ROTATE_UV),
+            (BlockFace::North, MATERIAL_FLAG_ROTATE_UV),
+            (BlockFace::South, MATERIAL_FLAG_ROTATE_UV),
         ] {
             let material = compiled.materials[x.faces[face as usize] as usize];
             assert_eq!(material.texture.layer(), y_side.texture.layer());
-            assert_eq!(material.flags, MATERIAL_FLAG_ROTATE_UV);
+            assert_eq!(material.flags, rotation);
         }
         for face in [BlockFace::North, BlockFace::South] {
             let material = compiled.materials[z.faces[face as usize] as usize];
             assert_eq!(material.texture.layer(), y_cap.texture.layer());
             assert_eq!(material.flags, 0);
         }
-        for face in [
-            BlockFace::West,
-            BlockFace::East,
-            BlockFace::Down,
-            BlockFace::Up,
+        for (face, rotation) in [
+            (BlockFace::West, MATERIAL_FLAG_ROTATE_UV),
+            (BlockFace::East, MATERIAL_FLAG_ROTATE_UV),
+            (BlockFace::Down, MATERIAL_FLAG_UV_ROTATE_180),
+            (BlockFace::Up, MATERIAL_FLAG_UV_ROTATE_180),
         ] {
             let material = compiled.materials[z.faces[face as usize] as usize];
             assert_eq!(material.texture.layer(), y_side.texture.layer());
-            assert_eq!(material.flags, MATERIAL_FLAG_ROTATE_UV);
+            assert_eq!(material.flags, rotation);
         }
     }
 

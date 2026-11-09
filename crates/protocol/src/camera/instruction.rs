@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::WorldPacketError;
-use bedrock_protocol_1_26_51::types::{CameraInstructionData, CameraInstructionSet};
+use bedrock_protocol_1_26_60::types::{CameraInstructionData, CameraInstructionSet};
 use std::sync::Arc;
 
 /// Keeps each option independent until camera evaluation applies it in vanilla order.

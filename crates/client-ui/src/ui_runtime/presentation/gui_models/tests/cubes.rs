@@ -1,5 +1,7 @@
-use super::super::*;
-use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
+use super::super::{preparation::cube_shape_admitted, sources::gui_cube_sheet, *};
+use assets::{
+    EquipmentTexture, ItemVisualDefinitionRoute, RuntimeEquipmentCatalog, RuntimeIconCatalog,
+};
 use ui::{UiNodeId, UiPoint, UiRect};
 
 mod alpha;
