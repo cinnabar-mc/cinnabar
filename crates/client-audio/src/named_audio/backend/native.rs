@@ -76,6 +76,26 @@ impl Drop for MixerLease {
 pub(super) struct Route<D, S> {
     stream: Option<(D, S)>,
     mixer: MixerSlot,
+    failures: FailureStreak,
+}
+
+/// Decides which output failures reach the default log level during the retry loop.
+#[derive(Default)]
+struct FailureStreak {
+    reported: bool,
+}
+
+impl FailureStreak {
+    /// Returns whether this failure starts a new streak; the first failure after startup or a
+    /// working stream is reported, repeats are not until a stream opens again.
+    fn begins(&mut self) -> bool {
+        !std::mem::replace(&mut self.reported, true)
+    }
+
+    /// Ends the current streak once an output plays.
+    fn end(&mut self) {
+        self.reported = false;
+    }
 }
 
 impl<D, S> Route<D, S> {
@@ -116,6 +136,7 @@ pub(super) fn open_default_output()
     let mut route = Route {
         stream: None,
         mixer: Arc::new(Mutex::new(Some(mixer))),
+        failures: FailureStreak::default(),
     };
     refresh_output(&mut route);
     Some((route, controller))
@@ -124,6 +145,8 @@ pub(super) fn open_default_output()
 /// Queries the OS default without enumerating or selecting an alternate output.
 pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, OutputStream>) {
     let device = rodio::cpal::default_host().default_output_device();
+    let missing = device.is_none();
+    let mut failure = None;
     route.refresh(
         device,
         same_device,
@@ -135,11 +158,26 @@ pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, OutputStream
                 Some(stream)
             }
             Err(error) => {
-                bevy::log::debug!(%error, "default audio output unavailable; will retry");
+                failure = Some(error.to_string());
                 None
             }
         },
     );
+    if route.stream.is_some() {
+        route.failures.end();
+        return;
+    }
+    let error = match failure {
+        Some(error) => error,
+        None if missing => "no default output device".to_owned(),
+        // The previous stream's callback still holds the mixer; the next check reopens it.
+        None => return,
+    };
+    if route.failures.begins() {
+        bevy::log::warn!(%error, "audio output unavailable; sounds stay queued while it retries");
+    } else {
+        bevy::log::debug!(%error, "audio output still unavailable; will retry");
+    }
 }
 
 /// Compares endpoint identities on desktop hosts that expose them, including identical names.

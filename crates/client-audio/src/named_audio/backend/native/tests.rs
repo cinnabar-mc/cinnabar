@@ -13,6 +13,7 @@ fn route() -> (
         Route {
             stream: None,
             mixer: Arc::new(Mutex::new(Some(mixer))),
+            failures: FailureStreak::default(),
         },
         controller,
     )
@@ -258,4 +259,14 @@ fn named_sources_queue_without_failure_during_an_output_gap() {
             .take(64)
             .any(|sample| sample > 0.0)
     );
+}
+
+#[test]
+fn only_the_first_failure_of_each_streak_is_reported() {
+    let mut failures = FailureStreak::default();
+    assert!(failures.begins());
+    assert!(!failures.begins());
+    assert!(!failures.begins());
+    failures.end();
+    assert!(failures.begins());
 }
