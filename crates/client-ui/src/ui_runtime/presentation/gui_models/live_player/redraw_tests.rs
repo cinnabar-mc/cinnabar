@@ -428,6 +428,7 @@ fn animated_paper_doll_publication_reuses_header() {
 fn held_sprite() -> super::super::super::player_preview::PreviewHeldModel {
     use super::super::super::player_preview::{PreviewHeldModel, PreviewHeldPlacement};
     PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: ui::IconRef {
             color_mask: None,
             page: 0,

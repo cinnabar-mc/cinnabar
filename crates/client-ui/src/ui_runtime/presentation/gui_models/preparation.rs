@@ -140,7 +140,7 @@ impl GuiModelPreparation {
                 }
             }
         }
-        let held = held::prepare(
+        let (held, held_texture_fallbacks) = held::prepare(
             &mut atlas,
             entities,
             icons,
@@ -148,7 +148,7 @@ impl GuiModelPreparation {
                 .as_deref()
                 .ok_or(UiPresentationError::InvalidFontTexture)?,
             equipment,
-            &held_sources,
+            world,
         )?;
         let required_pages = atlas.page_count();
         let mut optional_models = BTreeSet::new();
@@ -290,6 +290,7 @@ impl GuiModelPreparation {
             required_pages,
             textures,
             held,
+            held_texture_fallbacks,
             hand_pivots: held::player_hands(entities),
             cape: render_model::cape::CapeRig::resolve(entities),
         })
