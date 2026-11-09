@@ -817,6 +817,8 @@ fn carrier_v4_accepts_exact_controller_bounds() {
         .into_boxed_slice();
     assert!(compiled.validate().is_ok());
 
+    // Per-controller and per-state counts are u16, so the totals spread over several owners.
+    let per_owner = usize::from(u16::MAX);
     compiled = carrier_v4_fixture();
     compiled.controller_states = (0..MAX_ENTITY_CONTROLLER_STATES)
         .map(|index| EntityControllerState {
@@ -827,14 +829,34 @@ fn carrier_v4_accepts_exact_controller_bounds() {
             ..compiled.controller_states[0]
         })
         .collect();
-    compiled.controllers[0].state_count = MAX_ENTITY_CONTROLLER_STATES as u16;
+    compiled.controllers = (0..MAX_ENTITY_CONTROLLER_STATES)
+        .step_by(per_owner)
+        .map(|first| EntityAnimationController {
+            first_state: first as u32,
+            state_count: (MAX_ENTITY_CONTROLLER_STATES - first).min(per_owner) as u16,
+            ..compiled.controllers[0]
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
     assert!(compiled.validate().is_ok());
 
     compiled = carrier_v4_fixture();
     compiled.controller_transitions =
         vec![compiled.controller_transitions[0]; MAX_ENTITY_CONTROLLER_TRANSITIONS]
             .into_boxed_slice();
-    compiled.controller_states[0].transition_count = MAX_ENTITY_CONTROLLER_TRANSITIONS as u16;
+    let state = compiled.controller_states[0];
+    compiled.controller_states = (0..MAX_ENTITY_CONTROLLER_TRANSITIONS)
+        .step_by(per_owner)
+        .enumerate()
+        .map(|(index, first)| EntityControllerState {
+            first_animation: u32::from(index != 0),
+            animation_count: u16::from(index == 0),
+            first_transition: first as u32,
+            transition_count: (MAX_ENTITY_CONTROLLER_TRANSITIONS - first).min(per_owner) as u16,
+            ..state
+        })
+        .collect();
+    compiled.controllers[0].state_count = compiled.controller_states.len() as u16;
     assert!(compiled.validate().is_ok());
 }
 
@@ -853,6 +875,32 @@ fn carrier_v4_accepts_the_animation_channels_of_a_large_server_pack() {
         })
         .collect();
     compiled.animation_clips[0].channel_count = SERVER_PACK_CHANNELS as u32;
+    assert!(compiled.validate().is_ok());
+}
+
+#[test]
+fn carrier_v4_accepts_controllers_repeated_across_many_attachables() {
+    // Controllers compile once per owning entity and geometry: 1,024 attachables sharing eight
+    // armour controllers carry 8,192 of them, which once dropped the whole server entity pack.
+    const REPEATED_CONTROLLERS: usize = 1_024 * 8;
+    let mut compiled = carrier_v4_fixture();
+    let state = compiled.controller_states[0];
+    compiled.controller_states = (0..REPEATED_CONTROLLERS)
+        .map(|index| EntityControllerState {
+            first_animation: u32::from(index != 0),
+            animation_count: u16::from(index == 0),
+            first_transition: u32::from(index != 0),
+            transition_count: u16::from(index == 0),
+            ..state
+        })
+        .collect();
+    compiled.controllers = (0..REPEATED_CONTROLLERS)
+        .map(|index| EntityAnimationController {
+            first_state: index as u32,
+            ..compiled.controllers[0]
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
     assert!(compiled.validate().is_ok());
 }
 
