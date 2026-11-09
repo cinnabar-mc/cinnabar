@@ -97,6 +97,7 @@ pub(crate) fn configure_world(app: &mut App) {
         (
             crate::item_use::adopt_server_item_use,
             advance_local_physics,
+            crate::movement::record_simulation_tick,
         )
             .chain()
             .in_set(LocalPlayerFrameSet::Physics)
@@ -135,6 +136,7 @@ pub(crate) fn configure_world(app: &mut App) {
             publish_local_player_frame,
             publish_interaction_origin,
             crate::camera::aim_assist::publish_assisted_interaction,
+            crate::camera::freeform_pick::publish,
             crate::camera::aim_highlight::publish,
         )
             .chain()

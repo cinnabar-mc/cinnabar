@@ -1,5 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod audio_output;
 mod chat;
 mod collection_reveal;
 #[cfg(feature = "test-support")]
@@ -57,6 +58,8 @@ pub enum Fixture {
     },
     /// A label whose unavailable primary face selects its installed backup.
     BackupFont,
+    /// A primary click with a held stack over the installed creative catalog's empty viewport.
+    CreativeCatalogDelete,
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
         scale: f64,
@@ -93,9 +96,11 @@ pub enum Fixture {
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
         server_hover: Option<bool>,
+        /// Scroll into history, then receive a wrapped message before the final capture.
+        receive_while_scrolled: bool,
     },
     /// The held tab roster's rows.
-    TabList(Vec<RosterRow>),
+    TabList(Vec<RosterRow>, &'static str),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded mod panel, the same mod's HUD surface it may embed
@@ -161,6 +166,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    State {
+        name: "chat-incoming-while-scrolled",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat::incoming_while_scrolled,
+    },
     asset_free("crosshair-coverage-before", [640, 240], || {
         Fixture::CrosshairCoverage { fixed: false }
     }),
@@ -357,6 +368,12 @@ const STATES: &[State] = &[
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
         fixture: || updates::mod_stage(launcher::mods::UpdatePhase::Reloading),
+    },
+    State {
+        name: "creative-catalog-delete",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CreativeCatalogDelete,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -626,6 +643,12 @@ const STATES: &[State] = &[
         fixture: out_of_game::play_worlds,
     },
     State {
+        name: "play-worlds-gamepad",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds_gamepad,
+    },
+    State {
         name: "play-worlds-importing",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -678,6 +701,24 @@ const STATES: &[State] = &[
         size: SMALL_SIZE,
         gui_scale: 1,
         fixture: chat::history_width,
+    },
+    State {
+        name: "chat-top-java-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, false, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-top-bedrock-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-bedrock-input-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "/give @", &["@a", "@e", "@p"]),
     },
     State {
         name: "chat-command-background-transparent",
@@ -789,6 +830,12 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || settings_screens::settings_video_culling(false),
+    },
+    State {
+        name: "settings-gui-scale",
+        size: [1280, 1400],
+        gui_scale: GUI_SCALE,
+        fixture: settings_screens::settings_gui_scale,
     },
     State {
         name: "settings-video-shader-shortcut",
@@ -937,9 +984,11 @@ pub fn settings(section: &str) -> MenuView {
 pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
+        .chain(out_of_game::STATES)
         .chain(out_of_game::WORLD_FORM_STATES)
         .chain(updates::STATES)
         .chain(shader_pack::STATES)
+        .chain(audio_output::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
         .chain(settings_screens::WORLD_STATES)

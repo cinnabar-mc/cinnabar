@@ -6,8 +6,8 @@
 //! use lives in `item_use`.
 
 use client_interaction::block_use::{
-    BlockUseRuntime, FramePick, held_block_store_id, predicted_placement, predicted_seed_planting,
-    predicted_toggle, verified_use_selection,
+    BlockUseRuntime, FramePick, held_block_store_id, paired_item_block, paired_item_fits,
+    predicted_placement, predicted_seed_planting, predicted_toggle, verified_use_selection,
 };
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -60,9 +60,10 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    /// Whether a waiting dismount holds this frame's ticks.
+    locomotion: Res<'w, client_interaction::movement::LocomotionState>,
     /// The level's sneaking dimensions size the player box that blocks placement.
     physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
-    audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 
 /// Drains physical interactions before physics, then evaluates the buffered held picks.
@@ -70,6 +71,9 @@ pub(crate) fn produce_block_use(
     world: &mut bevy::prelude::World,
     mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
 ) {
+    // Block use is the frame's first reader of whether a tick runs; item use and movement
+    // follow, so all three see one decision.
+    crate::movement::decide_frame_ticks(world);
     if !world.contains_resource::<PhysicsCollisionRegistries>() {
         return;
     }
@@ -96,6 +100,9 @@ pub(crate) use pick::retain_block_use_pick;
 mod target;
 use target::observe_use_target;
 
+mod press_target;
+pub(crate) use press_target::UsePressTarget;
+
 /// Sends the held-use stop action before dropping its successful-placement history.
 fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repress: bool) -> bool {
     let Some(stream) = context.client_world.stream.as_ref() else {
@@ -109,7 +116,7 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
-mod published_tests;
+pub(crate) mod published_tests;
 
 #[cfg(test)]
 mod startup_tests {

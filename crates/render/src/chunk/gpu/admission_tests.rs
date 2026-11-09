@@ -314,7 +314,14 @@ fn spent_preparation_time_defers_the_burst_without_reordering_it() {
             .get::<ChunkRenderInstance>(expected[frame])
             .unwrap();
         assert_eq!(completed[0].key, uploaded.key);
-        assert_eq!(completed[0].token, uploaded.token.unwrap());
+        assert_eq!(
+            completed[0].token,
+            render_scene::ChunkUploadToken {
+                generation: uploaded.generation,
+                dirty_since: now,
+            }
+        );
+        assert!(uploaded.token.is_none());
         assert_eq!(completed[0].uploaded_bytes, bytes);
         let remaining = expected.len() - frame - 1;
         assert_eq!(allowance.live_permits(), remaining);
@@ -338,6 +345,47 @@ fn spent_preparation_time_defers_the_burst_without_reordering_it() {
     assert_eq!(admitted, expected);
     assert_eq!(prepare(&mut app).chunk_updates, 0);
     assert!(acknowledgements.drain().is_empty());
+}
+
+/// Cancellation leaves an empty slot, but never authorizes a retained-payload rebuild.
+#[test]
+fn cancelled_publication_permits_do_not_count_as_completed_uploads() {
+    let acknowledgements = ChunkUploadAcknowledgements::default();
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        acknowledgements.clone(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    let mut instance = instance();
+    let bytes = chunk_instance_upload_byte_len(&instance);
+    let config = PublicationServiceConfig::DEFAULT;
+    let allowance = render_api::PublicationAllowance::new(config);
+    allowance.begin_frame(1, 1, bytes, 0, config.maximum_frame_items);
+    let permit = allowance
+        .try_admit_payload(bytes)
+        .unwrap()
+        .into_handoff()
+        .unwrap()
+        .into_render_entity()
+        .unwrap();
+    let slot = PublicationPermitSlot::new(permit);
+    instance.token = Some(render_scene::ChunkUploadToken {
+        generation: instance.generation,
+        dirty_since: Instant::now(),
+    });
+    instance.publication_permit = Some(slot.clone());
+    app.world_mut().spawn(instance);
+    app.insert_resource(ChunkUploadBudget::new(1, u64::MAX));
+    drop(slot.take());
+    assert!(!slot.is_completed());
+    assert_eq!(prepare(&mut app).chunk_updates, 0);
+    assert!(
+        app.world()
+            .resource::<ChunkGpuArena>()
+            .allocations
+            .is_empty()
+    );
+    assert!(acknowledgements.is_empty());
+    assert_eq!(allowance.live_permits(), 0);
 }
 
 /// An unspent allowance leaves the whole burst in one frame, as before the guard.

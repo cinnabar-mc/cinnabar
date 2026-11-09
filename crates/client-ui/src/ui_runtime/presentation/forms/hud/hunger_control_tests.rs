@@ -128,6 +128,7 @@ fn draw_with_factory(
                     hud: &paint,
                     hunger_update: Some(&advance_hunger),
                     bounds: None,
+                    effect_bounds: None,
                 }],
             },
             |env, root| {

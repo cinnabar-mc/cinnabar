@@ -24,6 +24,8 @@ pub struct UiMeshVertex {
     /// (x, y, width, height) in texture-page texels.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
+    /// Samples terrain mip levels when this surface becomes smaller than its source texels.
+    pub terrain_mips: bool,
     pub alpha_test: bool,
 }
 
@@ -44,6 +46,7 @@ pub struct UiMesh {
     indices: Arc<[u32]>,
     batches: Arc<[UiMeshBatch]>,
     draw_vertex_count: usize,
+    compact_block_vertices: bool,
     skinned: bool,
 }
 
@@ -58,6 +61,7 @@ impl PartialEq for UiMesh {
         same(&self.vertices, &other.vertices)
             && same(&self.indices, &other.indices)
             && same(&self.batches, &other.batches)
+            && self.compact_block_vertices == other.compact_block_vertices
             && self.skinned == other.skinned
     }
 }
@@ -86,6 +90,17 @@ impl fmt::Display for UiMeshError {
 impl std::error::Error for UiMeshError {}
 
 impl UiMesh {
+    /// Uses half precision for final XY and normalized unsigned shorts for block texture vertices.
+    pub fn with_compact_block_vertices(mut self) -> Self {
+        self.compact_block_vertices = true;
+        self
+    }
+
+    /// Whether this mesh uses the compact block vertex formats.
+    pub fn uses_compact_block_vertices(&self) -> bool {
+        self.compact_block_vertices
+    }
+
     /// Builds a normal textured quad with explicit tint and blend mode.
     pub fn sprite(
         texture_page: u16,
@@ -94,6 +109,7 @@ impl UiMesh {
         blend: UiBlendMode,
     ) -> Result<Self, UiMeshError> {
         let vertices = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]].map(|position| UiMeshVertex {
+            terrain_mips: false,
             position,
             clip_z: 0.,
             clip_w: 1.,
@@ -250,6 +266,7 @@ impl UiMesh {
             indices,
             batches,
             draw_vertex_count,
+            compact_block_vertices: false,
             skinned: false,
         })
     }

@@ -8,7 +8,7 @@ fn current_wire_ids_keep_colored_dust_and_spells_distinct() {
     for (id, effect) in [
         (33, ParticleEffect::FallingDust),
         (34, ParticleEffect::MobspellEmitter),
-        (35, ParticleEffect::MobspellAmbient),
+        (35, ParticleEffect::MobspellEmitter),
         (36, ParticleEffect::MobspellEmitter),
     ] {
         assert_eq!(
@@ -54,10 +54,10 @@ fn native_id_insertion_boundaries_and_reordered_types_select_their_effects() {
         (9, ParticleEffect::CandleFlameParticle),
         (10, ParticleEffect::LavaParticle),
         (11, ParticleEffect::BasicSmokeParticle),
-        (12, ParticleEffect::RedstoneWireDustParticle),
+        (12, ParticleEffect::RedstoneTorchDustParticle),
         (13, ParticleEffect::RisingBorderDustParticle),
         (18, ParticleEffect::BreezeWindExplosionEmitter),
-        (19, ParticleEffect::MobflameEmitter),
+        (19, ParticleEffect::MobflameSingle),
         (20, ParticleEffect::HeartParticle),
         (22, ParticleEffect::MyceliumDustParticle),
         (23, ParticleEffect::BasicPortalParticle),
@@ -69,7 +69,7 @@ fn native_id_insertion_boundaries_and_reordered_types_select_their_effects() {
         (32, ParticleEffect::StalactiteLavaDripParticle),
         (37, ParticleEffect::InkEmitter),
         (39, ParticleEffect::RainSplashParticle),
-        (51, ParticleEffect::TotemParticle),
+        (51, ParticleEffect::TotemManual),
         (62, ParticleEffect::Sneeze),
         (83, ParticleEffect::ShriekParticle),
         (90, ParticleEffect::VaultConnectionParticle),

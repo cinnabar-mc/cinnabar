@@ -12,9 +12,6 @@ use crate::packet::GameHeader;
 use crate::packet_tap::PacketRecordId;
 use crate::{Packet, SessionError};
 
-/// Most packets one batch may hold.
-pub(crate) const MAX_RAW_BATCH_PACKETS: usize = 1_600;
-
 /// One batch entry, `[length][header][body]`, whose body stays a slice of the received batch.
 #[derive(Debug, Clone)]
 pub(crate) struct RawPacket {
@@ -97,13 +94,33 @@ impl RawPacket {
     }
 }
 
-/// Splits a batch body, its length-prefixed entries without the `0xfe` marker, into raw packets
-/// sharing its bytes. Bodies over `max_bytes` or holding more than [`MAX_RAW_BATCH_PACKETS`]
-/// entries are refused.
-pub(crate) fn decode_batch_body(
-    body: Bytes,
-    max_bytes: usize,
-) -> Result<Vec<RawPacket>, SessionError> {
+/// A validated batch that creates packet metadata only as its entries are consumed.
+#[derive(Debug)]
+pub(crate) struct RawBatch {
+    frames: wire::Frames,
+    backing_len: usize,
+    remaining: usize,
+}
+
+impl Iterator for RawBatch {
+    type Item = RawPacket;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let frame = self.frames.next()?.expect("batch framing was validated");
+        self.remaining -= 1;
+        Some(raw_packet(frame, self.backing_len).expect("batch packet IDs were validated"))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for RawBatch {}
+
+/// Validates every length-prefixed entry before yielding packets that share the batch bytes.
+/// The byte bound applies without a packet-count cap or a per-entry metadata allocation.
+pub(crate) fn decode_batch_body(body: Bytes, max_bytes: usize) -> Result<RawBatch, SessionError> {
     if body.len() > max_bytes {
         return Err(SessionFailure::BatchTooLarge {
             actual: body.len(),
@@ -113,13 +130,19 @@ pub(crate) fn decode_batch_body(
     }
     let backing_len = body.len();
     let mut offset = 0;
-    let mut packets = Vec::new();
-    for frame in wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS) {
+    let mut remaining = 0;
+    for frame in wire::Frames::new(body.clone(), usize::MAX) {
         let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
         offset += frame.frame().len();
-        packets.push(raw_packet(frame, backing_len)?);
+        let id = frame.header().id;
+        PacketId::from_raw(id).ok_or(SessionFailure::UnknownPacketId(id))?;
+        remaining += 1;
     }
-    Ok(packets)
+    Ok(RawBatch {
+        frames: wire::Frames::new(body, usize::MAX),
+        backing_len,
+        remaining,
+    })
 }
 
 /// Decodes the first packet entry in `cursor` and advances past it.
@@ -148,7 +171,7 @@ pub(crate) fn decode_batch(
             actual: batch.first().copied(),
         });
     }
-    Ok(decode_batch_body(batch.slice(1..), max_bytes)?)
+    Ok(decode_batch_body(batch.slice(1..), max_bytes)?.collect())
 }
 
 /// Maps a framing failure of the entry starting at `rest`: a declared length past the input is

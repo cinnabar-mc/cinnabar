@@ -6,7 +6,7 @@ use render_api::{
     HeldItemTransform, ItemRenderOffsets,
 };
 
-use super::display::{ItemDisplay, third_person_sprite_frame};
+use super::display::{ItemDisplay, SpriteGrip, third_person_sprite_frame};
 
 /// Texels per block, which the default tables' icon size factor is relative to.
 const TEXELS_PER_BLOCK: f32 = 16.0;
@@ -121,7 +121,7 @@ pub fn offset_first_person_lead(swing: f32, equip: f32) -> Mat4 {
 /// [`offset_sprite_display`]. `None` for retail placement.
 pub fn offset_held_display(
     placement: HeldItemPlacement,
-    hand_equipped: bool,
+    grip: SpriteGrip,
     hand: HeldItemHandSide,
     dimensions: [u16; 2],
     actor_scale: f32,
@@ -134,7 +134,7 @@ pub fn offset_held_display(
         actor_scale,
     )?;
     Some(table.under(third_person_sprite_frame(
-        hand_equipped,
+        grip,
         hand == HeldItemHandSide::Off,
     )))
 }
@@ -238,16 +238,14 @@ mod tests {
 
     #[test]
     fn default_third_person_rest_pose_matches_the_retail_sprite() {
-        for (hand_equipped, side) in [
-            (true, HeldItemHandSide::Main),
-            (false, HeldItemHandSide::Main),
-            (true, HeldItemHandSide::Off),
-            (false, HeldItemHandSide::Off),
-        ] {
-            let retail = held_sprite_display_for_hand(hand_equipped, side == HeldItemHandSide::Off);
+        let grips = [SpriteGrip::HandEquipped, SpriteGrip::Flat, SpriteGrip::Rod];
+        for (grip, side) in grips.into_iter().flat_map(|grip| {
+            [HeldItemHandSide::Main, HeldItemHandSide::Off].map(|side| (grip, side))
+        }) {
+            let retail = held_sprite_display_for_hand(grip, side == HeldItemHandSide::Off);
             let offset = offset_held_display(
                 HeldItemPlacement::DefaultOffsets,
-                hand_equipped,
+                grip,
                 side,
                 SQUARE_16,
                 1.0,
@@ -599,7 +597,7 @@ mod tests {
             display_matrix(
                 offset_held_display(
                     HeldItemPlacement::DefaultOffsets,
-                    true,
+                    SpriteGrip::HandEquipped,
                     HeldItemHandSide::Main,
                     SQUARE_16,
                     scale,

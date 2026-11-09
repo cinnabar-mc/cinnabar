@@ -16,6 +16,8 @@ mod azalea;
 pub(crate) mod barrel;
 #[path = "tests/beacon.rs"]
 mod beacon;
+#[path = "tests/bell.rs"]
+mod bell;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]
@@ -66,6 +68,8 @@ mod hopper;
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lectern.rs"]
+mod lectern;
 #[path = "tests/lever.rs"]
 mod lever;
 #[path = "tests/lightning_rod.rs"]

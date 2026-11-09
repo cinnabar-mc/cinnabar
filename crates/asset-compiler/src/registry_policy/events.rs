@@ -46,10 +46,10 @@ pub fn write(out: &Path) -> Result<()> {
         .legacy_particles
         .iter()
         .map(|(name, effect)| {
-            let kind = protocol_ids::ParticleType::from_name(name)
+            protocol_ids::ParticleType::from_name(name)
                 .filter(|kind| kind.wire_value() > 0)
-                .ok_or_else(|| format!("unknown legacy particle type {name}"))?;
-            Ok((kind.wire_value(), effect.clone()))
+                .map(|kind| (kind.wire_value(), effect.clone()))
+                .ok_or_else(|| format!("unknown legacy particle type {name}").into())
         })
         .collect::<Result<BTreeMap<i32, String>>>()?;
     let event_id = |name: &str| -> Result<i32> {

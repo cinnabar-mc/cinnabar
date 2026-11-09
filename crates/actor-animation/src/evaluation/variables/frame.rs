@@ -44,6 +44,19 @@ pub(crate) struct FrameVariableLease<'a> {
     random: (u64, u64),
 }
 
+impl FrameVariableLease<'_> {
+    /// Runs changing setup scripts directly, retaining scratch buffers without read/effect journals.
+    pub(crate) fn without_expression_cache<T>(
+        &mut self,
+        run: impl FnOnce(&mut MolangVariables) -> T,
+    ) -> T {
+        let cache = self.variables.frame.as_mut().unwrap().cache.take();
+        let result = run(&mut self.variables);
+        self.variables.frame.as_mut().unwrap().cache = cache;
+        result
+    }
+}
+
 impl std::ops::Deref for FrameVariableLease<'_> {
     type Target = MolangVariables;
     fn deref(&self) -> &Self::Target {

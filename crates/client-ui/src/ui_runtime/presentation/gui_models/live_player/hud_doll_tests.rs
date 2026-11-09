@@ -57,11 +57,37 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
         ui::TextEffects::default(),
         0..1,
     );
-    let (UiVisual::TintedMesh { mesh: hud, .. }, UiVisual::Mesh(inventory)) =
-        (nodes[0].visual(), nodes[1].visual())
+    let (
+        UiVisual::TintedMesh { mesh: hud, .. },
+        UiVisual::TintedMesh {
+            mesh: inventory, ..
+        },
+    ) = (nodes[0].visual(), nodes[1].visual())
     else {
-        panic!("both dolls draw model geometry");
+        panic!("both dolls draw the live actor's palette");
     };
+    assert!(hud.is_skinned() && inventory.is_skinned());
+    let draw = ui::RetainedDraw::build(
+        &nodes,
+        bounds,
+        ui::UiScale::default(),
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+    )
+    .unwrap();
+    let poses = super::super::hud_model::model_poses(
+        &presentation.gui_models.hud_model,
+        &presentation.gui_models.screen_model,
+        &draw,
+        &nodes,
+        1.0,
+        [96, 112],
+    );
+    assert_eq!(poses.len(), 2);
+    assert_ne!(
+        poses[0].bones, poses[1].bones,
+        "each doll draws with its own view"
+    );
     let expected = |view| {
         presentation
             .project_gui_player_mesh(
@@ -97,11 +123,119 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
         );
         assert!((actual.model_light - expected.model_light).abs() < 1e-5);
     }
-    assert_eq!(
-        inventory.vertices(),
-        expected(presentation.player_preview_view).vertices(),
-        "the inventory doll keeps its pointer-facing preview"
+}
+
+/// A presentation holding a captured actor, with one control showing the player preview.
+fn doll(view: PreviewView) -> (UiPresentationRuntime, Vec<UiNode>, ui::UiRect) {
+    let stream = session_player();
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    presentation.gui_models.enabled = true;
+    presentation.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
+    let preview = IconRef {
+        color_mask: None,
+        page: u16::MAX,
+        uv: [0, 0, 96, 112],
+        glint: false,
+    };
+    presentation.player_preview_icon = Some(preview);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
+    presentation.hud_preview_view = view;
+    presentation.player_preview_view = view;
+    let bounds = crate::ui_runtime::presentation::rect(0.0, 0.0, 96.0, 112.0).unwrap();
+    let node = UiNode::new(UiNodeId::new(1), None, bounds).with_visual(UiVisual::Sprite {
+        texture_page: preview.page,
+        uv: preview.uv,
+        color: [255; 4],
+    });
+    (presentation, vec![node], bounds)
+}
+
+/// The on-screen width of the head's top face, in the live renderer's projection.
+fn head_top_width(offset: [f32; 2]) -> f32 {
+    let (presentation, mut nodes, bounds) = doll(PreviewView::Live { offset });
+    presentation.apply_gui_models_in(
+        &mut nodes,
+        bounds,
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+        1..1,
     );
-    // The HUD draws the session's live geometry, not the inventory's preview model.
-    assert_ne!(hud.vertices().len(), inventory.vertices().len());
+    let UiVisual::TintedMesh { mesh, .. } = nodes[0].visual() else {
+        panic!("the live renderer draws the actor's palette");
+    };
+    let vertices = presentation
+        .gui_models
+        .screen_model
+        .lock()
+        .unwrap()
+        .reference_vertices(mesh);
+    // With no vertical offset the head's top face holds the highest vertices on screen.
+    let top = vertices
+        .iter()
+        .map(|vertex| vertex.position[1])
+        .fold(f32::INFINITY, f32::min);
+    let face: Vec<f32> = vertices
+        .iter()
+        .filter(|vertex| vertex.position[1] < top + 1e-4)
+        .map(|vertex| vertex.position[0])
+        .collect();
+    assert!(!face.is_empty());
+    face.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+        - face.iter().copied().fold(f32::INFINITY, f32::min)
+}
+
+/// Native turns the head twice as far as the body: `atan(dx / 40) * 40` against `* 20`.
+#[test]
+fn the_live_renderer_turns_the_head_past_the_body_toward_the_pointer() {
+    let facing = head_top_width([0.0, 0.0]);
+    let turned = head_top_width([40.0, 0.0]);
+    let degrees = (1.0_f32).atan() * 40.0;
+    let expected = degrees.to_radians().cos() + degrees.to_radians().sin();
+    assert!(
+        (turned / facing - expected).abs() < 0.02,
+        "a head turned {degrees} degrees widens {expected} times, got {}",
+        turned / facing
+    );
+}
+
+/// Outside a world, or before the first capture, the live renderer poses the menu model.
+#[test]
+fn the_live_renderer_keeps_the_menu_model_without_a_fresh_capture() {
+    let (mut presentation, mut nodes, bounds) = doll(PreviewView::Live { offset: [0.0; 2] });
+    presentation.begin_live_capture();
+    presentation.apply_gui_models_in(
+        &mut nodes,
+        bounds,
+        ui::SafeArea::ZERO,
+        ui::TextEffects::default(),
+        1..1,
+    );
+    let UiVisual::Mesh(mesh) = nodes[0].visual() else {
+        panic!("the menu model is not a palette mesh");
+    };
+    assert!(!mesh.is_skinned());
+    assert!(presentation.live_renderer_shown());
+}
+
+/// A non-uniformly scaled model shears its rotated head, which the turn never decomposes.
+#[test]
+fn the_head_turn_holds_under_non_uniform_model_scale() {
+    let facing = Affine3A::from_scale(Vec3::new(-1.0, 1.0, -1.0));
+    let frame = Affine3A::from_scale(Vec3::new(2.0, 1.0, 1.0)) * facing;
+    let pivot = Vec3::new(0.0, 24.0, 0.0);
+    let rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_4);
+    let live = LivePlayer {
+        head: Some(CapturedHead {
+            frame,
+            facing: Mat3::from(facing.matrix3),
+            pivot,
+            rotation,
+        }),
+        ..Default::default()
+    };
+    let posed = frame * Affine3A::from_rotation_translation(rotation, pivot);
+    let turned = live.head_turn(0.0, 0.0).unwrap() * posed;
+    let ahead = frame * Affine3A::from_translation(pivot);
+    assert!(turned.abs_diff_eq(ahead, 1e-4), "{turned:?} != {ahead:?}");
 }

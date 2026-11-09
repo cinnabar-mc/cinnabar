@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "entries": [
+    { "identifier": "minecraft:beacon", "lighting": "incomplete" },
+    { "identifier": "minecraft:crying_obsidian", "lighting": "incomplete" },
+    { "identifier": "minecraft:glowstone", "lighting": "unshaded" },
+    { "identifier": "minecraft:lit_blast_furnace", "lighting": "incomplete" },
+    { "identifier": "minecraft:lit_deepslate_redstone_ore", "lighting": "incomplete" },
+    { "identifier": "minecraft:lit_furnace", "lighting": "incomplete" },
+    { "identifier": "minecraft:lit_pumpkin", "lighting": "incomplete" },
+    { "identifier": "minecraft:lit_redstone_ore", "lighting": "incomplete" },
+    { "identifier": "minecraft:lit_smoker", "lighting": "incomplete" },
+    { "identifier": "minecraft:magma", "lighting": "incomplete" },
+    { "identifier": "minecraft:ochre_froglight", "lighting": "unshaded" },
+    { "identifier": "minecraft:pearlescent_froglight", "lighting": "unshaded" },
+    { "identifier": "minecraft:sea_lantern", "lighting": "unshaded" },
+    { "identifier": "minecraft:shroomlight", "lighting": "unshaded" },
+    { "identifier": "minecraft:verdant_froglight", "lighting": "unshaded" }
+  ]
+}

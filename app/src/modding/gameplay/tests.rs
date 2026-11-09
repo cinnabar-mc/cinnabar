@@ -12,6 +12,7 @@ use protocol::{
 
 use super::*;
 
+mod block_target;
 mod input_locks;
 mod native_frames;
 mod world_time;
