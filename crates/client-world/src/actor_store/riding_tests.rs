@@ -732,20 +732,25 @@ fn other_player_movement_modes_preserve_riding_links() {
     }
 }
 
-/// A rider the client takes off its vehicle stops following the seat at once; the server's
-/// later unlink changes nothing, and a new link seats it again.
+/// A local player that gets off its vehicle on the client stops following the seat at once,
+/// while its committed link waits for the server's unlink; a new link seats it again.
 #[test]
-fn a_rider_released_on_the_client_leaves_its_seat_until_the_server_links_it_again() {
+fn a_local_rider_leaving_on_the_client_keeps_its_link_until_the_server_unlinks() {
     let mut store = player_on_boat(Some([0.0; 3]), false);
     assert!(store.rider_seat_pose(10).is_some());
-    store.release_rider(10);
+    store.leave_local_vehicle(10);
     assert!(store.rider_seat_pose(10).is_none());
-    assert_eq!(store.ridden_unique_id(10), None);
     assert_eq!(
-        store.apply_link(1, 4, link(10, 20, ActorLinkType::Remove)),
-        ActorApplyResult::Updated
+        store.ridden_unique_id(10),
+        Some(20),
+        "the committed link stays"
     );
-    assert!(store.rider_seat_pose(10).is_none());
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Remove));
+    assert_eq!(
+        store.ridden_unique_id(10),
+        None,
+        "the server's unlink commits"
+    );
     store.apply_link(1, 5, link(10, 20, ActorLinkType::Rider));
     assert!(store.rider_seat_pose(10).is_some());
 }

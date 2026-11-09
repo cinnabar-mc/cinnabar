@@ -174,14 +174,9 @@ impl super::ActorStore {
         }
     }
 
-    /// Unlinks a rider that got off its vehicle on the client, ahead of the server's unlink;
-    /// a later link from the server seats it again.
-    pub(crate) fn release_rider(&mut self, rider: i64) {
-        self.unlink(rider);
-    }
-
     /// Unlinks a rider from its vehicle, keeping both indexes in step.
     pub(super) fn unlink(&mut self, rider: i64) {
+        self.forget_left_rider(rider);
         let Some(vehicle) = self.rider_to_ridden.remove(&rider) else {
             return;
         };
@@ -199,6 +194,9 @@ impl super::ActorStore {
     pub(super) fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
         let rider = event.rider_unique_id;
         let vehicle = event.ridden_unique_id;
+        if !matches!(event.link_type, ActorLinkType::Unknown(_)) {
+            self.forget_left_rider(rider);
+        }
         match event.link_type {
             ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
             ActorLinkType::Remove => {
@@ -227,12 +225,14 @@ impl super::ActorStore {
     pub(super) fn remove_links_for(&mut self, unique_id: i64) {
         self.unlink(unique_id);
         for rider in self.vehicle_riders.remove(&unique_id).unwrap_or_default() {
+            self.forget_left_rider(rider);
             self.rider_to_ridden.remove(&rider);
             self.tick_links.order.remove(&rider);
         }
     }
 
     pub(super) fn clear_links(&mut self) {
+        self.local_vehicle.left_rider = None;
         self.rider_to_ridden.clear();
         self.vehicle_riders.clear();
         self.tick_links.clear();

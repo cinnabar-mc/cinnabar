@@ -55,9 +55,35 @@ pub(super) struct LocalVehicle {
     render: Option<(u64, ActorPose)>,
     /// Passengers held on the boat's render pose, released with it.
     held_passengers: Vec<u64>,
+    /// The local player after it got off its vehicle on the client, until the server's links
+    /// for it change. Its committed link stays, so the server's unlink still commits.
+    pub(super) left_rider: Option<i64>,
 }
 
 impl ActorStore {
+    /// Takes the linked local player `local` off its vehicle as getting off does on the
+    /// client: it stops showing on the seat until the server's links for it change.
+    pub(crate) fn leave_local_vehicle(&mut self, local: i64) {
+        if self.rider_to_ridden.contains_key(&local) {
+            self.local_vehicle.left_rider = Some(local);
+        }
+    }
+
+    /// Ends a client-side leave once the server's links for `rider` change.
+    pub(super) fn forget_left_rider(&mut self, rider: i64) {
+        if self.local_vehicle.left_rider == Some(rider) {
+            self.local_vehicle.left_rider = None;
+        }
+    }
+
+    /// The vehicle `rider` shows riding: its link, unless it got off on the client.
+    pub(crate) fn shown_ridden(&self, rider: i64) -> Option<i64> {
+        self.rider_to_ridden
+            .get(&rider)
+            .copied()
+            .filter(|_| self.local_vehicle.left_rider != Some(rider))
+    }
+
     /// The boat the local player currently steers, from the current links; the client
     /// predicts it while this holds.
     pub(crate) fn local_steered_boat(&self) -> Option<u64> {

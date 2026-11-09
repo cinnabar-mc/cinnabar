@@ -593,8 +593,8 @@ with a floor and room, and reports that position in its stop-riding request. Wit
 block it stays at its seat. It gets off only in a tick where transport takes the request
 once nothing from the seat is still outbound (movement queued or not yet written, a held
 item release, attack, block-use or item-release work), the last tick completed and every
-column around the mount has arrived; then movement, the actor's link and the view drop the
-seat at once. Incomplete: the still-vehicle motion threshold is unverified; each block counts
+column around the mount has arrived; then movement, the shown actor and the view leave the
+seat at once, while the committed link waits for the server's unlink. Incomplete: the still-vehicle motion threshold is unverified; each block counts
 as one box around its collision shapes; blocks vanilla exempts by flag or state other than
 scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail ejection
 are not implemented; until the server's unlink arrives, the HUD, inventory and mining speed
