@@ -1,11 +1,11 @@
-//! Depth-tested and alpha-tested block thumbnails from shared GUI geometry.
+//! Alpha-tested block thumbnails from shared GUI geometry and surface ordering.
 //! Includes slabs, stairs, walls, glass and server custom blocks.
 
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads, cube_face,
-    face_brightness, material_tile,
+    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads,
+    block_gui_uses_paint_order, cube_face, face_brightness, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
@@ -81,6 +81,7 @@ pub(super) struct Model<'a> {
     projection: fn([f32; 3]) -> [f32; 3],
     light: f32,
     face_lighting: bool,
+    paint_order: bool,
 }
 
 impl<'a> Model<'a> {
@@ -109,6 +110,7 @@ impl<'a> Model<'a> {
             projection,
             light,
             face_lighting: true,
+            paint_order: false,
         }
     }
 
@@ -237,6 +239,10 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            paint_order: block_gui_uses_paint_order(
+                render_kind,
+                template.and_then(|id| parts.templates.get(id as usize)),
+            ),
         })
     }
 
@@ -267,6 +273,7 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            paint_order: false,
         }
     }
 
@@ -274,7 +281,7 @@ impl<'a> Model<'a> {
         let mut pixels = vec![0u8; SIDE * SIDE * 4];
         let mut depth = vec![f32::INFINITY; SIDE * SIDE];
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
-        for face in &self.faces {
+        for (index, face) in self.faces.iter().enumerate() {
             let brightness = if self.face_lighting && face.face_dimming {
                 face_brightness(face.corners)
             } else {
@@ -283,6 +290,8 @@ impl<'a> Model<'a> {
             let points = face.corners.map(|point| {
                 let [x, y, z] = (self.projection)(point);
                 let scale = SIDE as f32 / GUI_ITEM_SIDE;
+                // Later faces cover earlier ones when the GUI uses paint order.
+                let z = if self.paint_order { -(index as f32) } else { z };
                 [scale * x, scale * y, z]
             });
             for indices in [[0, 1, 2], [0, 2, 3]] {
@@ -462,6 +471,140 @@ fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    /// Rasters source-textured GUI faces with ordinary depth ordering.
+    fn raster_quads(
+        quads: impl IntoIterator<Item = assets::gui_item::GuiBlockQuad>,
+        texture: &IconSprite,
+    ) -> IconSprite {
+        Model::textured(
+            quads.into_iter().map(|quad| TexturedQuad {
+                corners: quad.corners,
+                uvs: quad.uvs,
+                texture,
+                face_dimming: true,
+            }),
+            assets::gui_item::project_cube,
+            1.0,
+        )
+        .raster()
+    }
+
+    #[test]
+    fn fence_thumbnails_match_gui_surface_order() {
+        for cutout in [false, true] {
+            let side = assets::TILE_SIZE as usize;
+            let texture = IconSprite {
+                width: side as u16,
+                height: side as u16,
+                rgba8: (0..side * side)
+                    .flat_map(|pixel| {
+                        [
+                            (pixel % side * 16) as u8,
+                            (pixel / side * 16) as u8,
+                            120,
+                            if cutout && pixel % 3 == 0 { 0 } else { 255 },
+                        ]
+                    })
+                    .collect(),
+            };
+            let overlay = BlockOverlay {
+                textures: vec![assets::TextureArray {
+                    layers: 1,
+                    mips: vec![assets::TextureMip {
+                        size: side as u32,
+                        rgba8: texture.rgba8.to_vec().into(),
+                    }]
+                    .into(),
+                }],
+                ..Default::default()
+            };
+            let materials = [
+                Material::unvaried(),
+                Material {
+                    texture: assets::TextureRef::new(1, 0).unwrap(),
+                    flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                    ..Material::unvaried()
+                },
+            ];
+            for (flags, render_kind, paint) in [
+                (
+                    assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+                    Default::default(),
+                    true,
+                ),
+                (
+                    assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+                    Default::default(),
+                    true,
+                ),
+                (
+                    assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+                    assets::facts::BlockRenderKind::BambooFence,
+                    false,
+                ),
+            ] {
+                let templates = [ModelTemplate {
+                    quad_start: 0,
+                    quad_count: 0,
+                    flags,
+                }];
+                let actual = Model::build(
+                    Parts {
+                        materials: &materials,
+                        templates: &templates,
+                        quads: &[],
+                        textures: Textures::Overlay(&overlay, None),
+                        tint: None,
+                    },
+                    VisualKind::Model,
+                    [1; 6],
+                    Some(0),
+                    render_kind,
+                )
+                .unwrap()
+                .raster();
+                let quads: Vec<_> = block_gui_quads(
+                    render_kind,
+                    VisualKind::Model,
+                    [1; 6],
+                    Some(0),
+                    &templates,
+                    &[],
+                )
+                .unwrap()
+                .into_iter()
+                .filter(|quad| quad.visible_in_gui())
+                .collect();
+                let depth = raster_quads(quads.iter().copied(), &texture);
+                if !paint {
+                    assert_eq!(actual.rgba8, depth.rgba8, "bamboo keeps depth ordering");
+                    continue;
+                }
+                let mut expected = vec![0; SIDE * SIDE * 4];
+                for quad in quads {
+                    let face = raster_quads([quad], &texture);
+                    for (target, source) in expected
+                        .as_chunks_mut::<4>()
+                        .0
+                        .iter_mut()
+                        .zip(face.rgba8.as_chunks::<4>().0)
+                    {
+                        if source[3] != 0 {
+                            *target = *source;
+                        }
+                    }
+                }
+                assert_ne!(expected.as_slice(), depth.rgba8.as_ref());
+                assert_eq!(
+                    actual.rgba8.as_ref(),
+                    expected.as_slice(),
+                    "fence rails must cover posts in GUI paint order (cutout: {cutout})"
+                );
+            }
+        }
+    }
+
     #[test]
     fn cube_thumbnail_hides_rear_texels_through_front_holes() {
         for blend in [false, true] {
