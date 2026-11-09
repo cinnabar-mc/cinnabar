@@ -71,6 +71,30 @@ fn pane_models_preserve_the_original_carried_sprite() {
             .held_sprite
             .expect("a GUI pane keeps separate carried artwork");
         assert_ne!(held, gui);
+        let entry = assets::IconEntry {
+            identifier: "minecraft:glass_pane".into(),
+            metadata: 0,
+            sprite: gui,
+        };
+        let icons = assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_blocks(
+                world.provenance().source_manifest_sha256,
+                &sprites,
+                std::slice::from_ref(&entry),
+                &baked.block_sheets,
+                &baked.block_models,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            icons.lookup_index(&entry.identifier, entry.metadata),
+            Some(gui as usize)
+        );
+        assert_eq!(
+            icons.lookup_held_index(&entry.identifier, entry.metadata),
+            Some(held as usize)
+        );
         let held = &sprites[held as usize];
         assert_eq!([held.width, held.height], [side as u16; 2]);
         assert_eq!(held.rgba8.as_ref(), artwork.as_raw());

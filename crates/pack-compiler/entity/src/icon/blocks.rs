@@ -418,12 +418,9 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Retains flat carried artwork for bars independently of their GUI plate.
+    /// Retains flat carried artwork for pane player previews independently of their GUI plate.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let record = self.records.get(visual.0 as usize)?;
-        if record.model_family != ModelFamily::Pane
-            || assets::gui_item::has_carried_glass_plate(&record.name)
-        {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
             return None;
         }
         self.texture_path(visual)
