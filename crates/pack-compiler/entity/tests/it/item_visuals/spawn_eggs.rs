@@ -361,7 +361,9 @@ fn exact_pinned_pack_renders_every_retail_spawn_egg() {
             .lookup("minecraft:spawn_egg", 51)
             .unwrap()
             .rgba8
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[3] != 0)
     );
     assert_eq!(

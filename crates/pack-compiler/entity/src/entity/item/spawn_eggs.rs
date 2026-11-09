@@ -144,7 +144,7 @@ pub(super) fn compile(
         let route = resolve(actor.egg.as_ref(), texture_data, source_indices)?;
         definitions.insert(
             ItemVisualKey {
-                identifier: "minecraft:spawn_egg".into(),
+                identifier: assets::facts::SPAWN_EGG_IDENTIFIER.into(),
                 metadata: *auxiliary,
             },
             (actor.source, route),
