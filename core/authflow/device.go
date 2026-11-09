@@ -57,10 +57,10 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 	}
 	var lostAnswer atomic.Bool
 	token, err := f.Token(tolerantPollContext(ctx, &lostAnswer), response)
-	if err == nil || ctx.Err() == nil {
-		// The code is settled. A cancelled flow that got no token keeps it, whether the
-		// client's process ended or the player cancelled: the next sign-in resumes the
-		// unexpired code, which completes at once if the player already approved it.
+	var providerError *oauth2.RetrieveError
+	if err == nil || ctx.Err() == nil || errors.As(err, &providerError) {
+		// A token or provider rejection settles the code, even if cancellation coincides.
+		// Cancellation without a provider answer keeps the unexpired code for resuming.
 		f.forget()
 	}
 	if err != nil {

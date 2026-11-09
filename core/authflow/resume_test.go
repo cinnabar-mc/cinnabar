@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -145,5 +146,39 @@ func TestDeviceSignInForgetsACodeRedeemedAsTheProcessEnds(t *testing.T) {
 	}.Request(ctx, func(*oauth2.DeviceAuthResponse) error { return nil })
 	if _, err := os.Stat(authcache.PendingPromptPath(path)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a redeemed code was kept for resuming: %v", err)
+	}
+}
+
+func TestDeviceSignInForgetsACodeRejectedAsTheProcessEnds(t *testing.T) {
+	denied := &oauth2.RetrieveError{ErrorCode: "access_denied"}
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "denied", err: denied},
+		{name: "wrapped denial", err: fmt.Errorf("token request: %w", denied)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "token.json")
+			ctx, end := context.WithCancel(context.Background())
+			defer end()
+			_, err := (DeviceFlow{
+				Pending:   path,
+				Authorize: savedPromptFlow("DENY-1234", time.Now().Add(15*time.Minute)),
+				Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+					if _, err := os.Stat(authcache.PendingPromptPath(path)); err != nil {
+						t.Fatalf("prompt was not saved before polling: %v", err)
+					}
+					end()
+					return nil, test.err
+				},
+			}).Request(ctx, func(*oauth2.DeviceAuthResponse) error { return nil })
+			if !errors.Is(err, errDeviceAuthorization) {
+				t.Fatalf("rejected sign-in = %v, want device authorization failure", err)
+			}
+			if _, err := os.Stat(authcache.PendingPromptPath(path)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("a rejected code was kept for resuming: %v", err)
+			}
+		})
 	}
 }
