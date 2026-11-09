@@ -45,7 +45,6 @@ fn resolve_key_with_carrier(
             .filter_map(|(metadata, path)| {
                 let mut texture = decode(view, path, &carrier)?;
                 texture.retain_first_strip_frame();
-                texture.downscale_to_max(128);
                 if texture.rgba8.len() > remaining_bytes {
                     return None;
                 }
@@ -68,7 +67,6 @@ fn resolve_key_with_carrier(
     ] {
         if let Some(mut texture) = decode(view, &path, &carrier) {
             texture.retain_first_strip_frame();
-            texture.downscale_to_max(128);
             if texture.rgba8.len() <= remaining_bytes {
                 return Ok(vec![(0, texture)]);
             }
@@ -147,5 +145,31 @@ mod tests {
             resolve_key_with_carrier(&view, &paths, "geyser_custom:gem", 1, 16 * 16 * 4, |_| None)
                 .expect("namespace-stripped catalog key");
         assert_eq!(icons.len(), 1);
+    }
+
+    #[test]
+    fn catalog_and_loose_hd_frames_retain_full_resolution_within_budget() {
+        let view = super::super::tests::view();
+        let pixels = (0..256 * 256)
+            .flat_map(|index| [index as u8, (index / 256) as u8, 91, 255])
+            .collect::<Vec<_>>();
+        for paths in [
+            std::collections::HashMap::from([("hd".into(), vec!["textures/items/hd".into()])]),
+            std::collections::HashMap::new(),
+        ] {
+            let textures = resolve_key_with_carrier(&view, &paths, "hd", 1, pixels.len(), |path| {
+                (path == "textures/items/hd").then(|| DecodedTexture {
+                    width: 256,
+                    height: 256,
+                    rgba8: pixels.clone().into(),
+                })
+            })
+            .unwrap();
+            assert_eq!(textures.len(), 1);
+            let (_, texture) = textures.into_iter().next().unwrap();
+            let icon = icon("fixture:hd".into(), texture);
+            assert_eq!([icon.width, icon.height], [256, 256]);
+            assert_eq!(icon.rgba8.as_ref(), pixels.as_slice());
+        }
     }
 }

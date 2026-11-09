@@ -195,26 +195,19 @@ impl EquipmentRuntime {
                 input,
                 &mut operations_left,
                 |binding| {
-                    let canonical = canonical_armor_geometry_identifier(&binding.geometry.identifier);
+                    let canonical =
+                        canonical_armor_geometry_identifier(&binding.geometry.identifier);
                     let aliased = canonical != binding.geometry.identifier.as_ref();
                     !pack
                         .assets
                         .geometry_candidates(&binding.geometry.identifier)
                         .is_empty()
-                        || (aliased
-                            && !pack
-                                .assets
-                                .geometry_candidates(canonical)
-                                .is_empty())
+                        || (aliased && !pack.assets.geometry_candidates(canonical).is_empty())
                         || !self
                             .assets
                             .geometry_candidates(&binding.geometry.identifier)
                             .is_empty()
-                        || (aliased
-                            && !self
-                                .assets
-                                .geometry_candidates(canonical)
-                                .is_empty())
+                        || (aliased && !self.assets.geometry_candidates(canonical).is_empty())
                         || (binding.geometry.resolution == EntityDependencyResolution::External
                             && external.contains(&binding.geometry.identifier))
                 },

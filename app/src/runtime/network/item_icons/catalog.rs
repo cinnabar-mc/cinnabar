@@ -56,6 +56,7 @@ pub(super) fn icon_keys(
 ) -> Vec<(Arc<str>, Arc<str>)> {
     let mut keys: std::collections::BTreeMap<Arc<str>, Arc<str>> =
         registry.iter().cloned().collect();
+    let mut declared = std::collections::BTreeSet::new();
     let paths = view
         .list("items/")
         .into_iter()
@@ -82,10 +83,7 @@ pub(super) fn icon_keys(
                 && (keys.len() < MAX_CATALOG_ENTRIES || keys.contains_key(identifier))
             {
                 keys.insert(Arc::from(identifier), Arc::from(key));
-                let short_id = identifier.rsplit_once(':').map_or(identifier, |(_, name)| name);
-                if !keys.contains_key(short_id) && keys.len() < MAX_CATALOG_ENTRIES {
-                    keys.insert(Arc::from(short_id), Arc::from(key));
-                }
+                declared.insert(Arc::<str>::from(identifier));
             }
         }
     }
@@ -114,11 +112,19 @@ pub(super) fn icon_keys(
                     if !keys.contains_key(identifier) {
                         keys.insert(Arc::from(identifier), Arc::from(key));
                     }
-                    if !keys.contains_key(key) && keys.len() < MAX_CATALOG_ENTRIES {
-                        keys.insert(Arc::from(key), Arc::from(key));
-                    }
+                    declared.insert(Arc::<str>::from(identifier));
                 }
             }
+        }
+    }
+    // Aliases use the final declaration and never replace explicit identifiers.
+    for identifier in declared {
+        if let Some((_, short)) = identifier.rsplit_once(':')
+            && !keys.contains_key(short)
+            && keys.len() < MAX_CATALOG_ENTRIES
+        {
+            let key = Arc::clone(&keys[&identifier]);
+            keys.insert(Arc::from(short), key);
         }
     }
     keys.into_iter().collect()

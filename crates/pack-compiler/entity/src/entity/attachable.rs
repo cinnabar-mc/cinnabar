@@ -357,8 +357,12 @@ fn contains_thirdperson_hand_branch(value: &Value) -> bool {
 fn player_armor_slot(geometry: &str) -> Option<ArmorSlot> {
     Some(match geometry {
         "geometry.player.armor.helmet" | "geometry.humanoid.armor.helmet" => ArmorSlot::Helmet,
-        "geometry.player.armor.chestplate" | "geometry.humanoid.armor.chestplate" => ArmorSlot::Chestplate,
-        "geometry.player.armor.leggings" | "geometry.humanoid.armor.leggings" => ArmorSlot::Leggings,
+        "geometry.player.armor.chestplate" | "geometry.humanoid.armor.chestplate" => {
+            ArmorSlot::Chestplate
+        }
+        "geometry.player.armor.leggings" | "geometry.humanoid.armor.leggings" => {
+            ArmorSlot::Leggings
+        }
         "geometry.player.armor.boots" | "geometry.humanoid.armor.boots" => ArmorSlot::Boots,
         _ => return None,
     })
