@@ -463,7 +463,7 @@ fn mesh_sub_chunk_core<
                                         );
                                         if coverage.tiles == 0 {
                                             visible_quad_mask &= !(1 << index);
-                                        } else if coverage.tiles != 0x1ff {
+                                        } else if coverage.tiles != crate::surface::ALL_TILES {
                                             surface_coverage[index] = Some(coverage);
                                         }
                                     }

@@ -269,6 +269,16 @@ pub fn reconcile_physics_anchor(
         };
         let mut candidate_physics = physics.clone();
         let mut candidate_ticker = ticker.clone();
+        if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
+            && let Some(pending) = candidate_physics.rewind_before(aligned_tick)
+        {
+            reconcile_timeline_rewind(
+                &mut candidate_ticker,
+                &mut candidate_physics,
+                pending,
+                world,
+            )?;
+        }
         let riptide_after_snap = candidate_ticker.riptide_request_after_snap(&candidate_physics);
         // A snap cancels an unsent release, so a spin its predicted launch
         // started ends with it; other spins survive the snap.
@@ -380,6 +390,7 @@ pub fn reconcile_timeline_rewind(
     if !ticker.physics_is_authorized() {
         return Err(PhysicsAuthorityFault::Unauthorized);
     }
+    physics.require_timeline_rewind(tick);
     let mut candidate_physics = physics.clone();
     let mut candidate_ticker = ticker.clone();
     if let Some(release_tick) = candidate_ticker.unconfirmed_riptide_release_tick()

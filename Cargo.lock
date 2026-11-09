@@ -6979,6 +6979,7 @@ dependencies = [
  "protocol-ids",
  "render-model",
  "serde_json",
+ "test-alloc",
  "tracing",
 ]
 
