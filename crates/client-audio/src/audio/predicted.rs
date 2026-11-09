@@ -414,7 +414,25 @@ fn status_request(
     Some((event, request))
 }
 
-/// Voices every actor's hurt/death status.
+/// Splash a fishing hook plays from itself when a fish bites; a silent hook stays quiet.
+fn fishing_bite_request(
+    tables: &assets::SoundEventTables,
+    identifier: &str,
+    notice: &ActorStatusNotice,
+) -> Option<SoundRequest> {
+    let hook = notice.fishing?;
+    if notice.kind != ActorStatusKind::FishHookBite || hook.silent {
+        return None;
+    }
+    let route = tables.entity(identifier, super::route::SPLASH_EVENT, None)?;
+    Some(
+        SoundRequest::new(route.sound)
+            .with_ranges(route.volume, route.pitch)
+            .at(notice.position),
+    )
+}
+
+/// Voices every actor's hurt/death status and a fishing hook's bite.
 pub fn drive_actor_audio(
     world: crate::observations::WorldObservation<'_>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
@@ -450,6 +468,14 @@ pub fn drive_actor_audio(
             };
             (identifier, actor.unique_id, actor.entity_fact.native_class)
         };
+        // Native plays the bite locally with no server copy to pair, so it bypasses the echo ledger.
+        if let Some(request) = engine
+            .bank()
+            .and_then(|bank| fishing_bite_request(bank.tables(), identifier, notice))
+        {
+            engine.enqueue(request);
+            continue;
+        }
         let Some((event, request)) = engine
             .bank()
             .and_then(|bank| status_request(bank.tables(), identifier, class, notice))
@@ -613,6 +639,7 @@ mod tests {
             position: [1.0, 64.0, 1.0],
             height: Some(2.0),
             eating_position: [0.0; 3],
+            fishing: None,
         };
         let (event, hurt) = status_request(
             &tables,
@@ -647,6 +674,56 @@ mod tests {
     }
 
     #[test]
+    fn a_fish_bite_splashes_from_the_hook_unless_it_is_silent() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {"entities": {"fishing_hook": {
+                "volume": 0.25, "pitch": [0.6, 1.4], "events": {"splash": "random.splash"}
+            }}}}),
+            &serde_json::json!({}),
+        );
+        let hook = client_world::FishingHookPose {
+            bottom: 62.75,
+            width: 0.25,
+            fish_offset: [0.0; 2],
+            fish_angle: 0.0,
+            silent: false,
+        };
+        let notice = ActorStatusNotice {
+            runtime_id: 9,
+            kind: ActorStatusKind::FishHookBite,
+            data: 0,
+            position: [4.25, 62.75, -3.5],
+            height: Some(0.25),
+            eating_position: [4.25, 62.75, -3.5],
+            fishing: Some(hook),
+        };
+        let splash = fishing_bite_request(&tables, "minecraft:fishing_hook", &notice).unwrap();
+        assert_eq!(&*splash.name, "random.splash");
+        assert_eq!(splash.position, Some([4.25, 62.75, -3.5]));
+        assert_eq!((splash.volume.min, splash.volume.max), (0.25, 0.25));
+        assert_eq!((splash.pitch.min, splash.pitch.max), (0.6, 1.4));
+        for quiet in [
+            ActorStatusNotice {
+                fishing: Some(client_world::FishingHookPose {
+                    silent: true,
+                    ..hook
+                }),
+                ..notice
+            },
+            ActorStatusNotice {
+                kind: ActorStatusKind::FishHookPosition,
+                ..notice
+            },
+            ActorStatusNotice {
+                fishing: None,
+                ..notice
+            },
+        ] {
+            assert!(fishing_bite_request(&tables, "minecraft:fishing_hook", &quiet).is_none());
+        }
+    }
+
+    #[test]
     fn dragon_death_audio_waits_for_the_server_sound_event() {
         let tables = assets::SoundEventTables::from_json(
             &serde_json::json!({"entity_sounds": {"entities": {
@@ -663,6 +740,7 @@ mod tests {
             position: [1.0, 64.0, 1.0],
             height: Some(4.0),
             eating_position: [0.0; 3],
+            fishing: None,
         };
         assert!(
             status_request(

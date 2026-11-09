@@ -34,6 +34,8 @@ pub struct ActorStatusNotice {
     pub height: Option<f32>,
     /// Eating attachment for Feed; actor feet for other kinds.
     pub eating_position: [f32; 3],
+    /// The hook's state for fishing events on a fishing hook; `None` otherwise.
+    pub fishing: Option<super::FishingHookPose>,
 }
 
 /// A dropped item flying to the actor that collected it.
@@ -287,6 +289,7 @@ impl ActorStore {
                 } else {
                     actor.position
                 },
+                fishing: super::FishingHookPose::for_event(actor, event.kind),
             });
         }
         match event.kind {

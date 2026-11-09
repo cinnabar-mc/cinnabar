@@ -869,6 +869,7 @@ mod dragon_particles;
 mod dropped;
 mod entities;
 mod fire;
+mod fishing;
 mod hitbox;
 mod hurt;
 mod last_death;
@@ -901,6 +902,7 @@ pub use entities::{
     BlockEntityCandidate, BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation,
 };
 pub use fire::FIRE_FADE_TICKS;
+pub use fishing::FishingHookPose;
 pub use hitbox::ActorHitBoxes;
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
