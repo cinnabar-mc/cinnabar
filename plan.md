@@ -1110,6 +1110,13 @@ parameters), a server-flag start of a brush taking its use duration, and the nat
 `variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain
 incomplete.
 
+Feeding a baby animal arrives from vanilla BDS as actor event 57 followed by event 60 with
+zero data; event 60 now draws the vanilla crop-growth (bone meal) effect at the baby's
+mid-height. This is provisional and incomplete: the effect choice rests on pmmp's protocol
+description ("green particles, like bonemeal on crops"), and the native effect, origin,
+count and any repetition still need a version-matched vanilla client capture. BDS sends no
+event 76 when a fed or event-driven baby grows up, so that event still draws nothing.
+
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
 oversized server cosmetics), capes, shadows,
