@@ -24,6 +24,7 @@ pub mod inbox;
 mod input;
 mod invite;
 mod join_requests;
+mod realm_leave;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
@@ -242,6 +243,7 @@ pub struct MenuRuntime {
     /// The pause screen's invite screen and the invites it queued.
     invite: invite::InviteUi,
     realm_membership: realm_membership::RealmUi,
+    realm_leave: realm_leave::RealmLeaveUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
 }
@@ -632,6 +634,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
+            MenuAction::LeaveRealmDialog(_) | MenuAction::ConfirmLeaveRealm(_) => {
+                self.activate_realm_leave(action)
+            }
             MenuAction::PlayRealm(index) => {
                 if let Some(realm) = self.realms.get(index) {
                     let target = if realm.target.is_empty() {

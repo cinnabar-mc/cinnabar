@@ -1,6 +1,5 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
-use json_ui::vanilla::Reference;
 pub mod audio_output;
 pub mod auth;
 pub mod death;
@@ -36,8 +35,8 @@ pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, CatalogServer, EXPERIENCE_ADDRESS_PREFIX,
     FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
     LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
-    MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
-    ServerTrustPrompt, pingable,
+    MenuRealmCard, MenuServerCard, MenuView, PingInfo, REALM_ADDRESS_PREFIX, SavedServer,
+    ServerDetails, ServerTrustPrompt, joined_realm, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -85,6 +84,8 @@ pub enum MenuDialog {
     Exit,
     DeathQuit,
     RemoveSaved(usize),
+    /// Confirms leaving the joined Realm with this service id.
+    LeaveRealm(u32),
     RemoveShaderPack(u16, u64),
     StorageDelete,
     StorageError,
@@ -155,6 +156,10 @@ pub enum MenuAction {
     PlayRealm(usize),
     /// Opens or advances Realm membership through an invite link or code.
     RealmMembership(realm_membership::Action),
+    /// Asks to confirm leaving the joined Realm with this service id.
+    LeaveRealmDialog(u32),
+    /// Leaves the joined Realm with this service id after the player confirmed.
+    ConfirmLeaveRealm(u32),
     PlayFriend(usize),
     ToggleFavorite(usize),
     RemoveSavedDialog(usize),
@@ -244,25 +249,6 @@ pub enum MenuAction {
     JoinRequest(bool),
     /// A press on the Shader Pack Settings screen or its Shaders-tab button.
     ShaderOptions(crate::shader_options::Action),
-}
-
-/// The vanilla screen family used by both menu history and scene composition.
-pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
-    Some(match screen {
-        MenuScreen::Death => Reference::DeathDeathScreen.as_str(),
-        MenuScreen::Pause => Reference::PausePauseScreen.as_str(),
-        MenuScreen::Home => Reference::StartStartScreen.as_str(),
-        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-            Reference::PlayPlayScreen.as_str()
-        }
-        MenuScreen::AddServer => Reference::AddExternalServerAddExternalServerScreenNew.as_str(),
-        MenuScreen::Settings => Reference::SettingsScreenControlsAndSettings.as_str(),
-        MenuScreen::Invite => Reference::InviteInviteScreen.as_str(),
-        MenuScreen::Profile
-        | MenuScreen::DressingRoom
-        | MenuScreen::Inbox
-        | MenuScreen::Friends => return None,
-    })
 }
 
 /// The default Bedrock server port displayed by launcher address fields.

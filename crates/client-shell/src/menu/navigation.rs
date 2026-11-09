@@ -126,7 +126,7 @@ impl MenuRuntime {
     /// Opens `screen` over the current one, or returns to it when it is already
     /// open below; a tab of an open vanilla screen takes that screen's place.
     pub(super) fn enter(&mut self, screen: MenuScreen) {
-        use launcher::menu::menu_reference;
+        use launcher::menu::flow::menu_reference;
         self.remember_navigation_focus();
         let returning = screen != self.screen && self.history.screens().contains(&screen);
         let same = |open: MenuScreen| {

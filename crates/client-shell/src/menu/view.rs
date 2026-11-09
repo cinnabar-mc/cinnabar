@@ -108,6 +108,7 @@ impl MenuRuntime {
             world_settings: self.world_settings_view(),
             invite: self.invite_view(),
             realm_membership: self.realm_membership.state.clone(),
+            leaving_realm: self.realm_leave.leaving(),
             join_request: self.join_request_view(),
             global_resources: self.global_resources.clone(),
             mods: self.mods.clone(),

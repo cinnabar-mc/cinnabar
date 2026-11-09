@@ -80,6 +80,24 @@ impl MenuRealmCard {
     pub fn can_play(&self) -> bool {
         !self.expired && self.state.eq_ignore_ascii_case("open")
     }
+
+    /// The positive service id of a Realm the player joined rather than owns; only such a Realm
+    /// can be left.
+    pub fn leave_id(&self) -> Option<u32> {
+        if !self.member {
+            return None;
+        }
+        self.target
+            .strip_prefix(REALM_ADDRESS_PREFIX)?
+            .parse()
+            .ok()
+            .filter(|id| *id > 0)
+    }
+}
+
+/// The listed Realm the player joined with this service id.
+pub fn joined_realm(realms: &[MenuRealmCard], id: u32) -> Option<&MenuRealmCard> {
+    realms.iter().find(|realm| realm.leave_id() == Some(id))
 }
 
 /// Marks a featured address as an experience's ID, joined when selected.
@@ -87,6 +105,9 @@ pub const EXPERIENCE_ADDRESS_PREFIX: &str = bridge::contract::GATHERING_TARGET_P
 
 /// Marks an address as the friend world hosted by this XUID.
 pub const FRIEND_ADDRESS_PREFIX: &str = bridge::contract::FRIEND_TARGET_PREFIX;
+
+/// Marks a Realm's join target, followed by its service id.
+pub const REALM_ADDRESS_PREFIX: &str = bridge::contract::REALM_TARGET_PREFIX;
 
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
@@ -521,6 +542,8 @@ pub struct MenuView {
     pub world_settings: Option<std::sync::Arc<crate::local_worlds::in_world::View>>,
     /// The code invitation flow covering the Realms tab.
     pub realm_membership: Option<super::realm_membership::State>,
+    /// The service id of the joined Realm being left, until its outcome arrives.
+    pub leaving_realm: Option<u32>,
     /// The invite screen's friends and picks while it is up.
     pub invite: Option<std::sync::Arc<super::invite::InviteState>>,
     /// Who sent the oldest open Discord join request.
@@ -790,6 +813,7 @@ impl MenuView {
             feeds: Default::default(),
             hosting: false,
             realm_membership: None,
+            leaving_realm: None,
             invite: None,
             join_request: None,
         }

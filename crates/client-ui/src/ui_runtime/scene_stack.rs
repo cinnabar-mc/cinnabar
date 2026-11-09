@@ -93,7 +93,7 @@ impl Scene {
 
     /// Whether both draw one vanilla screen (menu tabs share theirs).
     fn same_screen(self, other: Self) -> bool {
-        use launcher::menu::menu_reference;
+        use launcher::menu::flow::menu_reference;
         match (self, other) {
             (Self::Menu(a), Self::Menu(b)) => {
                 a == b || menu_reference(a).is_some_and(|r| menu_reference(b) == Some(r))
