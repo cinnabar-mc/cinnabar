@@ -456,7 +456,8 @@ impl MovementTicker {
     /// A frame-time interaction once every completed tick has entered the outbound FIFO.
     /// It reports the newest admitted tick's position and precedes the next tick's input.
     pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
-        if !self.outbox.is_empty() || self.held_release.is_some() {
+        // Nothing reports the position a dismount placed before its request goes out.
+        if !self.outbox.is_empty() || self.held_release.is_some() || self.dismount.fence.is_some() {
             return None;
         }
         let (tick, position) = self

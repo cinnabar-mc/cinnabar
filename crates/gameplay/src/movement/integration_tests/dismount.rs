@@ -649,6 +649,16 @@ fn interactions_after_getting_off_report_the_exit_before_the_next_tick() {
     assert_eq!(rider.ticker.completed_tick(), ticked);
     let exit = rider.physics.network_position().unwrap();
     assert!((exit[2] + 0.5).abs() < 1.0e-4, "got off north: {exit:?}");
+    rider
+        .locals
+        .flush_dismount(exit, |_| Err(protocol::BatchSendError::Full));
+    rider.locals.settle_dismount_fence(&mut rider.ticker);
+    rider.flush_movement();
+    assert_eq!(
+        rider.ticker.between_ticks_sample(),
+        None,
+        "no interaction reports the exit ahead of the request"
+    );
     rider.locals.flush_dismount(exit, |_| Ok(()));
     rider.locals.settle_dismount_fence(&mut rider.ticker);
     rider.flush_movement();

@@ -239,6 +239,10 @@ impl LocomotionState {
             exit.z as f32,
         ];
         physics.apply_server_actor_position(position, None);
+        // Corrections for the boat the player steered no longer move the player.
+        if feed.is_some() {
+            physics.end_vehicle_prediction();
+        }
         movement_ticker.place_dismount(position);
         self.left_mount = Some(LeftMount {
             session,

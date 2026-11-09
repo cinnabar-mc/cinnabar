@@ -177,6 +177,7 @@ pub(crate) fn advance_local_physics(
                 network.as_deref(),
             );
         }
+        locals.settle_dismount_fence(&mut movement_ticker);
         publish_physics_view(&mut physics, &mut view);
         return;
     }
