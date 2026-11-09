@@ -77,6 +77,16 @@ pub(super) fn compile_texture_identifiers_with_priorities(
         .map(str::to_owned)
         .chain(assets::entity::shared_equipment_textures().map(str::to_owned))
         .chain(assets::item::shield::pattern_paths())
+        .chain(sources.iter().filter_map(|source| {
+            source
+                .path
+                .strip_prefix(assets::item::trim::TEXTURE_DIRECTORY)?;
+            let path = source
+                .path
+                .strip_suffix(".png")
+                .or_else(|| source.path.strip_suffix(".tga"))?;
+            (!path.ends_with("_mers")).then(|| path.to_owned())
+        }))
         .collect();
     let mut seen = std::collections::HashSet::new();
     let mut ordered = Vec::with_capacity(priorities.len() + identifiers.len());
@@ -308,6 +318,37 @@ mod tests {
         assert_eq!(
             decode_raster(b"not an image", ImageFormat::Png, 16).unwrap_err(),
             EquipmentRasterRefusal::Undecodable
+        );
+    }
+
+    #[test]
+    fn trim_patterns_and_palettes_are_kept_without_a_render_controller_reference() {
+        let raster = png(2, 1);
+        let sources = [
+            "textures/trims/sentry.png",
+            "textures/trims/color_palettes/gold.png",
+            "textures/trims/items/chestplate_trim.png",
+            "textures/trims/sentry_mers.tga",
+        ]
+        .map(|path| EntityAssetSource {
+            path: path.into(),
+            source_bytes: raster.len() as u32,
+            source_sha256: [0; 32],
+        });
+        let textures =
+            compile_texture_identifiers_with(&sources, Vec::new(), &mut |_| Ok(raster.clone()))
+                .unwrap();
+        let paths: Vec<_> = textures
+            .iter()
+            .map(|texture| texture.identifier.as_ref())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "textures/trims/color_palettes/gold",
+                "textures/trims/items/chestplate_trim",
+                "textures/trims/sentry"
+            ]
         );
     }
 

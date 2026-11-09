@@ -49,11 +49,15 @@ func newFixture(t *testing.T, source *authcache.Account) *fixture {
 	return f
 }
 
-func TestConnectMapsTargetsToProxySyntax(t *testing.T) {
+func TestConnectAndSessionTargetMapTargetsToProxySyntax(t *testing.T) {
 	f := newFixture(t, testAccount())
 	for _, test := range []struct{ kind, value, want string }{
 		{control.TargetRakNet, " play.example.net:19132 ", "play.example.net:19132"},
 		{control.TargetRakNet, "[::1]:19132", "[::1]:19132"},
+		{control.TargetRakNet, "nethernet/jsonrpc/1234567890", "nethernet/jsonrpc/1234567890"},
+		{control.TargetRakNet, " NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9 ", "NetherNet/JSONRPC/5db3882f-99fe-4648-97dd-1b55492e1cc9"},
+		{control.TargetRakNet, "nethernet/http/play.example.net:19132", "nethernet/http/play.example.net:19132"},
+		{control.TargetRakNet, "nethernet/http/[::1]:19132", "nethernet/http/[::1]:19132"},
 		{control.TargetRealm, "12345", "realm_id/12345"},
 		{control.TargetFriend, "2535428000000000", "friend_xuid/2535428000000000"},
 	} {
@@ -62,6 +66,9 @@ func TestConnectMapsTargetsToProxySyntax(t *testing.T) {
 		}
 		if got, _ := f.selector.Target(); got != test.want {
 			t.Fatalf("selected %q, want %q", got, test.want)
+		}
+		if got, err := f.service.SessionTarget(context.Background(), test.kind, test.value); err != nil || got != test.want {
+			t.Fatalf("SessionTarget(%s, %q) = %q, %v; want %q", test.kind, test.value, got, err, test.want)
 		}
 	}
 }
@@ -72,6 +79,12 @@ func TestConnectRejectsMalformedTargetsWithoutChangingSelection(t *testing.T) {
 	for _, test := range []struct{ kind, value string }{
 		{control.TargetRakNet, "no-port"}, {control.TargetRakNet, "host:0"}, {control.TargetRakNet, "host:99999"},
 		{control.TargetRakNet, "a b:1"}, {control.TargetRakNet, ":19132"}, {control.TargetRealm, "0"},
+		{control.TargetRakNet, "nethernet/jsonrpc/"},
+		{control.TargetRakNet, "nethernet/unsupported/1234567890"},
+		{control.TargetRakNet, "nethernet/jsonrpc/not-an-id"},
+		{control.TargetRakNet, "nethernet/jsonrpc/1234567890:19132"},
+		{control.TargetRakNet, "nethernet/http/play.example.net"},
+		{control.TargetRakNet, "nethernet/http/play.example.net:0"},
 		{control.TargetRealm, "abc"}, {control.TargetFriend, "gamertag"}, {"other", "x"},
 	} {
 		if err := f.service.Connect(context.Background(), test.kind, test.value); !errors.Is(err, control.ErrInvalidTarget) {

@@ -33,6 +33,9 @@ pub(crate) fn observe_mount_jump_input(
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
     runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
+    if let Some(snapshot) = input.snapshot() {
+        runtime.set_input_mode(snapshot.input_mode);
+    }
 }
 
 /// Resources beyond Bevy's sixteen-parameter limit.
@@ -159,6 +162,7 @@ pub(crate) fn prepare_ui_runtime(
     runtime.advance_item_activation(now_millis);
     runtime.advance_form_handoff(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
+    runtime.set_control_settings(Arc::clone(&settings_snapshot.0));
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]
         {

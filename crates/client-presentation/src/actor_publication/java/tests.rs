@@ -353,6 +353,7 @@ fn retained_item_does_not_use_the_selected_items_clock() {
 #[test]
 fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
     let item = |identifier: &str| WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -387,6 +388,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
 #[test]
 fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
     let item = |identifier: &str| WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -466,6 +468,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         .unwrap(),
     );
     let item = |identifier: &str| WornItem {
+        trim: None,
         map_id: (identifier == FILLED_MAP).then_some(266),
         shield_pattern: None,
         charged_projectile: None,
@@ -630,6 +633,7 @@ fn partial_layers_skip_missing_parts() {
 /// Builds a sprite stack for the hand transition tests.
 fn worn(identifier: &str) -> WornItem {
     WornItem {
+        trim: None,
         variant: Default::default(),
         map_id: None,
         shield_pattern: None,
@@ -694,6 +698,7 @@ fn mixed_swaps_change_hands_at_the_bottom_of_the_dip() {
 fn displayed_stack_keeps_its_data_value_through_the_dip() {
     let water = worn("minecraft:potion");
     let healing = WornItem {
+        trim: None,
         use_facts: client_world::EffectiveItemUse::default(),
         metadata: 21,
         ..worn("minecraft:potion")
@@ -763,6 +768,7 @@ fn local_death_root_reapplies_java_tilt_and_preserves_native_mode() {
 fn outgoing_metadata_variant_keeps_its_own_idle_use_clock() {
     let owner = ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             use_facts: client_world::EffectiveItemUse::default(),
             metadata: 21,
             ..worn("minecraft:potion")
