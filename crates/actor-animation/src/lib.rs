@@ -110,7 +110,7 @@ pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
-pub use view::ActorAnimationView;
+pub use view::{ActorAnimationView, actor_culling_bounds};
 
 mod local_motion;
 pub use local_motion::LocalSwingMotionSample;
