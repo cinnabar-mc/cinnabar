@@ -1,7 +1,7 @@
 //! Committed tool wear and the legacy response history retained for client block breaks.
 
 use super::cells::Held;
-use super::queue::{CellPrediction, RollbackAuthority};
+use super::queue::{CellPrediction, RollbackAuthority, same_name};
 use super::{Cell, PlayerInventoryLedger};
 
 impl PlayerInventoryLedger {
@@ -37,6 +37,20 @@ impl PlayerInventoryLedger {
             let mut unverified = before.clone();
             if let Some(held) = &mut unverified {
                 held.stack.stack_network_id = 0;
+            }
+            // Keep the backing owner's response snapshot under its unverified name.
+            for prediction in self
+                .queue
+                .iter_mut()
+                .filter(|request| request.locally_committed())
+                .flat_map(|request| &mut request.predicted)
+                .filter(|prediction| {
+                    prediction.current
+                        && prediction.cell == cell
+                        && same_name(prediction.held.as_ref(), before.as_ref())
+                })
+            {
+                prediction.held = unverified.clone();
             }
             self.confirmed.set(cell, unverified.clone());
             self.rebase_predictions(

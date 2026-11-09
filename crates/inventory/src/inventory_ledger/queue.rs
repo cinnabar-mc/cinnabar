@@ -962,7 +962,7 @@ impl PlayerInventoryLedger {
 }
 
 /// Compares retained stack names, including empty results that still own a cell.
-fn same_name(left: Option<&Held>, right: Option<&Held>) -> bool {
+pub(super) fn same_name(left: Option<&Held>, right: Option<&Held>) -> bool {
     left.map(|held| held.stack.stack_network_id) == right.map(|held| held.stack.stack_network_id)
 }
 

@@ -6,7 +6,8 @@ use protocol::{
 };
 
 use super::{
-    INVENTORY_REQUEST_TIMEOUT_MILLIS, acknowledge_personal_open, correction, ledger_with_slot_zero,
+    INVENTORY_RECOVERY_WINDOW_MILLIS, INVENTORY_REQUEST_TIMEOUT_MILLIS, acknowledge_personal_open,
+    correction, ledger_with_slot_zero,
 };
 
 /// Builds the exact old and new descriptors for one admitted hotbar tool change.
@@ -160,6 +161,76 @@ fn revoked_wear_rebases_an_unsent_inventory_gesture() {
     }));
     assert_eq!(ledger.displayed_stack(0), Some(&original));
     assert!(ledger.cursor_stack().is_none());
+}
+
+#[test]
+fn uncertain_revoked_wear_accepts_a_later_correction_without_a_slot_refresh() {
+    let mut ledger = ledger_with_slot_zero();
+    let change = destroy_change(&ledger, 6, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &change));
+    ledger.revoke_destroy_slot_change(0, change.legacy_request_id, false);
+    assert_eq!(ledger.backing_stack(0).unwrap().stack_network_id, 0);
+    ledger.apply(&mining_response(
+        change.legacy_request_id,
+        StackResponseStatus::Accepted,
+        7,
+        77,
+    ));
+    let corrected = ledger.backing_stack(0).unwrap();
+    assert_eq!(corrected.stack_network_id, 77);
+    assert_eq!(protocol::item_extra_damage(&corrected.extra_data), Some(7));
+    assert_eq!(ledger.displayed_stack(0), Some(corrected));
+    ledger.poll_timeout(0);
+    ledger.poll_timeout(INVENTORY_RECOVERY_WINDOW_MILLIS);
+    assert!(ledger.begin_world_drop(0, Some(1)).is_ok());
+}
+
+#[test]
+fn uncertain_revoked_wear_rejects_to_the_original_tool_without_a_slot_refresh() {
+    let mut ledger = ledger_with_slot_zero();
+    let original = ledger.backing_stack(0).unwrap().clone();
+    let change = destroy_change(&ledger, 6, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &change));
+    ledger.revoke_destroy_slot_change(0, change.legacy_request_id, false);
+    assert_eq!(ledger.backing_stack(0).unwrap().stack_network_id, 0);
+    ledger.apply(&mining_response(
+        change.legacy_request_id,
+        StackResponseStatus::Rejected,
+        0,
+        0,
+    ));
+    assert_eq!(ledger.backing_stack(0), Some(&original));
+    assert_eq!(ledger.displayed_stack(0), Some(&original));
+    ledger.poll_timeout(0);
+    ledger.poll_timeout(INVENTORY_RECOVERY_WINDOW_MILLIS);
+    assert!(ledger.begin_world_drop(0, Some(1)).is_ok());
+}
+
+#[test]
+fn revoking_earlier_wear_preserves_the_latest_response_owner() {
+    let mut ledger = ledger_with_slot_zero();
+    let first = destroy_change(&ledger, 4, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &first));
+    let second = destroy_change(&ledger, 6, 250);
+    assert!(ledger.settle_destroy_slot_change(0, &second));
+    ledger.revoke_destroy_slot_change(0, first.legacy_request_id, false);
+    assert_eq!(ledger.backing_stack(0).unwrap().stack_network_id, 0);
+    ledger.apply(&mining_response(
+        second.legacy_request_id,
+        StackResponseStatus::Accepted,
+        7,
+        77,
+    ));
+    let corrected = ledger.backing_stack(0).unwrap().clone();
+    assert_eq!(corrected.stack_network_id, 77);
+    assert_eq!(protocol::item_extra_damage(&corrected.extra_data), Some(7));
+    ledger.apply(&mining_response(
+        first.legacy_request_id,
+        StackResponseStatus::Rejected,
+        0,
+        0,
+    ));
+    assert_eq!(ledger.backing_stack(0), Some(&corrected));
 }
 
 #[test]
