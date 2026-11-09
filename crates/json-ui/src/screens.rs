@@ -49,6 +49,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     Reference::HorseHorseScreen.as_str(),
     Reference::BookBookScreen.as_str(),
     Reference::NpcInteractNpcScreen.as_str(),
+    Reference::CommandBlockCommandBlockScreen.as_str(),
     Reference::PausePauseScreen.as_str(),
     Reference::InviteInviteScreen.as_str(),
     Reference::ChatChatScreen.as_str(),

@@ -119,6 +119,15 @@ fn current_anvil_states_keep_four_pieces_and_damage_art_through_the_carrier() {
                 .model_template(),
             visual.model_template()
         );
+        // Vanilla's item GUI draws anvils through the world tessellator's flat face shading.
+        assert_eq!(
+            assets::gui_item::GuiShading::of(
+                visual.kind(),
+                visual.model_template(),
+                runtime.model_templates()
+            ),
+            assets::gui_item::GuiShading::World
+        );
         let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
         let quads =
             &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize];

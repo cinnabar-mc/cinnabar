@@ -822,6 +822,8 @@ pub struct Merged {
     /// The earliest active, granted mod supplies the complete control vector.
     pub movement_input: Option<mod_host::GameplayMovementInput>,
     pub rig: Option<GameplayCameraRig>,
+    pub yaw_offset: Option<f32>,
+    pub perspective: Option<mod_api::native_camera::Perspective>,
     pub view_scale: Option<[f32; 2]>,
     pub view_tilt: Option<mod_api::native_camera::ViewTilt>,
     pub delta: Option<CameraDelta>,
@@ -832,6 +834,7 @@ pub struct Merged {
     /// Any active mod requesting an ordinary crosshair mining hold.
     pub block_mining: bool,
     pub block_mining_target: Option<mod_host::GameplayVector3>,
+    pub block_breaks: Vec<mod_host::GameplayBlockPosition>,
     pub jump_pulse: bool,
     pub jump_cancel: bool,
     /// Every mod's sprint and sneak intents combined; any mod holding one holds it.
@@ -869,6 +872,12 @@ impl Merged {
             merged.always_sprint |= modes.always_sprint;
         }
         let interaction = host.take_interaction();
+        self.block_breaks.extend(
+            interaction
+                .block_breaks
+                .into_iter()
+                .take(mod_api::MAX_BLOCK_BREAKS.saturating_sub(self.block_breaks.len())),
+        );
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
         self.block_mining |= interaction.block_mining;
@@ -876,6 +885,8 @@ impl Merged {
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());
+        self.yaw_offset = self.yaw_offset.or(host.camera_yaw_offset());
+        self.perspective = self.perspective.or(host.camera_perspective());
         self.view_scale = self.view_scale.or(host.camera_view_scale());
         self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
         self.time_override = self.time_override.or(host.time_override());

@@ -1,7 +1,13 @@
 //! Guest SDK for player mods, generated from the same `extension` WIT contract used by the host.
 //! A server Experience's client part uses `experience-sdk`'s `client` feature instead.
 
+/// Maximum explicit block destruction requests committed by one mod per frame.
+pub const MAX_BLOCK_BREAKS: usize = 1024;
+/// Maximum distance of an explicit destruction request from the observed eye, in blocks.
+pub const MAX_BLOCK_BREAK_DISTANCE: f32 = 16.;
+
 mod terrain_limits;
+pub mod terrain_surface;
 pub use terrain_limits::{
     MAX_TERRAIN_BOXES, MAX_TERRAIN_CELLS, MAX_TERRAIN_DISTANCE, MAX_TERRAIN_EXTENT,
     MAX_TERRAIN_FRAME_CELLS, MAX_TERRAIN_METADATA_BYTES, MAX_TERRAIN_QUERIES,
@@ -94,14 +100,14 @@ pub const MAX_MENU_TITLE_BYTES: usize = 64;
 pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
 /// Optional top-level PNG shown beside the component in the Mods library.
 pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
-/// Optional top-level HTTPS GitHub repository URL enabling mod release notifications.
+/// Legacy repository metadata section; current clients ignore it.
 pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
-/// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
+/// Legacy asset URL section; current clients ignore it.
 pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
 /// Supported mod API revisions, oldest to newest. Append a revision when adding
 /// capabilities; remove an older revision only when it is no longer supported.
 pub const COMPATIBILITY_REVISIONS_JSON: &str = include_str!("../compatibility-revisions.json");
-/// Optional JSON source, package and full mod revision for host-compatible update selection.
+/// JSON source and full revision identity used only by the official Cinnabar package.
 pub const REVISION_UPDATE_SECTION: &str = "cinnabar:extension/revision-update@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;

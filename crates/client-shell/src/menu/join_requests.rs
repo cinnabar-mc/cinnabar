@@ -53,6 +53,15 @@ impl MenuRuntime {
         }
     }
 
+    /// Runs an actionable toast's press, from a click, tap or controller View, and returns
+    /// whether it opened the menu.
+    pub fn press_toast(&mut self, press: ToastPress) -> bool {
+        match press {
+            ToastPress::JoinRequests => self.open_join_requests(),
+        }
+        self.visible
+    }
+
     /// Stands the oldest request's toast while playing until Discord closes it, and slides the
     /// toast out once that request is answered, closed or shown as the popup. Touches `runtime`
     /// only on a change.

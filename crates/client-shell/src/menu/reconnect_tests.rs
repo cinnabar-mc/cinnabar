@@ -19,28 +19,40 @@ fn explicit_test_auth_applies_only_to_the_pending_join() {
     assert!(menu.take_join_intent().unwrap().auth_cache.is_none());
 }
 
+/// Every join route preserves its provisioning cause in the diagnostic log.
 #[test]
-fn remote_join_failure_logs_its_complete_provisioning_diagnostic() {
-    let log = tempfile::NamedTempFile::new().unwrap();
-    let subscriber = bevy::log::tracing_subscriber::fmt()
-        .without_time()
-        .with_ansi(false)
-        .with_writer(log.as_file().try_clone().unwrap())
-        .finish();
-    let mut menu = MenuRuntime::new(true, 2, "Player".into());
-    menu.request_connect("127.0.0.1:19132".into());
-    menu.take_join_intent().unwrap();
-    let diagnostic = "Could not start 127.0.0.1:19132: missing core at /test/missing-core";
-    bevy::log::tracing::subscriber::with_default(subscriber, || {
-        bevy::log::tracing::callsite::rebuild_interest_cache();
-        menu.show_join_failure(diagnostic.into());
-    });
-    let logged = std::fs::read_to_string(log.path()).unwrap();
-    assert!(
-        logged.contains(diagnostic),
-        "complete cause must remain in the log"
-    );
-    assert!(menu.view().can_reconnect);
+fn join_failures_log_their_complete_provisioning_diagnostic() {
+    for (launcher, local_world) in [(true, false), (true, true), (false, false)] {
+        let log = tempfile::NamedTempFile::new().unwrap();
+        let subscriber = bevy::log::tracing_subscriber::fmt()
+            .without_time()
+            .with_ansi(false)
+            .with_writer(log.as_file().try_clone().unwrap())
+            .finish();
+        let mut menu = MenuRuntime::new(launcher, 2, "Player".into());
+        if local_world {
+            menu.request_local_world_join("Fixture world".into(), false);
+        } else {
+            menu.request_connect("127.0.0.1:19132".into());
+        }
+        menu.take_join_intent().unwrap();
+        menu.begin_join_progress("fixture", local_world);
+        let diagnostic = "Could not start fixture: missing core at /test/missing-core";
+        bevy::log::tracing::subscriber::with_default(subscriber, || {
+            bevy::log::tracing::callsite::rebuild_interest_cache();
+            menu.show_join_failure(diagnostic.into());
+        });
+        let logged = std::fs::read_to_string(log.path()).unwrap();
+        assert!(
+            logged.contains(diagnostic),
+            "complete cause must remain in the log"
+        );
+        if local_world || !launcher {
+            assert_eq!(menu.view().message.as_deref(), Some(diagnostic));
+        } else {
+            assert!(menu.view().can_reconnect);
+        }
+    }
 }
 
 #[test]

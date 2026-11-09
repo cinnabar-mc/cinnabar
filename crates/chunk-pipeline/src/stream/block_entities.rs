@@ -1,6 +1,11 @@
 use super::*;
 
 impl WorldStream {
+    /// Records the client simulation tick that piston arm motion follows; see
+    /// [`world::ChunkStore::set_simulation_tick`].
+    pub fn set_simulation_tick(&mut self, tick: u64) -> Result<(), world::CollisionRevisionError> {
+        self.authority.set_simulation_tick(tick)
+    }
     pub(super) fn refresh_block_entity_visual(&mut self, key: BlockEntityKey) {
         refresh_block_entity_visual(&self.authority, &mut self.block_entity_visuals, key);
     }

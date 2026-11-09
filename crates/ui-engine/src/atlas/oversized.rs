@@ -1,6 +1,15 @@
-//! Shared, sorted source metadata for full-resolution artwork requests.
+//! Shared, sorted source metadata for full-resolution artwork requests, and the registry
+//! that decides which oversized textures the art pages are offered.
 
-use std::{collections::BTreeMap, ops::Deref, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Deref,
+    sync::Arc,
+};
+
+/// Oversized textures offered to the art pages at once: enough for a screenful of large
+/// server-menu icons and their backdrops.
+pub(super) const MAX_OVERSIZED: usize = 32;
 
 /// Sorted keys and their shared encoded source bytes.
 type SourceEntries = Vec<(String, Arc<[u8]>)>;
@@ -8,9 +17,8 @@ type SourceEntries = Vec<(String, Arc<[u8]>)>;
 /// An immutable view of oversized texture keys and their original encoded bytes.
 /// The atlas keeps at most `MAX_OVERSIZED` entries. Readers share the current vector;
 /// a source edit detaches it without copying pixels or retaining previous snapshots.
-/// The second field orders entry indices most recently drawn first, as of the last edit.
 #[derive(Clone, Default)]
-pub struct OversizedTextures(Option<Arc<SourceEntries>>, Option<Arc<[usize]>>);
+pub struct OversizedTextures(Option<Arc<SourceEntries>>);
 
 impl OversizedTextures {
     /// Whether both views retain the same metadata, without walking their entries.
@@ -30,32 +38,16 @@ impl OversizedTextures {
                     .iter()
                     .zip(other.iter())
                     .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1)))
-                && self.priority().eq(other.priority())
     }
 
-    /// Entry indices most recently drawn first; key order when no edit recorded one.
-    fn priority(&self) -> impl Iterator<Item = usize> + '_ {
-        let order = self.1.as_deref().filter(|order| order.len() == self.len());
-        (0..self.len()).map(move |index| order.map_or(index, |order| order[index]))
-    }
-
-    /// Entries most recently drawn first, so a bounded consumer such as the art pages keeps
-    /// the textures on screen when it cannot hold them all.
-    pub fn by_priority(&self) -> impl Iterator<Item = &(String, Arc<[u8]>)> {
-        let entries: &[(String, Arc<[u8]>)] = self;
-        self.priority().map(move |index| &entries[index])
-    }
-
-    /// Publishes a changed source in key order, preserving identical byte ownership on retries;
-    /// returns whether the entries changed.
-    pub(super) fn insert(&mut self, key: &str, bytes: &Arc<[u8]>) -> bool {
+    /// Publishes a changed source in key order, preserving identical byte ownership on retries.
+    pub(super) fn insert(&mut self, key: &str, bytes: &Arc<[u8]>) {
         let index = self.binary_search_by(|entry| entry.0.as_str().cmp(key));
         match index {
-            Ok(index) if Arc::ptr_eq(&self[index].1, bytes) => return false,
-            Err(_) if self.len() >= super::MAX_OVERSIZED => return false,
+            Ok(index) if Arc::ptr_eq(&self[index].1, bytes) => return,
+            Err(_) if self.len() >= MAX_OVERSIZED => return,
             _ => {}
         }
-        self.1 = None;
         let entries = Arc::make_mut(self.0.get_or_insert_with(|| Arc::new(Vec::new())));
         match index {
             Ok(index) => entries[index].1 = Arc::clone(bytes),
@@ -64,71 +56,141 @@ impl OversizedTextures {
                 entries.insert(index, (key.to_owned(), Arc::clone(bytes)));
             }
         }
-        true
     }
 }
 
 impl OversizedTextures {
-    /// Drops `key`'s entry, detaching the shared vector like an edit.
+    /// Drops `key`'s entry, detaching the shared vector like any other edit.
     fn remove(&mut self, key: &str) {
-        let Ok(index) = self.binary_search_by(|entry| entry.0.as_str().cmp(key)) else {
-            return;
-        };
-        if let Some(entries) = self.0.as_mut() {
+        if let Ok(index) = self.binary_search_by(|entry| entry.0.as_str().cmp(key))
+            && let Some(entries) = self.0.as_mut()
+        {
             Arc::make_mut(entries).remove(index);
         }
-        self.1 = None;
     }
 }
 
-/// The atlas's oversized textures with the atlas clock each was last drawn on. When full,
-/// a new texture replaces the one drawn longest ago, never one drawn this frame, so a
-/// screen that scrolls past many large images keeps offering the visible ones.
-#[derive(Clone, Default)]
-pub(super) struct OversizedSources {
-    view: OversizedTextures,
+/// The oversized textures an ended frame drew.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct OversizedFrame {
+    /// The drawn keys, when they differ from the previous frame's.
+    pub changed: Option<BTreeSet<String>>,
+    /// Some drawn key has no full-resolution copy.
+    pub uncovered: bool,
+}
+
+/// Which oversized textures the art pages are offered. A texture drawn while the registry is
+/// full replaces one no frame has drawn since the last [`Registry::end_frame`], so a screen
+/// that scrolls through more large images than fit keeps offering the ones on screen.
+#[derive(Default)]
+pub(super) struct Registry {
+    offered: OversizedTextures,
+    /// The frame each offered key was last drawn on.
     drawn: BTreeMap<String, u64>,
+    /// Resident textures whose page copy is downscaled, with their source bytes, so a frame
+    /// that draws them without repacking still offers them.
+    fitted: BTreeMap<String, Arc<[u8]>>,
+    frame: u64,
 }
 
-impl OversizedSources {
-    /// The current entries, shared with art-page consumers.
-    pub(super) fn view(&self) -> OversizedTextures {
-        self.view.clone()
+impl Registry {
+    /// The offered textures, shared with the art pages.
+    pub(super) fn offered(&self) -> OversizedTextures {
+        self.offered.clone()
     }
 
-    /// Records that a frame at `clock` draws `key`, when it is retained.
-    pub(super) fn touch(&mut self, key: &str, clock: u64) {
-        if let Some(drawn) = self.drawn.get_mut(key) {
-            *drawn = clock;
-        }
-    }
-
-    /// Retains `key`'s source for a frame at `clock`, replacing the least recently drawn
-    /// entry from an earlier frame when full; skipped when this frame draws every entry.
-    pub(super) fn insert(&mut self, key: &str, bytes: &Arc<[u8]>, clock: u64) {
-        if self.view.len() >= super::MAX_OVERSIZED && !self.drawn.contains_key(key) {
+    /// Records that the current frame draws `key` at a fitted size, offering its source.
+    pub(super) fn draw(&mut self, key: &str, bytes: &Arc<[u8]>) {
+        if !self.drawn.contains_key(key) && self.offered.len() >= MAX_OVERSIZED {
+            let frame = self.frame;
             let Some(stale) = self
                 .drawn
                 .iter()
-                .filter(|(_, drawn)| **drawn < clock)
-                .min_by_key(|(_, drawn)| **drawn)
-                .map(|(stale, _)| stale.clone())
+                .filter(|(_, drawn)| **drawn < frame)
+                .min_by_key(|(key, drawn)| (**drawn, key.as_str()))
+                .map(|(key, _)| key.clone())
             else {
                 return;
             };
-            self.view.remove(&stale);
+            self.offered.remove(&stale);
             self.drawn.remove(&stale);
         }
-        if !self.view.insert(key, bytes) {
-            return;
+        self.offered.insert(key, bytes);
+        match self.drawn.get_mut(key) {
+            Some(drawn) => *drawn = self.frame,
+            None => {
+                self.drawn.insert(key.to_owned(), self.frame);
+            }
         }
-        self.drawn.insert(key.to_owned(), clock);
-        let mut order: Vec<usize> = (0..self.view.len()).collect();
-        // Stable: entries drawn on the same frame stay in key order.
-        order.sort_by_key(|&index| {
-            std::cmp::Reverse(self.drawn.get(&self.view[index].0).copied().unwrap_or(0))
-        });
-        self.view.1 = Some(order.into());
+    }
+
+    /// Records that a resident texture is drawn this frame, offering it when it was fitted.
+    pub(super) fn draw_resident(&mut self, key: &str) {
+        if let Some(bytes) = self.fitted.get(key).cloned() {
+            self.draw(key, &bytes);
+        }
+    }
+
+    /// Records that the current frame draws an offered `key` from its full-resolution copy
+    /// without placing it on a page.
+    pub(super) fn draw_art(&mut self, key: &str) {
+        if let Some(drawn) = self.drawn.get_mut(key) {
+            *drawn = self.frame;
+        }
+    }
+
+    /// Remembers a texture packed downscaled onto a page.
+    pub(super) fn fitted(&mut self, key: &str, bytes: &Arc<[u8]>) {
+        self.fitted.insert(key.to_owned(), Arc::clone(bytes));
+    }
+
+    /// Forgets a texture that left its page.
+    pub(super) fn evicted(&mut self, key: &str) {
+        self.fitted.remove(key);
+    }
+
+    /// Ends the frame, comparing the offered keys it drew with the `previous` frame's;
+    /// `has_art` tells whether a key has a full-resolution copy. Allocates only when the drawn
+    /// set changed.
+    pub(super) fn end_frame(
+        &mut self,
+        previous: &BTreeSet<String>,
+        has_art: impl Fn(&str) -> bool,
+    ) -> OversizedFrame {
+        let frame = self.frame;
+        self.frame += 1;
+        let drawn = self
+            .drawn
+            .iter()
+            .filter(move |(_, drawn)| **drawn == frame)
+            .map(|(key, _)| key);
+        OversizedFrame {
+            changed: (!drawn.clone().eq(previous.iter())).then(|| drawn.clone().cloned().collect()),
+            uncovered: drawn.clone().any(|key| !has_art(key)),
+        }
+    }
+}
+
+impl super::ServerAtlas {
+    /// Drawn textures a page had to shrink, by key, with their source bytes.
+    pub fn oversized(&self) -> OversizedTextures {
+        self.oversized.offered()
+    }
+
+    /// Records that the current frame draws `key` from its full-resolution copy instead of
+    /// requiring it, so the art pages keep it among the textures on screen.
+    pub fn draw_art(&mut self, key: &str) {
+        self.oversized.draw_art(key);
+    }
+
+    /// Ends a presented frame, comparing the oversized textures it drew with the `previous`
+    /// frame's; `has_art` tells whether a key has a full-resolution copy.
+    pub fn end_oversized_frame(
+        &mut self,
+        previous: &BTreeSet<String>,
+        has_art: impl Fn(&str) -> bool,
+    ) -> OversizedFrame {
+        self.oversized.end_frame(previous, has_art)
     }
 }
 
@@ -150,7 +212,7 @@ impl FromIterator<(String, Arc<[u8]>)> for OversizedTextures {
         if entries.is_empty() {
             Self::default()
         } else {
-            Self(Some(Arc::new(entries.into_iter().collect())), None)
+            Self(Some(Arc::new(entries.into_iter().collect())))
         }
     }
 }

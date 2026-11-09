@@ -419,6 +419,25 @@ pub mod tests {
     }
 
     #[test]
+    fn failed_form_images_are_not_downloaded_again_on_each_poll() {
+        let images = RemoteImages::default();
+        let (sender, mut requests) = tokio::sync::mpsc::channel(MAX_QUEUED);
+        *images.0.worker.lock().unwrap() = Some(sender);
+        let url = "http://example.test/missing.png";
+        assert_eq!(images.state(url), RemoteState::Loading);
+        assert_eq!(requests.try_recv().unwrap(), url);
+        images.0.finish(url.to_owned(), None);
+        for _ in 0..3 {
+            assert_eq!(images.state(url), RemoteState::Failed);
+            assert_eq!(images.load(url), RemoteState::Failed);
+        }
+        assert!(
+            requests.try_recv().is_err(),
+            "a cached failure must not refetch"
+        );
+    }
+
+    #[test]
     fn form_url_images_larger_than_two_megabytes_are_downloaded() {
         let body = vec![7; 2 * 1024 * 1024 + 1];
         let url = format!("{}/large.png?size=1024", serve(body.clone()));

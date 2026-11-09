@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn release_indirect_validation_follows_the_selected_backend() {
+    let configured = wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL
+        | wgpu::InstanceFlags::DEBUG
+        | wgpu::InstanceFlags::GPU_BASED_VALIDATION;
+    for backend in [Backend::Metal, Backend::Vulkan, Backend::Gl] {
+        assert_eq!(
+            backend_instance_flags(backend, configured, false),
+            configured - wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL
+        );
+        assert_eq!(
+            backend_instance_flags(backend, configured, true),
+            configured
+        );
+    }
+    assert_eq!(
+        backend_instance_flags(Backend::Dx12, configured, false),
+        configured
+    );
+}
+
+#[test]
 fn vulkan_minimum_storage_limit_is_accepted() {
     assert!(meets_requirements(capabilities(REQUIRED_DOWNLEVEL_FLAGS, 4)).is_ok());
 }

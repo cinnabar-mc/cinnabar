@@ -13,6 +13,8 @@ use server_experience::fetch::public_address;
 use url::{Host, Url};
 
 mod disk;
+#[cfg(test)]
+mod download_tests;
 mod memory;
 pub use disk::ImageDirectory;
 #[cfg(any(test, feature = "test-support"))]

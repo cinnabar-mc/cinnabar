@@ -198,7 +198,7 @@ pub fn prepare_actor_render_frame(
     views::refresh_interpolation(
         client_world.stream.as_deref_mut(),
         swing_progress,
-        view.camera_rotation(),
+        view.camera_rotation(&params.presentation.settings),
     );
     let stream = client_world.stream.as_deref();
     let authoritative_subject_eye = authoritative_local_actor_eye(
@@ -456,8 +456,7 @@ pub fn prepare_actor_render_frame(
         client_world.collisions,
         (
             camera_position.map(|position| {
-                let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
-                (position, (180.0 - yaw.to_degrees()).rem_euclid(360.0))
+                views::dropped_item_camera(position, &view, &params.presentation.settings)
             }),
             cull_view,
         ),

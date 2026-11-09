@@ -50,9 +50,9 @@ pub enum BlockEntityKind {
     EnchantTable {
         book: super::book::BookPose,
     },
+    /// The open book on a lectern; terrain draws the stand.
     Lectern {
         facing_yaw_degrees: f32,
-        has_book: bool,
     },
     Bell(BellModel),
     ItemFrame(ItemFrameModel),
@@ -531,10 +531,9 @@ fn emit_submission(
         BlockEntityKind::EnchantTable { book } => {
             super::book::emit_enchant_table(builder, atlas, block, *book);
         }
-        BlockEntityKind::Lectern {
-            facing_yaw_degrees,
-            has_book,
-        } => super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees, *has_book),
+        BlockEntityKind::Lectern { facing_yaw_degrees } => {
+            super::book::emit_lectern_book(builder, atlas, block, *facing_yaw_degrees);
+        }
         BlockEntityKind::Bell(model) => super::bell::emit(builder, atlas, block, model),
         BlockEntityKind::ItemFrame(model) => super::frame::emit(builder, atlas, block, model),
         BlockEntityKind::Conduit(model) => {

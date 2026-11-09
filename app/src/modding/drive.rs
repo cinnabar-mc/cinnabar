@@ -107,6 +107,12 @@ pub(super) fn drive_mod(
             crate::camera::mouse_input_active(window, cursor, focus.as_deref(), driven.is_some())
         })
     });
+    if (!focused || !captured || absorbed || extension.is_none())
+        && let Some(interaction) = interaction.as_deref_mut()
+    {
+        interaction.block_breaks.clear();
+        interaction.block_break_scope = None;
+    }
     let movement_allowed = extension.as_ref().is_some_and(|runtime| {
         !runtime.suspended
             && (0..runtime.hosts.host_count()).any(|index| {
@@ -145,6 +151,8 @@ pub(super) fn drive_mod(
         let source = output.as_ref().map_or(0, |output| output.camera_sequence);
         let effects = output.and_then(|output| output.camera);
         if let Some(camera) = camera.as_deref_mut() {
+            camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(
                 effects
                     .as_ref()
@@ -196,6 +204,8 @@ pub(super) fn drive_mod(
             packets.native_frame(None);
         }
         if let Some(camera) = camera.as_deref_mut() {
+            camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(None);
             native_camera.apply(
                 camera,
@@ -350,7 +360,6 @@ pub(super) fn drive_mod(
             chat_events: &chat_events,
             gameplay_facts: gameplay.facts(
                 captured && !absorbed,
-                &ui,
                 cameras.single().ok().map(|(camera, _)| camera),
                 world_observation
                     .as_ref()
@@ -509,6 +518,33 @@ pub(super) fn drive_mod(
     });
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
+    let break_scope = gameplay
+        .world
+        .as_ref()
+        .filter(|_| enabled)
+        .and_then(|world| world.stream.as_ref())
+        .map(|stream| {
+            (
+                stream.authority().actor_session_id(),
+                stream.current_dimension(),
+            )
+        });
+    if interaction.block_break_scope != break_scope || !enabled {
+        interaction.block_breaks.clear();
+    }
+    interaction.block_break_scope = break_scope;
+    if enabled {
+        let remaining = mod_api::MAX_BLOCK_BREAKS.saturating_sub(interaction.block_breaks.len());
+        interaction.block_breaks.extend(
+            merged
+                .block_breaks
+                .into_iter()
+                .take(remaining)
+                .map(|p| [p.x, p.y, p.z]),
+        );
+        interaction.block_breaks.sort_unstable();
+        interaction.block_breaks.dedup();
+    }
     interaction.attack_reach = merged.attack_reach;
     interaction.block_mining = enabled && merged.block_mining;
     interaction.block_mining_target = merged
@@ -564,6 +600,16 @@ pub(super) fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         let native_effects = native_effects.as_ref().filter(|_| !regular_camera);
+        camera.set_view_yaw_offset(merged.yaw_offset);
+        camera.set_mod_perspective(merged.perspective.map(|view| {
+            use mod_api::native_camera::Perspective as Mod;
+            use semantic_input::PerspectiveMode as Native;
+            match view {
+                Mod::FirstPerson => Native::FirstPerson,
+                Mod::ThirdPersonBack => Native::ThirdPersonBack,
+                Mod::ThirdPersonFront => Native::ThirdPersonFront,
+            }
+        }));
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
         camera.set_view_tilt(

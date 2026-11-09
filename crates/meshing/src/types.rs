@@ -253,6 +253,34 @@ impl PackedModelDrawRef {
         }
     }
 
+    /// Restricts this face to one tile of a three-by-three block-face partition.
+    #[must_use]
+    pub fn with_surface_tile(self, tile: u8, border: u8) -> Self {
+        assert!(tile < 9 && (1..=127).contains(&border));
+        Self {
+            quad_index: (self.quad_index & crate::surface::QUAD_INDEX_MASK)
+                | (u32::from(tile) << crate::surface::TILE_SHIFT)
+                | (u32::from(border) << crate::surface::BORDER_SHIFT),
+            ..self
+        }
+    }
+
+    /// Template index without the optional face partition payload.
+    #[must_use]
+    pub const fn quad_index(self) -> u32 {
+        self.quad_index & crate::surface::QUAD_INDEX_MASK
+    }
+
+    /// Validates the optional partition payload without reading GPU data.
+    #[must_use]
+    pub const fn valid_surface_tile(self) -> bool {
+        self.quad_index <= crate::surface::QUAD_INDEX_MASK
+            || (self.quad_index <= crate::surface::DRAW_WORD_MASK
+                && (self.quad_index >> crate::surface::BORDER_SHIFT) != 0
+                && ((self.quad_index >> crate::surface::TILE_SHIFT) & crate::surface::TILE_MASK)
+                    < 9)
+    }
+
     #[must_use]
     pub const fn words(self) -> [u32; 2] {
         [self.model_ref_index, self.quad_index]

@@ -12,8 +12,8 @@ use chunk_pipeline::WorldStream;
 use particles::{
     ParticleSystem, ParticleView,
     ambient::{
-        AmbientRandom, CANDLE_FLAME_EFFECT, CANDLE_SMOKE_EFFECT, FIRE_SMOKE_EFFECT,
-        LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler, material_allows_leaf,
+        AmbientRandom, CANDLE_FLAME_EFFECT, CANDLE_SMOKE_EFFECT, ENDER_CHEST_EFFECT,
+        FIRE_SMOKE_EFFECT, LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler, material_allows_leaf,
     },
 };
 
@@ -26,6 +26,7 @@ use {
 mod candle;
 mod color;
 mod diagnostics;
+mod ender_chest;
 mod fire;
 mod portal;
 
@@ -79,6 +80,7 @@ impl AmbientParticles {
         let effect_present = leaf_effect_present
             || fire_effect_present
             || candle_effect_present
+            || system.has_effect(ENDER_CHEST_EFFECT)
             || portal::effects_present(system);
         let view_valid = valid_view(view);
         self.diagnostics.enabled = bevy::log::tracing::enabled!(
@@ -130,6 +132,11 @@ impl AmbientParticles {
                     && index < particles::ambient::MIN_SAMPLES
                 {
                     self.try_candle(block, runtime_id, stream, system);
+                }
+                // Native consumes the rolls even when the pack lacks the effect.
+                if kind.block == AmbientBlock::EnderChest && index < particles::ambient::MIN_SAMPLES
+                {
+                    self.try_ender_chest(block, system);
                 }
             }
             self.sampler.finish(view.position, started.elapsed());

@@ -49,6 +49,10 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "crates/render-model/src/hats/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+[[owned_artifacts]]
+path = "tools/localserver/testdata/player-preview-layers/textures/"
+ownership_record = "tools/localserver/testdata/player-preview-layers/README.md"
+
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
 path = "crates/assets/data/entity-facts-v2225.bin"
@@ -647,7 +651,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "shaderpack", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "semantic-input", "shaderpack", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -1172,6 +1176,27 @@ path = "crates/block-transform"
 allowed_dependencies = []
 dependency_free = true
 
+# A screen takes keyboard, pointer, touch and gamepad input as the frame's owner.
+# Everything listed here takes input without being a screen, and each reason says why.
+[input_owner]
+root = "app/src/ui_runtime/"
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/platform_back.rs::press_mouse_back_for_platform_back"
+reason = "Turns the platform Back key into a mouse button during input collection; screens read that button as the owner."
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/touch_pointer.rs::emulate_ui_pointer"
+reason = "Turns touches into pointer events before input systems run; screens read those events as the owner."
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/gameplay_touch.rs::drive_gameplay_touch_targets"
+reason = "Gameplay input, which every scene's absorbs_input setting governs."
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/interaction/inventory.rs::drive_world_inventory_keys"
+reason = "Gameplay input, which every scene's absorbs_input setting governs."
+
 # Tests wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), never sleep.
 # Each exception names why the file still sleeps; converting it removes the entry.
 # Domain crates take `now` from their caller; only edge code reads the clock.
@@ -1480,6 +1505,11 @@ reason = "Bedrock potion texture suffix (potion_bottle_wither.png) paired with i
 path = "crates/java-resource-pack/src/translate.rs"
 literal = "turtle_scute"
 reason = "Java 1.21.2+ equipment texture file name renamed to the Bedrock turtle armour layer, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "missing_tile"
+reason = "terrain_texture.json key that native BlockGraphics uses for blocks without graphics, not a block identifier."
 
 [identifier_literals]
 owners = [
@@ -2250,6 +2280,11 @@ reason = "Canonical-state envelope type keyword."
 path = "crates/pack-compiler/input/src/pack/model_selectors.rs"
 literal = "jungle"
 reason = "Value in the retained legacy sapling_type state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/bell.rs"
+literal = "hanging"
+reason = "Value in the pinned bell attachment state domain."
 
 [[identifier_literal_exceptions]]
 path = "crates/pack-compiler/src/compiler/visuals/grindstone.rs"

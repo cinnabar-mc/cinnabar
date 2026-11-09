@@ -18,6 +18,45 @@ fn view() -> MenuView {
 }
 
 #[test]
+fn marketplace_browsing_is_hidden_with_or_without_an_account() {
+    for auth in [
+        launcher::menu::auth::AuthState::SignedOut,
+        launcher::menu::auth::AuthState::Authenticated,
+    ] {
+        let mut view = view();
+        view.auth_state = auth;
+        for size in [[1280.0, 720.0], [480.0, 340.0]] {
+            let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+                draw(canvas, &view, size, None, &|_| None).unwrap();
+            });
+            assert!(
+                !hits
+                    .iter()
+                    .any(|(action, _)| matches!(action, MenuAction::Mods(_)))
+            );
+            let text = nodes
+                .iter()
+                .filter_map(|node| match node.visual() {
+                    UiVisual::Text { layout, .. } => Some(
+                        layout
+                            .glyphs()
+                            .iter()
+                            .map(|glyph| glyph.codepoint)
+                            .collect::<String>(),
+                    ),
+                    _ => None,
+                })
+                .collect::<String>();
+            assert!(!text.to_ascii_lowercase().contains("marketplace"));
+            assert!(
+                hits.iter()
+                    .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Settings))
+            );
+        }
+    }
+}
+
+#[test]
 fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
     let view = view();
     let mut preview = None;

@@ -426,6 +426,28 @@ fn forms_open_over_containers_that_are_not_menus() {
     }
 }
 
+/// A form over the command block editor follows the same menu rule as one over a container.
+#[test]
+fn forms_answer_busy_over_a_command_block_editor_that_is_a_menu() {
+    for (showing_menu, admitted) in [(None, false), (Some(true), false), (Some(false), true)] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut table = HashMap::new();
+        if let Some(flag) = showing_menu {
+            table.insert(
+                ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN,
+                settings(json!({ "is_showing_menu": flag })),
+            );
+        }
+        let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+        runtime.command_block_mut().open(Default::default());
+        assert_eq!(
+            form_admitted(&mut runtime, &mut player_runtime),
+            admitted,
+            "is_showing_menu {showing_menu:?}"
+        );
+    }
+}
+
 /// Admits a generic storage window before any world observation refreshes its block identity.
 fn open_storage_window(
     runtime: &mut UiRuntime,
@@ -585,6 +607,7 @@ fn a_form_over_a_container_ends_the_drag_in_flight() {
         shift: false,
         holding: true,
         hit: Some(hit),
+        hit_stack: None,
         now_millis: 0,
     };
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -637,7 +660,7 @@ fn carrier_mob_effect_screen_absorbs_input_and_closes_on_hurt() {
     runtime
         .apply_local_effect(
             runtime.session_id(),
-            1,
+            200,
             protocol::ActorEffectEvent {
                 dimension: 0,
                 actor_runtime_id: 42,
@@ -673,7 +696,7 @@ fn screen_open_besides_names_every_screen_but_the_caller() {
     runtime
         .apply_local_effect(
             runtime.session_id(),
-            1,
+            200,
             protocol::ActorEffectEvent {
                 dimension: 0,
                 actor_runtime_id: 42,
@@ -695,4 +718,178 @@ fn screen_open_besides_names_every_screen_but_the_caller() {
     runtime.close_mob_effect_screen();
     runtime.credits_mut().open(42, 1, 0);
     assert!(runtime.screen_open_besides(&player_runtime, Some(Scene::MobEffects)));
+}
+
+/// The server's request a test stack has up; each answers the others busy.
+#[derive(Clone, Copy)]
+enum Request {
+    Form,
+    SettingsForm,
+    DataDriven,
+}
+
+/// A runtime with every screen up that can share one stack with `request`: chat and an inventory
+/// close each other.
+fn every_screen_up(
+    player: &mut player_state::PlayerState,
+    request: Request,
+    chat: bool,
+) -> UiRuntime {
+    let table = Arc::new(ScreenSettingsTable(HashMap::from([
+        (
+            json_ui::vanilla::Reference::HudHudScreen.as_str(),
+            ScreenSettings::default(),
+        ),
+        (
+            json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
+            ScreenSettings::default(),
+        ),
+    ])));
+    let mut runtime = in_world(player, table);
+    match request {
+        Request::SettingsForm => {
+            let store = runtime.server_forms_mut();
+            store.flush_settings_request(true, || true);
+            store.admit(
+                protocol::FormRequestEvent {
+                    form_id: 7,
+                    kind: protocol::FormKind::ServerSettings,
+                    title: Some("Server Settings".into()),
+                    json: "{}".into(),
+                    model: protocol::ServerFormModel::Modal(protocol::ModalDialogForm {
+                        title: "Server Settings".into(),
+                        content: "Enable feature?".into(),
+                        button1: "Yes".into(),
+                        button2: "No".into(),
+                    }),
+                },
+                7,
+                1,
+                false,
+            );
+            store.select_settings_form(true);
+        }
+        Request::Form => crate::ui_runtime::presentation::forms::pack_harness::admit_action_form(
+            &mut runtime,
+            player,
+            "Shop",
+            &["A"],
+        ),
+        Request::DataDriven => {
+            let events = protocol::test_support::ddui::show_events(
+                protocol::ddui::ScriptedScreen::CustomForm,
+                4,
+                7,
+                protocol::test_support::ddui::custom_form_property(),
+            );
+            for (sequence, event) in (100..).zip(events) {
+                runtime
+                    .apply(
+                        player,
+                        crate::ui_runtime::SequencedUiEvent {
+                            session_id: runtime.session_id(),
+                            fifo_sequence: sequence,
+                            local_millis: sequence * 10,
+                            server_tick: None,
+                            event,
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+    }
+    runtime.set_local_sleeping(true);
+    if chat {
+        runtime.open_chat(player);
+    } else {
+        runtime.toggle_inventory(player, None);
+    }
+    runtime.emotes_mut().open();
+    runtime
+        .apply_local_effect(
+            runtime.session_id(),
+            200,
+            protocol::ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 42,
+                action: protocol::ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 100,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(runtime.toggle_mob_effect_screen(0));
+    runtime
+        .sign_editor_mut()
+        .open(crate::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    runtime.command_block_mut().open(Default::default());
+    assert!(runtime.credits_mut().open(42, 8, 0));
+    runtime.set_resource_pack_loading(true);
+    runtime
+}
+
+/// `Scene::layer` decides what covers what, so it must be the order the stack is built in.
+#[test]
+fn every_scene_layer_is_its_place_in_the_stack() {
+    let mut player = player_state::PlayerState::new(1);
+    let menu = SceneHost {
+        menu: Some(MenuScreen::Pause),
+        over_world: true,
+        loading: None,
+    };
+    let loading = SceneHost {
+        menu: None,
+        over_world: true,
+        loading: Some(ui::LoadingStage::ChangingDimension),
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    for (request, chat, host) in [
+        (Request::Form, false, menu),
+        (Request::SettingsForm, true, menu),
+        (Request::DataDriven, false, loading),
+    ] {
+        let runtime = every_screen_up(&mut player, request, chat);
+        let stack = runtime.scenes(&player, host);
+        let layers: Vec<_> = stack
+            .scenes()
+            .iter()
+            .map(|scene| scene.key.layer())
+            .collect();
+        assert!(layers.is_sorted_by(|a, b| a < b), "{layers:?}");
+        seen.extend(layers);
+    }
+    let every_layer: std::collections::BTreeSet<_> =
+        (0..=Scene::ResourcePackLoading.layer()).collect();
+    assert_eq!(seen, every_layer);
+}
+
+/// The owner is the top of the stack; the overlays above gameplay don't take input of their own.
+#[test]
+fn input_goes_to_the_top_scene() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = in_world(&mut player, vanilla_like_table());
+    assert_eq!(runtime.input_scene(&player, host(None)), Scene::Gameplay);
+    runtime.toggle_inventory(&mut player, None);
+    assert_eq!(runtime.input_scene(&player, host(None)), Scene::Container);
+    runtime
+        .sign_editor_mut()
+        .open(crate::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    assert_eq!(runtime.input_scene(&player, host(None)), Scene::SignEditor);
+    assert_eq!(
+        runtime.input_scene(&player, host(Some(MenuScreen::Pause))),
+        Scene::Menu(MenuScreen::Pause)
+    );
 }

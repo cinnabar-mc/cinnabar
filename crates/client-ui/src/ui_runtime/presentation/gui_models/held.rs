@@ -135,9 +135,10 @@ pub(super) fn prepare(
                     hand_pivots,
                     vertices: Arc::from([]),
                     placements: [PreviewHeldPlacement::Sprite {
-                        hand_equipped: definition
-                            .and_then(|definition| definition.grip.upright())
-                            .unwrap_or(false),
+                        grip: definition
+                            .map_or(render_model::equipment::SpriteGrip::Flat, |definition| {
+                                definition.grip.into()
+                            }),
                     }; 2],
                 };
                 Some((model, Some(sprite)))

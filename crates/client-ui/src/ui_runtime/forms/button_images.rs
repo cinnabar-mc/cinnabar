@@ -40,13 +40,16 @@ pub(super) fn button_image_rows(model: &ServerFormModel) -> Vec<ButtonImageRow<'
 
 /// Logs one line per menu button with its image source kind and reference.
 pub(super) fn log(form_id: u32, model: &ServerFormModel) {
+    if !tracing::enabled!(target: "server_form", tracing::Level::DEBUG) {
+        return;
+    }
     for row in button_image_rows(model) {
         let (source, reference) = match row.image {
             Some(FormButtonImage::Path(path)) => ("path", &**path),
             Some(FormButtonImage::Url(url)) => ("url", &**url),
             None => ("none", ""),
         };
-        tracing::info!(
+        tracing::debug!(
             target: "server_form",
             form_id,
             index = row.index,
@@ -66,6 +69,7 @@ mod tests {
 
     use super::*;
 
+    /// Creates a literal button label for a form fixture.
     fn text(value: &str) -> FormText {
         FormText::Literal(Arc::from(value))
     }

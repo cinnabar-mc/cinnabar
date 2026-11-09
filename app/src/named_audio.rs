@@ -2,6 +2,11 @@ use bevy::prelude::*;
 use client_audio::audio_ingress::SequencedAudioEvent;
 use client_audio::named_audio::{AudioDevice, NamedAudio};
 use client_presentation::local_player_camera_receipt::CameraPublicationAttempt;
+use client_shell::ui_resources::UiRuntimeResource;
+use launcher::menu::audio_output::{
+    HELP_URL, OutageNotice, UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE,
+};
+use std::sync::Arc;
 use {
     crate::runtime::world::ClientWorld,
     client_presentation::environment::WorldClock,
@@ -49,6 +54,32 @@ pub(crate) fn drain_live_named_audio(
         camera,
         state,
         device,
+    );
+}
+
+/// Raises the "No audio" toast once each time the sound output stays unopenable, in menus
+/// and in game, and logs where the step-by-step fixes are.
+pub(crate) fn notify_audio_output_unavailable(
+    device: Option<NonSendMut<AudioDevice>>,
+    ui: Option<ResMut<UiRuntimeResource>>,
+    time: Res<Time<Real>>,
+    mut notice: Local<OutageNotice>,
+) {
+    let (Some(mut device), Some(mut ui)) = (device, ui) else {
+        return;
+    };
+    if !notice.observe(device.output_unavailable()) {
+        return;
+    }
+    warn!(
+        help = HELP_URL,
+        "sound output still unavailable; showing the No audio toast"
+    );
+    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    ui.0.push_client_toast(
+        Arc::from(UNAVAILABLE_TITLE),
+        Arc::from(UNAVAILABLE_MESSAGE),
+        now_millis,
     );
 }
 

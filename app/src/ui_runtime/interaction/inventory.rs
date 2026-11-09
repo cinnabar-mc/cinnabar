@@ -26,13 +26,13 @@ use {
             UiPresentationRuntime, forms::recipe_book_shown, inventory_pointer::InventoryScreen,
         },
     },
-    inventory::inventory_ledger::DropSource,
+    inventory::inventory_ledger::{DropSource, InventoryTarget},
 };
 
 use launcher::menu::settings_options::BindingId;
 
 /// Whether the vanilla inventory owns Menu Cancel, independently of an overlaid mod view.
-pub(super) fn accepts_menu_cancel(
+pub(crate) fn accepts_menu_cancel(
     runtime: &UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
 ) -> bool {
@@ -56,8 +56,17 @@ pub(super) fn handle_menu_cancel(
     true
 }
 
+/// Transport and aim facts that decide whether a Use press opens the held book.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct HeldBookUse<'w> {
+    movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
+    network: Option<Res<'w, NetworkHandle<PackApplication>>>,
+    press_target: crate::block_use::UsePressTarget<'w>,
+}
+
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
-/// (Control+Q the whole stack) and a right-click with a book in hand opens it.
+/// (Control+Q the whole stack) and a right-click with a book in hand opens it unless an
+/// interactive block in front takes the press.
 #[allow(
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
@@ -74,10 +83,7 @@ pub(crate) fn drive_world_inventory_keys(
     emote_input: Option<Res<client_state::ScreenInputConsumed>>,
     swing: DropSwing,
     touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
-    book_transport: (
-        Option<Res<client_interaction::movement::MovementTicker>>,
-        Option<Res<NetworkHandle<PackApplication>>>,
-    ),
+    book: HeldBookUse,
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
         return;
@@ -101,8 +107,17 @@ pub(crate) fn drive_world_inventory_keys(
     {
         return;
     }
-    let (movement, network) = book_transport;
+    let HeldBookUse {
+        movement,
+        network,
+        press_target,
+    } = book;
+    // An interactive block in front takes the press, as a lectern does to place the book.
+    let block_takes_use = movement
+        .as_deref()
+        .is_some_and(|movement| press_target.block_takes_press(movement));
     if (use_book
+        && !block_takes_use
         && runtime.open_held_book(
             &mut player_runtime,
             movement
@@ -320,6 +335,17 @@ pub(super) fn apply_inventory_pointer(
         dispatch_bound_inventory_hotbar(menu, control, player_runtime, runtime, hit);
     }
     if !scrollbar_owned {
+        let hit_stack = hit.and_then(|hit| {
+            let ledger = runtime.inventory_ledger(player_runtime);
+            match hit {
+                InventoryCellHit::Player(slot) => ledger.displayed_stack(slot).cloned(),
+                InventoryCellHit::Storage(slot) => ledger.storage_stack(slot).cloned(),
+                InventoryCellHit::Craft(slot) => {
+                    ledger.target_stack(InventoryTarget::Craft(slot)).cloned()
+                }
+                _ => None,
+            }
+        });
         let frame = crate::ui_runtime::inventory_drag::PointerFrame {
             primary_pressed,
             primary_released,
@@ -331,6 +357,7 @@ pub(super) fn apply_inventory_pointer(
                 .cursor_stack()
                 .is_some(),
             hit,
+            hit_stack,
             now_millis,
         };
         let actions = runtime.screen_state_mut().pointer.step(frame);

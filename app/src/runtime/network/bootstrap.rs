@@ -103,6 +103,7 @@ pub(super) fn apply(
         mut packs,
         terrain_before_spawn,
         level_identity,
+        level_name,
     } = control
     else {
         unreachable!("bootstrap routing accepts only StartGame");
@@ -172,6 +173,7 @@ pub(super) fn apply(
     bind_session_generation(clock, weather, session_generation);
     client_runtime::session::begin_session(ui_runtime, &mut player_runtime, session_generation);
     ui_runtime.set_chat_identity(identity.display_name.into(), identity.xuid.into());
+    ui_runtime.session.player_roster.set_level_name(level_name);
     movement_effects.begin_session(session_generation);
     movement_speed.begin_session(session_generation, bootstrap.dimension);
     client_runtime::item_diagnostics::session_registry(item_registry.as_ref());
