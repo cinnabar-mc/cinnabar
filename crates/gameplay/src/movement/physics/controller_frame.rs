@@ -15,6 +15,11 @@ impl PhysicsSampleContext {
 #[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    /// Modifier state and actor flag after this tick, including ticks before an attribute arrives.
+    pub speed: crate::movement::speed_authority::EffectiveMovementSpeed,
+    pub start_sprinting: bool,
+    /// Accepted attribute, effect and live metadata edits before this tick's local sprint edges.
+    pub speed_updates: Vec<crate::movement::speed_authority::MovementSpeedUpdate>,
     pub sync_state: posture::SyncState,
     pub sync_server: Vec<posture::ServerWrite>,
     /// Feet position before travel, retained independently of live position updates.
@@ -23,6 +28,8 @@ pub(super) struct ControllerFrame {
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
+    /// A live fall-distance restoration consumed before this tick's movement actions.
+    pub fall_distance_override: Option<f32>,
     pub eye_offset: eye::LocalEyeOffset,
     pub intent: ModeIntent,
     pub jump_edge: bool,
@@ -30,15 +37,10 @@ pub(super) struct ControllerFrame {
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
+    /// Server sprint flag applied before this tick, live or from a delayed write.
     pub server_sprinting: Option<bool>,
-    /// Client-owned actor flags this tick started with, before its corrections;
-    /// replay refreshes it for every frame after the one it starts from.
-    pub entry_flags: server_flags::FlagWord,
-    /// Retained server flag writes that apply before this tick.
-    pub flag_correction: server_flags::FlagCorrection,
-    /// Counters this tick started with; replay restores those of the frame it
-    /// starts from and refreshes later ones.
-    pub entry_counters: server_flags::EntryCounters,
+    /// Flags and accepted writes at this input boundary.
+    pub flags: flag_frame::FrameFlags,
     /// The camera eye this tick started with, which replay restores for the
     /// frame it starts from and refreshes for later ones.
     pub entry_eye: eye::LocalEyeOffset,
@@ -52,9 +54,15 @@ pub(super) struct ControllerFrame {
     pub jump_repeated: bool,
     pub ride_delta: Option<[f32; 3]>,
     pub actor_position: Option<super::actor_move::ActorPositionUpdate>,
+    /// The Normal-mode `MovePlayer` ease this tick started with, which replay steps again.
+    pub movement_lerp: Option<super::movement_lerp::MovementLerp>,
+    /// Native height used by this tick's interpolation and completed sample.
+    pub network_height: Option<super::movement_lerp::NetworkHeight>,
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
+    /// Block-climber flags reported by the prediction sync after this tick.
+    pub climber: Option<ClimberFlags>,
 }
 
 impl ControllerFrame {
@@ -79,10 +87,17 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        if let Some(distance) = self.fall_distance_override {
+            state.restore_fall_distance(distance);
+        }
         posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
+            self.network_height = Some(position.height);
             anchor_state.note_hard_anchor();
+        }
+        if let Some(lerp) = self.movement_lerp {
+            lerp.replay(state, &mut self.network_height);
         }
         input.no_clip = self.intent.no_clip;
         let previous_sprinting = input.sprinting;
@@ -108,12 +123,18 @@ impl ControllerFrame {
         input.liquid_contact_height =
             Some(modes.spin_aware_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
-        input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
-        if let Some(sprinting) = self.sprint_override {
-            modes.restore_controls(sprinting, modes.sneaking());
+        input.sprinting = modes.replay_sprint_request(self.sprint_override, self.requested_sprint);
+        if self.sprint_override == Some(false) {
+            modes.restore_controls(false, modes.sneaking());
         }
         let previous_modes = *modes;
-        let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
+        // Live intent reads the sneak request before this tick's pose can force a crouch, while
+        // the retained input already carries that forced pose.
+        let intent_input = MovementInput {
+            sneaking: self.sneak_override.unwrap_or(self.requested_sneak),
+            ..*input
+        };
+        let [move_sideways, move_forward] = modes.intent_vector(intent_input, environment.in_water);
         let mut observed = ModeObservation {
             feet: state.position,
             on_ground: state.on_ground,
@@ -136,7 +157,7 @@ impl ControllerFrame {
             jump_down: self.jump_down,
             spinning: state.spin_attack_ticks.is_some(),
         };
-        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, state, *input);
         state.position = observed.feet;
         let choice = modes.select(self.intent, observed, world);
         let choice = match choice {
@@ -147,18 +168,28 @@ impl ControllerFrame {
                     mode: modes.mode(),
                     forced_sneak: self.forced_sneak,
                     sprinting: input.sprinting,
+                    start_sprinting: false,
                     flight_request: None,
+                    glide_ascent: false,
                 }
             }
             Err(error) => return Err(error.into()),
         };
+        self.start_sprinting = choice.start_sprinting && self.sprint_override != Some(false);
         input.mode = self.mode_override.unwrap_or(choice.mode);
-        input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
+        input.sprinting = self
+            .sprint_override
+            .filter(|sprinting| !sprinting)
+            .unwrap_or(choice.sprinting);
+        input.glide_ascent = choice.glide_ascent;
         modes.restore_mode(input.mode);
         input.horizontal_pose = modes.pose_flags().horizontal();
         input.swim_pose_active = Some(modes.pose_flags().swim_pose());
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
+        if self.flight_request.is_some() {
+            state.clear_fall_distance();
+        }
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,
@@ -170,7 +201,9 @@ impl ControllerFrame {
             input.sneaking = false;
         }
         modes.restore_controls(input.sprinting, input.sneaking);
-        if self.sprint_override.is_some() || self.mode_override.is_some() {
+        if self.speed.attribute().is_none()
+            && (self.sprint_override.is_some() || self.mode_override.is_some())
+        {
             crate::movement::speed_authority::preserve_effective_speed(input, previous_sprinting);
         }
         self.ride_delta = None;

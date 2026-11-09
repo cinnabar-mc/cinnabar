@@ -5,7 +5,7 @@ use simulation_clock::Moment;
 /// Scratch retained by the browser's single world-job driver.
 #[derive(Default)]
 pub struct WorldJobDriver {
-    scratch: world::LightSolverScratch,
+    scratch: crate::stream::workers::WorkerScratch,
 }
 
 impl WorldJobDriver {

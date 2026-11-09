@@ -1,3 +1,4 @@
+use crate::server::tests::drawing_context;
 use crate::{
     helper::Event,
     server::{
@@ -13,12 +14,18 @@ use server_experience::{
 
 /// Grants the registry-aware probe its declared UI, input and handshake channels.
 fn waiting() -> BundleHost {
+    waiting_with(&[])
+}
+
+/// Adds presentation grants to the registry-aware guest before its initialization runs.
+fn waiting_with(extra: &[Permission]) -> BundleHost {
     let mut capabilities = screen_capabilities(&[
         Permission::Ui,
         Permission::ModalUi,
         Permission::Input,
         Permission::Messaging,
     ]);
+    capabilities.scope.permissions.extend(extra.iter().copied());
     for (id, direction) in [
         ("demo.registry", Direction::ToClient),
         ("demo.registry_request", Direction::ToServer),
@@ -35,6 +42,8 @@ fn waiting() -> BundleHost {
         owner(),
         capabilities,
         1,
+        Default::default(),
+        drawing_context(1),
     )
     .unwrap()
 }
@@ -84,20 +93,24 @@ fn callbacks_remain_with_the_caller_until_confirmation() {
         },
     ];
     for event in &events {
-        let DispatchResult::NotReady(transaction) = host.dispatch(event, 1).unwrap() else {
+        let DispatchResult::NotReady(transaction) =
+            host.dispatch(event, 1, &drawing_context(1)).unwrap()
+        else {
             panic!("an unconfirmed callback must remain queued");
         };
         assert!(transaction.commands.is_empty());
         assert_eq!(host.last_fuel_used(), 0);
     }
     let init = host
-        .dispatch(&confirmation(), 1)
+        .dispatch(&confirmation(), 1, &drawing_context(1))
         .unwrap()
         .into_transaction();
     assert_eq!(widgets(&init), [("init", "init")]);
     let mut log = Vec::new();
     for event in events {
-        let DispatchResult::Committed(transaction) = host.dispatch(&event, 1).unwrap() else {
+        let DispatchResult::Committed(transaction) =
+            host.dispatch(&event, 1, &drawing_context(1)).unwrap()
+        else {
             panic!("confirmed callbacks must run normally");
         };
         log.extend(
@@ -122,13 +135,15 @@ fn pending_negotiation_resends_once_per_new_epoch_without_consuming_state() {
     let mut host = waiting();
     assert_request(host.take_transaction(), 1);
     for epoch in 2..=3 {
-        let DispatchResult::NotReady(transaction) = host.dispatch(&Event::Epoch, epoch).unwrap()
+        let DispatchResult::NotReady(transaction) = host
+            .dispatch(&Event::Epoch, epoch, &drawing_context(epoch))
+            .unwrap()
         else {
             panic!("epoch remains pending");
         };
         assert_request(transaction, epoch);
         assert!(
-            host.dispatch(&Event::Epoch, epoch)
+            host.dispatch(&Event::Epoch, epoch, &drawing_context(epoch))
                 .unwrap()
                 .into_transaction()
                 .commands
@@ -136,12 +151,15 @@ fn pending_negotiation_resends_once_per_new_epoch_without_consuming_state() {
         );
     }
     let init = host
-        .dispatch(&confirmation(), 3)
+        .dispatch(&confirmation(), 3, &drawing_context(3))
         .unwrap()
         .into_transaction();
     assert_eq!(init.epoch, 3);
     assert_eq!(widgets(&init), [("init", "init")]);
-    let epoch = host.dispatch(&Event::Epoch, 3).unwrap().into_transaction();
+    let epoch = host
+        .dispatch(&Event::Epoch, 3, &drawing_context(3))
+        .unwrap()
+        .into_transaction();
     assert_eq!(widgets(&epoch), [("epoch", "epoch")]);
 }
 
@@ -162,34 +180,40 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
         },
     ]);
     assert!(matches!(
-        host.dispatch(pending.front().unwrap(), 1).unwrap(),
+        host.dispatch(pending.front().unwrap(), 1, &drawing_context(1))
+            .unwrap(),
         DispatchResult::NotReady(_)
     ));
     let init = host
-        .dispatch(&confirmation(), 1)
+        .dispatch(&confirmation(), 1, &drawing_context(1))
         .unwrap()
         .into_transaction();
     assert_eq!(widgets(&init), [("init", "init")]);
-    assert!(host.dispatch(pending.front().unwrap(), 1).is_err());
+    assert!(
+        host.dispatch(pending.front().unwrap(), 1, &drawing_context(1))
+            .is_err()
+    );
     pending.pop_front();
     assert_request(host.take_transaction(), 1);
     assert!(matches!(
-        host.dispatch(pending.front().unwrap(), 1).unwrap(),
+        host.dispatch(pending.front().unwrap(), 1, &drawing_context(1))
+            .unwrap(),
         DispatchResult::NotReady(_)
     ));
     assert_eq!(pending.len(), 2);
     assert_eq!(
         widgets(
             &host
-                .dispatch(&confirmation(), 1)
+                .dispatch(&confirmation(), 1, &drawing_context(1))
                 .unwrap()
                 .into_transaction()
         ),
         [("init", "init")]
     );
     for expected in [[("demo.after", "[]")], [("demo.pick", "primary")]] {
-        let DispatchResult::Committed(transaction) =
-            host.dispatch(pending.front().unwrap(), 1).unwrap()
+        let DispatchResult::Committed(transaction) = host
+            .dispatch(pending.front().unwrap(), 1, &drawing_context(1))
+            .unwrap()
         else {
             panic!("fresh confirmation must release the remaining callbacks");
         };
@@ -210,7 +234,7 @@ fn registry_mismatch_quarantines_the_waiting_client() {
     host.take_transaction();
     let pending = on("demo.queued");
     assert!(matches!(
-        host.dispatch(&pending, 1).unwrap(),
+        host.dispatch(&pending, 1, &drawing_context(1)).unwrap(),
         DispatchResult::NotReady(_)
     ));
     let error = host
@@ -220,6 +244,7 @@ fn registry_mismatch_quarantines_the_waiting_client() {
                 record: br#"[{"type":"text","value":"changed-server"}]"#.to_vec(),
             },
             1,
+            &drawing_context(1),
         )
         .unwrap_err();
     let failure = crate::helper::CallFailure::of("demo", "dispatch", &error);
@@ -228,5 +253,51 @@ fn registry_mismatch_quarantines_the_waiting_client() {
     assert!(failure.reason.contains("rebuild"));
     assert!(host.waiting_for().is_none());
     assert!(host.take_transaction().commands.is_empty());
-    assert!(host.dispatch(&pending, 1).is_err());
+    assert!(host.dispatch(&pending, 1, &drawing_context(1)).is_err());
+}
+
+/// Replaying an acknowledged world notice preserves handles initialized after confirmation.
+#[test]
+fn replayed_epoch_preserves_initialized_drawing_handles() {
+    use crate::runtime::cinnabar::world_draw::drawing as draw;
+    use draw::Host as _;
+    let mut host = waiting_with(&[Permission::WorldDraw]);
+    host.take_transaction();
+    assert!(matches!(
+        host.dispatch(&Event::Epoch, 2, &drawing_context(2))
+            .unwrap(),
+        DispatchResult::NotReady(_)
+    ));
+    assert!(matches!(
+        host.dispatch(&confirmation(), 2, &drawing_context(2))
+            .unwrap(),
+        DispatchResult::Committed(_)
+    ));
+    let state = &mut host.store.data_mut().presentation;
+    let geometry = state
+        .create_geometry(draw::GeometrySpec::Triangles(draw::Mesh {
+            vertices: [(0., 0., 0.), (1., 0., 0.), (0., 1., 0.)]
+                .map(|position| draw::Vertex {
+                    position,
+                    color: (1., 1., 1., 1.),
+                    uv: (0., 0.),
+                    data: (0., 0., 0., 0.),
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+        }))
+        .unwrap()
+        .unwrap();
+    state.commit_presentation();
+    assert!(matches!(
+        host.dispatch(&Event::Epoch, 2, &drawing_context(2))
+            .unwrap(),
+        DispatchResult::Committed(_)
+    ));
+    host.store
+        .data_mut()
+        .presentation
+        .remove(geometry)
+        .unwrap()
+        .expect("replayed epoch revoked initialized drawing handle");
 }

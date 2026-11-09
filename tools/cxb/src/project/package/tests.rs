@@ -2,17 +2,20 @@ use super::*;
 
 /// Creates a small valid installation archive without compiling a guest.
 fn package(extra: Option<(&str, &[u8])>) -> Vec<u8> {
+    package_as(FORMAT, extra)
+}
+
+/// Creates a small installation archive that declares package `format`.
+fn package_as(format: u32, extra: Option<(&str, &[u8])>) -> Vec<u8> {
     let server = b"fixture-server";
-    let server_manifest = format!(
-        "id = \"benergistics\"\n[files]\n\"{SERVER_WASM}\" = {:?}\n",
-        crypto::digest(server)
-    );
+    let server_index = format!("\"{SERVER_WASM}\" = {:?}\n", crypto::digest(server));
     let mut files = BTreeMap::from([
         (format!("server/{SERVER_WASM}"), server.to_vec()),
         (
             format!("server/{MANIFEST_FILE}"),
-            server_manifest.into_bytes(),
+            b"id = \"benergistics\"\n".to_vec(),
         ),
+        (format!("server/{INDEX_FILE}"), server_index.into_bytes()),
         (
             "client/benergistics.cxb".into(),
             crate::fixtures::generate().unwrap().bundle,
@@ -23,7 +26,7 @@ fn package(extra: Option<(&str, &[u8])>) -> Vec<u8> {
         files.insert(path.into(), data.to_vec());
     }
     let index = Index {
-        format: 1,
+        format,
         id: "benergistics".into(),
         files: files
             .iter()
@@ -39,6 +42,22 @@ fn package(extra: Option<(&str, &[u8])>) -> Vec<u8> {
         archive.write_all(&data).unwrap();
     }
     archive.finish().unwrap().into_inner()
+}
+
+/// A package from before the server index moved out of `experience.toml` is refused by its
+/// format, before its server artifact could reach a world.
+#[test]
+fn packages_of_an_earlier_format_are_refused() {
+    let error = verify(&package_as(FORMAT - 1, None)).err().unwrap();
+    assert!(error.to_string().contains("rebuild"), "{error}");
+}
+
+/// The server artifact's index covers every server file besides the manifest and itself.
+#[test]
+fn unindexed_server_file_is_rejected() {
+    let extra = format!("server/{ASSETS_DIR}/unlisted.png");
+    let error = verify(&package(Some((&extra, b"x")))).err().unwrap();
+    assert!(error.to_string().contains("server inventory"), "{error}");
 }
 
 #[test]

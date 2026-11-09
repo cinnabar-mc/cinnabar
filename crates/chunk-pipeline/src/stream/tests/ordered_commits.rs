@@ -20,6 +20,7 @@ fn actor_move_partial_target_keeps_a_newer_unmarked_update_across_a_deferred_cor
                     subject: MovementCorrectionSubject::Player,
                     on_ground: true,
                     tick: 100,
+                    vehicle_angular_velocity: None,
                 }),
             )
             .unwrap();
@@ -283,6 +284,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
                     position: movement.position,
                     surface_anchor: None,
                 },
+                riding_actor_resolved: false,
                 source_cohort: None,
             },
             super::CommittedControlEvent::ChangeDimension {
@@ -316,6 +318,7 @@ fn movement_correction_commits_in_fifo_without_move_player_capture_metadata() {
         subject: MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 4_096,
+        vehicle_angular_velocity: None,
     };
     stream.submit(1, inline_air_event(0)).unwrap();
     stream

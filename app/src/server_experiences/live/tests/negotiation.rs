@@ -16,7 +16,7 @@ fn negotiating(count: usize) -> Live<FakeWorker> {
             commands: Vec::new(),
         });
     }
-    live.poll(1, 0).unwrap();
+    live.poll_ready(1, 0).unwrap();
     let instance = live.instances.get_mut("bundle0").unwrap();
     instance.contributions.modal.open(Some(SCREEN.into()));
     instance.opened = 1;
@@ -60,7 +60,7 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
     enqueue(&mut live, 1, 1, "bundle0.events0", "first");
     enqueue(&mut live, 2, 1, "bundle0.events0", "later");
     enqueue(&mut live, 3, 1, "bundle0.registry", "confirmed");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     live.instances
         .get_mut("bundle0")
         .unwrap()
@@ -68,10 +68,10 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
         .as_mut()
         .unwrap()
         .fail = true;
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.press("bundle0.pick", Some(7)));
     assert!(live.press_secondary("bundle0.pick", Some(8)));
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(pending_messages(&live, "bundle0"), 1);
     let instance = live.instances.get_mut("bundle0").unwrap();
     assert_eq!(instance.queue.entries.len(), 3);
@@ -79,7 +79,7 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
     instance.helper.as_mut().unwrap().fail = false;
     enqueue(&mut live, 4, 1, "bundle0.registry", "fresh");
     for slice in 4..=8 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     let dispatched = &live.instances["bundle0"]
         .helper
@@ -109,7 +109,7 @@ fn pending_events_follow_latest_state_in_arrival_order() {
     assert!(live.press_secondary("bundle0.pick", Some(2)));
     enqueue(&mut live, 1, 1, "bundle0.events0", "first");
     enqueue(&mut live, 2, 1, "bundle0.events0", "second");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     assert!(
         live.instances["bundle0"]
             .helper
@@ -120,7 +120,7 @@ fn pending_events_follow_latest_state_in_arrival_order() {
     );
     enqueue(&mut live, 3, 1, "bundle0.registry", "confirmed");
     for slice in 2..=9 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     let dispatched = &live.instances["bundle0"]
         .helper
@@ -139,18 +139,18 @@ fn pending_messages_stay_in_their_world_epoch() {
     let mut live = negotiating(1);
     enqueue(&mut live, 1, 1, "bundle0.events0", "old");
     enqueue(&mut live, 2, 1, "bundle0.registry", "old confirmation");
-    live.poll(2, CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(2, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(live.ingress.stale, 2);
     enqueue(&mut live, 3, 2, "bundle0.events0", "older");
-    live.poll(3, 3 * CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(3, 4 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(3, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(3, 4 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(live.ingress.stale, 3);
     enqueue(&mut live, 4, 3, "bundle0.events0", "first");
     enqueue(&mut live, 5, 3, "bundle0.events0", "second");
     enqueue(&mut live, 6, 3, "bundle0.registry", "confirmed");
     for slice in 5..=10 {
-        live.poll(3, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(3, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     let dispatched = &live.instances["bundle0"]
         .helper
@@ -170,8 +170,8 @@ fn not_ready_keeps_the_dispatched_message_in_its_recipient_queue() {
     // The helper is authoritative even if the caller has not learned its readiness yet.
     live.instances.get_mut("bundle0").unwrap().waiting_for = None;
     enqueue(&mut live, 1, 1, "bundle0.events0", "waiting");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(pending_messages(&live, "bundle0"), 1);
     assert!(
         live.instances["bundle0"]
@@ -183,7 +183,7 @@ fn not_ready_keeps_the_dispatched_message_in_its_recipient_queue() {
     );
     enqueue(&mut live, 2, 1, "bundle0.registry", "confirmed");
     for slice in 3..=5 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(
         live.instances
@@ -197,13 +197,13 @@ fn an_old_world_not_ready_reply_counts_the_undelivered_message_as_stale() {
     let mut live = negotiating(1);
     live.instances.get_mut("bundle0").unwrap().waiting_for = None;
     enqueue(&mut live, 1, 1, "bundle0.events0", "old");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     // The epoch changes while the helper's NotReady reply is still pending.
-    live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(live.ingress.stale, 1);
     enqueue(&mut live, 2, 2, "bundle0.registry", "confirmed");
     for slice in 3..=6 {
-        live.poll(2, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(2, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(
         matches!(live.instances["bundle0"].helper.as_ref().unwrap().dispatched.as_slice(),
@@ -231,7 +231,7 @@ fn count_and_byte_overflow_stop_only_the_affected_part() {
         assert!(live.instances["bundle0"].queue.entries.is_empty());
         enqueue(&mut live, sequence + 1, 1, "bundle1.registry", "confirmed");
         for slice in 1..=3 {
-            live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+            live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
         }
         assert!(
             live.instances
@@ -256,12 +256,7 @@ fn modal_state_overflow_stops_the_part() {
 #[test]
 fn resize_overflow_removes_cached_media_screen() {
     let mut live = negotiating(1);
-    live.instances
-        .get_mut("bundle0")
-        .unwrap()
-        .contributions
-        .scene
-        .insert(1, media_quad(5.0));
+    publish_media_quad(&mut live, "bundle0", 5.0);
     live.media_mut().set_frame(
         "bundle0",
         INTRO,
@@ -286,10 +281,10 @@ fn idle_recipients_dispatch_in_one_poll() {
     let mut live = fixture(2);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    live.poll(1, 0).unwrap();
+    live.poll_ready(1, 0).unwrap();
     receive(&mut live, "bundle0", 1);
     receive(&mut live, "bundle1", 2);
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     for bundle in ["bundle0", "bundle1"] {
         assert!(matches!(
             live.instances[bundle].helper.as_ref().unwrap().dispatched.as_slice(),
@@ -298,7 +293,7 @@ fn idle_recipients_dispatch_in_one_poll() {
     }
     // Dispatch alone must not acknowledge either message.
     assert_eq!(pending_messages(&live, "bundle0"), 1);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(
         live.instances
             .values()
@@ -311,9 +306,9 @@ fn busy_recipient_retains_order_without_blocking_another_helper() {
     let mut live = fixture(2);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    live.poll(1, 0).unwrap();
+    live.poll_ready(1, 0).unwrap();
     receive(&mut live, "bundle0", 1);
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     // Hold its first callback open while later messages arrive for both recipients.
     let response = live
         .instances
@@ -327,7 +322,7 @@ fn busy_recipient_retains_order_without_blocking_another_helper() {
     receive(&mut live, "bundle0", 2);
     receive(&mut live, "bundle0", 3);
     receive(&mut live, "bundle1", 4);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(
         live.instances["bundle0"]
             .helper
@@ -355,7 +350,7 @@ fn busy_recipient_retains_order_without_blocking_another_helper() {
         .unwrap()
         .response = response;
     for slice in 3..=5 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     let records: Vec<Vec<Scalar>> = live.instances["bundle0"]
         .helper
@@ -390,10 +385,10 @@ fn busy_recipient_retains_order_without_blocking_another_helper() {
 fn in_flight_state_acknowledgement_keeps_a_newer_value() {
     let mut live = opened();
     assert!(live.text_changed("bundle0.pick", "first"));
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.text_changed("bundle0.pick", "latest"));
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert!(
         matches!(helper.dispatched.as_slice(), [Event::Text { text: first, .. }, Event::Text { text: latest, .. }]
@@ -411,7 +406,7 @@ fn initialization_state_replay_happens_only_once() {
     assert!(live.text_changed("bundle0.pick", "latest"));
     enqueue(&mut live, 1, 1, "bundle0.registry", "confirmed");
     for slice in 1..=5 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(matches!(
         live.instances["bundle0"].helper.as_ref().unwrap().dispatched.as_slice(),
@@ -421,7 +416,7 @@ fn initialization_state_replay_happens_only_once() {
     assert!(live.press("bundle0.pick", Some(3)));
     assert!(live.text_changed("bundle0.pick", "after initialization"));
     for slice in 6..=8 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     let dispatched = &live.instances["bundle0"]
         .helper
@@ -459,7 +454,7 @@ fn registry_mismatch_stops_waiting_callbacks_with_a_visible_diagnostic() {
         reason: experience_sdk::REGISTRY_MISMATCH.into(),
         fuel: Some(0),
     });
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     let instance = &live.instances["bundle0"];
     assert!(instance.helper.is_none());
     assert!(instance.waiting_for.is_none());

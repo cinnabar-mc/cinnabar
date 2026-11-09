@@ -73,7 +73,7 @@ pub(in crate::chunk) fn queue_chunks(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
         Backends::from(render_adapter.get_info().backend),
-        apple_gpu(&render_adapter.get_info()),
+        direct_draws_required(&render_adapter.get_info()),
     );
     let diagnostic_timer = probes
         .profiler
@@ -263,6 +263,19 @@ pub(in crate::chunk) fn queue_chunks(
         };
 
         if gpu_cull_view == Some(view_entity) {
+            let raster = gpu_culling.raster_enabled();
+            if raster {
+                lists.drawable(admit);
+                let sorted = refresh_indirect_batches(
+                    lists,
+                    &mut indirect_batch_sets,
+                    view_entity,
+                    view,
+                    enhanced.is_some(),
+                );
+                gpu_culling.set_raster_orders(lists.cull_orders(), &allocations);
+                retained.stats.cube_sorts += u64::from(sorted);
+            }
             // Retain CPU commands and their buffer offsets without queueing their draws.
             indirect_views.push(view_entity);
             let pipelines = [
@@ -272,7 +285,16 @@ pub(in crate::chunk) fn queue_chunks(
                 depth_liquid_pipeline_id,
             ];
             let early = gpu_cull::draw_function_ids(&draw_functions, false);
-            for (draw_function, pipeline) in early.into_iter().zip(pipelines) {
+            for (stream, (draw_function, pipeline)) in early.into_iter().zip(pipelines).enumerate()
+            {
+                if raster && stream != 0 {
+                    continue;
+                }
+                let pipeline = if raster {
+                    gpu_culling.raster_depth_pipeline(&pipeline_cache, pipeline)
+                } else {
+                    pipeline
+                };
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function,
@@ -306,36 +328,14 @@ pub(in crate::chunk) fn queue_chunks(
             if lists.drawable(admit).is_empty() {
                 continue;
             }
-            let requeue = !indirect_batch_sets.p0().0.contains_key(&view_entity);
-            let update = lists.indirect_lists(
-                view.world_from_view.to_matrix(),
-                &view.rangefinder3d(),
-                requeue,
+            let sorted = refresh_indirect_batches(
+                lists,
+                &mut indirect_batch_sets,
+                view_entity,
+                view,
+                enhanced.is_some(),
             );
-            retained.stats.cube_sorts += u64::from(update.sorted);
-            if let Some(visible) = update.visible {
-                indirect_batch_sets
-                    .p1()
-                    .0
-                    .insert(view_entity, ChunkIndirectBatch::new(visible.clone()));
-                indirect_batch_sets
-                    .p2()
-                    .0
-                    .insert(view_entity, ChunkIndirectBatch::new(visible));
-            }
-            if let Some(cubes) = update.cubes {
-                indirect_batch_sets
-                    .p0()
-                    .0
-                    .insert(view_entity, ChunkIndirectBatch::new(cubes.clone()));
-                indirect_batch_sets.p3().0.insert(
-                    view_entity,
-                    pipeline::solid::ChunkSolidIndirectBatch::new(cubes),
-                );
-            }
-            if let Some(solid) = indirect_batch_sets.p3().0.get_mut(&view_entity) {
-                solid.camera = pipeline::solid::solid_cull_camera(view, enhanced.is_some());
-            }
+            retained.stats.cube_sorts += u64::from(sorted);
             indirect_views.push(view_entity);
 
             phase.add(
@@ -547,6 +547,44 @@ pub(in crate::chunk) fn queue_chunks(
     retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);
 }
 
+/// Refreshes retained CPU commands even when this frame draws through raster culling.
+fn refresh_indirect_batches(
+    lists: &mut pipeline::batches::ViewTerrainLists,
+    sets: &mut ParamSet<'_, '_, IndirectBatches>,
+    view_entity: Entity,
+    view: &ExtractedView,
+    enhanced: bool,
+) -> bool {
+    let requeue = !sets.p0().0.contains_key(&view_entity);
+    let update = lists.indirect_lists(
+        view.world_from_view.to_matrix(),
+        &view.rangefinder3d(),
+        requeue,
+    );
+    let sorted = update.sorted;
+    if let Some(visible) = update.visible {
+        sets.p1()
+            .0
+            .insert(view_entity, ChunkIndirectBatch::new(visible.clone()));
+        sets.p2()
+            .0
+            .insert(view_entity, ChunkIndirectBatch::new(visible));
+    }
+    if let Some(cubes) = update.cubes {
+        sets.p0()
+            .0
+            .insert(view_entity, ChunkIndirectBatch::new(cubes.clone()));
+        sets.p3().0.insert(
+            view_entity,
+            pipeline::solid::ChunkSolidIndirectBatch::new(cubes),
+        );
+    }
+    if let Some(solid) = sets.p3().0.get_mut(&view_entity) {
+        solid.camera = pipeline::solid::solid_cull_camera(view, enhanced);
+    }
+    sorted
+}
+
 /// Drops the indirect batches of views not in `views`, so the next prepare lays the rest out again.
 fn retain_queued_indirect_views(
     sets: &mut ParamSet<'_, '_, IndirectBatches>,
@@ -574,13 +612,12 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     instances: Query<&ChunkRenderInstance>,
     model_runtime: Res<TransparentModelSortRuntime>,
     texture_assets: Res<ChunkTextureAssets>,
-    biome_tints: Res<ChunkBiomeTints>,
+    visible: Res<VisibleTransparentChunks>,
     mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
-    (arena, mut unsorted, mut water_order, mut scratch, pack): (
+    (arena, mut unsorted, mut merged, pack): (
         Res<ChunkGpuArena>,
         Local<UnsortedWaterDiagnostics>,
-        Local<VisibleWaterOrder>,
-        Local<TransparentQueueScratch>,
+        Local<Vec<bool>>,
         render_scene::shaderpack::ShaderPackDrawnViews,
     ),
     profiler: Option<Res<RuntimeStageProfiler>>,
@@ -594,7 +631,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         render_adapter.get_downlevel_capabilities().flags,
         render_device.features(),
         Backends::from(render_adapter.get_info().backend),
-        apple_gpu(&render_adapter.get_info()),
+        direct_draws_required(&render_adapter.get_info()),
     );
     if draw_mode == ChunkDrawMode::Unsupported {
         return;
@@ -604,9 +641,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     let direct_draw = draw_functions.id::<DrawTransparentLiquidCommands>();
     let record_draw = draw_functions.id::<DrawTransparentLiquidDirectCommands>();
     let mixed_draw = draw_functions.id::<DrawMixedTerrainCommands>();
-    for (view_entity, main_entity, view, visible_entities, msaa, enhanced, extracted_camera) in
-        &views
-    {
+    for (view_entity, main_entity, view, _, msaa, enhanced, extracted_camera) in &views {
         if runtime.view_entity != Some(view_entity)
             || pack.replaces(view_entity, |drawn| drawn.terrain)
         {
@@ -627,47 +662,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         else {
             continue;
         };
-        let TransparentQueueScratch { models, water } = &mut *scratch;
-        models.clear();
-        water.clear();
-        for (entity, main) in visible_entities
-            .get::<ChunkRenderInstance>()
-            .into_iter()
-            .flat_map(|class| class.iter_visible())
-            .map(|(entity, main)| (*entity, *main))
-        {
-            let Ok(allocation) = allocations.get(entity) else {
-                continue;
-            };
-            if transparent_model_direct_draw_command(allocation).is_some() {
-                models.push(QueuedTransparentModel {
-                    key: allocation.key,
-                    entity,
-                    main,
-                    merged: false,
-                });
-            }
-            // Like opaque terrain, water waits for its re-upload under a new tint table.
-            if transparent_liquid_direct_draw_command(allocation).is_some()
-                && chunk_tint_identity_is_active(
-                    allocation.tint_identity,
-                    biome_tints.table_identity(),
-                )
-            {
-                water.push(VisibleWater {
-                    key: allocation.key,
-                    entity,
-                    main,
-                    order_independent: allocation.order_independent_liquid,
-                });
-            }
-        }
-        // Key order with the last visible entity of each key, as a map insert would keep.
-        models.reverse();
-        models.sort_by_key(|model| model.key);
-        models.dedup_by_key(|model| model.key);
-        // Equal phase distances keep insertion order, so water enters in key order.
-        let water = water_order.update(water.drain(..));
+        debug_assert_eq!(visible.view(), Some(view_entity));
+        let models = visible.models();
+        // Whether each model draws inside its water group's mixed order instead of alone.
+        merged.clear();
+        merged.resize(models.len(), false);
         // Displaced water can overlap itself even when flat, so such views sort all of it.
         let direct_order_independent = !view_displaces_water(enhanced.is_some());
         let snapshot = runtime.state.committed();
@@ -683,7 +682,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             entity,
             main,
             order_independent,
-        } in each_visible_key(water, &arena.transparent_liquids)
+        } in each_visible_key(visible.water(), &arena.transparent_liquids)
         {
             let direct = direct_order_independent && order_independent;
             // Water that needs an order draws the committed snapshot's group for it; the
@@ -719,7 +718,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             // Native deferred water uses layer 2, not ordinary blend layer 3.
             if enhanced.is_none()
                 && let Ok(model_index) = models.binary_search_by_key(&group.key, |model| model.key)
-                && let Some(&QueuedTransparentModel { entity, main, .. }) = models.get(model_index)
+                && let Some(&VisibleModel { entity, main, .. }) = models.get(model_index)
                 && let (Ok(instance), Ok(allocation)) =
                     (instances.get(entity), allocations.get(entity))
                 && let Some(index) = mixed.plan(
@@ -735,7 +734,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     pipeline_id,
                 )
             {
-                models[model_index].merged = true;
+                merged[model_index] = true;
                 crate::transparent_phase::add(
                     phase,
                     Transparent3d {
@@ -773,12 +772,17 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 },
             );
         }
-        for &QueuedTransparentModel {
-            key: model_key,
-            entity,
-            main,
-            ..
-        } in models.iter().filter(|model| !model.merged)
+        for (
+            &VisibleModel {
+                key: model_key,
+                entity,
+                main,
+            },
+            _,
+        ) in models
+            .iter()
+            .zip(merged.iter())
+            .filter(|(_, merged)| !**merged)
         {
             crate::transparent_phase::add(
                 phase,
@@ -798,24 +802,6 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     }
     mixed.finish_frame();
     unsorted.finish_frame();
-}
-
-/// A visible sub-chunk with transparent models, queued unless its group merged it with water.
-#[derive(Clone, Copy)]
-pub(in crate::chunk) struct QueuedTransparentModel {
-    key: SubChunkKey,
-    entity: Entity,
-    main: MainEntity,
-    /// Drawn inside its water group's mixed order instead of on its own.
-    merged: bool,
-}
-
-/// Per-view lists the transparent queue refills each frame without reallocating.
-#[derive(Default)]
-pub(in crate::chunk) struct TransparentQueueScratch {
-    /// Sorted by key with one entry per key once a view's visible set is gathered.
-    models: Vec<QueuedTransparentModel>,
-    water: Vec<VisibleWater>,
 }
 
 const UNSORTED_WATER_LOG_INTERVAL: Duration = Duration::from_secs(5);

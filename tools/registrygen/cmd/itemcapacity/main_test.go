@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 )
 
 var fixtureExpectations = probeExpectations{
@@ -84,12 +86,6 @@ func TestRetailParserRejectsDuplicateAndMalformedRows(t *testing.T) {
 }
 
 func TestBundledProbeAndProvenanceAreDeterministic(t *testing.T) {
-	if got := sha256Hex(probeScript); got != targetScriptSHA256 {
-		t.Fatalf("probe script hash = %s", got)
-	}
-	if got := sha256Hex(probeManifest); got != targetManifestSHA256 {
-		t.Fatalf("probe manifest hash = %s", got)
-	}
 	metadata := provenance{
 		Schema: "test", SchemaVersion: 1,
 		Source: provenanceSource{ItemTypeCount: 4},
@@ -115,4 +111,52 @@ func readFixture(t *testing.T, name string) []byte {
 		t.Fatal(err)
 	}
 	return contents
+}
+
+// TestRunUsesReviewedMeasurement checks replay and rejects a log changed after review.
+func TestRunUsesReviewedMeasurement(t *testing.T) {
+	root := t.TempDir()
+	version := shared.MinecraftVersion + ".1"
+	log := bytes.ReplaceAll(readFixture(t, "valid.txt"), []byte(fixtureExpectations.version), []byte(version))
+	retail := readFixture(t, "retail.tsv")
+	metadata := provenance{
+		Schema: "cinnabar-item-capacity-provenance", SchemaVersion: 1,
+		GameVersion: version, ProtocolVersion: shared.ProtocolVersion,
+		Source: provenanceSource{
+			PublicBinarySHA256: strings.Repeat("a", 64), ProbeLogSHA256: sha256Hex(log),
+			ProbeScriptSHA256: sha256Hex(probeScript), ProbeManifestSHA256: sha256Hex(probeManifest), ItemTypeCount: 4,
+		},
+		RetailAllowlist: provenanceArtifact{Entries: 3, SHA256: sha256Hex(retail)},
+	}
+	encoded, err := encodeProvenance(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{"measurement.json": encoded, "log.txt": log, "retail.tsv": retail} {
+		if err := os.WriteFile(filepath.Join(root, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := filepath.Join(root, "capacity.tsv")
+	args := []string{filepath.Join(root, "log.txt"), filepath.Join(root, "retail.tsv"), output, filepath.Join(root, "provenance.json"), filepath.Join(root, "measurement.json")}
+	if err := run(args[0], args[1], args[2], args[3], args[4]); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != "minecraft:apple\t64\nminecraft:bucket\t16\nminecraft:water_bucket\t1\n" {
+		t.Fatalf("capacity = %q", before)
+	}
+	if err := os.WriteFile(args[0], append(log, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(args[0], args[1], args[2], args[3], args[4]); err == nil {
+		t.Fatal("accepted changed measurement log")
+	}
+	after, err := os.ReadFile(output)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("failed replay changed capacity output")
+	}
 }

@@ -102,6 +102,35 @@ fn same_size_replacements_and_missing_sources_do_not_reuse_old_bytes() {
     ));
 }
 
+/// Windows tunnels a replaced name's creation time, so only the file number can expose the swap.
+#[test]
+fn replacements_with_identical_stamps_are_reread_before_the_deadline() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source");
+    let replacement = root.path().join("replacement");
+    std::fs::write(&path, b"old").unwrap();
+    let tunneled = |file: &File| {
+        Identity::of(file).map(|identity| Identity {
+            created: None,
+            modified: None,
+            changed: None,
+            ..identity
+        })
+    };
+    let mut cache = ObservationCache::default();
+    let now = Instant::now();
+    let first = cache
+        .read_at(&path, 3, now, tunneled, |opened| opened.read(3))
+        .unwrap();
+    std::fs::write(&replacement, b"new").unwrap();
+    std::fs::rename(&replacement, &path).unwrap();
+    let replaced = cache
+        .read_at(&path, 3, now, tunneled, |opened| opened.read(3))
+        .unwrap();
+    assert_eq!(replaced.bytes.as_ref(), b"new");
+    assert_eq!(first.bytes.as_ref(), b"old");
+}
+
 #[test]
 #[cfg(unix)]
 fn an_edit_during_read_is_retried_instead_of_caching_a_mixed_snapshot() {

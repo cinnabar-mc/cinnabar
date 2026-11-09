@@ -104,8 +104,7 @@ pub(crate) fn exit_on_gpu_failure(
 /// Explains a terminal graphics failure in the crash window.
 fn gpu_failure_cause(driver: &str) -> String {
     format!(
-        "the graphics device stopped working: the driver reset, the GPU was removed, or it ran \
-         out of video memory. Restart to continue. Driver report: {driver}"
+        "rendering stopped after a graphics error. Restart to continue. Error details: {driver}"
     )
 }
 
@@ -259,7 +258,7 @@ mod tests {
         assert!(app.run().is_error());
         let message = terminal.exit_message();
         assert!(
-            message.contains("graphics device stopped working"),
+            message.contains("rendering stopped after a graphics error"),
             "{message}"
         );
         assert!(message.ends_with("DXGI_ERROR_DEVICE_REMOVED"), "{message}");
@@ -288,12 +287,42 @@ mod tests {
         assert!(matches!(policy, RenderErrorPolicy::StopRendering));
         assert!(app.run().is_error());
         let message = terminal.exit_message();
-        assert!(message.contains("out of video memory"), "{message}");
+        assert!(message.contains("out-of-memory"), "{message}");
         assert!(message.contains("Restart to continue"), "{message}");
         assert!(
             message.ends_with("uncaptured GPU out-of-memory error"),
             "{message}"
         );
+    }
+
+    /// Validation failures retain their cause without being described as device loss.
+    #[test]
+    fn validation_and_internal_errors_preserve_their_actual_cause() {
+        use bevy::render::error_handler::{ErrorType, RenderError, RenderErrorHandler};
+        for ty in [ErrorType::Validation, ErrorType::Internal] {
+            let mut app = App::new();
+            render::install_error_policy(&mut app);
+            app.add_systems(Update, exit_on_gpu_failure);
+            let terminal = TerminalCause::install(&mut app);
+            app.update();
+            let handler = app.world().resource::<RenderErrorHandler>().0;
+            handler(
+                &RenderError {
+                    ty,
+                    description: "pipeline binding report".into(),
+                    source: None,
+                },
+                app.world_mut(),
+                &mut bevy::ecs::world::World::new(),
+            );
+            assert!(app.should_exit().is_none());
+            app.update();
+            assert!(app.should_exit().is_some_and(|exit| exit.is_error()));
+            let message = terminal.exit_message();
+            assert!(message.ends_with("pipeline binding report"), "{message}");
+            assert!(!message.contains("driver reset"), "{message}");
+            assert!(!message.contains("out of video memory"), "{message}");
+        }
     }
 
     #[test]

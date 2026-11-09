@@ -506,3 +506,151 @@ fn local_attribute_controls_follow_partial_admission() {
         }]
     ));
 }
+
+/// A local game-mode update commits a control in packet order, marking only
+/// the native spectator mode.
+#[test]
+fn a_local_game_mode_update_commits_an_ordered_control() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    for (sequence, update, spectator) in [
+        (
+            1,
+            protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator),
+            true,
+        ),
+        (2, protocol::GameModeUpdate::LegacyViewer, false),
+        (
+            3,
+            protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Survival),
+            false,
+        ),
+    ] {
+        authority
+            .apply_ordered_event(
+                WorldEvent::Ui(UiEvent::GameMode(protocol::GameModeEvent { update })),
+                Some(sequence),
+            )
+            .unwrap();
+        let controls = authority.take_committed_controls();
+        assert!(
+            matches!(
+                controls.as_slice(),
+                [CommittedControlEvent::LocalGameMode { sequence: committed, spectator: marked }]
+                    if *committed == sequence && *marked == spectator
+            ),
+            "update {sequence}"
+        );
+    }
+}
+
+/// A world-default change to spectator stops item use for a local player whose
+/// mode follows the default, in packet order like an explicit change.
+#[test]
+fn a_default_game_mode_change_reaches_a_player_following_the_default() {
+    let mut authority = WorldAuthority::new(
+        WorldBootstrap {
+            local_player_unique_id: 5,
+            local_player_runtime_id: 41,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        Arc::new(RuntimeAssets::diagnostic()),
+        None,
+        [0.0; 3],
+        None,
+    );
+    let spectator = protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Spectator);
+    let default_change =
+        |update| WorldEvent::Ui(UiEvent::DefaultGameMode(protocol::GameModeEvent { update }));
+    authority
+        .apply_ordered_event(default_change(spectator), Some(1))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
+    authority.set_local_game_mode_follows_default(true);
+    authority
+        .apply_ordered_event(default_change(spectator), Some(2))
+        .unwrap();
+    assert!(matches!(
+        authority.take_committed_controls().as_slice(),
+        [CommittedControlEvent::LocalGameMode {
+            sequence: 2,
+            spectator: true
+        }]
+    ));
+    authority
+        .apply_ordered_event(
+            WorldEvent::Ui(UiEvent::GameMode(protocol::GameModeEvent {
+                update: protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Survival),
+            })),
+            Some(3),
+        )
+        .unwrap();
+    authority.take_committed_controls();
+    authority
+        .apply_ordered_event(default_change(spectator), Some(4))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
+}
+
+/// The local actor view reports admitted metadata before and after the local body spawns,
+/// and ignores metadata addressed to other actors.
+#[test]
+fn local_actor_reports_admitted_local_metadata() {
+    let skin_id = |runtime_id: u64, value: i32| {
+        WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
+            runtime_id,
+            dimension: 2,
+            metadata: Arc::from([ActorMetadata {
+                key: ActorDataKey::SkinID.wire_value(),
+                value: ActorMetadataValue::Int(value),
+            }]),
+            properties: Arc::from([]),
+            tick: 0,
+        }))
+    };
+    let local_skin_id = |authority: &WorldAuthority| {
+        authority
+            .local_actor()
+            .and_then(|actor| actor.metadata.get(&ActorDataKey::SkinID.wire_value()))
+            .cloned()
+    };
+    let mut authority = spawn_authority();
+    assert_eq!(local_skin_id(&authority), None);
+    authority
+        .apply_ordered_event(skin_id(41, 7), Some(1))
+        .unwrap();
+    assert!(authority.actor(41).is_none());
+    assert_eq!(local_skin_id(&authority), Some(ActorMetadataValue::Int(7)));
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(spawn_with_use(None))),
+            Some(2),
+        )
+        .unwrap();
+    for (sequence, event) in [(3, skin_id(41, 0x4C_0003)), (4, skin_id(72, 9))] {
+        authority
+            .apply_ordered_event(event, Some(sequence))
+            .unwrap();
+    }
+    assert_eq!(
+        local_skin_id(&authority),
+        Some(ActorMetadataValue::Int(0x4C_0003))
+    );
+}

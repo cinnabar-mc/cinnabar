@@ -23,14 +23,45 @@ pub(crate) struct EpochTicker {
     worker: Option<JoinHandle<()>>,
 }
 
-/// Builds a fuel-metered synchronous engine with epoch checks and a bounded guest stack.
+/// Runtime-varying configuration of the personal-mod engine. Fixed options are owned below.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EnginePolicy {
+    pub backtrace: bool,
+}
+
+impl EnginePolicy {
+    /// Captures configuration once so a cached component cannot outlive its engine policy.
+    pub fn current() -> Self {
+        Self {
+            backtrace: std::env::var_os("CINNABAR_MOD_BACKTRACE").is_some(),
+        }
+    }
+}
+
+/// Builds a fuel-metered asynchronous personal-mod engine with epoch checks and a bounded guest stack.
 pub(crate) fn engine() -> Result<(Engine, EpochTicker)> {
+    engine_with_policy(EnginePolicy::current())
+}
+
+/// Builds exactly the configuration captured in a personal component cache key.
+pub(crate) fn engine_with_policy(policy: EnginePolicy) -> Result<(Engine, EpochTicker)> {
+    metered_engine(policy, true)
+}
+
+/// Keeps server bundles on their synchronous callback contract.
+pub(crate) fn synchronous_engine() -> Result<(Engine, EpochTicker)> {
+    metered_engine(EnginePolicy::current(), false)
+}
+
+/// Shares fixed sandbox limits while selecting the execution interface.
+fn metered_engine(policy: EnginePolicy, asynchronous: bool) -> Result<(Engine, EpochTicker)> {
     let mut config = Config::new();
     config
         .wasm_component_model(true)
+        .async_support(asynchronous)
         .consume_fuel(true)
         .epoch_interruption(true)
-        .wasm_backtrace(std::env::var_os("CINNABAR_MOD_BACKTRACE").is_some())
+        .wasm_backtrace(policy.backtrace)
         .wasm_memory64(false)
         .wasm_multi_memory(false)
         .wasm_relaxed_simd(false)
@@ -98,6 +129,9 @@ fn arm_with_elapsed<T>(
 ) -> Result<()> {
     store.set_hostcall_fuel(HOSTCALL_BYTES);
     store.set_fuel(fuel)?;
+    if store.engine().is_async() {
+        store.fuel_async_yield_interval(None)?;
+    }
     let deadline = if loading {
         LOAD_DEADLINE
     } else {
@@ -127,6 +161,35 @@ fn arm_deadline_with_elapsed<T>(
         Ok(UpdateDeadline::Continue(epoch_ticks(remaining)))
     });
     store.set_epoch_deadline(epoch_ticks(deadline));
+}
+
+/// Runs import-synchronous async work to completion without creating an executor or worker.
+/// These futures can only suspend for Wasmtime's cooperative fuel or epoch yields.
+pub(crate) fn complete<T>(future: impl std::future::Future<Output = T>) -> T {
+    use std::task::{Context, Poll, Waker};
+    let mut future = std::pin::pin!(future);
+    let mut context = Context::from_waker(Waker::noop());
+    loop {
+        if let Poll::Ready(value) = future.as_mut().poll(&mut context) {
+            return value;
+        }
+    }
+}
+
+/// Arms one cumulative invocation limit; resumes never replenish either fuel allowance.
+/// Calls yield every fuel interval and, when `epoch_yields` is set, on each wall-clock epoch
+/// tick. Without it, ticks extend the deadline in place so only fuel decides yield points.
+pub(crate) fn arm_resumable<T>(store: &mut Store<T>, fuel: u64, epoch_yields: bool) -> Result<()> {
+    store.set_hostcall_fuel(HOSTCALL_BYTES);
+    store.set_fuel(fuel)?;
+    store.fuel_async_yield_interval(Some(25_000))?;
+    if epoch_yields {
+        store.epoch_deadline_async_yield_and_update(1);
+    } else {
+        store.epoch_deadline_callback(|_| Ok(UpdateDeadline::Continue(1)));
+    }
+    store.set_epoch_deadline(1);
+    Ok(())
 }
 
 /// Rounds a positive remaining duration up to whole ticker periods.
@@ -160,7 +223,7 @@ mod tests {
 
     #[test]
     fn epochs_interrupt_bulk_memory_work_and_deadlines_can_be_rearmed() {
-        let (engine, _ticker) = engine().unwrap();
+        let (engine, _ticker) = synchronous_engine().unwrap();
         let module = Module::new(
             &engine,
             r#"(module
@@ -191,7 +254,7 @@ mod tests {
 
     #[test]
     fn idle_catch_up_preserves_work_until_its_elapsed_deadline() {
-        let (engine, _ticker) = engine().unwrap();
+        let (engine, _ticker) = synchronous_engine().unwrap();
         let module = Module::new(&engine, "(module (func (export \"idle\")))").unwrap();
         let mut store = Store::new(&engine, ());
         arm_with_elapsed(&mut store, u64::MAX, true, || Duration::ZERO).unwrap();
@@ -227,7 +290,7 @@ mod tests {
 
     #[test]
     fn unneeded_memory_proposals_are_refused() {
-        let (engine, _ticker) = engine().unwrap();
+        let (engine, _ticker) = synchronous_engine().unwrap();
         for source in [
             "(module (memory i64 1))",
             "(module (memory 1) (memory 1))",
@@ -239,7 +302,7 @@ mod tests {
 
     #[test]
     fn epoch_deadline_covers_core_start_functions() {
-        let (engine, _ticker) = engine().unwrap();
+        let (engine, _ticker) = synchronous_engine().unwrap();
         let module = Module::new(
             &engine,
             "(module (func $start (loop $work br $work)) (start $start))",

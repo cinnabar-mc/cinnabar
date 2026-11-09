@@ -1,6 +1,10 @@
 //! The host side of the `server` world: generated bindings, per-store state and the imports.
-//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`],
-//! [`v0_3`], [`v0_4`] and [`v0_5`] keep the worlds that older artifacts target.
+//! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`] to [`v0_11`] keep
+//! the worlds that older artifacts target.
+#![expect(
+    clippy::too_many_arguments,
+    reason = "the generated on-interact export takes the WIT's six parameters besides its store"
+)]
 
 use experience_sdk::artifact::SERVER_WASM;
 use std::fmt;
@@ -18,12 +22,15 @@ use crate::limits::{
 };
 
 pub(crate) mod v0_1;
+pub(crate) mod v0_10;
+pub(crate) mod v0_11;
 pub(crate) mod v0_2;
 pub(crate) mod v0_3;
 pub(crate) mod v0_4;
 pub(crate) mod v0_5;
 pub(crate) mod v0_6;
 pub(crate) mod v0_8;
+pub(crate) mod v0_9;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -33,8 +40,8 @@ wasmtime::component::bindgen!({
 });
 
 use cinnabar::experience_server::types::{
-    BlockDef, BlockState, BlockType, CallbackInfo, Crafted, Inventory, ItemKey, LogLevel, Network,
-    NewStack, PlacementStates, WorldError,
+    BlockDef, BlockState, BlockType, CallbackInfo, Crafted, GameMode, Inventory, ItemKey, LogLevel,
+    Network, NewStack, PlacementStates, WorldError,
 };
 use cinnabar::experience_server::{diagnostics, types, types as wit, world_access};
 
@@ -63,10 +70,17 @@ pub(crate) enum Api {
     V0_8,
     /// Simulation ticks and cancellable callbacks.
     V0_9,
+    /// Cell overlays and the click position of an interaction.
+    V0_10,
+    /// Registered entities, seats and entity observations.
+    V0_11,
+    /// Block drops and item listing rules, whether a break harvests, and passing an
+    /// interaction's click on.
+    V0_12,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 8] = [
+    pub(crate) const ALL: [Api; 11] = [
         Api::V0_1,
         Api::V0_2,
         Api::V0_3,
@@ -75,14 +89,29 @@ impl Api {
         Api::V0_6,
         Api::V0_8,
         Api::V0_9,
+        Api::V0_10,
+        Api::V0_11,
+        Api::V0_12,
     ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_8 | Api::V0_9 => true,
+            Api::V0_4
+            | Api::V0_5
+            | Api::V0_6
+            | Api::V0_8
+            | Api::V0_9
+            | Api::V0_10
+            | Api::V0_11
+            | Api::V0_12 => true,
         }
+    }
+
+    /// Whether this world has simulation ticks and timers.
+    pub(crate) fn simulation(self) -> bool {
+        matches!(self, Api::V0_9 | Api::V0_10 | Api::V0_11 | Api::V0_12)
     }
 
     /// The version whose manifest `api` is `api`.
@@ -100,7 +129,10 @@ impl Api {
             Api::V0_5 => v0_5::WIT,
             Api::V0_6 => v0_6::WIT,
             Api::V0_8 => v0_8::WIT,
-            Api::V0_9 => WIT,
+            Api::V0_9 => v0_9::WIT,
+            Api::V0_10 => v0_10::WIT,
+            Api::V0_11 => v0_11::WIT,
+            Api::V0_12 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -126,7 +158,10 @@ pub(crate) enum Pre {
     V0_5(v0_5::ServerPre<HostState>),
     V0_6(v0_6::ServerPre<HostState>),
     V0_8(v0_8::ServerPre<HostState>),
-    V0_9(ServerPre<HostState>),
+    V0_9(v0_9::ServerPre<HostState>),
+    V0_10(v0_10::ServerPre<HostState>),
+    V0_11(v0_11::ServerPre<HostState>),
+    V0_12(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -162,8 +197,20 @@ impl Pre {
                 Self::V0_8(v0_8::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_9 => {
+                v0_9::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_9(v0_9::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_10 => {
+                v0_10::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_10(v0_10::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_11 => {
+                v0_11::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_11(v0_11::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_12 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_9(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_12(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -210,6 +257,18 @@ impl Pre {
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_9(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_10(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_11(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_12(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -434,6 +493,53 @@ impl world_access::Host for HostState {}
 
 /// Each method acts on the callback that `ctx` names; see [`CallbackRes`] for the rules.
 impl world_access::HostCallback for HostState {
+    /// Reads the current callback's owned entity snapshot.
+    fn entities(&mut self, ctx: Resource<CallbackRes>) -> Result<Vec<wit::EntityState>> {
+        self.table.get_mut(&ctx)?.entities()
+    }
+    /// Reserves an entity in the callback's world opening.
+    fn spawn_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        kind: wit::EntityTypeId,
+        position: wit::Position,
+        rotation: wit::EntityRotation,
+    ) -> Result<Result<wit::EntityHandle, WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .spawn_entity(kind, position, rotation)
+    }
+    /// Stages mutable state for a currently owned entity.
+    fn update_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        state: wit::EntityState,
+        teleport: bool,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.update_entity(state, teleport)
+    }
+    /// Stages removal of a visible generation-bearing entity.
+    fn despawn_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        handle: wit::EntityHandle,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.despawn_entity(handle)
+    }
+    /// Stages boarding by this callback's actor.
+    fn mount_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        handle: wit::EntityHandle,
+        seat: u32,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.mount_entity(handle, seat)
+    }
+    /// Stages departure by this callback's actor.
+    fn dismount_entity(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.dismount_entity()
+    }
+
     fn info(&mut self, ctx: Resource<CallbackRes>) -> Result<CallbackInfo> {
         self.table.get_mut(&ctx)?.info()
     }
@@ -634,6 +740,10 @@ impl world_access::HostCallback for HostState {
         Ok(inventory.map(Into::into))
     }
 
+    fn game_mode(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<GameMode, WorldError>> {
+        self.table.get_mut(&ctx)?.game_mode()
+    }
+
     fn set_slot(
         &mut self,
         ctx: Resource<CallbackRes>,
@@ -671,6 +781,71 @@ impl world_access::HostCallback for HostState {
         ticks: u32,
     ) -> Result<Result<(), WorldError>> {
         self.table.get_mut(&ctx)?.schedule_update(pos.into(), ticks)
+    }
+
+    fn overlays(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+    ) -> Result<Result<Vec<wit::Overlay>, WorldError>> {
+        self.table.get_mut(&ctx)?.overlays(pos.into())
+    }
+
+    fn set_overlays(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        overlays: Vec<wit::Overlay>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.set_overlays(pos.into(), overlays)
+    }
+
+    fn harvested(&mut self, ctx: Resource<CallbackRes>) -> Result<bool> {
+        self.table.get_mut(&ctx)?.harvested()
+    }
+
+    fn pass_interaction(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.pass_interaction()
+    }
+
+    fn container(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+    ) -> Result<Result<Vec<Option<wit::ItemStack>>, WorldError>> {
+        let slots = self.table.get_mut(&ctx)?.container(pos.into())?;
+        Ok(slots.map(|slots| slots.into_iter().map(|slot| slot.map(Into::into)).collect()))
+    }
+
+    fn set_container_slot(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        slot: u32,
+        stack: Option<NewStack>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .set_container_slot(pos.into(), slot, stack.map(Into::into))
+    }
+
+    fn redstone_power(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+    ) -> Result<Result<u8, WorldError>> {
+        self.table.get_mut(&ctx)?.redstone_power(pos.into())
+    }
+
+    fn set_redstone_power(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        pos: BlockPos,
+        power: u8,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .set_redstone_power(pos.into(), power)
     }
 
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.

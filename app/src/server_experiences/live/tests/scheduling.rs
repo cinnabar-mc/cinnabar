@@ -4,11 +4,11 @@ use super::*;
 fn an_action_keeps_its_shift_state_until_it_runs() {
     let mut live = opened();
     assert!(live.shift_changed(true));
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.press("bundle0.pick", None));
     assert!(live.shift_changed(false));
     for slice in 2..=4 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(matches!(
         live.instances["bundle0"]
@@ -38,7 +38,7 @@ fn repeated_scroll_updates_cannot_postpone_an_earlier_action() {
                 content: 100.0,
             }
         ));
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(matches!(
         live.instances["bundle0"]
@@ -66,9 +66,9 @@ fn independent_media_recipients_dispatch_in_one_poll() {
             )
             .unwrap();
     }
-    live.poll(1, 0).unwrap();
+    live.poll_ready(1, 0).unwrap();
     live.service_media(0, 0, true);
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     for bundle in ["bundle0", "bundle1"] {
         assert!(matches!(
             live.instances[bundle].helper.as_ref().unwrap().dispatched.as_slice(),
@@ -95,7 +95,7 @@ fn messages_media_and_input_share_arrival_order() {
     assert!(live.text_changed("bundle0.pick", "later"));
     receive(&mut live, "bundle0", 2);
     for slice in 1..=6 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(matches!(
         live.instances["bundle0"].helper.as_ref().unwrap().dispatched.as_slice(),
@@ -113,7 +113,7 @@ fn state_on_each_side_of_an_action_keeps_both_values() {
     assert!(live.press("bundle0.pick", None));
     assert!(live.shift_changed(false));
     for slice in 1..=4 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(matches!(
         live.instances["bundle0"]
@@ -135,16 +135,16 @@ fn recipients_rotate_when_the_callback_budget_runs_out() {
     let mut live = fixture(3);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     complete(&mut live, "bundle2");
-    live.poll(1, CALLBACK_INTERVAL_MS + 1).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS + 1).unwrap();
     for (index, bundle) in ["bundle0", "bundle0", "bundle1", "bundle1", "bundle2"]
         .into_iter()
         .enumerate()
     {
         receive(&mut live, bundle, index as u64 + 1);
     }
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(
         live.instances["bundle2"]
             .helper
@@ -153,7 +153,7 @@ fn recipients_rotate_when_the_callback_budget_runs_out() {
             .dispatched
             .is_empty()
     );
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
     assert_eq!(
         live.instances["bundle2"]
             .helper
@@ -169,7 +169,7 @@ fn recipients_rotate_when_the_callback_budget_runs_out() {
 fn new_world_messages_arriving_before_poll_survive_the_epoch_change() {
     let mut live = fixture_v2(1);
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
-    live.poll(1, 0).unwrap();
+    live.poll_ready(1, 0).unwrap();
     let message = Envelope {
         version: live.grant.wire.version,
         session: live.grant.session.clone(),
@@ -190,7 +190,7 @@ fn new_world_messages_arriving_before_poll_survive_the_epoch_change() {
     )
     .unwrap();
     for slice in 1..=3 {
-        live.poll(2, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(2, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     assert!(matches!(
         live.instances["bundle0"]
@@ -213,9 +213,9 @@ fn observing_a_world_before_input_preserves_new_world_actions_and_state() {
     };
     live.set_modal_size(Some(size(320.0)));
     assert!(live.shift_changed(true));
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
     let before = live.instances["bundle0"]
         .helper
         .as_ref()
@@ -229,7 +229,7 @@ fn observing_a_world_before_input_preserves_new_world_actions_and_state() {
     assert!(live.shift_changed(true));
     assert!(live.press("bundle0.pick", Some(2)));
     for slice in 4..=8 {
-        live.poll(2, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll_ready(2, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
     let dispatched = &live.instances["bundle0"]
         .helper

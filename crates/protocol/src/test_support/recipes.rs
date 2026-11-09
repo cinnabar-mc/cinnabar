@@ -1,14 +1,14 @@
 //! CraftingData fixtures admitted through the real recipe decoder, and crafting request observations.
 
-use bedrock_protocol_1_26_51::enums::RecipeUnlockingRequirementUnlockingContext as UnlockingContext;
-use bedrock_protocol_1_26_51::packets::{self, CraftingData};
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext as UnlockingContext;
+use bedrock_protocol_1_26_60::packets::{self, CraftingData};
+use bedrock_protocol_1_26_60::types::{
     ContainerMixDataEntry, ItemDescriptor, NetworkItemInstanceDescriptorSerializedData,
     PotionMixDataEntry, RecipeIngredientSerializedData, RecipeNetID,
     RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
     StackRequestAction as Action, StackRequestSlotInfo,
 };
-use bedrock_protocol_1_26_51::wire::{self, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Encode};
 use bytes::Bytes;
 
 use crate::{Packet, RecipeUpdate, decode_recipe_update};
@@ -104,9 +104,9 @@ impl UnlockingFixture {
         RecipeUnlockRequirementSerializedData {
             unlocking_context: match self.context {
                 0 => UnlockingContext::None,
-                1 => UnlockingContext::Alwaysunlocked,
-                2 => UnlockingContext::Playerinwater,
-                3 => UnlockingContext::Playerhasmanyitems,
+                1 => UnlockingContext::AlwaysUnlocked,
+                2 => UnlockingContext::PlayerInWater,
+                3 => UnlockingContext::PlayerHasManyItems,
                 other => UnlockingContext::Unknown(other),
             },
             unlocking_ingredients: self
@@ -268,6 +268,19 @@ pub fn recipe_update_from_batch(batch: &'static [u8]) -> RecipeUpdate {
         .expect("fixture batch frames")
         .remove(0);
     decode_recipe_update(raw.body()).expect("fixture CraftingData decodes")
+}
+
+/// Admits one exact special-recipe identifier through the production wire decoder.
+pub fn multi_recipe_update(identifier: u128, network_id: u32) -> RecipeUpdate {
+    let packet = CraftingData {
+        clear_recipes: true,
+        multi_recipes: vec![bedrock_protocol_1_26_60::types::MultiRecipe {
+            multi_recipe_uuid: uuid::Uuid::from_u128(identifier),
+            net_id: RecipeNetID(network_id),
+        }],
+        ..Default::default()
+    };
+    decode_recipe_update(&packet.encode_to_vec().unwrap()).unwrap()
 }
 
 /// `packet` with its subclient header set, for comparing against captured wire.

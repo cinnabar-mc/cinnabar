@@ -100,7 +100,16 @@ pub(super) fn retain(
             }
         })
         .collect::<Vec<_>>();
-    Ok(keys.with_sources(pack.terrain.runtime_entries(), sources, blocks))
+    let sizes = sources
+        .values()
+        .filter_map(|source| {
+            let size = image::image_dimensions(root.join(source.raster.as_ref())).ok()?;
+            Some((source.raster.clone(), [size.0, size.1]))
+        })
+        .collect::<Vec<_>>();
+    Ok(keys
+        .with_sources(pack.terrain.runtime_entries(), sources, blocks)
+        .with_raster_sizes(sizes))
 }
 
 /// Keeps the filename selected by compilation without retaining the local pack directory.

@@ -32,8 +32,11 @@ impl HudBindings {
             {
                 return Err("extension HUD binding name is invalid".into());
             }
-            if matches!(value, SurfaceValue::Text(_)) {
-                return Err("extension HUD bindings cannot contain text".into());
+            if matches!(
+                value,
+                SurfaceValue::Text(_) | SurfaceValue::Item(_) | SurfaceValue::Project(_)
+            ) {
+                return Err("extension HUD bindings hold numbers, bools and vectors only".into());
             }
             value.validate()?;
         }
@@ -50,6 +53,16 @@ mod tests {
         HudBindings(BTreeMap::from([("#mod_example".into(), value)]))
             .validate()
             .is_ok()
+    }
+
+    #[test]
+    fn hud_bindings_reject_host_resolved_values() {
+        for value in [
+            serde_json::json!({"item":{"identifier":"minecraft:apple"}}),
+            serde_json::json!({"project":{"world":[0,0,0]}}),
+        ] {
+            assert!(!accepts(serde_json::from_value(value).unwrap()));
+        }
     }
 
     #[test]

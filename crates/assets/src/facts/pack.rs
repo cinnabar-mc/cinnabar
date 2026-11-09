@@ -50,6 +50,9 @@ domain!(PackTexture {
     StrawBed
 });
 domain!(PackBlock {
+    RedstoneTorch,
+    RedstoneWire,
+    UnlitRedstoneTorch,
     Beacon,
     Obsidian,
     Glass,
@@ -57,22 +60,35 @@ domain!(PackBlock {
     Beehive,
     ChiseledBookshelf,
     Cactus,
+    Sunflower,
     Cake,
     Farmland,
     ResinClump,
     Dirt,
+    ChorusPlant,
+    EndStone,
+    SporeBlossom,
+    CarvedPumpkin,
+    ChorusFlower,
+    PointedDripstone,
+    SulfurSpike,
+    WeepingVines,
+    TwistingVines,
     CobblestoneWall,
     Air,
     Stone,
     HeavyCore,
     Crafter,
     DriedGhast,
+    TurtleEgg,
+    TripWire,
     SculkSensor,
     CalibratedSculkSensor,
     SculkShrieker,
     BigDripleaf,
     SmallDripleaf,
-    StrawBed
+    StrawBed,
+    Observer
 });
 domain!(TextureSelector {
     Door,
@@ -111,6 +127,9 @@ pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
 
 /// Material used by the missing harness attachables supplied by the compiler.
 pub const HARNESS_MATERIAL: &str = "harness";
+
+/// The alpha-tested entity material that compiler-completed bindings draw with.
+pub const ALPHA_TEST_MATERIAL: &str = "entity_alphatest";
 
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -179,7 +198,7 @@ fn vocabulary() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
     static VOCABULARY: OnceLock<BTreeMap<&str, BTreeSet<&str>>> = OnceLock::new();
     VOCABULARY.get_or_init(|| {
         let mut vocabulary = BTreeMap::<&str, BTreeSet<&str>>::new();
-        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.60.tsv").lines() {
             let (domain, name) = row
                 .split_once('\t')
                 .expect("pack vocabulary rows are tabbed");
@@ -317,7 +336,7 @@ impl PackRules {
         self.egg_aliases
             .get(actor)
             .cloned()
-            .unwrap_or_else(|| format!("{actor}_spawn_egg"))
+            .unwrap_or_else(|| format!("{actor}{}", super::SPAWN_EGG_SUFFIX))
     }
     /// Returns the newer actor definition that supersedes a compatibility egg.
     pub fn superseding_egg(&self, actor: &str) -> Option<&str> {
@@ -361,7 +380,7 @@ fn material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
 /// Normalizes skinning variants and the material used by synthesized harness bindings.
 fn material_name(name: &str) -> &str {
     match name.strip_suffix(".skinning").unwrap_or(name) {
-        HARNESS_MATERIAL => "entity_alphatest",
+        HARNESS_MATERIAL => ALPHA_TEST_MATERIAL,
         name => name,
     }
 }

@@ -1,5 +1,5 @@
 use super::*;
-use bedrock_protocol_1_26_51::packets::AddPainting;
+use bedrock_protocol_1_26_60::packets::AddPainting;
 
 /// Motive and wall direction retained from the dedicated painting spawn packet.
 #[derive(Clone, Debug, PartialEq, Eq)]

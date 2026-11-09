@@ -1,5 +1,5 @@
 use crate::chunk::transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws,
+    transparent_frame_draws, transparent_frame_draws_for_range,
 };
 use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
@@ -97,23 +97,41 @@ pub(in crate::chunk) fn prepare_depth_liquid_indirect_batch_draws<'a>(
     (commands, drawn)
 }
 
-/// Writes the frame's indirect commands unless the buffer already holds exactly
-/// these bytes; returns the bytes written.
+/// Grows the indirect buffer to hold `commands`; false, keeping the old buffer and what it
+/// holds, when the device is out of memory for a larger one.
+pub(in crate::chunk) fn reserve_indirect_commands(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    commands: usize,
+) -> bool {
+    if commands <= arena.indirect_capacity {
+        return true;
+    }
+    let capacity = commands.next_power_of_two();
+    let Some(buffer) = create_indirect_buffer(render_device, capacity) else {
+        return false;
+    };
+    arena.indirect_capacity = capacity;
+    arena.indirect_buffer = buffer;
+    arena.uploaded_indirect_bytes.clear();
+    crate::chunk::gpu::telemetry::log_arena_capacity(arena, "indirect commands grew");
+    true
+}
+
+/// Writes the frame's indirect commands unless the buffer already holds exactly these bytes;
+/// returns the bytes written or a failed-generation error.
 pub(in crate::chunk) fn upload_indirect_commands_if_changed(
     arena: &mut ChunkGpuArena,
     render_device: &RenderDevice,
     render_queue: &RenderQueue,
     commands: &[DrawIndexedIndirectArgs],
-) -> u64 {
-    if commands.len() > arena.indirect_capacity {
-        arena.indirect_capacity = commands.len().next_power_of_two();
-        arena.indirect_buffer = create_indirect_buffer(render_device, arena.indirect_capacity);
-        arena.uploaded_indirect_bytes.clear();
-        crate::chunk::gpu::telemetry::log_arena_capacity(arena, "indirect commands grew");
+) -> Result<u64, crate::gpu_allocation::TerrainWriteError> {
+    if !reserve_indirect_commands(arena, render_device, commands.len()) {
+        return Err(crate::gpu_allocation::TerrainWriteError);
     }
     let bytes: &[u8] = bytemuck::cast_slice(commands);
     if arena.uploaded_indirect_bytes == bytes {
-        return 0;
+        return Ok(0);
     }
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
@@ -122,12 +140,19 @@ pub(in crate::chunk) fn upload_indirect_commands_if_changed(
         bytes = bytes.len()
     )
     .entered();
-    render_queue.profiled_write_buffer(&arena.indirect_buffer, 0, bytes);
+    crate::gpu_allocation::terrain_write(
+        render_device,
+        "terrain indirect upload",
+        bytes.len() as u64,
+        || {
+            render_queue.profiled_write_buffer(&arena.indirect_buffer, 0, bytes);
+        },
+    )?;
     #[cfg(feature = "tracy")]
     drop(_span);
     arena.uploaded_indirect_bytes.clear();
     arena.uploaded_indirect_bytes.extend_from_slice(bytes);
-    bytes.len() as u64
+    Ok(bytes.len() as u64)
 }
 
 pub(in crate::chunk) fn sorted_visible_entities<T>(
@@ -385,11 +410,9 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
             args.first_instance..args.first_instance + args.instance_count,
         );
         let frame_probe = frame_probe.into_inner();
-        if frame_probe.is_active()
-            && let Some(draw) = transparent_frame_draw_for_range(snapshot, arena, ref_range)
-        {
-            frame_probe.record_transparent_draw(snapshot.generation(), [draw]);
-        }
+        frame_probe.record_transparent_draw(snapshot.generation(), || {
+            transparent_frame_draws_for_range(snapshot, arena, ref_range)
+        });
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
         RenderCommandResult::Success
@@ -486,12 +509,9 @@ impl<P: PhaseItem> RenderCommand<P> for DrawTransparentLiquidIndirect {
         pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
         pass.draw_indexed_indirect(&arena.transparent_indirect_buffer, 0);
         let frame_probe = frame_probe.into_inner();
-        if frame_probe.is_active() {
-            frame_probe.record_transparent_draw(
-                snapshot.generation(),
-                transparent_frame_draws(snapshot, arena),
-            );
-        }
+        frame_probe.record_transparent_draw(snapshot.generation(), || {
+            transparent_frame_draws(snapshot, arena)
+        });
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));
         RenderCommandResult::Success

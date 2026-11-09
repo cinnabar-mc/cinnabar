@@ -82,7 +82,7 @@ fn server_sneak_updates_preserve_controls_and_correct_the_next_input() {
     }
 }
 
-/// Metadata cannot suppress local stance changes still waiting behind queued inputs.
+/// Metadata leaves queued actions intact and only later local changes add new actions.
 #[test]
 fn server_sneak_updates_preserve_queued_start_and_stop_actions() {
     let (mut physics, mut ticker) = walked_physics(0);
@@ -110,7 +110,13 @@ fn server_sneak_updates_preserve_queued_start_and_stop_actions() {
         flush_player_auth_inputs(&mut ticker, 4, Some(evidence_context()), |_, _| Err("full")),
         Err(MovementSendError::Transport("full")),
     ));
-    for (held, server) in [(false, Some(false)), (true, Some(true)), (true, None)] {
+    for (held, server) in [
+        (false, Some(false)),
+        (true, Some(true)),
+        (true, None),
+        (false, None),
+        (true, None),
+    ] {
         if let Some(sneaking) = server {
             physics.apply_server_movement_flags(0, flags(|flags| flags.sneaking = Some(sneaking)));
         }
@@ -128,9 +134,11 @@ fn server_sneak_updates_preserve_queued_start_and_stop_actions() {
         .into_iter()
         .zip([
             PlayerInputFlags::START_SNEAKING,
+            PlayerInputFlags::NONE,
+            PlayerInputFlags::NONE,
+            PlayerInputFlags::NONE,
             PlayerInputFlags::STOP_SNEAKING,
             PlayerInputFlags::START_SNEAKING,
-            PlayerInputFlags::NONE,
         ])
         .map(|(mut snapshot, action)| {
             snapshot.flags = snapshot.flags.with_mask(
@@ -145,7 +153,7 @@ fn server_sneak_updates_preserve_queued_start_and_stop_actions() {
     assert_eq!(
         flush_player_auth_inputs(
             &mut ticker,
-            4,
+            8,
             Some(evidence_context()),
             |identity, packet| {
                 identities.push(identity);
@@ -154,7 +162,7 @@ fn server_sneak_updates_preserve_queued_start_and_stop_actions() {
             }
         )
         .unwrap(),
-        4,
+        6,
     );
     for identity in identities {
         assert!(ticker.acknowledge_physics_send(identity));

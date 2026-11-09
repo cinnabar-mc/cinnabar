@@ -30,6 +30,8 @@ mod player_list_tests;
 mod service;
 mod sub_chunk_requests;
 mod terrain_generation;
+pub(crate) mod vehicle_look;
+mod view;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 pub(crate) use sub_chunk_requests::sub_chunk_request_center;
@@ -39,7 +41,7 @@ pub(crate) use terrain_generation::synchronize_terrain_generation;
 use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
-pub(crate) use control_apply::apply_committed_control;
+pub(crate) use control_apply::{MovePlayerRotation, apply_committed_aim, apply_committed_control};
 
 use std::sync::Arc;
 
@@ -57,7 +59,6 @@ use client_world::CommittedControlEvent;
 
 use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
-use client_ui::block_cracks::reconcile_world_block_cracks;
 use protocol::BlobCacheStats;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
@@ -288,6 +289,8 @@ pub(crate) struct WorldPollInputs<'w, 's> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     render_queue: Option<ResMut<'w, ChunkRenderQueue>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    mods: Option<ResMut<'w, crate::modding::ModRuntime>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,6 +326,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
         #[cfg(target_arch = "wasm32")]
         options,
         mut render_queue,
+        #[cfg(not(target_arch = "wasm32"))]
+        mut mods,
     } = inputs;
     let _timer = profiler
         .as_deref()
@@ -355,7 +360,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         interaction.invalidate();
         return;
     };
-    stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
+    stream.set_view_forward(view::streaming_forward(&view, &camera_settings));
     #[cfg(not(target_arch = "wasm32"))]
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     #[cfg(target_arch = "wasm32")]
@@ -504,9 +509,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     .facts
                     .clear_actor_movement_authority(clock.session_generation());
             }
-            if let Some(item_use) = item_use.as_deref_mut() {
-                item_use.adopt_server_using_item(flags.using_item);
-            }
             let previous = player_runtime.facts.is_immobile();
             player_runtime
                 .facts
@@ -610,8 +612,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
         });
         use gameplay::committed_control::{ControlDisposition, SpatialReset};
+        let mut rotation_filter = control_apply::rotation_filter(
+            #[cfg(not(target_arch = "wasm32"))]
+            mods.as_deref_mut(),
+        );
         let reset = match disposition {
             ControlDisposition::Handled => continue,
+            ControlDisposition::Aim => {
+                apply_committed_aim(control, &view, &mut local_physics, &mut rotation_filter);
+                continue;
+            }
             ControlDisposition::Environment => {
                 apply_environment_control(
                     control,
@@ -640,6 +650,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &mut view,
             &mut camera_settings,
             pending_surface_spawn,
+            &mut rotation_filter,
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {
@@ -776,7 +787,7 @@ pub(crate) fn drive_world_stream(
     } else {
         time.delta_secs()
     });
-    reconcile_world_block_cracks(&mut ui_runtime, stream);
+    ui_runtime.project_block_cracks(stream.block_crack_snapshot());
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world

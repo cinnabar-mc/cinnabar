@@ -6,9 +6,13 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+assets = { path = "../assets" }
+meshing = { path = "../meshing" }
+world = { path = "../world" }
 bytemuck = { version = "1", features = ["derive"] }
 mod-api = { path = "../mod-api" }
 naga.workspace = true
+serde = { version = "=1.0.228", features = ["derive", "rc"] }
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }

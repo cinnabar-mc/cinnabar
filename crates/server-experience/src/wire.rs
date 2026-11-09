@@ -273,6 +273,22 @@ struct Partial {
     bytes: usize,
 }
 
+/// A routed message failed one bundle's admission without corrupting the session framing.
+#[derive(Debug)]
+pub struct BundleFailure {
+    pub bundle: String,
+    error: anyhow::Error,
+}
+
+impl std::fmt::Display for BundleFailure {
+    /// Preserves the admission reason for the bundle's trusted failure diagnostics.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.error, formatter)
+    }
+}
+
+impl std::error::Error for BundleFailure {}
+
 /// Allows a message to run only in the world epoch where it originated.
 pub fn is_current_epoch(message_epoch: u64, world_epoch: u64) -> bool {
     message_epoch == world_epoch
@@ -382,14 +398,11 @@ impl Ingress {
             && let Some(overflow) = error.downcast_ref::<QueueOverflow>()
         {
             self.retired.insert(overflow.bundle.clone());
-            self.queue.retain(|(_, bytes, message)| {
-                if message.bundle != overflow.bundle {
-                    return true;
-                }
-                self.bytes -= bytes;
-                false
-            });
-        } else if result.is_err() {
+            self.discard_bundle(&overflow.bundle);
+        } else if result
+            .as_ref()
+            .is_err_and(|error| !error.is::<BundleFailure>())
+        {
             self.failed = true;
             self.queue.clear();
             self.bytes = 0;
@@ -447,27 +460,38 @@ impl Ingress {
         };
         self.route(&message, grant)?;
         self.consume_sequence()?;
-        let recipient =
-            recipient(&message.bundle).ok_or_else(|| anyhow::anyhow!("unknown recipient"))?;
-        ensure!(
-            recipient
-                .scope
-                .permissions
-                .contains(&crate::manifest::Permission::Messaging),
-            "recipient messaging permission denied"
-        );
-        let channels = &recipient.channels;
-        ensure!(channels.len() <= MAX_CHANNELS, "channel limit exceeded");
-        let Some(channel) = channels
-            .iter()
-            .find(|c| c.id == message.channel && c.schema == message.schema)
-        else {
-            self.skipped = self.skipped.saturating_add(1);
-            return Ok(());
-        };
-        channel.validate(&message.payload, Direction::ToClient, max_bytes as usize)?;
         if self.retired.contains(&message.bundle) {
             self.skipped = self.skipped.saturating_add(1);
+            return Ok(());
+        }
+        let bundle = message.bundle.clone();
+        let admitted = (|| {
+            ensure!(
+                message.channel.starts_with(&format!("{}.", message.bundle)),
+                "foreign channel namespace"
+            );
+            let recipient =
+                recipient(&message.bundle).ok_or_else(|| anyhow::anyhow!("unknown recipient"))?;
+            ensure!(
+                recipient
+                    .scope
+                    .permissions
+                    .contains(&crate::manifest::Permission::Messaging),
+                "recipient messaging permission denied"
+            );
+            let channels = &recipient.channels;
+            ensure!(channels.len() <= MAX_CHANNELS, "channel limit exceeded");
+            let Some(channel) = channels
+                .iter()
+                .find(|c| c.id == message.channel && c.schema == message.schema)
+            else {
+                self.skipped = self.skipped.saturating_add(1);
+                return Ok(false);
+            };
+            channel.validate(&message.payload, Direction::ToClient, max_bytes as usize)?;
+            Ok(true)
+        })();
+        if !admitted.map_err(|error| BundleFailure { bundle, error })? {
             return Ok(());
         }
         if self.queue.len() >= MAX_QUEUE_MESSAGES
@@ -483,7 +507,7 @@ impl Ingress {
         Ok(())
     }
 
-    /// Checks the session route and that `message` is the next in sequence.
+    /// Checks the session, producer identity and reliable sequence before attributing faults.
     fn route(&self, message: &Envelope, grant: &Grant) -> Result<()> {
         ensure!(
             message.version == grant.wire.version
@@ -505,10 +529,6 @@ impl Ingress {
                     .iter()
                     .any(|package| package.id == message.bundle),
             "wrong bundle generation"
-        );
-        ensure!(
-            message.channel.starts_with(&format!("{}.", message.bundle)),
-            "foreign channel namespace"
         );
         Ok(())
     }
@@ -579,7 +599,17 @@ impl Ingress {
             None
         } else if let Some(data) = partial.data {
             let mut message = partial.header;
-            message.payload = serde_json::from_str(&data)?;
+            message.payload = match serde_json::from_str(&data) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    self.consume_sequence()?;
+                    return Err(BundleFailure {
+                        bundle: message.bundle,
+                        error: error.into(),
+                    }
+                    .into());
+                }
+            };
             Some((message, partial.bytes))
         } else {
             self.consume_sequence()?;
@@ -589,6 +619,17 @@ impl Ingress {
             return Err(overflow.into());
         }
         Ok(completed)
+    }
+
+    /// Releases a stopped bundle's queued records without changing the shared sequence or framing.
+    pub fn discard_bundle(&mut self, bundle: &str) {
+        self.queue.retain(|(_, bytes, message)| {
+            let keep = message.bundle != bundle;
+            if !keep {
+                self.bytes -= bytes;
+            }
+            keep
+        });
     }
 
     /// Inspects the next committed event without consuming it while its helper is busy.

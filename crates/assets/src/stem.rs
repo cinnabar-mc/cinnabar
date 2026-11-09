@@ -31,13 +31,15 @@ pub const fn colour(growth: u32) -> Option<[u8; 3]> {
     }
 }
 
-/// Resolves the encoded stem colour, leaving ordinary materials untinted.
+/// Resolves the encoded stem or redstone wire colour, leaving ordinary materials untinted.
 #[must_use]
-pub const fn material_colour(flags: u32) -> Option<[u8; 3]> {
-    if flags & MATERIAL_FLAG != 0 {
-        colour((flags & GROWTH_MASK) >> GROWTH_SHIFT)
-    } else {
-        None
+pub fn material_colour(flags: u32) -> Option<[u8; 3]> {
+    if flags & MATERIAL_FLAG == 0 {
+        return None;
+    }
+    match crate::redstone_wire::encoded_signal(flags) {
+        Some(signal) => crate::redstone_wire::colour(signal),
+        None => colour((flags & GROWTH_MASK) >> GROWTH_SHIFT),
     }
 }
 

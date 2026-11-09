@@ -1,6 +1,6 @@
 //! Pre-decode wire scan of inventory packets: framing errors are fatal, semantic ones deferred.
 
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 use bytes::{Buf, Bytes};
 
 use super::*;

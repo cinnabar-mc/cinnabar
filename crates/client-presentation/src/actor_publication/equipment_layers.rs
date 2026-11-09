@@ -12,14 +12,14 @@ pub(super) fn attach(
     stream: &WorldStream,
     mut render_frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
     poses: &super::layers::LayerPoses<'_>,
-    frame: (f32, f32, Option<&render_scene::UiGlintSettings>),
+    frame: (f32, f32, Option<&render_scene::UiGlintSettings>, bool),
     mut style_of: impl FnMut(
         &render_model::ActorRigSubmission,
         bool,
         Option<&mut actor_animation::ActorRenderFrame<'_>>,
     ) -> Option<crate::presentation::entity_layers::ControllerStyle>,
 ) -> std::collections::BTreeSet<u64> {
-    let (partial_tick, delta_seconds, glint_settings) = frame;
+    let (partial_tick, delta_seconds, glint_settings, local_coverage) = frame;
     let mut wearing_elytra = std::collections::BTreeSet::new();
     crate::presentation::actors::attach_layers(
         batch,
@@ -40,9 +40,20 @@ pub(super) fn attach(
             }
             let animation = stream.authority().actor(runtime_id).zip(
                 stream.authority().actor_rig(runtime_id).map(|rig| {
-                    let rig = render_frame
-                        .as_mut()
-                        .map_or(rig, |frame| frame.sample_held_item_scale(rig));
+                    let mut rig = if local_coverage && runtime_id == poses.local_runtime_id {
+                        rig
+                    } else {
+                        render_frame
+                            .as_mut()
+                            .map_or(rig, |frame| frame.sample_equipment_properties(rig))
+                    };
+                    if local_coverage
+                        && runtime_id == poses.local_runtime_id
+                        && let Some(layers) = stream.authority().actor_ui_layers(runtime_id)
+                    {
+                        rig.visibility = layers.visibility;
+                        rig.held_item_scale = layers.held_item_scale;
+                    }
                     poses
                         .emote(runtime_id)
                         .map_or(rig, |pose| pose.snapshot(rig))

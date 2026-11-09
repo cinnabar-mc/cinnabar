@@ -14,16 +14,19 @@ mod colliders;
 mod effect_members;
 mod offered_use;
 pub use colliders::ActorCollisionBounds;
+pub use local_vehicle::{LocalVehicleFeed, VehicleRevision};
+pub use offered_use::{HandStack, UseEquipment, equipment_enchantments};
 mod death_visibility;
 mod local_presentation;
+mod local_vehicle;
 mod native_facts;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
-    ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
-    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorMetadataValue, ActorMoveEvent,
+    ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
     MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
     PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
@@ -62,8 +65,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-/// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
+/// Interpolation steps to each remote-actor absolute target and local Normal `MovePlayer`.
+pub const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 /// Vertical origin contributions; default values describe collision-feet coordinates.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -131,6 +134,8 @@ pub struct ActorSnapshot {
     /// Independently allocated render lifetime, including before a local spawn arrives.
     pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
+    /// Arrival of the latest applied actor-data update, whatever it contained; zero before any.
+    pub metadata_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
     pub entity_fact: EntityFact,
@@ -269,6 +274,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision: 0,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
             entity_fact,
@@ -339,6 +345,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player {
                 uuid,
@@ -469,6 +476,18 @@ impl ActorSnapshot {
     #[must_use]
     pub fn is_using_item(&self) -> bool {
         self.flag(ActorFlag::UsingItem.wire_value())
+    }
+
+    /// Whether the server marks this actor enchanted, as it does for a thrown enchanted trident.
+    #[must_use]
+    pub fn is_enchanted(&self) -> bool {
+        self.flag(ActorFlag::Enchanted.wire_value())
+    }
+
+    /// Whether the actor's sheared flag is set, as shearing a snow golem does.
+    #[must_use]
+    pub fn is_sheared(&self) -> bool {
+        self.flag(ActorFlag::Sheared.wire_value())
     }
 
     /// Reads a rendering flag, including the local rig's visual primary word.
@@ -667,6 +686,8 @@ pub struct LocalPlayerFeed {
     pub flying: bool,
     /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
     pub gliding: bool,
+    /// Predicted swimming pose; overrides the streamed swimming flag on the local rig.
+    pub swimming: bool,
     /// Predicted Riptide spin pose, independent of swimming and gliding.
     pub spinning: bool,
     /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
@@ -745,8 +766,7 @@ pub(crate) struct ActorStore {
     hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
-    rider_to_ridden: FastHashMap<i64, riding_control::RiderLink>,
-    next_link_order: u64,
+    rider_to_ridden: FastHashMap<i64, i64>,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
     /// Appearances of spawned players removed from the roster, retained until despawn.
@@ -756,6 +776,12 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// The local player's persistent id, known from the session start before its actor exists.
+    local_unique_id: Option<i64>,
+    /// The session's wire runtime id for air, as synced block metadata encodes it.
+    air_block_network_id: Option<u32>,
+    /// The vehicle the local player steers, whose pose the client predicts.
+    local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
     pending_local_actor: Option<ActorSnapshot>,
@@ -785,9 +811,8 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
-    /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
-    /// the frame advances the live actors; reused across frames.
-    pick_states: Vec<(u64, movement_interpolation::MotionState)>,
+    /// Staged vehicle and collision motion, sorted by runtime id and reused across frames.
+    pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
     local_view_bobbing: bool,
     local_flying: bool,
@@ -808,6 +833,12 @@ pub(crate) struct ActorStore {
     camera_position: [f32; 3],
     /// Rigs outside this view hold their pose instead of animating.
     animation_view: Option<actor_animation::ActorAnimationView>,
+    /// Each vehicle's passenger list in vanilla's order, including linked riders whose actors
+    /// do not exist yet; the inverse of `rider_to_ridden`.
+    vehicle_riders: FastHashMap<i64, Vec<i64>>,
+    /// Riders linked since the last actor tick, which board in link order when they spawn
+    /// before it.
+    tick_links: mount::TickLinks,
     /// Seat descriptor per mount, for riders that stream no seat offset.
     seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,
@@ -830,7 +861,9 @@ pub use crystal_beam::CrystalBeamView;
 pub(crate) mod dragon_animation;
 mod dragon_beam;
 mod dragon_death;
+mod loyalty_rope;
 pub use dragon_death::DragonDeathView;
+pub use loyalty_rope::LoyaltyRopeView;
 mod dragon_fireball_particles;
 mod dragon_particles;
 mod dropped;
@@ -845,7 +878,6 @@ mod dimensions;
 mod lifecycle;
 pub use dimensions::{DimensionWrite, ExplicitDimensions};
 mod movement_flags;
-mod riding_control;
 mod unspawned_local;
 pub use movement_flags::MovementFlagUpdate;
 mod lightning;
@@ -860,6 +892,7 @@ pub(crate) mod properties;
 mod query;
 mod shadow;
 mod spatial;
+pub use spatial::MIN_COLLISION_DIMENSION;
 mod synchronized_audio;
 mod terrain_interlock;
 
@@ -871,11 +904,11 @@ pub use fire::FIRE_FADE_TICKS;
 pub use hitbox::ActorHitBoxes;
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
-    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+    FishingHookPose, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES,
+    PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-
-pub use placement::{ActorFluidProbe, RideSeat};
+pub use placement::{ActorFluidProbe, RideSeat, SeatViewLock, seat_world_offset};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;
 
@@ -925,6 +958,8 @@ mod roster_identity_tests;
 mod skin_update;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vehicle_control_tests;
 
 #[cfg(test)]
 mod projectile_tests;

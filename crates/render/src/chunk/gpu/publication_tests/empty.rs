@@ -9,8 +9,8 @@ fn a_late_empty_gpu_completion_cannot_enter_the_next_sources_receipts() {
     let key = SubChunkKey::new(0, 7, 0, 9);
     let old = TerrainPublications::default();
     let next = TerrainPublications::default();
-    old.retain(std::iter::once(key));
-    next.retain(std::iter::once(key));
+    old.retain(true, [(key.chunk(), vec![key])]);
+    next.retain(true, [(key.chunk(), vec![key])]);
     let config = render_api::PublicationServiceConfig::DEFAULT;
     let allowance = render_api::PublicationAllowance::new(config);
     allowance.begin_frame(1, 1, 0, 1, config.maximum_frame_items);

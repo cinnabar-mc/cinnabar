@@ -4,16 +4,15 @@
 //! separate from effective flight when an ability layer fixes its value.
 
 use client_world::game_mode_capabilities::FlightAuthority;
-use sim::{
-    BlockPhysicsFlags, CollisionWorld, MovementMode, SneakProfile, Vec3, WorldQueryError, pose_fits,
-};
+use sim::{CollisionWorld, MovementMode, SneakProfile, Vec3, WorldQueryError, pose_fits};
 
 mod sprint_trigger;
 mod swimming_trigger;
 
 /// A second jump press within this many ticks of the first toggles flight.
 const FLY_TRIGGER_TICKS: i32 = 7;
-/// Gliding ticks after which a fresh jump press ends the glide.
+/// Gliding ticks after which a fresh jump press ends the glide without Instabuild,
+/// and held jump makes an Instabuild glide climb.
 const GLIDE_CANCEL_TICKS: u32 = 11;
 
 /// What the local player is mounted on; only the steering-relevant classes.
@@ -44,6 +43,8 @@ impl RideKind {
 /// Render-frame facts the tick-level selector cannot derive from simulation.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ModeIntent {
+    /// The supplied control vector already resolves sprint against its movement direction.
+    pub movement_override: bool,
     /// Spectator flight stays active independently of the ordinary flight toggle.
     pub spectator: bool,
     /// Terrain collision is independent of the selected travel mode.
@@ -52,6 +53,8 @@ pub struct ModeIntent {
     pub ride: Option<RideKind>,
     /// Feet position of the rider's seat on that mount, when the mount's placement is known.
     pub ride_seat: Option<[f32; 3]>,
+    /// The boat the player steers, which the client predicts.
+    pub vehicle: Option<super::vehicle::SteeredVehicle>,
     /// The mounted vehicle selects this local player as its controller.
     pub vehicle_controlled_locally: bool,
     /// Abilities permit flight.
@@ -67,7 +70,10 @@ pub struct ModeIntent {
     pub creative_flight: bool,
     /// An unbroken elytra is equipped in the chest slot.
     pub elytra_ready: bool,
-    /// Leather boots let the wearer stand on powder snow, which then also ends a glide.
+    /// The Instabuild ability, which keeps a jump press from ending a glide.
+    pub instabuild: bool,
+    /// Leather boots let the wearer stand on powder snow, which then also ends
+    /// a glide and climbs like a ladder.
     pub can_stand_on_snow: bool,
     /// Boot enchantment levels the simulator reads.
     pub depth_strider: u8,
@@ -111,28 +117,18 @@ pub(super) struct ModeObservation {
     pub spinning: bool,
 }
 
-impl ModeObservation {
-    /// Intent systems see item slowdown before the later sneak/crawl multiplier.
-    pub(super) fn input_vector(input: sim::MovementInput) -> [f32; 2] {
-        sim::MovementInput {
-            sneaking: false,
-            mode: MovementMode::Walking,
-            ..input
-        }
-        .processed_controls()
-        .move_vector
-        .map(|axis| axis as f32)
-    }
-}
-
 /// One tick's selected mode plus whether a low ceiling forces the sneak pose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ModeChoice {
     pub mode: MovementMode,
     pub forced_sneak: bool,
     pub sprinting: bool,
+    /// A local start runs before any stop on this tick.
+    pub start_sprinting: bool,
     /// The double-tap requested starting (true) or stopping (false) flight this tick.
     pub flight_request: Option<bool>,
+    /// Instabuild jump input pushes this tick's glide upward.
+    pub glide_ascent: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -144,7 +140,8 @@ pub(super) struct ModeTracker {
     flying: bool,
     last_flight: FlightAuthority,
     last_ability_sequence: Option<u64>,
-    /// `Jumping` sent on the previous tick; a flight press needs it clear.
+    /// `Jumping` sent on the previous tick; a flight press needs it clear, and
+    /// a wet non-swimmer's sprint stops on it.
     previous_jumping: bool,
     sprinting: bool,
     sneaking: bool,
@@ -154,6 +151,9 @@ pub(super) struct ModeTracker {
     fly_countdown: i32,
     /// Consecutive gliding ticks, including the one that started the glide.
     fall_fly_ticks: u32,
+    /// A liquid stop released the latched sprint request. Until sprint restarts,
+    /// only a held, toggled or automatic sprint control requests it.
+    sprint_request_released: bool,
     /// Level sneaking dimensions; a session constant that resets keep.
     sneak_profile: SneakProfile,
 }
@@ -270,16 +270,51 @@ impl ModeTracker {
         self.sprinting
     }
 
+    /// The move vector sprint intent reads, from the previous tick's pose. A sneak request or
+    /// a sneaking or crawling pose scales it, except while flying, swimming or in water, so
+    /// crouching blocks and stops a sprint. Swift Sneak raises the factor only once the pose
+    /// is active; a fresh request uses the plain sneak factor.
+    pub(super) fn intent_vector(&self, input: sim::MovementInput, in_water: bool) -> [f32; 2] {
+        let pose = self.sneaking || self.mode == MovementMode::Crawling;
+        let exempt = matches!(self.mode, MovementMode::Flying | MovementMode::Swimming) || in_water;
+        sim::MovementInput {
+            sneaking: (input.sneaking || pose) && !exempt,
+            mode: MovementMode::Walking,
+            swift_sneak: if pose { input.swift_sneak } else { 0 },
+            ..input
+        }
+        .processed_controls()
+        .move_vector
+        .map(|axis| axis as f32)
+    }
+
     pub(super) fn restore_controls(&mut self, sprinting: bool, sneaking: bool) {
         self.sprinting = sprinting;
         self.sneaking = sneaking;
+        self.sprint_request_released &= !sprinting;
     }
 
-    /// Captures the final primary controls for the next fixed tick's double-tap detector.
+    /// Retains controls after frozen travel clears the jumping state.
     pub(super) fn record_controls(&mut self, input: sim::MovementInput, sneak_down: bool) {
-        self.previous_jumping = input.jumping;
+        self.previous_jumping = input.jumping && !input.immobile;
         self.sprint_trigger
             .record_controls(input.processed_controls().move_vector[1] as f32, sneak_down);
+    }
+
+    /// Sprint request for a replayed tick. A retained authoritative sprint keeps an
+    /// active sprint going like native continuation, which needs no request, but
+    /// never starts one: native applies the server flag once, so after any stop
+    /// only the player's own request restarts it. An authoritative stop holds.
+    pub(super) const fn replay_sprint_request(
+        &self,
+        sprint_override: Option<bool>,
+        requested: bool,
+    ) -> bool {
+        match sprint_override {
+            Some(true) => requested || self.sprinting,
+            Some(false) => false,
+            None => requested,
+        }
     }
 
     /// Restores a retained authoritative mode override during correction replay.
@@ -298,6 +333,7 @@ impl ModeTracker {
         observed: ModeObservation,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<ModeChoice, WorldQueryError> {
+        let was_sprinting = self.sprinting;
         if intent.spectator {
             self.sprinting =
                 self.sprint_trigger
@@ -315,7 +351,9 @@ impl ModeTracker {
                 mode: self.mode,
                 forced_sneak: false,
                 sprinting: self.sprinting,
+                start_sprinting: self.sprinting && !was_sprinting,
                 flight_request: None,
+                glide_ascent: false,
             });
         }
         // Every ability update overwrites local flight, even when it repeats the previous value.
@@ -350,7 +388,9 @@ impl ModeTracker {
                 mode: MovementMode::Riding,
                 forced_sneak: false,
                 sprinting: false,
+                start_sprinting: false,
                 flight_request,
+                glide_ascent: false,
             });
         }
         // Flight survives ground contact; server flight does not require MayFly.
@@ -367,31 +407,43 @@ impl ModeTracker {
             observed.liquid_contact_height,
             world,
         )?;
+        // After a liquid stop, a stale latched request cannot restart the sprint.
+        // Native samples the sprint button state each tick; presses between ticks
+        // do not accumulate.
+        let fresh_request = observed.sprint_down;
         let observed = ModeObservation {
             in_water: sampled.value.in_water,
+            sprinting: observed.sprinting && (fresh_request || !self.sprint_request_released),
             ..observed
         };
         // The sprint trigger runs before the swim trigger and keeps the previous actor
-        // sprint flag while its previous swimming pose still contacts water.
+        // sprint flag while its previous swimming pose still contacts water; once that
+        // pose leaves the water, the same intent stops the sprint.
         let sprint_candidate =
             self.sprint_trigger
                 .select(self.sprinting, self.previous_feet, intent, observed);
-        let sprinting =
-            (self.poses.swimming && observed.in_water && self.sprinting) || sprint_candidate;
+        let swim_retains = self.poses.swimming && observed.in_water;
+        let sprinting = (swim_retains && self.sprinting) || sprint_candidate;
+        let liquid_stop = self.liquid_sprint_stop(observed.in_water);
+        if liquid_stop {
+            self.sprint_trigger.clear_latch();
+        }
         self.previous_feet = Some(observed.feet);
+        // The swim trigger reads the sprint intent before the stop request applies.
         let observed = ModeObservation {
             sprinting,
             ..observed
         };
         // A fresh jump press deploys the elytra even while rising; once the glide
-        // has lasted long enough, another press ends it. Water, ground, flight and
-        // climbable feet end it too, including on the tick it would start.
+        // has lasted long enough, another press ends it unless Instabuild is
+        // granted. Water, ground, flight and climbable feet end it too, including
+        // on the tick it would start.
         let gliding = !flying
             && intent.elytra_ready
             && !observed.on_ground
             && !observed.in_water
             && if self.poses.gliding {
-                !observed.jump_edge || self.fall_fly_ticks < GLIDE_CANCEL_TICKS
+                !observed.jump_edge || intent.instabuild || self.fall_fly_ticks < GLIDE_CANCEL_TICKS
             } else {
                 observed.jump_edge
             }
@@ -451,6 +503,11 @@ impl ModeTracker {
         let forced_sneak = forced_sneak && mode == MovementMode::Walking;
         self.last_flight = intent.flight;
         self.last_ability_sequence = intent.ability_sequence;
+        // Holding jump climbs instead once the glide has outlasted its cancel window.
+        let glide_ascent = gliding
+            && intent.instabuild
+            && observed.jump_down
+            && self.fall_fly_ticks >= GLIDE_CANCEL_TICKS;
         // Every glide entry counts from its own first tick.
         self.fall_fly_ticks = match (self.poses.gliding, poses.gliding) {
             (true, true) => self.fall_fly_ticks.saturating_add(1),
@@ -460,14 +517,32 @@ impl ModeTracker {
         self.poses = poses;
         self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
-        self.sprinting =
-            sprinting && !matches!(mode, MovementMode::Crawling | MovementMode::Riding);
+        self.sprinting = sprinting
+            && !liquid_stop
+            && !matches!(mode, MovementMode::Crawling | MovementMode::Riding);
+        self.sprint_request_released =
+            (self.sprint_request_released || liquid_stop) && !self.sprinting;
         Ok(ModeChoice {
             mode,
             forced_sneak,
             sprinting: self.sprinting,
+            start_sprinting: sprinting && !was_sprinting,
             flight_request,
+            glide_ascent,
         })
+    }
+
+    /// Native sprint intent's liquid stop request, applied after any start on the
+    /// same tick. It reads the preceding swimming flag and jump state with this
+    /// tick's body-water contact: a swimmer whose body left the water stops, and so
+    /// does a wet non-swimmer whose jump was held on the previous tick. Flight
+    /// clears the jumping state, so a flyer never takes the second stop.
+    fn liquid_sprint_stop(&self, in_water: bool) -> bool {
+        if self.poses.swimming {
+            !in_water
+        } else {
+            in_water && self.previous_jumping && self.mode != MovementMode::Flying
+        }
     }
 
     /// Whether `mode` fits at `feet` with this level's sneaking dimensions.
@@ -513,12 +588,11 @@ fn feet_end_glide(
     {
         return Err(WorldQueryError::CoordinateOutOfRange);
     }
-    let flags = world
+    Ok(world
         .block_physics(block.map(|axis| axis as i32))?
         .primary()
-        .flags;
-    Ok(flags.contains(BlockPhysicsFlags::CLIMBABLE)
-        || (can_stand_on_snow && flags.contains(BlockPhysicsFlags::POWDER_SNOW)))
+        .flags
+        .climbable_for(can_stand_on_snow))
 }
 
 #[cfg(test)]

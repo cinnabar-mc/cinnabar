@@ -6,6 +6,33 @@ use super::{BossBar, ChatText, HudModel, HudSlot, HudTitle, Timed, hud_data_sour
 use crate::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 
 #[test]
+fn locator_binding_replaces_bar_art_but_keeps_the_survival_level() {
+    let data = hud_data_source(&HudModel {
+        survival_ui: true,
+        locator_bar: true,
+        level: 7,
+        ..Default::default()
+    });
+    for (name, expected) in [
+        ("#hotbar_with_locator_bar", true),
+        ("#hotbar_with_xp_bar", false),
+        ("#hotbar_no_xp_bar", false),
+        ("#level_number_visible", true),
+    ] {
+        assert_eq!(data.globals.get(name), Some(&crate::Scalar::Bool(expected)));
+    }
+    let creative = hud_data_source(&HudModel {
+        locator_bar: true,
+        level: 7,
+        ..Default::default()
+    });
+    assert_eq!(
+        creative.globals.get("#level_number_visible"),
+        Some(&crate::Scalar::Bool(false))
+    );
+}
+
+#[test]
 fn absent_hud_title_answers_empty_text_and_clears_retained_labels() {
     for binding in ["#hud_title_text_string", "#hud_subtitle_text_string"] {
         let root = Arc::new(ResolvedControl {
@@ -366,4 +393,38 @@ fn closed_chat_lines_use_the_chosen_font_size_and_line_spacing() {
     let vars = &data.factories["chat_item_factory"][0].vars;
     assert_eq!(vars["chat_font_scale_factor"], json!(chat_text.font_scale));
     assert_eq!(vars["chat_line_spacing"], json!(chat_text.line_spacing));
+}
+
+/// Current pack chat bindings preserve the user's visibility setting without editor layout.
+#[test]
+fn current_chat_bindings_follow_visibility_and_keep_the_authored_origin() {
+    let root = Arc::new(ResolvedControl {
+        name: "chat".into(),
+        control_type: Some("panel".into()),
+        properties: [
+            ("offset".into(), json!([17, 29])),
+            ("bindings".into(), json!([
+                {"binding_name":"#editor_chat_visible","binding_name_override":"#visible"},
+                {"binding_name":"#editor_chat_offset","binding_name_override":"#offset"},
+                {"binding_name":"#editor_chat_layout_active"},
+                {"binding_type":"view","source_property_name":"(not #editor_chat_layout_active)","target_property_name":"#enabled"}
+            ])),
+        ].into(),
+        base: None,
+        unresolved_base: None,
+        children: Vec::new(),
+        factory: None,
+    });
+    for visible in [true, false] {
+        let data = hud_data_source(&HudModel {
+            chat_visible: visible,
+            ..Default::default()
+        });
+        let (bound, notes) = bind_stateful(&root, &data, &EmptyLibrary, &mut BindState::new());
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(bound.properties.get("visible"), Some(&json!(visible)));
+        let offset = &bound.properties["offset"];
+        assert_eq!([offset[0].as_f64(), offset[1].as_f64()], [Some(0.0); 2]);
+        assert_eq!(bound.properties["enabled"], json!(true));
+    }
 }

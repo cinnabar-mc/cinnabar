@@ -226,7 +226,7 @@ pub fn advance_presentation_state(
         hand.hurt = java.death_roll(alpha)
             * Mat4::from_quat(Quat::IDENTITY.slerp(
                 Quat::from_mat4(&java_hurt_roll(hurt.progress())),
-                settings.hurt_camera_style().intensity(),
+                settings.hurt_shake_intensity(),
             ));
         if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Modern {
             return;
@@ -243,14 +243,10 @@ pub fn advance_presentation_state(
     } else {
         ViewEffect::NONE
     };
-    let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
+    let (yaw, _, _) = view.player_camera_rotation().to_euler(EulerRot::YXZ);
     hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
-        Quat::from_mat4(&if settings.hurt_camera_style().old_tilt() {
-            java_hurt_roll(hurt.progress())
-        } else {
-            hurt.view_matrix(yaw)
-        }),
-        settings.hurt_camera_style().intensity(),
+        Quat::from_mat4(&hurt.view_matrix(yaw)),
+        settings.hurt_shake_intensity(),
     ));
 }
 
@@ -382,11 +378,13 @@ pub fn apply_camera_presentation(
     instructions: Option<Res<ServerCameraInstructions>>,
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
+    session_generation: u64,
     client_world: Option<crate::observations::WorldObservation<'_>>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
     mut server: ResMut<ServerCameraView>,
     mut cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
 ) {
+    server.observe_session(session_generation);
     let Ok((mut transform, projection)) = cameras.single_mut() else {
         return;
     };
@@ -407,13 +405,16 @@ pub fn apply_camera_presentation(
         base,
         subject: Transform {
             translation: view.eye_translation(),
-            rotation: view.camera_rotation(),
+            rotation: view.player_camera_rotation(),
             ..Transform::IDENTITY
         },
         base_fov: settings.horizontal_fov_degrees(),
         actors: &actors,
     };
-    if let Some(instructions) = instructions.as_deref() {
+    if let Some(instructions) = instructions
+        .as_deref()
+        .filter(|instructions| instructions.session_generation() == Some(session_generation))
+    {
         server.observe_resets(instructions.resets());
         let seen = server.last_sequence();
         for entry in instructions.iter().filter(|entry| entry.sequence > seen) {
@@ -523,6 +524,7 @@ mod tests {
         instructions: Option<Res<ServerCameraInstructions>>,
         portal: Option<Res<PortalProgress>>,
         view: Res<LocalViewPose>,
+        clock: Res<crate::environment::WorldClock>,
         server: ResMut<ServerCameraView>,
         cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
     ) {
@@ -532,6 +534,7 @@ mod tests {
             instructions,
             portal,
             view,
+            clock.session_generation(),
             None,
             None,
             server,
@@ -547,10 +550,23 @@ mod tests {
             .init_resource::<FirstPersonHandMotion>()
             .init_resource::<VisionEffects>()
             .init_resource::<ServerCameraView>()
+            .init_resource::<crate::environment::WorldClock>()
             .add_systems(Update, present_camera);
         app.world_mut()
             .spawn((FlyCamera::default(), Transform::from_xyz(1.0, 2.0, 3.0)));
+        bind_camera_session(&mut app, 1);
         app
+    }
+
+    /// Replaces the live session independently of the retained instruction queue.
+    fn bind_camera_session(app: &mut App, session: u64) {
+        crate::environment::bind_session_generation(
+            &mut app
+                .world_mut()
+                .resource_mut::<crate::environment::WorldClock>(),
+            &mut crate::environment::WeatherState::default(),
+            session,
+        );
     }
 
     fn camera_transform(app: &mut App) -> Transform {
@@ -568,6 +584,99 @@ mod tests {
             camera_transform(&mut app),
             Transform::from_xyz(1.0, 2.0, 3.0)
         );
+    }
+
+    /// Presents one session's root camera preset before a lifecycle change.
+    fn camera_app_with_server_preset() -> App {
+        let mut app = camera_app();
+        let mut instructions = ServerCameraInstructions::default();
+        instructions.admit(
+            1,
+            0,
+            [client_world::CommittedCameraEvent {
+                sequence: 10,
+                event: CameraEvent::Presets(
+                    [protocol::CameraPreset {
+                        name: "minecraft:first_person".into(),
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+            }],
+        );
+        app.insert_resource(instructions);
+        app.update();
+        app
+    }
+
+    #[test]
+    fn a_new_session_cannot_activate_the_previous_servers_camera_presets() {
+        let mut app = camera_app_with_server_preset();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_some()
+        );
+
+        bind_camera_session(&mut app, 2);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_none()
+        );
+        app.world_mut()
+            .resource_mut::<ServerCameraInstructions>()
+            .admit(2, 0, []);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_none()
+        );
+        app.world_mut()
+            .resource_mut::<ServerCameraInstructions>()
+            .admit(
+                2,
+                0,
+                [client_world::CommittedCameraEvent {
+                    sequence: 1,
+                    event: CameraEvent::Presets(
+                        [protocol::CameraPreset {
+                            name: "minecraft:first_person".into(),
+                            ..Default::default()
+                        }]
+                        .into(),
+                    ),
+                }],
+            );
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn dimension_changes_keep_the_current_sessions_camera_presets() {
+        let mut app = camera_app_with_server_preset();
+        app.world_mut()
+            .resource_mut::<ServerCameraInstructions>()
+            .admit(1, 1, []);
+        for _ in 0..2 {
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<ServerCameraView>()
+                    .perspective_preset(PerspectiveMode::FirstPerson)
+                    .is_some()
+            );
+        }
     }
 
     #[test]

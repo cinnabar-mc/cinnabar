@@ -101,7 +101,12 @@ fn needs_pose_sampling(
     let samples_clip = |clip: usize| {
         include_clips && camera_clip_with_layers(assets, layout, rig_binding, clip, swing)
     };
-    if super::sampling::render_expressions(assets, rig_binding)
+    let expressions = if include_clips {
+        super::sampling::render_expressions(assets, rig_binding)
+    } else {
+        super::sampling::rig_expressions(assets, rig_binding)
+    };
+    if expressions
         .into_iter()
         .any(|expression| camera_expression(layout, expression as usize, swing))
     {
@@ -282,4 +287,45 @@ pub(crate) fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bo
                     query.descriptor().sampling == assets::MolangQuerySampling::Camera
                 })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_only_swing_inputs_do_not_admit_body_pose_work() {
+        for pre_animation in [false, true] {
+            let mut compiled = crate::test_support::compiled_fixture();
+            let symbol = 7;
+            compiled.molang_symbols[symbol].identifier = V::AttackTime.name().into();
+            let expression = compiled.molang_expressions.len() as u32;
+            let first_op = compiled.molang_ops.len() as u32;
+            let mut ops = compiled.molang_ops.into_vec();
+            ops.push(MolangOp::LoadVariable(symbol as u32));
+            compiled.molang_ops = ops.into();
+            let mut expressions = compiled.molang_expressions.into_vec();
+            expressions.push(assets::CompiledMolangExpression {
+                first_op,
+                op_count: 1,
+                max_stack: 1,
+            });
+            compiled.molang_expressions = expressions.into();
+            compiled.rig_bindings[0].pre_animation = pre_animation.then_some(expression);
+            compiled.render.layers[0].color = Some([expression; 4]);
+            for keyframe in &mut compiled.animation_keyframes {
+                keyframe.expressions = [None; 3];
+            }
+            let assets = Arc::new(
+                RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+            );
+            let layout = VariableLayout::new(&assets);
+            assert!(needs_swing_sampling(&assets, &layout, 0, 0, &[]));
+            let inputs = presentation_expressions(&assets, &layout, 0, 0);
+            assert_eq!(
+                active_pose_inputs(&layout, inputs, &[], &[]).swing,
+                pre_animation
+            );
+        }
+    }
 }

@@ -106,7 +106,8 @@ pub struct ActorRigSubmission {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
-    /// Alpha weights leather dye independently of the page's other materials.
+    /// Alpha weights leather dye independently of the page's other materials. Authored
+    /// `USE_COLOR_MASK` states mask through their own state bit, outside legacy leather rules.
     pub color_mask: bool,
     /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
@@ -807,6 +808,12 @@ pub fn actor_bounds_are_visible(
         return false;
     }
     let (low, high) = bounds.at(feet.to_array(), scale);
+    // A box containing the eye must survive even when its forward face is before the near plane.
+    if (0..3).all(|axis| {
+        low[axis] <= view.camera_position[axis] && view.camera_position[axis] <= high[axis]
+    }) {
+        return true;
+    }
     let corners: [Vec4; 8] = std::array::from_fn(|index| {
         let point = Vec3::from_array(std::array::from_fn(|axis| {
             if index & (1 << axis) == 0 {
@@ -893,6 +900,10 @@ mod build_tests;
 #[cfg(test)]
 #[path = "frame/material_tests.rs"]
 mod material_tests;
+
+#[cfg(test)]
+#[path = "frame/culling_tests.rs"]
+mod culling_tests;
 
 impl ActorMaterial {
     /// Shader kind and independently admitted raster states in the shared instance word.

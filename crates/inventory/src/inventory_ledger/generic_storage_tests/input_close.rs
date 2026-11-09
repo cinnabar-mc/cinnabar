@@ -68,10 +68,10 @@ fn station_close_returns_each_input_in_both_authority_modes() {
                     assert!(
                         matches!(cleanup.actions.as_slice(),
                     [StackRequestAction::Drop { amount: 1, source, randomly: false }]
-                    if full && source.slot == *slot && source.container == expected_container)
+                    if full && source.slot == u16::from(*slot) && source.container == expected_container)
                             || matches!(cleanup.actions.as_slice(),
                     [StackRequestAction::Place { amount: 1, source, destination }]
-                    if !full && source.slot == *slot && source.container == expected_container
+                    if !full && source.slot == u16::from(*slot) && source.container == expected_container
                         && destination.slot == 0)
                     );
                     assert!(ledger.target_stack(InventoryTarget::Craft(*slot)).is_none());

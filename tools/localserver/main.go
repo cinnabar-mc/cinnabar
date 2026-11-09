@@ -26,6 +26,7 @@ import (
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 
 	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
@@ -79,6 +80,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.luckyBlock {
 		registerLuckyBlock()
 	}
+	if cfg.baseTextureIcon {
+		registerBaseTextureIcon()
+	}
+	if cfg.heldItemFixture {
+		registerHeldItemFixture()
+	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
 	var ext *extension.Server
@@ -131,9 +138,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		conf.Resources = append(conf.Resources, pack)
 	}
+	if cfg.baseTextureIcon {
+		pack, err := baseTextureIconPack()
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare base texture icon fixture: %w", err)
+		}
+		// The first pack is the top of the stack, above the generated custom item pack.
+		conf.Resources = append([]*resource.Pack{pack}, conf.Resources...)
+	}
 	if ext != nil {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = ext.Listener(listen)
+		}
+	}
+	if cfg.heldItemFixture {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = heldItemFixtureListener(listen)
 		}
 	}
 	if cfg.cameraTest {
@@ -204,6 +227,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		})
 	}
 	var closeUnstarted func() error
+	if exps != nil {
+		conf.Entities = exps.reg.EntityRegistry()
+	}
 	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	pauses := &pauseState{settings: cfg}
@@ -251,7 +277,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	go func() {
 		defer close(accepting)
 		for p := range srv.Accept() {
-			p.Handle(&localPlayerHandler{host: host})
+			handler := &localPlayerHandler{}
+			if host != nil {
+				handler.host = host
+			}
+			p.Handle(handler)
 			if host != nil {
 				host.PlayerJoined(p)
 			}

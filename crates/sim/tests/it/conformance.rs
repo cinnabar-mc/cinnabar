@@ -804,3 +804,51 @@ fn terrain_scenario_audit_detects_environment_and_content_identity_mutations() {
         );
     }
 }
+
+/// A scenario world's registry must match its query identities, or merging them fails the tick.
+#[test]
+fn scenario_world_registry_identity_matches_its_queries() {
+    let world = sim::ScenarioWorld {
+        name: "floor".into(),
+        origin: [0; 3],
+        revision: 1,
+        boxes: Box::new([Aabb::new(
+            Vec3::new(-1.0, -1.0, -1.0),
+            Vec3::new(2.0, 0.0, 2.0),
+        )]),
+        physics: BlockPhysicsFacts {
+            friction: 0.6,
+            horizontal_speed_factor: 1.0,
+            vertical_speed_factor: 1.0,
+            fluid_height_blocks: 0.0,
+            flags: Default::default(),
+            surface_response: sim::SurfaceResponse::None,
+        },
+        unloaded: false,
+    };
+    let feet = Vec3::new(0.5, 0.0, 0.5);
+    let player = Aabb::player_at(feet);
+    let query = player.grown(1.0);
+    assert_eq!(
+        world.collision_boxes(query).unwrap().identity.registry,
+        world.registry_identity()
+    );
+    let colliders = sim::mover_collision_boxes_with_provenance(
+        &world,
+        &PlayerState::new(feet),
+        &MovementInput::default(),
+        player,
+        query,
+    )
+    .unwrap();
+    assert_eq!(colliders.identity.registry, world.registry_identity());
+    assert_eq!(colliders.value.len(), 1);
+    // An immobile tick seeds its identity from the registry, then samples climber terrain.
+    let immobile = MovementInput {
+        immobile: true,
+        ..MovementInput::default()
+    };
+    Simulator::default()
+        .tick(&mut PlayerState::new(feet), immobile, &world)
+        .unwrap();
+}

@@ -83,7 +83,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
             "§d§l§oHello @Alex tail",
         ] {
             let mut screens = HudScreens::default();
-            let context = screens.context(&Context::desktop(), false);
+            let context = screens.context(&Context::desktop(), Default::default());
             let mut model = HudModel {
                 chat_visible: true,
                 chat_local_player: Arc::from("Alex"),
@@ -162,7 +162,6 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     .paint(
                         &engine,
                         HudInput {
-                            capture_keep_out: false,
                             renderers_unchanged: index != 0,
                             crosshair: false,
                             catalog: engine.catalog(),

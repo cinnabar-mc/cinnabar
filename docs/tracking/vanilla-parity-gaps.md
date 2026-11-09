@@ -219,15 +219,18 @@ animated rig remotes use. All three below flow from that.
   bell with frame and swing, lectern, enchant-table book, conduit, decorated pot, item/glow frames with framed items
   (dropped-item sprite path), campfire items, tinted scrolling beacon beam, additive end portal, sign text and
   model-shaped crack overlay draw from the `.mcbeben` carrier; all uncompiled, unmeasured and lit by the terrain
-  light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, hopper/brewing-stand
-  terrain models and exact bell/lectern/pot dimensions remain open (MED-HIGH).
+  light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, brewing-stand
+  terrain model and exact bell/lectern/pot dimensions remain open (MED-HIGH). Hopper terrain now
+  has a state-selected provisional model route; its matched live dimensions and lighting remain unverified.
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
-  custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; no custom materials, cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
+  custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; custom materials apply authored raster states and the `USE_COLOR_MASK` define but no other custom shader defines; no cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 - Terrain blocks (uncompiled): ice, slime, honey, tinted glass, powder snow, snow layers, named opaque cubes, amethyst
-  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron, hopper,
-  anvils, pistons, scaffolding, dripleaf and slime/honey inner cubes still diagnostic pending measurement; campfire logs,
+  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron,
+  anvils, pistons, scaffolding, dripleaf and slime/honey inner cubes still diagnostic pending measurement. Hopper
+  states now compile the textured bowl and facing outlet, but native dimensions, lighting and replacement-pack behavior
+  remain unverified; campfire logs,
   ember bed and flames match the 26.30 client model. The model is unchanged for 1.26.50 but remains
   unverified there (HIGH).
 
@@ -266,10 +269,16 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
   modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
 - Scaffolding is solid only from above and sneak descends (provisional rate). Honey jump/slide,
   soul speed and depth strider are simulated with provisional coefficients; sweet berry bush
-  slowdown, dolphin's grace and client-predicted vehicles are open.
+  slowdown, dolphin's grace and client-predicted horses are open.
 - Riding: player physics is suspended while mounted, the rider follows its mount seat, and boat
-  paddle flags are sent; client-predicted vehicles (no vehicle simulator) and
-  the vehicle predicate/coefficients (see plan.md) are open (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
+  paddle flags are sent. A boat the player steers from its controlling seat is client-predicted:
+  paddling, momentum, steering, collision and buoyancy run locally, inputs report the boat's
+  position, rotation and id, server moves apply only when they teleport, and a vehicle correction
+  restarts prediction from the corrected state (vanilla rewinds and replays; incomplete). A seat
+  that locks rotation turns the rider's view with the vehicle, holds it within the seat's range
+  and faces the rider's body along the seat. Open: horse prediction, collision with other boats,
+  leashed-boat momentum,
+  snow-layer friction, touch paddle buttons and bubble columns (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
   registry regeneration described in plan.md.
 - Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
   scroll-notch magnitude; UI key-repeat (MED/LOW).
@@ -357,9 +366,9 @@ Molang state, and every texture a candidate can select is built into the actor p
 
 | Status | Coverage |
 | --- | --- |
-| Drawn | geometry candidates from ternary and `Array.x[expr]` expressions, re-selected every tick (baby, sheared), texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color` |
+| Drawn | geometry candidates from ternary and `Array.x[expr]` expressions, re-selected every tick (baby, sheared), texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color`, `is_hurt_color` while the actor shows damage |
 | Approximated | materials are all drawn with the neutral binary-alpha material; a controller layer whose `geometry` never selects the rig's default geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted; an entity without a `default` geometry alias rests on its first alias until its controller selects |
-| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape) |
+| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape) |
 
 Player skins: a skin's own geometry (resource patch `geometry.default`, inheritance only within
 the skin's JSON, lenient field parsing) replaces the default humanoid, driven by the player's
@@ -381,4 +390,4 @@ their client entities name no render controller. The entity compiler gives such 
 native hull, raft and chest models (authored `geometry.boat`-style geometry replaces them) and a
 controller that picks the wood texture and raft model from the actor variant. Streamed row times
 pose the paddles, and a struck boat rocks about its render origin. Missing: the bubble-column rock,
-the water cutout inside the hull, and client-predicted driving (see Riding).
+the water cutout inside the hull (driving is covered under Riding).

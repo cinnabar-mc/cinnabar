@@ -2,7 +2,7 @@
 //! the probe's callback requests. The probe selects a behavior by the interacted block's x; `p(x)`
 //! is that block and `up(x)` the one above.
 
-use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
+use experience_sdk::artifact::{ASSETS_DIR, INDEX_FILE, MANIFEST_FILE, SERVER_WASM};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,8 +11,8 @@ use std::sync::LazyLock;
 use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
 use experience_runtime::protocol::{
-    BlockPos, Call, Cell, Crafted, Face, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op, Outcome,
-    Recipe, Request, Scalar, ServerItem,
+    BlockPos, Call, Cell, Crafted, Face, GameMode, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op,
+    Outcome, Recipe, Request, Scalar, ServerItem,
 };
 
 /// The server's recipes as an adapter lists them for the probe: sticks from two planks, one
@@ -59,6 +59,9 @@ use wit_component::metadata::Bindgen;
 pub const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
 pub const COUNTER: &str = "probe:counter";
 pub const AIR: &str = "minecraft:air";
+/// The probe's overlay host and the file of its plate's geometry, under `assets/`.
+pub const BUS: &str = "probe:bus";
+const PLATE_GEOMETRY: &str = "plate.geo.json";
 
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
@@ -455,8 +458,9 @@ pub fn hello_wasm() -> &'static [u8] {
     &WASM
 }
 
-/// A fresh probe artifact: the probe's `experience.toml` with real hashes, `server.wasm` and
-/// `assets/counter.png`. It is deleted when the returned guard drops.
+/// A fresh probe artifact: the probe's `experience.toml`, `server.wasm`, `assets/counter.png`, its
+/// `assets/plate.geo.json` and `files.toml` with their real hashes. It is deleted when the
+/// returned guard drops.
 pub fn probe_dir() -> TempDir {
     probe_dir_with(|_| {})
 }
@@ -471,35 +475,46 @@ pub fn probe_dir_with(edit: impl FnOnce(&Path)) -> TempDir {
     fs::write(root.join(SERVER_WASM), probe_wasm()).expect("write server.wasm");
     fs::create_dir(root.join(ASSETS_DIR)).expect("create assets/");
     fs::write(root.join(ASSETS_DIR).join("counter.png"), COUNTER_PNG).expect("write counter.png");
+    fs::copy(
+        probe.join(ASSETS_DIR).join(PLATE_GEOMETRY),
+        root.join(ASSETS_DIR).join(PLATE_GEOMETRY),
+    )
+    .expect("copy the plate's geometry");
     rehash(root);
     edit(root);
     dir
 }
 
-/// Rewrites `[files]` with the SHA-256 of every file except the manifest.
+/// Rewrites `files.toml` with the SHA-256 of every file except the manifest and the index.
 pub fn rehash(dir: &Path) {
     let files: toml::Table = relative_files(dir)
         .into_iter()
-        .filter(|path| path != MANIFEST_FILE)
+        .filter(|path| path != MANIFEST_FILE && path != INDEX_FILE)
         .map(|path| {
             let hash = format!("{:x}", Sha256::digest(fs::read(dir.join(&path)).unwrap()));
             (path, toml::Value::String(hash))
         })
         .collect();
-    edit_manifest(dir, |manifest| {
-        manifest.insert("files".to_owned(), toml::Value::Table(files));
-    });
+    fs::write(dir.join(INDEX_FILE), toml::to_string(&files).unwrap()).expect("write index");
 }
 
 /// Applies `edit` to the parsed `experience.toml` and writes it back.
 pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
-    let path = dir.join(MANIFEST_FILE);
-    let mut manifest: toml::Table = fs::read_to_string(&path)
-        .expect("read manifest")
+    edit_toml(&dir.join(MANIFEST_FILE), edit);
+}
+
+/// Applies `edit` to the parsed `files.toml` and writes it back.
+pub fn edit_index(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
+    edit_toml(&dir.join(INDEX_FILE), edit);
+}
+
+fn edit_toml(path: &Path, edit: impl FnOnce(&mut toml::Table)) {
+    let mut table: toml::Table = fs::read_to_string(path)
+        .expect("read TOML")
         .parse()
-        .expect("parse manifest");
-    edit(&mut manifest);
-    fs::write(&path, toml::to_string(&manifest).unwrap()).expect("write manifest");
+        .expect("parse TOML");
+    edit(&mut table);
+    fs::write(path, toml::to_string(&table).unwrap()).expect("write TOML");
 }
 
 /// A probe artifact whose `server.wasm` is [`LOOPING_REGISTER`] with the `server` world
@@ -639,6 +654,8 @@ pub fn cell(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
         owned,
         data: data.map(str::to_owned),
         states: Vec::new(),
+        overlays: Vec::new(),
+        power: 0,
     }
 }
 
@@ -680,7 +697,9 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
         inventory: Some(Inventory {
             selected: 0,
             slots: vec![None; INVENTORY_SLOTS],
+            game_mode: GameMode::Survival,
         }),
+        containers: None,
         call,
     }
 }
@@ -693,6 +712,7 @@ pub fn interact(x: i32) -> Request {
             player: ACTOR.to_owned(),
             pos: p(x),
             face: Face::Up,
+            hit: None,
         },
     )
 }
@@ -810,4 +830,76 @@ pub fn v0_8_dir() -> TempDir {
           (call $drop (local.get 0)) (i32.const 0)))"#
     );
     wat_dir(&guest, include_str!("../../../wit/0.8/server.wit"))
+}
+
+/// A frozen 0.9 component: the 0.8 one with simulation exports, without overlays or a click.
+pub fn v0_9_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.9.0")
+        .replace("v0.5", "v0.9");
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        r#"{guest}
+      (func (export "world-definitions") (result i32) (i32.const 32))
+      (func (export "on-player") (param i32) (result i32) (i32.const 0))
+      (func (export "on-tick") (param i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-timer") (param i32 i32 i32 i64 i64 i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32)
+          (call $drop (local.get 0)) (i32.const 0)))"#
+    );
+    wat_dir(&guest, include_str!("../../../wit/0.9/server.wit"))
+}
+
+/// A frozen 0.10 component keeps overlays and click coordinates without entity exports.
+pub fn v0_10_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.10.0")
+        .replace("v0.5", "v0.10")
+        .replace(
+            "(param $len i32) (param i32 i32 i32 i32) (result i32)",
+            "(param $len i32) (param i32 i32 i32 i32 i32 f32 f32 f32 i32 i32) (result i32)",
+        );
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        r#"{guest}
+      (func (export "overlays") (result i32) (i32.const 512))
+      (func (export "world-definitions") (result i32) (i32.const 32))
+      (func (export "on-player") (param i32) (result i32) (i32.const 0))
+      (func (export "on-tick") (param i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-timer") (param i32 i32 i32 i64 i64 i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32)
+          (call $drop (local.get 0)) (i32.const 0)))"#
+    );
+    wat_dir(&guest, include_str!("../../../wit/0.10/server.wit"))
+}
+
+/// A frozen 0.11 component: the 0.10 one with entity exports, without content rules.
+pub fn v0_11_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.11.0")
+        .replace("v0.5", "v0.11")
+        .replace(
+            "(param $len i32) (param i32 i32 i32 i32) (result i32)",
+            "(param $len i32) (param i32 i32 i32 i32 i32 f32 f32 f32 i32 i32) (result i32)",
+        );
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        r#"{guest}
+      (func (export "entity-definitions") (result i32) (i32.const 32))
+      (func (export "on-entity") (param i32) (result i32) (i32.const 0))
+      (func (export "overlays") (result i32) (i32.const 512))
+      (func (export "world-definitions") (result i32) (i32.const 32))
+      (func (export "on-player") (param i32) (result i32) (i32.const 0))
+      (func (export "on-tick") (param i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-timer") (param i32 i32 i32 i64 i64 i32 i64 i64) (result i32)
+          (call $drop (local.get 0)) (i32.const 0))
+      (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32)
+          (call $drop (local.get 0)) (i32.const 0)))"#
+    );
+    wat_dir(&guest, include_str!("../../../wit/0.11/server.wit"))
 }

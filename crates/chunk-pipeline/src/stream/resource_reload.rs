@@ -34,17 +34,38 @@ impl ResourceMeshSnapshot {
         Some(
             self.chunks
                 .into_par_iter()
-                .map(|(key, snapshot)| {
-                    let biome = pack_biome_record(&snapshot.biomes, &resolved);
-                    let mesh = snapshot.mesh(classifier, assets, mode, &biome);
-                    (key, mesh, biome)
-                })
+                .map_init(
+                    ::meshing::MeshScratch::default,
+                    |scratch, (key, snapshot)| {
+                        let biome = pack_biome_record(&snapshot.biomes, &resolved);
+                        let mesh = snapshot.mesh(classifier, assets, mode, &biome, scratch);
+                        (key, mesh, biome)
+                    },
+                )
                 .collect(),
         )
     }
 }
 
 impl WorldStream {
+    /// Replaces visual face rules and invalidates every earlier mesh generation.
+    pub fn set_surface_rules(
+        &mut self,
+        rules: Arc<[::meshing::surface::SurfaceRule]>,
+        now: Instant,
+    ) -> bool {
+        if Arc::ptr_eq(&self.surface_rules, &rules)
+            || self.surface_rules == rules
+            || rules.iter().any(|rule| !rule.validate())
+        {
+            return false;
+        }
+        self.mesh_memory.surface_rules = rules.clone();
+        self.surface_rules = rules;
+        self.mesh_policy_changed(now);
+        true
+    }
+
     /// The render choices captured by new mesh jobs and resource-pack snapshots.
     pub fn mesh_render_settings(&self) -> ::meshing::MeshRenderSettings {
         self.mesh_render_settings
@@ -113,6 +134,7 @@ impl WorldStream {
         let biomes_changed =
             self.authority.runtime_assets().biome_assets() != assets.biome_assets();
         self.biome_records = None;
+        self.mesh_memory.reload_assets(&assets);
         self.authority.replace_runtime_assets(assets);
         self.reload_far_terrain_resources();
         if biomes_changed {

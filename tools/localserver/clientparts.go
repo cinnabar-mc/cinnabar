@@ -42,7 +42,7 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 		}
 		bundles = append(bundles, bundle)
 	}
-	revision, err := extension.NextRevision(filepath.Join(cfg.dir, extension.RevisionFile))
+	revision, err := extension.NextRevision(offerRevisionPath(cfg.extensionKey), filepath.Join(cfg.dir, extension.RevisionFile))
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +76,13 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 	log.Info("client parts offered", "audience", offer.Audience, "revision", offer.Revision,
 		"expires", time.Unix(int64(offer.ExpiresUnix), 0).UTC(), "packages", ids)
 	return ext, nil
+}
+
+// offerRevisionPath is where the last revision offered under the server key in keyFile is kept:
+// beside the key rather than in the world, so a reset world continues the key's revisions instead
+// of offering returning clients a rollback. Earlier starts kept it in the world directory.
+func offerRevisionPath(keyFile string) string {
+	return keyFile + "." + extension.RevisionFile
 }
 
 // startMedia serves -extension-media on loopback HTTPS, writing its CA into the world directory.

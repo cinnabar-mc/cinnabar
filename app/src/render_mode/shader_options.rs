@@ -25,6 +25,13 @@ pub(super) struct ShaderOptionsHost {
     retiring: Option<Mutex<shaderpack::worker::Running>>,
 }
 
+/// Whether an editor, save or retiring reader still owns work after its screen closes.
+pub(super) fn work_pending(world: &World) -> bool {
+    world
+        .get_resource::<ShaderOptionsHost>()
+        .is_some_and(|host| host.open.is_some() || host.writer.is_some() || host.retiring.is_some())
+}
+
 /// One open screen and where its pack's values are saved.
 struct Open {
     name: String,
@@ -66,6 +73,7 @@ impl Open {
                 options: pack.options,
                 dimension: String::new(),
                 environment: shaderpack::Environment::default(),
+                software_fused_dot: false,
                 purpose: shaderpack::worker::Purpose::Options,
             }),
             saving: None,
@@ -78,9 +86,7 @@ impl Open {
         let State::Waiting(request) = &self.state else {
             return false;
         };
-        let result = compiler
-            .ok_or_else(|| "the isolated shader compiler is unavailable".to_owned())
-            .and_then(|compiler| shaderpack::worker::Running::start(compiler, request));
+        let result = shaderpack::worker::Running::start(compiler, request);
         self.state = match result {
             Ok(worker) => State::Loading(Mutex::new(worker), Instant::now()),
             Err(reason) => State::Failed(reason),

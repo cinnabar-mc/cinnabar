@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::{packets::SetDisplayObjective, wire};
+use bedrock_protocol_1_26_60::{packets::SetDisplayObjective, wire};
 use protocol::{MAX_UI_TEXT_BYTES, ObjectiveEvent, UiEvent, WorldEvent};
 
 /// Decodes and normalizes a scoreboard packet through the network admission path.

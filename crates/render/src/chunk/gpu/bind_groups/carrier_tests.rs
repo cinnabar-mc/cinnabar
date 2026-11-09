@@ -14,7 +14,7 @@ fn authored(side: u32, layers: u32) -> Arc<EnhancedTextureAssets> {
                 }
             })
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     };
     Arc::new(
         EnhancedTextureAssets::new(

@@ -1,0 +1,17 @@
+{
+  "format_version": "1.8.0",
+  "animations": {
+    "animation.preview.position": {
+      "loop": true,
+      "bones": {
+        "panel": {
+          "position": [
+            32,
+            28,
+            0
+          ]
+        }
+      }
+    }
+  }
+}

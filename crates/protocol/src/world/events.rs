@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode, RewindType,
 };
 
@@ -193,6 +193,14 @@ pub struct OpenSignEvent {
     pub front: bool,
 }
 
+/// The server opening the command block editor for the block at `position`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenCommandBlockEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+}
+
 /// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockEventEvent {
@@ -296,7 +304,7 @@ impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
             MovePlayerPacketPositionMode::Teleport => Self::Teleport,
-            MovePlayerPacketPositionMode::Onlyheadrot => Self::Rotation,
+            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
             MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }
@@ -401,6 +409,11 @@ impl MovementCorrectionSubject {
     pub const fn is_player(self) -> bool {
         matches!(self, Self::Player)
     }
+
+    #[must_use]
+    pub const fn is_vehicle(self) -> bool {
+        matches!(self, Self::Vehicle)
+    }
 }
 
 impl From<RewindType> for MovementCorrectionSubject {
@@ -420,10 +433,7 @@ impl From<RewindType> for MovementCorrectionSubject {
 /// is a pitch/yaw pair only; the packet carries no head-yaw field. `position`
 /// keeps its raw value including non-finite sentinels because downstream
 /// resolution owns that documented recovery policy, while `delta` and the
-/// rotation are validated finite before this event exists. The wire's optional
-/// `vehicle_angular_velocity` is decoded and deliberately dropped here because
-/// vehicle-subject records are not admitted downstream yet; riding rewind will
-/// need to retain it.
+/// rotation are validated finite before this event exists.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerMovementCorrectionEvent {
     pub position: [f32; 3],
@@ -433,6 +443,8 @@ pub struct PlayerMovementCorrectionEvent {
     pub subject: MovementCorrectionSubject,
     pub on_ground: bool,
     pub tick: u64,
+    /// A vehicle correction's turn rate in degrees per tick; non-finite values are dropped.
+    pub vehicle_angular_velocity: Option<f32>,
 }
 
 /// One live biome definition reduced to the fields required by tint lookup.
@@ -490,6 +502,7 @@ pub enum WorldEvent {
     BlockEvent(BlockEventEvent),
     MapData(MapDataEvent),
     OpenSign(OpenSignEvent),
+    OpenCommandBlock(OpenCommandBlockEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),

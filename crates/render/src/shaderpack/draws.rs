@@ -11,6 +11,7 @@ use super::loader::GpuProgram;
 use super::pipelines::GpuContext;
 use super::plan::MAX_COLOR_BUFFERS;
 use super::resources::ShadowSlots;
+use render_scene::shaderpack::LoadProgress;
 use shaderpack::{AlphaTest, AlphaTestRule, BlendFactor, BlendMode, geometry_fallback};
 use wgpu::TextureFormat;
 
@@ -453,6 +454,7 @@ pub(crate) struct GeometryDraw {
     /// Index of its program in `PackGpu::programs`.
     pub program: usize,
     pub pipeline: wgpu::RenderPipeline,
+    pub emulation: Option<super::geometry_shader::Pipelines>,
     /// Per fragment output location: the `colortex` (shadow pass: `shadowcolor`) index it
     /// writes, when the pipeline has a target there.
     pub outputs: Vec<Option<u32>>,
@@ -470,12 +472,19 @@ pub(crate) struct GeometryStage {
     pub layout: wgpu::PipelineLayout,
     pub vertex: wgpu::ShaderModule,
     pub fragment: naga::Module,
+    pub emulation: Option<(
+        shaderpack::CompiledStage,
+        shaderpack::CompiledStage,
+        shaderpack::GeometryEmulation,
+    )>,
+    pub layouts: [Option<wgpu::BindGroupLayout>; 4],
 }
 
-/// Builds every resolved draw's pipeline. Terrain draws read a [`TerrainLayout::compact`]
-/// vertex holding what any terrain program reads. Draws whose program cannot bind terrain
-/// vertices, or whose pipeline the device rejects, are dropped (logged); without a solid
-/// terrain draw none remain, so the Vanilla scene copy stays in place.
+/// Builds every resolved draw's pipeline, several at once (see [`super::pipeline_workers`]).
+/// Terrain draws read a [`TerrainLayout::compact`] vertex holding what any terrain program
+/// reads. Draws whose program cannot bind terrain vertices, or whose pipeline the device
+/// rejects, are dropped (logged); without a solid terrain draw none remain, so the Vanilla
+/// scene copy stays in place. Fails when the load is cancelled or runs out of GPU memory.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pack-wide plan pieces a draw pipeline draws on"
@@ -490,7 +499,9 @@ pub(crate) fn geometry_draws(
     effects: &EffectSettings,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     shadow: &ShadowSlots,
-) -> Vec<GeometryDraw> {
+    progress: &LoadProgress,
+    failures: &mut Vec<String>,
+) -> Result<Vec<GeometryDraw>, String> {
     let terrain_layout = TerrainLayout::compact(
         selected
             .iter()
@@ -504,9 +515,8 @@ pub(crate) fn geometry_draws(
         bytes = terrain_layout.stride(),
         "shader-pack terrain vertex"
     );
-    let mut draws = vec![];
-    for (kind, selected) in selected {
-        let stage = &stages[*selected];
+    let build = |&(kind, selected): &(DrawKind, usize)| -> Result<GeometryDraw, String> {
+        let stage = &stages[selected];
         let program = &programs[stage.program];
         let target_format = |buffer: u32| -> Option<TextureFormat> {
             if kind.shadow() {
@@ -519,13 +529,38 @@ pub(crate) fn geometry_draws(
                 buffer_formats.get(buffer as usize).copied().flatten()
             }
         };
+        let scope = super::pipelines::RejectionScope::push(&gpu.device);
+        let emulation = match &stage.emulation {
+            Some((vertex, geometry, contract)) => match super::geometry_shader::pipelines(
+                &gpu.device,
+                kind,
+                terrain_layout,
+                &stage.layouts,
+                &program.reflection,
+                vertex,
+                geometry,
+                contract,
+            ) {
+                Ok(pipelines) => Some(pipelines),
+                Err(error) => {
+                    let _ = scope.pop();
+                    return Err(format!("{} ({kind:?}): {error}", program.name));
+                }
+            },
+            None => None,
+        };
         let inputs = DrawPipelineInputs {
             device: &gpu.device,
             cache,
-            layout: &stage.layout,
+            layout: emulation
+                .as_ref()
+                .map_or(&stage.layout, |p| &p.raster_pipeline_layout),
             name: &program.name,
             reflection: &program.reflection,
-            vertex: &stage.vertex,
+            vertex: emulation
+                .as_ref()
+                .map_or(&stage.vertex, |p| &p.raster_vertex),
+            emulated: emulation.is_some(),
             fragment: &stage.fragment,
             properties,
             effects,
@@ -534,34 +569,35 @@ pub(crate) fn geometry_draws(
         };
         // Each draw gets its own error scope: a pipeline the device rejects drops only that
         // draw, as Iris falls back per program, instead of the pack-wide scope failing.
-        let scope = super::pipelines::RejectionScope::push(&gpu.device);
-        let built = draw_pipeline(*kind, &inputs);
-        let rejected = scope.pop();
-        match (built, rejected) {
-            (Ok(built), None) => draws.push(GeometryDraw {
-                kind: *kind,
+        let built = draw_pipeline(kind, &inputs);
+        match (built, scope.pop()) {
+            (Ok(built), None) => Ok(GeometryDraw {
+                kind,
                 program: stage.program,
                 pipeline: built.pipeline,
+                emulation,
                 outputs: built.outputs,
                 layout: kind.category().is_some().then_some(terrain_layout),
                 alpha_test: built.alpha_test,
             }),
-            (Err(error), _) => bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                program = %program.name, draw = ?kind,
-                "draw skipped: {error}"
-            ),
-            (Ok(_), Some(error)) => bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                program = %program.name, draw = ?kind,
-                "draw skipped: the device rejected its pipeline: {error}"
-            ),
+            (Err(error), _) => Err(format!("{} ({kind:?}): {error}", program.name)),
+            (Ok(_), Some(error)) => Err(format!(
+                "{} ({kind:?}): the device rejected its pipeline: {error}",
+                program.name
+            )),
+        }
+    };
+    let mut draws = vec![];
+    for built in super::pipeline_workers::build_all(&gpu.device, selected, progress, build)? {
+        match built {
+            Ok(draw) => draws.push(draw),
+            Err(failure) => failures.push(failure),
         }
     }
     if !complete_world(|kind| draws.iter().any(|draw| draw.kind == kind)) {
         draws.clear();
     }
-    draws
+    Ok(draws)
 }
 
 #[cfg(test)]
