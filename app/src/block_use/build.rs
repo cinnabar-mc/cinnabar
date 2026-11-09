@@ -91,11 +91,13 @@ fn prepare(
         .item_use_profile(observed.selection.item.network_id())
         .cooldown;
     let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, tick));
-    let bucket = stream
+    let identifier = stream
         .authority()
-        .item_identifier(observed.selection.item.network_id())
+        .item_identifier(observed.selection.item.network_id());
+    let bucket = identifier
         .as_deref()
         .is_some_and(assets::facts::has_bucket_name);
+    let brush = identifier.as_deref() == Some(assets::facts::BRUSH_IDENTIFIER);
     let traits = context
         .ui
         .inventory_ledger(player_runtime)
@@ -185,6 +187,9 @@ fn prepare(
             .flatten();
         if planted.is_some() {
             local_use = LocalUse::Place;
+        }
+        if ready {
+            local_use = local_use.or_brush(brush, &observed.selection.item, &caps);
         }
         let destination = planted.map(|(cell, _)| cell).unwrap_or_else(|| {
             placement.as_ref().map_or_else(
@@ -396,6 +401,16 @@ pub(crate) fn advance(
     }
     if trigger == ItemUseTrigger::SimulationTick && plan.local_use == LocalUse::Nothing {
         runtime.record_failed_repeat(tick, target);
+    }
+    if plan.local_use == LocalUse::UseItem {
+        let profile = stream
+            .authority()
+            .item_use_profile(observed.selection.item.network_id());
+        item_use.start_use_on(
+            observed.selection.clone(),
+            profile.ticks.unwrap_or_default(),
+            profile.movement,
+        );
     }
     if plan.local_use == LocalUse::Place
         && plan

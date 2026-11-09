@@ -11,6 +11,7 @@ pub mod classify;
 mod crossbow;
 mod progress;
 mod server_flag;
+mod use_on;
 pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
@@ -191,6 +192,8 @@ pub struct ItemUseRuntime {
     gameplay_focused: bool,
     /// A gliding rocket's use was admitted; its boost is predicted before the server answers.
     rocket_boost: bool,
+    /// A successful item use on a block whose held use the next step starts.
+    use_on_start: Option<use_on::UseOnStart>,
 }
 
 impl ItemUseRuntime {
@@ -391,6 +394,7 @@ impl ItemUseRuntime {
     /// Drops old-life charges and unsent use actions, preserving inventory and cooldown policy.
     pub fn cancel_for_respawn(&mut self) {
         self.cancel_pending_input();
+        self.use_on_start = None;
         self.stop_active_use();
         self.last_frame_tick = None;
         self.release = ReleaseState::Idle;
@@ -423,12 +427,12 @@ impl ItemUseRuntime {
 
     /// Whether a press or observed release still awaits packet admission.
     pub const fn pending_edge(&self) -> bool {
-        self.pending.latched_press || self.has_pending_release()
+        self.pending.latched_press || self.use_on_pending() || self.has_pending_release()
     }
 
     /// Whether this frame has anything to resolve against an unsent tick.
     pub const fn has_work(&self, held: bool) -> bool {
-        self.pending.latched_press || self.active.is_some() || held
+        self.pending.latched_press || self.use_on_pending() || self.active.is_some() || held
     }
 
     /// Resolves after completed inputs drain, against the next tick and its preceding pose.
@@ -439,7 +443,7 @@ impl ItemUseRuntime {
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        let edge = self.pending.latched_press || self.is_releasing(held);
+        let edge = self.pending.latched_press || self.use_on_pending() || self.is_releasing(held);
         let ticked = self
             .last_frame_tick
             .is_some_and(|tick| movement.completed_tick() >= tick);
@@ -475,6 +479,7 @@ impl ItemUseRuntime {
         let release = std::mem::take(&mut self.release);
         self.end_use(frame, &mut outcome, release);
         let ended = was_using && self.active.is_none();
+        outcome.started = self.begin_use_on(frame);
         if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, pulse, &mut outcome);
         }

@@ -454,20 +454,33 @@ mod tests {
     }
 
     #[test]
-    fn the_retail_trident_uses_the_native_spear_animation() {
+    fn retail_tridents_and_brushes_use_their_native_animations() {
+        use assets::facts::ItemUseAnimationFact::{Brush, Spear};
         let entries = protocol::vanilla_item_registry();
-        let trident = entries
-            .iter()
-            .find(|entry| entry.identifier.as_ref() == "minecraft:trident")
-            .unwrap();
-        let mut store = ItemStateStore::diagnostic();
-        assert!(store.apply_registry(protocol::ItemRegistryEvent {
-            entries: Arc::from([trident.clone()]),
-        }));
-        assert_eq!(
-            store.item_use_profile(trident.network_id).animation.fact(),
-            Some(assets::facts::ItemUseAnimationFact::Spear)
-        );
+        // A brush starts its use on a block, so it predicts no use in the air; the use it
+        // starts lasts 200 ticks, as BDS 1.26.61.1 holds a brushing player's use.
+        for (identifier, animation, kind, ticks) in [
+            (
+                "minecraft:trident",
+                Spear,
+                ItemUseKind::Hold,
+                Some(assets::item_use::LONG_WEAPON_USE_TICKS),
+            ),
+            ("minecraft:brush", Brush, ItemUseKind::None, Some(200)),
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.identifier.as_ref() == identifier)
+                .unwrap();
+            let mut store = ItemStateStore::diagnostic();
+            assert!(store.apply_registry(protocol::ItemRegistryEvent {
+                entries: Arc::from([entry.clone()]),
+            }));
+            let profile = store.item_use_profile(entry.network_id);
+            assert_eq!(profile.animation.fact(), Some(animation), "{identifier}");
+            assert_eq!(profile.kind, Some(kind), "{identifier}");
+            assert_eq!(profile.ticks, ticks, "{identifier}");
+        }
     }
 
     #[test]
