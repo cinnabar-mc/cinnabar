@@ -563,9 +563,34 @@ fn compatibility_programs_read_declared_core_inputs_as_unbound() {
 }
 
 #[test]
+fn compatibility_programs_bind_explicitly_located_core_inputs() {
+    let location = VertexAttribute::Position.location().unwrap();
+    let vertex = format!(
+        "#version 330 compatibility\n\
+        layout(location = {location}) in vec3 vaPosition;\n\
+        in vec3 vaNormal;\n\
+        void main() {{ gl_Position = vec4(vaPosition + vaNormal, 1.0); }}\n"
+    );
+    let fragment = "#version 330 compatibility\nvoid main() { gl_FragData[0] = vec4(1.0); }\n";
+    let pack = inline_pack(&[
+        ("gbuffers_basic.vsh", vertex.as_str()),
+        ("gbuffers_basic.fsh", fragment),
+    ]);
+    let t = pack.translate(&TranslateConfig::default());
+    let position = reflection(program(&t, "gbuffers_basic"))
+        .vertex_inputs
+        .iter()
+        .find(|input| input.name == "vaPosition")
+        .expect("explicitly located vaPosition is a vertex input");
+    assert_eq!(position.attribute, VertexAttribute::Position);
+    assert_eq!(position.location, location);
+    assert!(attribute_inputs(&t, "gbuffers_basic", VertexAttribute::Normal).is_empty());
+}
+
+#[test]
 fn line_programs_bind_declared_core_inputs_in_the_compatibility_profile() {
     // Iris compiles the line program with its core-profile transformer, which binds the
-    // declared core inputs; other compatibility programs leave them unbound.
+    // declared core inputs; other compatibility programs leave implicit inputs unbound.
     let vertex = "#version 330 compatibility\n\
         in vec3 vaPosition;\n\
         void main() { gl_Position = gl_ProjectionMatrix * vec4(vaPosition, 1.0); }\n";

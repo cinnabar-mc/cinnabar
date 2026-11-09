@@ -96,7 +96,7 @@ pub(crate) struct ResourceNames<'a> {
     pub vertex_clip: bool,
     /// Declared core-profile vertex inputs (`vaPosition`, …) read vertex data, as Iris's
     /// core-profile transformer binds them. Its compatibility-profile transformers leave them
-    /// unbound.
+    /// unbound unless they have explicit locations.
     pub bound_core_inputs: bool,
 }
 
@@ -274,7 +274,7 @@ pub(crate) fn transform(
 }
 
 /// Applies the type, expression and legacy-name rewrites shared by stage compilation and repair.
-/// `unbound_core_inputs`: declared core-profile vertex inputs read GL's unbound default.
+/// `unbound_core_inputs`: implicitly located core-profile inputs read GL's unbound default.
 fn stage_tokens(
     tokens: &[Tok],
     stage: StageKind,

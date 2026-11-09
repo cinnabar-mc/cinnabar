@@ -159,9 +159,8 @@ const CORE_NAMES: &[(&str, &str, bool)] = &[
 /// Rewrites [`CORE_NAMES`] a stage reads without declaring to their compatibility built-ins,
 /// so a stage that uses both (`gl_Normal` and `vaNormal`) reads one input. A declared name
 /// stays the pack's own variable, except that with `unbound_inputs` a declared vertex input
-/// among them is dropped and reads [`unbound_value`]: Iris's compatibility-profile
-/// transformers keep such a declaration and bind no vertex data to it, so it never aliases
-/// the built-in's input.
+/// without an explicit location is dropped and reads [`unbound_value`]. Explicit locations
+/// select vertex data even when Iris does not bind the input by name.
 fn core_names(src: &[Tok], stage: StageKind, unbound_inputs: bool) -> Option<Vec<Tok>> {
     let attribute = |name: &str| {
         CORE_NAMES
@@ -184,6 +183,10 @@ fn core_names(src: &[Tok], stage: StageKind, unbound_inputs: bool) -> Option<Vec
                 && declaration.block.is_none()
                 && declaration.ty_arr.is_empty()
                 && (declaration.has("in") || declaration.has("attribute"))
+                && !declaration
+                    .layout
+                    .iter()
+                    .any(|token| token.ident() == Some("location"))
                 && let Some(value) = unbound_value(&declaration.ty)
             {
                 for (name, array, _) in &declaration.decls {
@@ -404,7 +407,7 @@ fn fold_sign_shifts(src: &[Tok]) -> Option<Vec<Tok>> {
 
 /// Renames reserved identifiers, maps legacy built-ins and lookup functions, and gives
 /// implicit-LOD sampling outside fragment shaders an explicit LOD. `unbound_core_inputs`
-/// gives declared core-profile vertex inputs GL's unbound value (see [`core_names`]).
+/// gives implicitly located core-profile vertex inputs GL's unbound value (see [`core_names`]).
 pub(super) fn rewrite(
     src: &[Tok],
     stage: StageKind,
