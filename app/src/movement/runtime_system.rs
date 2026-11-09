@@ -56,7 +56,10 @@ pub(crate) fn advance_local_physics(
     mut view: ResMut<LocalViewPose>,
     settings: MovementSettings<'_>,
     player: Option<Res<PlayerRuntime>>,
-    item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
+    (item_use, melee): (
+        Option<Res<client_interaction::item_use::ItemUseRuntime>>,
+        Option<Res<client_interaction::melee::MeleeRuntime>>,
+    ),
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
@@ -176,14 +179,18 @@ pub(crate) fn advance_local_physics(
         &client_world.movement_colliders,
     );
     // The client gets the player off a mount it places them beside before the frame's ticks;
-    // the server moves riders off any other mount once it has the request.
+    // the server moves riders off any other mount once it has the request. An attack pressed
+    // this frame, or one still waiting, reports the seat, so the player stays on for it.
     let server_places_dismount = !frame.facts.client_places_dismount();
+    let attack_waits = input.phase(Action::Attack).pressed
+        || melee.as_deref().is_some_and(|melee| melee.press_pending());
     if let Some(network) = network.as_deref() {
         locals.leave_mount(
-            &mut frame,
+            &frame,
             &mut physics,
             &movement_ticker,
             &world,
+            attack_waits,
             |packet| network.send_inventory_packets(vec![packet]),
         );
     }

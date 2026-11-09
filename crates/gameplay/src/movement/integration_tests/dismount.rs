@@ -489,6 +489,8 @@ struct Rider {
     transport: Result<(), protocol::BatchSendError>,
     /// Positions the dismount requests transport took reported.
     sent: Vec<[f32; 3]>,
+    /// Attack presses; one waiting keeps the rider seated.
+    melee: crate::melee::MeleeRuntime,
 }
 
 impl Rider {
@@ -502,6 +504,7 @@ impl Rider {
             speed: super::LocalMovementSpeedAuthority::default(),
             transport: Ok(()),
             sent: Vec::new(),
+            melee: crate::melee::MeleeRuntime::default(),
         }
     }
 
@@ -514,6 +517,7 @@ impl Rider {
             &mut self.physics,
             &self.ticker,
             &BlockFloor,
+            self.melee.press_pending(),
             |packet| {
                 if transport.is_ok() {
                     sent.push(reported_position(&packet));
@@ -722,6 +726,44 @@ fn a_steered_boat_keeps_its_predicted_heading_through_a_motion_update() {
     assert!(
         (f64::from(x) - seat.x).abs() < 1.0e-4 && (f64::from(z) - seat.z - 1.0).abs() < 1.0e-4,
         "an eastbound boat puts its rider south of its seat {seat:?}: {:?}",
+        rider.sent
+    );
+}
+
+/// An attack pressed in the frame the rider would get off reports the seat, so the rider
+/// gets off on the next tick: the server sees the attack from the seat, the request, then
+/// movement from the exit.
+#[test]
+fn an_attack_in_the_same_frame_keeps_the_rider_seated_for_a_tick() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    rider.flush_movement();
+    let seat = rider.physics.network_position().unwrap();
+    assert!(rider.melee.observe_input(true, false));
+    rider.advance(sneak_press(speed_frame(Default::default()).delta));
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty(), "the request waits behind the attack");
+    let attack = rider
+        .melee
+        .press_sample(
+            crate::melee::Crosshair::Miss,
+            &rider.ticker,
+            rider.effects.recent_tick_count(),
+            0,
+        )
+        .unwrap();
+    assert!(
+        close(attack.position, seat),
+        "the attack reports the seat: {attack:?}"
+    );
+    rider.melee.cancel_press();
+    rider.flush_movement();
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    let exit = [0.5, 1.001 + protocol::PLAYER_NETWORK_OFFSET, -0.5];
+    assert!(
+        rider.sent.len() == 1 && close(rider.sent[0], exit),
+        "then the rider gets off: {:?}",
         rider.sent
     );
 }

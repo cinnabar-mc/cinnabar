@@ -171,14 +171,17 @@ impl LocomotionState {
     ///
     /// The player gets off only once transport takes the request, behind all movement from
     /// the seat, so the server sees the seated movement, the request, then movement off the
-    /// mount. Until then it stays seated and the press waits for a later tick; a request
-    /// transport refuses for good drops the press.
+    /// mount. An attack waiting to go out this frame (`attack_waits`) reports the position
+    /// before the frame's first tick, so the player also stays seated for it and the server
+    /// sees the attack from the seat before the request. Until then it stays seated and the
+    /// press waits for a later tick; a request transport refuses for good drops the press.
     pub fn leave_mount(
         &mut self,
         frame: &PhysicsFrameInput,
         physics: &mut LocalPhysicsController,
         movement_ticker: &MovementTicker,
         world: &impl sim::CollisionWorld,
+        attack_waits: bool,
         send: impl FnOnce(protocol::Packet) -> Result<(), protocol::BatchSendError>,
     ) {
         let session = movement_ticker.session_generation;
@@ -200,6 +203,7 @@ impl LocomotionState {
             || frame.hold.is_some()
             || !frame_simulates_tick(physics, movement_ticker, frame.delta)
             || movement_ticker.movement_trails_transport()
+            || attack_waits
         {
             return;
         }
