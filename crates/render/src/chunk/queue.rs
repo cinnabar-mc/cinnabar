@@ -173,14 +173,16 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         }
         drop(gpu_removals.take_ready(usize::MAX, |_| true));
         acknowledgements.clear();
-        for (_, entity) in entities.0.drain() {
+        let retiring: HashSet<_> = entities.0.drain().map(|(_, entity)| entity).collect();
+        for &entity in &retiring {
             if let Ok(instance) = existing_instances.get(entity)
                 && let Some(slot) = &instance.publication_permit
             {
                 drop(slot.take());
             }
-            commands.entity(entity).despawn();
         }
+        // Flush removal observers once, before this update's new-session spawns apply.
+        commands.despawn_all_where::<Entity, ()>(move |entity| retiring.contains(&entity));
     }
     let maximum_zero_byte_operations = budget
         .max_zero_byte_operations_per_frame
@@ -436,15 +438,15 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             .is_some_and(|quad| !quad.is_depth_writing());
         let instance = ChunkRenderInstance {
             key,
-            cube_quads: Arc::from(cube_quads),
-            cube_lighting: Arc::from(cube_lighting),
+            cube_quads,
+            cube_lighting,
             cube_layout,
-            model_refs: Arc::from(model_refs),
-            model_lighting: Arc::from(model_lighting),
-            model_draw_refs: Arc::from(model_draw_refs),
-            transparent_model_draw_refs: Arc::from(transparent_model_draw_refs),
-            liquid_quads: Arc::from(liquid_quads),
-            liquid_lighting: Arc::from(liquid_lighting),
+            model_refs,
+            model_lighting,
+            model_draw_refs,
+            transparent_model_draw_refs,
+            liquid_quads,
+            liquid_lighting,
             has_depth_liquid,
             has_transparent_liquid,
             depth_liquid_start,

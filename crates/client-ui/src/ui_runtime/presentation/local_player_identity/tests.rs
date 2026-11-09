@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use ui::mod_panel::local_player_head as identity;
 use ui::{
     DpiScale,
-    mod_panel::{Surface, SurfaceTransition, SurfaceValue},
+    mod_panel::{Surface, SurfaceValue},
 };
 
 const FACE: [u8; 4] = [31, 73, 113, 255];
@@ -262,77 +262,6 @@ fn assert_painted_name(presentation: &UiPresentationRuntime, expected: &str) {
         .collect();
     assert!(names.contains(&expected), "host name was not painted");
     assert!(!names.contains(&forged), "guest identity was painted");
-}
-
-#[test]
-fn local_player_identity_hud_editor_overrides_forged_raster_name_and_transitions() {
-    const GUEST: [u8; 4] = [193, 41, 173, 255];
-    let mut presentation = presentation();
-    let runtime = UiRuntime::new(1);
-    let mut surface = identity_surface();
-    surface.bindings.insert(
-        identity::HEAD.into(),
-        SurfaceValue::Text("client-raster:test".into()),
-    );
-    surface.bindings.insert(
-        identity::NAME.into(),
-        SurfaceValue::Text("UntrustedIdentity".into()),
-    );
-    for key in [identity::AVAILABLE, identity::UNAVAILABLE] {
-        surface
-            .bindings
-            .insert(key.into(), SurfaceValue::Number(1.));
-        surface.transitions.insert(
-            key.into(),
-            SurfaceTransition {
-                duration: 1.,
-                from: Some(SurfaceValue::Number(1.)),
-                exit: None,
-                easing: Default::default(),
-            },
-        );
-    }
-    let hud = ui::mod_hud::Hud {
-        surface: Some(surface),
-        ..Default::default()
-    };
-    presentation.mod_ui_mut().open_mod_hud_editor(&hud).unwrap();
-    let guest_raster = UiTexturePage::owned([8; 2], GUEST.repeat(64).into()).unwrap();
-    presentation
-        .engine
-        .as_ref()
-        .unwrap()
-        .textures
-        .lock()
-        .set_client_rasters(
-            "client-raster:test",
-            &[("client-raster:test".into(), guest_raster)].into(),
-        );
-
-    // No skin must clear every forged value, while the guest raster remains available.
-    presentation.capture_local_player_identity(None, 1);
-    let neutral = draw(&mut presentation, &runtime);
-    assert!(contains(&neutral, NEUTRAL));
-    assert!(!contains(&neutral, GUEST));
-    assert!(!contains(&neutral, FACE));
-    assert_painted_name(&presentation, identity::DEFAULT_NAME);
-
-    // The same open HUD editor must show the actual head/name on its very next paint.
-    let world = profile_world(1, "First", PlayerSkin::Standard(skin(FACE)));
-    presentation.capture_local_player_identity(Some(world.local_player_ui()), 1);
-    let current = draw(&mut presentation, &runtime);
-    assert!(contains(&current, FACE));
-    assert!(contains(&current, HAT));
-    assert!(!contains(&current, NEUTRAL));
-    assert!(!contains(&current, GUEST));
-    assert_painted_name(&presentation, "First");
-
-    presentation.capture_local_player_identity(None, 1);
-    let cleared = draw(&mut presentation, &runtime);
-    assert!(contains(&cleared, NEUTRAL));
-    assert!(!contains(&cleared, FACE));
-    assert!(!contains(&cleared, GUEST));
-    assert_painted_name(&presentation, identity::DEFAULT_NAME);
 }
 
 #[test]

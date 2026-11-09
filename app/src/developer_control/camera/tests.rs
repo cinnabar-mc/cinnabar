@@ -4,6 +4,7 @@ use render_scene::CameraMotionBlur;
 use std::time::Duration;
 use {super::*, client_presentation::camera::FlyCamera};
 
+/// Creates a simple pose for camera interpolation tests.
 fn frame(t: f32, x: f32) -> Keyframe {
     Keyframe {
         t,
@@ -13,6 +14,50 @@ fn frame(t: f32, x: f32) -> Keyframe {
         fov: None,
         easing: None,
     }
+}
+
+#[test]
+fn realtime_routes_follow_real_time_across_a_clamped_game_frame() {
+    let path = CameraPath {
+        keyframes: vec![frame(0., 0.), frame(10., 160.)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, camera) = app(path.clone());
+    app.init_resource::<Time<Real>>();
+    start_realtime(app.world_mut(), path).unwrap();
+    app.update();
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_secs(2));
+    advance(&mut app, 0.25);
+    assert_eq!(
+        app.world().get::<Transform>(camera).unwrap().translation.x,
+        32.
+    );
+    assert_eq!(app.world().resource::<ScriptedCamera>().elapsed, 2.);
+}
+
+/// The body is drawn while the path runs, but `perspective`, which feeds server-observable state such
+/// as aim-assist activation, never changes.
+#[test]
+fn scripted_camera_draws_the_local_body_until_released() {
+    use semantic_input::PerspectiveMode::{FirstPerson, ThirdPersonBack};
+    let path = CameraPath {
+        keyframes: vec![frame(0., 0.), frame(1., 8.)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, _) = app(path);
+    let perspectives = |app: &App| {
+        let settings = app.world().resource::<CameraSettingsAuthority>();
+        (settings.perspective(), settings.rendered_perspective())
+    };
+    assert_eq!(perspectives(&app), (FirstPerson, ThirdPersonBack));
+    release(app.world_mut()).unwrap();
+    assert_eq!(perspectives(&app), (FirstPerson, FirstPerson));
 }
 
 fn app(path: CameraPath) -> (App, Entity) {

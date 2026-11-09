@@ -1,4 +1,4 @@
-package cinnabar:world-draw@0.1.0;
+package cinnabar:world-draw@0.2.0;
 
 /// Owner and connection scoped resources. Every mutation is a callback transaction.
 /// Grants: `world_draw` for mutations; `entity_observe` for observation, `entity_highlight` for attachment, `render_through_walls` for elevated depth and `render_material` for custom materials. capabilities reports granted bits.
@@ -21,8 +21,24 @@ interface drawing {
     record mesh { vertices: list<vertex>, indices: list<u32> }
     /// Ordered local vertices; closed connects the last vertex to the first without repeating it.
     record polyline { vertices: list<vertex>, closed: bool }
-    /// Chooses indexed triangles or a host-expanded polyline.
-    variant geometry-spec { triangles(mesh), line(polyline) }
+    /// Named states use the canonical JSON state object returned by terrain observations.
+    record named-block { name: string, states: string }
+    /// Selects a session runtime ID or an exact named state.
+    variant block-state { runtime-id(u32), named(named-block) }
+    /// Light channels are 0..15. Missing light uses sky 15 and block 0.
+    record block-cell { palette: u32, sky-light: option<u8>, block-light: option<u8> }
+    /// Low 16 bits select the palette; the next byte is sky light, the high byte block light.
+    /// Each light byte is 0..15, or 255 for absent. SDK pack-block-cell builds these words.
+    type block-cell-word = u32;
+    /// Dense packed cells in x,z,y order (y changes fastest). Outside cells are air.
+    /// Plain words upload without a guest-side record conversion loop.
+    record block-grid { size: tuple<u32, u32, u32>, palette: list<block-state>, cells: list<block-cell-word> }
+    /// Updates one existing cell, retaining the grid's size and palette.
+    record block-edit { position: tuple<u32, u32, u32>, cell: block-cell }
+    /// Chooses indexed triangles, a polyline or host-meshed blocks.
+    variant geometry-spec { triangles(mesh), line(polyline), blocks(block-grid) }
+    /// Pending worker admission or completed geometry; failures return a draw error.
+    enum geometry-state { pending, ready }
     /// A double-precision origin in one dimension for local geometry coordinates.
     record world-anchor { dimension: s32, origin: tuple<f64, f64, f64> }
     /// An integer block origin in one dimension.
@@ -33,6 +49,8 @@ interface drawing {
     variant anchor { %world(world-anchor), block(block-anchor), camera, entity(entity-anchor) }
     /// Local translation, quaternion rotation and scale applied to the retained geometry.
     record transform { translation: tuple<f32, f32, f32>, rotation: tuple<f32, f32, f32, f32>, scale: tuple<f32, f32, f32> }
+    /// A visible triangle mask. A parent intersects coverage and gives nesting its own depth.
+    record clip-spec { geometry: handle, anchor: anchor, transform: transform, parent: option<handle> }
     /// Depth-tested coverage or elevated coverage requiring through-wall authority.
     enum depth { test, always }
     /// Premultiplied alpha composition or additive emission.
@@ -43,9 +61,9 @@ interface drawing {
     enum join { bevel, miter, round }
     /// The host-expanded shape at each open polyline endpoint.
     enum cap { butt, round }
-    /// One retained geometry placement; geometry and material handles belong to the same owner.
+    /// One retained placement. Block grids use host materials and require white tint; handles belong to the same owner.
     record instance {
-        geometry: handle, material: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
+        geometry: handle, material: option<handle>, clip: option<handle>, params: list<f32>, anchor: anchor, transform: transform,
         tint: tuple<f32, f32, f32, f32>, depth: depth, blend: blend,
         width: f32, width-mode: width-mode, join: join, cap: cap,
     }
@@ -60,6 +78,14 @@ interface drawing {
     observe-entities: func() -> result<list<observed-entity>, draw-error>;
     /// Allocates validated geometry owned by this component; mutations commit only on callback success.
     create-geometry: func(spec: geometry-spec) -> result<handle, draw-error>;
+    /// Block geometry requires render-material. Worker failures are returned here.
+    geometry-status: func(id: handle) -> result<geometry-state, draw-error>;
+    /// Changes cells atomically. Wait for readiness before submitting another edit batch.
+    update-blocks: func(id: handle, edits: list<block-edit>) -> result<_, draw-error>;
+    /// Creates a world-depth-tested mask with an independent content depth buffer.
+    create-clip: func(spec: clip-spec) -> result<handle, draw-error>;
+    /// Reports mask attachment admission or an explicit GPU budget failure.
+    clip-status: func(id: handle) -> result<geometry-state, draw-error>;
     /// Allocates one retained instance referencing this owner's geometry and optional material.
     create: func(spec: instance) -> result<handle, draw-error>;
     /// Atomically replaces an existing instance's specification after a successful callback.
@@ -71,7 +97,7 @@ interface drawing {
 }
 
 /// Retained union silhouettes. Tokens are private to one component and session.
-/// Grants: `entity_highlight`; actor lookup also requires `entity_observe` and `render_through_walls`, elevated coverage requires `render_through_walls`, and effects require `render_post`.
+/// Grants: `entity_highlight`; actor lookup also requires `entity_observe` and resolves only observed actors without `render_through_walls`, elevated coverage requires `render_through_walls`, and effects require `render_post`.
 interface masks {
     use drawing.{handle, draw-error};
     /// Depth-tested coverage or elevated coverage requiring through-wall authority.

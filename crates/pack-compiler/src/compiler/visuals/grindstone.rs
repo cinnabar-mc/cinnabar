@@ -70,32 +70,6 @@ pub(in crate::compiler) fn compile_rule(
     Ok(CompileRuleResult::Compiled(visual))
 }
 
-/// Maps an oriented face onto an explicit pixel rectangle, with local UV rotation.
-fn sprite_region(quad: &mut ModelQuad, rect: [u16; 4], mut rotation: u8, face: BlockFace) {
-    if matches!(face, BlockFace::North | BlockFace::East) {
-        rotation = match rotation {
-            1 => 2,
-            2 => 1,
-            other => other,
-        };
-    }
-    let min: [u16; 2] =
-        std::array::from_fn(|axis| quad.uvs.iter().map(|uv| uv[axis]).min().unwrap());
-    let max: [u16; 2] =
-        std::array::from_fn(|axis| quad.uvs.iter().map(|uv| uv[axis]).max().unwrap());
-    for uv in &mut quad.uvs {
-        let [u, v] =
-            std::array::from_fn(|axis| u16::from(uv[axis] == max[axis] && max[axis] != min[axis]));
-        let local = match rotation {
-            1 => [v, 1 - u],
-            2 => [1 - v, u],
-            3 => [1 - u, 1 - v],
-            _ => [u, v],
-        };
-        *uv = std::array::from_fn(|axis| rect[axis + usize::from(local[axis]) * 2] * 256);
-    }
-}
-
 /// Emits five closed boxes with direction-selected bounds and authored face slots.
 fn quads(materials: [u32; 6], attachment: u8, direction: u8) -> Vec<ModelQuad> {
     let odd = direction & 1 != 0;
@@ -209,7 +183,7 @@ fn quads(materials: [u32; 6], attachment: u8, direction: u8) -> Vec<ModelQuad> {
                 .zip(rotations)
                 .zip(BlockFace::ALL)
         {
-            sprite_region(&mut quad, rect, rotation, face);
+            super::geometry::sprite_region(&mut quad, rect, rotation, face);
             result.push(quad);
         }
     }

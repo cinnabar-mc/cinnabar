@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::PacketId;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::PacketId;
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 use protocol::{ProtocolError, decode_batch};
 

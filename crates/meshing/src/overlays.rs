@@ -3,7 +3,8 @@
 //! occlude a neighbour, and are lit as the model faces of their cell are.
 
 use assets::{
-    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, NetworkIdMode, RuntimeAssets, VisualKind,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, ModelTemplate, NetworkIdMode, RuntimeAssets,
+    VisualKind,
 };
 use block_transform::overlay_face::FaceTurn;
 
@@ -104,7 +105,7 @@ pub(crate) fn mesh_overlays<I: LightingInputs + ?Sized>(
             else {
                 continue;
             };
-            let visible = crate::chunk::build::quad_visibility_mask(template.quad_count);
+            let visible = overlay_quad_mask(template);
             let (Ok(lighting_base_index), Ok(model_ref_index)) = (
                 u32::try_from(output.lighting.len()),
                 u32::try_from(output.refs.len()),
@@ -152,10 +153,40 @@ pub(crate) fn mesh_overlays<I: LightingInputs + ?Sized>(
     }
 }
 
+/// The quads an overlay draws: every one, except that a vine has no neighbour to continue into
+/// and so shows only its tip.
+fn overlay_quad_mask(template: &ModelTemplate) -> u32 {
+    if template.flags
+        & (assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE | assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE)
+        != 0
+    {
+        crate::chunk::models::VINE_TIP_QUADS
+    } else {
+        crate::chunk::build::quad_visibility_mask(template.quad_count)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{overlay_model_turn, turn_model_position};
+    use super::{overlay_model_turn, overlay_quad_mask, turn_model_position};
+    use assets::ModelTemplate;
     use block_transform::overlay_face::FACE_TURNS;
+
+    #[test]
+    fn overlays_draw_only_a_vines_tip_planes_and_every_quad_of_anything_else() {
+        let template = |flags| ModelTemplate {
+            quad_start: 0,
+            quad_count: 4,
+            flags,
+        };
+        for vine in [
+            assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE,
+            assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE,
+        ] {
+            assert_eq!(overlay_quad_mask(&template(vine)), 0b1100);
+        }
+        assert_eq!(overlay_quad_mask(&template(0)), 0b1111);
+    }
 
     /// The model turn moves every corner where the overlay table turns it.
     #[test]

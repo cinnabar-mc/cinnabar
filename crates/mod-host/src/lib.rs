@@ -1,22 +1,31 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
 mod declarations;
+mod panel_order;
 mod source;
-pub use source::{SourceKind, read_source, validate_source};
+pub use source::{SourceKind, is_frame_source, is_packet_source, read_source, validate_source};
 mod drawing_policy;
 use drawing_policy::DrawingRestart;
 mod grants;
 pub use declarations::{
-    Declarations, REQUESTED_GRANTS_SECTION, declarations, declarations_snapshot,
+    Declarations, MAX_REQUESTED_GRANTS_BYTES, REQUESTED_GRANTS_SECTION, declarations,
+    declarations_snapshot,
 };
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod action_filter;
+mod handlers;
+pub use runtime::cinnabar::extension::sound_handling::{Position as SoundPosition, SoundContext};
+pub use runtime::cinnabar::extension::teleport_handling::{
+    Rotation as TeleportRotation, TeleportContext, TeleportMode,
+};
 mod block_search;
 pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;
 mod callbacks;
+mod frame_time;
 pub use callback_budget::{CallbackBudget, CallbackOutcome};
+pub use frame_time::FrameOwner;
 pub use runtime::cinnabar::extension::action_filter::{
     ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
     TransitionKind,
@@ -39,14 +48,22 @@ mod settings;
 mod terrain;
 pub use settings::{SettingsSnapshot, settings_companion};
 
+pub use packet_mod::NativeFrame;
 pub use runtime::HudTextMeasure;
+pub use runtime::cinnabar::extension::input::{
+    ActionBinding as InputActionBinding, BindingContext, BindingModifiers,
+    Bindings as InputBindings,
+};
+pub use runtime::legacy_input::{
+    MovementSnapshot as GameplayMovementSnapshot, Snapshot as GameplaySnapshot,
+};
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
-    ControlModes as GameplayControlModes, Mob as GameplayMob,
-    MovementIntents as GameplayMovementIntents, MovementSnapshot as GameplayMovementSnapshot,
-    Player as GameplayPlayer, Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
+    BlockPosition as GameplayBlockPosition, CameraPose as GameplayCameraPose,
+    CameraRig as GameplayCameraRig, ControlModes as GameplayControlModes, Mob as GameplayMob,
+    MovementInput as GameplayMovementInput, MovementIntents as GameplayMovementIntents,
+    Player as GameplayPlayer, Vector3 as GameplayVector3,
 };
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, ActorLife, Bounds as ActorObservationBounds,
@@ -78,6 +95,8 @@ pub use terrain::{
 /// import still checks its own grant and gameplay frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GameplayFacts {
+    /// Admitted controls before any mod outputs, only while gameplay owns input.
+    pub movement_input: Option<GameplayMovementInput>,
     /// The presented camera pose, including third-person and rig offsets.
     pub camera: Option<GameplayCameraPose>,
     /// The full-strength native damage shake of the last presented view, in a connected world.
@@ -86,19 +105,30 @@ pub struct GameplayFacts {
     pub relayed_position: Option<GameplayVector3>,
     /// A physical binding holds the use control.
     pub use_held: bool,
+    /// Current physical attack control, before mod outputs.
+    pub attack_held: bool,
+    /// Current crosshair block hit, before mod outputs.
+    pub block_target: Option<GameplayVector3>,
 }
 
 /// Successfully committed local interaction requests, consumed once per frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InteractionOutput {
+    pub block_breaks: Vec<GameplayBlockPosition>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    /// Ordinary crosshair mining hold, renewed by a successful mod frame.
+    pub block_mining: bool,
+    /// A one-frame destination for physically held mining, independent of the view.
+    pub block_mining_target: Option<GameplayVector3>,
 }
 
 /// A vanilla inventory request a player mod committed, consumed once; the client makes it as
 /// the vanilla screen it stands for would, and the server checks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InventoryRequest {
+    /// Exchanges a player cell with the offhand within the observed session.
+    SwapOffhand { session: u64, slot: u8 },
     /// A creative catalog take of `count` of the item `identifier` with `aux`.
     CreativeTake {
         identifier: String,
@@ -134,14 +164,15 @@ pub const MAX_COMPONENT_SOURCE_BYTES: usize = MAX_COMPONENT_BYTES
     + component_assets::MAX_SECTION_FRAMING_BYTES;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;
-/// Fuel one frame callback may use: about twice the 105k peak the first-party Cinnabar Client
-/// mod's layout editor reached, so its editor and menu paths keep headroom. Measured on a Ryzen 9
-/// 7900X with a release host driving that mod's string building and JSON encoding, guest code
-/// ran 24 µs per 100k fuel at the median, 90–110 µs at p99 and at most 0.41 ms right after a
-/// multi-millisecond host import evicted its caches. A full 200k callback therefore takes
-/// about 0.05 ms, 0.2 ms at p99; a frame's `mod_api::TOTAL_MOD_FRAME_FUEL`, two of them, about
-/// 0.1 ms, 0.5 ms at p99 and 1.7 ms at worst, well inside the live-testing main-CPU budgets.
-pub const FRAME_FUEL: u64 = 200_000;
+/// Fuel one frame callback may use. On a Ryzen 9 7900X, a release host driving the
+/// first-party mod's string building and JSON encoding measured 24 µs per 100k fuel
+/// at the median and 90–110 µs at p99. Scaling those measurements gives about 0.24 ms
+/// median and 0.9–1.1 ms p99 for this allowance, or 0.48 ms and 1.8–2.2 ms for
+/// `mod_api::TOTAL_MOD_FRAME_FUEL`. These estimates are not wall-clock guarantees;
+/// host imports and cache effects can take longer.
+pub const FRAME_FUEL: u64 = 1_000_000;
+/// One frame callback per observed world session may use this larger allowance.
+pub const WORLD_ENTRY_FRAME_FUEL: u64 = 4 * FRAME_FUEL;
 const _: () = assert!(
     mod_api::TOTAL_MOD_FRAME_FUEL == 2 * FRAME_FUEL,
     "a frame admits two full frame callbacks"
@@ -190,6 +221,7 @@ pub fn empty_controls() -> ControlFrame {
         panel_open: false,
         keys_pressed: Vec::new(),
         keys_held: Vec::new(),
+        keys_admitted: Vec::new(),
         events: Vec::new(),
         pointer: None,
         wheel: 0.0,

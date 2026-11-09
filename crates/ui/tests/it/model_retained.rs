@@ -68,6 +68,7 @@ fn text(font: &CompiledFontCatalog, value: &str) -> Arc<TextLayout> {
 /// Creates one triangle whose geometry varies by offset.
 fn mesh(offset: f32) -> Arc<UiMesh> {
     let vertex = |position: [f32; 2]| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.5,
         clip_w: 1.0,
@@ -195,6 +196,31 @@ fn assert_equal(retained: &Retained, nodes: &[UiNode]) {
 fn a_fresh_retained_list_equals_the_full_build() {
     let nodes = hud(&font());
     assert_equal(&retained(&nodes), &nodes);
+}
+
+#[test]
+fn repeated_color_updates_reuse_emission_storage() {
+    let mut nodes = (1..=512)
+        .map(|index| {
+            UiNode::new(id(index), None, rect(0.0, 0.0, 8.0, 8.0)).with_visual(sprite(0, [255; 4]))
+        })
+        .collect::<Vec<_>>();
+    let mut draw = retained(&nodes);
+    for color in [[240; 4], [220; 4], [200; 4]] {
+        for node in &mut nodes {
+            *node = node.clone().with_visual(sprite(0, color));
+        }
+        let (update, allocations) = test_alloc::count(|| redraw(&mut draw, &nodes).unwrap());
+        assert_eq!(update.emitted, nodes.len());
+        assert!(!update.rebuilt);
+        if color != [240; 4] {
+            assert!(
+                allocations < 16,
+                "color update allocated {allocations} times"
+            );
+        }
+        assert_equal(&draw, &nodes);
+    }
 }
 
 #[test]

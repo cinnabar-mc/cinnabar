@@ -3,8 +3,8 @@ use launcher::menu::settings_options::SettingId;
 use semantic_input::{InputContext, PhysicalControl};
 use {
     crate::menu::settings_options::control_bindings::{
-        binding_key, binding_macro_command, binding_mouse, binding_pressed, gamepad_button,
-        hotbar_control_slots,
+        binding_key, binding_macro_command, binding_mouse, binding_pressed,
+        binding_pressed_unless_typing, gamepad_button, hotbar_control_slots,
     },
     launcher::menu::settings_options::{
         EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS, SETTINGS_FILE,
@@ -97,6 +97,40 @@ fn supplemental_bindings_drive_production_keyboard_and_mouse_helpers() {
         &keys,
         &mouse
     ));
+}
+
+/// A text key bound to Screenshot must not fire while the player types into chat, but a key that
+/// types nothing still does.
+#[test]
+fn a_screenshot_key_bound_to_a_letter_stays_silent_while_typing() {
+    use bevy::prelude::{ButtonInput, KeyCode};
+
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Typing".to_owned());
+    let index = KEY_BINDINGS.len()
+        + EXTRA_KEYS
+            .iter()
+            .position(|(name, _)| *name == "key.screenshot")
+            .unwrap();
+    let press = |control: PhysicalControl,
+                 key: KeyCode,
+                 typing: bool,
+                 menu: &mut crate::menu::MenuRuntime| {
+        assert!(std::sync::Arc::make_mut(&mut menu.settings_options).remap(index, control));
+        let mut keys = ButtonInput::default();
+        keys.press(key);
+        binding_pressed_unless_typing(
+            Some(menu),
+            BindingId::Screenshot,
+            &keys,
+            &ButtonInput::default(),
+            typing,
+        )
+    };
+    let letter_m = PhysicalControl::KeyboardUsage(0x10);
+    assert!(press(letter_m, KeyCode::KeyM, false, &mut menu));
+    assert!(!press(letter_m, KeyCode::KeyM, true, &mut menu));
+    let f2 = PhysicalControl::KeyboardUsage(0x3b);
+    assert!(press(f2, KeyCode::F2, true, &mut menu));
 }
 
 /// An Alt+key macro resolves its stored command, and only while it is armed.

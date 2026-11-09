@@ -57,17 +57,20 @@ pub(super) struct StateAxes {
 
 /// Reads trait states first, in the order the client adds them, then properties in list order.
 /// A repeated state name is ignored, as the client refuses to add a state twice.
-pub(super) fn state_axes(root: &Nbt, traits: &[(Option<&str>, &Nbt)]) -> StateAxes {
+pub(super) fn state_axes<'a>(
+    root: Nbt<'a>,
+    traits: impl IntoIterator<Item = (Option<&'a str>, Nbt<'a>)>,
+) -> StateAxes {
     let mut enabled = Vec::new();
     let mut multi_block_parts = None;
     for (name, trait_) in traits {
-        let flags = enabled_flags(trait_, *name);
+        let flags = enabled_flags(trait_, name);
         let trait_name = name.or_else(|| trait_.field("name").and_then(Nbt::as_str));
         if trait_name.is_some_and(|name| trait_key(name) == "multi_block")
             && flags.iter().any(|flag| trait_key(flag) == "multi_block")
         {
             multi_block_parts = match trait_.field("part_count") {
-                Some(Nbt::Byte(parts)) if *parts != 0 => Some(i64::from(*parts as u8)),
+                Some(Nbt::Byte(parts)) if parts != 0 => Some(i64::from(parts as u8)),
                 _ => None,
             };
         }
@@ -203,19 +206,19 @@ fn trait_key(name: &str) -> &str {
     name.strip_prefix("minecraft:").unwrap_or(name)
 }
 
-fn state_value(value: &Nbt) -> Option<CustomStateValue> {
+fn state_value(value: Nbt<'_>) -> Option<CustomStateValue> {
     match value {
-        Nbt::String(value) => Some(CustomStateValue::String(value.as_str().into())),
-        Nbt::Byte(value) => Some(CustomStateValue::Bool(*value != 0)),
+        Nbt::String(value) => Some(CustomStateValue::String(value.into())),
+        Nbt::Byte(value) => Some(CustomStateValue::Bool(value != 0)),
         Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value) => {
-            Some(CustomStateValue::Int(*value))
+            Some(CustomStateValue::Int(value))
         }
         _ => None,
     }
 }
 
 /// Reads states and flags using the container key or the trait's own name as its identity.
-fn enabled_flags(trait_: &Nbt, name: Option<&str>) -> Vec<String> {
+fn enabled_flags(trait_: Nbt<'_>, name: Option<&str>) -> Vec<String> {
     match trait_.field("enabled_states") {
         Some(Nbt::Int(flags))
             if name
@@ -236,7 +239,7 @@ fn enabled_flags(trait_: &Nbt, name: Option<&str>) -> Vec<String> {
         Some(Nbt::Compound(fields)) => fields
             .iter()
             .filter(|(_, value)| value.number().is_some_and(|flag| flag != 0.0))
-            .map(|(key, _)| key.clone())
+            .map(|(key, _)| key.to_owned())
             .collect(),
         _ => Vec::new(),
     }

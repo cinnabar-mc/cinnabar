@@ -59,8 +59,8 @@ impl NativeCamera {
         &mut self,
         view: Option<&LocalViewPose>,
         seconds: f32,
-        frame: Option<mod_api::native_frame::Frame>,
-    ) -> Option<mod_api::native_frame::Frame> {
+        frame: Option<mod_host::NativeFrame>,
+    ) -> Option<mod_host::NativeFrame> {
         if let (Some(carrier), Some(view)) = (self.carrier, view)
             && view.freelook_held()
             && view.look_rotation() != carrier.rotation
@@ -197,12 +197,12 @@ mod tests {
         let rotation = Quat::from_rotation_y(0.5);
         view.set_look_rotation(rotation);
         NativeCamera::default().apply(&mut camera, Some(&mut view), false, None, 0, 0.0);
-        assert_eq!(view.camera_rotation(), rotation);
+        assert_eq!(view.player_camera_rotation(), rotation);
     }
 
     /// A connected input-owned frame with no look or time of its own.
-    fn frame() -> mod_api::native_frame::Frame {
-        mod_api::native_frame::Frame {
+    fn frame() -> mod_host::NativeFrame {
+        mod_host::NativeFrame {
             version: mod_api::native_frame::VERSION,
             session: 1,
             dimension: 0,
@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(view.rotation(), body, "captured look never turns the body");
         state.apply(&mut camera, Some(&mut view), false, None, 0, 0.048);
         assert!(camera.presented_view().is_none() && !camera.captures_look());
-        assert_eq!(view.camera_rotation(), body);
+        assert_eq!(view.player_camera_rotation(), body);
     }
 
     /// Pitch stops at the native limit and only the applied part is reported.

@@ -10,11 +10,14 @@ use mod_host::{
     GameplayVector3, ModGrants,
 };
 
-use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
+use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
+use client_runtime::network::NetworkHandle;
+use client_state::SemanticInputSnapshot;
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
     pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
+    pub(super) movement_override: Option<ResMut<'w, super::ModMovementInputActive>>,
     pub(super) control_modes: Option<ResMut<'w, super::ModControlModes>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
@@ -36,11 +39,17 @@ pub(super) struct GameplayContext<'w> {
         Option<Res<'w, client_presentation::actor_publication::ActorFramePartialTick>>,
     pub(super) melee: Option<Res<'w, client_interaction::melee::MeleeRuntime>>,
     pub(super) session: Option<Res<'w, crate::session::SessionController>>,
+    network: Option<Res<'w, NetworkHandle<PackApplication>>>,
 }
 
 const _: () = assert!(mod_api::BEDROCK_TICKS_PER_SECOND == simulation_clock::TICKS_PER_SECOND);
 
 impl GameplayContext<'_> {
+    /// Borrows the connected core endpoint independently of who owns its directory.
+    pub(super) fn core_socket_directory(&self) -> Option<&std::path::Path> {
+        self.network.as_ref()?.core_socket_dir()
+    }
+
     /// Reads the server world clock in this session: the absolute ticks the server set, advanced
     /// at the native rate while its daylight cycle runs. Visual time overrides never enter it.
     pub(super) fn world_time(
@@ -70,7 +79,7 @@ impl GameplayContext<'_> {
         &self,
         allowed: bool,
         ui: &client_ui::ui_runtime::UiRuntime,
-    ) -> Option<mod_api::native_frame::Frame> {
+    ) -> Option<mod_host::NativeFrame> {
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
             || world.respawn.input_held()
@@ -89,7 +98,7 @@ impl GameplayContext<'_> {
         };
         let Some(snapshot) = self.snapshot(allowed, &grants) else {
             let eye = self.view.as_ref()?.eye_translation().to_array();
-            return Some(mod_api::native_frame::Frame {
+            return Some(mod_host::NativeFrame {
                 version: mod_api::native_frame::VERSION,
                 session: world.stream.as_ref()?.authority().actor_session_id(),
                 dimension: world.stream.as_ref()?.current_dimension(),
@@ -111,7 +120,7 @@ impl GameplayContext<'_> {
             });
         };
         let input = self.input.as_deref();
-        Some(mod_api::native_frame::Frame {
+        Some(mod_host::NativeFrame {
             version: mod_api::native_frame::VERSION,
             session: snapshot.session,
             dimension: snapshot.dimension,
@@ -301,14 +310,7 @@ impl GameplayContext<'_> {
     /// No snapshot exists outside captured gameplay or without explicit grants.
     pub(super) fn snapshot(&self, allowed: bool, grants: &ModGrants) -> Option<GameplaySnapshot> {
         if !allowed
-            || !(grants.terrain
-                || grants.players
-                || grants.camera
-                || grants.item_use
-                || grants.movement
-                || grants.interaction
-                || grants.entities
-                || !grants.commands.is_empty())
+            || !grants.needs_gameplay()
             || self
                 .auto_fly
                 .as_ref()
@@ -394,6 +396,28 @@ impl GameplayContext<'_> {
             })
         });
         mod_host::GameplayFacts {
+            movement_input: self
+                .input
+                .as_ref()
+                .filter(|_| input_owned)
+                .and_then(|input| {
+                    input
+                        .snapshot()
+                        .filter(|snapshot| !snapshot.authority_released)
+                        .map(|_| mod_host::GameplayMovementInput {
+                            right: input.movement()[0],
+                            forward: input.movement()[1],
+                            jump: input.phase(semantic_input::Action::Jump).held,
+                            sneak: input.phase(semantic_input::Action::Sneak).held,
+                            sprint: input.phase(semantic_input::Action::Sprint).held,
+                        })
+                }),
+            block_target: input_owned.then(|| self.block_target()).flatten(),
+            attack_held: input_owned
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.phase(semantic_input::Action::Attack).held),
             camera,
             damage_shake: damage_shake
                 .map(|shake| mod_host::DamageShake {
@@ -411,6 +435,71 @@ impl GameplayContext<'_> {
                     .as_ref()
                     .is_some_and(|input| input.phase(semantic_input::Action::Use).held),
         }
+    }
+
+    /// Observes the current crosshair without applying any component mining request.
+    fn block_target(&self) -> Option<GameplayVector3> {
+        let stream = self.world.as_ref()?.stream.as_ref()?;
+        let player = self.player.as_ref()?;
+        let origin = self.origin.as_ref()?.outbound_ray()?;
+        if origin.session_generation().get() != self.clock.as_ref()?.session_generation()
+            || origin.actor_session_id() != stream.authority().actor_session_id()
+        {
+            return None;
+        }
+        let collisions = self.collisions.as_ref()?;
+        let selection = client_interaction::mining::hand_interaction_selection(player)?;
+        let mode = player.facts.player_game_mode();
+        let pick = crate::interaction_authority::pick_context(
+            stream,
+            collisions,
+            mode,
+            Some(selection.item.block_runtime_id()),
+        );
+        let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
+        let world = sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+            pick,
+        )
+        .with_cell_overlays(&overlay_ids);
+        let input_mode =
+            gameplay::mining::protocol_input_mode(self.input.as_ref()?.snapshot()?.input_mode);
+        let reach = if player.facts.game_mode_capabilities()?.creative_reach {
+            gameplay::mining::creative_reach(input_mode)
+        } else {
+            gameplay::mining::survival_reach(input_mode)
+        };
+        let widen = |p: Vec3| sim::Vec3::new(f64::from(p.x), f64::from(p.y), f64::from(p.z));
+        let hit = world
+            .block_interaction_ray_current(widen(origin.origin()), widen(origin.direction()), reach)
+            .ok()??;
+        let authority = stream.authority();
+        let actor = gameplay::melee::pick_actor_by(
+            authority.remote_actors(),
+            |actor| authority.pick_hit_boxes(actor),
+            authority.local_mount_unique_id(),
+            origin.origin().to_array(),
+            origin.direction().to_array(),
+            reach,
+        );
+        if !matches!(
+            gameplay::melee::classify_block_hit(
+                actor,
+                origin.origin().to_array(),
+                Some(&hit),
+                reach
+            ),
+            gameplay::melee::Crosshair::Block
+        ) {
+            return None;
+        }
+        Some(GameplayVector3 {
+            x: hit.block_pos[0] as f32 + 0.5,
+            y: hit.block_pos[1] as f32 + 0.5,
+            z: hit.block_pos[2] as f32 + 0.5,
+        })
     }
 
     /// Called only for a successfully committed, once-consumed current-frame delta.

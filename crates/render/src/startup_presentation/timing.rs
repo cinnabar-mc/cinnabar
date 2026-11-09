@@ -3,14 +3,16 @@
 use bevy::{
     prelude::*,
     render::{
-        Render, RenderApp, RenderSystems, render_resource::PipelineCache, renderer::render_system,
+        ExtractSchedule, Render, RenderApp, RenderSystems,
+        render_resource::{CachedPipelineState, PipelineCache, PipelineDescriptor},
+        renderer::render_system,
     },
 };
-use render_scene::startup_timing::{self, RenderFrame};
+use render_scene::startup_timing::{self, RenderFrame, StartupTiming};
 use web_time::Instant;
 
 #[derive(Resource, Default)]
-struct FrameTiming {
+pub(crate) struct FrameTiming {
     started: Option<Instant>,
     submission: Option<Instant>,
     frame: RenderFrame,
@@ -21,7 +23,14 @@ pub(crate) fn install(app: &mut App) {
     let Some(render) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
-    render.init_resource::<FrameTiming>().add_systems(
+    // The process recorder, as a resource so a test can supply a detached timeline instead.
+    if let Some(startup) = startup_timing::current() {
+        render.insert_resource(startup.clone());
+    }
+    render
+        .init_resource::<FrameTiming>()
+        .add_systems(ExtractSchedule, mark_extract.run_if(recording));
+    render.add_systems(
         Render,
         (
             begin.before(RenderSystems::ExtractCommands),
@@ -40,14 +49,24 @@ pub(crate) fn install(app: &mut App) {
     );
 }
 
+/// The first extraction follows `RenderStartup`, so it bounds the render world's setup.
+fn mark_extract(startup: Option<Res<StartupTiming>>) {
+    if let Some(startup) = startup {
+        startup.mark("first_extract");
+    }
+}
+
 /// Starts the initial frame before asset preparation and view setup.
-fn begin(mut timing: ResMut<FrameTiming>) {
+fn begin(mut timing: ResMut<FrameTiming>, startup: Option<Res<StartupTiming>>) {
+    if let Some(startup) = startup {
+        startup.mark("first_render_start");
+    }
     timing.started = Some(Instant::now());
     timing.frame = RenderFrame::default();
 }
 
-/// Processes queued pipelines before Bevy's empty second pass, separating compilation from draw.
-fn compile(mut timing: ResMut<FrameTiming>, mut cache: ResMut<PipelineCache>) {
+/// Processes queued pipelines before Bevy's own pass, separating compilation from draw.
+pub(crate) fn compile(mut timing: ResMut<FrameTiming>, mut cache: ResMut<PipelineCache>) {
     let Some(started) = timing.started else {
         return;
     };
@@ -56,26 +75,31 @@ fn compile(mut timing: ResMut<FrameTiming>, mut cache: ResMut<PipelineCache>) {
     let _span = bevy::log::info_span!("startup.pipeline_and_shader").entered();
     cache.process_queue();
     timing.frame.pipeline_and_shader_ms = start.elapsed().as_secs_f64() * 1000.0;
-    timing.frame.pipelines = cache.pipelines().count();
-    timing.frame.pending_pipelines = cache.waiting_pipelines().count();
-    for pipeline in cache.pipelines() {
+}
+
+/// Samples every pipeline after Bevy's final queue pass, which precedes `render_system`, so a
+/// pipeline this frame drew with is never recorded as unready.
+fn sample_pipelines(startup: &StartupTiming, frame: &mut RenderFrame, cache: &PipelineCache) {
+    frame.pipelines = cache.pipelines().count();
+    frame.pending_pipelines = cache.waiting_pipelines().count();
+    if frame.pipelines > 0 && frame.pending_pipelines == 0 {
+        startup.mark("pipelines_ready");
+    }
+    for (index, pipeline) in cache.pipelines().enumerate() {
         let label = match &pipeline.descriptor {
-            bevy::render::render_resource::PipelineDescriptor::RenderPipelineDescriptor(
-                descriptor,
-            ) => descriptor.label.as_deref(),
-            bevy::render::render_resource::PipelineDescriptor::ComputePipelineDescriptor(
-                descriptor,
-            ) => descriptor.label.as_deref(),
-            bevy::render::render_resource::PipelineDescriptor::MeshPipelineDescriptor(
-                descriptor,
-            ) => descriptor.label.as_deref(),
+            PipelineDescriptor::RenderPipelineDescriptor(descriptor) => descriptor.label.as_deref(),
+            PipelineDescriptor::ComputePipelineDescriptor(descriptor) => {
+                descriptor.label.as_deref()
+            }
+            PipelineDescriptor::MeshPipelineDescriptor(descriptor) => descriptor.label.as_deref(),
         }
         .unwrap_or("unlabeled");
-        *timing
-            .frame
-            .pipeline_labels
-            .entry(label.into())
-            .or_default() += 1;
+        startup.observe_pipeline(
+            index,
+            label,
+            matches!(pipeline.state, CachedPipelineState::Ok(_)),
+        );
+        *frame.pipeline_labels.entry(label.into()).or_default() += 1;
     }
 }
 
@@ -84,8 +108,12 @@ fn submission(mut timing: ResMut<FrameTiming>) {
     timing.submission = Some(Instant::now());
 }
 
-/// Stores the bounded initial sample; a completed menu report ignores subsequent frames.
-fn finish(mut timing: ResMut<FrameTiming>) {
+/// Stores the bounded initial sample before this frame's completion callbacks can seal it.
+fn finish(
+    mut timing: ResMut<FrameTiming>,
+    cache: Res<PipelineCache>,
+    startup: Option<Res<StartupTiming>>,
+) {
     let Some(started) = timing.started.take() else {
         return;
     };
@@ -94,12 +122,14 @@ fn finish(mut timing: ResMut<FrameTiming>) {
         .submission
         .take()
         .map_or(0.0, |start| start.elapsed().as_secs_f64() * 1000.0);
-    if let Some(startup) = startup_timing::current() {
+    if let Some(startup) = startup {
+        sample_pipelines(&startup, &mut timing.frame, &cache);
+        startup.mark("first_render_end");
         startup.frame(std::mem::take(&mut timing.frame));
     }
 }
 
 /// Stops startup-only schedule work after the one presentation report.
-fn recording() -> bool {
-    startup_timing::current().is_some_and(|timing| timing.is_recording())
+fn recording(startup: Option<Res<StartupTiming>>) -> bool {
+    startup.is_some_and(|timing| timing.is_recording())
 }

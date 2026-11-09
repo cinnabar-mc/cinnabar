@@ -67,6 +67,7 @@ impl UiPresentationRuntime {
             last_input: None,
             last_frame: None,
             assembly_nodes: Vec::new(),
+            vertex_buffers: Default::default(),
             retained_menu: None,
             #[cfg(test)]
             tree_builds: 0,
@@ -82,6 +83,7 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             inventory_cache: Some(Box::default()),
+            inventory_preparation_revision: Default::default(),
             hud_cache: Default::default(),
             hud_renderers: Default::default(),
             mod_hud_bindings: Default::default(),
@@ -118,6 +120,7 @@ impl UiPresentationRuntime {
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
             menu_artwork_set: Default::default(),
+            frame_oversized: Default::default(),
             mod_menu_branding: None,
             menu_artwork_loader: Default::default(),
             menu_seconds: 0.0,

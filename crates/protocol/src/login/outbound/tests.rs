@@ -1,5 +1,5 @@
 use super::*;
-use bedrock_protocol_1_26_51::{packets, wire};
+use bedrock_protocol_1_26_60::{packets, wire};
 use bytes::Bytes;
 use futures::task::noop_waker;
 use std::time::Duration;

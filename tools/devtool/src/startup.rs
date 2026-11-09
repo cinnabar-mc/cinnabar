@@ -21,6 +21,7 @@ const DRIVER_CACHE_ENVIRONMENT: [(&str, &str); 2] = [
 ];
 
 mod process;
+mod timeline;
 use process::OwnedClient;
 
 #[derive(Debug)]
@@ -33,6 +34,10 @@ struct Options {
     out: Option<PathBuf>,
     baseline: Option<PathBuf>,
     cold_reset: Option<PathBuf>,
+    carriers: Vec<&'static str>,
+    carrier_dir: Option<PathBuf>,
+    carrier_reset: Option<PathBuf>,
+    profile: Option<PathBuf>,
     args: Vec<String>,
     offscreen: bool,
 }
@@ -47,10 +52,23 @@ struct Summary {
 #[derive(Serialize, Deserialize)]
 struct Mode {
     cache: String,
+    #[serde(default = "warm_carriers")]
+    carriers: String,
     budget_ms: f64,
     menu: Distribution,
     stages: BTreeMap<String, Distribution>,
+    #[serde(default)]
+    timeline: Vec<timeline::Segment>,
+    #[serde(default)]
+    pipelines: BTreeMap<String, timeline::PipelineLatency>,
+    #[serde(default)]
+    work: BTreeMap<String, u64>,
     samples: Vec<Value>,
+}
+
+/// Results saved before carrier modes existed measured warm carriers.
+fn warm_carriers() -> String {
+    WARM_CACHE.into()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,6 +88,10 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
         out: None,
         baseline: None,
         cold_reset: None,
+        carriers: vec![WARM_CACHE],
+        carrier_dir: None,
+        carrier_reset: None,
+        profile: None,
         args: Vec::new(),
         offscreen: false,
     };
@@ -93,6 +115,18 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
                     _ => return Err(error("--cache must be warm, cold or both")),
                 }
             }
+            "--carriers" => {
+                options.carriers = match value.as_str() {
+                    WARM_CACHE => vec![WARM_CACHE],
+                    COLD_CACHE => vec![COLD_CACHE],
+                    "both" => vec![WARM_CACHE, COLD_CACHE],
+                    _ => return Err(error("--carriers must be warm, cold or both")),
+                }
+            }
+            "--carrier-dir" => options.carrier_dir = Some(value.into()),
+            "--carrier-reset" => options.carrier_reset = Some(value.into()),
+            // The client rejects a relative user root.
+            "--profile" => options.profile = Some(std::path::absolute(value).map_err(error)?),
             "--budget-ms" => options.budget_ms = positive(value)?,
             "--cold-budget-ms" => options.cold_budget_ms = positive(value)?,
             "--endpoint" => {
@@ -126,6 +160,22 @@ fn parse(args: &[String]) -> Result<Options, DevtoolError> {
             "cold cache runs require --cold-reset on this platform",
         ));
     }
+    if options.profile.is_some()
+        && options.modes.contains(&COLD_CACHE)
+        && options.cold_reset.is_none()
+    {
+        return Err(error(
+            "cold cache runs with --profile require --cold-reset to clear that profile's caches",
+        ));
+    }
+    if options.carriers.contains(&COLD_CACHE)
+        && options.carrier_reset.is_none()
+        && (!cfg!(target_os = "linux") || options.carrier_dir.is_none())
+    {
+        return Err(error(
+            "cold carrier runs require --carrier-dir on Linux or --carrier-reset elsewhere",
+        ));
+    }
     Ok(options)
 }
 
@@ -147,9 +197,16 @@ fn error(message: impl std::fmt::Display) -> DevtoolError {
 /// Launches one owned process and waits for its structured report and orderly exit.
 fn launch(options: &Options, cache: &Path) -> Result<Value, DevtoolError> {
     let mut command = Command::new(&options.client);
+    // An installed client keeps its prepared carriers in its profile, so it names one to reuse.
+    let profile = options
+        .profile
+        .clone()
+        .unwrap_or_else(|| cache.join("profile"));
+    std::fs::create_dir_all(&profile).map_err(error)?;
     command
         .args(&options.args)
         .env(render_api::STARTUP_BENCHMARK_ENV, "1")
+        .env(render_api::USER_ROOT_ENV, &profile)
         .env("NO_COLOR", "1");
     for (variable, directory) in DRIVER_CACHE_ENVIRONMENT {
         let directory = cache.join(directory);
@@ -306,7 +363,12 @@ fn distribution(mut samples: Vec<f64>) -> Distribution {
 }
 
 /// Summarizes all stages the client emitted, without a duplicated stage list.
-fn summarize(cache: &str, budget_ms: f64, samples: Vec<Value>) -> Result<Mode, DevtoolError> {
+fn summarize(
+    cache: &str,
+    carriers: &str,
+    budget_ms: f64,
+    samples: Vec<Value>,
+) -> Result<Mode, DevtoolError> {
     if samples.is_empty() {
         return Err(error("no launch samples"));
     }
@@ -346,12 +408,16 @@ fn summarize(cache: &str, budget_ms: f64, samples: Vec<Value>) -> Result<Mode, D
     }
     Ok(Mode {
         cache: cache.into(),
+        carriers: carriers.into(),
         budget_ms,
         menu,
         stages: stages
             .into_iter()
             .map(|(name, values)| (name, distribution(values)))
             .collect(),
+        timeline: timeline::summarize(&samples),
+        pipelines: timeline::pipelines(&samples),
+        work: timeline::work(&samples),
         samples,
     })
 }
@@ -370,6 +436,107 @@ fn growth(mode: &Mode, baseline: Option<&Mode>) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Prints one mode's critical-path partition, pipeline latency, work and stage tables.
+fn report(mode: &Mode, baseline: Option<&Mode>) {
+    println!(
+        "{} cache, {} carriers: n={} menu median={:.2} ms p99={:.2} ms budget={:.2} ms",
+        mode.cache,
+        mode.carriers,
+        mode.samples.len(),
+        mode.menu.median_ms,
+        mode.menu.p99_ms,
+        mode.budget_ms
+    );
+    println!("segment\tlaunches\tstarts at ms\tmedian ms\tp99 ms");
+    for segment in &mode.timeline {
+        println!(
+            "{} -> {}\t{}\t{:.2}\t{:.2}\t{:.2}",
+            segment.from,
+            segment.to,
+            segment.samples,
+            segment.start.median_ms,
+            segment.duration.median_ms,
+            segment.duration.p99_ms
+        );
+    }
+    println!("pipeline\tready at ms\tlatency median ms\tp99 ms\tunready at menu");
+    for (name, pipeline) in &mode.pipelines {
+        let (ready, latency) = (pipeline.ready.as_ref(), pipeline.latency.as_ref());
+        println!(
+            "{name}\t{}\t{}\t{}\t{}",
+            ready.map_or("-".into(), |ready| format!("{:.2}", ready.median_ms)),
+            latency.map_or("-".into(), |latency| format!("{:.2}", latency.median_ms)),
+            latency.map_or("-".into(), |latency| format!("{:.2}", latency.p99_ms)),
+            pipeline.unready
+        );
+    }
+    println!("work\tmaximum");
+    for (name, value) in &mode.work {
+        println!("{name}\t{value}");
+    }
+    if let Some(baseline) = baseline {
+        for grew in timeline::work_growth(&mode.work, &baseline.work) {
+            println!("work grew: {grew}");
+        }
+    }
+    println!("stage\tmedian ms\tp99 ms");
+    for (name, sample) in &mode.stages {
+        println!("{name}\t{:.2}\t{:.2}", sample.median_ms, sample.p99_ms);
+    }
+}
+
+/// Runs a reset program and fails the benchmark if it does not succeed.
+fn reset_with(program: &Path, purpose: &str) -> Result<(), DevtoolError> {
+    let status = Command::new(program)
+        .status()
+        .map_err(|source| DevtoolError::Spawn {
+            command: program.display().to_string(),
+            source,
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(error(format!("{purpose} exited {status}")))
+    }
+}
+
+/// Drops the carriers from the OS page cache so the next launch reads them from storage.
+fn evict_carriers(options: &Options) -> Result<(), DevtoolError> {
+    if let Some(reset) = &options.carrier_reset {
+        return reset_with(reset, "cold carrier reset");
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(directory) = &options.carrier_dir {
+        return evict_directory(directory);
+    }
+    Err(error("cold carriers need --carrier-dir or --carrier-reset"))
+}
+
+/// Advises the kernel to discard every clean cached page of the files under `directory`.
+#[cfg(target_os = "linux")]
+fn evict_directory(directory: &Path) -> Result<(), DevtoolError> {
+    use std::os::fd::AsRawFd;
+    for entry in std::fs::read_dir(directory).map_err(error)? {
+        let path = entry.map_err(error)?.path();
+        if path.is_dir() {
+            evict_directory(&path)?;
+            continue;
+        }
+        let file = std::fs::File::open(&path).map_err(error)?;
+        // SAFETY: the descriptor stays open for the call; advice cannot change file contents.
+        let result =
+            unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) };
+        if result != 0 {
+            return Err(error(format!(
+                "evict {}: {}",
+                path.display(),
+                std::io::Error::from_raw_os_error(result)
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Runs warm and cold driver-cache launches and enforces their p99 budgets.
@@ -401,35 +568,41 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         if cache == WARM_CACHE {
             launch(&options, &warm)?;
         }
-        let mut samples = Vec::with_capacity(options.runs);
-        for index in 0..options.runs {
-            let directory = if cache == WARM_CACHE {
-                warm.clone()
-            } else {
-                caches.path().join(format!("cold-{index}"))
-            };
-            if cache == COLD_CACHE
-                && let Some(reset) = &options.cold_reset
-            {
-                let status =
-                    Command::new(reset)
-                        .status()
-                        .map_err(|source| DevtoolError::Spawn {
-                            command: reset.display().to_string(),
-                            source,
-                        })?;
-                if !status.success() {
-                    return Err(error(format!("cold cache reset exited {status}")));
-                }
+        for &carriers in &options.carriers {
+            if cache == COLD_CACHE && carriers == WARM_CACHE {
+                // Read the carriers once, unmeasured, in a directory no sample uses: cold runs
+                // otherwise start with whatever an earlier cold-carrier mode evicted.
+                launch(
+                    &options,
+                    &caches.path().join(format!("carrier-warmup-{cache}")),
+                )?;
             }
-            samples.push(launch(&options, &directory)?);
+            let mut samples = Vec::with_capacity(options.runs);
+            for index in 0..options.runs {
+                let directory = if cache == WARM_CACHE {
+                    warm.clone()
+                } else {
+                    caches.path().join(format!("cold-{carriers}-{index}"))
+                };
+                if cache == COLD_CACHE
+                    && let Some(reset) = &options.cold_reset
+                {
+                    reset_with(reset, "cold cache reset")?;
+                }
+                if carriers == COLD_CACHE {
+                    evict_carriers(&options)?;
+                }
+                samples.push(launch(&options, &directory)?);
+            }
+            let budget = if cache == WARM_CACHE {
+                options.budget_ms
+            } else {
+                options.cold_budget_ms
+            };
+            summary
+                .modes
+                .push(summarize(cache, carriers, budget, samples)?);
         }
-        let budget = if cache == WARM_CACHE {
-            options.budget_ms
-        } else {
-            options.cold_budget_ms
-        };
-        summary.modes.push(summarize(cache, budget, samples)?);
     }
     if let Some(path) = &options.out {
         std::fs::write(path, serde_json::to_vec_pretty(&summary).map_err(error)?).map_err(error)?;
@@ -444,27 +617,20 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         }
     );
     for mode in &summary.modes {
-        println!(
-            "{} cache: n={} menu median={:.2} ms p99={:.2} ms budget={:.2} ms",
-            mode.cache,
-            mode.samples.len(),
-            mode.menu.median_ms,
-            mode.menu.p99_ms,
-            mode.budget_ms
-        );
-        println!("stage\tmedian ms\tp99 ms");
-        for (name, sample) in &mode.stages {
-            println!("{name}\t{:.2}\t{:.2}", sample.median_ms, sample.p99_ms);
-        }
+        let prior = baseline.as_ref().and_then(|summary| {
+            summary
+                .modes
+                .iter()
+                .find(|prior| prior.cache == mode.cache && prior.carriers == mode.carriers)
+        });
+        report(mode, prior);
         if mode.menu.p99_ms > mode.budget_ms {
             failed = true;
-            let prior = baseline
-                .as_ref()
-                .and_then(|summary| summary.modes.iter().find(|prior| prior.cache == mode.cache));
             let grew = growth(mode, prior);
             eprintln!(
-                "{} startup exceeds budget; stage growth: {}",
+                "{} cache, {} carriers: startup exceeds budget; stage growth: {}",
                 mode.cache,
+                mode.carriers,
                 if grew.is_empty() {
                     "no comparable baseline; use --baseline to attribute growth"
                 } else {
@@ -502,8 +668,8 @@ mod tests {
         assert_eq!(result.p99_ms, 99.0);
         let sample =
             |menu, stage| serde_json::json!({"menu_ms": menu, "stages_ms": {"device": stage}});
-        let before = summarize(WARM_CACHE, 10.0, vec![sample(5.0, 2.0)]).unwrap();
-        let after = summarize(WARM_CACHE, 10.0, vec![sample(11.0, 4.0)]).unwrap();
+        let before = summarize(WARM_CACHE, WARM_CACHE, 10.0, vec![sample(5.0, 2.0)]).unwrap();
+        let after = summarize(WARM_CACHE, WARM_CACHE, 10.0, vec![sample(11.0, 4.0)]).unwrap();
         assert!(after.menu.p99_ms > after.budget_ms);
         assert_eq!(growth(&after, Some(&before)), "device +2.00 ms");
     }
@@ -521,6 +687,31 @@ mod tests {
         let mut reset = cold.to_vec();
         reset.extend(["--cold-reset".to_owned(), "reset-fixture".to_owned()]);
         assert!(parse(&reset).is_ok());
+        let carriers = ["--carriers".to_owned(), COLD_CACHE.to_owned()];
+        assert!(parse(&carriers).is_err());
+        let mut carrier_reset = carriers.to_vec();
+        carrier_reset.extend(["--carrier-reset".to_owned(), "reset-fixture".to_owned()]);
+        assert!(parse(&carrier_reset).is_ok());
+        let profiled = [
+            "--profile".to_owned(),
+            "installed".to_owned(),
+            cold[0].clone(),
+            cold[1].clone(),
+        ];
+        assert!(parse(&profiled).is_err());
+        assert!(
+            parse(&["--profile".to_owned(), "installed".to_owned()])
+                .unwrap()
+                .profile
+                .unwrap()
+                .is_absolute()
+        );
+        let mut profiled_reset = profiled.to_vec();
+        profiled_reset.extend(["--cold-reset".to_owned(), "reset-fixture".to_owned()]);
+        assert!(parse(&profiled_reset).is_ok());
+        let mut carrier_dir = carriers.to_vec();
+        carrier_dir.extend(["--carrier-dir".to_owned(), "assets".to_owned()]);
+        assert_eq!(parse(&carrier_dir).is_ok(), cfg!(target_os = "linux"));
         let mut report = None;
         let mut tail = Default::default();
         let line = format!(
@@ -528,7 +719,15 @@ mod tests {
             render_api::STARTUP_TIMING_MARKER
         );
         assert!(observe(&line, &mut report, &mut tail).is_err());
-        assert!(summarize(WARM_CACHE, 1.0, vec![serde_json::json!({"menu_ms": -1})]).is_err());
+        assert!(
+            summarize(
+                WARM_CACHE,
+                WARM_CACHE,
+                1.0,
+                vec![serde_json::json!({"menu_ms": -1})]
+            )
+            .is_err()
+        );
     }
 }
 
@@ -591,10 +790,100 @@ mod process_tests {
             for (_, name) in DRIVER_CACHE_ENVIRONMENT {
                 assert!(directory.path().join(name).is_dir());
             }
+            assert!(directory.path().join("profile").is_dir());
             assert_eq!(result.is_ok(), succeeds, "{result:?}");
             if succeeds {
                 assert_eq!(result.unwrap()["menu_ms"], 7);
             }
         }
     }
+
+    #[test]
+    fn cold_cache_runs_with_warm_carriers_warm_them_outside_the_measured_caches() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("release-client-fixture");
+        let log = directory.path().join("launches.log");
+        let report = serde_json::json!({"debug_assertions": false, "offscreen": false, "menu_ms": 7, "stages_ms": {}});
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$MESA_SHADER_CACHE_DIR\" >> '{}'\nprintf '%s\\n' '{} {report}' >&2\n",
+                log.display(),
+                render_api::STARTUP_TIMING_MARKER
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let out = directory.path().join("summary.json");
+        let args: Vec<String> = [
+            "--client",
+            executable.to_str().unwrap(),
+            "--cache",
+            COLD_CACHE,
+            "--runs",
+            "2",
+            "--cold-reset",
+            "/usr/bin/true",
+            "--cold-budget-ms",
+            "1000000",
+            "--out",
+            out.to_str().unwrap(),
+        ]
+        .map(String::from)
+        .into();
+        run(&args).unwrap();
+        let launches: Vec<String> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(String::from)
+            .collect();
+        assert_eq!(launches.len(), 3, "{launches:?}");
+        assert!(launches[0].contains("carrier-warmup"), "{launches:?}");
+        assert!(
+            launches[1..]
+                .iter()
+                .all(|dir| !dir.contains("carrier-warmup"))
+        );
+        assert_ne!(launches[1], launches[2]);
+        let summary: Summary = serde_json::from_slice(&std::fs::read(out).unwrap()).unwrap();
+        assert_eq!(summary.modes[0].samples.len(), 2);
+    }
+
+    #[test]
+    fn a_named_profile_replaces_the_isolated_one() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("release-client-fixture");
+        let installed = directory.path().join("installed");
+        let report = serde_json::json!({"debug_assertions": false, "offscreen": false, "menu_ms": 7, "stages_ms": {}});
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\ntouch \"${}/seen\"\nprintf '%s\\n' '{} {report}' >&2\n",
+                render_api::USER_ROOT_ENV,
+                render_api::STARTUP_TIMING_MARKER
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let options = Options {
+            client: executable,
+            profile: Some(installed.clone()),
+            ..parse(&[]).unwrap()
+        };
+        launch(&options, &directory.path().join("cache")).unwrap();
+        assert!(installed.join("seen").is_file());
+        assert!(!directory.path().join("cache/profile").exists());
+    }
+}
+
+/// Eviction succeeds for nested carrier files without changing their contents.
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn carrier_eviction_keeps_nested_files_intact() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir(directory.path().join("compiled")).unwrap();
+    let carrier = directory.path().join("compiled/vanilla.mcbeui");
+    std::fs::write(&carrier, b"carrier").unwrap();
+    evict_directory(directory.path()).unwrap();
+    assert_eq!(std::fs::read(carrier).unwrap(), b"carrier");
 }

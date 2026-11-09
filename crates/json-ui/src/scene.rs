@@ -1,5 +1,5 @@
 //! Screen-level `ScreenSettings` and the scene-stack rules that read them, after
-//! 1.26.50 `UIControlFactory` (screen branch), `UIScene` and `SceneStack`.
+//! 1.26.60 `UIControlFactory` (screen branch), `UIScene` and `SceneStack`.
 
 use std::collections::{BTreeMap, VecDeque};
 

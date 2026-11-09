@@ -12,6 +12,12 @@ thumbnail projects, as depth-tested GUI geometry over their original material ti
 carrier names the world state each such thumbnail came from. Their tessellation is still the
 provisional cube projection, not vanilla's per-shape GUI tessellation.
 
+Vanilla draws an anvil item through the anvil's world tessellator, whose GUI faces take flat
+world shading: up `1`, down `0.5`, north/south `0.8` and west/east `0.6`, instead of the cube's
+Up/South/West values. Anvil templates carry `MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE` for this.
+Other shapes that vanilla's GUI also routes through world tessellators (grindstone, stonecutter,
+campfire, lectern, composter) have not been compared and keep the cube values.
+
 ### Vanilla rules
 
 | Rule | Behaviour |

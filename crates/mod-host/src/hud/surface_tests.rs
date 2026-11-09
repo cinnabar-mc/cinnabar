@@ -357,7 +357,7 @@ fn element_reads_follow_enum_order_and_hiding_replaces_the_set() {
 #[test]
 fn panel_actor_projections_need_actor_authority() {
     use super::super::cinnabar::extension::panel::Host as _;
-    let panel = json!({"toggle_key":"F10","surface":{"screen":"menu.root",
+    let panel = json!({"surface":{"screen":"menu.root",
         "document":json!({"namespace":"menu","root":{"type":"panel"}}).to_string(),
         "bindings":{"#tag":{"project":{"actor":3,"offset":[0,2,0]}}}}})
     .to_string();

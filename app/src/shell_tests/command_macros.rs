@@ -143,6 +143,9 @@ fn command_macro_consumes_only_its_keyboard_control_even_when_enqueue_fails() {
         assert_eq!(snapshot.movement(), [0.0, 1.0]);
         assert!(snapshot.phase(Action::Attack).held);
         assert_ne!(snapshot.look_delta(), [0.0; 2]);
+        let admitted = &snapshot.snapshot().unwrap().admitted_desktop;
+        assert!(admitted.contains(&PhysicalControl::MouseButton(1)));
+        assert!(!admitted.contains(&PhysicalControl::KeyboardUsage(0x2c)));
         assert!(!snapshot.phase(Action::Jump).held);
         assert!(!snapshot.phase(Action::Jump).pressed);
         assert_eq!(
@@ -193,8 +196,21 @@ fn command_macro_mouse_press_is_dispatched_and_consumed_in_both_routes() {
             );
             let snapshot = app.world().resource::<SemanticInputSnapshot>();
             assert_eq!(snapshot.movement(), [0.0, 1.0]);
+            assert!(
+                !snapshot
+                    .snapshot()
+                    .unwrap()
+                    .admitted_desktop
+                    .contains(&PhysicalControl::MouseButton(code))
+            );
             assert!(!snapshot.phase(Action::Attack).held);
             assert!(!snapshot.phase(Action::Use).held);
+            crate::modding::bindings::admission_tests::assert_equivalent(
+                snapshot.snapshot().unwrap().clone(),
+                semantic_input::ControlSettings::builtin(),
+                false,
+                false,
+            );
         }
     }
 }

@@ -327,6 +327,8 @@ fn capture_trace_resolves_delayed_packets_and_reuses_frame_storage() {
     let trace = PickTrace::default();
     trace.world(7, 13);
     trace.world(8, 11);
+    // Apple's std mutex boxes its pthread lock on first use; that is setup, not frame storage.
+    assert_eq!(trace.clock(), (0, None));
     let (_, allocations) = test_alloc::count(|| {
         trace.advance(2, 0.25);
         assert_eq!(trace.packet_sequence(7), 13);

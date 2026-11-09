@@ -1,7 +1,7 @@
 use crate::raw_packet::decode_packet_raw;
-use bedrock_protocol_1_26_51::enums::PlayerActionType;
-use bedrock_protocol_1_26_51::packets::PlayerAction;
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::enums::PlayerActionType;
+use bedrock_protocol_1_26_60::packets::PlayerAction;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
 use bytes::Buf;
 
 use super::*;
@@ -11,7 +11,7 @@ fn dimension_ack_ingress_keeps_session_local_ack_even_with_sentinel_actor_id() {
     for runtime_id in [0, 42] {
         let packet: Packet = crate::Packet::new(PlayerAction {
             player_runtime_id: ActorRuntimeID(runtime_id),
-            action: PlayerActionType::Changedimensionack,
+            action: PlayerActionType::ChangeDimensionAck,
             ..Default::default()
         });
         let mut encoded = crate::encode(&packet).unwrap();
@@ -25,7 +25,7 @@ fn dimension_ack_ingress_keeps_session_local_ack_even_with_sentinel_actor_id() {
 #[test]
 fn dimension_action_ingress_skips_other_actions_and_rejects_truncation() {
     for action in [
-        PlayerActionType::Startjump,
+        PlayerActionType::StartJump,
         PlayerActionType::Unknown2(i32::MIN),
         PlayerActionType::Unknown2(i32::MAX),
     ] {

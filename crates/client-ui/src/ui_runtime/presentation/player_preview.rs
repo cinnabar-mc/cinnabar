@@ -91,6 +91,8 @@ impl UiPresentationRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
         resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
     ) {
+        super::dynamic_textures::observe_session(self, runtime.session_id());
+        super::publish::prepare_shield_art(player_runtime, runtime, self, world, &resolve);
         use inventory::inventory_ledger::InventoryTarget;
         let ledger = runtime.inventory_ledger(player_runtime);
         let named = |stack: Option<&protocol::NetworkItemStack>| {
@@ -141,6 +143,7 @@ impl UiPresentationRuntime {
             let (identifier, stack, item) = item?;
             Some((
                 PreviewHandItem {
+                    shield_pattern: item.shield_pattern.clone(),
                     grip: Some(item.grip),
                     glint: Some(runtime.item_glint(stack, item.glint)),
                     identifier: Arc::clone(identifier),
@@ -168,6 +171,20 @@ impl UiPresentationRuntime {
             worn.as_ref()
                 .is_some_and(|(_, stack, item)| runtime.item_glint(stack, item.glint))
         });
+        // A helmet with no armor model is a block or sprite worn on the head.
+        if self.player_preview_gear.armor[assets::ArmorSlot::Helmet as usize].is_none() {
+            self.player_preview_gear.head = armor[assets::ArmorSlot::Helmet as usize].as_ref().map(
+                |(identifier, stack, item)| PreviewHandItem {
+                    shield_pattern: None,
+                    grip: None,
+                    glint: Some(runtime.item_glint(stack, item.glint)),
+                    identifier: Arc::clone(identifier),
+                    metadata: stack.metadata,
+                    use_animation: item.use_animation,
+                    charged_projectile: item.charged_projectile_role,
+                },
+            );
+        }
     }
 
     /// Chooses between server-pack hand models and their ordinary item sprites in previews.
@@ -254,6 +271,13 @@ impl UiPresentationRuntime {
             Some(preview)
         });
         let held = hands[0].as_ref().and_then(|(hand, _)| {
+            if let Some(texture) = hand
+                .shield_pattern
+                .as_deref()
+                .and_then(|pattern| self.shield_preview_texture(pattern))
+            {
+                return Some(texture);
+            }
             let identifier = hand.identifier.as_ref();
             let metadata = hand.metadata;
             if let Some(sprite) = self.session_icons.sprite(identifier, metadata) {
@@ -277,6 +301,7 @@ impl UiPresentationRuntime {
             armor_glint: [false; 4],
             held,
             hands: hands.map(|hand| hand.map(|(hand, _)| hand)),
+            head: None,
             show_custom_item_models,
         };
     }
@@ -638,6 +663,11 @@ impl Rig {
             sneaking: is_live && pose.sneaking,
             holding: holding.map(|holding| is_live && holding),
         }
+    }
+
+    /// The head's pitch and its yaw relative to the body, in radians.
+    pub(super) fn head_look(&self) -> (f32, f32) {
+        (self.head_pitch, self.head_yaw)
     }
 
     pub(super) fn project(&self, vertex: ActorVertex) -> ProjectedVertex {

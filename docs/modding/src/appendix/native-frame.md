@@ -8,6 +8,11 @@ After `_initialize` and before `start`, the host calls `native-init`. Bit 0 mean
 the host supplies player frames and accepts local camera deltas. It is set only
 with both `players` and `camera` grants. Unrecognized bits must be ignored.
 
+A reactor decoding the current SDK record selects it with `mod_api::current_native_frames!()`
+at module scope, or by adding a `cinnabar:extension/native-frame-wire` custom section whose
+payload is the single byte `2`. Unmarked built reactors retain their original wire record.
+The drawing callback keeps its independent version 1 contract.
+
 `frame` receives UTF-8 JSON matching `native_frame::Frame`, or `null` when gameplay
 does not own input. Return the existing canonical `result<list<u8>, string>`:
 discriminant at offset 0, list pointer at 4 and list length at 8. Successful bytes
@@ -21,7 +26,7 @@ is consumed once and discarded after input or session ownership changes. Angles
 are radians; positive yaw turns left and positive pitch turns up. This API adds no
 packets and does not bypass the normal camera owner.
 
-`native-frame-v1.json` is the shared cross-language conformance fixture. Treat its
+`native-frame-v2.json` is the shared cross-language conformance fixture. Treat its
 64-bit IDs as integers, preserving all bits. SDK bounds derive from the existing
 player and camera limits.
 
@@ -30,7 +35,7 @@ player and camera limits.
 A core module may additionally export `camera-frame(ptr: i32, len: i32) -> i32`.
 Capability bit 2 (`4`) selects this callback when both `camera` and `movement` are
 granted. Its input and canonical result ABI match `frame`. A connected world without
-gameplay input carries `suspended: true` and no targets or attack state; the older
+gameplay input carries `suspended: true` and no targets; the older
 callback still receives `null`. Successful output is
 `null` or `native_camera::Effects`. It takes precedence over the older `frame`
 callback. Without a players grant the host removes player observations before

@@ -17,7 +17,7 @@ fn state(grants: ModGrants) -> State {
 /// A minimal surface panel with the `controls` JSON array.
 fn panel_json(controls: &str) -> String {
     format!(
-        r#"{{"toggle_key":"ShiftRight","controls":{controls},"surface":{}}}"#,
+        r#"{{"controls":{controls},"surface":{}}}"#,
         crate::tests::panel_surface("local")
     )
 }
@@ -117,7 +117,7 @@ fn native_text_input_rejects_invalid_batches_transactionally() {
 #[test]
 fn native_text_input_survives_callback_deferral() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -163,7 +163,12 @@ fn native_text_input_survives_callback_deferral() {
 /// is rejected before any guest can read it.
 #[test]
 fn pointer_and_wheel_reach_only_an_open_panel() {
-    let engine = Engine::new(wasmtime::Config::new().consume_fuel(true)).unwrap();
+    let engine = Engine::new(
+        wasmtime::Config::new()
+            .consume_fuel(true)
+            .async_support(true),
+    )
+    .unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
         (core instance $i (instantiate $m))
@@ -265,6 +270,7 @@ fn optional_imports_deny_without_explicit_grants() {
             .read_selected_controls(Selection {
                 keys_pressed: None,
                 keys_held: None,
+                keys_admitted: None,
                 events: true,
             })
             .unwrap()
@@ -380,6 +386,7 @@ fn control_frame() -> ControlFrame {
         panel_open: true,
         keys_pressed: vec!["ShiftLeft".into(), "KeyB".into(), "KeyA".into()],
         keys_held: vec!["KeyC".into(), "KeyB".into(), "ShiftLeft".into()],
+        keys_admitted: vec!["KeyB".into(), "ShiftLeft".into()],
         events: vec![
             crate::ControlEvent {
                 id: "enabled".into(),
@@ -406,6 +413,7 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: None,
             keys_held: None,
+            keys_admitted: None,
             events: true,
         })
         .unwrap()
@@ -416,18 +424,21 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: Some(vec!["KeyB".into(), "ShiftLeft".into(), "KeyB".into()]),
             keys_held: Some(vec!["ShiftLeft".into(), "KeyC".into(), "KeyZ".into()]),
+            keys_admitted: Some(vec!["ShiftLeft".into(), "KeyZ".into()]),
             events: false,
         })
         .unwrap()
         .unwrap();
     assert_eq!(selected.keys_pressed, ["ShiftLeft", "KeyB"]);
     assert_eq!(selected.keys_held, ["KeyC", "ShiftLeft"]);
+    assert_eq!(selected.keys_admitted, ["ShiftLeft"]);
     assert!(selected.events.is_empty());
     assert_eq!(
         selected,
         ControlFrame {
             keys_pressed: selected.keys_pressed.clone(),
             keys_held: selected.keys_held.clone(),
+            keys_admitted: selected.keys_admitted.clone(),
             events: Vec::new(),
             ..all.clone()
         }
@@ -438,11 +449,16 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: Some(Vec::new()),
             keys_held: Some(Vec::new()),
+            keys_admitted: Some(Vec::new()),
             events: true,
         })
         .unwrap()
         .unwrap();
-    assert!(empty.keys_pressed.is_empty() && empty.keys_held.is_empty());
+    assert!(
+        empty.keys_pressed.is_empty()
+            && empty.keys_held.is_empty()
+            && empty.keys_admitted.is_empty()
+    );
     assert_eq!(empty.events, all.events);
 }
 
@@ -463,6 +479,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
             let selection = Selection {
                 keys_pressed: pressed.then(|| names.clone()),
                 keys_held: (!pressed).then(|| names.clone()),
+                keys_admitted: Some(Vec::new()),
                 events: false,
             };
             assert!(state.read_selected_controls(selection).unwrap().is_err());
@@ -474,6 +491,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
         .read_selected_controls(Selection {
             keys_pressed: Some(vec!["KeyA".into(); mod_api::MAX_CONTROL_KEYS]),
             keys_held: Some(vec!["x".repeat(mod_api::MAX_CONTROL_KEY_BYTES)]),
+            keys_admitted: Some(Vec::new()),
             events: false,
         })
         .unwrap()
@@ -490,6 +508,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
                 .read_selected_controls(Selection {
                     keys_pressed: None,
                     keys_held: Some(Vec::new()),
+                    keys_admitted: Some(Vec::new()),
                     events: false,
                 })
                 .unwrap()
@@ -501,6 +520,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
             .read_selected_controls(Selection {
                 keys_pressed: None,
                 keys_held: None,
+                keys_admitted: None,
                 events: true,
             })
             .is_err()
@@ -510,6 +530,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
         .read_selected_controls(Selection {
             keys_pressed: None,
             keys_held: None,
+            keys_admitted: None,
             events: true,
         })
         .unwrap()
@@ -575,7 +596,8 @@ fn interaction_requires_current_held_input_and_never_survives_frame() {
         state.controls.interaction,
         InteractionOutput {
             attack_reach: Some(5.0),
-            attack_pulse: true
+            attack_pulse: true,
+            ..Default::default()
         }
     );
     state.controls.begin_frame();
@@ -627,7 +649,7 @@ fn rejects_malformed_controls_and_bounded_import_spam() {
 #[test]
 fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -707,25 +729,6 @@ fn larger_panel_catalogs_do_not_increase_the_input_batch_limit() {
         value: 1.,
     });
     assert!(validate_frame(&frame).is_err());
-}
-
-#[test]
-fn opening_panel_is_granted_transactional_and_requires_content() {
-    use cinnabar::extension::panel::Host as _;
-    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
-    assert!(state.set_open(true).unwrap().is_err());
-    state.grants.controls = true;
-    assert!(state.set_open(true).unwrap().is_err());
-    state.set_content(panel()).unwrap().unwrap();
-    assert!(state.set_open(true).unwrap().is_ok());
-    assert!(!state.controls.open);
-    state.controls.commit();
-    assert!(state.controls.open);
-    state.set_open(false).unwrap().unwrap();
-    assert!(state.controls.open);
-    state.controls.revoke();
-    state.controls.commit();
-    assert!(!state.controls.open);
 }
 
 /// Live changes survive deferred callbacks, coalesce, and remain separate from legacy commits.
@@ -879,7 +882,7 @@ fn native_field_input_deferred_submits_preserve_retained_values() {
 fn local_weather_policy_commits_and_revokes() {
     use cinnabar::extension::environment::{Host as _, Weather};
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -968,3 +971,21 @@ fn weather_policy_admission_rejects_denied_writes() {
     );
     assert!(allowed.environment.pending_weather.is_none());
 }
+
+/// Native editor ownership is reported only with controls authority and only as supplied.
+#[test]
+fn native_editing_is_granted_and_reports_the_supplied_frame_state() {
+    let mut granted = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(false));
+    granted.controls.native_editing = true;
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(true));
+    let mut denied = state(ModGrants::default());
+    denied.controls.native_editing = true;
+    assert!(denied.read_native_editing().unwrap().is_err());
+}
+
+#[path = "controls_tests/panel_visibility.rs"]
+mod panel_visibility;

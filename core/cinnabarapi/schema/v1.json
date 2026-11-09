@@ -37,6 +37,15 @@
     },
     {
       "$ref": "#/$defs/OnlineHistoryResponse"
+    },
+    {
+      "$ref": "#/$defs/ModReleaseManifest"
+    },
+    {
+      "$ref": "#/$defs/ModRelease"
+    },
+    {
+      "$ref": "#/$defs/ModUpdateQuery"
     }
   ],
   "$defs": {
@@ -148,6 +157,9 @@
         },
         {
           "$ref": "#/$defs/LoadoutState"
+        },
+        {
+          "$ref": "#/$defs/ModLibraryRemove"
         }
       ]
     },
@@ -279,6 +291,9 @@
         },
         {
           "$ref": "#/$defs/CosmeticOwnership"
+        },
+        {
+          "$ref": "#/$defs/ModLibrary"
         }
       ]
     },
@@ -341,6 +356,9 @@
           "type": "integer",
           "minimum": 1,
           "default": 300000
+        },
+        "mod_library": {
+          "$ref": "#/$defs/ModLibraryEntries"
         },
         "loadout_revision": {
           "$ref": "#/$defs/Build"
@@ -759,11 +777,17 @@
     "OnlineNamesResponse": {
       "description": "Authenticated GET /v1/presence/players: verified names for the same visible online accounts as the count, without identifiers.",
       "type": "object",
-      "required": ["names"],
+      "required": [
+        "names"
+      ],
       "properties": {
         "names": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
         }
       },
       "additionalProperties": false
@@ -1157,6 +1181,255 @@
           "items": {
             "$ref": "#/$defs/CosmeticItemId"
           }
+        }
+      }
+    },
+    "UniqueUserCountResponse": {
+      "type": "object",
+      "description": "GET /v1/users/count: verified accounts since tracking began, deduplicated across devices and reconnects, including visibility-off accounts.",
+      "required": [
+        "unique"
+      ],
+      "properties": {
+        "unique": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "GitRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "ModPackage": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "StableModVersion": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "ModHostRepository": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^https://[^\\s]+$"
+    },
+    "ModReleaseManifest": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "package",
+        "version",
+        "revision",
+        "host",
+        "artifact"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "package": {
+          "$ref": "#/$defs/ModPackage"
+        },
+        "version": {
+          "$ref": "#/$defs/StableModVersion"
+        },
+        "revision": {
+          "$ref": "#/$defs/GitRevision"
+        },
+        "host": {
+          "type": "object",
+          "required": [
+            "repository",
+            "revision",
+            "api_revision"
+          ],
+          "properties": {
+            "repository": {
+              "$ref": "#/$defs/ModHostRepository"
+            },
+            "revision": {
+              "$ref": "#/$defs/GitRevision"
+            },
+            "api_revision": {
+              "$ref": "#/$defs/GitRevision"
+            }
+          }
+        },
+        "artifact": {
+          "type": "object",
+          "required": [
+            "filename",
+            "size",
+            "sha256"
+          ],
+          "properties": {
+            "filename": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*\\.wasm$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 33554432
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "ModRelease": {
+      "type": "object",
+      "required": [
+        "manifest",
+        "download_url"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/ModReleaseManifest"
+        },
+        "download_url": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+$"
+        }
+      }
+    },
+    "ModUpdateQuery": {
+      "type": "object",
+      "required": [
+        "host_revision",
+        "current_version",
+        "current_revision",
+        "api_revisions"
+      ],
+      "properties": {
+        "host_revision": {
+          "$ref": "#/$defs/GitRevision"
+        },
+        "current_version": {
+          "$ref": "#/$defs/StableModVersion"
+        },
+        "current_revision": {
+          "$ref": "#/$defs/GitRevision"
+        },
+        "api_revisions": {
+          "type": "string",
+          "maxLength": 1311,
+          "pattern": "^[0-9a-f]{40}(,[0-9a-f]{40})*$"
+        }
+      }
+    },
+    "DownloadCountResponse": {
+      "description": "GET /v1/downloads/count: installer and update-package downloads on published versioned releases and the current nightly. Counts repeat downloads; excludes metadata and support files. Deleted assets cannot be reconstructed.",
+      "type": "object",
+      "required": [
+        "downloads"
+      ],
+      "properties": {
+        "downloads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": true
+    },
+    "ModLibraryEntries": {
+      "description": "Mods the player sent to their game from the website, oldest first. Clients download each by SHA-256, verify it, import it with every grant off, and turn off pulled versions, showing pull_reason.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "slug",
+          "version",
+          "sha256",
+          "bytes",
+          "grants",
+          "sent_at",
+          "pulled"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16777216
+          },
+          "grants": {
+            "description": "The component's cinnabar:grants request, as declared.",
+            "type": "object",
+            "maxProperties": 64
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pulled": {
+            "type": "boolean"
+          },
+          "pull_reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "ModLibraryRemove": {
+      "description": "An authenticated game client removes its exact website send request; stale requests are harmless.",
+      "type": "object",
+      "required": [
+        "type",
+        "slug",
+        "sha256",
+        "sent_at"
+      ],
+      "properties": {
+        "type": {
+          "const": "mod_library_remove"
+        },
+        "slug": {
+          "$ref": "#/$defs/ModLibraryEntries/items/properties/slug"
+        },
+        "sha256": {
+          "$ref": "#/$defs/ModLibraryEntries/items/properties/sha256"
+        },
+        "sent_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      }
+    },
+    "ModLibrary": {
+      "type": "object",
+      "required": [
+        "type",
+        "mods"
+      ],
+      "properties": {
+        "type": {
+          "const": "mod_library"
+        },
+        "mods": {
+          "$ref": "#/$defs/ModLibraryEntries"
         }
       }
     }

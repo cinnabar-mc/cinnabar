@@ -4,7 +4,7 @@
 // sorted refs or direct records as `liquid_record` selects; any other draw shades model draw
 // refs. Both paths run the liquid and model programs' own vertex and shading functions on their
 // own outputs, so the picture matches drawing each family through its own pipeline.
-import render::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG;
+import render::chunk_bindings::{TRANSPARENT_WATER_DRAW_FLAG, transparent_refs};
 import render::liquid::{VertexOutput as LiquidOutput, liquid_record, vertex_for_record, shade_liquid};
 import render::model::{VertexOutput as ModelOutput, model_vertex, shade_blend};
 
@@ -45,6 +45,11 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return terrain_vertex(vertex_index, instance_index);
+}
+
+// Shared reconstruction also serves host-meshed retained geometry.
+fn terrain_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     var out: VertexOutput;
     if ((instance_index & TRANSPARENT_WATER_DRAW_FLAG) != 0u) {
         let record = liquid_record(instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
@@ -105,6 +110,14 @@ fn vertex(
     @if(ENHANCED)
     out.world_origin = model.world_origin;
     return out;
+}
+
+// Each sorted face keeps the ordinary liquid/model decoder and fragment shader.
+@if(MOD_BLOCKS)
+@vertex
+fn vertex_blocks(@builtin(vertex_index) corner: u32, @builtin(instance_index) face: u32) -> VertexOutput {
+    let reference = transparent_refs(face);
+    return terrain_vertex(reference.metadata_index + corner, reference.liquid_record_index);
 }
 
 fn liquid_output(in: VertexOutput) -> LiquidOutput {

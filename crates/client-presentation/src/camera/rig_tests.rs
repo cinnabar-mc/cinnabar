@@ -58,6 +58,26 @@ fn rig_forces_third_person_back_and_clearing_restores_the_player_choice() {
 }
 
 #[test]
+fn scripted_view_draws_the_local_body_without_changing_the_perspective() {
+    let mut settings = CameraSettingsAuthority::default();
+    settings.reset_perspective();
+    settings.set_scripted_view(true);
+    assert_eq!(settings.perspective(), PerspectiveMode::FirstPerson);
+    assert_eq!(
+        settings.rendered_perspective(),
+        PerspectiveMode::ThirdPersonBack
+    );
+    settings.set_scripted_view(false);
+    assert_eq!(
+        settings.rendered_perspective(),
+        PerspectiveMode::FirstPerson
+    );
+    settings.cycle_perspective();
+    settings.set_scripted_view(true);
+    assert_eq!(settings.rendered_perspective(), settings.perspective());
+}
+
+#[test]
 fn view_multipliers_leave_saved_settings_and_perspective_intact() {
     let mut settings = CameraSettingsAuthority::default();
     let mut user = ui::UserSettings::default();

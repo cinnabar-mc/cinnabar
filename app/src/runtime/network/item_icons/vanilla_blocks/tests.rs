@@ -128,7 +128,8 @@ fn hd_carried_sheets_survive_session_publication_without_thumbnails() {
     let color = [80, 150, 220, 255];
     compiled.overlay.textures.first_mut().unwrap().mips =
         assets::build_legacy_terrain_mip_chain(&color.repeat((side * side) as usize), side)
-            .unwrap();
+            .unwrap()
+            .into();
     let mut output = BlockIcons::default();
     let route = Route {
         identifier: "minecraft:fixture_cube".into(),

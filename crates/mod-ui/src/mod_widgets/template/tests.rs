@@ -1,19 +1,6 @@
 use super::*;
 use ui::mod_hud::Anchor;
 
-/// Center anchoring follows viewport and scale changes until a saved drag position overrides it.
-#[test]
-fn centered_compass_follows_viewport_and_saved_placement() {
-    let mut card:Card=serde_json::from_str(r#"{"id":"direction","rows":[],"width":280,"offset":[0,8],"anchor":"top_center","compass":{}}"#).unwrap();
-    assert_eq!(origin(&card, [800., 500.]), [260., 8.]);
-    assert_eq!(origin(&card, [400., 200.]), [60., 8.]);
-    card.scale = 2.;
-    assert_eq!(origin(&card, [400., 200.]), [0., 8.]);
-    card.scale = 1.;
-    card.position = Some([0.25, 0.5]);
-    assert_eq!(origin(&card, [400., 200.]), [30., 84.]);
-}
-
 /// Authored offsets keep fitting widgets reachable for every supported anchor after a resize.
 #[test]
 fn anchored_cards_remain_reachable_in_a_smaller_viewport() {

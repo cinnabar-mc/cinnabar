@@ -21,7 +21,11 @@ impl Instance {
     /// Moves complete host state into a fresh store and reinitializes admitted guest code.
     /// Returns true only after the bounded loading lane admitted a successful restart.
     pub(crate) fn recover_frame_fuel(&mut self) -> Result<bool> {
-        if self.status != InstanceStatus::Recovering || !self.can_reload() {
+        if !matches!(
+            self.status,
+            InstanceStatus::Recovering | InstanceStatus::Cancelled
+        ) || !self.can_reload()
+        {
             return Ok(false);
         }
         if let Some(budget) = &self.callback_budget {
@@ -30,10 +34,13 @@ impl Instance {
                 "loading callback deferred"
             );
         }
+        let timing = self.callback_timing();
         self.begin_frame();
         self.store.data_mut().rollback_callback();
         self.store.data_mut().render.restart_guest();
         let open = self.panel_open();
+        let open_order = self.store.data().controls.open_order;
+        let open_requested = self.store.data().controls.open_requested;
         // This placeholder is never entered or published; both result paths restore real state.
         let placeholder = Store::new(
             self.pre.engine(),
@@ -41,18 +48,23 @@ impl Instance {
         );
         let previous = std::mem::replace(&mut self.store, placeholder);
         self.store = Store::new(self.pre.engine(), previous.into_data());
-        match Self::initialize(&self.pre, &mut self.store) {
+        let initialized = Self::initialize(&self.pre, &mut self.store);
+        self.charge_callback_time(timing);
+        match initialized {
             Ok((exports, fuel)) => {
                 self.exports = exports;
                 self.last_fuel = fuel;
                 self.status = InstanceStatus::Running;
                 self.filter_identity = super::action_filter::next_identity();
+                self.renew_frame_owner();
             }
             Err(error) => {
                 self.quarantine();
                 return Err(error.context("mod quarantined after frame fuel recovery failed"));
             }
         }
+        self.store.data_mut().controls.open_order = open_order;
+        self.store.data_mut().controls.open_requested = open_requested;
         self.set_panel_open(open);
         Ok(true)
     }
@@ -103,6 +115,7 @@ impl State {
             output,
             inventory,
             events: _,
+            clock: _,
             touch,
         } = self;
         *pending = None;

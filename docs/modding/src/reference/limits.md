@@ -4,27 +4,47 @@
 
 These are Cinnabar sandbox and API limits. Counts apply per mod unless stated otherwise. Bytes count UTF-8 or encoded data, not characters. Fuel measures guest execution; host imports have separate allowances. Handle errors and spread work across callbacks.
 
+## Event handlers
+
+| Constant | Value | Scope |
+| --- | ---: | --- |
+| `mod_api::ACTION_FILTER_FUEL` | 200000 | Independent fuel for one synchronous action-filter call. |
+| `mod_api::HANDLER_CALL_FUEL` | 50000 | Fuel for one handler call; a handler is skipped when its event family's remaining allowance is smaller. |
+| `mod_api::TOTAL_SOUND_HANDLER_FUEL` | 400000 | Guest fuel shared by all sound handlers per audio frame. |
+| `mod_api::MAX_HANDLED_SOUNDS` | 256 | New playback requests offered per audio frame; excess requests play unhandled. |
+| `mod_api::MAX_SOUND_NAME_BYTES` | 128 | Bytes in one offered sound-definition name. |
+| `mod_api::TOTAL_TELEPORT_HANDLER_FUEL` | 400000 | Guest fuel shared by all teleport handlers per frame. |
+
 ## Execution and packages
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
-| `mod_host::FRAME_FUEL` | 200000 | Fuel for one personal-mod frame; also the action filter's independent fuel allowance. |
-| `mod_api::TOTAL_MOD_FRAME_FUEL` | 400000 | Frame fuel shared by all local mods. |
+| `mod_host::FRAME_FUEL` | 1000000 | Fuel for one personal-mod frame. |
+| `mod_api::TOTAL_MOD_FRAME_FUEL` | 2000000 | Frame fuel shared by all local mods, including actual world-entry use. |
+| `mod_host::WORLD_ENTRY_FRAME_FUEL` | 4000000 | One frame callback per observed world session, subject to shared admission. |
 | `server_experience::runtime::CALLBACK_FUEL` | 10000000 | Ordinary event and client-part callback fuel. |
 | `server_experience::runtime::LOAD_FUEL` | 100000000 | Personal-mod init and data-changed fuel. |
 | `mod_host::MEMORY_BYTES` | 16777216 | Linear memory per personal mod. |
-| `mod_api::MAX_LOADED_MODS` | 4 | Concurrent local mods. |
+| `mod_api::MAX_LOADED_MODS` | 256 | Concurrent local mods. |
 | `mod_host::MAX_COMPONENT_BYTES` | 4194304 | Executable component bytes. |
 | `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21233966 | Component envelope including embedded resources. |
 | `mod_host::package::MAX_PACKAGE_BYTES` | 16777216 | Indexed directory package bytes. |
 | `mod_host::MAX_LABEL_BYTES` | 256 | Plain label bytes. |
 | `mod_api::MAX_SETTINGS_BYTES` | 16384 | Settings JSON bytes. |
 
+After the host observes a new world session, each personal mod may run one frame callback with `WORLD_ENTRY_FRAME_FUEL`. Across all local mods, only one such callback is admitted per game update. It needs a full `FRAME_FUEL` reservation for admission and receives the full world-entry allowance. Its actual fuel use is charged to the shared frame pool; unused reservation fuel is refunded, and use beyond the pool reduces later frames' capacity. If the extra slot is busy, ordinary callbacks can continue and the mod keeps its pending allowance. A temporary missing world, dimension change, guest recovery or hot replacement does not renew a used allowance.
+
+The guest's `budget.remaining-fuel` reports its cumulative invocation allowance across suspension. Elapsed time only schedules suspendible frames; fuel is their only execution fault limit. Host-call limits, validation, events, loading and synchronous decision-handler instances keep their separate limits. Fuel does not guarantee a wall-clock duration.
+
 ## Controls and presentation
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
-| `mod_api::MAX_CONTROL_KEYS` | 64 | Reserved physical keys. |
+| `mod_api::MAX_SELECTED_SLOT_READS` | 8 | Selected-slot reads per callback, apart from the player-state read allowance. |
+| `mod_api::MAX_INPUT_BINDINGS_PER_READ` | 16 | Physical binding entries copied per read. |
+| `mod_api::MAX_INPUT_BINDINGS` | 128 | Physical binding entries per settings snapshot. |
+| `mod_api::MAX_INPUT_ACTION_BYTES` | 32 | Bytes per stable binding action name. |
+| `mod_api::MAX_CONTROL_KEYS` | 64 | Physical keys per held/admitted/pressed list, selection or reservation. Held and admitted lists truncate independently in physical-name order; above the cap, chord resolution can differ from the host gate. |
 | `mod_api::MAX_CONTROL_KEY_BYTES` | 32 | Bytes per physical key name. |
 | `ui::mod_panel::MAX_PANEL_BYTES` | 327680 | Whole personal panel JSON bytes. |
 | `ui::mod_panel::MAX_PANEL_BUNDLE_BYTES` | 8388608 | Panel bundle bytes. |
@@ -59,9 +79,24 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `mod_api::MAX_ICON_BYTES` | 262144 | Mods library icon bytes. |
 | `mod_api::MAX_ICON_SIDE` | 256 | Mods library icon side in pixels. |
 | `mod_api::native_frame::MAX_BYTES` | 65536 | Native frame input and camera output bytes. |
-| `mod_api::native_menu::MAX_INPUT_BYTES` | 65536 | Native menu input bytes. |
-| `mod_api::native_menu::MAX_OUTPUT_BYTES` | 524288 | Native menu output bytes. |
 | `mod_api::native_render::MAX_BYTES` | 262144 | Native drawing output bytes. |
+
+## Block geometry and clipping
+
+| Constant | Value | Scope |
+| --- | ---: | --- |
+| `mod_api::drawing::MAX_BLOCK_CELLS` | 2097152 | Retained grid cells, including retired generations. |
+| `mod_api::drawing::MAX_BLOCK_EXTENT` | 384 | Grid extent per axis. |
+| `mod_api::drawing::MAX_BLOCK_PALETTE` | 4096 | States in one grid palette. |
+| `mod_api::drawing::MAX_BLOCK_STATE_BYTES` | 262144 | Named palette state bytes. |
+| `mod_api::drawing::MAX_BLOCK_MUTATION_BYTES` | 16777216 | Grid input bytes per callback. |
+| `mod_api::drawing::MAX_BLOCK_TRIANGLES` | 2097152 | Triangles across an owner's completed grids. |
+| `mod_api::drawing::MAX_BLOCK_DRAW_TRIANGLES` | 4194304 | Submitted block triangles across placements. |
+| `mod_api::drawing::MAX_BLOCK_MESH_BYTES` | 134217728 | Packed mesh bytes across an owner's grids. |
+| `mod_api::drawing::MAX_BLOCK_GPU_BYTES` | 268435456 | GPU arena, sort and placement bytes for personal block drawing. |
+| `mod_api::drawing::MAX_DRAW_CLIPS` | 8 | Retained clip resources. |
+| `mod_api::drawing::MAX_DRAW_CLIP_DEPTH` | 2 | Mask levels in one intersected clip chain. |
+| `mod_api::drawing::MAX_CLIP_ATTACHMENT_BYTES` | 134217728 | Private clip attachment bytes across personal views. |
 
 ## World and player observations
 

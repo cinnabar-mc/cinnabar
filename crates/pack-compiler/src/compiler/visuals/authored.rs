@@ -90,7 +90,12 @@ pub(in crate::compiler) fn compile_rule(
         if quads.is_empty() || quads.len() > assets::MAX_MODEL_TEMPLATE_QUADS {
             return Ok(CompileRuleResult::Reject);
         }
-        let template = push_model_template(quads, 0, storage.templates, storage.quads)?;
+        // Region installation rewrites the first of a pair and keeps this copy for overlays.
+        let paired = inputs.sheet_tiles.contains(material);
+        let template = push_model_template(quads.clone(), 0, storage.templates, storage.quads)?;
+        if paired {
+            push_model_template(quads, 0, storage.templates, storage.quads)?;
+        }
         templates.insert(key, template);
         template
     };
