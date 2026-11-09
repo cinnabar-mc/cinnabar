@@ -54,6 +54,60 @@ fn redstone_torch_icons_use_lit_artwork_independently_of_placement_power() {
 }
 
 #[test]
+fn redstone_torch_icons_use_diagnostic_artwork_when_lit_material_is_absent() {
+    for has_lit_block in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let mut catalog = serde_json::json!({
+            "unlit_redstone_torch": {"textures": "off"},
+        });
+        if has_lit_block {
+            catalog["redstone_torch"] = serde_json::json!({
+                "textures": "off", "carried_textures": "absent",
+            });
+        }
+        let terrain = serde_json::json!({"texture_data": {
+            "off": {"textures": "textures/blocks/unlit"},
+            (pack_compile_input::pack::MISSING_TILE_TEXTURE_KEY): {
+                "textures": "textures/blocks/unlisted",
+            },
+            (MISSING_TEXTURE_KEY): {"textures": "textures/blocks/missing"},
+        }});
+        write_pack(
+            root.path(),
+            &catalog.to_string(),
+            &terrain.to_string(),
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let expected = if has_lit_block {
+            "textures/blocks/missing"
+        } else {
+            "textures/blocks/unlisted"
+        };
+        for name in ["minecraft:redstone_torch", "minecraft:unlit_redstone_torch"] {
+            let mut states = 0;
+            for record in blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+            {
+                states += 1;
+                assert_eq!(
+                    blocks
+                        .texture_path(BlockVisualId(record.sequential_id))
+                        .as_deref(),
+                    Some(expected),
+                    "{} {} (lit block present: {has_lit_block})",
+                    record.name,
+                    record.canonical_state,
+                );
+            }
+            assert!(states > 0, "{name}");
+        }
+    }
+}
+
+#[test]
 fn glass_panes_are_models_while_metal_bars_remain_flat() {
     let blocks = IconBlocks::read(tempfile::tempdir().unwrap().path()).unwrap();
     let world = RuntimeAssets::diagnostic();

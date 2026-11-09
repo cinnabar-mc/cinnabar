@@ -38,6 +38,9 @@ const FLAT_FAMILIES: [ModelFamily; 10] = [
 /// the carried texture flat: barrier and the light blocks.
 const FLAT_TRAITS: BlockTraits = BlockTraits::INVISIBLE.union(BlockTraits::LIGHT_BLOCK);
 
+/// Terrain destination used when a carried texture key is absent.
+const MISSING_TEXTURE_KEY: &str = "missing";
+
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
     /// `None` when the pack lacks the block and terrain catalogs.
@@ -466,7 +469,16 @@ impl IconBlocks {
                     })?
                     .into()
             }
-            None => resolve_carried_down_key(&pack.blocks, record)?,
+            None => resolve_carried_down_key(&pack.blocks, record).or_else(|| {
+                resolve_texture_key(&pack.blocks, record, icon_face)
+                    .key
+                    .map(|key| Cow::Owned(key.into_string()))
+            })?,
+        };
+        let key = if pack.terrain.get(&key).is_some() {
+            key
+        } else {
+            MISSING_TEXTURE_KEY.into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
