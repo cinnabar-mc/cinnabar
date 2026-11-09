@@ -530,11 +530,18 @@ impl Rider {
         if self.left_on_client {
             frame.facts = frame.facts.off_mount();
         }
+        // The frame's one tick decision comes first, as the client makes it.
+        self.locals.decide_frame_ticks(&self.ticker);
+        if self.locals.holds_ticks() {
+            self.locals
+                .observe_dismount(&frame, self.ticker.session_generation());
+            return false;
+        }
         let mut interactions = self.interactions;
         interactions.attack_queued |= self.melee.press_pending();
         let transport = self.transport;
         let sent = &mut self.sent;
-        let step = self.locals.leave_mount(
+        let got_off = self.locals.leave_mount(
             &mut frame,
             &mut self.physics,
             &self.ticker,
@@ -547,10 +554,8 @@ impl Rider {
                 transport
             },
         );
-        match step {
-            super::DismountStep::Waiting => return false,
-            super::DismountStep::GotOff => self.left_on_client = true,
-            super::DismountStep::Seated => {}
+        if got_off {
+            self.left_on_client = true;
         }
         assert!(self.locals.advance(
             frame,

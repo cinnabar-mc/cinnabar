@@ -595,7 +595,10 @@ once nothing from the seat is still outbound (movement queued or not yet written
 item release, attack, block-use or item-release work), the last tick completed and every
 column around the mount has arrived. While seated movement already produced is still going
 out the frame runs no ticks, so the backlog drains and input does not move the mount; a
-release facing a tick still to come lets the ticks run. Once off, the
+release facing a tick still to come lets the ticks run. That hold is decided once per frame
+as block use starts, before item use and movement read whether a tick runs, so a buffered
+pick or a server item-use write waits for the tick that does run; a press first seen in a
+frame holds from the next frame. Once off, the
 client world's mount view rides the player on nothing until the server's links for it
 change; movement, seat pose, view lock, animation, actor picking and collision read that
 view, so a link the server sends again seats the player for all of them, while the

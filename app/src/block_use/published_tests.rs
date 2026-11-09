@@ -288,6 +288,7 @@ fn fixture_with_entity_assets(
     world.init_resource::<SwingTracker>();
     world.init_resource::<client_interaction::item_use::ItemUseRuntime>();
     world.insert_resource(movement);
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     world.spawn((
         Window {
             focused: true,
@@ -646,7 +647,6 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
-    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 

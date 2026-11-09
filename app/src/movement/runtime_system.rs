@@ -176,8 +176,10 @@ pub(crate) fn advance_local_physics(
         frame.toggle_sneak = false;
     }
 
-    if !movement_ticker.can_advance_physics_frame() {
-        // Retain presses and publish the pose while transport pauses simulation.
+    // Transport pausing simulation, or a dismount waiting for seated movement already
+    // produced (decided for the whole frame by `decide_frame_ticks`), runs no ticks.
+    if !movement_ticker.can_advance_physics_frame() || locals.holds_ticks() {
+        // Retain presses and publish the pose while no tick runs.
         locals.observe_dismount(&frame, movement_ticker.session_generation());
         publish_physics_view(&mut physics, &mut view);
         return;
@@ -205,32 +207,24 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .is_some_and(|block_use| block_use.press_pending()),
     };
-    let step = network
-        .as_deref()
-        .map_or(gameplay::movement::DismountStep::Seated, |network| {
-            locals.leave_mount(
-                &mut frame,
-                &mut physics,
-                &movement_ticker,
-                &world,
-                interactions,
-                |packet| network.send_inventory_packets(vec![packet]),
-            )
-        });
-    let world = match step {
-        gameplay::movement::DismountStep::Seated => world,
-        gameplay::movement::DismountStep::Waiting => {
-            // No new seated movement joins what the dismount waits for.
-            publish_physics_view(&mut physics, &mut view);
+    let got_off = network.as_deref().is_some_and(|network| {
+        locals.leave_mount(
+            &mut frame,
+            &mut physics,
+            &movement_ticker,
+            &world,
+            interactions,
+            |packet| network.send_inventory_packets(vec![packet]),
+        )
+    });
+    let world = if got_off {
+        drop(world);
+        let Some(world) = leave_local_mount(&mut client_world, &collisions, &physics) else {
             return;
-        }
-        gameplay::movement::DismountStep::GotOff => {
-            drop(world);
-            let Some(world) = leave_local_mount(&mut client_world, &collisions, &physics) else {
-                return;
-            };
-            world
-        }
+        };
+        world
+    } else {
+        world
     };
     let advanced = locals.advance(
         frame,
@@ -251,6 +245,20 @@ pub(crate) fn advance_local_physics(
         });
     }
     publish_physics_view(&mut physics, &mut view);
+}
+
+/// Decides once per frame whether a requested dismount holds the frame's ticks;
+/// [`gameplay::movement::frame_simulates_tick`] and the movement system both read that
+/// decision. The caller runs it before anything consumes tick-bound pick or item-use state.
+pub(crate) fn decide_frame_ticks(world: &mut bevy::prelude::World) {
+    if !world.contains_resource::<LocomotionState>() {
+        return;
+    }
+    world.resource_scope(|world, mut locals: bevy::prelude::Mut<LocomotionState>| {
+        if let Some(movement_ticker) = world.get_resource::<MovementTicker>() {
+            locals.decide_frame_ticks(movement_ticker);
+        }
+    });
 }
 
 /// Takes the local player off its mount in the client world, whose mount state then keeps it
