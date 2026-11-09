@@ -7,10 +7,11 @@ fn authored_attach_and_detach_retain_committed_transparent_snapshots() {
     let assets = ChunkTextureAssets::default();
     let array = assets::texture::TextureArray {
         layers: 1,
-        mips: Box::new([assets::texture::TextureMip {
+        mips: [assets::texture::TextureMip {
             size: 1,
             rgba8: Box::new([128; 4]),
-        }]),
+        }]
+        .into(),
     };
     let maps = render_scene::EnhancedTextureAssets::new(
         [array.clone(), array.clone()],

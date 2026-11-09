@@ -442,8 +442,13 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   remain open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
-  verified; complete server-form and gameplay acceptance remains open. Column light
-  batches reuse one resident sky-ceiling scan for section snapshots and boundary
+  verified; complete server-form and gameplay acceptance remains open.
+  Failed required terrain writes discard the complete GPU generation. Live generations
+  rebuild retained CPU meshes after bounded backoff, including with a zero upload budget;
+  failed background candidates leave the active arena intact. Rebuilds use minimal growth
+  and withdraw incomplete draws and shader-pack expansion. Optional growth preserves valid
+  publications. Native low-memory recovery acceptance remains open.
+  Column light batches reuse one resident sky-ceiling scan for section snapshots and boundary
   waiters. Dispatched light members retire their queued candidates, so completed
   columns do not consume later dispatch scans. Changed light faces return pending
   neighbours to readiness without replacing their revision or queue age. Completing
@@ -526,6 +531,10 @@ Historical movement acceptance scope includes sprint/double-tap/toggle timing, f
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Fixed-tick movement and correction replay apply liquid sprint stops and sprint
+speed-modifier edges before travel; see [swimming triggers](docs/reference/swimming-trigger.md).
+Speed authority follows actor lifetimes and survives prediction resets.
+Incomplete: live strict-server acceptance of the surface-exit and wet-jump sprint stops.
 Server sprint metadata preserves the local Toggle Sprint request. Held sprint
 restarts after a server clear when admission conditions hold. Native rendered
 acceptance of server resets and corrections remains outstanding.
@@ -841,8 +850,9 @@ and version-matched in-game acceptance remain incomplete.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.
-  Implemented dropped sprite families, including flower beds, shaped plants and eggs, use
-  their carried artwork. Spike icon faces and native transforms remain incomplete.
+  Implemented dropped sprite families, including amethyst buds and clusters, flower beds,
+  shaped plants and eggs, use their carried artwork. Spike icon faces and native transforms
+  remain incomplete.
   Other drop classes and native poses remain incomplete. Falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
@@ -1047,6 +1057,19 @@ a trident brandishes it while it has a target, so the pack's third-person
 `brandish_spear` raises the arm. The rope's native material, a pack-renamed
 `loyalty_rope` texture, the native trident material and light sample point, pole-only
 bone selection and abstract-arrow motion seeding for tridents remain incomplete.
+A brush used on a block succeeds on any block nothing else takes, as vanilla's
+`BrushItem::_useOn` does: the use-on predicts success without a swing, repeats on the
+held build schedule, and starts the brush's local held use, which button-up releases.
+Actors using a main-hand item with the brush use animation publish the native
+`variable.is_using_brush`, so the pack's third-person `brushing` pose sweeps the brush.
+The brush's 200-tick use duration is observed on BDS 1.26.61.1; its native registration
+is unverified. The native first-person brush sweep
+(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants are
+unverified), the brush dust the native client spawns every 8 ticks
+(particle type 86, drawn through the level's block-particle effect with unread
+parameters), a server-flag start of a brush taking its use duration, and the native
+`variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain
+incomplete.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -1199,6 +1222,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Malformed item entries never match, and conditions the client reads as zero keep
   the base value; item-tag filters compile during session preparation for
   allocation-free evaluation, and an unsupported filter matches no item.
+  Client-authoritative breaks retain admitted tool wear and its legacy response
+  identity, so later breaks use the updated slot and rejected changes can roll back.
   Mining uncertainty leaves known physics and local placement prediction usable.
   Mining states use separate storage and admission, preserving the physical state budget.
   Complex Molang conditions, item-tag scripts and live custom-block mining acceptance
