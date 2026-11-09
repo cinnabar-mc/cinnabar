@@ -685,6 +685,32 @@ fn interactions_after_getting_off_report_the_exit_before_the_next_tick() {
     assert!(close(between), "frame interactions read the exit: {between:?} != {exit:?}");
 }
 
+/// A server teleport after getting off replaces the exit as the position interactions read.
+#[test]
+fn a_teleport_after_getting_off_supersedes_the_exit() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    let mut press = boat_frame(false);
+    press.delta = Duration::ZERO;
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    rider.advance(press);
+    let exit = rider.physics.network_position().unwrap();
+    rider.locals.flush_dismount(exit, |_| Ok(()));
+    rider.locals.settle_dismount_fence(&mut rider.ticker);
+    let teleported = [4.5, 2.62, 4.5];
+    rider
+        .ticker
+        .note_server_teleport(super::ServerTeleportKind::MovePlayer);
+    // A correction replay rebuilds the tick ends from the teleport.
+    rider.ticker.anchor_tick_end(teleported);
+    rider.ticker.reapply_dismount_placement();
+    assert_eq!(
+        rider.ticker.build_action_state().unwrap().position,
+        teleported
+    );
+}
+
 /// A mount whose dismounts only the server performs keeps its rider until the server moves it.
 #[test]
 fn a_server_owned_dismount_waits_for_the_server() {

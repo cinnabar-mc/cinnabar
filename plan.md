@@ -593,7 +593,8 @@ with a floor and room, and reports that position in its stop-riding request. Wit
 stays at its seat. Incomplete: the still-vehicle motion threshold is unverified; each block
 counts as one box around its collision shapes; blocks vanilla exempts by flag or state other
 than scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail
-ejection are not implemented.
+ejection are not implemented; until the server's unlink arrives, the HUD, inventory and
+mining speed still treat the player as mounted.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.

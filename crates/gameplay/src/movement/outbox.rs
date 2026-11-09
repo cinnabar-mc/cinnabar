@@ -538,6 +538,11 @@ impl MovementTicker {
         })
     }
 
+    /// Forgets where a dismount placed the player once a server teleport supersedes it.
+    pub(super) fn retire_dismount_placement(&mut self) {
+        self.dismount.placed = None;
+    }
+
     /// Lets movement held back for a dismount request reach transport.
     pub(super) fn release_dismount_fence(&mut self) {
         self.dismount.fence = None;
