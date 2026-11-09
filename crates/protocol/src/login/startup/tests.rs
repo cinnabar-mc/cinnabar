@@ -88,8 +88,7 @@ fn deferred_packets_are_detached_and_bounded() {
         })
     };
     let mut deferred = DeferredPackets::default();
-    let chunks = decode_batch_body(body(&[half(), half()]), usize::MAX).unwrap();
-    let mut chunks = chunks.into_iter();
+    let mut chunks = decode_batch_body(body(&[half(), half()]), usize::MAX).unwrap();
     deferred.push(chunks.next().unwrap()).unwrap();
     assert!(matches!(
         deferred.push(chunks.next().unwrap()),

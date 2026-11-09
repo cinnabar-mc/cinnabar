@@ -36,7 +36,6 @@ fn serverbound_frames_report_each_encoded_packet_once_in_order() {
     record_serverbound(&tap, &frame);
     let expected: Vec<_> = crate::raw_packet::decode_batch_body(frame.slice(1..), usize::MAX)
         .unwrap()
-        .into_iter()
         .map(|raw| {
             TapEvent::Record(
                 PacketDirection::Serverbound,
