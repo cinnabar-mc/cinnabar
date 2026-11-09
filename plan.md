@@ -442,8 +442,13 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   remain open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
-  verified; complete server-form and gameplay acceptance remains open. Column light
-  batches reuse one resident sky-ceiling scan for section snapshots and boundary
+  verified; complete server-form and gameplay acceptance remains open.
+  Failed required terrain writes discard the complete GPU generation. Live generations
+  rebuild retained CPU meshes after bounded backoff, including with a zero upload budget;
+  failed background candidates leave the active arena intact. Rebuilds use minimal growth
+  and withdraw incomplete draws and shader-pack expansion. Optional growth preserves valid
+  publications. Native low-memory recovery acceptance remains open.
+  Column light batches reuse one resident sky-ceiling scan for section snapshots and boundary
   waiters. Dispatched light members retire their queued candidates, so completed
   columns do not consume later dispatch scans. Changed light faces return pending
   neighbours to readiness without replacing their revision or queue age. Completing
