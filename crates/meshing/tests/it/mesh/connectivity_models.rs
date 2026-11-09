@@ -11,6 +11,7 @@ struct CompiledConnectedFixture {
     cube: u32,
     glass: u32,
     scaffolding: u32,
+    powder_snow: u32,
     /// Registry-unclassified see-through cubes: ice, tinted glass and honey.
     see_through: [u32; 3],
 }
@@ -29,7 +30,8 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
                 "cobblestone_wall":{{"textures":"wall"}},
                 "{cube_name}":{{"textures":"cube"}},
                 "glass":{{"textures":"glass"}},
-                "scaffolding":{{"textures":"wall"}}
+                "scaffolding":{{"textures":"wall"}},
+                "powder_snow":{{"textures":"cube"}}
             }}"#
         ),
     )
@@ -162,6 +164,9 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             glass,
             scaffolding,
         ];
+        let powder_snow = named("minecraft:powder_snow");
+        let powder_snow_id = powder_snow.sequential_id;
+        records.push(powder_snow);
         records.extend(see_through);
         let compiled = compile_pack(directory.path(), &records)
         .expect("compile connected fixture");
@@ -209,6 +214,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             cube: ids[8],
             glass: ids[9],
             scaffolding: scaffolding_id,
+            powder_snow: powder_snow_id,
             see_through: see_through_ids,
         }
     })
@@ -383,7 +389,10 @@ fn panes_and_fences_connect_to_non_occluding_full_cubes() {
             .collect::<Vec<_>>();
         assert_eq!(
             arms,
-            [template(fixture.wood_fence), template(fixture.wood_fence) + 1 + 3],
+            [
+                template(fixture.wood_fence),
+                template(fixture.wood_fence) + 1 + 3
+            ],
             "fence beside {cube}"
         );
     }
@@ -631,4 +640,208 @@ fn fence_gate_axis_connections_cross_all_four_horizontal_subchunk_boundaries() {
         assert_eq!(refs[0].words()[1], fence_base, "face={face:?}");
         assert_eq!(refs[1].words()[1], fence_base + 1 + bit, "face={face:?}");
     }
+}
+
+#[test]
+fn surface_rules_crop_pack_faces_without_changing_block_identity_or_materials() {
+    use meshing::surface::{CoverageClause, SurfaceRule};
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([8, 8, 8], 1)],
+    )]);
+    let neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rules = [SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![],
+            tiles: (1 << 0) | (1 << 8),
+        }],
+    }];
+    let baseline = meshing::mesh_sub_chunk_in_neighbourhood(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+    );
+    let masked = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert_eq!(source.runtime_id(0, 8, 8, 8), Some(fixture.glass));
+    assert_eq!(baseline.model_refs(), masked.model_refs());
+    assert_eq!(baseline.model_lighting(), masked.model_lighting());
+    assert_eq!(
+        masked.model_draw_refs().len(),
+        baseline.model_draw_refs().len() * 2
+    );
+    for pair in masked.model_draw_refs().as_chunks::<2>().0 {
+        assert_eq!(pair[0].quad_index(), pair[1].quad_index());
+        assert_eq!((pair[0].words()[1] >> 5) & 15, 0);
+        assert_eq!((pair[1].words()[1] >> 5) & 15, 8);
+        assert!(
+            pair.iter()
+                .all(|draw| draw.valid_surface_tile() && draw.words()[1] >> 9 == 16)
+        );
+    }
+}
+
+#[test]
+fn surface_conditions_follow_diagonal_neighbours_across_chunk_boundaries() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([15, 15, 8], 1)],
+    )]);
+    let remote = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([0, 0, 8], 1)],
+    )]);
+    let mut neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rule = SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![NeighbourCondition {
+                offset: [1, 1, 0],
+                present: false,
+            }],
+            tiles: 1 << 8,
+        }],
+    };
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ, fixture.air)
+            .tiles,
+        0x1ff
+    );
+    assert!(neighbourhood.insert([1, 1, 0], &remote));
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 15, 8], Face::PositiveZ, fixture.air)
+            .tiles,
+        0
+    );
+}
+
+#[test]
+fn surface_conditions_distinguish_loaded_empty_sections_from_missing_sections() {
+    use meshing::surface::{CoverageClause, NeighbourCondition, SurfaceRule};
+    let source = sub_chunk(vec![]);
+    let empty = sub_chunk(vec![]);
+    let mut neighbourhood = world::MeshNeighbourhood::new(&source);
+    let mut rule = SurfaceRule {
+        states: vec![7],
+        border: 16,
+        clauses: vec![CoverageClause {
+            conditions: vec![NeighbourCondition {
+                offset: [1, 0, 0],
+                present: false,
+            }],
+            tiles: 1,
+        }],
+    };
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        0x1ff
+    );
+    assert!(neighbourhood.insert([1, 0, 0], &empty));
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        1
+    );
+    // Implicit and explicitly stored air use the same session identity.
+    rule.states = vec![42];
+    assert_eq!(
+        rule.coverage(&neighbourhood, [15, 8, 8], Face::PositiveZ, 42)
+            .tiles,
+        0
+    );
+}
+
+#[test]
+fn surface_rules_preserve_opaque_model_faces_and_only_reserve_matching_draws() {
+    use meshing::surface::SurfaceRule;
+    let fixture = compiled_connected_fixture();
+    let source = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.powder_snow],
+        &[([8, 8, 8], 1)],
+    )]);
+    let neighbourhood = world::MeshNeighbourhood::new(&source);
+    let rules = [SurfaceRule {
+        states: vec![fixture.powder_snow],
+        border: 16,
+        clauses: vec![],
+    }];
+    let baseline = meshing::mesh_sub_chunk_in_neighbourhood(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+    );
+    assert!(!baseline.model_draw_refs().is_empty());
+    let masked = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &neighbourhood,
+        &meshing::lighting::FullBrightLightSampler,
+        meshing::MeshOptions {
+            surface_rules: &rules,
+            ..Default::default()
+        },
+    );
+    assert_eq!(baseline.model_draw_refs(), masked.model_draw_refs());
+    let bounds = meshing::MeshOutputBounds::new(&fixture.assets);
+    assert_eq!(
+        bounds.for_sub_chunk(&source, &fixture.assets, NetworkIdMode::Sequential),
+        bounds.for_sub_chunk_with_surface_patches(
+            &source,
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &rules
+        )
+    );
+    let glass = sub_chunk(vec![packed_storage(
+        1,
+        &[fixture.air, fixture.glass],
+        &[([8, 8, 8], 1)],
+    )]);
+    assert_eq!(
+        bounds.for_sub_chunk(&glass, &fixture.assets, NetworkIdMode::Sequential),
+        bounds.for_sub_chunk_with_surface_patches(
+            &glass,
+            &fixture.assets,
+            NetworkIdMode::Sequential,
+            &rules
+        )
+    );
+    let glass_rule = [SurfaceRule {
+        states: vec![fixture.glass],
+        border: 16,
+        clauses: vec![],
+    }];
+    let extra = bounds.for_sub_chunk_with_surface_patches(
+        &glass,
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &glass_rule,
+    ) - bounds.for_sub_chunk(&glass, &fixture.assets, NetworkIdMode::Sequential);
+    assert_eq!(
+        extra,
+        4096 * 2 * 6 * 7 * std::mem::size_of::<meshing::PackedModelDrawRef>() as u64
+    );
 }

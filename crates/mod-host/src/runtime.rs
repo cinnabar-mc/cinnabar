@@ -337,6 +337,11 @@ pub(super) struct Instance {
 }
 
 impl Instance {
+    /// Borrows the last successfully committed terrain surface policy.
+    pub(super) fn terrain_surface_rules(&self) -> &[mod_api::terrain_surface::Rule] {
+        &self.store.data().environment.surface_rules
+    }
+
     /// Clears transient outputs even when no guest callback can execute this frame.
     pub(super) fn begin_frame(&mut self) {
         let state = self.store.data_mut();

@@ -85,6 +85,8 @@ pub struct MeshOptions<'a> {
     pub water_filled: &'a [u32],
     /// The cell overlays of the sub-chunk's own cells, drawn in order after its block models.
     pub overlays: &'a [crate::CellOverlay],
+    /// Visual-only, caller-resolved coverage rules for full block model faces.
+    pub surface_rules: &'a [crate::surface::SurfaceRule],
 }
 
 /// Greedy-mesh the bounded palette snapshot with solved block/sky light.
@@ -346,6 +348,7 @@ fn mesh_sub_chunk_core<
                             ) else {
                                 continue;
                             };
+                            let mut surface_coverage = [None; 32];
                             let mut visible_quad_mask =
                                 if template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 {
                                     let above = if y + 1 < SIDE {
@@ -430,6 +433,40 @@ fn mesh_sub_chunk_core<
                                     || snow_side_is_covered(visuals, entry, neighbour, cull_face)
                                 {
                                     visible_quad_mask &= !bit;
+                                }
+                            }
+                            if entry.variant == 0
+                                && !entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                                && visuals.model_random_offset(part_template).is_none()
+                                && let Some(rule) = options.surface_rules.iter().find(|rule| {
+                                    rule.states.binary_search(&entry.network_value).is_ok()
+                                })
+                            {
+                                for (index, quad) in template_quads.iter().enumerate() {
+                                    if visible_quad_mask & (1 << index) == 0 {
+                                        continue;
+                                    }
+                                    if quad.material == DIAGNOSTIC_MATERIAL
+                                        || visuals.material(quad.material).flags
+                                            & (assets::MATERIAL_FLAG_ALPHA_BLEND
+                                                | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+                                            == 0
+                                    {
+                                        continue;
+                                    }
+                                    if let Some(face) = crate::surface::full_face(quad) {
+                                        let coverage = rule.coverage(
+                                            neighbourhood,
+                                            [x as i32, y as i32, z as i32],
+                                            face,
+                                            classifier.air_network_id(),
+                                        );
+                                        if coverage.tiles == 0 {
+                                            visible_quad_mask &= !(1 << index);
+                                        } else if coverage.tiles != 0x1ff {
+                                            surface_coverage[index] = Some(coverage);
+                                        }
+                                    }
                                 }
                             }
                             if visible_quad_mask == 0 {
@@ -523,9 +560,17 @@ fn mesh_sub_chunk_core<
                                         & MATERIAL_FLAG_ALPHA_BLEND
                                         != 0
                                 {
-                                    transparent_model_draw_refs.push(draw_ref);
+                                    crate::surface::push_draws(
+                                        &mut transparent_model_draw_refs,
+                                        draw_ref,
+                                        surface_coverage[quad_index as usize],
+                                    );
                                 } else {
-                                    model_draw_refs.push(draw_ref);
+                                    crate::surface::push_draws(
+                                        &mut model_draw_refs,
+                                        draw_ref,
+                                        surface_coverage[quad_index as usize],
+                                    );
                                 }
                                 remaining &= remaining - 1;
                             }

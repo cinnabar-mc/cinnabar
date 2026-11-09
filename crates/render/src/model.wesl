@@ -195,6 +195,7 @@ struct ModelQuad {
     valid: u32,
     template_quad_base: u32,
     quad_index: u32,
+    surface_patch: u32,
     packed_transform: u32,
     lighting_base_index: u32,
     /// Placed block corner, relative to the section origin.
@@ -240,7 +241,8 @@ fn model_quad(instance_index: u32, metadata_index: u32) -> ModelQuad {
 }
 
 /// Decodes a stable model-ref address and template quad in an origin slot, validating all reads.
-fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> ModelQuad {
+fn model_quad_at(model_ref_index: u32, encoded_quad: u32, metadata_index: u32) -> ModelQuad {
+    let quad_index = encoded_quad & SURFACE_QUAD_INDEX_MASK;
     let geometry_word_count = arrayLength(&geometry_streams);
     if (quad_index >= 32u || model_ref_index > 0x3fffffffu) {
         return invalid_model_quad();
@@ -279,6 +281,7 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
     quad.valid = 1u;
     quad.template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
     quad.quad_index = quad_index;
+    quad.surface_patch = encoded_quad >> SURFACE_TILE_SHIFT;
     quad.packed_transform = packed_transform;
     quad.lighting_base_index = lighting_base_index;
     quad.block_position = vec3<f32>(
@@ -318,15 +321,57 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
     return quad;
 }
 
+/// Reads the original pack geometry, independently of any surface partition.
+fn raw_model_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
+    let component = corner * 3u;
+    return vec3<f32>(f32(packed_i16(quad.template_quad_base, component)),
+        f32(packed_i16(quad.template_quad_base, component + 1u)),
+        f32(packed_i16(quad.template_quad_base, component + 2u))) / 256.0;
+}
+
+/// Reads an authored UV without rotation or surface cropping.
+fn raw_model_uv(quad: ModelQuad, corner: u32) -> vec2<f32> {
+    return vec2<f32>(f32(packed_u16(quad.template_quad_base + 6u, corner * 2u)),
+        f32(packed_u16(quad.template_quad_base + 6u, corner * 2u + 1u))) / 4096.0;
+}
+
+/// Positive physical face axes, shared with the mesher's neighbour conditions.
+fn surface_axes(quad: ModelQuad, position: vec3<f32>) -> vec2<f32> {
+    let face = quad.quad_flags & 7u;
+    if (face <= 2u) { return position.xz; }
+    if (face <= 4u) { return position.zy; }
+    return position.xy;
+}
+
+/// Cropped position of an original corner within the block face.
+fn patch_coordinate(quad: ModelQuad, corner: u32) -> vec2<f32> {
+    let tile = quad.surface_patch & SURFACE_TILE_MASK;
+    let border = f32(quad.surface_patch >> SURFACE_BORDER_REL_SHIFT) / 256.0;
+    let edges = array(0.0, border, 1.0 - border, 1.0);
+    let cell = vec2<u32>(tile % 3u, tile / 3u);
+    let original = surface_axes(quad, raw_model_position(quad, corner));
+    return mix(vec2(edges[cell.x], edges[cell.y]),
+        vec2(edges[cell.x + 1u], edges[cell.y + 1u]), original);
+}
+
+/// Bilinear weights preserve the pack's UV mapping when a face is cropped.
+fn patch_weight(quad: ModelQuad, corner: u32, point: vec2<f32>) -> f32 {
+    let original = surface_axes(quad, raw_model_position(quad, corner));
+    let weight = mix(vec2(1.0) - point, point, original);
+    return weight.x * weight.y;
+}
+
 /// Template-space position of `corner` (block units from the placed block corner), after the
 /// quad's offsets and rotation.
 fn model_corner_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
-    let component = corner * 3u;
-    let template_position = vec3<f32>(
-        f32(packed_i16(quad.template_quad_base, component)),
-        f32(packed_i16(quad.template_quad_base, component + 1u)),
-        f32(packed_i16(quad.template_quad_base, component + 2u)),
-    ) / 256.0;
+    var template_position = raw_model_position(quad, corner);
+    if (quad.surface_patch != 0u) {
+        let point = patch_coordinate(quad, corner);
+        template_position = vec3(0.0);
+        for (var source = 0u; source < 4u; source += 1u) {
+            template_position += raw_model_position(quad, source) * patch_weight(quad, source, point);
+        }
+    }
     return rotate_model_turn(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
 }
 
@@ -341,11 +386,14 @@ fn model_quad_within_tile(quad: ModelQuad) -> bool {
 
 /// Texture coordinates of `corner` in the material's texture, before its page scale.
 fn model_corner_uv(quad: ModelQuad, material: MaterialGpu, corner: u32) -> vec2<f32> {
-    let uv_component = corner * 2u;
-    var uv = vec2<f32>(
-        f32(packed_u16(quad.template_quad_base + 6u, uv_component)),
-        f32(packed_u16(quad.template_quad_base + 6u, uv_component + 1u)),
-    ) / 4096.0;
+    var uv = raw_model_uv(quad, corner);
+    if (quad.surface_patch != 0u) {
+        let point = patch_coordinate(quad, corner);
+        uv = vec2(0.0);
+        for (var source = 0u; source < 4u; source += 1u) {
+            uv += raw_model_uv(quad, source) * patch_weight(quad, source, point);
+        }
+    }
     // Mirrors `assets::world_aligned_uv`: undo the model's y turns on world-aligned faces.
     let turns = quad.rotation & 3u;
     if ((quad.quad_flags & MODEL_WORLD_ALIGNED_UV_FLAG) != 0u && turns != 0u) {
@@ -447,6 +495,35 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
     out.native_ao_face = terrain_shade;
+    // Crop the decoded attributes at the same coordinates as geometry and UVs.
+    // Keeping these as floats avoids repeating or quantizing a whole-face gradient.
+    if (quad.surface_patch != 0u) {
+        let point = patch_coordinate(quad, corner);
+        out.lighting = vec3(0.0);
+        @if(ENHANCED)
+        out.sky_light = 0.0;
+        @if(ENHANCED)
+        out.ambient_occlusion = 0.0;
+        @if(!ENHANCED)
+        out.native_light_levels = vec2(0.0);
+        @if(!ENHANCED)
+        out.native_ao_face = 0.0;
+        for (var source = 0u; source < 4u; source += 1u) {
+            let weight = patch_weight(quad, source, point);
+            let sample = model_light_sample(quad, source);
+            let source_ao = material_ambient_occlusion(light_ao_factor((sample >> 8u) & 7u), material.flags);
+            let source_shade = source_ao * material_face_shade(model_shade_normal(out.normal, sample), (sample & 2048u) != 0u, material.flags);
+            out.lighting += weight * light_colour(sample) * source_shade;
+            @if(ENHANCED)
+            out.sky_light += weight * sky_illumination(sample);
+            @if(ENHANCED)
+            out.ambient_occlusion += weight * source_ao;
+            @if(!ENHANCED)
+            out.native_light_levels += weight * terrain_light_levels(sample);
+            @if(!ENHANCED)
+            out.native_ao_face += weight * source_shade;
+        }
+    }
     out.visibility.y = select(0u, 1u, (quad_flags & 8u) != 0u);
     out.world_position = world;
     out.world_origin = vec3<f32>(quad.chunk_origin.xyz);
