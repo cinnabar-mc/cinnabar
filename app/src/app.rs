@@ -113,7 +113,7 @@ use {
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, log_shutdown_phase,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -870,15 +870,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    log_shutdown_phase("runner_returned");
     PlatformClipboard::shutdown();
+    log_shutdown_phase("clipboard");
     client_shell::discord_presence::shutdown(&mut app);
+    log_shutdown_phase("discord");
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()
     {
         network.shutdown();
     }
+    log_shutdown_phase("network");
     drop(app);
+    log_shutdown_phase("world_dropped");
     bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),
