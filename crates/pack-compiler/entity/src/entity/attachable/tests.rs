@@ -112,7 +112,8 @@ fn trident_carries_literal_first_and_third_person_transforms() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 1);
     let trident = &bindings[0];
     assert_eq!(trident.category, EquipmentCategory::Held);
@@ -148,7 +149,8 @@ fn owner_armor_variants_are_retained_with_the_player_geometry_in_catalog() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 2);
     let helmet = &bindings[1];
     assert_eq!(helmet.identifier.as_ref(), "minecraft:diamond_helmet");
@@ -202,7 +204,8 @@ fn molang_bone_keyframes_stay_needs_measurement() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings[0].category, EquipmentCategory::Shield);
     assert!(bindings[0].third_person.literal().is_none());
 }
@@ -239,7 +242,8 @@ fn elytra_keeps_only_literal_poses_sorted_by_key() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings[0].category, EquipmentCategory::Elytra);
     let keys = bindings[0]
         .poses
@@ -295,7 +299,8 @@ fn shield_third_person_resolves_the_hand_conditional_into_one_pose_per_hand() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     let shield = &bindings[0];
     assert_eq!(shield.category, EquipmentCategory::Shield);
     assert_eq!(shield.poses.len(), 2);
@@ -436,7 +441,8 @@ fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     let dye = Some(0x00b0_2e26);
     let inventory = payloads
         .iter()
@@ -531,7 +537,8 @@ fn head_item_slot_script_admits_custom_geometry_as_a_helmet() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(
         bindings[0].category,
         EquipmentCategory::Armor {
@@ -553,7 +560,8 @@ fn head_context_without_a_thirdperson_head_branch_stays_held() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings[0].category, EquipmentCategory::Held);
 }
 
@@ -567,7 +575,8 @@ fn head_and_hand_branches_admit_a_dual_purpose_helmet() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(
         bindings[0].category,
         EquipmentCategory::ArmorAndHeld {
@@ -609,7 +618,8 @@ fn merged_animation_document_is_parsed_once_for_many_attachables() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 65);
     assert!(
         bindings
@@ -640,7 +650,8 @@ fn unreferenced_animation_documents_are_not_parsed_for_bindings() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 1);
     assert_eq!(ANIMATION_PARSES.get(), 0);
 }

@@ -18,6 +18,7 @@ pub(crate) struct GeometryCheckpoint {
     previous: Vec<BoneTransform>,
     rest: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
+    head_rotation: Option<HeadRotation>,
     reset: [bool; 2],
 }
 
@@ -45,6 +46,7 @@ impl GeometryCheckpoint {
             previous: std::mem::take(&mut state.previous),
             rest: std::mem::take(&mut state.rest),
             current: std::mem::take(&mut state.current),
+            head_rotation: state.head_rotation,
             reset: [state.reset_pending, state.rest_reset_pending],
         }
     }
@@ -71,6 +73,7 @@ impl GeometryCheckpoint {
         state.previous = self.previous;
         state.rest = self.rest;
         state.current = self.current;
+        state.head_rotation = self.head_rotation;
         [state.reset_pending, state.rest_reset_pending] = self.reset;
     }
 }

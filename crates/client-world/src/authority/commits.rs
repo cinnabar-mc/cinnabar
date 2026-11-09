@@ -154,7 +154,7 @@ impl WorldAuthority {
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
                 let local_removal = matches!(&event, ActorEvent::Remove(remove)
                     if remove.unique_id == self.local_player_unique_id && remove.dimension == self.current_dimension);
-                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+                let previous_mount = self.actors.linked_unique_id(self.local_player_unique_id);
                 let local_attributes = if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -211,26 +211,39 @@ impl WorldAuthority {
                     {
                         Some((status.runtime_id, super::ActorCombatKind::Death))
                     }
-                    _ => None,
-                };
-                let totem = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::TotemActivate =>
                     {
-                        Some((status.runtime_id, true))
+                        Some((status.runtime_id, super::ActorCombatKind::Totem))
                     }
+                    _ => None,
+                };
+                // A death notice, or attributes that leave the actor dead, end its current life.
+                let death = match &event {
                     ActorEvent::Status(status)
                         if status.kind == protocol::ActorStatusKind::Death =>
                     {
-                        Some((status.runtime_id, false))
+                        Some(status.runtime_id)
                     }
-                    _ => None,
-                };
-                let attributes_runtime = match &event {
                     ActorEvent::Attributes(update) => Some(update.runtime_id),
                     _ => None,
                 };
-                let result = self.actors.apply(self.actor_session_id, sequence, event);
+                let target_resident = self.player_move_target_resident(&event);
+                let result = self.actors.apply_with_player_move_terrain(
+                    self.actor_session_id,
+                    sequence,
+                    event,
+                    target_resident,
+                );
+                if result == crate::actor_store::ActorApplyResult::Updated
+                    && let Some(runtime_id) = death
+                    && self
+                        .actors
+                        .get(runtime_id)
+                        .is_some_and(|actor| actor.status.dead)
+                {
+                    self.actors.note_death(runtime_id, sequence);
+                }
                 if local_removal
                     && matches!(
                         result,
@@ -274,20 +287,6 @@ impl WorldAuthority {
                             dimensions,
                         });
                     }
-                }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some(runtime_id) = attributes_runtime
-                    && self
-                        .actors
-                        .get(runtime_id)
-                        .is_some_and(|actor| actor.status.dead)
-                {
-                    self.observe_totem_status(runtime_id, false);
-                }
-                if result == crate::actor_store::ActorApplyResult::Updated
-                    && let Some((runtime_id, activated)) = totem
-                {
-                    self.observe_totem_status(runtime_id, activated);
                 }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some((runtime_id, kind)) = combat
@@ -428,7 +427,7 @@ impl WorldAuthority {
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
-                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+                let previous_mount = self.actors.linked_unique_id(self.local_player_unique_id);
                 let _ = self
                     .actors
                     .apply_link(self.actor_session_id, sequence, event);
@@ -463,7 +462,8 @@ impl WorldAuthority {
                             self.publish_local_life(sequence, [health == 0]);
                         }
                         if health <= 0 {
-                            self.observe_totem_status(self.local_player_runtime_id, false);
+                            self.actors
+                                .note_death(self.local_player_runtime_id, sequence);
                         }
                         UiEvent::Hud(protocol::HudEvent::Health { health })
                     }
@@ -621,7 +621,7 @@ impl WorldAuthority {
 
     /// Publishes a local mount change after the actor mutation that caused it.
     pub fn publish_local_mount_change(&mut self, sequence: u64, previous: Option<i64>) {
-        let current = self.actors.ridden_unique_id(self.local_player_unique_id);
+        let current = self.actors.linked_unique_id(self.local_player_unique_id);
         if current != previous {
             self.push_committed_ui(CommittedUiEvent::LocalMount {
                 sequence,

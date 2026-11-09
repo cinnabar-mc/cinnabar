@@ -1,7 +1,9 @@
 //! Native layers must not interrupt a ready pack's replacement queues.
 
+use super::super::pipelines::GpuContext;
 use super::*;
 use bevy::ecs::system::RunSystemOnce;
+use bevy::render::renderer::RenderAdapter;
 
 /// Builds an empty, ready pack with compiled actor kernels and no game carriers.
 pub(in crate::shaderpack) fn ready_world() -> World {
@@ -69,6 +71,7 @@ pub(in crate::shaderpack) fn ready_world() -> World {
     prepare_actor_kernels(&mut world, &device);
     world.insert_resource(device);
     world.insert_resource(RenderQueue::new(gpu.queue));
+    world.insert_resource(RenderAdapter::new(gpu.adapter));
     world
 }
 

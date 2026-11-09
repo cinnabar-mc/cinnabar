@@ -675,14 +675,11 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         .iter()
         .zip(scene.frame().artwork_pages().pages())
     {
-        assert!(Arc::ptr_eq(
-            &worker.shared_pixels(),
-            &published.shared_pixels()
-        ));
+        assert!(worker.shared_pixels().ptr_eq(&published.shared_pixels()));
     }
     let again = prepared.pages_for(&startup, &pack).unwrap();
     for (first, next) in pages.pages().iter().zip(again.pages()) {
-        assert!(Arc::ptr_eq(&first.shared_pixels(), &next.shared_pixels()));
+        assert!(first.shared_pixels().ptr_eq(&next.shared_pixels()));
     }
 }
 
@@ -720,31 +717,52 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
     assert_eq!(glint(scene.frame().artwork_pages()), [1, 2, 3, 255]);
 }
 
-/// An active HitColor module cannot overwrite the Reach overlay on an undamaged target.
+/// Hurt colours apply only to actual damage; an undamaged actor shows its mod tint.
 #[test]
-fn reach_and_hurt_colors_follow_actual_damage_independently() {
-    let style = super::ActorPresentationStyle {
-        hurt_color: Some([1., 0., 0., 0.4]),
-        hurt_armor_color: Some([0.5, 0., 0., 0.4]),
-        attackable_color: Some([0., 1., 0., 0.3]),
-        attackable_actor: Some(7),
+fn tints_and_hurt_colors_follow_actual_damage_independently() {
+    let hurt = ui::mod_presentation::HurtOverlay {
+        body: Some([1., 0., 0., 0.4]),
+        armor: Some([0.5, 0., 0., 0.4]),
     };
+    let tint = Some([0., 1., 0., 0.3]);
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, false, false, true, true),
-        style.attackable_color
+        super::layers::cosmetic_overlay(&hurt, false, false, true, tint),
+        tint
     );
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, true, false, true, true),
-        style.hurt_color
+        super::layers::cosmetic_overlay(&hurt, true, false, true, tint),
+        hurt.body
     );
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, true, true, true, true),
-        style.hurt_armor_color
+        super::layers::cosmetic_overlay(&hurt, true, true, true, tint),
+        hurt.armor
     );
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, false, false, true, false),
+        super::layers::cosmetic_overlay(&hurt, true, false, false, tint),
         None
     );
+    assert_eq!(
+        super::layers::cosmetic_overlay(&hurt, false, false, true, None),
+        None
+    );
+}
+
+/// Tints follow the runtime ID and the actor kind each mod's grants admitted.
+#[test]
+fn tints_apply_only_to_the_admitted_actor_kind() {
+    let output = ui::mod_presentation::ModPresentation {
+        tints: std::collections::BTreeMap::from([(1, [0., 1., 0., 0.5])]),
+        ..Default::default()
+    };
+    let entities_only = ui::mod_presentation::Presentation::merge([(
+        ui::mod_presentation::ActorGrants {
+            players: false,
+            entities: true,
+        },
+        &output,
+    )]);
+    assert_eq!(entities_only.tint(1, true), None);
+    assert_eq!(entities_only.tint(1, false), Some([0., 1., 0., 0.5]));
 }
 
 /// Final styling preserves submission order and pose storage without allocating.
@@ -793,11 +811,24 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
     let mut cape = batch.submissions[0].clone();
     cape.input.identity.layer = crate::presentation::cape::ACTOR_LAYER_CAPE;
     batch.submissions.extend([armor, cape]);
+    let hurt_color = [1.0, 0.0, 0.0, 0.5];
+    let hurt_armor_color = [0.0, 0.0, 1.0, 0.5];
+    let tint_color = [0.0, 1.0, 0.0, 0.5];
     let style = super::ActorPresentationStyle {
-        hurt_color: Some([1.0, 0.0, 0.0, 0.5]),
-        hurt_armor_color: Some([0.0, 0.0, 1.0, 0.5]),
-        attackable_actor: Some(1),
-        attackable_color: Some([0.0, 1.0, 0.0, 0.5]),
+        presentation: Arc::new(ui::mod_presentation::Presentation::merge([(
+            ui::mod_presentation::ActorGrants {
+                players: true,
+                entities: false,
+            },
+            &ui::mod_presentation::ModPresentation {
+                hurt_overlay: ui::mod_presentation::HurtOverlay {
+                    body: Some(hurt_color),
+                    armor: Some(hurt_armor_color),
+                },
+                tints: std::collections::BTreeMap::from([(1, tint_color)]),
+                ..Default::default()
+            },
+        )])),
     };
     let original = batch.submissions.clone();
     let (storage, capacity) = (batch.submissions.as_ptr(), batch.submissions.capacity());
@@ -828,9 +859,9 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
         );
         for (index, submission) in batch.submissions.iter().enumerate() {
             let color = if hurt {
-                [style.hurt_color, style.hurt_armor_color, None][index]
+                [Some(hurt_color), Some(hurt_armor_color), None][index]
             } else {
-                style.attackable_color
+                Some(tint_color)
             };
             let mut expected = original[index].clone();
             expected.overlay_rgba8 = color.map_or(0, render_model::pack_overlay_rgba8);
@@ -866,9 +897,9 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
                 armor.overlay_rgba8,
                 if allows_overlay {
                     render_model::pack_overlay_rgba8(if hurt {
-                        style.hurt_armor_color.unwrap()
+                        hurt_armor_color
                     } else {
-                        style.attackable_color.unwrap()
+                        tint_color
                     })
                 } else {
                     0
@@ -1032,6 +1063,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:apple"),

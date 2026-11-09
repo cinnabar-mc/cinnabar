@@ -6,6 +6,9 @@
 
 use std::sync::Arc;
 
+mod shield;
+pub use shield::apply_banner_to_shield;
+
 use super::{
     compound_field, decode_extra_nbt, read_i32_le, read_u8, read_u16_le, root_tag, skip_le_payload,
 };

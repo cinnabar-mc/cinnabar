@@ -148,3 +148,45 @@ fn earlier_inventory_release_does_not_end_a_later_drag() {
         Some(1)
     );
 }
+
+/// A command block request answered after the player opened their inventory puts the editor over
+/// it, and a click on the editor must not move what lies under it.
+#[test]
+fn the_command_block_editor_keeps_clicks_from_the_inventory_under_it() {
+    let (mut app, _) = personal_app(2);
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .command_block_mut()
+        .open(Default::default());
+    let requests = |app: &App| {
+        let player = app.world().resource::<client_state::PlayerRuntime>();
+        player.inventory.ledger().pending_request_count()
+    };
+    let before = requests(&app);
+    let click = |app: &mut App| {
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        buttons.release(MouseButton::Left);
+        buttons.clear();
+        buttons.press(MouseButton::Left);
+        app.update();
+    };
+    click(&mut app);
+    assert_eq!(requests(&app), before);
+    let player = app.world().resource::<client_state::PlayerRuntime>();
+    assert_eq!(
+        player
+            .inventory
+            .ledger()
+            .displayed_stack(0)
+            .map(|stack| stack.count),
+        Some(2)
+    );
+
+    // The same click reaches the inventory again once the editor closes.
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .command_block_mut()
+        .close();
+    click(&mut app);
+    assert!(requests(&app) > before);
+}

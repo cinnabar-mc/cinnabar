@@ -7,7 +7,7 @@ use serde_json::json;
 use launcher::menu::settings_options::{BEDROCK_HOTBAR_OPTION, SettingsOptions};
 
 /// Where the built-in HUD and chat screen place their chat and hotbar.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HudPlacement {
     /// The chat at the top of the screen rather than above the hotbar.
     pub chat_top: bool,
@@ -47,6 +47,13 @@ impl HudPlacement {
     }
 }
 
+/// The placement default settings select.
+impl Default for HudPlacement {
+    fn default() -> Self {
+        Self::from_settings(&SettingsOptions::default())
+    }
+}
+
 /// Adds the Bedrock hotbar toggle after the vanilla Video section's interface opacity slider.
 pub fn install(catalog: &mut Catalog) {
     let name = BEDROCK_HOTBAR_OPTION.name;
@@ -73,19 +80,24 @@ pub fn install(catalog: &mut Catalog) {
 
 /// A placed context kept until its base context or placement changes, so the retained screen
 /// reading it compares it by pointer rather than variable by variable.
-#[derive(Default)]
-pub struct PlacedContext {
-    built: Option<(Context, HudPlacement, Context)>,
+pub struct PlacedContext<P = HudPlacement> {
+    built: Option<(Context, P, Context)>,
 }
 
-impl PlacedContext {
+impl<P> Default for PlacedContext<P> {
+    fn default() -> Self {
+        Self { built: None }
+    }
+}
+
+impl<P: Copy + PartialEq> PlacedContext<P> {
     /// `place(base, placement)`, reused while `base` and `placement` match the last call's. Each
     /// holder passes the same `place` on every call.
     pub fn get(
         &mut self,
         base: &Context,
-        placement: HudPlacement,
-        place: impl FnOnce(Context, HudPlacement) -> Context,
+        placement: P,
+        place: impl FnOnce(Context, P) -> Context,
     ) -> Context {
         if let Some((built_base, built_placement, context)) = &self.built
             && *built_placement == placement
@@ -168,8 +180,8 @@ mod tests {
         }
         assert_eq!(
             HudPlacement::from_settings(&SettingsOptions::default()),
-            HudPlacement::default(),
-            "Java's flush hotbar and bottom chat stay the defaults"
+            HudPlacement::new(false, true),
+            "vanilla Bedrock's hotbar height and bottom chat are the defaults"
         );
     }
 

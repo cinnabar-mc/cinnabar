@@ -8,6 +8,7 @@ use bevy::{
     },
 };
 use render_scene::mod_scene::retained::DrawingFrame;
+pub(crate) mod clips;
 mod clock;
 mod gpu;
 #[cfg(test)]
@@ -23,6 +24,7 @@ pub(super) fn install(app: &mut App) {
     crate::pipeline_warmup::register::<pipeline::Pipeline>(app);
     crate::pipeline_warmup::register_pending::<materials::Materials>(app);
     app.add_plugins(ExtractResourcePlugin::<DrawingFrame>::default());
+    app.add_systems(Update, crate::chunk::admit_depth_sampling);
     app.init_resource::<clock::AnimationClock>()
         .add_plugins(ExtractResourcePlugin::<clock::AnimationClock>::default())
         .add_systems(Last, clock::advance);
@@ -40,6 +42,18 @@ pub(super) fn install(app: &mut App) {
             )
         }
     );
+    load_internal_asset!(
+        app,
+        clips::SHADER,
+        "retained/clip_mask.wgsl",
+        |source: &str, path| crate::shader_safety::from_wgsl(clips::source(false, source), path)
+    );
+    load_internal_asset!(
+        app,
+        clips::MSAA_SHADER,
+        "retained/clip_mask.wgsl",
+        |source: &str, path| crate::shader_safety::from_wgsl(clips::source(true, source), path)
+    );
     crate::device_poll::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<gpu::Gpu>()
@@ -47,6 +61,8 @@ pub(super) fn install(app: &mut App) {
         .init_resource::<materials::Materials>()
         .add_render_command::<bevy::core_pipeline::core_3d::Transparent3d, pipeline::Draw>();
     install_systems(app.sub_app_mut(RenderApp));
+    clips::install(app.sub_app_mut(RenderApp));
+    crate::chunk::blocks::install(app);
 }
 
 /// Registers drawing preparation and deferred resource release in the render schedule.

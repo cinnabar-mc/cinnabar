@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -55,9 +56,18 @@ type sessionPack struct {
 	UUID       string                `json:"uuid"`
 	Version    string                `json:"version"`
 	SubPack    string                `json:"sub_pack"`
-	ContentKey string                `json:"content_key"`
+	ContentKey sessionContentKey     `json:"content_key"`
 	Size       uint64                `json:"size"`
 	Cache      *sessionCachedArchive `json:"cache,omitempty"`
+}
+
+// sessionContentKey is a pack's content key as the server sent it. Servers may send any bytes,
+// including invalid UTF-8 that a JSON string would replace, so it travels base64-encoded.
+type sessionContentKey []byte
+
+// MarshalJSON encodes the key as a standard base64 string; an empty or nil key is "".
+func (key sessionContentKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(base64.StdEncoding.EncodeToString(key))
 }
 
 // sessionCachedArchive names a pinned cache file; Size and SHA256 must both match before use.

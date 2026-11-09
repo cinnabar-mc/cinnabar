@@ -48,7 +48,7 @@ fn activation_draws_the_session_texture_through_all_phases_and_then_disappears()
     });
     session_icons::observe(&mut presentation, Some(&icons));
     let icon = presentation.item_icon(TOTEM_IDENTIFIER, 7).unwrap();
-    runtime.item_activation = Some(ItemActivation {
+    runtime.session.item_activation = Some(ItemActivation {
         identifier: TOTEM_IDENTIFIER.into(),
         metadata: 7,
         elapsed_millis: 0,
@@ -56,7 +56,12 @@ fn activation_draws_the_session_texture_through_all_phases_and_then_disappears()
         offsets: [0; 2],
     });
     for age in [0, 100, 500, 1_000, 1_500, 1_999] {
-        runtime.item_activation.as_mut().unwrap().elapsed_millis = age;
+        runtime
+            .session
+            .item_activation
+            .as_mut()
+            .unwrap()
+            .elapsed_millis = age;
         let mut nodes = Vec::new();
         presentation
             .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], [0.0; 2])
@@ -70,7 +75,12 @@ fn activation_draws_the_session_texture_through_all_phases_and_then_disappears()
             [f32::from(icon.uv[0]), f32::from(icon.uv[1])]
         );
     }
-    runtime.item_activation.as_mut().unwrap().elapsed_millis = 2_000;
+    runtime
+        .session
+        .item_activation
+        .as_mut()
+        .unwrap()
+        .elapsed_millis = 2_000;
     let mut nodes = Vec::new();
     presentation
         .append_item_activation(&runtime, &mut nodes, &mut 1, [1280.0, 720.0], [0.0; 2])
@@ -108,7 +118,7 @@ fn active_totem_follows_pack_replacement_and_removal() {
     .unwrap();
     presentation.hud_frame_mut().first_person = true;
     let mut runtime = UiRuntime::new(1);
-    runtime.item_activation = Some(ItemActivation {
+    runtime.session.item_activation = Some(ItemActivation {
         identifier: TOTEM_IDENTIFIER.into(),
         metadata: 7,
         elapsed_millis: 0,
@@ -186,7 +196,7 @@ fn camera_activation_keeps_full_viewport_coordinates_below_screen_overlays() {
     presentation.hud_frame_mut().first_person = true;
     presentation.hud_frame_mut().sleep.observe(true, 0);
     let mut runtime = UiRuntime::new(1);
-    runtime.item_activation = Some(ItemActivation {
+    runtime.session.item_activation = Some(ItemActivation {
         identifier: TOTEM_IDENTIFIER.into(),
         metadata: 0,
         elapsed_millis: 1_000,
@@ -232,7 +242,12 @@ fn camera_activation_keeps_full_viewport_coordinates_below_screen_overlays() {
             .collect::<Vec<_>>()
     };
     assert_eq!(activation(&plain), activation(&inset));
-    runtime.item_activation.as_mut().unwrap().elapsed_millis = 1_050;
+    runtime
+        .session
+        .item_activation
+        .as_mut()
+        .unwrap()
+        .elapsed_millis = 1_050;
     let advanced = presentation
         .build(
             &player,

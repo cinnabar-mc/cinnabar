@@ -82,11 +82,17 @@ pub(super) fn build(
         resource_packs::install_chunk_textures(&mut textures, &session_assets);
     }
     timings.mark(bootstrap_timing::BootstrapPhase::BlockAssets);
-    let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
+    let actor_catalog = registries.actor_catalog.or_else(|| {
+        client_world
+            .entity_assets
+            .as_ref()
+            .map(|assets| actor_animation::ActorAnimationCatalog::new(Arc::clone(assets)))
+    });
+    let mut stream = if let Some(actor_catalog) = actor_catalog {
         WorldStream::new_with_asset_sets(
             bootstrap,
             Arc::clone(&session_assets),
-            Arc::clone(entity_assets),
+            actor_catalog,
             current,
             client_world.pending_surface_spawn,
         )

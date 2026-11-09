@@ -46,6 +46,10 @@ type fixtureLimits struct {
 	// The network bounds, which the adapter's flood keeps.
 	MaxNetworkBlocks    int `json:"max_network_blocks"`
 	MaxNetworkDataBytes int `json:"max_network_data_bytes"`
+	// The containers' bounds, which the snapshot keeps.
+	MaxContainers         int `json:"max_containers"`
+	MaxContainerSlots     int `json:"max_container_slots"`
+	MaxContainerDataBytes int `json:"max_container_data_bytes"`
 	// The inventory's shape and the item bounds, which registration and the commit check keep.
 	InventorySlots   int `json:"inventory_slots"`
 	HotbarSlots      int `json:"hotbar_slots"`
@@ -89,6 +93,9 @@ type fixtureEnums struct {
 	FailKinds       []FailKind       `json:"fail_kinds"`
 	RenderMethods   []RenderMethod   `json:"render_methods"`
 	PlacementStates []PlacementState `json:"placement_states"`
+	BlockDrops      []BlockDrops     `json:"block_drops"`
+	BlockItems      []BlockItem      `json:"block_items"`
+	GameModes       []GameMode       `json:"game_modes"`
 	PlacementValues []struct {
 		Placement PlacementState `json:"placement"`
 		State     string         `json:"state"`
@@ -243,6 +250,13 @@ func checkEnums(t *testing.T, rust *fixtureEnums) {
 	if !slices.Equal(placementStates, rust.PlacementStates) {
 		t.Errorf("Go placement states %q, Rust placement states %q", placementStates,
 			rust.PlacementStates)
+	}
+	if !slices.Equal(blockDrops, rust.BlockDrops) || !slices.Equal(blockItems, rust.BlockItems) {
+		t.Errorf("Go block drops %q and items %q, Rust %q and %q", blockDrops, blockItems,
+			rust.BlockDrops, rust.BlockItems)
+	}
+	if !slices.Equal(gameModes, rust.GameModes) {
+		t.Errorf("Go game modes %q, Rust game modes %q", gameModes, rust.GameModes)
 	}
 	for _, other := range []string{`"sideways"`, `"Up"`, `""`, `null`, `1`} {
 		var face Face
@@ -439,6 +453,9 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxGeometryBytes", maxGeometryBytes, rust.MaxGeometryBytes},
 		{"maxNetworkBlocks", maxNetworkBlocks, rust.MaxNetworkBlocks},
 		{"maxNetworkDataBytes", maxNetworkDataBytes, rust.MaxNetworkDataBytes},
+		{"maxContainers", maxContainers, rust.MaxContainers},
+		{"maxContainerSlots", maxContainerSlots, rust.MaxContainerSlots},
+		{"maxContainerDataBytes", maxContainerDataBytes, rust.MaxContainerDataBytes},
 		{"inventorySlots", inventorySlots, rust.InventorySlots},
 		{"hotbarSlots", hotbarSlots, rust.HotbarSlots},
 		{"maxItems", maxItems, rust.MaxItems},

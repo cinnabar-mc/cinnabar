@@ -156,7 +156,7 @@ fn assert_billboards_follow_fresh_camera(cull_completed_tick: bool) {
                 skin_layers: Vec::new(),
                 artwork: std::collections::HashMap::from([(identity, location)]),
             };
-            let layers = world.actor_render_frame(0.25).layers(1).unwrap();
+            let layers = world.actor_render_frame(0.25).layers_with_skin(1).unwrap();
             apply_render_layers_cached(
                 &mut batch,
                 |_| Some(layers.clone()),
@@ -272,7 +272,15 @@ fn sampled_authored_rig_scales_reach_layer_placement_including_zero_axes() {
         }
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(std::borrow::Cow::Borrowed(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: std::borrow::Cow::Borrowed(&layers),
+                    visibility: rig.visibility,
+                    skin: std::borrow::Cow::Borrowed(&[]),
+                    held_item_scale: rig.held_item_scale,
+                    head_rotation: None,
+                })
+            },
             &pages,
             &mut LayerPoseCache::default(),
         );

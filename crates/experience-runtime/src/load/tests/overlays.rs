@@ -48,6 +48,7 @@ fn overlay_rules_accept_limits_and_refuse_violations() {
         edit(&mut overlay);
         vec![overlay]
     };
+    let limit = format!("the limit is {MAX_OVERLAY_TYPES}");
     let cases: Vec<(&str, wit::OverlayRegistration, Option<&str>)> = vec![
         (
             "the baseline",
@@ -63,7 +64,7 @@ fn overlay_rules_accept_limits_and_refuse_violations() {
         (
             "one type too many",
             registration(&["probe:cable"], types(MAX_OVERLAY_TYPES + 1)),
-            Some("the limit is 128"),
+            Some(limit.as_str()),
         ),
         (
             "a host that is not a block",

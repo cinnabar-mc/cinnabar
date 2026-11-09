@@ -83,22 +83,35 @@ done
 
 protocol_fixture="$temp_root/protocol-provenance"
 python3 "$project_root/scripts/tests/copy_workspace.py" "$project_root" "$protocol_fixture"
+mkdir -p "$protocol_fixture/assets"
+cp "$project_root/assets/bedrock-target.json" "$protocol_fixture/assets/bedrock-target.json"
+read -r codec_alias codec_package < <(python3 - "$project_root/assets/bedrock-target.json" <<'PY'
+import json, pathlib, sys
+target = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(target["codec_crate"], target["codec_package"])
+PY
+)
+codec_declaration="$codec_alias = { package = \"$codec_package\", path = \"vendor/$codec_alias\" }"
 assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
-cp -R "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51" "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51-decoy"
+cp -R "$protocol_fixture/crates/protocol/vendor/$codec_alias" "$protocol_fixture/crates/protocol/vendor/$codec_alias-decoy"
 python3 - "$protocol_fixture/crates/protocol/Cargo.toml" <<'PY'
-import pathlib, sys
+import json, pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
+target = json.loads((path.parents[2] / "assets/bedrock-target.json").read_text(encoding="utf-8"))
+alias, package = target["codec_crate"], target["codec_package"]
+declaration = f'{alias} = {{ package = "{package}", path = "vendor/{alias}" }}'
+assert declaration in text, "wrong-path fixture did not find the codec declaration"
 text = text.replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
-    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }',
+    declaration,
+    f'"{alias}" = {{ package = "{package}", path = "vendor/{alias}-decoy" }}',
     1,
 )
-decoys = '''description = """
+decoys = f'''description = """
 [dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+{declaration}
 """'''
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
@@ -109,10 +122,10 @@ if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; th
 fi
 cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
 
-cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
+cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<EOF
 
 [target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+$codec_declaration
 EOF
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
@@ -120,13 +133,47 @@ if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; th
 fi
 cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
 
-cp "$protocol_fixture/Cargo.lock" "$protocol_fixture/Cargo.lock.clean"
-python3 - "$protocol_fixture/Cargo.lock" <<'PY'
+python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$codec_alias" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = 'name = "bedrock-protocol-1-26-51"\nversion = "0.1.0"'
-replacement = needle + '\n   checksum = "' + ('2' * 64) + '"'
+needle = sys.argv[2] + " = {"
+assert needle in text, "alias fixture did not find the codec declaration"
+path.write_text(text.replace(needle, "unexpected-codec-alias = {", 1), encoding="utf-8")
+PY
+if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
+    echo 'Bash protocol provenance accepted an unexpected codec alias' >&2
+    exit 1
+fi
+cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
+
+cp "$protocol_fixture/assets/bedrock-target.json" "$protocol_fixture/bedrock-target.json.clean"
+for package in missing unexpected-codec-package; do
+    python3 - "$protocol_fixture/assets/bedrock-target.json" "$package" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+target = json.loads(path.read_text(encoding="utf-8"))
+if sys.argv[2] == "missing":
+    target.pop("codec_package")
+else:
+    target["codec_package"] = sys.argv[2]
+path.write_text(json.dumps(target), encoding="utf-8")
+PY
+    if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
+        echo 'Bash protocol provenance accepted missing or drifted target codec identity' >&2
+        exit 1
+    fi
+    cp "$protocol_fixture/bedrock-target.json.clean" "$protocol_fixture/assets/bedrock-target.json"
+done
+
+cp "$protocol_fixture/Cargo.lock" "$protocol_fixture/Cargo.lock.clean"
+python3 - "$protocol_fixture/Cargo.lock" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+target = json.loads((path.parent / "assets/bedrock-target.json").read_text(encoding="utf-8"))
+needle = f'name = "{target["codec_package"]}"\n'
+replacement = needle + '   checksum = "' + ('2' * 64) + '"\n'
 if needle not in text:
     raise SystemExit('Bash checksum fixture did not find the codec lock package')
 path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")

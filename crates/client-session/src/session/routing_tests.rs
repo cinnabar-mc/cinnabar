@@ -70,7 +70,7 @@ fn start_game_item_registry_publishes_the_admitted_registry() {
 fn semantically_rejected_start_game_registry_does_not_reject_bootstrap() {
     let mut game_data = protocol::GameData::default();
     game_data.items.registry = Err(protocol::WorldPacketError::Item(
-        protocol::ItemPacketError::DuplicateRegistryEntry,
+        protocol::ItemPacketError::TooManyRegistryEntries { count: 2, max: 1 },
     ));
     assert_eq!(start_game_item_registry(&game_data).unwrap(), None);
     assert_eq!(

@@ -22,6 +22,7 @@ const RESOLVED: ResolvedServerPosition = ResolvedServerPosition {
 fn packet_facts_keep_move_player_ride_cause_and_tick() {
     let teleport = CommittedControlEvent::MovePlayer {
         sequence: 1,
+        riding_actor_resolved: false,
         source_cohort: None,
         movement: MovePlayerEvent {
             mode: MovePlayerMode::Teleport,

@@ -47,6 +47,35 @@ fn forced_sneak_does_not_invent_sneak_request_lanes() {
     assert_eq!(bits & requests.bits(), 0);
 }
 
+/// Sneak actions compare with the actor state left by metadata before this tick.
+#[test]
+fn sneak_actions_follow_metadata_before_local_stance_changes() {
+    let actions = PlayerInputFlags::START_SNEAKING | PlayerInputFlags::STOP_SNEAKING;
+    for previous in [false, true] {
+        for server in [None, Some(false), Some(true)] {
+            for current in [false, true] {
+                let mut sample = settle_tests::settled_sample(41, [0.0; 3]);
+                sample.processed.sneaking = previous;
+                let held = encoding::HeldInput::from(&sample);
+                sample.input.server_sneaking = server;
+                sample.processed.sneaking = current;
+                let expected = if server.unwrap_or(previous) == current {
+                    PlayerInputFlags::NONE
+                } else if current {
+                    PlayerInputFlags::START_SNEAKING
+                } else {
+                    PlayerInputFlags::STOP_SNEAKING
+                };
+                assert_eq!(
+                    encoding::input_flags(&sample, held).bits() & actions.bits(),
+                    expected.bits(),
+                    "previous={previous}, server={server:?}, current={current}",
+                );
+            }
+        }
+    }
+}
+
 /// PersistSneak follows the input device's persistent controls, never the pose.
 #[test]
 fn persist_sneak_is_sent_for_touch_and_gamepad_only() {
@@ -347,5 +376,58 @@ fn item_and_crouch_slowdown_end_a_sprint() {
         }
 
         assert_eq!(replayed.velocity, next.velocity);
+    }
+}
+
+/// Pose actions compare against server writes independently for each pose flag.
+#[test]
+fn pose_actions_use_the_state_left_by_metadata_before_the_tick() {
+    for (mode, start, stop) in [
+        (
+            sim::MovementMode::Swimming,
+            PlayerInputFlags::START_SWIMMING,
+            PlayerInputFlags::STOP_SWIMMING,
+        ),
+        (
+            sim::MovementMode::Gliding,
+            PlayerInputFlags::START_GLIDING,
+            PlayerInputFlags::STOP_GLIDING,
+        ),
+        (
+            sim::MovementMode::Crawling,
+            PlayerInputFlags::START_CRAWLING,
+            PlayerInputFlags::STOP_CRAWLING,
+        ),
+    ] {
+        for previous in [false, true] {
+            for server in [None, Some(false), Some(true)] {
+                for current in [false, true] {
+                    let mut prior = settle_tests::settled_sample(40, [0.0; 3]);
+                    let mut prior_poses = PoseFlags::default();
+                    prior_poses.set(mode, previous);
+                    prior.processed.pose_flags = Some(prior_poses);
+                    let mut sample = settle_tests::settled_sample(41, [0.0; 3]);
+                    let mut poses = PoseFlags::default();
+                    poses.set(mode, current);
+                    sample.processed.pose_flags = Some(poses);
+                    sample.input.server_pose_flags = server.map(|value| {
+                        let mut poses = PoseFlags::default();
+                        poses.set(mode, value);
+                        poses
+                    });
+                    let actual = encoding::input_flags(&sample, encoding::HeldInput::from(&prior));
+                    let expected = match (server.unwrap_or(previous), current) {
+                        (false, true) => start,
+                        (true, false) => stop,
+                        _ => PlayerInputFlags::NONE,
+                    };
+                    assert_eq!(
+                        actual.bits() & (start | stop).bits(),
+                        expected.bits(),
+                        "{mode:?}: previous={previous}, server={server:?}, current={current}"
+                    );
+                }
+            }
+        }
     }
 }

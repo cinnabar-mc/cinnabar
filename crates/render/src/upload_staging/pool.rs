@@ -149,8 +149,20 @@ impl Pool {
     /// Stages writes in issue order until the pool fills, without allocating staging storage or polling.
     /// Returns the first write not wholly staged and how many of its bytes were.
     #[track_caller]
+    #[cfg(test)]
     pub(super) fn stage_prefix(&mut self, writes: &[BufferWrite<'_>]) -> Option<(usize, u64)> {
-        for (index, &(target, offset, bytes)) in writes.iter().enumerate() {
+        self.stage_generated(writes.len(), &|index| writes[index])
+    }
+
+    /// Stages a generated batch without first collecting borrowed write descriptors.
+    #[track_caller]
+    pub(super) fn stage_generated<'a>(
+        &mut self,
+        count: usize,
+        write: &impl Fn(usize) -> BufferWrite<'a>,
+    ) -> Option<(usize, u64)> {
+        for index in 0..count {
+            let (target, offset, bytes) = write(index);
             if bytes.is_empty() {
                 continue;
             }

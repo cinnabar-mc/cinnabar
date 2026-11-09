@@ -2,8 +2,27 @@
 
 use std::sync::Arc;
 
-use render_model::EntityRigId;
+use super::{MAX_ITEM_MESHES, session};
 use render_model::{ActorArtworkLocation, ActorRigSubmission};
+use render_model::{EntityRigId, item_mesh_rig_id};
+
+/// Static item meshes follow the startup and session mesh ranges in one shared order.
+#[derive(Clone, Copy)]
+pub(super) enum ReservedItemMesh {
+    MapPaper,
+    MapImage,
+    ShieldSprite,
+}
+
+impl ReservedItemMesh {
+    /// Returns this static mesh's non-overlapping ID below player skin rigs.
+    pub(super) const fn rig(self) -> EntityRigId {
+        let index = (MAX_ITEM_MESHES + session::MAX_SESSION_MESHES) as u32 + self as u32;
+        let rig = item_mesh_rig_id(index);
+        assert!(rig.0 < render_model::skin_rig_id(0).0);
+        rig
+    }
+}
 
 /// Geometry namespace and resolved artwork page/layer identify each texture-derived mesh.
 pub(super) type AttachableMeshKey = (bool, u32, (u16, u32));
@@ -21,6 +40,8 @@ pub(super) struct JavaRasterFrame {
 pub struct WornItem {
     /// Image identity a held map samples, independent of its atlas icon variant.
     pub map_id: Option<i64>,
+    /// Shield decoration shared with canonical inventory and actor equipment.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Loaded projectile admitted for this stack, independent of display metadata.
     pub charged_projectile: Option<assets::item_use::ItemProjectileRole>,
     /// Grip admitted by the numeric item registry, copied from the canonical stack.
@@ -55,6 +76,12 @@ pub enum HeldKind {
     Sprite,
     /// A block item, by block visual id.
     Block(u32),
+    /// A stack whose wire descriptor names a block state but whose aux value has no compiled item
+    /// visual. `state` is the named state's visual and `item` the item's own block visual.
+    RetainedBlock {
+        state: Option<u32>,
+        item: Option<u32>,
+    },
     Other,
 }
 
@@ -180,18 +207,23 @@ pub(super) struct WornRender {
 }
 
 impl EquipmentAnimation<'_> {
-    /// Supplies held selection and animation with identical hand, owner and use inputs.
+    /// Supplies held selection and animation with identical hand, owner and use inputs. Only the
+    /// main hand reports a loaded crossbow as charged.
     pub(super) fn held_input<'a>(
         self,
         equipment: &'a ActorEquipmentInput,
         off_hand: bool,
     ) -> actor_animation::AttachableAnimationInput<'a> {
         actor_animation::AttachableAnimationInput {
-            off_hand,
             held_item_scale: self.rig.held_item_scale,
             worn: false,
+            hand_charged: equipment
+                .main
+                .as_ref()
+                .is_some_and(|main| main.charged_projectile.is_some()),
             ..self.worn_input(equipment, assets::ArmorSlot::Helmet, &[])
         }
+        .for_hand(off_hand)
     }
 
     /// Supplies the same main-hand use clock to worn selection and controller evaluation.
@@ -205,12 +237,12 @@ impl EquipmentAnimation<'_> {
             .owner
             .is_using_item()
             .then_some(self.rig.hand[1].use_ticks);
-        let use_facts = equipment
-            .main
-            .as_ref()
-            .map(|main| main.use_facts)
-            .unwrap_or_default();
+        let main = equipment.main.as_ref();
+        let use_facts = main.map(|main| main.use_facts).unwrap_or_default();
         let duration = use_facts.ticks.unwrap_or_default();
+        let offhand_firework = equipment.off.as_ref().is_some_and(|off| {
+            off.use_facts.projectile == assets::item_use::ItemProjectileRole::Firework
+        });
         equipment.attachable_input(actor_animation::AttachableAnimationInput {
             worn: true,
             worn_slot: slot as u8,
@@ -218,10 +250,12 @@ impl EquipmentAnimation<'_> {
             delta_seconds: Some(self.delta_seconds),
             use_elapsed_ticks: elapsed,
             max_use_ticks: duration,
-            animation_frame: inventory::ranged_animation_frame(
+            animation_frame: inventory::held_animation_frame(
                 use_facts.animation,
                 elapsed,
                 duration,
+                main.and_then(|main| main.charged_projectile),
+                offhand_firework,
             ),
             owner_variables: variables,
             ..Default::default()

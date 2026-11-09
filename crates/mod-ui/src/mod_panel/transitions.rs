@@ -168,15 +168,22 @@ impl SurfaceTransitions {
 
     /// Overwrites each transitioned binding with its displayed value.
     pub(crate) fn write(&self, data: &mut DataSource) {
-        for (name, tween) in &self.tweens {
+        for (name, scalar) in self.displayed() {
+            data.set_global(name, scalar);
+        }
+    }
+
+    /// Each transitioned binding and its displayed value.
+    pub(crate) fn displayed(&self) -> impl Iterator<Item = (String, Scalar)> + '_ {
+        self.tweens.iter().map(|(name, tween)| {
             let value = tween.sample(self.now);
             let scalar = if tween.vector {
                 Scalar::Json(json!(value))
             } else {
                 Scalar::Num(value[0])
             };
-            data.set_global(name.as_str(), scalar);
-        }
+            (name.clone(), scalar)
+        })
     }
 
     /// Whether any displayed value is still moving toward its target.
@@ -215,7 +222,6 @@ mod tests {
     fn surface(value: SurfaceValue, transition: SurfaceTransition) -> Surface {
         Surface {
             collections: Default::default(),
-            previews: Default::default(),
             screen: "fixture.root".into(),
             document: String::new(),
             bindings: BTreeMap::from([("#value".into(), value)]),
