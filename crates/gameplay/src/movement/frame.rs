@@ -247,12 +247,16 @@ impl LocomotionState {
         let (position, motion) = current.map_or((placement.position, placement.motion), |feed| {
             (feed.position, feed.velocity)
         });
+        // The rider's box is the size the server last gave the player.
+        let [width, height] = physics
+            .prediction_sync_size()
+            .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
         let exit = sim::Dismount {
             vehicle: vec3(position),
             vehicle_motion: vec3(motion),
             seat,
-            rider_width: sim::PLAYER_WIDTH,
-            rider_height: sim::PLAYER_HEIGHT,
+            rider_width: f64::from(width),
+            rider_height: f64::from(height),
         }
         .exit_feet(world);
         let position = [

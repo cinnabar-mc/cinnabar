@@ -236,3 +236,16 @@ fn actors_and_scaffolding_neither_block_nor_floor_a_position() {
         [0.5, GROUND as f32 + 0.001, 1.5],
     );
 }
+
+#[test]
+fn a_taller_rider_skips_a_side_too_low_for_it() {
+    let mut world = World::ground();
+    world.solid([0, GROUND + 2, -1]);
+    assert_feet(
+        still_boat().exit_feet(&world),
+        [0.5, GROUND as f32 + 0.001, -0.5],
+    );
+    let mut tall = still_boat();
+    tall.rider_height = 2.4;
+    assert_feet(tall.exit_feet(&world), [0.5, GROUND as f32 + 0.001, 1.5]);
+}
