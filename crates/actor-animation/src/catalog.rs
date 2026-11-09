@@ -55,6 +55,10 @@ mod tests {
 
     #[test]
     fn prepared_stores_do_no_catalog_sized_work() {
+        // Process-wide setup runs once, whatever the catalog, and its size varies by platform.
+        drop(ActorAnimationStore::with_assets(
+            ActorAnimationCatalog::new(assets(1)),
+        ));
         for expressions in [16, 2048] {
             let catalog = ActorAnimationCatalog::new(assets(expressions));
             let (store, allocations) =

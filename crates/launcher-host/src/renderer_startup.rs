@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::lifecycle::crash::state as crash_state;
 use launcher::graphics_backend::{Adapter, Backend};
 
+pub mod fullscreen;
 mod owner;
 mod recovery;
 mod runtime;
@@ -100,7 +101,7 @@ impl StartupGuard {
         if root.join(SENTINEL_FILE).exists() {
             fs::remove_file(root.join(SENTINEL_FILE))?;
         }
-        active.register(root, &lock);
+        active.register(&root.join(SENTINEL_FILE), &lock);
         Ok(Self {
             root: root.to_owned(),
             lock: Some(lock),

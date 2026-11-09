@@ -11,6 +11,9 @@ use std::{
 
 /// Validates a chosen component and copies it into the mods directory; returns its file name.
 pub fn import<B: Backend>(mods: &Path, source: &Path) -> Result<String, String> {
+    if crate::marketplace::managed(source) {
+        return Err("Marketplace files must be added from the website.".into());
+    }
     let name = source
         .file_name()
         .and_then(|name| name.to_str())

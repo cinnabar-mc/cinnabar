@@ -158,7 +158,8 @@ impl Board {
 
 /// Runs a sample with its reserved allowance, leaving budget publication to the ordered caller.
 fn sample_one<'a>(sample: &mut Sample<'a>, frame: &ActorRenderFrame<'a>) {
-    let mut left = MAX_MOLANG_OPS_PER_ACTOR_FRAME;
+    let allowance = frame.sample_budget(sample.id);
+    let mut left = allowance;
     sample.layers = ActorRenderFrame::sample(
         frame.store,
         frame.actors,
@@ -167,7 +168,7 @@ fn sample_one<'a>(sample: &mut Sample<'a>, frame: &ActorRenderFrame<'a>) {
         &mut left,
         true,
     );
-    sample.used = MAX_MOLANG_OPS_PER_ACTOR_FRAME - left;
+    sample.used = allowance - left;
 }
 
 /// Lets the caller finish all unclaimed work even when every shared worker is occupied.

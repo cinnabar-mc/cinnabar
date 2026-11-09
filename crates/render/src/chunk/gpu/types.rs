@@ -139,13 +139,6 @@ const QUALCOMM_VENDOR_ID: u32 = 0x5143;
 /// The proprietary driver with empty indirect terrain draws on tested Adreno GPUs.
 const QUALCOMM_VULKAN_DRIVER: &str = "Qualcomm Technologies Inc. Adreno Vulkan Driver";
 
-/// Intel's PCI vendor ID.
-const INTEL_VENDOR_ID: u32 = 0x8086;
-/// The first Intel Windows driver branch (`24.x`, 2018) not known to fail indirect terrain on DX12.
-/// HD Graphics 520 with `23.20.16.4905` faulted in the counted GPU-cull draws and drew no
-/// opaque terrain with CPU-culled indirect draws.
-const INTEL_DX12_INDIRECT_DRIVER_MAJOR: u32 = 24;
-
 /// Keeps Apple expansion costs, proprietary Adreno Vulkan failures and legacy Intel DX12
 /// driver failures on direct terrain draws.
 pub(in crate::chunk) fn direct_draws_required(info: &wgpu::AdapterInfo) -> bool {
@@ -153,21 +146,7 @@ pub(in crate::chunk) fn direct_draws_required(info: &wgpu::AdapterInfo) -> bool 
         || (info.backend == wgpu::Backend::Vulkan
             && info.vendor == QUALCOMM_VENDOR_ID
             && info.driver == QUALCOMM_VULKAN_DRIVER)
-        || legacy_intel_dx12_driver(info)
-}
-
-/// Recognizes a DX12 Intel adapter whose dotted driver version predates the `24.x` branch.
-/// An unparsable version, or the `0.0.0.0` wgpu reports when the query fails, keeps the
-/// adapter's advertised indirect path.
-fn legacy_intel_dx12_driver(info: &wgpu::AdapterInfo) -> bool {
-    info.backend == wgpu::Backend::Dx12
-        && info.vendor == INTEL_VENDOR_ID
-        && info
-            .driver
-            .split('.')
-            .next()
-            .and_then(|major| major.trim().parse::<u32>().ok())
-            .is_some_and(|major| (1..INTEL_DX12_INDIRECT_DRIVER_MAJOR).contains(&major))
+        || crate::device_settings::legacy_intel_dx12_driver(info)
 }
 
 /// Recognizes Apple hardware through its vendor ID or Vulkan driver and adapter names.
@@ -201,6 +180,7 @@ pub(in crate::chunk) fn select_chunk_draw_mode(
 #[cfg(test)]
 mod direct_draw_tests {
     use super::*;
+    use crate::device_settings::INTEL_VENDOR_ID;
 
     /// Supplies adapter-owned identity independently of which optional features it advertises.
     fn adapter(vendor: u32, backend: wgpu::Backend, driver: &str) -> wgpu::AdapterInfo {

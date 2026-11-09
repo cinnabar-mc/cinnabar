@@ -968,6 +968,7 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
         )
         .insert_resource(crate::environment::VisualTimeOverride(None))
         .init_resource::<super::super::interaction::ModInteraction>()
+        .init_resource::<crate::modding::pointer::Pending>()
         .add_systems(
             Update,
             (
@@ -1095,6 +1096,7 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
     )
     .insert_resource(crate::environment::VisualTimeOverride(None))
     .init_resource::<super::super::interaction::ModInteraction>()
+    .init_resource::<crate::modding::pointer::Pending>()
     .add_systems(
         Update,
         (

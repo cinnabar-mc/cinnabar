@@ -18,7 +18,7 @@ pub(crate) fn registry_base() -> RegistryBase {
 /// Supplies the collision owner now captured by real session startup and teardown systems.
 pub(crate) fn collision_resource() -> client_interaction::movement::PhysicsCollisionRegistries {
     let breg = assets::pinned_block_registry_bytes();
-    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2193.bin");
+    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2225.bin");
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(breg, version).unwrap();
     client_interaction::movement::PhysicsCollisionRegistries::from_assets(

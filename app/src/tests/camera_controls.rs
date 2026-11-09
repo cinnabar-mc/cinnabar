@@ -69,6 +69,7 @@ fn start_game_and_dimension_change_reset_perspective_to_first_person() {
         &mut view,
         &mut settings,
         &mut pending_surface_spawn,
+        &mut |_| None,
     );
     assert_eq!(
         settings.perspective(),

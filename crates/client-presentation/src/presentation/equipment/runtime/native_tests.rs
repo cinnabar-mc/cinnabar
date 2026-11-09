@@ -19,6 +19,9 @@ mod variants;
 #[path = "routing_tests.rs"]
 mod routing;
 
+#[path = "native_style_tests.rs"]
+mod style;
+
 /// Reads the selected equipment image's first pixel from its retained artwork page.
 fn selected_pixel(
     pages: &render_model::ActorArtworkPages,
@@ -152,6 +155,7 @@ fn item(identifier: &str) -> WornItem {
         metadata: 0,
         damage: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::resolve_item_use(
             &assets::item_use::diagnostic_profile(identifier),
@@ -167,7 +171,7 @@ fn item(identifier: &str) -> WornItem {
 }
 
 #[test]
-fn texture_only_bow_uses_native_mesh_and_pack_stages_over_the_use_duration() {
+fn texture_only_bow_uses_native_mesh_in_java_mode_and_pack_stages_over_the_use_duration() {
     let identifier = "minecraft:bow";
     let (mut runtime, pages) =
         startup_runtime(fixture(identifier, "geometry.bow_standby", 10, true));
@@ -178,10 +182,15 @@ fn texture_only_bow_uses_native_mesh_and_pack_stages_over_the_use_duration() {
     );
     let body = player_body(&mut runtime);
     let item = item(identifier);
-    assert!(runtime.uses_native_item_mesh(identifier));
+    assert!(runtime.uses_native_item_mesh(identifier, true));
     let owner = owner();
     let names = [Box::from("rightItem")];
     let rig = owner_rig(&owner, &names);
+    let java_hand = render_model::java_animation::JavaHand {
+        swing: 0.0,
+        equip: 1.0,
+        using: None,
+    };
     assert!(
         runtime
             .first_person_attachable(
@@ -190,7 +199,7 @@ fn texture_only_bow_uses_native_mesh_and_pack_stages_over_the_use_duration() {
                 &owner,
                 &rig,
                 AttachableAnimationInput::default(),
-                None
+                Some(java_hand)
             )
             .is_none()
     );
@@ -346,7 +355,7 @@ fn missing_weapon_stage_textures_use_animation_icons_and_loaded_offhand_dimensio
             pages,
             fixture(identifier, geometry, 80, false),
         );
-        assert!(runtime.uses_native_item_mesh(identifier));
+        assert!(runtime.uses_native_item_mesh(identifier, true));
         let mut item = item(identifier);
         for frame in 1..=last_frame {
             let (rig, location, _, span) = runtime
@@ -437,7 +446,7 @@ fn custom_models_including_overrides_of_stock_names_keep_attachable_routing() {
             serde_json::json!([{"origin":[0,0,0],"size":[2,3,4],"uv":[0,0]}]);
         *bytes = serde_json::to_vec(&model).unwrap();
         install(&mut runtime, pages, files);
-        assert!(!runtime.uses_native_item_mesh("minecraft:bow"));
+        assert!(!runtime.uses_native_item_mesh("minecraft:bow", true));
         let body = player_body(&mut runtime);
         let owner = owner();
         let names = [Box::from("rightItem")];
@@ -602,7 +611,7 @@ fn spears_and_tridents_keep_native_hands_in_both_views_and_reload_cleanly() {
                         ),
                     )
                 } else {
-                    held_sprite_display_for_hand(item.grip.upright().unwrap_or(false), off_hand)
+                    held_sprite_display_for_hand(item.grip.into(), off_hand)
                 };
                 let expected = attach_to_bone(body.input.current_bones[hand], display).unwrap();
                 assert_eq!(
@@ -612,7 +621,7 @@ fn spears_and_tridents_keep_native_hands_in_both_views_and_reload_cleanly() {
             }
         }
         runtime.set_pack_layer(None);
-        assert!(!runtime.uses_native_item_mesh(identifier));
+        assert!(!runtime.uses_native_item_mesh(identifier, true));
         assert!(runtime.native_meshes.is_empty());
     }
 }
@@ -627,7 +636,7 @@ fn inherited_binding_and_item_sprite_geometry_use_native_meshes() {
         pages,
         fixture(identifier, "geometry.item_sprite", 80, true),
     );
-    assert!(runtime.uses_native_item_mesh(identifier));
+    assert!(runtime.uses_native_item_mesh(identifier, true));
     let entities = std::sync::Arc::clone(&runtime.assets);
     let mut texture = runtime.catalog.as_ref().unwrap().textures()[0].clone();
     texture.rgba8 = [90, 40, 60, 255]
@@ -638,7 +647,7 @@ fn inherited_binding_and_item_sprite_geometry_use_native_meshes() {
     );
     let (_, locations) = pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
     runtime.set_pack_layer(Some((entities, Some(catalog), locations)));
-    assert!(runtime.uses_native_item_mesh(identifier));
+    assert!(runtime.uses_native_item_mesh(identifier, true));
 }
 
 #[test]
@@ -661,7 +670,7 @@ fn an_extra_custom_stage_model_prevents_native_routing() {
         }]
     })).unwrap()));
     install(&mut runtime, pages, files);
-    assert!(!runtime.uses_native_item_mesh("minecraft:bow"));
+    assert!(!runtime.uses_native_item_mesh("minecraft:bow", true));
 }
 
 /// Replaces the fixture sprite geometry with an original cube model using a UV atlas.
@@ -750,7 +759,7 @@ fn cube_backed_weapons_use_item_sprites_in_both_views_and_hands() {
                 pages = next;
                 runtime.set_session_items(Some(&items), Some(staged), locations);
             }
-            assert!(runtime.uses_native_item_mesh(identifier));
+            assert!(runtime.uses_native_item_mesh(identifier, true));
             let item = item(identifier);
             let body = player_body(&mut runtime);
             assert_eq!(
@@ -838,7 +847,7 @@ fn cube_backed_weapons_keep_model_rendering_when_no_item_sprite_exists() {
     ] {
         let (mut runtime, pages) = cube_runtime(identifier, geometry, None);
         let pages = install(&mut runtime, pages, cube_fixture(identifier, geometry, 80));
-        assert!(!runtime.uses_native_item_mesh(identifier));
+        assert!(!runtime.uses_native_item_mesh(identifier, true));
         let body = player_body(&mut runtime);
         let owner = owner();
         let names = [Box::from("rightItem")];
@@ -893,7 +902,7 @@ fn inherited_cube_geometry_uses_the_item_icon_for_a_texture_only_overlay() {
         Some(catalog),
         locations,
     )));
-    assert!(runtime.uses_native_item_mesh(identifier));
+    assert!(runtime.uses_native_item_mesh(identifier, true));
     let body = player_body(&mut runtime);
     let draw = runtime
         .first_person_item(
@@ -953,7 +962,7 @@ fn missing_pack_sprite_never_falls_back_to_a_startup_cube_uv_atlas() {
         .filter(|(path, _)| !path.ends_with(".png"))
         .collect();
     let pages = install(&mut runtime, pages, overlay);
-    assert!(runtime.uses_native_item_mesh(identifier));
+    assert!(runtime.uses_native_item_mesh(identifier, true));
     let body = player_body(&mut runtime);
     let draw = runtime
         .first_person_item(
@@ -1049,7 +1058,7 @@ fn version_five_carriers_without_aliases_use_pack_weapon_stage_textures() {
         let (pages, locations) =
             pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&overlay));
         runtime.set_pack_layer(Some((entities, Some(overlay), locations)));
-        assert!(runtime.uses_native_item_mesh(identifier));
+        assert!(runtime.uses_native_item_mesh(identifier, true));
         let body = player_body(&mut runtime);
         for frame in 0..=last_frame {
             let draw = runtime
@@ -1121,7 +1130,7 @@ fn version_five_carriers_recognize_single_stage_texture_overrides() {
                 Some(overlay),
                 locations,
             )));
-            assert!(runtime.uses_native_item_mesh(identifier));
+            assert!(runtime.uses_native_item_mesh(identifier, true));
             let (rig, location, _, span) = runtime
                 .held_mesh_with_use(
                     &item(identifier),

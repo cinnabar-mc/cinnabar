@@ -284,6 +284,7 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
                     position: movement.position,
                     surface_anchor: None,
                 },
+                riding_actor_resolved: false,
                 source_cohort: None,
             },
             super::CommittedControlEvent::ChangeDimension {

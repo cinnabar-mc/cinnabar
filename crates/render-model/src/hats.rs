@@ -55,6 +55,22 @@ pub fn admit(
     texture: &[u8],
     animation: &[u8],
 ) -> Option<Item> {
+    install(prepare(descriptor, geometry, texture, animation)?)
+}
+
+/// A verified catalog item whose rig is built but not yet registered.
+pub struct PreparedHat {
+    descriptor: cosmetics::Descriptor,
+    rig: Option<HatRig>,
+}
+
+/// Verifies assets and builds the rig without holding the registry; safe to run in parallel.
+pub fn prepare(
+    descriptor: cosmetics::Descriptor,
+    geometry: &[u8],
+    texture: &[u8],
+    animation: &[u8],
+) -> Option<PreparedHat> {
     if !cosmetics::supported(&descriptor)
         || !descriptor.assets.geometry.verifies(geometry)
         || !descriptor.assets.texture.verifies(texture)
@@ -66,6 +82,27 @@ pub fn admit(
     {
         return None;
     }
+    let installed = RIGS
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .any(|(item, _)| item.descriptor() == &descriptor);
+    let rig = if installed {
+        None
+    } else {
+        Some(model::build(
+            &descriptor,
+            std::str::from_utf8(geometry).ok()?,
+            texture,
+            animation,
+        )?)
+    };
+    Some(PreparedHat { descriptor, rig })
+}
+
+/// Registers a prepared rig once; call in catalog order so item indices stay deterministic.
+pub fn install(prepared: PreparedHat) -> Option<Item> {
+    let PreparedHat { descriptor, rig } = prepared;
     let mut rigs = RIGS.write().unwrap_or_else(|error| error.into_inner());
     if let Some((item, _)) = rigs
         .iter()
@@ -73,12 +110,7 @@ pub fn admit(
     {
         return Some(*item);
     }
-    let mut rig = model::build(
-        &descriptor,
-        std::str::from_utf8(geometry).ok()?,
-        texture,
-        animation,
-    )?;
+    let mut rig = rig?;
     let item = Item::admit(descriptor)?;
     rig.geometry.id = EntityRigId(0xDFFF_FFFF - u32::from(item.index()));
     rigs.push((item, Box::leak(Box::new(rig))));

@@ -18,8 +18,9 @@ The `camera` interface is opt-in policy that expires unless renewed. All of it n
 | --- | --- |
 | `set_view_tilt` | Adds `roll` and `pitch`, each at most `MAX_VIEW_TILT_DEGREES` (90), to the first-person view where native damage shake applies; `suppress_hurt_shake` removes that shake. Positive pitch turns up. Current frame only, including while a menu owns input; none, omission, unload and failed callbacks restore the native view |
 | `read_damage_shake` | The native damage shake of the last presented view at full strength, in the same degrees, before the player's damage-shake setting or any mod tilt — so a suppressing tilt can redraw it at another intensity |
-| `set_preserve_teleport_rotation` | Renew every frame: only actual teleports preserve yaw and pitch. Omission, no gameplay frame or a failed callback restores server rotation |
 | `set_view_scale` | Current-frame FOV and look multipliers, bounded to 0.1..1 and 0.05..1 (`MIN_VIEW_FOV_SCALE`, `MIN_VIEW_LOOK_SCALE`). Renew only during focused, input-owned gameplay; omission restores both without touching saved settings |
+
+To keep or replace the view's rotation when the server moves the player, implement `handle-teleport`; see [event handlers](presentation.md#teleports).
 
 `gameplay::set_camera_rig` retains a third-person rig: a camera-local offset (x right, y up, z back), roll in radians and FOV change in degrees, swept against blocks; none restores the player's own view. The bounds are `MAX_RIG_SIDE_BLOCKS` (2.0), `MAX_RIG_VERTICAL_BLOCKS` (2.0), `MAX_RIG_BACK_BLOCKS` (8.0), `MAX_RIG_ROLL_RADIANS` (0.6) and `MAX_RIG_FOV_DELTA_DEGREES` (30.0).
 
@@ -67,7 +68,7 @@ let drawing = api::create(&draw).expect("drawing instance admitted");
 
 Keep both handles in your state and `update` the instance to move the drawing instead of rebuilding geometry. Handles belong to one component and session: session changes, reload, revocation and dimension transfers invalidate them. Explicit instances persist until removed or revoked; frame groups expire on the next successful callback.
 
-The `masks` interface builds retained union silhouettes of actors under `entity_highlight`: resolve an actor with `entity`, `create` a mask, `select` its members, `set_style` its outline and glow, and optionally `register_effect` a post effect sampling it, which also needs `render_post`. The `entity` lookup additionally needs `entity_observe` and `render_through_walls`; masks that ignore depth also need `render_through_walls`. At most `MAX_MASKS` (8) masks with `MAX_MASK_ENTITIES` (32) actors each; both constants are in `mod_api::drawing`.
+The `masks` interface builds retained union silhouettes of actors under `entity_highlight`: resolve an actor with `entity`, `create` a mask, `select` its members, `set_style` its outline and glow, and optionally `register_effect` a post effect sampling it, which also needs `render_post`. The `entity` lookup additionally needs `entity_observe`, and without `render_through_walls` it resolves only the actors `observe_entities` reports. Masks that ignore depth also need `render_through_walls`, so a depth-tested mask covers only the parts of actors not hidden behind terrain. At most `MAX_MASKS` (8) masks with `MAX_MASK_ENTITIES` (32) actors each; both constants are in `mod_api::drawing`.
 
 ## Terrain
 

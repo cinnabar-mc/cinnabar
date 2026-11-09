@@ -78,6 +78,8 @@ pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
 pub const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT: u32 = 1 << 2;
 /// Template belongs to a contiguous sixteen-mask thin-pane topology group.
 pub const MODEL_TEMPLATE_FLAG_PANE: u32 = 1 << 3;
+/// Quad counts a pane template can have: an unconnected post, up to a four-way two-faced pane.
+pub(crate) const PANE_TEMPLATE_QUADS: std::ops::RangeInclusive<u32> = 6..=22;
 /// Template belongs to a wood-fence post plus sixteen-mask arm group.
 pub const MODEL_TEMPLATE_FLAG_FENCE_WOOD: u32 = 1 << 4;
 /// Template belongs to a nether-fence post plus sixteen-mask arm group.
@@ -118,6 +120,33 @@ pub const MODEL_TEMPLATE_FLAG_HEAVY_CORE: u32 = 1 << 21;
 pub const MODEL_TEMPLATE_FLAG_SHELF: u32 = 1 << 22;
 /// Azalea templates select a separate stem and canopy for inventory previews.
 pub const MODEL_TEMPLATE_FLAG_AZALEA: u32 = 1 << 23;
+/// First of a chorus plant's template bank, indexed by `chorus::template_offset`.
+pub const MODEL_TEMPLATE_FLAG_CHORUS_PLANT: u32 = 1 << 28;
+/// The item GUI draws this shape through its world tessellator, so its faces take flat world
+/// directional shading instead of the inventory cube's.
+pub const MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE: u32 = 1 << 31;
+/// Pointed dripstone and sulfur spike crosses slide around their column by a narrower offset.
+pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
+/// Downward-growing vine: two stem planes then two tip planes, chosen by the cell below.
+pub const MODEL_TEMPLATE_FLAG_WEEPING_VINE: u32 = 1 << 25;
+/// Upward-growing vine: two stem planes then two tip planes, chosen by the cell above.
+pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
+/// Head of a scaffolding chain: a foot ring only drawn with no support below, then the
+/// rest of the model in the following parts.
+pub const MODEL_TEMPLATE_FLAG_SCAFFOLDING: u32 = 1 << 29;
+
+/// Reports whether scaffolding above a block with these facts stands on it, which starts its
+/// template chain after the foot ring. Terrain and block overlays share this answer.
+#[must_use]
+pub const fn scaffolding_is_supported(below: crate::BlockFlags, below_template_flags: u32) -> bool {
+    below.contains(crate::BlockFlags::FIRE_TOP_SUPPORT)
+        || below_template_flags & MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0
+}
+/// A piston's three-quarter world body; the next template is the full cube its item draws.
+pub const MODEL_TEMPLATE_FLAG_PISTON_BODY: u32 = 1 << 27;
+/// Draws a sheet's regions from its full-resolution quadrant layers; the next template is the same
+/// shape with UVs across the whole sheet, for a sheet replaced by art on a single layer.
+pub const MODEL_TEMPLATE_FLAG_SHEET_TILES: u32 = 1 << 30;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
@@ -126,6 +155,8 @@ pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
         0 | MODEL_TEMPLATE_FLAG_BAMBOO
             | MODEL_TEMPLATE_FLAG_SHORT_GRASS
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_WEEPING_VINE
+            | MODEL_TEMPLATE_FLAG_TWISTING_VINE
     )
 }
 /// Number of positional sprite variants in each bubble-column surface group.
@@ -169,6 +200,42 @@ pub(crate) fn unit_cube_quad_geometry_is_valid(
     POSITIONS.get(index) == Some(&positions) && FLAGS.get(index) == Some(&flags)
 }
 
+/// The template an item of `template`'s block draws: a piston item is a full cube although its
+/// world body stops short of the head.
+#[must_use]
+pub fn item_model_template(templates: &[ModelTemplate], template: u32) -> u32 {
+    let body = templates
+        .get(template as usize)
+        .is_some_and(|part| part.flags & MODEL_TEMPLATE_FLAG_PISTON_BODY != 0);
+    template + u32::from(body)
+}
+
+/// Selects the shape whose UVs are fractions of the block's whole texture sheet, which is what a
+/// surface drawn with other art, such as breaking cracks, maps across each face.
+pub fn whole_sheet_model_template(templates: &[ModelTemplate], template: u32) -> u32 {
+    let tiled = templates
+        .get(template as usize)
+        .is_some_and(|part| part.flags & MODEL_TEMPLATE_FLAG_SHEET_TILES != 0);
+    template + u32::from(tiled)
+}
+
+/// Requires a sheet-tile template to be followed by its whole-sheet pair of equal shape.
+pub(crate) const fn sheet_tile_template_pair_is_valid(
+    flags: u32,
+    quad_count: u32,
+    next: Option<(u32, u32)>,
+) -> bool {
+    if flags & MODEL_TEMPLATE_FLAG_SHEET_TILES == 0 {
+        return true;
+    }
+    match next {
+        Some((next_flags, next_quad_count)) => {
+            next_flags == flags & !MODEL_TEMPLATE_FLAG_SHEET_TILES && next_quad_count == quad_count
+        }
+        None => false,
+    }
+}
+
 pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
     matches!(
         flags,
@@ -194,8 +261,17 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_HEAVY_CORE
             | MODEL_TEMPLATE_FLAG_SHELF
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_CHORUS_PLANT
+            | MODEL_TEMPLATE_FLAG_SPELEOTHEM
+            | MODEL_TEMPLATE_FLAG_WEEPING_VINE
+            | MODEL_TEMPLATE_FLAG_TWISTING_VINE
+            | MODEL_TEMPLATE_FLAG_PISTON_BODY
+            | MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+        || flags == MODEL_TEMPLATE_FLAG_SHEET_TILES
+        || flags == MODEL_TEMPLATE_FLAG_SHELF | MODEL_TEMPLATE_FLAG_SHEET_TILES
+        || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_SCAFFOLDING
 }
 
 /// Page field of a texture reference: three bits above the GPU metadata word,
@@ -367,10 +443,34 @@ pub const MODEL_QUAD_FLAG_CULL_FACE_MASK: u32 = 0x70;
 /// vertex colour or light. It keeps the shade and final vertex light of the last face that
 /// cuboid drew; the cuboid is the run of distinct faced quads just before the detail quads.
 pub const MODEL_QUAD_FLAG_INHERITED_SHADE: u32 = 1 << 7;
+/// Down or up quad whose UVs stay aligned to the world axes when its template is turned about
+/// y: renderers undo the model's quarter turns on the UVs with [`world_aligned_uv`].
+pub const MODEL_QUAD_FLAG_WORLD_ALIGNED_UV: u32 = 1 << 8;
 pub(crate) const MODEL_QUAD_FLAGS_MASK: u32 = MODEL_QUAD_FLAG_FACE_MASK
     | MODEL_QUAD_FLAG_TWO_SIDED
     | MODEL_QUAD_FLAG_CULL_FACE_MASK
-    | MODEL_QUAD_FLAG_INHERITED_SHADE;
+    | MODEL_QUAD_FLAG_INHERITED_SHADE
+    | MODEL_QUAD_FLAG_WORLD_ALIGNED_UV;
+
+/// The UV a template corner samples once its template is turned `turns` quarter turns about y,
+/// as `model.wesl::rotate_cross` turns positions.
+///
+/// Quads without [`MODEL_QUAD_FLAG_WORLD_ALIGNED_UV`] keep their authored UV. Flagged down and
+/// up quads author the native cube UV of their unturned position (down `+x/-z`, up `+x/+z`)
+/// and get the native UV of their turned position.
+#[must_use]
+pub fn world_aligned_uv(flags: u32, turns: u32, [u, v]: [f32; 2]) -> [f32; 2] {
+    if flags & MODEL_QUAD_FLAG_WORLD_ALIGNED_UV == 0 {
+        return [u, v];
+    }
+    let up = flags & MODEL_QUAD_FLAG_FACE_MASK == 2;
+    match (turns & 3, up) {
+        (1, true) | (3, false) => [1.0 - v, u],
+        (1, false) | (3, true) => [v, 1.0 - u],
+        (2, _) => [1.0 - u, 1.0 - v],
+        _ => [u, v],
+    }
+}
 
 pub(crate) const fn model_quad_flags_are_valid(flags: u32) -> bool {
     flags & !MODEL_QUAD_FLAGS_MASK == 0

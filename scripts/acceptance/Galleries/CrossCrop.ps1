@@ -105,6 +105,48 @@ function Get-CrossCropCoverageEvidence {
     }
 }
 
+# Returns one page of the 24x20 grid that fits the cleared farmland and the cameras' 60-degree horizontal FOV.
+function Get-CrossCropGalleryPage {
+    param(
+        [Parameter(Mandatory = $true)]$Coverage,
+        [Parameter(Mandatory = $true)][int]$Page
+    )
+
+    $columns = 24
+    $capacity = $columns * 20
+    $pageCount = [int][Math]::Ceiling([double]$Coverage.state_count / $capacity)
+    if ($Page -lt 0 -or $Page -ge $pageCount) {
+        throw "cross/crop gallery page $Page is outside its $pageCount pages"
+    }
+    $start = $Page * $capacity
+    $end = [Math]::Min($start + $capacity, [int]$Coverage.state_count)
+    return [pscustomobject][ordered]@{
+        index = $Page
+        count = $pageCount
+        capacity = $capacity
+        columns = $columns
+        entries = @(for ($index = $start; $index -lt $end; $index++) { $Coverage.entries[$index] })
+    }
+}
+
+# Returns the run arguments whose hash both the dry run and the run metadata record.
+function New-CrossCropGalleryArguments {
+    param(
+        [Parameter(Mandatory = $true)][string]$Pose,
+        [Parameter(Mandatory = $true)][int]$Page,
+        [Parameter(Mandatory = $true)]$Coverage
+    )
+
+    $galleryPage = Get-CrossCropGalleryPage -Coverage $Coverage -Page $Page
+    return [pscustomobject][ordered]@{
+        pose = $Pose
+        page = $galleryPage.index
+        page_count = $galleryPage.count
+        state_set_sha256 = $Coverage.state_set_sha256
+        state_count = $Coverage.state_count
+    }
+}
+
 function New-CrossCropGalleryPlan {
     param(
         [Parameter(Mandatory = $true)]
@@ -114,14 +156,17 @@ function New-CrossCropGalleryPlan {
         [ValidateSet('CrossCropGalleryFront', 'CrossCropGalleryBack')]
         [string]$Pose,
         [Parameter(Mandatory = $true)][string]$RegistryPath,
-        [Parameter(Mandatory = $true)][string]$AssetsPath
+        [Parameter(Mandatory = $true)][string]$AssetsPath,
+        [ValidateRange(0, [int]::MaxValue)][int]$Page = 0
     )
 
     $coverage = Get-CrossCropCoverageEvidence -RegistryPath $RegistryPath -AssetsPath $AssetsPath
+    $galleryPage = Get-CrossCropGalleryPage -Coverage $coverage -Page $Page
+    $columns = $galleryPage.columns
+    $pageEntries = @($galleryPage.entries)
     $mx = [int]$MutationCoordinate[0]
     $my = [int]$MutationCoordinate[1]
     $mz = [int]$MutationCoordinate[2]
-    $columns = 24
     $clearMin = [pscustomobject][ordered]@{ x = $mx - 24; y = $my + 1; z = $mz - 20 }
     $clearMax = [pscustomobject][ordered]@{ x = $mx + 24; y = $my + 5; z = $mz + 20 }
     $clearVolume = ($clearMax.x - $clearMin.x + 1) *
@@ -141,10 +186,10 @@ function New-CrossCropGalleryPlan {
     $fixtureCommands = [Collections.Generic.List[string]]::new()
     $fixtureCommands.Add("fill $($clearMin.x) $($clearMin.y) $($clearMin.z) $($clearMax.x) $($clearMax.y) $($clearMax.z) minecraft:air")
     $fixtureCommands.Add("fill $($clearMin.x) $($my + 1) $($clearMin.z) $($clearMax.x) $($my + 1) $($clearMax.z) minecraft:farmland")
-    for ($index = 0; $index -lt $coverage.entries.Count; $index++) {
+    for ($index = 0; $index -lt $pageEntries.Count; $index++) {
         $x = $mx - 23 + 2 * ($index % $columns)
         $z = $mz - 18 + 2 * [Math]::Floor($index / $columns)
-        $entry = $coverage.entries[$index]
+        $entry = $pageEntries[$index]
         $stateSuffix = ConvertTo-BdsCanonicalStateSuffix -CanonicalState $entry.canonical_state
         $fixtureCommands.Add("setblock $x $($my + 2) $z $($entry.name)$stateSuffix")
     }
@@ -152,13 +197,13 @@ function New-CrossCropGalleryPlan {
     $fenceCommand = 'list'
     $teleportCommand = "tp @a[name=RustMCBE] $($camera.x) $($camera.y) $($camera.z) facing $($galleryCenter.x) $($galleryCenter.y) $($galleryCenter.z)"
     $commands = @($fixtureCommands) + @($fenceCommand, $teleportCommand)
-    if ($commands.Count -gt 512) {
-        throw "cross/crop gallery command list is not bounded: $($commands.Count)"
-    }
     $relativeLayout = [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-cross-crop-layout-v1'
+        schema = 'rust-mcbe-cross-crop-layout-v2'
         state_set_sha256 = $coverage.state_set_sha256
-        gallery_state_count = $coverage.state_count
+        page = $Page
+        page_count = $galleryPage.count
+        page_capacity = $galleryPage.capacity
+        gallery_state_count = $pageEntries.Count
         clear_min = @(-24, 1, -20)
         clear_max = @(24, 5, 20)
         support_min = @(-24, 1, -20)
@@ -178,8 +223,9 @@ function New-CrossCropGalleryPlan {
         relative_layout = $relativeLayout
         gallery_center = $galleryCenter
         camera = [pscustomobject][ordered]@{ position = $camera; target = $galleryCenter }
-        gallery_state_count = $coverage.state_count
-        gallery_states = @($coverage.entries | ForEach-Object { "$($_.name)|$($_.canonical_state)" })
+        gallery_page = [pscustomobject][ordered]@{ index = $Page; count = $galleryPage.count; capacity = $galleryPage.capacity }
+        gallery_state_count = $pageEntries.Count
+        gallery_states = @($pageEntries | ForEach-Object { "$($_.name)|$($_.canonical_state)" })
         family_diagnostics = [pscustomobject][ordered]@{ cross = $coverage.diagnostic_cross; crop = $coverage.diagnostic_crop }
         coverage_evidence = [pscustomobject][ordered]@{
             schema = $coverage.schema
@@ -211,5 +257,6 @@ function New-CrossCropGalleryPlan {
         Commands = $commands
         Manifest = $manifest
         CoverageEntries = @($coverage.entries)
+        PageEntries = $pageEntries
     }
 }

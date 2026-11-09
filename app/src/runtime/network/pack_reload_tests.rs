@@ -114,7 +114,9 @@ fn terrain_identity_only_reload_resummarizes_settled_columns() {
     app.world_mut()
         .resource_mut::<PackReload>()
         .request_globals(stack(&[]));
+    assert!(app.world().resource::<PackReload>().loading_screen());
     settle(&mut app, 1);
+    assert!(!app.world().resource::<PackReload>().loading_screen());
     let mut payload = vec![1, 0];
     let sections = protocol::vanilla_dimension_range(0)
         .unwrap()
@@ -216,6 +218,13 @@ fn terrain_identity_only_reload_resummarizes_settled_columns() {
     let fresh = far_summary(&mut app);
     assert_eq!(fresh.column, previous.column);
     assert!(fresh.generation > previous.generation);
+}
+
+#[test]
+fn initial_global_pack_load_does_not_show_the_in_session_cover() {
+    let mut reload = PackReload::default();
+    reload.request_globals_initial(stack(&[]));
+    assert!(!reload.loading_screen());
 }
 
 #[test]

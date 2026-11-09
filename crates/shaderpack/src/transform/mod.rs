@@ -13,6 +13,7 @@ mod dot;
 mod interface;
 pub(crate) mod items;
 mod legacy;
+pub use legacy::ALPHA_TESTED_OUTPUT;
 pub(crate) use legacy::interface_identifier;
 mod local_constants;
 mod math;
@@ -103,7 +104,13 @@ pub(crate) fn transform(
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
     items::validate_delimiters(&pp.tokens)?;
-    let lg = stage_tokens(&pp.tokens, stage, pp.version, names.software_fused_dot)?;
+    let lg = stage_tokens(
+        &pp.tokens,
+        stage,
+        pp.version,
+        names.normalize_legacy,
+        names.software_fused_dot,
+    )?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
@@ -265,12 +272,18 @@ fn stage_tokens(
     tokens: &[Tok],
     stage: StageKind,
     version: u32,
+    compatibility: bool,
     software_fused_dot: bool,
 ) -> Result<legacy::Legacy, TransformError> {
     let wide = narrow::lower(tokens);
     let wide = wide.as_deref().unwrap_or(tokens);
     let fused = dot::order(wide, software_fused_dot);
-    legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, version)
+    legacy::rewrite(
+        fused.as_deref().unwrap_or(wide),
+        stage,
+        version,
+        compatibility,
+    )
 }
 
 #[cfg(test)]

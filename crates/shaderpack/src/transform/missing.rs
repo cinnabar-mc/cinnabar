@@ -53,6 +53,7 @@ pub(crate) fn vertex_outputs(
         &fragment.tokens,
         StageKind::Fragment,
         fragment.version,
+        true,
         false,
     )?;
     let mut outputs = Vec::new();

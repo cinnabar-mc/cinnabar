@@ -3,6 +3,7 @@ use super::*;
 /// A two-triangle square with partial coverage on one corner, like a rounded shape's fringe.
 fn shape() -> UiMesh {
     let vertex = |position: [f32; 2], coverage: f32| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.0,
         clip_w: 1.0,

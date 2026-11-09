@@ -803,3 +803,51 @@ fn unchanged_failed_plan_waits_for_backoff_but_changed_plan_retries() {
     );
     assert!(attempts.get() > retried, "plan changes retry immediately");
 }
+
+#[test]
+fn selected_model_pages_replan_without_replacing_the_fixed_catalog() {
+    use render_model::{
+        MAX_UI_DYNAMIC_PAGES, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
+        UI_LOCAL_FONT_PAGE_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_SELECTED_MODEL_PAGE_OFFSET,
+    };
+    let page = |side, value| {
+        UiTexturePage::owned([side; 2], vec![value; (side * side * 4) as usize].into()).unwrap()
+    };
+    let blank = page(UI_DYNAMIC_PAGE_SIDE, 0);
+    let font = page(UI_LOCAL_FONT_PAGE_SIDE, 0);
+    let art = page(UI_ART_PAGE_SIDE, 0);
+    let mut pages = vec![page(1, 255)];
+    pages.extend((0..UI_SELECTED_MODEL_PAGE_OFFSET).map(|offset| {
+        if offset == UI_LOCAL_FONT_PAGE_OFFSET {
+            font.clone()
+        } else if (MAX_UI_DYNAMIC_PAGES..UI_NATIVE_SHEET_PAGE_OFFSET).contains(&offset) {
+            art.clone()
+        } else {
+            blank.clone()
+        }
+    }));
+    let base = UiTextureCatalog::new(pages, 1).unwrap();
+    let mut selected = base.pages()[1..].to_vec();
+    selected.push(page(32, 173));
+    let selected = base.replace_dynamic(selected).unwrap();
+    let (device, queue) = noop_device();
+    let mut gpu = UiGpuTextures::default();
+    gpu.prepare(&base, &device, &queue, None, std::time::Duration::ZERO)
+        .unwrap();
+    gpu.prepare(&selected, &device, &queue, None, std::time::Duration::ZERO)
+        .expect("selected model allocation must preserve the already uploaded fixed UI catalog");
+    assert_eq!(gpu.locations.len(), selected.pages().len());
+    gpu.prepare(&base, &device, &queue, None, std::time::Duration::ZERO)
+        .expect("selected model allocation may be released");
+    assert_eq!(gpu.locations.len(), base.pages().len());
+    let mut changed = base.pages().to_vec();
+    changed[0] = page(1, 13);
+    let changed = UiTextureCatalog::new(changed, 1).unwrap();
+    assert!(
+        matches!(
+            gpu.prepare(&changed, &device, &queue, None, std::time::Duration::ZERO),
+            Err(UiRenderRejectReason::TextureIdentityConflict { .. })
+        ),
+        "fixed artwork replacement must still fail identity admission"
+    );
+}

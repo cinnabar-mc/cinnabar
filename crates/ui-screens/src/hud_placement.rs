@@ -80,19 +80,24 @@ pub fn install(catalog: &mut Catalog) {
 
 /// A placed context kept until its base context or placement changes, so the retained screen
 /// reading it compares it by pointer rather than variable by variable.
-#[derive(Default)]
-pub struct PlacedContext {
-    built: Option<(Context, HudPlacement, Context)>,
+pub struct PlacedContext<P = HudPlacement> {
+    built: Option<(Context, P, Context)>,
 }
 
-impl PlacedContext {
+impl<P> Default for PlacedContext<P> {
+    fn default() -> Self {
+        Self { built: None }
+    }
+}
+
+impl<P: Copy + PartialEq> PlacedContext<P> {
     /// `place(base, placement)`, reused while `base` and `placement` match the last call's. Each
     /// holder passes the same `place` on every call.
     pub fn get(
         &mut self,
         base: &Context,
-        placement: HudPlacement,
-        place: impl FnOnce(Context, HudPlacement) -> Context,
+        placement: P,
+        place: impl FnOnce(Context, P) -> Context,
     ) -> Context {
         if let Some((built_base, built_placement, context)) = &self.built
             && *built_placement == placement

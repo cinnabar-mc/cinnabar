@@ -94,6 +94,7 @@ pub(super) fn png(state: &State, dir: &Path, view: TouchUtilityView) -> Result<V
             presentation.set_mod_touch_buttons(buttons.iter().map(|button| (1, button)));
             presentation.hold_mod_touch_button(1);
         }
+        TouchUtilityView::ControlMode(mode) => presentation.set_touch_control_mode(mode),
         TouchUtilityView::Closed | TouchUtilityView::Menu => {}
     }
     let frame = presentation

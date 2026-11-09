@@ -163,6 +163,31 @@ fn device_loss_before_presentation_survives_orderly_shutdown() {
 }
 
 #[test]
+fn device_loss_with_first_frame_feedback_keeps_the_api_excluded() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Dx12)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>()
+        .init_resource::<render::GpuFailure>();
+    install_guard(&mut app, guard);
+    app.world()
+        .resource::<StartupPresentation>()
+        .record_completed_frame();
+    app.world_mut().resource_mut::<render::GpuFailure>().record(
+        bevy::render::error_handler::ErrorType::DeviceLost,
+        "driver failure",
+    );
+    app.update();
+    drop(app);
+
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert_eq!(next.recovery.failed_backends(), [Backend::Dx12]);
+    assert!(next.recovery.working.is_none());
+}
+
+#[test]
 fn device_loss_under_a_saved_api_uses_the_existing_video_fallback() {
     let recovery = restart_after_render_error(
         bevy::render::error_handler::ErrorType::DeviceLost,
@@ -187,16 +212,46 @@ fn device_loss_under_a_saved_api_uses_the_existing_video_fallback() {
 }
 
 #[test]
-fn out_of_memory_does_not_exclude_a_graphics_api_on_restart() {
-    for presented in [false, true] {
-        let recovery = restart_after_render_error(
-            bevy::render::error_handler::ErrorType::OutOfMemory,
-            presented,
-            false,
-        );
-        assert!(recovery.failed_backends().is_empty());
-        assert_eq!(recovery.crashed_choice(), None);
+fn other_gpu_errors_do_not_exclude_a_graphics_api_on_restart() {
+    use bevy::render::error_handler::ErrorType;
+
+    for kind in [
+        ErrorType::OutOfMemory,
+        ErrorType::Validation,
+        ErrorType::Internal,
+    ] {
+        for presented in [false, true] {
+            let recovery = restart_after_render_error(kind, presented, false);
+            assert!(recovery.failed_backends().is_empty());
+            assert_eq!(recovery.crashed_choice(), None);
+        }
     }
+}
+
+/// An exit right after presentation waits for the off-frame save instead of cancelling it.
+#[test]
+fn exit_right_after_presentation_keeps_the_working_renderer() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    install_guard(&mut app, guard);
+    app.world()
+        .resource::<StartupPresentation>()
+        .record_completed_frame();
+    app.update();
+    app.world_mut().write_message(AppExit::Success);
+    app.update();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
+    assert!(next.recovery.failed_backends().is_empty());
+    assert_eq!(
+        next.recovery.working.map(|working| working.backend),
+        Some(Backend::Vulkan)
+    );
 }
 
 #[test]
@@ -271,4 +326,28 @@ fn fallback_notice_waits_for_an_open_dialog_to_close() {
         .view();
     assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
     assert_eq!(view.message.as_deref(), Some("DX12 could not start"));
+}
+
+/// An exit written in `Last` before the exit systems, like the startup benchmark's, still cancels
+/// the pending presentation in that update, so the next launch does not exclude its backend.
+#[test]
+fn exit_written_before_the_exit_systems_cancels_in_the_same_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = StartupGuard::open(dir.path()).unwrap();
+    guard.begin(pending_attempt(Backend::Vulkan)).unwrap();
+    let mut app = App::new();
+    app.init_resource::<StartupPresentation>();
+    install_guard(&mut app, guard);
+    app.add_systems(
+        Last,
+        (|mut exit: bevy::prelude::MessageWriter<AppExit>| {
+            exit.write(AppExit::Success);
+        })
+        .before(OnAppExitSystems),
+    );
+    app.update();
+    assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
+    drop(app);
+    let next = StartupGuard::open(dir.path()).unwrap();
+    assert!(next.interrupted.is_none());
 }

@@ -428,6 +428,7 @@ fn animated_paper_doll_publication_reuses_header() {
 fn held_sprite() -> super::super::super::player_preview::PreviewHeldModel {
     use super::super::super::player_preview::{PreviewHeldModel, PreviewHeldPlacement};
     PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: ui::IconRef {
             color_mask: None,
             page: 0,
@@ -438,7 +439,7 @@ fn held_sprite() -> super::super::super::player_preview::PreviewHeldModel {
             .unwrap()
             .into(),
         placements: [PreviewHeldPlacement::Sprite {
-            hand_equipped: false,
+            grip: render_model::equipment::SpriteGrip::Flat,
         }; 2],
         hand_pivots: [[0.; 3]; 2],
     }
@@ -623,6 +624,7 @@ fn hud_and_emote_dolls_share_admission_near_the_frame_budget() {
         .or_default()
         .insert(key.metadata, super::super::held::HeldModel::ready(held));
     presentation.player_preview_gear.hands[0] = Some(PreviewHandItem {
+        shield_pattern: None,
         grip: None,
         glint: None,
         identifier: key.identifier.into(),
