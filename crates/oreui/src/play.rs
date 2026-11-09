@@ -25,6 +25,8 @@ use ui_engine::engine::screen::PaintError;
 
 const CREATE_HEIGHT: f32 = 4.4;
 const WORLD_ROW_HEIGHT: f32 = 8.4;
+const WORLD_ROW_PADDING: f32 = 0.8;
+const WORLD_EDIT_WIDTH: f32 = 10.0;
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -236,13 +238,17 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
                 }),
         );
     for entry in entries {
+        let bounds = [body[0], y, body[2], y + row_height];
         if y + row_height < list_top || y > body[3] {
             // A scrolled-off world keeps its place in the focus order, so keys reveal it.
-            canvas.focus_target(entry.action, [body[0], y, body[2], y + row_height])?;
+            canvas.focus_target(entry.action, bounds)?;
+            if let Some(edit) = entry.edit {
+                canvas.focus_target(edit, world_edit_bounds(canvas, bounds))?;
+            }
             y += row_height + gap;
             continue;
         }
-        world_row(canvas, view, &entry, [body[0], y, body[2], y + row_height])?;
+        world_row(canvas, view, &entry, bounds)?;
         y += row_height + gap;
     }
     canvas.end_focus_region(region);
@@ -274,6 +280,17 @@ fn game_mode_tag(mode: &str) -> &'static str {
     }
 }
 
+/// Returns the trailing Edit target for both visible and culled world rows.
+fn world_edit_bounds(canvas: &Canvas<'_>, b: Bounds) -> Bounds {
+    let pad = canvas.r(WORLD_ROW_PADDING);
+    [
+        b[2] - pad - canvas.r(WORLD_EDIT_WIDTH),
+        b[1] + pad,
+        b[2] - pad,
+        b[3] - pad,
+    ]
+}
+
 /// One list row: 16:9 thumbnail, title, subtitle and tag, metadata on the right.
 fn world_row(
     canvas: &mut Canvas<'_>,
@@ -282,7 +299,7 @@ fn world_row(
     b: Bounds,
 ) -> Result<(), PaintError> {
     row(canvas, view, b, false, Some(entry.action))?;
-    let pad = canvas.r(0.8);
+    let pad = canvas.r(WORLD_ROW_PADDING);
     let thumb_width = canvas.r(12.0);
     let thumb = [
         b[0] + pad,
@@ -301,7 +318,7 @@ fn world_row(
     canvas.frame(thumb, 0.2, [0x1e, 0x1e, 0x1f, 255])?;
     let text_left = thumb[2] + canvas.r(0.8);
     let edit_width = if entry.edit.is_some() {
-        canvas.r(10.0)
+        canvas.r(WORLD_EDIT_WIDTH)
     } else {
         0.0
     };
@@ -351,7 +368,7 @@ fn world_row(
         )?;
     }
     if let Some(edit) = entry.edit {
-        let edit_bounds = [b[2] - pad - edit_width, b[1] + pad, b[2] - pad, b[3] - pad];
+        let edit_bounds = world_edit_bounds(canvas, b);
         edit_action(canvas, view, edit_bounds, edit)?;
     }
     Ok(())

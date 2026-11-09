@@ -195,9 +195,8 @@ impl MenuRuntime {
         }
     }
 
-    /// Whether keyboard focus follows the order of the painted controls, so
-    /// focus visits exactly what is drawn, in drawing order. The local-world
-    /// forms opened from the Worlds tab keep their own order.
+    /// Whether keyboard focus uses the controls and order published by the screen.
+    /// The local-world forms opened from the Worlds tab keep their own order.
     pub(in crate::menu) fn uses_painted_focus(&self) -> bool {
         match self.screen {
             MenuScreen::Home => true,
