@@ -415,8 +415,10 @@ and rendered qualification remain incomplete.
   Pack scripts compile at any statement count and up to their source document's size and the
   stored per-expression operation width. The graphics-mode, pack-setting and
   bone-orientation queries are admitted but read their idle zero: Cinnabar has no pack
-  settings or bone transform readback yet, and the per-actor tick budget for very large
-  scripts is not checked against native behavior.
+  settings or bone transform readback yet. Large initialize and pre-animation programs
+  reserve their stored operations beside the ordinary pose allowance, including frame
+  replay and ordered world-budget accounting. Loop-heavy scripts, rigs exceeding the
+  shared world budget and hardware frame-work acceptance remain incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
