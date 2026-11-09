@@ -357,7 +357,7 @@ fn element_reads_follow_enum_order_and_hiding_replaces_the_set() {
 #[test]
 fn panel_actor_projections_need_actor_authority() {
     use super::super::cinnabar::extension::panel::Host as _;
-    let panel = json!({"toggle_key":"F10","surface":{"screen":"menu.root",
+    let panel = json!({"surface":{"screen":"menu.root",
         "document":json!({"namespace":"menu","root":{"type":"panel"}}).to_string(),
         "bindings":{"#tag":{"project":{"actor":3,"offset":[0,2,0]}}}}})
     .to_string();
@@ -372,4 +372,23 @@ fn panel_actor_projections_need_actor_authority() {
         ..controls
     });
     assert!(granted.set_content(panel).unwrap().is_ok());
+}
+
+#[test]
+fn rollback_restores_the_committed_surface_index_before_a_guest_patch() {
+    let mut state = state(hud());
+    assert!(set(&mut state, surface(json!({"#text":"published"}))));
+    surface::set(&mut state, String::new()).unwrap().unwrap();
+    state.hud.rollback();
+    surface::update(
+        &mut state,
+        r##"{"binding_changes":{"#text":"recovered"}}"##.into(),
+    )
+    .unwrap()
+    .unwrap();
+    state.hud.commit();
+    assert_eq!(
+        state.hud.surface.as_ref().unwrap().bindings["#text"],
+        ui::mod_panel::SurfaceValue::Text("recovered".into())
+    );
 }

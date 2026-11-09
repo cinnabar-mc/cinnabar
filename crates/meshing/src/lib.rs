@@ -23,7 +23,10 @@ pub use overlays::{
 mod palette_bits;
 mod publication;
 mod render_settings;
+mod scratch;
 pub use render_settings::MeshRenderSettings;
+pub use scratch::MeshScratch;
+pub mod surface;
 mod types;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;
@@ -35,7 +38,7 @@ pub use biome::{
 pub use chunk::build::{
     MeshOptions, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
     mesh_sub_chunk_in_neighbourhood_with_lighting, mesh_sub_chunk_in_neighbourhood_with_options,
-    mesh_sub_chunk_with_lighting,
+    mesh_sub_chunk_in_neighbourhood_with_scratch, mesh_sub_chunk_with_lighting,
 };
 pub use classifier::BlockClassifier;
 pub use cloud::{
@@ -59,7 +62,7 @@ pub use liquid::{CameraMedium, LiquidLevel, sample_camera_medium};
 pub use publication::{CHUNK_PUBLICATION_ORIGIN_BYTES, chunk_publication_byte_len};
 pub use types::{
     ChunkMesh, ChunkMeshStreamError, ChunkMeshStreams, DiagnosticGeometryCount,
-    DiagnosticGeometrySummary, Face, FaceConnectivity, MAX_DIAGNOSTIC_IDENTITIES_PER_MESH,
-    MODEL_REF_FLAG_RANDOM_OFFSET, Neighbourhood, PackedLiquidQuad, PackedModelDrawRef,
-    PackedModelRef, PackedQuad, PackedQuadLighting,
+    DiagnosticGeometrySummary, Face, FaceConnectivity, LIGHT_SAMPLE_SHADE_FACE_SHIFT,
+    MAX_DIAGNOSTIC_IDENTITIES_PER_MESH, MODEL_REF_FLAG_RANDOM_OFFSET, Neighbourhood,
+    PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
 };

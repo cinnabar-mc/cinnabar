@@ -199,9 +199,7 @@ fn held_sheet(runtime: &EquipmentRuntime, pages: &ActorArtworkPages) -> Vec<u8> 
                 * usize::from(width)
                 + usize::from(placement.x))
                 * 4;
-            page.pixels()[start..start + usize::from(placement.width) * 4]
-                .iter()
-                .copied()
+            page.pixels()[start..start + usize::from(placement.width) * 4].to_vec()
         })
         .collect()
 }

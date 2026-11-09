@@ -1,4 +1,5 @@
 use super::*;
+use crate::nbt_tree::test_tree::Nbt;
 
 /// Supplies a disabled mining override without a live server fixture.
 fn mining_components() -> Nbt {
@@ -41,17 +42,25 @@ fn custom_mining_odd_entries_and_conditionless_permutations_keep_the_block_minab
         ("value", Nbt::Float(2.0)),
         (
             "item_specific_speeds",
-            Nbt::List(vec![
-                compound(vec![("destroy_speed", Nbt::Float(0.5))]),
-                text("test:not_a_compound"),
-            ]),
+            Nbt::List(vec![compound(vec![("destroy_speed", Nbt::Float(0.5))])]),
         ),
     ]);
-    for root in [
+    let not_compounds = compound(vec![
+        ("value", Nbt::Float(2.0)),
+        (
+            "item_specific_speeds",
+            Nbt::List(vec![text("test:not_a_compound")]),
+        ),
+    ]);
+    let mining = |component| {
         compound(vec![(
             "components",
-            compound(vec![("minecraft:destructible_by_mining", speeds)]),
-        )]),
+            compound(vec![("minecraft:destructible_by_mining", component)]),
+        )])
+    };
+    for root in [
+        mining(speeds),
+        mining(not_compounds),
         compound(vec![
             (
                 "components",

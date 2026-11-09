@@ -37,6 +37,12 @@ pub(in super::super) fn catalog(surface: &Surface) -> Result<Catalog, String> {
 pub(in super::super) fn bind(surface: &Surface, data: &mut DataSource) {
     for (name, value) in &surface.bindings {
         data.set_global(name, scalar(value));
+        if value.projection().is_some() {
+            data.set_global(
+                ui::mod_panel::projected_visible_name(name),
+                Scalar::Bool(false),
+            );
+        }
     }
 }
 

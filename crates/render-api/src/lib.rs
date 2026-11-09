@@ -6,11 +6,18 @@
 mod actor_lighting;
 pub mod far_terrain;
 mod frame_rate_limit;
+mod held_item;
 mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod shield;
+pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
 mod vsync;
+pub use held_item::{
+    DEFAULT_ITEM_RENDER_OFFSETS, HeldItemHand, HeldItemHandSide, HeldItemPerspective,
+    HeldItemPlacement, HeldItemTransform, ItemRenderOffsets,
+};
 pub use pose_generation::PoseGeneration;
 mod skin;
 pub mod sprite_mask;
@@ -64,8 +71,21 @@ pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";
 /// Requests an acceptance client to exit after reporting its first completed menu frame.
 pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";
 
+/// Absolute directory that replaces the platform's user config and data roots.
+pub const USER_ROOT_ENV: &str = "CINNABAR_USER_ROOT";
+/// Environment option selecting the bounded stage-trace event budget.
+pub const STAGE_PROFILE_EVENTS_ENV: &str = "CINNABAR_STAGE_PROFILE_EVENTS";
+/// Largest explicit stage trace; overflow is reported rather than treated as complete evidence.
+pub const MAX_STAGE_PROFILE_EVENTS: usize = 2_097_152;
+
 /// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
 pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
 
 /// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+
+/// Selects a retained model vertex whose position and normal use a GPU bone palette.
+pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;
+
+/// Uses the brightest sampled RGB channel as coverage, multiplied by texture alpha.
+pub const UI_STYLE_RGB_COVERAGE: u32 = 1 << 18;

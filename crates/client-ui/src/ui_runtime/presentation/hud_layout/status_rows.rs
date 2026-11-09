@@ -91,6 +91,17 @@ pub(in super::super) fn capture(
         effects: effects(runtime, now_tick),
         java_effects: java_effects(runtime, now_tick),
         hotbar_cooldowns: frame.hotbar_cooldowns,
+        locator: frame
+            .locator_view
+            .filter(|_| {
+                mode_allows_hotbar
+                    && frame.mount_jump.is_none()
+                    && runtime
+                        .session
+                        .locator
+                        .visible(frame.dimension, frame.now_millis)
+            })
+            .map(|view| runtime.session.locator.paint(view, frame.dimension)),
         // The third-person preference never overrides the spectator gate.
         crosshair: sheet
             .filter(|_| {

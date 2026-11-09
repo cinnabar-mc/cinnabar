@@ -158,6 +158,65 @@ fn material_overrides_repoint_base_materials() {
     assert!(base.with_block_overlay(1, &overlay).is_err());
 }
 
+/// A replaced shelf sheet is one overlay layer, so only its pose moves to the whole-sheet UVs.
+#[test]
+fn replacing_a_sheet_moves_only_its_models_to_their_whole_sheet_templates() {
+    let mut base = RuntimeAssets::diagnostic();
+    base.materials = vec![Material::unvaried(); 4].into();
+    base.light_properties = vec![LightProperties::OPAQUE_DARK; 3].into();
+    let diagnostic = base.visuals[0];
+    base.visuals = [0, 1, 2]
+        .map(|material| BlockVisual {
+            faces: [material; 6],
+            kind: VisualKind::Model,
+            model_template: 0,
+            ..diagnostic
+        })
+        .into();
+    base.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF | crate::MODEL_TEMPLATE_FLAG_SHEET_TILES,
+        },
+        ModelTemplate {
+            quad_start: 1,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF,
+        },
+    ]
+    .into();
+    base.model_quads = vec![
+        crate::ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 3,
+            flags: 0,
+        };
+        2
+    ]
+    .into();
+    let template = |assets: &RuntimeAssets, visual| {
+        assets
+            .resolve(NetworkIdMode::Sequential, visual)
+            .model_template()
+    };
+    let mut overlay = cube_overlay(page(64));
+    let untouched = base.with_block_overlay(3, &overlay).unwrap();
+    assert_eq!(template(&untouched, 1), Some(0));
+    overlay.material_overrides.push(MaterialOverride {
+        material: 1,
+        texture: TextureRef::new(1, 0).unwrap(),
+        animation: NO_ANIMATION,
+        variation: None,
+    });
+    let replaced = base.with_block_overlay(3, &overlay).unwrap();
+    assert_eq!(template(&replaced, 1), Some(1));
+    assert_eq!(template(&replaced, 2), Some(0));
+    assert!(replaced.is_retextured(crate::BlockVisualId(1)));
+    assert!(!replaced.is_retextured(crate::BlockVisualId(2)));
+}
+
 #[test]
 fn raster_only_leaf_replacement_preserves_the_base_weighted_selector() {
     let mut base = RuntimeAssets::diagnostic();
@@ -193,6 +252,51 @@ fn raster_only_leaf_replacement_preserves_the_base_weighted_selector() {
     );
     assert_eq!(runtime.material(3).texture.page(), 1);
     assert_eq!(base.material(3).texture.page(), 0);
+}
+
+#[test]
+fn only_base_visuals_whose_face_art_changed_are_retextured() {
+    let mut base = RuntimeAssets::diagnostic();
+    base.materials = vec![
+        Material::unvaried(),
+        Material {
+            variation_start: 2,
+            variation_count: 2,
+            ..Material::unvaried()
+        },
+        Material {
+            variation_weight: 0.25_f32.to_bits(),
+            ..Material::unvaried()
+        },
+        Material {
+            variation_weight: 0.75_f32.to_bits(),
+            ..Material::unvaried()
+        },
+        Material::unvaried(),
+    ]
+    .into();
+    let diagnostic = base.visuals[0];
+    base.visuals = [0, 1, 4]
+        .map(|material| BlockVisual {
+            faces: [material; 6],
+            ..diagnostic
+        })
+        .into();
+    let mut overlay = cube_overlay(page(16));
+    let untouched = base.with_block_overlay(3, &overlay).unwrap();
+    assert!((0..4).all(|visual| !untouched.is_retextured(crate::BlockVisualId(visual))));
+    // Repointing one weighted leaf changes the art of every face that selects it.
+    overlay.material_overrides.push(MaterialOverride {
+        material: 3,
+        texture: TextureRef::new(1, 0).unwrap(),
+        animation: NO_ANIMATION,
+        variation: None,
+    });
+    let runtime = base.with_block_overlay(3, &overlay).unwrap();
+    let retextured = (0..4)
+        .filter(|&visual| runtime.is_retextured(crate::BlockVisualId(visual)))
+        .collect::<Vec<_>>();
+    assert_eq!(retextured, [1]);
 }
 
 #[test]

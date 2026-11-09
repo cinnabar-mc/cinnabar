@@ -42,6 +42,7 @@ impl TitleSource {
             return images.get(TITLE_KEY).copied();
         }
         if let Some(icon) = images.get(&self.artwork) {
+            atlas.draw_art(key);
             return Some(*icon);
         }
         atlas.require([key]);
@@ -168,5 +169,61 @@ mod tests {
             presentation.set_server_ui_pack(&super::super::super::ServerUiPack::default());
             assert_eq!(presentation.title_icon(&artwork), Some(shipped));
         }
+    }
+
+    /// A title drawn from its full-resolution copy still counts as drawn, so frames that show
+    /// only the title keep it first on full art pages instead of dropping and repacking it.
+    #[test]
+    fn art_backed_title_keeps_its_drawn_priority() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        let key = "textures/ui/original_large_brand";
+        let definition = serde_json::to_vec(&serde_json::json!({
+            "namespace":"common_art",
+            "title_image":{"type":"image", "texture":key}
+        }))
+        .unwrap();
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(600, 200, image::Rgba([19, 53, 79, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        presentation.set_server_ui_pack(&super::super::super::ServerUiPack {
+            ui_layers: vec![vec![
+                (
+                    "ui/_ui_defs.json".into(),
+                    br#"{"ui_defs":["ui/original_brand.json"]}"#.to_vec(),
+                ),
+                ("ui/original_brand.json".into(), definition),
+            ]],
+            textures: vec![(format!("{key}.png"), png)],
+            ..Default::default()
+        });
+        let mut page_filler = Vec::new();
+        image::RgbaImage::from_pixel(1000, 1000, image::Rgba([7, 7, 7, 255]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut page_filler),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        let page_filler: std::sync::Arc<[u8]> = page_filler.into();
+        presentation.menu_artwork_set.images = vec![
+            ("filler-a".into(), page_filler.clone()),
+            ("filler-b".into(), page_filler),
+        ];
+        test_time::eventually("oversized title drawn from its page", || {
+            presentation.title_icon(&HashMap::new()).is_some()
+        });
+        presentation.end_ui_frame();
+        presentation.finish_menu_artwork();
+        let refs = presentation.menu_artwork.refs.clone();
+        let art = refs[&format!("{SERVER_ART_PREFIX}{key}")];
+        for _ in 0..2 {
+            assert_eq!(presentation.title_icon(&refs), Some(art));
+            presentation.end_ui_frame();
+        }
+        assert!(
+            presentation.menu_artwork_loader.left_out(),
+            "the art pages had room to spare"
+        );
+        assert!(presentation.menu_artwork_set.drawn_oversized.contains(key));
     }
 }

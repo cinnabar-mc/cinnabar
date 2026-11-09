@@ -1,10 +1,8 @@
 //! Independent drawing output on the same serialized packet worker.
 use super::PacketMod;
+use crate::NativeFrame as Frame;
 use anyhow::{Result, ensure};
-use mod_api::{
-    native_frame::{Frame, MAX_BYTES},
-    native_render::Scene,
-};
+use mod_api::{native_frame::MAX_BYTES, native_render::Scene};
 
 impl PacketMod {
     /// Drawing needs neither camera authority nor gameplay input capture.
@@ -14,7 +12,7 @@ impl PacketMod {
         }
         ensure!(frame.is_none_or(Frame::is_valid), "invalid render frame");
         let observation = frame.map(|frame| mod_api::native_render::Frame {
-            version: frame.version,
+            version: mod_api::native_render::VERSION,
             session: frame.session,
             dimension: frame.dimension,
         });
@@ -128,7 +126,7 @@ mod tests {
         let scene = serde_json::to_string(&fixture["scene"]).unwrap();
         let mut guest = guest(&scene, true, true);
         let frame = Frame {
-            version: 1,
+            version: mod_api::native_frame::VERSION,
             session: 1,
             dimension: 0,
             eye: [0.; 3],
@@ -175,7 +173,7 @@ mod tests {
             scene[other] = serde_json::json!([]);
             let mut guest = guest(&scene.to_string(), true, false);
             let frame = Frame {
-                version: 1,
+                version: mod_api::native_frame::VERSION,
                 session: 1,
                 dimension: 0,
                 eye: [0.; 3],

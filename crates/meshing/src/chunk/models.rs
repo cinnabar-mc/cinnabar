@@ -11,6 +11,7 @@ use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
 mod bubble_column;
+mod chorus;
 mod door;
 mod fire;
 use crate::{
@@ -27,6 +28,41 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
+/// A vine template's stem planes, which come before its tip planes.
+const VINE_STEM_QUADS: u32 = 0b0011;
+/// A vine template's tip planes.
+pub(crate) const VINE_TIP_QUADS: u32 = 0b1100;
+
+/// Chooses a vine template's stem planes where the same vine continues in its growth
+/// direction and its tip planes where it ends; `None` for every other template.
+pub(crate) fn vine_quad_mask<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    coordinate: [usize; 3],
+    flags: u32,
+) -> Option<u32> {
+    let (vine, growth) = if flags & assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE != 0 {
+        (assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE, Face::NegativeY)
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE != 0 {
+        (assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE, Face::PositiveY)
+    } else {
+        return None;
+    };
+    let next = adjacent_palette_entry(context, facts, neighbour_facts, coordinate, growth);
+    let continues = next.kind == VisualKind::Cross
+        && context
+            .visuals
+            .model_templates()
+            .get(next.model_template as usize)
+            .is_some_and(|template| template.flags & vine != 0);
+    Some(if continues {
+        VINE_STEM_QUADS
+    } else {
+        VINE_TIP_QUADS
+    })
+}
+
 pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
 
 /// The policy that can choose a block's world-model template from its neighbours.
@@ -37,6 +73,8 @@ pub(crate) enum ModelTemplateSelection {
     BubbleColumn,
     Fire,
     Portal,
+    Scaffolding,
+    ChorusPlant,
     Pane,
     Fence(u32),
     Stair,
@@ -54,6 +92,10 @@ pub(crate) fn model_template_selection(kind: VisualKind, flags: u32) -> ModelTem
         ModelTemplateSelection::Fire
     } else if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
         ModelTemplateSelection::Portal
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0 {
+        ModelTemplateSelection::Scaffolding
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT != 0 {
+        ModelTemplateSelection::ChorusPlant
     } else if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
         ModelTemplateSelection::Pane
     } else if flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0 {
@@ -78,6 +120,21 @@ pub(crate) fn select_model_templates<'a>(
     let flags = model_template_flags(context.visuals, entry);
     let selected = match model_template_selection(entry.kind, flags) {
         ModelTemplateSelection::Fixed => entry.model_template,
+        ModelTemplateSelection::Scaffolding => {
+            let below = adjacent_palette_entry(
+                context,
+                facts,
+                neighbour_facts,
+                coordinate,
+                Face::NegativeY,
+            );
+            // A supported block starts after the foot ring at the head of the chain.
+            let supported = assets::scaffolding_is_supported(
+                below.flags,
+                model_template_flags(context.visuals, below),
+            );
+            entry.model_template + u32::from(supported)
+        }
         ModelTemplateSelection::Door => {
             return door::select_template(context, facts, neighbour_facts, coordinate, entry)
                 .map_or(
@@ -101,6 +158,9 @@ pub(crate) fn select_model_templates<'a>(
                         != 0
                 });
             entry.model_template + u32::from(legacy_axis_x)
+        }
+        ModelTemplateSelection::ChorusPlant => {
+            chorus::select_template(context, facts, neighbour_facts, coordinate, entry)
         }
         ModelTemplateSelection::Pane => {
             let mask = connected_model_mask(

@@ -3,6 +3,9 @@
 #[path = "map_mesh_tests.rs"]
 mod map_mesh_tests;
 
+#[path = "retained_block_tests.rs"]
+mod retained_block_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -35,6 +38,9 @@ mod held_scale_tests;
 
 #[path = "third_person_hand_tests.rs"]
 mod third_person_hand_tests;
+
+#[path = "shield_tests.rs"]
+mod shield_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -300,6 +306,7 @@ fn block_fixture_with_visuals(
     };
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
@@ -906,7 +913,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
                 },
                 |endpoint, index| {
                     work.set(work.get() + 1);
-                    modern::compose_parent(
+                    actor_animation::attachment::compose_parent(
                         if endpoint == 0 {
                             body.input.previous_bones[index]
                         } else {

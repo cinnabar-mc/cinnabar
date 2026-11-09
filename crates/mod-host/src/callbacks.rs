@@ -4,6 +4,11 @@ use super::*;
 use anyhow::Result;
 
 impl ModHost {
+    /// Identifies this guest's scheduling account across changes in load order.
+    pub fn frame_owner(&self) -> FrameOwner {
+        self.instance.frame_owner()
+    }
+
     /// Resets frame-local outputs before input or lifecycle callbacks, preserving retained state.
     pub fn begin_frame(&mut self) {
         self.instance.begin_frame();
@@ -14,7 +19,12 @@ impl ModHost {
         self.instance.is_revoked()
     }
 
-    /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
+    /// Whether fuel exhaustion or continuation cancellation is waiting for fresh initialization.
+    pub fn is_recovering(&self) -> bool {
+        self.instance.is_recovering()
+    }
+
+    /// Runs a bounded callback; isolated frame fuel traps retain output and recover next frame.
     pub fn frame(&mut self, pressed: bool) -> Result<()> {
         self.frame_with_gameplay(pressed, None)
     }
@@ -62,15 +72,9 @@ impl ModHost {
     }
 
     /// Shares frame fuel; the booleans say whether a higher mod owns camera or time output.
-    pub fn set_frame_authority(
-        &mut self,
-        budget: CallbackBudget,
-        camera: bool,
-        environment: bool,
-        owner: usize,
-    ) {
+    pub fn set_frame_authority(&mut self, budget: CallbackBudget, camera: bool, environment: bool) {
         self.instance
-            .set_frame_authority(budget, camera, environment, owner);
+            .set_frame_authority(budget, camera, environment);
     }
 
     /// Whether this instance currently publishes exclusive camera output in this frame.
@@ -94,16 +98,43 @@ impl ModHost {
         controls: ControlFrame,
     ) -> Result<()> {
         self.begin_frame();
-        let result = match self.dispatch(Vec::new()) {
-            Ok(delivery) => self
-                .instance
-                .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
-                .and_then(|()| self.instance.frame(delivery)),
-            Err(error) => Err(error),
-        };
+        self.instance.release_unrenewable_movement(&controls);
+        let result = self.recover_frame_fuel().and_then(|recovered| {
+            if recovered {
+                // Input was sampled from the old UI; resume after the initialized UI is shown.
+                Ok(())
+            } else {
+                match self.dispatch(Vec::new()) {
+                    Ok(delivery) => self
+                        .instance
+                        .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                        .and_then(|()| self.instance.frame(delivery)),
+                    Err(error) => Err(error),
+                }
+            }
+        });
         self.instance.finish_frame();
         self.queue_settings();
         result
+    }
+
+    /// Restarts a fuel-trapped or cancelled guest and restores its lifecycle context.
+    /// Returns true when input sampled before replacement must be discarded.
+    fn recover_frame_fuel(&mut self) -> Result<bool> {
+        let recovered = self.instance.recover_frame_fuel()?;
+        if recovered {
+            self.pending_events
+                .retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        }
+        if recovered && self.instance.has_events() {
+            self.pending_events
+                .insert(0, ModEvent::ScreenChanged(self.layout.clone()));
+            self.pending_events.insert(
+                1,
+                ModEvent::DataChanged(vec![DataSource::Items, DataSource::Recipes]),
+            );
+        }
+        Ok(recovered)
     }
 
     /// Supplies bounded, read-only presentation facts for the next frame callback only.
@@ -131,12 +162,17 @@ impl ModHost {
         self.instance.observe_gameplay(facts)
     }
 
-    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
-    pub fn preserves_teleport_rotation(&self) -> bool {
-        self.instance.preserves_teleport_rotation()
+    /// Current-frame relative camera heading; absence restores player-aligned presentation.
+    pub fn camera_yaw_offset(&self) -> Option<f32> {
+        self.instance.camera_yaw_offset()
     }
 
-    /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
+    /// Current-frame perspective; absence restores the player’s chosen view.
+    pub fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
+        self.instance.camera_perspective()
+    }
+
+    /// Reads the current frame's FOV and look multipliers.
     pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
         self.instance.camera_view_scale()
     }
@@ -209,7 +245,7 @@ impl ModHost {
         self.instance.packet_delay_ms()
     }
 
-    /// Whether this guest can still receive callbacks.
+    /// Whether this mod retains authority and can resume callbacks.
     pub fn is_active(&self) -> bool {
         self.instance.is_active()
     }

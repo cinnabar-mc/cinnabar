@@ -19,6 +19,7 @@ mod death_screen;
 mod effects;
 mod experience_spacing;
 mod geometry;
+mod locator;
 mod menu_crosshair;
 mod offhand;
 mod pack_snapshots;
@@ -175,6 +176,18 @@ fn crosshair(input: &render_model::UiRenderInput, side: f32) -> Option<[f32; 4]>
     quad_bounds(input).find(|bounds| {
         (bounds[2] - bounds[0] - side).abs() < 1e-3 && (bounds[3] - bounds[1] - side).abs() < 1e-3
     })
+}
+
+/// Settings with the Bedrock hotbar position turned off, for Java's flush hotbar.
+fn java_hotbar_settings() -> launcher::menu::settings_options::SettingsOptions {
+    use launcher::menu::settings_options::{BEDROCK_HOTBAR_OPTION, SETTINGS_OPTIONS};
+    let mut settings = launcher::menu::settings_options::SettingsOptions::default();
+    let option = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == BEDROCK_HOTBAR_OPTION.name)
+        .unwrap();
+    settings.set(option, 0);
+    settings
 }
 
 fn select_slot(player_runtime: &mut player_state::PlayerState, runtime: &mut UiRuntime) {
@@ -799,14 +812,12 @@ fn titles_and_chat_carry_their_fades() {
     assert_eq!(presentation.hud_fade(chat, 9.0), 1.0);
     assert!(presentation.hud_fade(chat, 10.5) < 1.0);
     assert_eq!(presentation.hud_fade(chat, 11.0), 0.0);
-    // A re-sent title starts a fresh title control while preserving the chat fade.
-    let passes = presentation.hud_passes();
+    // A re-sent title restarts its fade while preserving the chat fade.
     runtime
         .session
         .hud
         .set_title(Arc::from("Victory"), 3, 2_000);
     build(&player_runtime, &mut presentation, &runtime, 2_100);
-    assert_eq!(presentation.hud_passes(), passes + 1);
     let title = text(presentation.hud_draw_nodes(), "Victory").unwrap();
     assert!((presentation.hud_fade(title, 2.25) - 0.5).abs() < 1e-3);
     let chat = text(presentation.hud_draw_nodes(), "gg").unwrap();

@@ -153,7 +153,7 @@ impl ModUi {
                 .surface
                 .bindings
                 .values()
-                .filter_map(|value| value.projection()?.actor())
+                .filter_map(|value| value.active_projection()?.actor())
         })
     }
 

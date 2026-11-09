@@ -150,6 +150,10 @@ pub const fn scroll_unit(unit: MouseScrollUnit) -> ScrollUnit {
     }
 }
 
+/// The press the platform Back key or gesture makes in mouse button state. It has no binding code,
+/// so it never reaches a gameplay binding, and every screen treats it as a fixed Menu Cancel.
+pub const PLATFORM_BACK: MouseButton = MouseButton::Other(u16::MAX);
+
 /// Converts desktop mouse buttons to the persisted gameplay binding codes.
 pub fn mouse_button_code(button: MouseButton) -> Option<u8> {
     Some(match button {

@@ -139,10 +139,9 @@ fn current_frame_crosses_real_component_boundary_and_rotation_is_consumed_once()
         i32.const 156 f32.load f32.const 1 f32.ne if unreachable end \
         i32.const 168 f32.load f32.const 0.4 f32.ne if unreachable end \
         i32.const 172 f32.load f32.const 0.2 f32.ne if unreachable end \
-        i32.const 176 i32.load8_u i32.const 1 i32.ne if unreachable end \
-        i32.const 180 f32.load f32.const 0.016 f32.ne if unreachable end \
-        i32.const 188 i32.load i32.const 1 i32.ne if unreachable end \
-        i32.const 184 i32.load i64.load i64.const 99 i64.ne if unreachable end {}",
+        i32.const 176 f32.load f32.const 0.016 f32.ne if unreachable end \
+        i32.const 184 i32.load i32.const 1 i32.ne if unreachable end \
+        i32.const 180 i32.load i64.load i64.const 99 i64.ne if unreachable end {}",
         read(false, true),
         rotate(0.1, -0.1, false)
     );
@@ -193,8 +192,8 @@ fn remote_session_preserves_independently_consented_player_poses_and_camera() {
                 "{} {} {}",
                 read(!players, true),
                 if players {
-                    "i32.const 188 i32.load i32.const 1 i32.ne if unreachable end \
-                     i32.const 184 i32.load i64.load i64.const 99 i64.ne if unreachable end"
+                    "i32.const 184 i32.load i32.const 1 i32.ne if unreachable end \
+                     i32.const 180 i32.load i64.load i64.const 99 i64.ne if unreachable end"
                 } else {
                     ""
                 },
@@ -439,4 +438,274 @@ fn explicit_jump_cancellation_commits_once_without_gameplay_and_wins_over_pulse(
     let (_directory, mut trapped) = load("", &format!("{cancel} unreachable"), grants);
     assert!(trapped.frame(false).is_err());
     assert!(!trapped.take_jump_cancel());
+}
+
+/// Stages toggle-sprint and always-sprint control modes, whatever the host answers.
+const CONTROL_MODES: &str =
+    "i32.const 1 i32.const 1 i32.const 0 i32.const 1 i32.const 256 call $modes";
+
+/// The control modes `CONTROL_MODES` stages.
+fn staged_modes() -> crate::GameplayControlModes {
+    crate::GameplayControlModes {
+        toggle_sprint: true,
+        toggle_sneak: false,
+        always_sprint: true,
+    }
+}
+
+/// A focused gameplay controls frame, in which a mod may set control modes.
+fn focused_controls() -> crate::ControlFrame {
+    crate::ControlFrame {
+        focused: true,
+        gameplay: true,
+        ..crate::empty_controls()
+    }
+}
+
+/// Control modes cross the component boundary, need movement authority, last only while renewed
+/// in focused gameplay and are cleared by a trap.
+#[test]
+fn control_modes_commit_per_renewed_frame_and_clear_after_a_trap() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let (_directory, mut host) = load("", CONTROL_MODES, grants.clone());
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()));
+    host.frame_with_controls(false, Some(snapshot()), crate::empty_controls())
+        .unwrap();
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "outside focused gameplay the modes cannot be renewed"
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()));
+    assert!(host.is_active());
+
+    let once = format!(
+        "i32.const 1024 i32.load i32.eqz if {CONTROL_MODES} end \
+         i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut once) = load("", &once, grants.clone());
+    once.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(once.control_modes(), Some(staged_modes()));
+    once.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(once.control_modes(), None, "omission expires renewed modes");
+
+    let (_directory, mut denied) = load("", CONTROL_MODES, ModGrants::default());
+    denied
+        .frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(denied.control_modes(), None);
+
+    let (_directory, mut omitted) = load(CONTROL_MODES, "", grants.clone());
+    omitted
+        .frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(
+        omitted.control_modes(),
+        None,
+        "init does not set frame modes"
+    );
+
+    let (_directory, mut trapped) = load("", &format!("{CONTROL_MODES} unreachable"), grants);
+    assert!(
+        trapped
+            .frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert!(!trapped.is_active());
+    assert_eq!(trapped.control_modes(), None);
+}
+
+/// A guest that renews its modes every frame keeps them through a frame whose callback the host
+/// deferred; the guest never omitted them.
+#[test]
+fn control_modes_survive_a_deferred_frame_callback() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let (_directory, mut host) = load("", CONTROL_MODES, grants);
+    host.set_frame_authority(
+        CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "control frame");
+    host.set_frame_authority(CallbackBudget::new(FRAME_FUEL - 1), false, false);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(host.is_active());
+    assert_eq!(
+        host.control_modes(),
+        Some(staged_modes()),
+        "a deferred callback reverted the mod's renewed modes to the player's settings"
+    );
+    host.instance.bind_drawing_policy(
+        ModGrants::default(),
+        mod_api::drawing::DrawingSession {
+            connection: 1,
+            dimension: 0,
+            local: false,
+            permissions: Default::default(),
+        },
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "retained modes outlived the movement grant"
+    );
+}
+
+/// Restarting a guest after a frame fuel overrun runs `init`, which cannot renew control modes,
+/// so the modes committed before the overrun stay until the fresh guest completes a frame.
+#[test]
+fn control_modes_survive_frame_fuel_recovery() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let overrun_after_first_frame = format!(
+        "i32.const 1024 i32.load if (loop $forever br $forever) end \
+         {CONTROL_MODES} i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut host) = load("", &overrun_after_first_frame, grants);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "control frame");
+    assert!(
+        host.frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert!(host.is_recovering());
+    assert_eq!(host.control_modes(), Some(staged_modes()), "overrun frame");
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(!host.is_recovering());
+    assert_eq!(
+        host.control_modes(),
+        Some(staged_modes()),
+        "recovery initialization released the retained modes"
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "fresh guest");
+}
+
+/// A recovery frame skips the guest callback but still releases modes it could not renew there.
+#[test]
+fn control_modes_release_on_an_unfocused_recovery_frame() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let overrun_after_first_frame = format!(
+        "i32.const 1024 i32.load if (loop $forever br $forever) end \
+         {CONTROL_MODES} i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut host) = load("", &overrun_after_first_frame, grants);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(
+        host.frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert_eq!(host.control_modes(), Some(staged_modes()), "overrun frame");
+    host.frame_with_controls(false, Some(snapshot()), crate::empty_controls())
+        .unwrap();
+    assert!(!host.is_recovering());
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "modes outlived focus across recovery"
+    );
+}
+
+/// Components compiled against the original gameplay interface still instantiate unchanged.
+#[test]
+fn legacy_gameplay_component_keeps_its_original_import_type() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let source = include_str!("gameplay_0_1.wat")
+        .replace("$GAMEPLAY", &format!("{name}/gameplay@{version}"))
+        .replace("$INIT", "")
+        .replace("$FRAME", "i32.const 128 call $read i32.const 176 i32.load8_u i32.const 1 i32.ne if unreachable end");
+    let mut host = ModHost::load_snapshot_with_grants(
+        &directory.path().join("legacy-gameplay.wat"),
+        source.as_bytes(),
+        grants(),
+    )
+    .unwrap();
+    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
+    assert!(host.is_active());
+}
+
+/// Both canonical record layouts run, including legacy physical holds, without changing gates.
+#[test]
+fn movement_records_keep_built_guests_and_current_imports_running() {
+    for fixture in [
+        include_str!("movement.wat"),
+        include_str!("movement_0_1.wat"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut host = ModHost::load_snapshot_with_grants(
+            &directory.path().join("movement.wat"),
+            fixture.as_bytes(),
+            ModGrants {
+                movement: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let movement = GameplayMovementSnapshot {
+            session: 1,
+            dimension: 0,
+            tick: 5,
+            velocity: GameplayVector3 {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            on_ground: true,
+            eligible: true,
+            jump_held: true,
+            sprint_held: true,
+            sneak_held: true,
+            knockback_sequence: 2,
+        };
+        let mut controls = crate::empty_controls();
+        controls.focused = true;
+        controls.gameplay = true;
+        host.frame_with_movement(
+            false,
+            Some(GameplaySnapshot {
+                session: 1,
+                dimension: 0,
+                ..snapshot()
+            }),
+            Vec::new(),
+            None,
+            Some(movement),
+            controls,
+        )
+        .unwrap();
+        assert!(host.is_active());
+    }
 }

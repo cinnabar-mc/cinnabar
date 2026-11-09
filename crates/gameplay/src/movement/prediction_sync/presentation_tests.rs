@@ -20,6 +20,7 @@ pub(super) fn feed() -> LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,

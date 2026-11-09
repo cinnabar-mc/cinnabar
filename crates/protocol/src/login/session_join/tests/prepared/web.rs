@@ -17,7 +17,7 @@ fn web_metadata(bulk: bool) -> serde_json::Value {
         "identity": identity("Fixture"), "client_cache": false, "packs_required": true,
         "trace_conn": 91, "pack_stream": bulk.then_some(JOIN),
         "packs": [{"uuid": "00112233-4455-6677-8899-aabbccddeeff", "version": "1.0.0",
-            "sub_pack": "high", "content_key": "key", "size": 3,
+            "sub_pack": "high", "content_key": "a2V5", "size": 3,
             "sha256": <[u8; 32]>::from(Sha256::digest(b"abc"))}]
     })
 }

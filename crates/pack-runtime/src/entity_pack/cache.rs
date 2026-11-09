@@ -1,7 +1,7 @@
 use assets::SessionEntityPack;
 use resource_pack::LayeredPackView;
 use resource_pack::StackFingerprint;
-use std::{path::PathBuf, sync::Arc};
+use std::{io::Read, path::PathBuf, sync::Arc};
 
 #[path = "pixel_reuse.rs"]
 mod pixel_reuse;
@@ -77,9 +77,19 @@ impl Default for EntityCache {
     }
 }
 
+/// Background disk-cache writes queued or running.
+static PENDING_STORES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Whether every queued background store has finished, so offline reports can include its cost.
+#[cfg(any(test, feature = "test-support"))]
+pub fn stores_idle() -> bool {
+    PENDING_STORES.load(std::sync::atomic::Ordering::Acquire) == 0
+}
+
 /// Writes optional disk-cache entries on one worker, with room for one waiting entry.
 /// Overflow or incomplete writes leave a cache miss; joins never wait for disk encoding.
 fn store_in_background(write: Box<dyn FnOnce() + Send>) {
+    use std::sync::atomic::Ordering;
     type Writes = std::sync::Mutex<std::sync::mpsc::SyncSender<Box<dyn FnOnce() + Send>>>;
     static WRITER: std::sync::OnceLock<Option<Writes>> = std::sync::OnceLock::new();
     let writer = WRITER.get_or_init(|| {
@@ -94,11 +104,16 @@ fn store_in_background(write: Box<dyn FnOnce() + Send>) {
     let Some(writer) = writer else {
         return;
     };
+    PENDING_STORES.fetch_add(1, Ordering::AcqRel);
     let queued = writer
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .try_send(write);
+        .try_send(Box::new(move || {
+            write();
+            PENDING_STORES.fetch_sub(1, Ordering::AcqRel);
+        }));
     if queued.is_err() {
+        PENDING_STORES.fetch_sub(1, Ordering::AcqRel);
         tracing::debug!("a compiled entity pack was not stored while others were");
     }
 }
@@ -140,14 +155,9 @@ impl EntityCache {
         // Only a tracked compile knows its reads, which a reload diff of a disk hit needs.
         let disk = disk.filter(|_| view.dependencies().is_some());
         let key = disk.map(|_| disk_key(&inputs));
-        let stored = disk.zip(key.as_ref()).and_then(|(disk, key)| {
-            let entry = disk.load(key)?;
-            let decoded = decode_entry(&entry);
-            if decoded.is_none() {
-                tracing::warn!("discarding an undecodable compiled entity pack");
-            }
-            decoded
-        });
+        let stored = disk
+            .zip(key.as_ref())
+            .and_then(|(disk, key)| load_entry(disk, key));
         let pack = if let Some((pack, files)) = stored {
             if let Some(dependencies) = view.dependencies() {
                 dependencies.extend(files);
@@ -166,9 +176,7 @@ impl EntityCache {
             if let (Some(disk), Some(key), Some(files)) = (disk, key, view.dependencies()) {
                 let (disk, files, stored) = (disk.clone(), files.snapshot(), pack.clone());
                 (self.store)(Box::new(move || {
-                    if let Some(entry) = encode_entry(&files, stored.as_deref(), blob.as_deref()) {
-                        disk.store(&key, &entry);
-                    }
+                    store_entry(&disk, &key, &files, stored.as_deref(), blob.as_deref());
                 }));
             }
             pack
@@ -259,40 +267,93 @@ fn vanilla_digest(refs: Option<&Arc<assets::VanillaEntityRefs>>) -> [u8; 32] {
     digest
 }
 
-/// Reads first, then a presence flag and the pack; `None` when the stack defines no entity.
-fn encode_entry(
+/// Streams the reads, then a presence flag and the pack, into `disk` under `key` without
+/// staging an encoded copy of the pack's pixels. A pack without its entity blob or with an
+/// unencodable catalog is not stored.
+fn store_entry(
+    disk: &crate::compile_cache::CompileCache,
+    key: &[u8; 32],
     files: &std::collections::BTreeSet<resource_pack::PackDependency>,
     pack: Option<&SessionEntityPack>,
     blob: Option<&[u8]>,
-) -> Option<Vec<u8>> {
-    let mut entry = Vec::new();
-    resource_pack::PackDependency::encode_set(files, &mut entry);
-    match pack {
-        None => entry.push(0),
-        Some(pack) => {
-            entry.push(1);
-            match pack.encode(blob?) {
-                Ok(bytes) => entry.extend_from_slice(&bytes),
-                Err(error) => {
-                    tracing::debug!(%error, "compiled entity pack is not cacheable");
-                    return None;
-                }
+) {
+    let mut reads = Vec::new();
+    resource_pack::PackDependency::encode_set(files, &mut reads);
+    let encoding = match (pack, blob) {
+        (None, _) => None,
+        (Some(_), None) => return,
+        (Some(pack), Some(blob)) => match pack.encoding(blob) {
+            Ok(encoding) => Some(encoding),
+            Err(error) => {
+                tracing::debug!(%error, "compiled entity pack is not cacheable");
+                return;
             }
+        },
+    };
+    let length = READS_LENGTH as u64
+        + reads.len() as u64
+        + 1
+        + encoding
+            .as_ref()
+            .map_or(0, |encoding| encoding.encoded_len());
+    disk.store_with(key, length, |entry| {
+        entry.write_all(&(reads.len() as u64).to_le_bytes())?;
+        entry.write_all(&reads)?;
+        entry.write_all(&[u8::from(encoding.is_some())])?;
+        if let Some(encoding) = &encoding {
+            encoding.write_to(entry)?;
         }
-    }
-    Some(entry)
+        Ok(())
+    });
 }
 
-fn decode_entry(
-    entry: &[u8],
+/// Bytes of the length prefix before an entry's encoded reads.
+const READS_LENGTH: usize = std::mem::size_of::<u64>();
+
+/// A stored pack and its reads, decoded straight from the cache entry; `None` for a miss
+/// or an entry that does not decode.
+fn load_entry(
+    disk: &crate::compile_cache::CompileCache,
+    key: &[u8; 32],
 ) -> Option<(
     Option<Arc<SessionEntityPack>>,
     std::collections::BTreeSet<resource_pack::PackDependency>,
 )> {
-    let (files, rest) = resource_pack::PackDependency::decode_set(entry)?;
-    let pack = match rest.split_first()? {
-        (0, []) => None,
-        (1, bytes) => Some(Arc::new(SessionEntityPack::decode(bytes).ok()?)),
+    let decoded = disk.load_with(key, |entry, length| Some(decode_entry(entry, length)))?;
+    if decoded.is_none() {
+        tracing::warn!("discarding an undecodable compiled entity pack");
+    }
+    decoded
+}
+
+/// Reads what [`store_entry`] wrote: `length` bytes of reads, presence flag and pack.
+fn decode_entry(
+    entry: &mut dyn Read,
+    length: u64,
+) -> Option<(
+    Option<Arc<SessionEntityPack>>,
+    std::collections::BTreeSet<resource_pack::PackDependency>,
+)> {
+    let mut prefix = [0; READS_LENGTH];
+    entry.read_exact(&mut prefix).ok()?;
+    let reads_length = u64::from_le_bytes(prefix);
+    let rest = reads_length
+        .checked_add(READS_LENGTH as u64 + 1)
+        .and_then(|used| length.checked_sub(used))?;
+    let mut reads = Vec::new();
+    (&mut *entry)
+        .take(reads_length)
+        .read_to_end(&mut reads)
+        .ok()
+        .filter(|read| *read as u64 == reads_length)?;
+    let (files, []) = resource_pack::PackDependency::decode_set(&reads)? else {
+        return None;
+    };
+    let mut present = [0];
+    entry.read_exact(&mut present).ok()?;
+    let pack = match (present[0], rest) {
+        (0, 0) => None,
+        (1, rest) => Some(Arc::new(SessionEntityPack::decode_from(entry, rest).ok()?)),
         _ => return None,
     };
     Some((pack, files))

@@ -15,6 +15,9 @@ use std::{
 /// Existing registration, permission grants and settings companions retain their identities.
 pub fn install<B: Backend>(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
     let (item, path) = selected(mods, download)?;
+    if crate::marketplace::managed(&path) {
+        return Err("Marketplace mods require signed marketplace releases.".into());
+    }
     let old =
         B::read_source(&path).map_err(|error| format!("Could not read {}: {error}", item.file))?;
     let bytes = B::read_source(download.path())
@@ -146,12 +149,36 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
     let previous = B::update_metadata(old, false)?;
     let next = B::update_metadata(bytes, true)?;
     let matches_source = |metadata: &ui::mod_metadata::ModMetadata| {
-        metadata.update_url.as_ref().is_some_and(|source| {
-            source.repository().slug() == download.repository && source.asset() == download.asset
-        })
+        metadata
+            .revision_update
+            .as_ref()
+            .filter(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
+            .map(|r| &r.source)
+            .is_some_and(|source| {
+                source.repository().slug() == download.repository
+                    && source.asset() == download.asset
+            })
     };
     if !matches_source(&previous) || !matches_source(&next) {
         return Err("The update source does not match the installed mod.".into());
+    }
+    if let Some(expected) = download
+        .revision_update
+        .as_deref()
+        .filter(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
+    {
+        if next.revision_update.as_ref() != Some(expected)
+            || !previous
+                .revision_update
+                .as_ref()
+                .is_some_and(|old| old.package == expected.package && old.source == expected.source)
+        {
+            return Err(
+                "The downloaded mod identity does not match the compatible release.".into(),
+            );
+        }
+    } else {
+        return Err("A revision-aware update requires verified compatibility metadata.".into());
     }
     let current = previous
         .version

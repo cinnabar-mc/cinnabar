@@ -289,6 +289,7 @@ fn helmet() -> ActorEquipmentInput {
             Some(WornItem {
                 variant: Default::default(),
                 map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip("minecraft:iron_helmet"),

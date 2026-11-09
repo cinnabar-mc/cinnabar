@@ -1,9 +1,10 @@
 //! Bounded native callback validation, shared by the packet worker's client adapter.
 
 use super::PacketMod;
+use crate::NativeFrame as Frame;
 use anyhow::{Result, ensure};
 use mod_api::native_camera::Effects;
-use mod_api::native_frame::{Delta, Frame, MAX_BYTES};
+use mod_api::native_frame::{Delta, MAX_BYTES};
 
 impl PacketMod {
     /// Whether this instance negotiated the native player-camera frame capability.
@@ -30,7 +31,7 @@ impl PacketMod {
         {
             frame.players.clear();
         }
-        let json = serde_json::to_vec(&observation)?;
+        let json = super::native_observation::encode(&observation, self.current_frame_wire)?;
         ensure!(
             json.len() <= MAX_BYTES,
             "native frame exceeds its byte limit"
@@ -154,7 +155,7 @@ mod tests {
     /// Uses a finite frame without any selected target or feature behavior.
     fn frame() -> Frame {
         Frame {
-            version: 1,
+            version: mod_api::native_frame::VERSION,
             session: 1,
             dimension: 0,
             eye: [0.0; 3],
@@ -208,7 +209,7 @@ mod tests {
 
     #[test]
     fn general_camera_callback_negotiates_without_player_observation() {
-        let output = r#"{"view":{"position":[1.0,65.0,2.0],"yaw":0.5,"pitch":0.0,"velocity":[0.0,0.0,0.0]},"view_tilt":{"roll":14.0,"pitch":0.0,"suppress_hurt_shake":true},"preserve_teleport_rotation":true}"#;
+        let output = r#"{"view":{"position":[1.0,65.0,2.0],"yaw":0.5,"pitch":0.0,"velocity":[0.0,0.0,0.0]},"view_tilt":{"roll":14.0,"pitch":0.0,"suppress_hurt_shake":true}}"#;
         let mut wat = module_source(output, output.len());
         wat = wat.replace("\"frame\"", "\"camera-frame\"");
         // The legacy fixture checks the init bit before returning any effect.
@@ -253,7 +254,6 @@ mod tests {
                 suppress_hurt_shake: true,
             })
         );
-        assert!(effects.preserve_teleport_rotation);
         assert_eq!(guest.frame(None).unwrap(), None);
     }
 

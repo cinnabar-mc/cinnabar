@@ -2,10 +2,9 @@
 
 use super::*;
 use crate::presentation::equipment::LAYER_MAIN_HAND;
-use crate::presentation::equipment::display::{
-    LAYER_CHESTPLATE, LAYER_HELMET, LAYER_OFF_HAND, head_block_display,
-};
+use crate::presentation::equipment::display::{LAYER_CHESTPLATE, LAYER_HELMET, LAYER_OFF_HAND};
 use assets::ArmorSlot;
+use render_model::equipment::head_block_display;
 
 #[derive(Clone, Copy, Debug)]
 enum Definition {

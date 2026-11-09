@@ -4,11 +4,11 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
-use bedrock_protocol_1_26_51::types::{DimensionType, MissingBlobData, SubChunkData};
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
+use bedrock_protocol_1_26_60::types::{DimensionType, MissingBlobData, SubChunkData};
 #[cfg(test)]
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
@@ -508,15 +508,15 @@ pub struct BlobCacheResolver {
     ready_accounted_bytes: usize,
     /// Sum of `columns.len()` across `pending` and `ready`, the recovery slots they reserve.
     retained_column_slots: usize,
-    trace_origins: Option<TraceOrigins>, // kept only while the latency trace runs
+    trace_origins: Option<TraceOrigins>, // optional latency and capture provenance
 }
 
-/// The core frame and slot that produced each retained item, for the latency trace.
+/// Numeric packet provenance for retained resolver items, released as each item leaves.
 #[derive(Debug, Default)]
 struct TraceOrigins {
-    current: (u64, u32),
-    by_sequence: HashMap<u64, (u64, u32)>,
-    popped: (u64, u32),
+    current: crate::packet_tap::PacketOrigin,
+    by_sequence: HashMap<u64, crate::packet_tap::PacketOrigin>,
+    popped: crate::packet_tap::PacketOrigin,
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {

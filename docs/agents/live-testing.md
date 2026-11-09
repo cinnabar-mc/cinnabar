@@ -366,10 +366,12 @@ session) to record each session in full to `logs/packets-<session start unix ms>
 set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
 never replaced; the start time is added to the name instead. Before each capture into `logs/`, the
 oldest `packets-*.cnbrcap` there are deleted so the folder keeps at most 10 captures and 2 GiB,
-counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the v2 format that
+counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the versioned format that
 `tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
-when the client read each batch, which trails socket arrival while ingress is backlogged. It
-stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
+when the client read each batch, which trails socket arrival while ingress is backlogged.
+Version 3 also records frozen numeric pick state for outgoing actor attacks and mouseover
+reports; see the [capture format](../../tools/bedrock-replay/README.md#fidelity-and-report-interpretation).
+It stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
 slowing the network thread. Session teardown finishes the file, waiting at most 2 s; a crash
 loses at most the queued packets and 64 KiB of written ones and leaves a capture that
 `bedrock-replay` reports as truncated. Login, handshake and resource-pack offer packets are left

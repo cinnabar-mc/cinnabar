@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+mod actor_lives;
 mod actor_movement;
 mod actors;
 mod biomes;
@@ -68,6 +69,7 @@ mod terrain;
 mod tests;
 #[cfg(test)]
 mod world_spawn_tests;
+pub use actor_lives::{ActorLife, MAX_ACTOR_LIVES};
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
 pub use combat::{ActorCombatEvidence, ActorCombatKind};
@@ -157,6 +159,23 @@ impl WorldAuthority {
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
+        Self::new_with_actor_catalog(
+            bootstrap,
+            runtime_assets,
+            entity_assets.map(actor_animation::ActorAnimationCatalog::new),
+            current_position,
+            existing_anchor,
+        )
+    }
+
+    /// Starts session authority using entity analysis completed before bootstrap publication.
+    pub fn new_with_actor_catalog(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Option<actor_animation::ActorAnimationCatalog>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
         let resolved_server_position =
             resolve_server_position(bootstrap.player_position, current_position, existing_anchor);
         let resolved_biome_tints = Arc::new(
@@ -187,6 +206,8 @@ impl WorldAuthority {
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         actors.set_local_unique_id(bootstrap.local_player_unique_id);
+        // No custom palette is admitted yet, so the internal air id is also its wire id.
+        actors.set_air_block_network_id(Some(air_block_id));
         Self {
             terrain: ChunkStore::new(),
             actors,
@@ -250,17 +271,19 @@ impl WorldAuthority {
     }
     /// Resets authoritative actor state at the committed dimension transition.
     pub fn reset_dimension(&mut self, sequence: u64, dimension: i32) {
-        let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+        let previous_mount = self.actors.linked_unique_id(self.local_player_unique_id);
         let _ = self
             .actors
             .reset_dimension(self.actor_session_id, sequence, dimension);
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
+        // Its coordinates named a block in the dimension just left.
         self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }
-    /// Returns the mount retained for an actor's current lifetime.
+    /// The mount an actor rides as the client shows it; the local player rides none once it
+    /// got off on the client, until the server's links for it change.
     pub fn ridden_unique_id(&self, unique_id: i64) -> Option<i64> {
         self.actors.ridden_unique_id(unique_id)
     }

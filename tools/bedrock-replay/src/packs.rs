@@ -78,7 +78,7 @@ pub fn read_pack(path: &Path, content_key: &str) -> Result<Pack> {
             uuid: uuid.clone(),
             version: version.clone(),
             sub_pack: String::new(),
-            content_key: PackContentKey::new(content_key.to_owned()),
+            content_key: PackContentKey::new(content_key.as_bytes().to_vec()),
             size: bytes.len() as u64,
             cache: None,
         },

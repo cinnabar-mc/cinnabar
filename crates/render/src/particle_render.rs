@@ -63,6 +63,9 @@ const MERGE_RETAINED_CAPACITY_FACTOR: usize = 4;
 #[path = "particle_render/atlas.rs"]
 mod atlas;
 
+#[path = "particle_render/instance_upload.rs"]
+mod instance_upload;
+
 #[cfg(test)]
 #[path = "particle_render/atlas_fault_tests.rs"]
 mod atlas_fault_tests;
@@ -128,6 +131,7 @@ pub(crate) struct ParticleGpu {
     uploaded_seq: u64,
     buffer: Option<Buffer>,
     capacity: usize,
+    instance_upload: instance_upload::InstanceUpload,
     opaque_range: Range<u32>,
     blend_range: Range<u32>,
     add_range: Range<u32>,
@@ -165,6 +169,7 @@ fn init_particle_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         uploaded_seq: 0,
         buffer: None,
         capacity: 0,
+        instance_upload: default(),
         opaque_range: 0..0,
         blend_range: 0..0,
         add_range: 0..0,
@@ -196,11 +201,23 @@ pub(crate) fn prepare_particle_resources(
     gpu.blend_range = opaque as u32..(opaque + blend) as u32;
     gpu.add_range = (opaque + blend) as u32..(opaque + blend + add) as u32;
     let total = opaque + blend + add;
+    let previous_capacity = gpu.capacity;
+    let capacity = gpu.instance_upload.capacity.target(
+        previous_capacity,
+        total,
+        if total == 0 { 0 } else { MIN_CAPACITY },
+    );
     if total == 0 {
+        if capacity == 0 {
+            gpu.buffer = None;
+            gpu.capacity = 0;
+            gpu.bind_group = None;
+        }
+        gpu.instance_upload.accept(&frame);
         return;
     }
-    if gpu.capacity < total || gpu.buffer.is_none() {
-        let capacity = total.next_power_of_two().max(MIN_CAPACITY);
+    let replaced = capacity != gpu.capacity || gpu.buffer.is_none();
+    if replaced {
         gpu.buffer = Some(uploads.device.create_buffer(&BufferDescriptor {
             label: Some("particle instances"),
             size: capacity as u64 * INSTANCE_BYTES,
@@ -210,28 +227,53 @@ pub(crate) fn prepare_particle_resources(
         gpu.capacity = capacity;
         gpu.bind_group = None;
     }
-    if let Some(buffer) = &gpu.buffer {
+    let changed = gpu.instance_upload.changes(&frame, replaced);
+    if let Some(buffer) = gpu
+        .buffer
+        .as_ref()
+        .filter(|_| changed.iter().any(|changed| *changed))
+    {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "particles.instance_write",
             instances = total,
-            bytes = total as u64 * INSTANCE_BYTES
+            bytes = (usize::from(changed[0]) * opaque
+                + usize::from(changed[1]) * blend
+                + usize::from(changed[2]) * add) as u64
+                * INSTANCE_BYTES
         )
         .entered();
         uploads.write_batch(&[
-            (buffer, 0, bytemuck::cast_slice(&frame.opaque[..])),
+            (
+                buffer,
+                0,
+                if changed[0] {
+                    bytemuck::cast_slice(&frame.opaque[..])
+                } else {
+                    &[]
+                },
+            ),
             (
                 buffer,
                 opaque as u64 * INSTANCE_BYTES,
-                bytemuck::cast_slice(&frame.blend[..]),
+                if changed[1] {
+                    bytemuck::cast_slice(&frame.blend[..])
+                } else {
+                    &[]
+                },
             ),
             (
                 buffer,
                 (opaque + blend) as u64 * INSTANCE_BYTES,
-                bytemuck::cast_slice(&frame.add[..]),
+                if changed[2] {
+                    bytemuck::cast_slice(&frame.add[..])
+                } else {
+                    &[]
+                },
             ),
         ]);
     }
+    gpu.instance_upload.accept(&frame);
 }
 
 struct ParticleSpecializer;
