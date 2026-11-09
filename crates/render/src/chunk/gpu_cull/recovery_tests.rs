@@ -406,26 +406,80 @@ fn recovery_table(hardware: bool) {
 }
 
 /// A failed publication withdraws shader-pack expansion and camera and shadow draws together.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn failed_publication_withdraws_shaderpack_work() {
     use crate::shaderpack::geometry::ShaderpackGeometry;
+    for begin_recovery in [false, true] {
+        let mut app = terrain_app(false, false, false).unwrap();
+        for _ in 0..4 {
+            frame(&mut app);
+        }
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        let geometry = ShaderpackGeometry::pending_fixture(world.resource::<RenderDevice>());
+        assert_eq!(geometry.pending_work(), [1, 1, 1]);
+        world.insert_resource(geometry);
+        fail_transparent_growth(&mut app);
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        if begin_recovery {
+            for _ in 0..=crate::gpu_allocation::retry_frames(1) {
+                crate::chunk::recovery::begin_recovery(world);
+            }
+        } else {
+            crate::chunk::recovery::finish_publication(world);
+        }
+        assert_eq!(
+            world.resource::<ShaderpackGeometry>().pending_work(),
+            [0; 3]
+        );
+        assert!(!world.resource::<ShaderpackGeometry>().all_sections_fit());
+    }
+}
+
+/// Re-extraction preserves upload completion, even across repeated bounded GPU rebuilds.
+#[test]
+fn reextracted_completed_payloads_recover_without_replaying_acknowledgements() {
+    use render_scene::{ChunkRenderInstance, ChunkUploadAcknowledgements};
     let mut app = terrain_app(false, false, false).unwrap();
     for _ in 0..4 {
         frame(&mut app);
     }
-    let world = app.sub_app_mut(RenderApp).world_mut();
-    let geometry = ShaderpackGeometry::pending_fixture(world.resource::<RenderDevice>());
-    assert_eq!(geometry.pending_work(), [1, 1, 1]);
-    world.insert_resource(geometry);
-    fail_transparent_growth(&mut app);
-    let world = app.sub_app_mut(RenderApp).world_mut();
-    crate::chunk::recovery::finish_publication(world);
+    let expected = published(&mut app);
     assert_eq!(
-        world.resource::<ShaderpackGeometry>().pending_work(),
-        [0; 3]
+        app.world()
+            .resource::<ChunkUploadAcknowledgements>()
+            .drain()
+            .len(),
+        KEYS.len()
     );
-    assert!(!world.resource::<ShaderpackGeometry>().all_sections_fit());
+    app.world_mut()
+        .insert_resource(render_scene::ChunkUploadBudget::new(0, 0));
+    for _ in 0..2 {
+        let world = app.world_mut();
+        let mut chunks = world.query::<&mut ChunkRenderInstance>();
+        for mut instance in chunks.iter_mut(world) {
+            assert!(instance.token.is_some());
+            assert_eq!(instance.publication_permit.as_ref().unwrap().stage(), None);
+            instance.set_changed();
+        }
+        frame(&mut app);
+        fail_transparent_growth(&mut app);
+        recover(&mut app);
+        assert_eq!(published(&mut app), expected);
+        assert_eq!(
+            app.sub_app(RenderApp)
+                .world()
+                .resource::<ChunkGpuUploadStats>()
+                .candidates_deferred,
+            0
+        );
+        frame(&mut app);
+        assert_eq!(updates(&app), 0);
+        assert!(
+            app.world()
+                .resource::<ChunkUploadAcknowledgements>()
+                .is_empty()
+        );
+    }
 }
 
 /// A rebuilt generation stays hidden until all retained geometry is uploaded.

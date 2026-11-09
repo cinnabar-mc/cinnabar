@@ -283,7 +283,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         };
         candidates_examined += 1;
         let publication_permit = instance.publication_permit.as_ref();
-        let token = instance.token;
+        // Main-world copies can re-extract a completed slot after a texture-only reload.
+        let completed = publication_permit.is_some_and(PublicationPermitSlot::is_completed);
+        let publication_permit = publication_permit.filter(|_| !completed);
+        let token = instance.token.filter(|_| !completed);
         // Deferred removals already occupy resident GPU ranges. Do not admit
         // more fresh chunks while completion cannot make retirement room.
         // Replacements still use their ordinary bounded COW admission below.
@@ -699,11 +702,12 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
                 terrain.record(key, token.generation);
             }
         }
-        for (_, permit) in applied_publication_permits {
-            let retired = permit
-                .into_gpu_prepared()
-                .unwrap_or_else(|_| unreachable!("validated publication permit"))
-                .retire();
+        for (slot, permit) in applied_publication_permits {
+            let retired = slot.complete(
+                permit
+                    .into_gpu_prepared()
+                    .unwrap_or_else(|_| unreachable!("validated publication permit")),
+            );
             debug_assert!(retired);
         }
         // Completed payloads retain no acknowledgement or permit to replay.

@@ -14,7 +14,9 @@ pub(in crate::chunk) fn create_indirect_buffer(
 }
 
 /// Describes the shared indexed indirect-command buffer at its requested capacity.
-pub(super) fn indirect_buffer_descriptor(command_capacity: usize) -> BufferDescriptor<'static> {
+pub(in crate::chunk::gpu) fn indirect_buffer_descriptor(
+    command_capacity: usize,
+) -> BufferDescriptor<'static> {
     BufferDescriptor {
         label: Some("packed chunk indirect commands"),
         size: command_capacity as u64 * INDEXED_INDIRECT_BYTES,

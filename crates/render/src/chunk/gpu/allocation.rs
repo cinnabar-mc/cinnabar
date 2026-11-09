@@ -205,3 +205,28 @@ impl ChunkGpuArena {
         Some(arena)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Startup allocations use the same indexed command layout as later growth.
+    #[test]
+    fn initial_indirect_storage_matches_the_command_layout() {
+        let (device, _) = wgpu::Device::noop(&default());
+        let device = RenderDevice::from(device);
+        let buffer = initial_indirect_buffer(&device).unwrap();
+        assert_eq!(
+            buffer.size(),
+            INITIAL_INDIRECT_CAPACITY as u64 * INDEXED_INDIRECT_BYTES
+        );
+        assert!(
+            buffer
+                .usage()
+                .contains(BufferUsages::INDIRECT | BufferUsages::COPY_DST)
+        );
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "packed chunk indirect commands");
+        assert!(initial_indirect_buffer(&device).is_none());
+    }
+}

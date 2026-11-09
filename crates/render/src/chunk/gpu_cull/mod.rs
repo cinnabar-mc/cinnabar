@@ -288,7 +288,7 @@ pub(in crate::chunk) fn invalidate_publication(world: &mut World) {
         cull.invalidate_publication(&device, &queue);
     }
     if let Some(mut feedback) = world.get_resource_mut::<feedback::GpuCullFeedback>() {
-        feedback.select(None);
+        feedback.select(None, None);
     }
     if let Some(mut direct) = world.get_resource_mut::<DirectOcclusion>() {
         direct.invalidate_publication();
