@@ -33,6 +33,7 @@ mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
+mod locator;
 pub mod mob_effects;
 mod mod_inventory;
 pub mod platform_clipboard;
@@ -283,6 +284,12 @@ impl UiRuntime {
 
     pub const fn chat_focused(&self) -> bool {
         self.session.chat_focused
+    }
+
+    /// Whether a focused chat, search, anvil-name or editable-book box takes typed characters,
+    /// so a key binding on a character key must not also act.
+    pub fn text_entry_focused(&self) -> bool {
+        self.chat_focused() || self.screen_state().text_focused()
     }
 
     pub const fn inventory_open(&self) -> bool {
@@ -632,6 +639,7 @@ impl UiRuntime {
             self.observe_inventory_window(player_runtime);
         } else {
             self.session.screen.search_focused = false;
+            self.session.screen.anvil_focused = false;
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -650,6 +658,7 @@ impl UiRuntime {
         self.session.screen.container_close_armed = false;
         self.session.screen.inventory = None;
         self.session.screen.search_focused = false;
+        self.session.screen.anvil_focused = false;
         player_runtime
             .inventory
             .ledger_mut()

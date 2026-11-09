@@ -8,6 +8,8 @@ mod cube_model;
 mod dried_ghast;
 mod dripleaf;
 pub use dripleaf::dripleaf_quads;
+mod lighting;
+pub use lighting::{CubeLighting, cube_lighting};
 mod sculk_sensor;
 mod sculk_shrieker;
 mod shading;
@@ -43,6 +45,8 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
 pub const GUI_ITEM_SIDE: f32 = 16.0;
 /// First accepted alpha byte for non-blended block GUI texels.
 pub const GUI_BLOCK_ALPHA_THRESHOLD: u8 = 128;
+/// Minimum sampled coverage for carried block faces, after source alpha normalization.
+pub const GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD: f32 = 0.1;
 pub const CUBE_SCALE: f32 = 10.0;
 pub const CUBE_OFFSET: [f32; 2] = [1.0, f32::from_bits(0x4147_ae14)];
 /// Canonical `[sin(X), cos(X), sin(Y), cos(Y)]` for native Rx(210°) Ry(45°).

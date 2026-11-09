@@ -24,6 +24,8 @@ impl LocalPhysicsController {
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.replayed_speed = None;
+        self.rewind_pending = None;
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
@@ -34,6 +36,9 @@ impl LocalPhysicsController {
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
         self.actor_position_pending = None;
+        self.movement_lerp = None;
+        self.network_height = None;
+        self.eased_rotation = None;
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
@@ -94,6 +99,8 @@ impl LocalPhysicsController {
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.replayed_speed = None;
+        self.rewind_pending = None;
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
@@ -105,6 +112,9 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.server_flags.reset_history();
         self.actor_position_pending = None;
+        self.movement_lerp = None;
+        self.network_height = Some(movement_lerp::NetworkHeight::new(network_position[1]));
+        self.eased_rotation = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();

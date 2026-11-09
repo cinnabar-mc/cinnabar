@@ -28,6 +28,8 @@ struct AtmosphereUniform {
     fog_end_time: vec4<f32>,
     sunrise_band: vec4<f32>,
     sky_extra: vec4<f32>,
+    liquid_distance: vec4<f32>,
+    fog_gamma: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -617,10 +619,9 @@ fn native_leaf_colour(
     tint_gamma: vec3<f32>,
     ao_face: f32,
     lightmap_gamma: vec3<f32>,
-    fog_linear: vec3<f32>,
+    fog_gamma: vec3<f32>,
     fog_amount: f32,
 ) -> vec3<f32> {
-    let fog_gamma = tint_to_gamma(vec4(fog_linear, 1.0)).rgb;
     let lit_gamma = ((texture_gamma * tint_gamma) * ao_face) * lightmap_gamma;
     return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
 }
@@ -628,7 +629,7 @@ fn native_leaf_colour(
 // Terrain lighting operates on encoded RGB before the framebuffer conversion.
 fn native_cube_colour(
     texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
-    ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
+    ao_face: f32, lightmap_gamma: vec3<f32>, fog_gamma: vec3<f32>, fog_amount: f32,
 ) -> vec4<f32> {
     let texture_gamma = texture.rgb;
     // Current atlas overlay and installed near-version opaque
@@ -636,7 +637,7 @@ fn native_cube_colour(
     // Apply this in the same gamma domain as the native terrain product.
     let overlay = material_uses_overlay_mask(flags);
     let masked_tint = select(tint_gamma, mix(vec3(1.0), tint_gamma, texture.a), overlay);
-    let colour = native_leaf_colour(texture_gamma, masked_tint, ao_face, lightmap_gamma, fog_linear, fog_amount);
+    let colour = native_leaf_colour(texture_gamma, masked_tint, ao_face, lightmap_gamma, fog_gamma, fog_amount);
     let alpha = select(texture.a, 1.0, overlay || material_uses_native_leaf_colour(flags));
     return vec4(colour, alpha);
 }
@@ -817,7 +818,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         tint_gamma,
         in.native_ao_face,
         terrain_light_colour(in.native_light_levels),
-        atmosphere.fog_color_start.rgb,
+        atmosphere.fog_gamma.rgb,
         distance_fog_amount(in.world_position),
     );
     @if(!ENHANCED)

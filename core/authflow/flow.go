@@ -72,7 +72,8 @@ func Run(ctx context.Context, config Config) error {
 	acquired := false
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
 		config.logStep("sign-in requesting device code")
-		token, err := (DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken}).Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
+		flow := DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken, Pending: config.Path, Logger: config.Logger}
+		token, err := flow.Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
 			if err := emit(writer, event{
 				Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
 				UserCode: response.UserCode,

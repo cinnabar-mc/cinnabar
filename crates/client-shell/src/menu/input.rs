@@ -4,6 +4,7 @@ pub(super) mod clipboard;
 pub(super) mod command_macros;
 pub mod context;
 mod death;
+pub(super) mod mode;
 mod modifiers;
 use modifiers::MenuModifiers;
 pub(super) mod fields;
@@ -19,6 +20,7 @@ mod touch_editor;
 
 use clipboard::MenuClipboard;
 use context::MenuInputContext;
+use mode::MenuInputMode;
 use settings_pointer::{native_release_action, update_slider};
 
 use bevy::{
@@ -46,29 +48,6 @@ pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
     (KeyCode::F8, SettingId::HidePaperdoll),
 ];
 
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) enum MenuInputMode {
-    #[default]
-    Mouse,
-    Touch,
-    Keyboard,
-    Gamepad,
-}
-
-impl MenuInputMode {
-    pub(super) fn mouse(self) -> bool {
-        matches!(self, Self::Mouse)
-    }
-
-    pub(super) fn navigation(self) -> bool {
-        matches!(self, Self::Keyboard | Self::Gamepad)
-    }
-
-    pub(super) fn gamepad(self) -> bool {
-        matches!(self, Self::Gamepad)
-    }
-}
-
 /// Retains physical button state because menu input clears Bevy's buttons
 /// after consumption, and retains slider capture across UI scale relayout.
 #[derive(Default)]
@@ -76,6 +55,9 @@ pub struct GuiScaleDrag {
     mouse_cursor: MessageCursor<MouseButtonInput>,
     left_held: bool,
     captured: bool,
+    /// The GUI-scale track as laid out when the press captured it. Each step relayouts the
+    /// menu, so following the live track could flip between two stops at a boundary.
+    gui_scale_track: Option<ui::UiRect>,
     previous_pointer: Option<bevy::prelude::Vec2>,
     pointer_anchor: Option<bevy::prelude::Vec2>,
     touch_slider: Option<(u64, u16)>,
@@ -110,6 +92,7 @@ impl MenuRuntime {
         match field {
             MenuField::FriendQuery => &self.friend_query,
             MenuField::SettingsQuery => &self.settings_query,
+            MenuField::StorageQuery => &self.storage_query,
             MenuField::RealmCode => &self.realm_membership.code,
             MenuField::Name => &self.name,
             MenuField::Address => &self.address,
@@ -126,6 +109,7 @@ impl MenuRuntime {
         match field {
             MenuField::FriendQuery => &mut self.friend_query,
             MenuField::SettingsQuery => &mut self.settings_query,
+            MenuField::StorageQuery => &mut self.storage_query,
             MenuField::RealmCode => &mut self.realm_membership.code,
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
@@ -693,12 +677,9 @@ pub fn drive_menu_input(
     }
     if native_settings
         && let Some(point) = pointer
-        && let Some(index) = presentation.settings_slider_thumb_hit_test(point)
+        && let Some(row) = presentation.settings_slider_thumb_hit_test(point)
     {
-        menu.hovered = Some(launcher::menu::MenuAction::SettingsOption(
-            index,
-            menu.settings_options.get(usize::from(index)),
-        ));
+        menu.hovered = Some(settings_pointer::slider_thumb_action(&menu, row));
     }
     menu.pointer_down = pointer_pressed;
     if !pointer_pressed || menu.screen() != launcher::menu::MenuScreen::Settings {
@@ -754,14 +735,21 @@ pub fn drive_menu_input(
             menu.hovered,
             Some(launcher::menu::MenuAction::SettingsScale(_))
         )
-        && pointer.is_some_and(|point| presentation.gui_scale_drag_action(point).is_some())
+        && pointer.is_some_and(|point| presentation.gui_scale_drag_action(point, None).is_some())
     {
         gui_scale_drag.captured = pointer_pressed;
+        gui_scale_drag.gui_scale_track = presentation.gui_scale_slider_track();
+        if native_settings && let Some(action) = menu.hovered {
+            menu.field = None;
+            menu.focus_pointer(action);
+        }
     }
     if gui_scale_drag.captured
         && pointer_pressed
         && let Some(action @ launcher::menu::MenuAction::SettingsScale(offset)) =
-            pointer.and_then(|point| presentation.gui_scale_drag_action(point))
+            pointer.and_then(|point| {
+                presentation.gui_scale_drag_action(point, gui_scale_drag.gui_scale_track)
+            })
     {
         menu.hovered = Some(action);
         if pointer_just_pressed || offset != menu.gui_scale_offset() {
@@ -832,6 +820,12 @@ pub fn drive_menu_input(
         if gamepad.just_pressed(GamepadButton::DPadRight) {
             menu.move_horizontal_focus(1);
         }
+        if gamepad.just_pressed(GamepadButton::LeftTrigger) {
+            menu.step_play_tab(-1);
+        }
+        if gamepad.just_pressed(GamepadButton::RightTrigger) {
+            menu.step_play_tab(1);
+        }
         if gamepad.just_pressed(GamepadButton::DPadUp) {
             menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1);
         }
@@ -867,6 +861,8 @@ pub fn drive_menu_input(
                 | KeyCode::ArrowUp
                 | KeyCode::ArrowDown
                 | KeyCode::Tab
+                | KeyCode::BracketLeft
+                | KeyCode::BracketRight
         ) {
             menu.input_mode = MenuInputMode::Keyboard;
         }
@@ -926,6 +922,12 @@ pub fn drive_menu_input(
             }
             KeyCode::ArrowRight => menu.move_horizontal_focus(1),
             KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
+            KeyCode::BracketLeft if !input.repeat && !menu.has_focused_field() => {
+                menu.step_play_tab(-1)
+            }
+            KeyCode::BracketRight if !input.repeat && !menu.has_focused_field() => {
+                menu.step_play_tab(1)
+            }
             KeyCode::Enter | KeyCode::NumpadEnter if menu.field == Some(MenuField::SkinName) => {
                 menu.activate(launcher::menu::MenuAction::DressingRoom(
                     launcher::dressing_room::Action::SaveRename,
@@ -942,6 +944,9 @@ pub fn drive_menu_input(
             }
             _ => {}
         }
+    }
+    if let Some((point, notches)) = menu.navigation_focus.regions.take_scroll() {
+        presentation.scroll_menu(point, notches, false);
     }
     if (!menu.is_visible()
         || (!gameplay_pending && menu.gameplay_return_pending())
@@ -977,6 +982,9 @@ mod sign_in_tests;
 
 #[cfg(test)]
 mod death_tests;
+
+#[cfg(test)]
+mod play_tab_tests;
 
 #[cfg(test)]
 mod press_sound_tests;

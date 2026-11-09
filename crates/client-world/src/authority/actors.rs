@@ -359,6 +359,35 @@ impl WorldAuthority {
         self.actors
             .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
     }
+    /// Takes the local player off its vehicle as getting off does on the client: until the
+    /// server's links for it change, the player rides nothing for movement, its seat pose,
+    /// view lock, animation, actor picking and collision. The committed link stays until the
+    /// server's unlink, which still commits as a mount change; any other link from the server
+    /// for the player, including the same link sent again, seats it again.
+    pub fn leave_local_mount(&mut self) {
+        self.actors.leave_local_vehicle(self.local_player_unique_id);
+    }
+    /// Whether the local player got off its mount on the client and waits for the server's
+    /// unlink; any server link for it ends this, seating it again unless it unlinks.
+    pub fn local_player_left_mount(&self) -> bool {
+        self.actors.left_local_vehicle(self.local_player_unique_id)
+    }
+    /// Collision bounds of the vehicle the local player got off on the client while movement
+    /// still passes through it.
+    pub fn local_passed_through_vehicle_bounds(&self) -> Option<crate::ActorCollisionBounds> {
+        self.actors
+            .passed_through_bounds(self.local_player_unique_id)
+    }
+    /// Makes movement collide with the vehicle the local player got off again, once the
+    /// player no longer overlaps it.
+    pub fn release_local_passed_through_vehicle(&mut self) {
+        self.actors
+            .release_passed_through(self.local_player_unique_id);
+    }
+    /// The mount the local player rides as the client shows it.
+    pub fn local_mount_unique_id(&self) -> Option<i64> {
+        self.actors.ridden_unique_id(self.local_player_unique_id)
+    }
     /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
     /// through the current tick; `None` when the seat does not lock rotation.
     pub fn local_seat_view_lock(&self, alpha: f32) -> Option<crate::SeatViewLock> {

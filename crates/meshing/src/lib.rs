@@ -26,6 +26,7 @@ mod render_settings;
 mod scratch;
 pub use render_settings::MeshRenderSettings;
 pub use scratch::MeshScratch;
+pub mod surface;
 mod types;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;

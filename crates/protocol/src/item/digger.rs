@@ -68,7 +68,7 @@ impl ItemDigger {
 }
 
 /// Reads a digger declaration, skipping entries without a usable block selector or integer speed.
-pub(super) fn parse_digger(component: Option<&Nbt>) -> Option<ItemDigger> {
+pub(super) fn parse_digger(component: Option<Nbt<'_>>) -> Option<ItemDigger> {
     let component = component.filter(|component| matches!(component, Nbt::Compound(_)))?;
     let destroy_speeds = component
         .list("destroy_speeds")
@@ -91,8 +91,8 @@ pub(super) fn parse_digger(component: Option<&Nbt>) -> Option<ItemDigger> {
 
 /// Reads a block descriptor as Bedrock does: a string names a block; in a compound, nonempty
 /// states narrow the name, otherwise a nonempty tag expression wins over any name.
-fn digger_block(block: &Nbt) -> Option<DiggerBlock> {
-    let text = |value: Option<&Nbt>| {
+fn digger_block(block: Nbt<'_>) -> Option<DiggerBlock> {
+    let text = |value: Option<Nbt<'_>>| {
         value
             .and_then(Nbt::as_str)
             .filter(|text| !text.is_empty())
@@ -122,7 +122,7 @@ fn digger_block(block: &Nbt) -> Option<DiggerBlock> {
 }
 
 /// Reads serialized typed states without broadening an unsupported restriction.
-fn parse_states(states: &Nbt) -> Option<DiggerStates> {
+fn parse_states(states: Nbt<'_>) -> Option<DiggerStates> {
     let Nbt::List(states) = states else {
         return None;
     };
@@ -143,6 +143,7 @@ fn parse_states(states: &Nbt) -> Option<DiggerStates> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt_tree::test_tree::Nbt;
 
     /// Builds a descriptor with a name and one serialized typed state.
     fn restricted_block() -> Nbt {
@@ -162,7 +163,7 @@ mod tests {
     #[test]
     fn serialized_state_list_does_not_become_an_unrestricted_name() {
         assert_eq!(
-            digger_block(&restricted_block()),
+            digger_block(restricted_block().view()),
             Some(DiggerBlock::NameWithStates {
                 name: "minecraft:oak_log".into(),
                 states: Some(Arc::from([(
@@ -183,11 +184,11 @@ mod tests {
             ])
         };
         assert_eq!(
-            digger_block(&block("")),
+            digger_block(block("").view()),
             Some(DiggerBlock::Tags(tags.into()))
         );
         assert_eq!(
-            digger_block(&block("minecraft:stone")),
+            digger_block(block("minecraft:stone").view()),
             Some(DiggerBlock::Tags(tags.into()))
         );
         let component = Nbt::Compound(vec![(
@@ -198,7 +199,7 @@ mod tests {
             ])]),
         )]);
         assert_eq!(
-            parse_digger(Some(&component)).map(|digger| digger.destroy_speeds),
+            parse_digger(Some(component.view())).map(|digger| digger.destroy_speeds),
             Some(Arc::from([DiggerSpeed {
                 block: DiggerBlock::Tags(tags.into()),
                 speed: 8,
@@ -213,8 +214,8 @@ mod tests {
         };
         fields.push(("tags".into(), Nbt::String("q.any_tag('wood')".into())));
         assert_eq!(
-            digger_block(&Nbt::Compound(fields)),
-            digger_block(&restricted_block())
+            digger_block(Nbt::Compound(fields).view()),
+            digger_block(restricted_block().view())
         );
     }
 
@@ -232,7 +233,7 @@ mod tests {
             ("value".into(), Nbt::Int(1)),
         ])]));
         assert_eq!(
-            digger_block(&block),
+            digger_block(block.view()),
             Some(DiggerBlock::NameWithStates {
                 name: "test:block".into(),
                 states: Some(Arc::from([(
@@ -242,11 +243,11 @@ mod tests {
             })
         );
         assert_eq!(
-            digger_block(&make(Nbt::List(vec![]))),
+            digger_block(make(Nbt::List(vec![])).view()),
             Some(DiggerBlock::Name("test:block".into()))
         );
         assert_eq!(
-            digger_block(&make(Nbt::List(vec![Nbt::Other]))),
+            digger_block(make(Nbt::List(vec![Nbt::Other])).view()),
             Some(DiggerBlock::NameWithStates {
                 name: "test:block".into(),
                 states: None

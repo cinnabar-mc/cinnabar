@@ -4,7 +4,7 @@ use super::{CustomPlacement, Nbt};
 
 /// Reads the yaw offset once, applying the trait's quarter-turn rounding.
 pub(super) fn traits<'a>(
-    traits: impl IntoIterator<Item = &'a Nbt>,
+    traits: impl IntoIterator<Item = Nbt<'a>>,
     trait_state_count: usize,
 ) -> CustomPlacement {
     let offset = traits
@@ -30,14 +30,14 @@ pub(super) fn traits<'a>(
 mod tests;
 
 /// Prediction overrides apply to the block type when any component set needs them.
-pub(super) fn components(placement: &mut CustomPlacement, components: Option<&Nbt>) {
+pub(super) fn components(placement: &mut CustomPlacement, components: Option<Nbt<'_>>) {
     let Some(components) = components else { return };
     let custom = components.field("minecraft:custom_components");
     // Version 1 custom components declare every handler.
     let flag = |name: &str| {
         matches!(
             custom.and_then(|component| component.field(name)),
-            Some(Nbt::Byte(value)) if *value != 0
+            Some(Nbt::Byte(value)) if value != 0
         )
     };
     placement.server_placing |= components.field("minecraft:on_player_placing").is_some()

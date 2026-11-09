@@ -31,8 +31,6 @@ struct BuildPlan {
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
     repeats_while_held: bool,
-    /// The crop state a seed item plants; block items place their own block.
-    planted: Option<u32>,
     /// The door or bed a non-block item places, when it is not a block item.
     paired: Option<u32>,
 }
@@ -93,11 +91,13 @@ fn prepare(
         .item_use_profile(observed.selection.item.network_id())
         .cooldown;
     let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, tick));
-    let bucket = stream
+    let identifier = stream
         .authority()
-        .item_identifier(observed.selection.item.network_id())
+        .item_identifier(observed.selection.item.network_id());
+    let bucket = identifier
         .as_deref()
         .is_some_and(assets::facts::has_bucket_name);
+    let brush = identifier.as_deref() == Some(assets::facts::BRUSH_IDENTIFIER);
     let traits = context
         .ui
         .inventory_ledger(player_runtime)
@@ -188,6 +188,11 @@ fn prepare(
         if planted.is_some() {
             local_use = LocalUse::Place;
         }
+        if ready {
+            // An unreadable cell counts as air, so the brush predicts nothing there.
+            let clicked_air = world.is_air(observed.target.position).unwrap_or(true);
+            local_use = local_use.or_brush(brush, clicked_air, &observed.selection.item, &caps);
+        }
         let destination = planted.map(|(cell, _)| cell).unwrap_or_else(|| {
             placement.as_ref().map_or_else(
                 || {
@@ -241,12 +246,11 @@ fn prepare(
             destination,
             predicted,
             repeats_while_held,
-            planted.map(|(_, crop)| crop),
             paired,
         ))
     })
     .ok()?;
-    let (local_use, takes_press, destination, predicted, repeats_while_held, planted, paired) =
+    let (local_use, takes_press, destination, predicted, repeats_while_held, paired) =
         prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
@@ -279,7 +283,6 @@ fn prepare(
             change,
             cooldown,
             repeats_while_held,
-            planted,
             paired,
         },
     })
@@ -292,7 +295,7 @@ pub(crate) fn advance(
     runtime: &mut BlockUseRuntime,
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     swings: &mut SwingTracker,
-    movement: &MovementTicker,
+    movement: &mut MovementTicker,
     attempt: &mut BuildInput,
 ) -> bool {
     let Some(plan) = prepare(
@@ -335,7 +338,11 @@ pub(crate) fn advance(
         crate::melee::selected_attack_timing(player_runtime, &context.client_world)
             .and_then(|timing| timing.swing_duration_ticks),
     );
-    if !runtime.may_attempt(tick, plan.local_use, swings) {
+    let target = gameplay::block_use::PlacementTarget {
+        position: observed.target.position,
+        face: observed.target.face,
+    };
+    if !runtime.may_attempt(tick, plan.local_use, target, swings) {
         return false;
     }
     let start_destination = runtime
@@ -394,11 +401,31 @@ pub(crate) fn advance(
         *swings = before_swing;
         return false;
     }
-    if plan.local_use == LocalUse::Place
-        && plan
-            .change
-            .as_ref()
-            .is_none_or(|change| !change.to.is_empty())
+    if trigger == ItemUseTrigger::SimulationTick && plan.local_use == LocalUse::Nothing {
+        runtime.record_failed_repeat(tick, target);
+    }
+    // The use starts on its build tick, before physics simulates it, so that tick moves
+    // at the use's speed and its input carries the start.
+    if plan.local_use == LocalUse::UseItem {
+        let profile = stream
+            .authority()
+            .item_use_profile(observed.selection.item.network_id());
+        if item_use.start_use_on(
+            observed.selection.clone(),
+            profile.ticks.unwrap_or_default(),
+            profile.movement,
+            tick,
+        ) {
+            movement.mark_started_using_item(tick);
+        }
+    }
+    // Vanilla's `GameMode::useItemOn` starts the item's cooldown after any successful use on.
+    if (plan.local_use == LocalUse::UseItem
+        || plan.local_use == LocalUse::Place
+            && plan
+                .change
+                .as_ref()
+                .is_none_or(|change| !change.to.is_empty()))
         && let Some(cooldown) = plan.cooldown
     {
         item_use.start_cooldown(cooldown, tick);
@@ -414,26 +441,7 @@ pub(crate) fn advance(
             change.clone(),
         );
     }
-    // Door and bed placement keeps only the server's sound: the cell it plays at is unverified,
-    // and a local cue at another cell would not pair with it.
-    if plan.local_use == LocalUse::Place && plan.paired.is_none() {
-        // A seed sounds at the block it was used on, where the server voices its copy too.
-        let position = if plan.planted.is_some() {
-            observed.target.position
-        } else {
-            plan.destination
-        };
-        context
-            .audio_cues
-            .write(client_audio::audio::LocalBlockCue::Place {
-                position,
-                block_runtime_id: plan.planted.unwrap_or_else(|| {
-                    stream.resolve_block_network_id(u32::from_ne_bytes(
-                        observed.selection.item.block_runtime_id().to_ne_bytes(),
-                    ))
-                }) as i32,
-            });
-    }
+    // Vanilla voices placement only from the server's level sound event, never locally.
     // Java re-equips the held item after each placement.
     if plan.local_use == LocalUse::Place
         && let Some(stream) = context.client_world.stream.as_mut()

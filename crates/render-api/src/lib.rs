@@ -81,6 +81,15 @@ pub const MAX_STAGE_PROFILE_EVENTS: usize = 2_097_152;
 /// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
 pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
 
+/// Selects source mip levels from the projected footprint of an inventory surface.
+pub const UI_STYLE_TERRAIN_MIPS: u32 = 1 << 19;
+
+/// Rounds projected item XY to half precision before viewport conversion.
+pub const UI_STYLE_HALF_FLOAT_XY: u32 = 1 << 20;
+
+/// Stores block GUI texture coordinates as unsigned normalized 16-bit vertices.
+pub const UI_STYLE_UNORM16_UV: u32 = 1 << 21;
+
 /// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 
