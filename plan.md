@@ -724,6 +724,10 @@ the worn slot through owner placement; worn equipment counts exclude hands.
 Missing copper armour definitions reuse standard pack definitions when the matching
 textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
+Inventory and HUD player models draw prepared block headgear on the captured head pose,
+using the world renderer's shared placement. Headgear scale, vertical placement and held
+pumpkin orientation still need native visual qualification; other player previews remain
+incomplete. Inactive UI body controllers suppress block headgear with the body.
 
 Villager and zombie-villager profession layers retain their authored second sampler
 and colored transparent keep masks alongside biome clothing. Babies and unemployed
