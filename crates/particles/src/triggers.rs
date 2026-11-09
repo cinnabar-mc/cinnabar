@@ -138,7 +138,11 @@ fn classify_particle_type(particle_type: i32, data: i32) -> Option<LevelParticle
             assets::facts::VanillaItem::SlimeBall.identifier(),
             ITEM_ICON_PARTICLES,
         ),
-        ParticleType::MobSpell
+        // These native handlers read the event data as the effect's ARGB colour.
+        ParticleType::FallingDust
+        | ParticleType::ColoredFlame
+        | ParticleType::Sparkler
+        | ParticleType::MobSpell
         | ParticleType::MobSpellAmbient
         | ParticleType::MobSpellInstantaneous => Some(LevelParticle::Named {
             effect: effect?,
@@ -496,7 +500,6 @@ mod tests {
             (18, ParticleEffect::BreezeWindExplosionEmitter),
             (20, ParticleEffect::HeartParticle),
             (27, ParticleEffect::WaterWakeParticle),
-            (33, ParticleEffect::FallingDust),
             (62, ParticleEffect::Sneeze),
             (81, ParticleEffect::WaxParticle),
             (83, ParticleEffect::ShriekParticle),
@@ -518,6 +521,20 @@ mod tests {
             Some(LevelParticle::Terrain { runtime_id: 7 })
         );
         assert_eq!(legacy_particle_effect(0), None);
+        for (id, effect) in [
+            (33, ParticleEffect::FallingDust),
+            (57, ParticleEffect::ColoredFlameParticle),
+            (58, ParticleEffect::SparklerEmitter),
+        ] {
+            assert_eq!(
+                classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | id, 0x00ff_8000),
+                Some(LevelParticle::Named {
+                    effect,
+                    spell_color: Some([1.0, 128.0 / 255.0, 0.0, 1.0])
+                }),
+                "legacy particle {id} keeps its colour"
+            );
+        }
         // Native emits one particle manually; the pack's lingering emitter needs cloud variables.
         assert_eq!(
             classify_level_event(
