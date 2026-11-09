@@ -54,6 +54,9 @@ fn terrain_sampling_survives_mesh_draw_conversion() {
             && vertex.style_flags & render_api::UI_STYLE_ALPHA_TEST != 0
             && vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0
             && vertex.style_flags & render_api::UI_STYLE_UNORM16_UV != 0
+            && vertex.style_flags
+                & (render_api::UI_STYLE_MODEL_VERTEX | render_api::UI_STYLE_RGB_COVERAGE)
+                == 0
     }));
 }
 

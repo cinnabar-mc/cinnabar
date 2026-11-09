@@ -17,8 +17,8 @@ use ui_engine::engine::{
 };
 
 mod hunger_animation;
-mod hunger_overlay;
-pub use hunger_overlay::saturation_mask;
+mod locator;
+pub use locator::{LocatorMarker, LocatorPaint, LocatorView};
 mod mob_effects;
 mod status;
 mod status_motion;
@@ -31,8 +31,14 @@ pub const CROSSHAIR_TEXTURE: &str = "textures/ui/cross_hair";
 /// The standalone crosshair's side in GUI px.
 pub const CROSSHAIR_SIDE: f32 = 16.0;
 pub const HUNGER_RENDERER: &str = "hunger_renderer";
-/// The built-in Java pack's effect rows; vanilla's `mob_effects_renderer` draws the column.
-const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
+/// Vanilla's status effect column.
+pub const MOB_EFFECTS_RENDERER: &str = "mob_effects_renderer";
+/// The built-in Java pack's effect rows.
+pub const JAVA_MOB_EFFECTS_RENDERER: &str = "java_mob_effects_renderer";
+/// The crosshair overlay's cursor.
+pub const CURSOR_RENDERER: &str = "cursor_renderer";
+/// The server-restylable locator control.
+pub const LOCATOR_RENDERER: &str = json_ui::vanilla::Renderer::LocatorBar.as_str();
 
 /// One sprite a renderer draws, relative to its control's origin, in GUI px.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +104,7 @@ pub struct HudPaint {
     pub java_effects: Vec<Cell>,
     /// Jump-bar background and fill (with its filled GUI width) over the XP bar.
     pub mount_jump: Option<(SheetSprite, SheetSprite, f32)>,
+    pub locator: Option<LocatorPaint>,
     pub hotbar_cooldowns: [f32; 9],
     pub crosshair: Option<SheetSprite>,
     pub crosshair_blend: ui::UiBlendMode,
@@ -118,6 +125,7 @@ impl HudPaint {
         .chain(self.effects.textures())
         .chain(self.hearts.textures())
         .chain(self.hunger.textures())
+        .chain(self.locator.iter().flat_map(LocatorPaint::textures))
         .chain(SLOT_ART)
         .chain(self.crosshair.into_iter().flat_map(|_| {
             [
@@ -138,6 +146,7 @@ impl HudPaint {
             effects,
             java_effects,
             mount_jump,
+            locator,
             hotbar_cooldowns,
             crosshair,
             crosshair_blend,
@@ -150,6 +159,7 @@ impl HudPaint {
             && *effects == other.effects
             && *java_effects == other.java_effects
             && *mount_jump == other.mount_jump
+            && *locator == other.locator
             && *hotbar_cooldowns == other.hotbar_cooldowns
             && *crosshair == other.crosshair
             && *crosshair_blend == other.crosshair_blend
@@ -166,6 +176,8 @@ pub struct HudRenderer<'a> {
     pub hunger_update: Option<HungerUpdate<'a>>,
     /// Optional union of the bottom HUD's actually painted logical bounds.
     pub bounds: Option<&'a ui_engine::engine::PaintBounds>,
+    /// Optional union of the effect icons' actually painted logical bounds.
+    pub effect_bounds: Option<&'a ui_engine::engine::PaintBounds>,
 }
 
 impl CustomRenderer for HudRenderer<'_> {
@@ -174,13 +186,23 @@ impl CustomRenderer for HudRenderer<'_> {
         node: &CustomDraw<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<bool, PaintError> {
-        let (kind, painted) = if self.bounds.is_some() {
+        let observes_effects = self.effect_bounds.is_some()
+            && matches!(
+                node.renderer,
+                MOB_EFFECTS_RENDERER | JAVA_MOB_EFFECTS_RENDERER
+            );
+        let (kind, painted) = if self.bounds.is_some() || observes_effects {
             canvas.capture_paint_bounds(|canvas| paint(canvas, self.hud, self.hunger_update, node))
         } else {
             (paint(canvas, self.hud, self.hunger_update, node), None)
         };
         if kind == PaintKind::Bottom
             && let (Some(bounds), Some(painted)) = (self.bounds, painted)
+        {
+            bounds.include(painted);
+        }
+        if kind == PaintKind::Effects
+            && let (Some(bounds), Some(painted)) = (self.effect_bounds, painted)
         {
             bounds.include(painted);
         }
@@ -198,6 +220,7 @@ impl CustomRenderer for HudRenderer<'_> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PaintKind {
     Bottom,
+    Effects,
     Other,
     Unknown,
 }
@@ -235,15 +258,29 @@ fn paint(
             for cell in hud.hunger.cells(updates) {
                 paint_cell(canvas, &cell, top_left, visible, alpha);
             }
-            hunger_overlay::paint(canvas, &hud.hunger, updates, node, visible);
             return PaintKind::Bottom;
         }
         "bubbles_renderer" => (&hud.bubbles, top_left, PaintKind::Bottom),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left, PaintKind::Bottom),
-        JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]], PaintKind::Other),
-        "mob_effects_renderer" => {
+        JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]], PaintKind::Effects),
+        MOB_EFFECTS_RENDERER => {
             mob_effects::paint(canvas, &hud.effects, dest, alpha);
-            return PaintKind::Other;
+            return PaintKind::Effects;
+        }
+        "hotbar_slots_renderer" => {
+            let [width, height] = assets::HudTextureRole::Hotbar0
+                .expected_size()
+                .map(|side| side as f32 * canvas.px());
+            for (index, texture) in SLOT_ART.iter().enumerate() {
+                let left = dest[0] + index as f32 * width;
+                slot_texture(
+                    canvas,
+                    texture,
+                    [left, dest[1], left + width, dest[1] + height],
+                    alpha,
+                );
+            }
+            return PaintKind::Bottom;
         }
         "hotbar_renderer" => {
             slot_art(canvas, data, dest, alpha);
@@ -283,8 +320,7 @@ fn paint(
             }
             return PaintKind::Other;
         }
-        // A cosmetic cursor renderer supplied ahead of this one draws instead.
-        "cursor_renderer" => {
+        CURSOR_RENDERER => {
             if let Some(sprite) = hud.crosshair {
                 crosshair(canvas, sprite, dest, hud.crosshair_blend);
             }
@@ -319,9 +355,14 @@ fn paint(
             }
             return PaintKind::Bottom;
         }
+        LOCATOR_RENDERER => {
+            if let Some(locator) = &hud.locator {
+                locator::paint(canvas, locator, dest, alpha);
+            }
+            return PaintKind::Bottom;
+        }
         // Renderers with no Cinnabar state draw nothing, as with no data.
         "dash_renderer"
-        | "locator_bar"
         | "vignette_renderer"
         | "progress_indicator_renderer"
         | "camera_renderer"
@@ -413,8 +454,18 @@ fn slot_art(
         .get("#collection_index")
         .and_then(Value::as_f64)
         .map_or(0, |index| index.clamp(0.0, 8.0) as usize);
+    slot_texture(canvas, SLOT_ART[index], dest, alpha);
+}
+
+/// Paints one slot background with the control's inherited alpha and clip.
+fn slot_texture(
+    canvas: &mut Canvas<'_>,
+    texture: &str,
+    dest: [f32; 4],
+    alpha: &dyn Fn([u8; 4]) -> [u8; 4],
+) {
     if let Some(visual) = canvas.sprite(
-        SLOT_ART[index],
+        texture,
         json_ui::UvRect::full(),
         alpha([255; 4]),
         Default::default(),
@@ -453,6 +504,7 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
                     CROSSHAIR_SIDE,
                 )
             });
+    let from_icons = standalone.is_none();
     let (sprite, gui_side) = standalone
         .or_else(|| {
             let (page, [x, y, width, height]) = canvas.textures().sprite(role.source_path())?;
@@ -484,10 +536,18 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
             uv: sprite.uv,
         },
         ui::UiBlendMode::Alpha | ui::UiBlendMode::Backdrop | ui::UiBlendMode::Filter => {
-            UiVisual::Sprite {
-                texture_page: sprite.page,
-                uv: sprite.uv,
-                color: [255; 4],
+            if from_icons {
+                UiVisual::RgbCoverageSprite {
+                    texture_page: sprite.page,
+                    uv: sprite.uv,
+                    color: [255; 4],
+                }
+            } else {
+                UiVisual::Sprite {
+                    texture_page: sprite.page,
+                    uv: sprite.uv,
+                    color: [255; 4],
+                }
             }
         }
     };

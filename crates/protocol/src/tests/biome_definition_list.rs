@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
-use bedrock_protocol_1_26_51::types::BiomeDefinitionChunkGenData;
-use bedrock_protocol_1_26_51::wire::{self, Decode};
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::types::BiomeDefinitionChunkGenData;
+use bedrock_protocol_1_26_60::wire::{self, Decode};
 use bytes::Bytes;
 
 use crate::raw_packet::RawPacket;

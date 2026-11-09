@@ -143,6 +143,15 @@ impl SessionIconPage {
         Some((source, vertices))
     }
 
+    /// How many consecutive variants from zero the session carries for `identifier`.
+    pub(super) fn frame_count(&self, identifier: &str) -> u32 {
+        self.refs.get(identifier).map_or(0, |variants| {
+            (0..)
+                .take_while(|frame| variants.contains_key(frame))
+                .count() as u32
+        })
+    }
+
     /// Returns a session override for the requested variant, then variant zero.
     fn icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
         self.refs

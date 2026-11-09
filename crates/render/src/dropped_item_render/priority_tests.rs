@@ -61,6 +61,7 @@ fn detailed_cached_frames_cannot_displace_current_items_and_retry_when_selected(
         Arc::clone(&models),
         &[instance(ordinary - 1), instance(ordinary)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -83,6 +84,7 @@ fn detailed_cached_frames_cannot_displace_current_items_and_retry_when_selected(
         1,
         Arc::clone(&models),
         &[instance(withheld), instance(ordinary)],
+        &[],
         &[],
         1.0,
     );
@@ -118,6 +120,7 @@ fn detailed_cached_frames_cannot_displace_current_items_and_retry_when_selected(
         1,
         models,
         &[instance(resident), instance(ordinary)],
+        &[],
         &[],
         1.0,
     );
@@ -226,6 +229,7 @@ fn a_rejected_current_model_does_not_rebuild_when_drawable_frames_change() {
         Arc::clone(&models),
         &[instance(0), instance(2)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -240,6 +244,7 @@ fn a_rejected_current_model_does_not_rebuild_when_drawable_frames_change() {
             1,
             Arc::clone(&models),
             &[instance(frame), instance(2)],
+            &[],
             &[],
             1.0,
         );
@@ -266,6 +271,7 @@ fn a_capacity_rejected_current_model_retries_when_other_current_geometry_shrinks
         Arc::clone(&models),
         &[instance(0), instance(1), instance(2)],
         &[],
+        &[],
         1.0,
     );
     world.run_system_once(prepare_items).unwrap();
@@ -281,6 +287,7 @@ fn a_capacity_rejected_current_model_retries_when_other_current_geometry_shrinks
         1,
         models,
         &[instance(1), instance(2), instance(3)],
+        &[],
         &[],
         1.0,
     );

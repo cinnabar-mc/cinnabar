@@ -403,7 +403,7 @@ fn ui_reload_tracks_declared_documents_and_external_art() {
         );
         let previous = super::PackApplication {
             admission: resource_pack::PackAdmission::Validated(before.shared_stack()),
-            dependencies,
+            dependencies: dependencies.into(),
             ..Default::default()
         };
         assert!(
@@ -430,7 +430,7 @@ fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
     );
     let previous = super::PackApplication {
         admission: resource_pack::PackAdmission::Validated(before.shared_stack()),
-        dependencies,
+        dependencies: dependencies.into(),
         ..Default::default()
     };
     for (added, changed) in [("assets/gui/new.png", true), ("texts/en_US.lang", false)] {

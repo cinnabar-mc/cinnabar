@@ -3,7 +3,11 @@
 use super::*;
 
 /// Waits for a matching worker result while draining earlier registration observations.
-fn wait_update(watcher: &Watcher, what: &str, mut matches: impl FnMut(&Update) -> bool) -> Update {
+pub(super) fn wait_update(
+    watcher: &Watcher,
+    what: &str,
+    mut matches: impl FnMut(&Update) -> bool,
+) -> Update {
     let mut accepted = None;
     test_time::eventually(what, || {
         while let Ok(update) = watcher.updates.try_recv() {
@@ -18,10 +22,11 @@ fn wait_update(watcher: &Watcher, what: &str, mut matches: impl FnMut(&Update) -
 }
 
 /// Selects exactly one fixture without changing its grants or reload counter.
-fn select_entry(root: &std::path::Path, entry: Entry) {
+pub(super) fn select_entry(root: &std::path::Path, entry: Entry) {
     fs::write(
         root.join(REGISTRATION_FILE),
         serde_json::to_vec(&Registration {
+            suspended: None,
             version: VERSION,
             request_id: "selected".into(),
             mods: vec![entry],
@@ -32,11 +37,11 @@ fn select_entry(root: &std::path::Path, entry: Entry) {
 }
 
 #[test]
-fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() {
+fn registered_connection_round_trip_restarts_without_a_source_or_registration_edit() {
     let directory = tempfile::tempdir().unwrap();
     let mut prepared = candidate(directory.path(), "drawing.wasm", "Hello");
     let mut entry = prepared.registration.clone();
-    entry.component = selection::resolved_component(&entry.component);
+    entry.component = launcher_host::mod_library::paths::resolved_component(&entry.component);
     let session = mod_api::drawing::DrawingSession {
         connection: 1,
         ..Default::default()
@@ -85,7 +90,7 @@ fn registered_fence_round_trip_restarts_without_a_source_or_registration_edit() 
         .frame_host_mut()
         .unwrap()
         .bind_drawing_session(mod_api::drawing::DrawingSession {
-            dimension: 1,
+            connection: 2,
             ..session
         });
     prepared
@@ -135,7 +140,7 @@ fn repaired_initial_settings_trigger_admission_without_a_registration_edit() {
     let directory = tempfile::tempdir().unwrap();
     let prepared = candidate(directory.path(), "settings.wasm", "Hello");
     let mut entry = prepared.registration.clone();
-    entry.component = selection::resolved_component(&entry.component);
+    entry.component = launcher_host::mod_library::paths::resolved_component(&entry.component);
     entry.grants.settings = true;
     let path = mod_host::settings_companion(&entry.component);
     fs::write(&path, [0xff]).unwrap();
@@ -267,7 +272,7 @@ fn changed_committed_settings_retry_a_rejected_guest() {
     let directory = tempfile::tempdir().unwrap();
     let prepared = candidate(directory.path(), "settings.wasm", "Hello");
     let mut entry = prepared.registration.clone();
-    entry.component = selection::resolved_component(&entry.component);
+    entry.component = launcher_host::mod_library::paths::resolved_component(&entry.component);
     entry.grants.settings = true;
     let broken = fixture(true, "", "Hello").replacen(
         "(func (export \"init\")",
@@ -341,6 +346,7 @@ fn delayed_worker_reobserves_changed_preferences_before_admission() {
         let request = |snapshot| LoadRequest {
             generation: 1,
             registration: Registration {
+                suspended: None,
                 version: VERSION,
                 request_id: "same-selection".into(),
                 mods: vec![entry.clone()],
@@ -373,4 +379,84 @@ fn delayed_worker_reobserves_changed_preferences_before_admission() {
         let fresh = accepted.changes[0].result.as_ref().unwrap();
         assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
     }
+}
+
+#[test]
+fn marketplace_fence_drains_predecessor_before_successor_loads_saved_settings() {
+    let root = tempfile::tempdir().unwrap();
+    let prepared = candidate(root.path(), "old.wasm", "Hello");
+    let mut entry = prepared.registration.clone();
+    drop(prepared);
+    entry.grants.settings = true;
+    let next = root.path().join("next.wasm");
+    fs::copy(&entry.component, &next).unwrap();
+    let saved = r#"{"custom":"exact saved settings","size":37}"#;
+    fs::write(mod_host::settings_companion(&entry.component), saved).unwrap();
+    select_entry(root.path(), entry.clone());
+    let interrupted =
+        selection::pause_marketplace(root.path(), &entry.component, "interrupted".into()).unwrap();
+    let watcher = Watcher::start(root.path().into()).unwrap();
+    let restarted = wait_update(
+        &watcher,
+        "persisted migration fence after restart",
+        |update| update.registration.request_id == "interrupted",
+    );
+    assert!(restarted.changes.is_empty());
+    assert!(!restarted.registration.mods[0].enabled);
+    assert!(selection::registered(root.path())[0].entry.enabled);
+    selection::resume_marketplace(root.path(), &interrupted).unwrap();
+    let initial = wait_update(&watcher, "predecessor settings admission", |update| {
+        !update.changes.is_empty()
+    });
+    let old = initial.changes.into_iter().next().unwrap().result.unwrap();
+    assert_eq!(old.frame_host().unwrap().settings_snapshot(), Some(saved));
+    let previous = selection::registered(root.path()).remove(0);
+    let receipt =
+        selection::pause_marketplace(root.path(), &entry.component, "pause".into()).unwrap();
+    let paused = wait_update(&watcher, "predecessor admission fence", |update| {
+        update.registration.request_id == "pause"
+    });
+    assert!(paused.changes.is_empty());
+    assert!(!paused.registration.mods[0].enabled);
+    assert!(selection::registered(root.path())[0].entry.enabled);
+    // Detachment disposes the predecessor before the frame acknowledges the fenced generation.
+    drop(old);
+    watcher.send(Message::Acknowledge {
+        generation: paused.generation,
+        request_id: "pause".into(),
+        installed: BTreeMap::new(),
+        statuses: Vec::new(),
+    });
+    let permit = watcher.removal_client().wait(&receipt).unwrap();
+    permit.confirm().unwrap();
+    assert!(!permit.shared_companion(&mod_host::settings_companion(&entry.component)));
+    fs::copy(
+        mod_host::settings_companion(&entry.component),
+        mod_host::settings_companion(&next),
+    )
+    .unwrap();
+    selection::replace_marketplace(
+        root.path(),
+        &previous,
+        &next,
+        &entry.grants,
+        "transfer".into(),
+    )
+    .unwrap();
+    let successor = wait_update(&watcher, "successor settings admission", |update| {
+        update.registration.request_id == "transfer" && !update.changes.is_empty()
+    });
+    assert_eq!(successor.registration.mods.len(), 1);
+    assert!(successor.registration.mods[0].enabled);
+    assert_eq!(
+        successor.registration.mods[0].component,
+        next.canonicalize().unwrap()
+    );
+    let host = successor.changes[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .frame_host()
+        .unwrap();
+    assert_eq!(host.settings_snapshot(), Some(saved));
 }

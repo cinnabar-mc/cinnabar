@@ -194,7 +194,7 @@ impl PlayerInventoryLedger {
             && held.is_some_and(|held| {
                 protocol::item_enchantment_level_value(
                     &held.stack.extra_data,
-                    i16::from(protocol_ids::Enchantment::Curseofbinding.wire_value()),
+                    i16::from(protocol_ids::Enchantment::CurseOfBinding.wire_value()),
                 )
                 .is_some_and(|level| level > 0)
             })

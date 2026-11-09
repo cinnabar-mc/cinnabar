@@ -9,7 +9,7 @@ use client_world::WorldAuthority;
 use meshing::{BlockClassifier, Face, Neighbourhood, mesh_sub_chunk};
 use world::{ChunkKey, DecodedLevelChunk, SubChunkKey};
 
-use super::{BREG_V2193, active_content_registry_protocol, bind};
+use super::{BREG_V2225, active_content_registry_protocol, bind};
 
 const CUSTOM: &str = "test:palette";
 const COLOURS: [[u8; 4]; 5] = [
@@ -33,10 +33,10 @@ fn hashed_palette_decode_to_render_and_pick() {
 /// Exercises full and omitted-definition palettes through the same session consumers.
 fn palette_path(hashed: bool) {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        include_bytes!("../../../../../assets/data/block-physics-v2193.bin"),
+        BREG_V2225,
+        include_bytes!("../../../../../assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();

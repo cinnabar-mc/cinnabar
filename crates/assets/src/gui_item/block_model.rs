@@ -99,7 +99,10 @@ pub fn block_gui_quads(
     if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_AZALEA != 0 {
         return Ok(plants::azalea(faces));
     }
-    if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_CHORUS != 0 {
+    if kind == VisualKind::Model
+        && flags & (crate::MODEL_TEMPLATE_FLAG_CHORUS | crate::MODEL_TEMPLATE_FLAG_CHORUS_PLANT)
+            != 0
+    {
         let boxes = [
             ([0.0; 3], [1.0; 3]),
             ([0.125, 1.0, 0.125], [0.875, 1.125, 0.875]),
@@ -196,6 +199,7 @@ pub fn block_item_quads(
             }
         }
         (VisualKind::Model, Some(template)) => {
+            let template = crate::model::item_model_template(templates, template);
             let first = templates
                 .get(template as usize)
                 .ok_or(GuiBlockReject::Geometry)?;

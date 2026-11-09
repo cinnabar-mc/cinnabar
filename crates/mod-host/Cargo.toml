@@ -9,11 +9,13 @@ publish = false
 platform-specific = ["windows"]
 reads = [
     "crates/mod-api/native-render-v1.json",
+    "crates/mod-api/native-frame-v1.json",
     "crates/experience-sdk/wit/client",
     "crates/experience-sdk/wit/session",
     "crates/mod-api/wit",
     "crates/server-experience/src/media/testdata/fixture.webm",
     "examples/mods/screen-probe",
+    "examples/mods/portal-view/grants.json",
     "examples/experiences/space-client",
 ]
 
@@ -30,11 +32,11 @@ name = "cinnabar-media-helper"
 path = "src/bin/media_helper.rs"
 
 [dependencies]
+wat = "1"
 assets = { path = "../assets" }
 experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"] }
 mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
-render-api = { path = "../render-api" }
 ui = { path = "../ui" }
 anyhow.workspace = true
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
@@ -51,7 +53,8 @@ bytes.workspace = true
 tokio.workspace = true
 wit-component = { workspace = true }
 wasmparser = { version = "=0.247.0" }
-wit-parser = "=0.247.0"
+wasm-encoder = "=0.247.0"
+wit-parser.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_Storage_FileSystem"] }
@@ -69,8 +72,7 @@ test-alloc = { path = "../test-alloc" }
 test-time = { path = "../test-time" }
 tempfile = "3"
 wasm-metadata = { version = "=0.247.0", default-features = false }
-wat = "1"
-wit-parser = "=0.247.0"
+wit-parser.workspace = true
 
 [[bench]]
 name = "terrain_lowering"

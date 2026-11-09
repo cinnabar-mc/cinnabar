@@ -1,7 +1,34 @@
 use super::super::*;
+use super::geometry::vanilla_cuboid_quads;
 use super::state::exact_tagged_int;
+use assets::BlockFace;
 use assets::facts::pack::{PackBlock as B, PackTexture as T};
 use assets::facts::{BlockRenderKind as R, block_render_fact};
+
+/// How far the side planes sit inside the block, in model units.
+const SIDE_INSET: i16 = 16;
+
+/// Full-size top and bottom caps with whole-art side planes moved inward, so each side's art
+/// reaches the block's edges and overlaps its neighbouring planes. Only the caps are culled.
+pub(in crate::compiler) fn cactus_quads(materials: [u32; 6]) -> [ModelQuad; 6] {
+    let mut quads = vanilla_cuboid_quads(materials, [0; 3], [256; 3]);
+    for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+        let (axis, inset) = match face {
+            BlockFace::West => (0, SIDE_INSET),
+            BlockFace::East => (0, -SIDE_INSET),
+            BlockFace::North => (2, SIDE_INSET),
+            BlockFace::South => (2, -SIDE_INSET),
+            BlockFace::Down | BlockFace::Up => {
+                quad.flags |= (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4;
+                continue;
+            }
+        };
+        for position in &mut quad.positions {
+            position[axis] += inset;
+        }
+    }
+    quads
+}
 
 pub(in crate::compiler) fn is_cactus_name(name: &str) -> bool {
     block_render_fact(name).kind == R::Cactus

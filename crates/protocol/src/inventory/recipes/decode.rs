@@ -208,7 +208,7 @@ pub(super) fn decode_with_credits(
                                     aux: output.aux,
                                     count: output.count,
                                     block_runtime_id: output.block,
-                                    empty_envelope: output.empty_envelope,
+                                    user_data: output.user_data,
                                 }),
                             });
                         }

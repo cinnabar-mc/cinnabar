@@ -22,6 +22,7 @@ mod effects;
 mod emote;
 mod encoding;
 mod input_state;
+mod interaction_rotation;
 
 pub use input_state::TickInput;
 mod evidence;
@@ -30,6 +31,7 @@ mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod requested_breaks;
 mod respawn;
 pub mod session_blocks;
 mod speed_authority;
@@ -178,6 +180,8 @@ pub struct MovementTicker {
     emote_ticks: u32,
     /// Recent tick-end states, the single source of build actions' pre-tick state.
     tick_ends: outbox::TickEnds,
+    /// The touch control mode's interaction model, reported while input is touch.
+    touch_interaction_model: protocol::PlayerInteractionModel,
 }
 
 #[cfg(test)]
@@ -230,6 +234,7 @@ impl MovementTicker {
             next_tick_rotation: None,
             emote_ticks: 0,
             tick_ends: outbox::TickEnds::default(),
+            touch_interaction_model: protocol::PlayerInteractionModel::default(),
         }
     }
 
@@ -475,10 +480,12 @@ impl MovementTicker {
             yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
+            interact_rotation: interaction_rotation::from_facing(sample.pitch, sample.yaw),
             flags: input_flags(sample, self.previous_input)
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
             input_mode: sample.input_mode,
+            interaction_model: self.interaction_model(sample.input_mode),
             vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
         };
         self.next_tick = self.next_tick.saturating_add(1);
@@ -972,8 +979,8 @@ pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
 pub use frame::{
-    LocomotionState, PhysicsFrameHold, PhysicsFrameInput, frame_simulates_tick, wire_head_yaw,
-    wire_yaw,
+    LocomotionState, PhysicsFrameHold, PhysicsFrameInput, SeatedInteractions, frame_simulates_tick,
+    wire_head_yaw, wire_yaw,
 };
 
 #[cfg(test)]

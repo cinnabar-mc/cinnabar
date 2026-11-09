@@ -26,7 +26,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:BridgeEndpoint = '127.0.0.1:19133'
         $script:Identity = [ordered]@{
             schema = 'rust-mcbe-movement-identity-v1'; build_commit = $script:BuildCommit
-            target = 'Lbsg'; protocol = 2193; session_generation = 7
+            target = 'Lbsg'; protocol = 2225; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true; source_dirty = $false; run_id = $script:RunId
             endpoint = 'play.lbsg.net:19132'; bridge_endpoint = $script:BridgeEndpoint
@@ -290,7 +290,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         return Assert-FastTransferWitnessEvidence @Artifacts `
             -ExpectedBuildCommit $script:BuildCommit -ExpectedPregSha256 $script:PregSha256 `
             -ExpectedBregSha256 $script:BregSha256 -ExpectedCoreSha256 $script:CoreSha256 `
-            -ExpectedProtocol 2193 `
+            -ExpectedProtocol 2225 `
             -ExpectedAppSha256 $script:AppSha256 -ExpectedAssetsSha256 $script:AssetsSha256 `
             -ExpectedRunId $script:RunId `
             -ExpectedBridgeEndpoint $script:BridgeEndpoint -ExpectedCoreProcessId 41 `

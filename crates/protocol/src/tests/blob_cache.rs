@@ -1,17 +1,17 @@
-//! Client blob-cache behaviour against the 1.26.50 LevelChunk, SubChunk and cache packets.
+//! Client blob-cache behaviour against the 1.26.60 LevelChunk, SubChunk and cache packets.
 //!
 //! LevelChunk states cache participation with `cache_enabled` and always writes `SubChunkCount + 1`
 //! blob hashes; SubChunk has one entry type whose optional `blob_id` is the only cache marker.
 
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{
     self, ClientCacheMissResponse, LevelChunk, SetTime, SubChunk,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ChunkPos, DimensionType, MissingBlobData, SubChunkData, SubChunkMetadata, SubChunkPos,
     SubChunkPosOffset,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlockUpdateEvent,
     ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,
@@ -111,7 +111,7 @@ fn cached_subchunk(hash: u64, tail: &[u8]) -> protocol::Packet {
         // must ignore it because only `Success` entries reference a blob.
         sub_chunk_entry(
             (1, 2, 0),
-            SubChunkRequestResult::Successallair,
+            SubChunkRequestResult::SuccessAllAir,
             None,
             Some(u64::MAX),
         ),
@@ -414,7 +414,7 @@ fn cached_subchunk_attaches_block_entity_tail_and_ignores_all_air_blob_id() {
     );
     assert_eq!(
         entries[1].sub_chunk_request_result,
-        SubChunkRequestResult::Successallair
+        SubChunkRequestResult::SuccessAllAir
     );
     assert_eq!(entries[1].serialized_sub_chunk.as_deref(), Some(&[][..]));
     assert_eq!(resolver.stats().reconstructed_sub_chunks, 1);
@@ -995,15 +995,24 @@ fn resolved_items_keep_the_trace_origin_they_arrived_with() {
     let payload = b"traced-blob";
     let hash = client_blob_hash(payload);
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
-    resolver.trace_origin((3, 1));
+    resolver.trace_origin(crate::packet_tap::PacketOrigin {
+        trace: (3, 1),
+        capture_sequence: 11,
+    });
     resolver
         .accept_cached_packet(cached_level(vec![hash], b""))
         .expect("accept cached level chunk");
-    resolver.trace_origin((4, 0));
+    resolver.trace_origin(crate::packet_tap::PacketOrigin {
+        trace: (4, 0),
+        capture_sequence: 12,
+    });
     resolver
         .accept_world_event(WorldEvent::SetTime(SetTimeEvent { time: 1 }), 8)
         .expect("independent event");
-    resolver.trace_origin((5, 2));
+    resolver.trace_origin(crate::packet_tap::PacketOrigin {
+        trace: (5, 2),
+        capture_sequence: 13,
+    });
     resolver
         .accept_miss_response(miss_response(vec![(hash, payload.to_vec())]))
         .expect("resolve miss");
@@ -1011,8 +1020,9 @@ fn resolved_items_keep_the_trace_origin_they_arrived_with() {
     let mut origins = Vec::new();
     while let Some(ready) = resolver.pop_ready_ingress() {
         let chunk = matches!(ready, crate::blob_cache::ResolverReady::Packet(_));
-        origins.push((chunk, resolver.popped_trace_origin()));
+        let origin = resolver.popped_trace_origin();
+        origins.push((chunk, origin.trace, origin.capture_sequence));
     }
     origins.sort();
-    assert_eq!(origins, [(false, (4, 0)), (true, (3, 1))]);
+    assert_eq!(origins, [(false, (4, 0), 12), (true, (3, 1), 11)]);
 }

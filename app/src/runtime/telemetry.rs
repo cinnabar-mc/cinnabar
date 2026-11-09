@@ -384,7 +384,17 @@ pub(crate) fn send_player_auth_inputs(
             if let Some((first_tick, snapshot)) = hover_snapshot
                 && identity.tick.get() >= first_tick
             {
-                hover.send_tick(session, identity.tick.get(), snapshot, |packet| {
+                hover.send_tick(session, identity.tick.get(), snapshot, |mut packet| {
+                    if let Some(mut state) = target.as_ref().and_then(|target| target.hover_capture)
+                    {
+                        state.transaction_frame = input.snapshot().map_or([0; 2], |input| {
+                            [
+                                input.authority_generation.get().get(),
+                                input.frame_sequence.get(),
+                            ]
+                        });
+                        packet.capture_pick(state);
+                    }
                     network.send_inventory_packet(packet)
                 })?;
             }
@@ -943,6 +953,18 @@ pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStagePro
             sample.total.as_secs_f64() * 1_000.0,
             sample.maximum.as_secs_f64() * 1_000.0,
         );
+    }
+    for (stage, sample) in RuntimeStage::ALL.into_iter().zip(snapshot.samples) {
+        if sample.thread_cpu_count != 0 {
+            let _ = write!(
+                line,
+                " {}_thread_cpu={},{:.3},{:.3}",
+                stage.name(),
+                sample.thread_cpu_count,
+                sample.thread_cpu_total.as_secs_f64() * 1_000.0,
+                sample.thread_cpu_maximum.as_secs_f64() * 1_000.0
+            );
+        }
     }
     if let Some(slow) = profiler
         .as_deref()

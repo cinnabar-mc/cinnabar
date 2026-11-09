@@ -83,7 +83,8 @@ fn kind_class(kind: VisualKind, flags: u32) -> u32 {
     let cutout = flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0;
     let tint = flags & MATERIAL_FLAG_TINT_MASK;
     let vegetation_tint = tint == MATERIAL_FLAG_FOLIAGE_TINT || tint == MATERIAL_FLAG_GRASS_TINT;
-    let stem = flags & assets::stem::MATERIAL_FLAG != 0;
+    let stem =
+        flags & assets::stem::MATERIAL_FLAG != 0 && !assets::redstone_wire::is_wire_material(flags);
     match kind {
         VisualKind::Cube if cutout && tint == MATERIAL_FLAG_FOLIAGE_TINT => CLASS_LEAVES,
         VisualKind::Cross => CLASS_PLANT,
@@ -101,6 +102,8 @@ mod tests {
         let leaves = MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_FOLIAGE_TINT;
         assert_eq!(kind_class(VisualKind::Cube, leaves), CLASS_LEAVES);
         assert_eq!(kind_class(VisualKind::Cube, MATERIAL_FLAG_ALPHA_CUTOUT), 0);
+        let wire = MATERIAL_FLAG_ALPHA_CUTOUT | assets::redstone_wire::material_flags(9).unwrap();
+        assert_eq!(kind_class(VisualKind::Model, wire), 0, "wire doesn't wave");
         assert_eq!(kind_class(VisualKind::Cross, 0), CLASS_PLANT);
         assert_eq!(
             kind_class(

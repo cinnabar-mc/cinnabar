@@ -24,7 +24,6 @@ pub(super) fn reveal(
         MenuAction::AddBack | MenuAction::SearchSettings | MenuAction::ClearSettingsSearch
     ) || (view.screen == launcher::menu::MenuScreen::AddServer
         && matches!(action, MenuAction::AddSave | MenuAction::AddSaveConnect))
-        || (*action == MenuAction::SettingsScalePicker && view.settings.scale_picker)
         || matches!(action, MenuAction::SettingsDropdown(index) if view.settings.dropdown == Some(*index))
         || matches!(
             action,

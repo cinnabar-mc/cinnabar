@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::ActorEventType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::ActorEventType;
+use bedrock_protocol_1_26_60::packets::{
     ActorEvent as ActorEventPacket, AddItemActor as AddItemActorPacket,
     TakeItemActor as TakeItemActorPacket,
 };
@@ -43,6 +43,12 @@ pub enum ActorStatusKind {
     ActorGrowUp,
     /// Event 80 starts the held kinetic weapon's impact feedback.
     KineticDamageDealt,
+    /// Event 12: a fishing hook's approaching fish leaves its trail.
+    FishHookPosition,
+    /// Event 13: a fish bites a fishing hook.
+    FishHookBite,
+    /// Event 14: a fish teases a fishing hook.
+    FishHookTease,
 }
 
 /// One actor status event, addressed by runtime id (the wire carries no dimension).
@@ -141,6 +147,9 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
         ActorEventType::Feed => ActorStatusKind::Feed,
         ActorEventType::ActorGrowUp => ActorStatusKind::ActorGrowUp,
         ActorEventType::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
+        ActorEventType::FishHookFishPos => ActorStatusKind::FishHookPosition,
+        ActorEventType::FishHookHookTime => ActorStatusKind::FishHookBite,
+        ActorEventType::FishHookTease => ActorStatusKind::FishHookTease,
         _ => return None,
     };
     Some(ActorEvent::Status(ActorStatusEvent {
@@ -153,7 +162,7 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+    use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 
     fn packet(event_id: ActorEventType) -> ActorEventPacket {
         let mut packet = ActorEventPacket::default();
@@ -187,6 +196,33 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn fishing_hook_events_normalize() {
+        for (event, kind) in [
+            (
+                ActorEventType::FishHookFishPos,
+                ActorStatusKind::FishHookPosition,
+            ),
+            (
+                ActorEventType::FishHookHookTime,
+                ActorStatusKind::FishHookBite,
+            ),
+            (
+                ActorEventType::FishHookTease,
+                ActorStatusKind::FishHookTease,
+            ),
+        ] {
+            assert_eq!(
+                normalize_actor_event(packet(event)),
+                Some(ActorEvent::Status(ActorStatusEvent {
+                    runtime_id: 9,
+                    kind,
+                    data: 4,
+                }))
+            );
+        }
     }
 
     #[test]

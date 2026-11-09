@@ -84,7 +84,7 @@ mod tests {
             let mut render = SubApp::new();
             render.init_schedule(Render);
             app.insert_sub_app(RenderApp, render);
-            ThreadBudget::configure_render_thread(&mut app);
+            ThreadBudget::configure_frame_threads(&mut app);
             assert_qos(libc::qos_class_t::QOS_CLASS_DEFAULT);
             app.sub_app_mut(RenderApp).world_mut().run_schedule(Render);
             assert_qos(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE);

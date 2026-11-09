@@ -42,8 +42,7 @@ fn transformed_panel(
     };
     let mut panel = panel();
     panel.motion = true;
-    panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
-        screen: "extension.screen".into(),
+    panel.surface = Surface { collections: Default::default(),        screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[
                 {"grown": placed([40.0, 20.0], [100.0, 80.0], json!({"type":"button",
@@ -66,7 +65,7 @@ fn transformed_panel(
         transitions: transition
             .map(|transition| BTreeMap::from([("#grow".into(), transition)]))
             .unwrap_or_default(),
-    });
+    };
     panel
 }
 
@@ -330,9 +329,8 @@ fn menu_panel(values: [f64; 5]) -> Panel {
     );
     let mut panel = panel();
     let names = ["#entrance", "#press", "#hover", "#chevron", "#spin"];
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[
@@ -347,7 +345,7 @@ fn menu_panel(values: [f64; 5]) -> Panel {
             .map(|(name, value)| ((*name).into(), SurfaceValue::Number(value)))
             .collect(),
         transitions: BTreeMap::new(),
-    });
+    };
     panel
 }
 

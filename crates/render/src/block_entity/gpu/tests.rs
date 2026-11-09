@@ -173,7 +173,6 @@ fn damage_and_selection_keep_independent_ranges_in_the_shared_buffer() {
 }
 
 /// The block-entity atlas allows the pack's raw view only while a pack draws.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn the_block_entity_atlas_allows_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};

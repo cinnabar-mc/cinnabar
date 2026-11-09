@@ -59,13 +59,25 @@ fn run(command: &mut Command) -> Result<()> {
     Ok(())
 }
 
+/// Detaches the release image an interrupted unpacking left mounted in `work`.
+pub(super) fn release_interrupted(work: &Path) {
+    let mount = work.join("mount");
+    if mount.exists() {
+        detach(&mount);
+    }
+}
+
+fn detach(mount: &Path) {
+    let _ = Command::new("/usr/bin/hdiutil")
+        .arg("detach")
+        .arg(mount)
+        .status();
+}
+
 struct Mounted(PathBuf);
 impl Drop for Mounted {
     /// Detaches even when validation or replacement failed.
     fn drop(&mut self) {
-        let _ = Command::new("/usr/bin/hdiutil")
-            .arg("detach")
-            .arg(&self.0)
-            .status();
+        detach(&self.0);
     }
 }

@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::InventorySourceType;
-use bedrock_protocol_1_26_51::packets::InventoryTransaction;
-use bedrock_protocol_1_26_51::types::{InventoryAction, InventoryTransactionPacketData};
+use bedrock_protocol_1_26_60::enums::InventorySourceType;
+use bedrock_protocol_1_26_60::packets::InventoryTransaction;
+use bedrock_protocol_1_26_60::types::{InventoryAction, InventoryTransactionPacketData};
 
 use super::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, CONTAINER_NAME_CURSOR, CREATED_OUTPUT_SLOT, ContainerIdentity,

@@ -17,9 +17,10 @@ pub mod render_distance;
 pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
+pub mod touch_control_mode;
 pub mod touch_layout;
 pub mod video_presets;
-pub use chat::CHAT_POSITION_OPTION;
+pub use chat::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 pub use reset::SettingsGroup;
 #[cfg(test)]
 mod registry_tests;
@@ -30,9 +31,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub use bindings::{
-    BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS, SHADER_PACK_BINDINGS,
-};
+pub use bindings::{BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS};
 pub use command_macros::{
     COMMAND_MACRO_COUNT, MAX_COMMAND_MACRO_BYTES, macro_message, macro_row, macro_row_index,
     macro_title,
