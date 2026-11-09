@@ -161,6 +161,18 @@ impl ItemStateStore {
                 ticks = components.use_duration_ticks.or(ticks);
                 overlay_components(&mut profile, components);
             }
+            // A consumable that declares a zero duration takes the standard consume time.
+            if ticks == Some(0)
+                && matches!(
+                    profile,
+                    ItemUseProfile::Provisional {
+                        consumption: ItemConsumption::Eat | ItemConsumption::Drink,
+                        ..
+                    }
+                )
+            {
+                ticks = Some(assets::item_use::DEFAULT_CONSUME_USE_TICKS);
+            }
             let category = match &profile {
                 ItemUseProfile::Provisional {
                     cooldown: Some(cooldown),
@@ -594,6 +606,42 @@ mod tests {
         assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
         assert_eq!(profile.consumption, ItemConsumption::Unresolved);
         assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    /// Regression: Hive's potions declare `food`, a drink animation and a duration of 0; the
+    /// zero made every use finish at once, so no drinking was shown and the held button
+    /// re-sent the use every few ticks.
+    #[test]
+    fn a_zero_duration_on_a_consumable_takes_the_standard_consume_time() {
+        let components = |ticks| protocol::ItemComponents {
+            food: true,
+            food_can_always_eat: Some(true),
+            use_animation: Some("drink".into()),
+            use_duration_ticks: Some(ticks),
+            use_modifiers_present: true,
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(15000, "fixture:zero", components(0)),
+                entry(15001, "fixture:declared", components(17)),
+                entry(
+                    15002,
+                    "fixture:hold",
+                    protocol::ItemComponents {
+                        use_duration_ticks: Some(0),
+                        ..Default::default()
+                    },
+                ),
+            ]),
+        }));
+        assert_eq!(
+            store.item_use_profile(15000).ticks,
+            Some(assets::item_use::DEFAULT_CONSUME_USE_TICKS)
+        );
+        assert_eq!(store.item_use_profile(15001).ticks, Some(17));
+        assert_eq!(store.item_use_profile(15002).ticks, Some(0));
     }
 
     #[test]
