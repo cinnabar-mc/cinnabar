@@ -34,8 +34,8 @@ github.com/google/go-cmp v0.4.0/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/
 github.com/google/go-cmp v0.5.5/go.mod h1:v8dTdLbMG2kIc/vJvl+f65V22dbkXbowE6jgT/gNBxE=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261106225903-4c5f96d9c02b h1:J9hu1U81qePP/S4sbIjvkrE8oPABha83frhpN4ay1Lw=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261106225903-4c5f96d9c02b/go.mod h1:vRIfhw4guOstjaTiZ/v1BqTTFozDzNMlReZClXOMAh4=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261109084346-4a55fcfa068d h1:B8S4DYivPHlyVibpy/lA8PZyQGT4rxYPetEO+PZ1Fyo=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261109084346-4a55fcfa068d/go.mod h1:JzVlzvbX4VLnLXhTIkQU4VJ4gH2NYjgZizWc9kd9xrk=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/klauspost/compress v1.13.6/go.mod h1:/3/Vjq9QcHkK5uEr5lBEmyoZ1iFhe47etQ6QUkpK6sk=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=
