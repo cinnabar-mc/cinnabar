@@ -110,3 +110,23 @@ fn a_launch_without_a_saved_sign_in_starts_none() {
     drop(menu);
     fs::remove_dir_all(user_data).unwrap();
 }
+
+/// Only the resumed code stays out of the browser; an Xbox signup page that follows it opens.
+#[test]
+fn a_resumed_sign_in_still_opens_a_later_xbox_signup_page() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    menu.sign_in_resumed = true;
+    let resumed = AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: SAVED_CODE.into(),
+    };
+    menu.apply_control_auth(resumed.clone());
+    menu.update_sign_in_browser(false);
+    assert_eq!(menu.sign_in_browser.state(&resumed), BrowserState::Waiting);
+    let signup = AuthState::AwaitingXboxSignup {
+        uri: "https://sisu.xboxlive.com/signup?signature=fixture".into(),
+    };
+    menu.apply_control_auth(signup.clone());
+    menu.update_sign_in_browser(false);
+    assert_ne!(menu.sign_in_browser.state(&signup), BrowserState::Waiting);
+}

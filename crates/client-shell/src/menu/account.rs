@@ -319,7 +319,10 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
             self.control_auth.as_ref(),
         );
-        if state.awaiting_browser() && (explicit || !self.sign_in_resumed) {
+        // Only the resumed code was taken to the browser before; a later Xbox signup page was not.
+        let already_opened =
+            self.sign_in_resumed && matches!(state, AuthState::AwaitingCode { .. });
+        if state.awaiting_browser() && (explicit || !already_opened) {
             #[cfg(not(test))]
             self.sign_in_browser
                 .open(state, explicit, launcher_host::desktop::open_sign_in_link);
