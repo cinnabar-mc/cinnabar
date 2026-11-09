@@ -97,3 +97,71 @@ fn input_placeholders_follow_remaps_and_the_gamepad() {
         "A / controllerLayoutScreen.unassigned"
     );
 }
+
+fn server_lang(runtime: &mut UiRuntime, entries: &str) {
+    let input = entries.as_bytes();
+    runtime.set_server_lang(assets::ServerLangOverlay::read(input.len(), |target| {
+        target.copy_from_slice(input);
+        true
+    }));
+}
+
+/// A translated chat row is expanded once localized, as vanilla localizes it before expanding.
+#[test]
+fn translated_chat_expands_the_localized_line() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    server_lang(
+        &mut runtime,
+        "hint=Press :_input_key.jump: to %s\nplain=No hint\n",
+    );
+    let mut hint = text(protocol::TextKind::Translation, "hint");
+    if let UiEvent::Text(event) = &mut hint {
+        event.parameters = Arc::from([Arc::from("fly")]);
+    }
+    for (sequence, event) in (1..).zip([hint, text(protocol::TextKind::Translation, "plain")]) {
+        runtime
+            .apply(&mut player_runtime, envelope(1, sequence, event))
+            .unwrap();
+    }
+    let rows: Vec<_> = runtime
+        .chat()
+        .messages()
+        .iter()
+        .map(|row| (row.kind, row.message.as_ref()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (ui::ChatMessageKind::System, "Press Space to fly"),
+            (ui::ChatMessageKind::Translation, "plain"),
+        ]
+    );
+}
+
+/// A long label repeated by many placeholders skips the row instead of building it.
+#[test]
+fn oversized_expansions_are_skipped() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let label = "x".repeat(1024);
+    server_lang(
+        &mut runtime,
+        &format!("controllerLayoutScreen.unassigned={label}\n"),
+    );
+    let flood = ":_input_:".repeat(2048);
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(1, 1, text(protocol::TextKind::System, &flood)),
+        )
+        .unwrap();
+    assert!(runtime.chat().messages().is_empty());
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(1, 2, title(protocol::TitleAction::ActionBar, &flood)),
+        )
+        .unwrap();
+    assert_eq!(runtime.hud().actionbar().unwrap().text.as_ref(), flood);
+}
