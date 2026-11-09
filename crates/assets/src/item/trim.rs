@@ -63,17 +63,7 @@ pub fn compose<'a>(
         texture(authored.map_or(native.as_str(), AsRef::as_ref))?
     };
     let palette = texture(&format!("{TEXTURE_DIRECTORY}color_palettes/trim_palette"))?;
-    let darker = armor_material.is_some_and(|armor| {
-        material
-            == match armor {
-                ArmourMaterial::Leather => "leather",
-                ArmourMaterial::Iron => "iron",
-                ArmourMaterial::Gold => "gold",
-                ArmourMaterial::Diamond => "diamond",
-                ArmourMaterial::Copper => "copper",
-                ArmourMaterial::Netherite => "netherite",
-            }
-    });
+    let darker = armor_material.is_some_and(|armor| material == armor.trim_material());
     let target_path = format!(
         "{TEXTURE_DIRECTORY}color_palettes/{material}{}",
         if darker { "_darker" } else { "" }

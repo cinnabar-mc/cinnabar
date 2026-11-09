@@ -249,6 +249,19 @@ impl ArmourMaterial {
             Self::Netherite => 6,
         }
     }
+
+    /// Names the trim material whose palette uses its darker variant on this armour.
+    #[must_use]
+    pub const fn trim_material(self) -> &'static str {
+        match self {
+            Self::Leather => "leather",
+            Self::Iron => "iron",
+            Self::Gold => "gold",
+            Self::Diamond => "diamond",
+            Self::Copper => "copper",
+            Self::Netherite => "netherite",
+        }
+    }
 }
 
 /// An exact material identity or a pinned material tag used for anvil repair.

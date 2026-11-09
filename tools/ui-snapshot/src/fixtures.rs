@@ -1,5 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod armor_trims;
 mod audio_output;
 mod chat;
 mod collection_reveal;
@@ -14,6 +15,7 @@ mod out_of_game;
 mod roster;
 mod server_forms;
 mod settings_screens;
+pub use settings_screens::settings;
 mod shader_options;
 mod shader_pack;
 mod social_settings;
@@ -41,6 +43,7 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// Worn and inventory armor with and without trims.
     #[cfg(feature = "test-support")]
     ArmorTrims {
         trimmed: bool,
@@ -170,20 +173,6 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
-    #[cfg(feature = "test-support")]
-    State {
-        name: "armor-trims-before",
-        size: [576, 672],
-        gui_scale: 1,
-        fixture: || Fixture::ArmorTrims { trimmed: false },
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "armor-trims-after",
-        size: [576, 672],
-        gui_scale: 1,
-        fixture: || Fixture::ArmorTrims { trimmed: true },
-    },
     State {
         name: "chat-incoming-while-scrolled",
         size: SIZE,
@@ -987,21 +976,11 @@ const STATES: &[State] = &[
     },
 ];
 
-/// Opens a settings category by its registered name rather than a copied index.
-pub fn settings(section: &str) -> MenuView {
-    let mut view = MenuView::new(true, "Player".into());
-    view.screen = MenuScreen::Settings;
-    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(name, index)| (*name == section).then_some(*index))
-        .expect("registered settings category");
-    view
-}
-
 /// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
     STATES
         .iter()
+        .chain(armor_trims::STATES)
         .chain(out_of_game::STATES)
         .chain(out_of_game::WORLD_FORM_STATES)
         .chain(updates::STATES)
