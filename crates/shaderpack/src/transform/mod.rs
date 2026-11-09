@@ -14,7 +14,7 @@ mod interface;
 pub(crate) mod items;
 mod legacy;
 pub use legacy::ALPHA_TESTED_OUTPUT;
-pub(crate) use legacy::interface_identifier;
+pub(crate) use legacy::{interface_identifier, original_identifier};
 mod local_constants;
 mod math;
 mod missing;

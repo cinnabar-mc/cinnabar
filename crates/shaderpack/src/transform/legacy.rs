@@ -11,41 +11,50 @@ use crate::token::{Tok, TokKind, id, int, lex, p};
 use std::collections::{BTreeSet, HashSet};
 use std::ops::Range;
 
-/// Identifiers reserved or built in since GLSL 1.30 that 1.20 code may use as names.
-const RESERVED_SINCE_130: &[&str] = &[
-    "sample",
-    "filter",
-    "input",
-    "output",
-    "common",
-    "partition",
-    "active",
-    "resource",
-    "buffer",
-    "shared",
-    "subroutine",
-    "patch",
-    "precise",
-    "coherent",
-    "volatile",
-    "restrict",
-    "readonly",
-    "writeonly",
-    "layout",
+/// Words the emitted `#version 450` reserves, each with the first GLSL version whose section
+/// 3.6 "Keywords" lists it as a keyword or as reserved for future use. Older sources may use
+/// them as identifiers. `precise` is the 4.00 qualifier of section 4.7, though the keyword list
+/// first names it in 4.30. `input`, `output` and `volatile` are reserved from GLSL 1.10, so no
+/// valid source names anything with them.
+pub(super) const RESERVED_SINCE: &[(&str, u32)] = &[
+    ("filter", 130),
+    ("common", 130),
+    ("partition", 130),
+    ("active", 130),
+    ("layout", 140),
+    ("sample", 400),
+    ("patch", 400),
+    ("subroutine", 400),
+    ("precise", 400),
+    ("resource", 420),
+    ("coherent", 420),
+    ("restrict", 420),
+    ("readonly", 420),
+    ("writeonly", 420),
+    ("buffer", 430),
+    ("shared", 430),
 ];
 
 /// Vulkan GLSL type keywords that are plain identifiers in OpenGL GLSL.
 const RESERVED_VULKAN: &[&str] = &["sampler", "samplerShadow", "subpassInput"];
 
+/// Private keyword escapes use double underscores, which GLSL reserves in source names.
+const RESERVED_PREFIX: &str = "__shaderpack_reserved_";
+
+/// Restores a keyword escaped in the translator's private namespace.
+pub(crate) fn original_identifier(name: &str) -> &str {
+    name.strip_prefix(RESERVED_PREFIX).unwrap_or(name)
+}
+
 /// A GLSL identifier that keeps a sampler named `texture` distinct from lookup calls.
 const RENAMED_TEXTURE: &str = "_r_texture";
 
-/// Returns the pack's sampler name before renaming `texture` for GLSL.
+/// Returns the pack's sampler name before escaping keywords and `texture` for GLSL.
 pub(super) fn sampler_name(name: &str) -> &str {
     if name == RENAMED_TEXTURE {
         "texture"
     } else {
-        name
+        original_identifier(name)
     }
 }
 
@@ -405,6 +414,31 @@ fn fold_sign_shifts(src: &[Tok]) -> Option<Vec<Tok>> {
     Some(out)
 }
 
+/// Whether the word at `src[i]` is an identifier that a `version` source may use but GLSL 4.50
+/// reserves.
+///
+/// Below its version a word still keeps its keyword meaning where the grammar puts a keyword:
+/// a qualifier is followed by another word (a qualifier, type or block name), and `layout` and
+/// `subroutine` may be followed by `(`. Variable and function names are followed by punctuation,
+/// so this keeps the keywords an `#extension` enables early, such as the `writeonly` images and
+/// `readonly buffer` blocks in Complementary's `#version 130` programs. Declared struct names
+/// stay identifiers at every use, including before another identifier or `(`.
+fn reserved_identifier(src: &[Tok], i: usize, version: u32, struct_names: &HashSet<&str>) -> bool {
+    let Some(name) = src[i].ident() else {
+        return false;
+    };
+    let Some(&(_, since)) = RESERVED_SINCE.iter().find(|(word, _)| *word == name) else {
+        return false;
+    };
+    version < since
+        && (struct_names.contains(name)
+            || match src.get(i + 1) {
+                Some(next) if next.ident().is_some() => false,
+                Some(next) if next.is("(") => !matches!(name, "layout" | "subroutine"),
+                _ => true,
+            })
+}
+
 /// Renames reserved identifiers, maps legacy built-ins and lookup functions, and gives
 /// implicit-LOD sampling outside fragment shaders an explicit LOD. `unbound_core_inputs`
 /// gives implicitly located core-profile vertex inputs GL's unbound value (see [`core_names`]).
@@ -415,7 +449,6 @@ pub(super) fn rewrite(
     compatibility: bool,
     unbound_core_inputs: bool,
 ) -> Result<Legacy, TransformError> {
-    let legacy = version < 130;
     let mut sized = size_unsized_arrays(src);
     if let Some(folded) = fold_array_sizes(&sized) {
         sized = folded;
@@ -427,6 +460,11 @@ pub(super) fn rewrite(
         sized = folded;
     }
     let src = &sized;
+    let struct_names: HashSet<_> = src
+        .windows(3)
+        .filter(|tokens| tokens[0].is("struct") && tokens[2].is("{"))
+        .filter_map(|tokens| tokens[1].ident())
+        .collect();
     let mut out = Legacy {
         toks: Vec::with_capacity(src.len()),
         builtins: BTreeSet::new(),
@@ -437,6 +475,9 @@ pub(super) fn rewrite(
     let toks = &mut out.toks;
     let mut pending_lod: Vec<usize> = vec![];
     let mut pending_close: Vec<usize> = vec![];
+    // Layout qualifier names "are identifiers, not keywords" (GLSL 4.20 section 4.4), so
+    // `layout(shared)` keeps its qualifier name.
+    let mut layout_args = 0..0;
     let mut i = 0;
     while i < src.len() {
         let t = &src[i];
@@ -468,8 +509,13 @@ pub(super) fn rewrite(
             i += 1;
             continue;
         }
-        if (legacy && RESERVED_SINCE_130.contains(&name)) || RESERVED_VULKAN.contains(&name) {
-            toks.push(id(&format!("_r_{name}")).at(line));
+        if name == "layout" && called && !struct_names.contains(name) {
+            layout_args = i + 2..matching(src, i + 1, "(", ")");
+        }
+        if (!layout_args.contains(&i) && reserved_identifier(src, i, version, &struct_names))
+            || RESERVED_VULKAN.contains(&name)
+        {
+            toks.push(id(&format!("{RESERVED_PREFIX}{name}")).at(line));
             i += 1;
             continue;
         }
