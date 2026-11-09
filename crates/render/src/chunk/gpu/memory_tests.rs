@@ -1,5 +1,6 @@
 use super::*;
 use crate::chunk::gpu::idle::release_idle_arena;
+use crate::gpu_allocation::Requirement;
 use std::sync::atomic::Ordering;
 
 /// Creates an isolated arena on a device with the requested optional features.
@@ -24,6 +25,7 @@ fn grow_quads(arena: &mut ChunkGpuArena, device: &RenderDevice, queue: &RenderQu
             new_capacity: 64,
             gpu_copy_bytes: copy_bytes,
         },
+        Requirement::Required,
     ));
     advance_arena_migration(
         arena,
@@ -140,7 +142,7 @@ fn idle_storage_waits_for_retirement_and_queue_completion_then_restarts_once() {
     let (device, queue, mut arena) = memory_arena(wgpu::Features::empty());
     grow_quads(&mut arena, &device, &queue);
     arena.indirect_capacity = 8;
-    arena.indirect_buffer = create_indirect_buffer(&device, arena.indirect_capacity);
+    arena.indirect_buffer = create_indirect_buffer(&device, arena.indirect_capacity).unwrap();
     arena.transparent_slot_refs = INITIAL_TRANSPARENT_SLOT_REFS * 2;
     arena.transparent_ref_buffer = transparent_ref_buffer(&device, arena.transparent_slot_refs);
     let large = arena.quad_buffer.id();
@@ -169,8 +171,10 @@ fn idle_storage_waits_for_retirement_and_queue_completion_then_restarts_once() {
     release_idle_arena(&mut arena, &device, &queue, false);
     assert_eq!(arena.quad_buffer.id(), large);
     completion.store(true, Ordering::Release);
+    let release_revision = arena.release_revision;
     release_idle_arena(&mut arena, &device, &queue, false);
     assert_ne!(arena.quad_buffer.id(), large);
+    assert_eq!(arena.release_revision, release_revision.wrapping_add(1));
     assert_eq!(arena.quad_buffer.size(), PACKED_QUAD_BYTES);
     assert_eq!(
         arena.geometry_stream_buffer.size(),
@@ -251,6 +255,7 @@ fn idle_storage_retires_an_unfinished_migration() {
             new_capacity: 128,
             gpu_copy_bytes: PACKED_QUAD_BYTES
         },
+        Requirement::Required,
     ));
     assert!(release_idle_arena(&mut arena, &device, &queue, false));
     let completion = arena.idle_completion.as_ref().unwrap().clone();
@@ -331,7 +336,8 @@ fn origin_growth_defers_if_offsets_fail_and_recovers_both_buffers_together() {
         &mut arena,
         &device,
         ArenaStream::Origins,
-        growth
+        growth,
+        Requirement::Required,
     ));
     drop(failures);
     assert_eq!(arena.origin_buffer.id(), old_origin);
@@ -361,7 +367,8 @@ fn origin_growth_defers_if_offsets_fail_and_recovers_both_buffers_together() {
         &mut arena,
         &device,
         ArenaStream::Origins,
-        growth
+        growth,
+        Requirement::Required,
     ));
     drop(failures);
     assert_eq!(arena.memory.host_visible_attempts, 4);
@@ -452,7 +459,8 @@ fn failed_growth_retries_only_supported_placements_and_preserves_the_old_buffer(
             &mut arena,
             &device,
             ArenaStream::Quads,
-            growth
+            growth,
+            Requirement::Required,
         ));
         drop(failures);
         assert_eq!(attempts.get(), expected_attempts);
@@ -464,5 +472,43 @@ fn failed_growth_retries_only_supported_placements_and_preserves_the_old_buffer(
         grow_quads(&mut arena, &device, &queue);
         assert_eq!(arena.quad_capacity, growth.new_capacity);
         assert!(!arena.quad_buffer.usage().contains(BufferUsages::MAP_WRITE));
+    }
+}
+
+/// Required growth invalidates terrain only when both memory placements fail.
+#[test]
+fn required_growth_keeps_the_generation_after_a_successful_host_visible_fallback() {
+    use std::{cell::Cell, rc::Rc};
+    for fail_fallback in [false, true] {
+        let (device, _, mut arena) = memory_arena(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
+        let failures = crate::gpu_allocation::FailureFlag::new(&device);
+        let previous = arena.quad_buffer.id();
+        let attempts = Rc::new(Cell::new(0));
+        let injected = crate::gpu_allocation::inject({
+            let attempts = Rc::clone(&attempts);
+            move |label, _| {
+                if label != "packed chunk quads" {
+                    return false;
+                }
+                attempts.set(attempts.get() + 1);
+                attempts.get() == 1 || fail_fallback
+            }
+        });
+        let grown = begin_arena_migration(
+            &mut arena,
+            &device,
+            ArenaStream::Quads,
+            ArenaGrowthPlan {
+                new_capacity: 64,
+                gpu_copy_bytes: PACKED_QUAD_BYTES,
+            },
+            Requirement::Required,
+        );
+        drop(injected);
+        assert_eq!(attempts.get(), 2);
+        assert_eq!(grown, !fail_fallback);
+        assert_eq!(failures.failed(), fail_fallback);
+        assert_eq!(arena.quad_buffer.id(), previous);
+        assert_eq!(arena.migration.is_some(), !fail_fallback);
     }
 }

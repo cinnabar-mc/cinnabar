@@ -66,6 +66,19 @@ impl CommittedGameplayState<'_> {
         &mut self,
         control: CommittedControlEvent,
         world: &impl CollisionWorld,
+        observe: impl FnMut(ControlObservation),
+    ) -> ControlDisposition {
+        self.physics.publish_replayed_movement_speed(self.speed);
+        let disposition = self.apply_control(control, world, observe);
+        self.physics.publish_replayed_movement_speed(self.speed);
+        disposition
+    }
+
+    /// Applies one control before publishing any resulting replayed speed.
+    fn apply_control(
+        &mut self,
+        control: CommittedControlEvent,
+        world: &impl CollisionWorld,
         mut observe: impl FnMut(ControlObservation),
     ) -> ControlDisposition {
         if let CommittedControlEvent::LocalActorMove { movement, .. } = control
@@ -119,7 +132,7 @@ impl CommittedGameplayState<'_> {
                 && self.movement.physics_is_authorized()
                 && let Some((edited, speed)) = self.physics.retime_movement_speed(tick, attribute)
             {
-                self.speed.adopt_replayed_speed(speed);
+                self.speed.adopt_recorded_speed(speed);
                 rewind = edited;
             }
             if (underwater.is_some() || lava.is_some())
@@ -162,7 +175,7 @@ impl CommittedGameplayState<'_> {
         {
             if replacement {
                 self.speed
-                    .begin_session(self.session_generation, self.dimension);
+                    .replace_actor(self.session_generation, self.dimension);
                 self.physics
                     .replace_actor_authority(flags, dimensions.expect("replacement dimensions"));
                 return ControlDisposition::Handled;
