@@ -1221,6 +1221,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Malformed item entries never match, and conditions the client reads as zero keep
   the base value; item-tag filters compile during session preparation for
   allocation-free evaluation, and an unsupported filter matches no item.
+  Client-authoritative breaks retain admitted tool wear and its legacy response
+  identity, so later breaks use the updated slot and rejected changes can roll back.
   Mining uncertainty leaves known physics and local placement prediction usable.
   Mining states use separate storage and admission, preserving the physical state budget.
   Complex Molang conditions, item-tag scripts and live custom-block mining acceptance

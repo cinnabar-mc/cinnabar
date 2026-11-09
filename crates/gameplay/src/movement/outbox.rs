@@ -767,18 +767,6 @@ impl MovementTicker {
             && self.has_unresolved_position_authority_change()
     }
 
-    /// Drops every unsent block interaction and revokes admitted ones.
-    fn invalidate_mining(&mut self) {
-        let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
-        self.mining_epoch_publisher.send_replace(next);
-        self.outbox
-            .iter_mut()
-            .for_each(|queued| queued.mining = None);
-        self.pending_sends
-            .iter_mut()
-            .for_each(|pending| pending.sample.mining = None);
-    }
-
     /// A correction keeps the player's pending action flags. A snap revokes in-flight
     /// interactions; a replay keeps them unless it drops a tick that carried or awaits one.
     pub(super) fn correction_authority_changed(&mut self, revoke_interactions: bool) {
