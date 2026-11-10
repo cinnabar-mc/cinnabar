@@ -8,8 +8,8 @@ use std::{
 use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
 
 use super::{
-    GuiModelPreparation, MODEL_PAGES, PreparedGuiModels, UiPresentationError, atlas, block_models,
-    held, icon_key, item_gui, player_preview, shield_icons,
+    AtlasFallbacks, GuiModelPreparation, MODEL_PAGES, PreparedGuiModels, UiPresentationError,
+    atlas, block_models, held, icon_key, item_gui, player_preview, shield_icons,
     sources::{gui_cube_sheet, ordinary_cube_sheet, sheet_faces},
 };
 
@@ -48,6 +48,43 @@ impl GuiModelPreparation {
         }
         let first = self.first;
         let mut atlas = atlas::Atlas::new(first, MODEL_PAGES);
+        let mut fallbacks = AtlasFallbacks::default();
+        // Equipment comes first: worn armor has no other GUI source, while a cube or held item
+        // that cannot fit keeps its resident thumbnail or sprite.
+        let mut models = BTreeMap::new();
+        let mut shield = None;
+        if let Some(equipment) = equipment {
+            for texture in equipment.textures() {
+                if atlas
+                    .insert_or_fallback([texture.width, texture.height], &texture.rgba8)
+                    .is_none()
+                {
+                    fallbacks.equipment += 1;
+                }
+            }
+            if let Some(binding) = equipment
+                .bindings_for(assets::gui_item::SHIELD_IDENTIFIER)
+                .iter()
+                .rev()
+                .find(|binding| player_preview::selection::unrestricted(binding, Some(entities)))
+                && let Some(geometry) = entities
+                    .geometries()
+                    .iter()
+                    .find(|geometry| geometry.identifier == binding.geometry.identifier)
+                && let Some(texture) = equipment.texture(&binding.texture.identifier)
+                && let Some(icon) = self.shield
+                && let Some(source) =
+                    atlas.insert_or_fallback([texture.width, texture.height], &texture.rgba8)
+            {
+                if let Some(mesh) = item_gui::shield(geometry, texture, source) {
+                    models.insert(icon_key(icon), mesh);
+                    shield = Some(Arc::new(shield_icons::Source {
+                        geometry: geometry.clone(),
+                        texture: texture.clone(),
+                    }));
+                }
+            }
+        }
         let mut sources = BTreeMap::new();
         let ordinary = render_model::equipment::blocks::collect(world, entities);
         for (&visual, &index) in &ordinary.by_visual {
@@ -83,37 +120,14 @@ impl GuiModelPreparation {
             if !cube_shape_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
-            atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
-        }
-        let mut models = BTreeMap::new();
-        let mut shield = None;
-        if let Some(equipment) = equipment {
-            for texture in equipment.textures() {
-                atlas.insert([texture.width, texture.height], &texture.rgba8)?;
-            }
-            if let Some(binding) = equipment
-                .bindings_for(assets::gui_item::SHIELD_IDENTIFIER)
-                .iter()
-                .rev()
-                .find(|binding| player_preview::selection::unrestricted(binding, Some(entities)))
-                && let Some(geometry) = entities
-                    .geometries()
-                    .iter()
-                    .find(|geometry| geometry.identifier == binding.geometry.identifier)
-                && let Some(texture) = equipment.texture(&binding.texture.identifier)
-                && let Some(icon) = self.shield
+            if atlas
+                .insert_or_fallback([sprite.width, sprite.height], &sprite.rgba8)
+                .is_none()
             {
-                let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
-                if let Some(mesh) = item_gui::shield(geometry, texture, source) {
-                    models.insert(icon_key(icon), mesh);
-                    shield = Some(Arc::new(shield_icons::Source {
-                        geometry: geometry.clone(),
-                        texture: texture.clone(),
-                    }));
-                }
+                fallbacks.cubes += 1;
             }
         }
-        let (held, held_texture_fallbacks) = held::prepare(
+        let (held, held_fallbacks) = held::prepare(
             &mut atlas,
             entities,
             icons,
@@ -123,6 +137,15 @@ impl GuiModelPreparation {
             equipment,
             world,
         )?;
+        fallbacks.held = held_fallbacks;
+        if fallbacks != AtlasFallbacks::default() {
+            tracing::warn!(
+                cubes = fallbacks.cubes,
+                equipment = fallbacks.equipment,
+                held = fallbacks.held,
+                "GUI model atlas is full; affected items keep their sprites"
+            );
+        }
         let required_pages = atlas.page_count();
         for sheet in icons.gui_block_sheets() {
             sources.insert(
@@ -305,7 +328,7 @@ impl GuiModelPreparation {
             required_pages,
             textures,
             held,
-            held_texture_fallbacks,
+            fallbacks,
             hand_pivots: held::player_hands(entities),
             cape: render_model::cape::CapeRig::resolve(entities),
         })

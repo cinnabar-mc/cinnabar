@@ -27,7 +27,7 @@ pub fn assert_installed_geometry(
         height: 32,
         rgba8: [31, 47, 59, 255].repeat(16 * 32).into(),
     };
-    presentation.set_gui_fire_texture(Some(&flame)).unwrap();
+    presentation.set_gui_fire_texture(Some(&flame));
     let icons = presentation.icon_catalog.as_deref().unwrap();
     for identifier in ["minecraft:dirt", "minecraft:grass_block"] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
