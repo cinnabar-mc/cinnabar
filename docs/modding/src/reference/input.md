@@ -105,7 +105,7 @@ record controls {
 | `focused` | `bool` |  |
 | `gameplay` | `bool` |  |
 | `panel-open` | `bool` |  |
-| `keys-pressed` | `list<string>` | Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle. |
+| `keys-pressed` | `list<string>` | Physical non-repeat edges, including while this owner edits a native field;<br>pointer buttons use MouseLeft/MouseRight/MouseMiddle. |
 | `keys-held` | `list<string>` | Physical keys held this frame, including reserved ones, in physical-name order.<br>Truncated to MAX_CONTROL_KEYS when more are held. |
 | `keys-admitted` | `list<string>` | Held desktop keys/buttons admitted by the finalized gameplay router, including<br>modifiers. Uses keys-held names and bounds; excludes consumed, quarantined,<br>reserved and ineligible-device controls. Empty outside gameplay input ownership.<br>Match read-bindings chords against this list, respecting modifier precedence.<br>This is physical admission, never a resolved action or permission to act.<br>Same physical-name order as keys-held, independently truncated to MAX_CONTROL_KEYS.<br>Above that held-key cap, chord resolution can differ from the host's gate. |
 | `events` | `list<event>` |  |
@@ -227,7 +227,52 @@ record bindings {
 
 Types: [`action-binding`](input.md#type-action-binding).
 
+<a id="type-scroll"></a>
+
+### `scroll`
+
+Native wheel deltas with line and pixel units kept separate.
+
+```wit
+record scroll {
+    line-x: f32,
+    line-y: f32,
+    pixel-x: f32,
+    pixel-y: f32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `line-x` | `f32` |  |
+| `line-y` | `f32` |  |
+| `pixel-x` | `f32` |  |
+| `pixel-y` | `f32` |  |
+
 ## Functions
+
+<a id="read-container-screen"></a>
+
+### `read-container-screen`
+
+```wit
+read-container-screen: func() -> result<option<string>, string>;
+```
+
+Current open container screen identity, requiring controls permission.
+None outside containers. Observation does not grant pointer ownership.
+
+<a id="position-pointer"></a>
+
+### `position-pointer`
+
+```wit
+position-pointer: func(x: f32, y: f32) -> result<_, string>;
+```
+
+Requests one pointer move in normalized window coordinates (0..1 on each axis).
+Requires controls permission and a focused container. Staged until callback success;
+consumed once, discarded if the screen changed. Does not press buttons or capture input.
 
 <a id="read-bindings"></a>
 
@@ -282,6 +327,19 @@ Requires controls authority and shares the read-controls callback read budget.
 
 Types: [`controls`](input.md#type-controls), [`selection`](input.md#type-selection).
 
+<a id="read-native-editing"></a>
+
+### `read-native-editing`
+
+```wit
+read-native-editing: func() -> result<bool, string>;
+```
+
+Whether a native field or numeric editor on this mod's open panel owns key input in
+the current frame, including IME composition. The keys it consumes still appear in
+keys-pressed and keys-held; skip panel key handling of your own while this is true.
+False while the panel is closed or another mod owns input. Requires controls authority.
+
 <a id="read-text-events"></a>
 
 ### `read-text-events`
@@ -317,3 +375,29 @@ reserve-keys: func(keys: list<string>) -> result<_, string>;
 ```
 
 Physical key names reserved before the ordinary gameplay router samples them.
+
+<a id="read-scroll"></a>
+
+### `read-scroll`
+
+```wit
+read-scroll: func() -> result<scroll, string>;
+```
+
+Current captured-gameplay frame only; positive Y scrolls up. Requires controls.
+Line and pixel units remain separate. Repeated reads are stable; no events replay.
+Returns zero while unfocused, in a screen, or after an earlier mod claims scrolling.
+
+Types: [`scroll`](input.md#type-scroll).
+
+<a id="reserve-scroll"></a>
+
+### `reserve-scroll`
+
+```wit
+reserve-scroll: func(keys: list<string>) -> result<_, string>;
+```
+
+Claims gameplay wheel input while every listed physical key is held in this frame's snapshot.
+Empty releases the claim. Does not reserve the keys themselves or affect UI scrolling.
+Committed after a successful callback; first active matching mod wins in load order.

@@ -35,6 +35,9 @@ $script:AcceptanceValidationPhase = {
     if (($LeafForestBaseline -or $LeafForestFullView) -and $VisualFixturePose -ne 'None') {
         throw 'leaf forest modes and VisualFixturePose cannot be combined'
     }
+    if ($AcceptanceBoundParameters.ContainsKey('GalleryPage') -and -not $isCrossCropGallery) {
+        throw 'GalleryPage requires a CrossCropGallery pose'
+    }
     if ($LeafForestBaseline -and $FullViewTeleportGate) {
         throw 'LeafForestBaseline cannot arm FullViewTeleportGate'
     }
@@ -143,6 +146,9 @@ $script:AcceptanceValidationPhase = {
     else {
         $null
     }
+    if ($isCrossCropGallery) {
+        $null = New-CrossCropGalleryArguments -Pose $VisualFixturePose -Page $GalleryPage -Coverage $CrossCropCoverage
+    }
     $AquaticCoverage = if ($isAquaticGallery) {
         Get-AquaticCoverageEvidence -RegistryPath $BlockRegistryPath -AssetsPath $Assets
     }
@@ -246,11 +252,8 @@ $script:AcceptanceValidationPhase = {
         }
         if ($isCrossCropGallery) {
             Write-Output "CROSS_CROP_GALLERY_ASSETS_SHA256=$($CrossCropCoverage.assets_sha256)"
-            $galleryArguments = [pscustomobject][ordered]@{
-                pose = $VisualFixturePose
-                state_set_sha256 = $CrossCropCoverage.state_set_sha256
-                state_count = $CrossCropCoverage.state_count
-            }
+            $galleryArguments = New-CrossCropGalleryArguments -Pose $VisualFixturePose -Page $GalleryPage -Coverage $CrossCropCoverage
+            Write-Output "CROSS_CROP_GALLERY_PAGE=$($galleryArguments.page)/$($galleryArguments.page_count)"
             Write-Output "CROSS_CROP_GALLERY_ARGUMENTS_SHA256=$(Get-CanonicalObjectHash -Value $galleryArguments)"
         }
         if ($isAquaticGallery) {

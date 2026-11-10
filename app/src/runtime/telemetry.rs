@@ -954,6 +954,18 @@ pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStagePro
             sample.maximum.as_secs_f64() * 1_000.0,
         );
     }
+    for (stage, sample) in RuntimeStage::ALL.into_iter().zip(snapshot.samples) {
+        if sample.thread_cpu_count != 0 {
+            let _ = write!(
+                line,
+                " {}_thread_cpu={},{:.3},{:.3}",
+                stage.name(),
+                sample.thread_cpu_count,
+                sample.thread_cpu_total.as_secs_f64() * 1_000.0,
+                sample.thread_cpu_maximum.as_secs_f64() * 1_000.0
+            );
+        }
+    }
     if let Some(slow) = profiler
         .as_deref()
         .and_then(RuntimeStageProfiler::slow_frame_counts)

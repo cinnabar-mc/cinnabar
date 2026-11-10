@@ -10,7 +10,7 @@ pub const PROTOCOL_VERSION: i32 = 2225;
 pub const CODEC_CONTRACT: u32 = 2;
 /// SHA-256 of the stable serialization of the manifest this crate was generated from.
 pub const MANIFEST_SHA256: &str =
-    "c1c90a44660b03e69fc84ff8f6dea3b0746bd29991c287dc184945921284204b";
+    "44bb0819bd92c863eb6050309e3c78b275fb5a1e3ce4369c97f07e62c44e2732";
 
 pub mod enums;
 pub mod fields;

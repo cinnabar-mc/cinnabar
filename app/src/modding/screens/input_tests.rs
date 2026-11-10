@@ -1,4 +1,7 @@
 //! Input regressions across the real inventory suppression and mod-screen paths.
+#[path = "input_tests/scroll_tests.rs"]
+mod scroll_tests;
+
 use crate::ui_runtime::drive_chat_keyboard_input;
 use bevy::window::WindowEvent;
 use bevy::{
@@ -968,6 +971,7 @@ fn production_mod_driver_delivers_declared_keys_and_view_escape() {
         )
         .insert_resource(crate::environment::VisualTimeOverride(None))
         .init_resource::<super::super::interaction::ModInteraction>()
+        .init_resource::<crate::modding::pointer::Pending>()
         .add_systems(
             Update,
             (
@@ -1095,6 +1099,7 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
     )
     .insert_resource(crate::environment::VisualTimeOverride(None))
     .init_resource::<super::super::interaction::ModInteraction>()
+    .init_resource::<crate::modding::pointer::Pending>()
     .add_systems(
         Update,
         (

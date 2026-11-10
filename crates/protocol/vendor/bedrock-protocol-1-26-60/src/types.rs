@@ -944,6 +944,44 @@ impl wire::Decode for BedrockSafetyRedactableString {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StructureRedactableName {
+    pub unredacted: wire::Str,
+    /// Wire presence: optional value is preceded by a presence marker.
+    pub redacted: Option<wire::Str>,
+}
+
+impl wire::Encode for StructureRedactableName {
+    fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
+        self.unredacted.encode(writer)?;
+        match &self.redacted {
+            Some(value) => {
+                writer.write_u8(1)?;
+                value.encode(writer)?;
+            }
+            None => writer.write_u8(0)?,
+        }
+        Ok(())
+    }
+}
+
+impl wire::Decode for StructureRedactableName {
+    fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
+        let unredacted = reader.read_str(crate::fields::STRUCTURE_REDACTABLE_NAME_UNREDACTED)?;
+        let redacted = {
+            if reader.read_u8()? == 0 {
+                None
+            } else {
+                Some(reader.read_str(crate::fields::STRUCTURE_REDACTABLE_NAME_REDACTED)?)
+            }
+        };
+        Ok(Self {
+            unredacted,
+            redacted,
+        })
+    }
+}
+
 // Domain: biome
 
 /// BiomeCappedSurface specifies the materials to use for the capped surface of a biome, such as in the
@@ -5607,6 +5645,38 @@ impl wire::Decode for CreativeItemNetID {
 // Domain: education
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct AgentCapabilities {
+    /// Wire presence: optional value is preceded by a presence marker.
+    pub can_modify_blocks: Option<bool>,
+}
+
+impl wire::Encode for AgentCapabilities {
+    fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
+        match &self.can_modify_blocks {
+            Some(value) => {
+                writer.write_u8(1)?;
+                value.encode(writer)?;
+            }
+            None => writer.write_u8(0)?,
+        }
+        Ok(())
+    }
+}
+
+impl wire::Decode for AgentCapabilities {
+    fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
+        let can_modify_blocks = {
+            if reader.read_u8()? == 0 {
+                None
+            } else {
+                Some(<bool as wire::Decode>::decode(reader)?)
+            }
+        };
+        Ok(Self { can_modify_blocks })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct EducationLevelSettings {
     /// `code_builder_default_uri` is the default URI that the code builder is ran on. Using this, a Code Builder
     /// program can make code directly affect the server.
@@ -5622,7 +5692,7 @@ pub struct EducationLevelSettings {
     pub post_process_filter: wire::Str,
     pub screenshot_border_resource_path: wire::Str,
     /// Wire presence: optional value is preceded by a presence marker.
-    pub agent_capabilities: Option<bool>,
+    pub agent_capabilities: Option<AgentCapabilities>,
     pub local_settings: EducationLocalLevelSettings,
     pub deprecated_always_false: bool,
     /// `external_link_settings` ...
@@ -5674,7 +5744,7 @@ impl wire::Decode for EducationLevelSettings {
             if reader.read_u8()? == 0 {
                 None
             } else {
-                Some(<bool as wire::Decode>::decode(reader)?)
+                Some(<AgentCapabilities as wire::Decode>::decode(reader)?)
             }
         };
         let local_settings = <EducationLocalLevelSettings as wire::Decode>::decode(reader)?;
@@ -9987,7 +10057,7 @@ impl wire::Decode for DynamicValue {
             4 => Self::String(reader.read_str(crate::fields::DYNAMIC_VALUE_STRING)?),
             5 => Self::List({
                 let declared = u64::from(reader.read_var_u32()?);
-                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_LIST, declared, 1)?;
+                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_LIST, declared, 0)?;
                 let mut out: Vec<DynamicValue> = wire::alloc_vec(count)?;
                 for _ in 0..count {
                     wire::push(
@@ -10001,7 +10071,7 @@ impl wire::Decode for DynamicValue {
             }),
             6 => Self::Map({
                 let declared = u64::from(reader.read_var_u32()?);
-                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_MAP, declared, 2)?;
+                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_MAP, declared, 1)?;
                 let mut out: Vec<(wire::Str, DynamicValue)> = wire::alloc_vec(count)?;
                 for _ in 0..count {
                     let key = reader.read_str(crate::fields::DYNAMIC_VALUE_MAP_KEY)?;
@@ -14564,20 +14634,18 @@ impl wire::Decode for SoundDataEvent {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StructureEditorData {
-    pub structure_name: wire::Str,
-    pub filtered_structure_name: wire::Str,
+    pub structure_name: StructureRedactableName,
     pub data_field: wire::Str,
     pub should_include_players: bool,
     pub should_show_bounding_box: bool,
     pub structure_block_type: StructureBlockType,
-    pub structure_settings: StructureSettings,
+    pub structure_settings: StructurePlacementSettings,
     pub redstone_save_mode: StructureRedstoneSaveMode,
 }
 
 impl wire::Encode for StructureEditorData {
     fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
         self.structure_name.encode(writer)?;
-        self.filtered_structure_name.encode(writer)?;
         self.data_field.encode(writer)?;
         self.should_include_players.encode(writer)?;
         self.should_show_bounding_box.encode(writer)?;
@@ -14590,19 +14658,15 @@ impl wire::Encode for StructureEditorData {
 
 impl wire::Decode for StructureEditorData {
     fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
-        let structure_name =
-            reader.read_str(crate::fields::STRUCTURE_EDITOR_DATA_STRUCTURE_NAME)?;
-        let filtered_structure_name =
-            reader.read_str(crate::fields::STRUCTURE_EDITOR_DATA_FILTERED_STRUCTURE_NAME)?;
+        let structure_name = <StructureRedactableName as wire::Decode>::decode(reader)?;
         let data_field = reader.read_str(crate::fields::STRUCTURE_EDITOR_DATA_DATA_FIELD)?;
         let should_include_players = <bool as wire::Decode>::decode(reader)?;
         let should_show_bounding_box = <bool as wire::Decode>::decode(reader)?;
         let structure_block_type = <StructureBlockType as wire::Decode>::decode(reader)?;
-        let structure_settings = <StructureSettings as wire::Decode>::decode(reader)?;
+        let structure_settings = <StructurePlacementSettings as wire::Decode>::decode(reader)?;
         let redstone_save_mode = <StructureRedstoneSaveMode as wire::Decode>::decode(reader)?;
         Ok(Self {
             structure_name,
-            filtered_structure_name,
             data_field,
             should_include_players,
             should_show_bounding_box,
@@ -14613,21 +14677,48 @@ impl wire::Decode for StructureEditorData {
     }
 }
 
+/// StructureSettings is a struct holding settings of a structure block. Its fields may be changed using the
+/// in-game UI on the client-side.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StructurePlacementSettings {
+    /// PaletteName is the name of the palette used in the structure. Currently, it seems that this field is
+    /// always 'default'.
     pub structure_palette_name: wire::Str,
+    /// IgnoreEntities specifies if the structure should ignore entities or include them. If set to false,
+    /// entities will also show up in the exported structure.
     pub should_ignore_entities: bool,
+    /// IgnoreBlocks specifies if the structure should ignore blocks or include them. If set to false, blocks will
+    /// show up in the exported structure.
     pub should_ignore_blocks: bool,
+    /// AllowNonTickingChunks specifies if the structure should allow non-ticking chunks. If set to false, the
+    /// structure will export non-ticking chunks.
     pub should_allow_non_ticking_player_and_ticking_area_chunks: bool,
+    /// Size is the size of the area that is about to be exported. The area exported will start at the Position +
+    /// Offset, and will extend as far as Size specifies.
     pub structure_size: BlockPosition,
+    /// Offset is the offset position that was set in the structure block. The area exported is offset by this
+    /// position.
     pub structure_offset: BlockPosition,
+    /// LastEditingPlayerUniqueID is the unique ID of the player that last edited the structure block that these
+    /// settings concern.
     pub last_edit_player: ActorUniqueIdentifier,
+    /// `rotation` is the rotation that the structure block should obtain. See the constants above for available
+    /// options.
     pub rotation: StructureRotation,
+    /// `mirror` specifies the way the structure should be mirrored. It is either no mirror at all, mirror on the
+    /// x/z axis or both.
     pub mirror: StructureMirror,
+    /// `animation_mode` ...
     pub animation_mode: SkinAnimationMode,
+    /// AnimationDuration ...
     pub animation_seconds: wire::F32LE,
+    /// Integrity is usually 1, but may be set to a number between 0 and 1 to omit blocks randomly, using the Seed
+    /// that follows.
     pub integrity_value: wire::F32LE,
+    /// Seed is the seed used to omit blocks if Integrity is not equal to one. If the Seed is 0, a random seed is
+    /// selected to omit blocks.
     pub integrity_seed: wire::U32LE,
+    /// Pivot is the pivot around which the structure may be rotated.
     pub rotation_pivot: Vec3,
 }
 
@@ -14679,113 +14770,6 @@ impl wire::Decode for StructurePlacementSettings {
             value
         };
         let rotation_pivot = <Vec3 as wire::Decode>::decode(reader)?;
-        Ok(Self {
-            structure_palette_name,
-            should_ignore_entities,
-            should_ignore_blocks,
-            should_allow_non_ticking_player_and_ticking_area_chunks,
-            structure_size,
-            structure_offset,
-            last_edit_player,
-            rotation,
-            mirror,
-            animation_mode,
-            animation_seconds,
-            integrity_value,
-            integrity_seed,
-            rotation_pivot,
-        })
-    }
-}
-
-/// StructureSettings is a struct holding settings of a structure block. Its fields may be changed using the
-/// in-game UI on the client-side.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct StructureSettings {
-    /// PaletteName is the name of the palette used in the structure. Currently, it seems that this field is
-    /// always 'default'.
-    pub structure_palette_name: wire::Str,
-    /// IgnoreEntities specifies if the structure should ignore entities or include them. If set to false,
-    /// entities will also show up in the exported structure.
-    pub should_ignore_entities: bool,
-    /// IgnoreBlocks specifies if the structure should ignore blocks or include them. If set to false, blocks will
-    /// show up in the exported structure.
-    pub should_ignore_blocks: bool,
-    /// AllowNonTickingChunks specifies if the structure should allow non-ticking chunks. If set to false, the
-    /// structure will export non-ticking chunks.
-    pub should_allow_non_ticking_player_and_ticking_area_chunks: bool,
-    /// Size is the size of the area that is about to be exported. The area exported will start at the Position +
-    /// Offset, and will extend as far as Size specifies.
-    pub structure_size: BlockPos,
-    /// Offset is the offset position that was set in the structure block. The area exported is offset by this
-    /// position.
-    pub structure_offset: BlockPos,
-    /// LastEditingPlayerUniqueID is the unique ID of the player that last edited the structure block that these
-    /// settings concern.
-    pub last_edit_player: ActorUniqueID,
-    /// `rotation` is the rotation that the structure block should obtain. See the constants above for available
-    /// options.
-    pub rotation: Rotation,
-    /// `mirror` specifies the way the structure should be mirrored. It is either no mirror at all, mirror on the
-    /// x/z axis or both.
-    pub mirror: Mirror,
-    /// `animation_mode` ...
-    pub animation_mode: AnimationMode,
-    /// AnimationDuration ...
-    pub animation_seconds: wire::F32LE,
-    /// Integrity is usually 1, but may be set to a number between 0 and 1 to omit blocks randomly, using the Seed
-    /// that follows.
-    pub integrity_value: wire::F32LE,
-    /// Seed is the seed used to omit blocks if Integrity is not equal to one. If the Seed is 0, a random seed is
-    /// selected to omit blocks.
-    pub integrity_seed: wire::U32LE,
-    /// Pivot is the pivot around which the structure may be rotated.
-    pub rotation_pivot: glam::Vec3,
-}
-
-impl wire::Encode for StructureSettings {
-    fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
-        wire::encode_string_limits(writer, &self.structure_palette_name, 0, 256)?;
-        self.should_ignore_entities.encode(writer)?;
-        self.should_ignore_blocks.encode(writer)?;
-        self.should_allow_non_ticking_player_and_ticking_area_chunks
-            .encode(writer)?;
-        self.structure_size.encode(writer)?;
-        self.structure_offset.encode(writer)?;
-        self.last_edit_player.encode(writer)?;
-        self.rotation.encode(writer)?;
-        self.mirror.encode(writer)?;
-        self.animation_mode.encode(writer)?;
-        self.animation_seconds.encode(writer)?;
-        self.integrity_value.encode(writer)?;
-        self.integrity_seed.encode(writer)?;
-        self.rotation_pivot.encode(writer)?;
-        Ok(())
-    }
-}
-
-impl wire::Decode for StructureSettings {
-    fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
-        let structure_palette_name = wire::decode_string_limits(
-            reader,
-            crate::fields::STRUCTURE_SETTINGS_STRUCTURE_PALETTE_NAME,
-            0,
-            256,
-        )?;
-        let should_ignore_entities = <bool as wire::Decode>::decode(reader)?;
-        let should_ignore_blocks = <bool as wire::Decode>::decode(reader)?;
-        let should_allow_non_ticking_player_and_ticking_area_chunks =
-            <bool as wire::Decode>::decode(reader)?;
-        let structure_size = <BlockPos as wire::Decode>::decode(reader)?;
-        let structure_offset = <BlockPos as wire::Decode>::decode(reader)?;
-        let last_edit_player = <ActorUniqueID as wire::Decode>::decode(reader)?;
-        let rotation = <Rotation as wire::Decode>::decode(reader)?;
-        let mirror = <Mirror as wire::Decode>::decode(reader)?;
-        let animation_mode = <AnimationMode as wire::Decode>::decode(reader)?;
-        let animation_seconds = <wire::F32LE as wire::Decode>::decode(reader)?;
-        let integrity_value = <wire::F32LE as wire::Decode>::decode(reader)?;
-        let integrity_seed = <wire::U32LE as wire::Decode>::decode(reader)?;
-        let rotation_pivot = <glam::Vec3 as wire::Decode>::decode(reader)?;
         Ok(Self {
             structure_palette_name,
             should_ignore_entities,

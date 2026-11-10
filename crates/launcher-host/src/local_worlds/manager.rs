@@ -84,6 +84,7 @@ struct Inner {
     /// Read by each start; see [`Manager::set_host`].
     host: Mutex<Host>,
     host_changed: Condvar,
+    player_name: Mutex<String>,
     /// Starts that have waited on a loading host, so tests can publish it mid-wait.
     #[cfg(test)]
     host_waits: std::sync::atomic::AtomicUsize,
@@ -150,6 +151,7 @@ impl Manager {
                 host_wait: parts.host_wait,
                 host: Mutex::default(),
                 host_changed: Condvar::new(),
+                player_name: Mutex::default(),
                 #[cfg(test)]
                 host_waits: Default::default(),
                 subscribers: Mutex::default(),
@@ -242,6 +244,11 @@ impl Manager {
         self.inner.store.update(id, update)
     }
 
+    /// Sets the connected host's login name for targeted server commands.
+    pub fn set_player_name(&self, name: &str) {
+        *lock(&self.inner.player_name) = name.to_owned();
+    }
+
     /// Saves `update` to world `id` and sends the running server the commands that apply it at
     /// once; settings the server reads only at startup, or that it failed to take, apply on the
     /// next start.
@@ -267,7 +274,22 @@ impl Manager {
                 missed: false,
             });
         };
-        let commands = super::bds::live_commands(&world, update);
+        let mut commands = super::bds::live_commands(&world, update);
+        let target_missing = if update.game_mode.is_some() {
+            let name = lock(&self.inner.player_name);
+            if name.is_empty() {
+                true
+            } else {
+                commands.push(format!(
+                    "gamemode {} {}",
+                    super::world::wire_name(world.game_mode),
+                    serde_json::to_string(name.as_str()).expect("player name serializes")
+                ));
+                false
+            }
+        } else {
+            false
+        };
         let sent = commands
             .iter()
             .all(|command| match instance.console(command) {
@@ -277,6 +299,7 @@ impl Manager {
                     false
                 }
             });
+        let sent = sent && !target_missing;
         if sent && let Some(changes) = &update.options {
             let mut life = lock(&self.inner.life);
             if life.generation == generation

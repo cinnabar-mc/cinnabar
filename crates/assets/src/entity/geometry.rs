@@ -91,7 +91,7 @@ impl RuntimeEntityAssets {
     }
 }
 
-/// Rejects empty face mappings and noncanonical UV scalar values.
+/// Rejects noncanonical UV scalar values. A face map may be empty: that cube draws no faces.
 pub(super) fn validate_uv(uv: &EntityGeometryUv) -> Result<(), AssetError> {
     match uv {
         EntityGeometryUv::Box(uv) => validate_scalars(uv),
@@ -104,9 +104,6 @@ pub(super) fn validate_uv(uv: &EntityGeometryUv) -> Result<(), AssetError> {
                 &faces.up,
                 &faces.down,
             ];
-            if faces.iter().all(|face| face.is_none()) {
-                return Err(invalid("entity geometry per-face UV map is empty"));
-            }
             for face in faces.into_iter().flatten() {
                 validate_scalars(&face.uv)?;
                 if let Some(uv_size) = &face.uv_size {

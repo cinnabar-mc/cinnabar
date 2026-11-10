@@ -4,7 +4,10 @@ use super::context::{
     PressurePlateTemplateKey, RuleInputs, SignTemplateKey, ThinTemplateKey, diagnostic_visual,
 };
 use super::fallback::FallbackInventory;
-use assets::facts::pack::PackBlock as B;
+use canonical_air::{CanonicalAirIdentity, is_canonical_air, resolve_canonical_air};
+
+#[path = "dispatcher/canonical_air.rs"]
+mod canonical_air;
 
 #[derive(Clone, Copy)]
 pub(in crate::compiler) struct ExactAdmissions {
@@ -24,69 +27,6 @@ pub(in crate::compiler) enum CompileRuleResult {
     Reject,
     Compiled(BlockVisual),
 }
-/// Wire identity of the one record that resolves as canonical air for a
-/// compiled registry. Derived from registry content at compile time instead
-/// of pinning one legacy protocol's sequential ID and network hash, so a
-/// protocol-2225 triple whose air sits at different identities compiles the
-/// same exact Invisible route.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::compiler) struct CanonicalAirIdentity {
-    pub(in crate::compiler) sequential_id: u32,
-    pub(in crate::compiler) network_hash: u32,
-}
-
-fn air_candidate(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == B::Air.identifier()
-        && record.canonical_state.as_ref() == "{}"
-        && record.flags.contains(BlockFlags::AIR)
-        && record.contributor_role == ContributorRole::Air
-}
-
-/// Resolves the unique canonical-air identity from registry content.
-///
-/// Fails closed when no record satisfies the full predicate, when more than
-/// one does, or when any other record wearing the `minecraft:air` name fails
-/// the predicate (a decoy that would make the canonical identity ambiguous).
-/// Air-flagged records under other names stay non-fatal decoys and keep the
-/// established diagnostic-stripping route.
-pub(in crate::compiler) fn resolve_canonical_air(
-    records: &[RegistryRecord],
-) -> Result<CanonicalAirIdentity, AssetError> {
-    let mut canonical = None;
-    for record in records
-        .iter()
-        .filter(|record| record.name.as_ref() == B::Air.identifier())
-    {
-        if !air_candidate(record) {
-            return Err(AssetError::InvalidCompiledAssets {
-                detail: format!(
-                    "registry record {} names minecraft:air but fails the canonical-air state/flags/role contract",
-                    record.sequential_id
-                )
-                .into(),
-            });
-        }
-        if canonical.replace(record).is_some() {
-            return Err(AssetError::InvalidCompiledAssets {
-                detail: "registry declares more than one canonical minecraft:air record".into(),
-            });
-        }
-    }
-    let canonical = canonical.ok_or_else(|| AssetError::InvalidCompiledAssets {
-        detail: "registry declares no canonical minecraft:air record".into(),
-    })?;
-    Ok(CanonicalAirIdentity {
-        sequential_id: canonical.sequential_id,
-        network_hash: canonical.network_hash,
-    })
-}
-
-fn is_canonical_air(record: &RegistryRecord, canonical_air: CanonicalAirIdentity) -> bool {
-    record.sequential_id == canonical_air.sequential_id
-        && record.network_hash == canonical_air.network_hash
-        && air_candidate(record)
-}
-
 fn diagnostic_for_unmatched_record(
     record: &RegistryRecord,
     canonical_air: CanonicalAirIdentity,
@@ -109,6 +49,7 @@ struct VisualCompiler {
     model_quads: Vec<ModelQuad>,
     cross_templates: BTreeMap<super::cross::TemplateKey, u32>,
     stem_templates: BTreeMap<super::stem::TemplateKey, u32>,
+    redstone_wire_templates: BTreeMap<super::redstone_wire::TemplateKey, u32>,
     pitcher_crop_templates: BTreeMap<super::pitcher_crop::TemplateKey, u32>,
     kelp_templates: BTreeMap<[u32; 6], u32>,
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
@@ -135,7 +76,7 @@ struct VisualCompiler {
     button_templates: BTreeMap<ButtonTemplateKey, u32>,
     pale_moss_carpet_templates: BTreeMap<PaleMossCarpetTemplateKey, u32>,
     gate_templates: BTreeMap<GateTemplateKey, u32>,
-    pane_templates: BTreeMap<[u32; 2], u32>,
+    pane_templates: BTreeMap<([u32; 2], bool), u32>,
     fence_templates: BTreeMap<[u32; 3], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
     thin_templates: BTreeMap<ThinTemplateKey, u32>,
@@ -146,9 +87,26 @@ struct VisualCompiler {
     lantern_templates: BTreeMap<(u32, bool), u32>,
     lever_templates: BTreeMap<super::lever::TemplateKey, u32>,
     flower_pot_soil: Option<u32>,
+    chorus_plant_templates: BTreeMap<[u32; 6], u32>,
+    speleothem_templates: BTreeMap<u32, u32>,
+    vine_stem_templates: BTreeMap<([u32; 2], u32), u32>,
+    diode_torches: super::diode::TorchMaterials,
+    diode_templates: BTreeMap<super::diode::TemplateKey, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
+    sculk_templates: BTreeMap<(bool, [u32; 6], u32), u32>,
+    spore_blossom_templates: BTreeMap<[u32; 2], u32>,
+    dried_ghast_templates: BTreeMap<([u32; 6], u32, usize), u32>,
+    turtle_egg_templates: BTreeMap<(u32, usize), u32>,
+    dripleaf_templates: BTreeMap<([u32; 6], super::dripleaf::Shape), u32>,
+    trip_wire_templates: BTreeMap<(u32, u8), u32>,
+    scaffolding_templates: BTreeMap<[u32; 3], u32>,
+    azalea_templates: BTreeMap<[u32; 3], u32>,
+    chorus_flower_templates: BTreeMap<[u32; 6], u32>,
+    cactus_template: Option<u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
+    lectern_templates: BTreeMap<([u32; 6], u8), u32>,
+    bell_templates: BTreeMap<(u32, u32, u8, u8), u32>,
     stonecutter_templates: BTreeMap<([u32; 6], bool), u32>,
     sea_pickle_templates: BTreeMap<(u32, u8, bool), u32>,
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
@@ -156,12 +114,14 @@ struct VisualCompiler {
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
     facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
-    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
+    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6], super::mapped_face::Shape), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
     candle_cake_templates: BTreeMap<[u32; 4], u32>,
+    candle_templates: BTreeMap<(u32, u8), u32>,
     hollow_container_templates: BTreeMap<(super::hollow_containers::VesselState, Vec<u32>), u32>,
+    hopper_templates: BTreeMap<([u32; 6], u8), u32>,
 }
 
 impl VisualCompiler {
@@ -331,6 +291,24 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::lectern::compile_rule(
+            record,
+            inputs,
+            &mut self.lectern_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::bell::compile_rule(
+            record,
+            inputs,
+            &mut self.bell_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::entity_drawn::compile_rule(
             record,
             inputs,
@@ -476,6 +454,114 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::chorus::compile_plant_rule(
+            record,
+            inputs,
+            &mut self.chorus_plant_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::sculk::compile_rule(
+            record,
+            inputs,
+            &mut self.sculk_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::scaffolding::compile_rule(
+            record,
+            inputs,
+            &mut self.scaffolding_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::dried_ghast::compile_rule(
+            record,
+            inputs,
+            &mut self.dried_ghast_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::turtle_egg::compile_rule(
+            record,
+            inputs,
+            &mut self.turtle_egg_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::dripleaf::compile_rule(
+            record,
+            inputs,
+            &mut self.dripleaf_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::trip_wire::compile_rule(
+            record,
+            inputs,
+            &mut self.trip_wire_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::spore_blossom::compile_rule(
+            record,
+            inputs,
+            &mut self.spore_blossom_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::azalea::compile_rule(
+            record,
+            inputs,
+            &mut self.azalea_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::chorus::compile_rule(
+            record,
+            inputs,
+            &mut self.chorus_flower_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::speleothem::compile_rule(
+            record,
+            inputs,
+            &mut self.speleothem_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::vine_stem::compile_rule(
+            record,
+            inputs,
+            &mut self.vine_stem_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::shelf::compile_rule(
             record,
             inputs,
@@ -494,10 +580,28 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::candle::compile_rule(
+            record,
+            inputs,
+            &mut self.candle_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::hollow_containers::compile_rule(
             record,
             inputs,
             &mut self.hollow_container_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::hopper::compile_rule(
+            record,
+            inputs,
+            &mut self.hopper_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -530,6 +634,7 @@ impl VisualCompiler {
                 visual: &mut exact_visual,
                 cuboid_template_by_key: &mut self.cuboid_templates,
                 chiseled_bookshelf_template_by_key: &mut self.chiseled_bookshelf_templates,
+                cactus_template: &mut self.cactus_template,
                 model_templates: &mut self.model_templates,
                 model_quads: &mut self.model_quads,
             },
@@ -699,6 +804,16 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::diode::compile_rule(
+            record,
+            inputs,
+            self.diode_torches,
+            &mut self.diode_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::named_blocks::compile_rule(
             record,
             inputs,
@@ -744,6 +859,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads
             },
         ));
+        ordered_rule!(super::redstone_wire::compile_rule(
+            record,
+            inputs,
+            &mut self.redstone_wire_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
         ordered_rule!(super::pitcher_crop::compile_rule(
             record,
             inputs,
@@ -772,6 +896,7 @@ pub(in crate::compiler) fn compile_visuals(
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
     vanilla_fallback_material: u32,
     fallback: &'static FallbackInventory<'static>,
+    sheet_tiles: &sheet_tiles::SheetPlan,
     admissions: ExactAdmissions,
 ) -> Result<CompiledVisuals, AssetError> {
     let canonical_air = resolve_canonical_air(records)?;
@@ -789,8 +914,10 @@ pub(in crate::compiler) fn compile_visuals(
         material_by_descriptor,
         vanilla_fallback_material,
         fallback,
+        sheet_tiles,
     };
     compiler.flower_pot_soil = super::flower_pot::soil_material(records, &inputs);
+    compiler.diode_torches = super::diode::TorchMaterials::find(records, &inputs);
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     let mut potted_templates = BTreeMap::new();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
@@ -805,6 +932,7 @@ pub(in crate::compiler) fn compile_visuals(
                     }
                     super::snowy_grass::apply(record, &mut visual, &inputs);
                     super::fire_admission::apply(record, &mut visual);
+                    super::chorus::apply_root_flag(record, &mut visual);
                     super::potted_plants::apply(
                         record,
                         &mut visual,
@@ -837,103 +965,5 @@ pub(in crate::compiler) fn compile_visuals(
 mod precedence_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use assets::RegistryProvenance;
-
-    #[test]
-    fn resolution_pins_the_unique_pinned_registry_air_identity() {
-        let records = assets::read_registry(include_bytes!(
-            "../../../../assets/data/block-registry-v1001.bin"
-        ))
-        .expect("decode pinned registry");
-        let identity = resolve_canonical_air(&records).expect("unique canonical air");
-
-        // The pinned protocol-1001 registry must keep resolving today's
-        // exact identity so default v1001 compilation stays byte-identical.
-        assert_eq!(identity.sequential_id, 13_094);
-        assert_eq!(identity.network_hash, 0xdbf4_4120);
-
-        let air = records
-            .iter()
-            .find(|record| record.name.as_ref() == "minecraft:air")
-            .expect("canonical air");
-        assert!(is_canonical_air(air, identity));
-
-        let mut custom = air.clone();
-        custom.name = "custom:air".into();
-        assert!(!is_canonical_air(&custom, identity));
-
-        let mut wrong_state = air.clone();
-        wrong_state.canonical_state = r#"{"custom":true}"#.into();
-        assert!(!is_canonical_air(&wrong_state, identity));
-
-        let mut wrong_hash = air.clone();
-        wrong_hash.network_hash ^= 1;
-        assert!(!is_canonical_air(&wrong_hash, identity));
-
-        let mut wrong_id = air.clone();
-        wrong_id.sequential_id -= 1;
-        assert!(!is_canonical_air(&wrong_id, identity));
-    }
-
-    fn synthetic_record(name: &str, state: &str, id: u32, hash: u32) -> RegistryRecord {
-        RegistryRecord {
-            beacon_tint: assets::BeaconTint::Unresolved,
-            traits: assets::registry::BlockTraits::empty(),
-            survival: assets::registry::SurvivalRule::None,
-            properties: Box::new([]),
-            sequential_id: id,
-            network_hash: hash,
-            name: name.into(),
-            canonical_state: state.into(),
-            flags: BlockFlags::AIR,
-            model_family: ModelFamily::Air,
-            contributor_role: ContributorRole::Air,
-            model_state: Default::default(),
-            face_coverage: 0,
-            collision_seed: Default::default(),
-            provenance: RegistryProvenance::PMMP,
-        }
-    }
-
-    #[test]
-    fn resolution_fails_closed_with_distinct_errors_for_zero_multiple_and_decoy_air() {
-        let zero = [synthetic_record("minecraft:stone", "{}", 1, 0x0000_0001)];
-        let multiple = [
-            synthetic_record("minecraft:air", "{}", 10, 0x0000_000a),
-            synthetic_record("minecraft:air", "{}", 11, 0x0000_000b),
-        ];
-        let decoy = [synthetic_record(
-            "minecraft:air",
-            r#"{"legacy":true}"#,
-            12,
-            0x0000_000c,
-        )];
-
-        let zero_error = resolve_canonical_air(&zero).expect_err("no canonical air record");
-        let multiple_error =
-            resolve_canonical_air(&multiple).expect_err("conflicting canonical air records");
-        let decoy_error = resolve_canonical_air(&decoy).expect_err("decoy canonical air name");
-
-        for error in [&zero_error, &multiple_error, &decoy_error] {
-            assert!(matches!(error, AssetError::InvalidCompiledAssets { .. }));
-        }
-        assert_ne!(zero_error.to_string(), multiple_error.to_string());
-        assert_ne!(multiple_error.to_string(), decoy_error.to_string());
-        assert_ne!(zero_error.to_string(), decoy_error.to_string());
-    }
-
-    #[test]
-    fn resolution_rejects_a_decoy_even_after_a_valid_candidate() {
-        let records = [
-            synthetic_record("minecraft:air", "{}", 20, 0x0000_0014),
-            synthetic_record("minecraft:air", r#"{"legacy":true}"#, 21, 0x0000_0015),
-        ];
-        let error = resolve_canonical_air(&records).expect_err("decoy after valid candidate");
-        assert!(
-            error.to_string().contains("fails the canonical-air"),
-            "unexpected error: {error}"
-        );
-    }
-}
+#[path = "dispatcher/tests.rs"]
+mod tests;

@@ -4,8 +4,10 @@
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
-    ecs::system::SystemParam,
-    prelude::{AppExit, Commands, MessageWriter, Res, ResMut, Resource},
+    ecs::system::{NonSendMarker, SystemParam},
+    prelude::{AppExit, Commands, Entity, MessageWriter, Query, Res, ResMut, Resource, With},
+    window::PrimaryWindow,
+    winit::WINIT_WINDOWS,
 };
 use bridge::CORE_START_TIMEOUT;
 use client_runtime::network::NetworkHandle;
@@ -29,11 +31,13 @@ use {
 
 use std::{path::PathBuf, time::Instant};
 
+mod address;
 #[cfg(all(test, unix))]
 mod cache_tests;
 mod client_id;
 mod startup;
 
+use address::login_server_address;
 use client_session::MAX_TRANSFER_CHAIN_HOPS;
 
 type BlobCache = client_runtime::blob_cache::ClientBlobCacheOwner;
@@ -132,13 +136,6 @@ impl SessionController {
 
     pub(crate) fn presence_target(&self) -> Option<&rich_presence::Target> {
         self.presence.as_ref()
-    }
-
-    /// Endpoint directory of the live session core; unavailable during teardown.
-    pub(crate) fn socket_directory(&self) -> Option<&std::path::Path> {
-        self.directory
-            .as_ref()
-            .map(SessionDirectoryGuard::directory)
     }
 
     pub(crate) fn status(&self) -> SessionStatus {
@@ -527,7 +524,7 @@ fn poll_join(
         }
     };
     let attempt = controller.join.take().expect("pending join");
-    let server_address = attempt.address.clone();
+    let server_address = login_server_address(&attempt.address, attempt.local_world);
     use client_session::connection::JoinPoll;
     match attempt.poll(
         controller.generation,
@@ -667,6 +664,26 @@ fn start_network(
     );
     commands.insert_resource(replacement);
     Ok(())
+}
+
+/// Hides the window before an exit's blocking teardown, so a quit or update restart
+/// never shows a frozen frame.
+pub(crate) fn hide_window_before_exit(
+    menu: Res<MenuRuntime>,
+    windows: Query<Entity, With<PrimaryWindow>>,
+    _main_thread: NonSendMarker,
+) {
+    if !menu.exit_requested() {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    WINIT_WINDOWS.with_borrow(|windows| {
+        if let Some(window) = windows.get_window(window) {
+            window.set_visible(false);
+        }
+    });
 }
 
 /// Acts on the menu's session intents and advances the pending join.

@@ -217,6 +217,7 @@ minecraft:chiseled_sulfur	Identity	Vanilla	-
 minecraft:chiseled_tuff	Identity	Vanilla	-
 minecraft:chiseled_tuff_bricks	Identity	Vanilla	-
 minecraft:chorus_flower	Unresolved	Vanilla	-
+minecraft:chorus_plant	Connections	Vanilla	-
 minecraft:cinnabar	Identity	Vanilla	-
 minecraft:cinnabar_brick_double_slab	DoubleSlab	Vanilla	-
 minecraft:cinnabar_brick_slab	Slab	Vanilla	minecraft:cinnabar_brick_double_slab
@@ -448,7 +449,7 @@ minecraft:flowering_azalea	Identity	Vanilla	-
 minecraft:flowing_lava	Unresolved	Lava	-
 minecraft:flowing_water	Unresolved	Water	-
 minecraft:frame	Unresolved	Vanilla	-
-minecraft:frog_spawn	Identity	Vanilla	-
+minecraft:frog_spawn	FrogSpawn	Vanilla	-
 minecraft:frosted_ice	Unresolved	Vanilla	-
 minecraft:furnace	Unresolved	Vanilla	-
 minecraft:gilded_blackstone	Identity	Vanilla	-

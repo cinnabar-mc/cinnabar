@@ -61,5 +61,6 @@ impl Plugin for ClientShellPlugin {
                     .in_set(ShellFrameSet::GameplayControls),
             );
         crate::discord_presence::configure(app);
+        fullscreen::recovery::configure(app);
     }
 }

@@ -78,6 +78,24 @@ fn old_worker_channels_cannot_complete_a_new_owner_with_the_same_source() {
 }
 
 #[test]
+fn polygons_too_many_to_tessellate_still_charge_the_mesh_budget() {
+    const POLYGONS: usize = 300_000;
+    let polys = vec!["[]"; POLYGONS].join(",");
+    let model = format!(
+        r#"{{"format_version":"1.12.0","minecraft:geometry":[{{
+        "description":{{"identifier":"geometry.skin_cache","texture_width":64,"texture_height":64}},
+        "bones":[{{"name":"root","pivot":[0,0,0],"poly_mesh":{{"positions":[[0,0,0]],
+        "normals":[[0,1,0]],"uvs":[[0,0]],"polys":[{polys}]}}}}]}}]}}"#
+    );
+    let source = crate::test_support::skin_source(&model);
+    let worker = Mutex::new(WorkerCache::default());
+    let prepared = WorkerCache::prepare_shared(&worker, &source, &assets())
+        .0
+        .unwrap();
+    assert!(prepared.mesh_bytes() >= POLYGONS * size_of::<[assets::EntityGeometryPolyCorner; 4]>());
+}
+
+#[test]
 fn equal_sources_charge_one_mesh_allocation_at_the_capacity_boundary() {
     let sources = sources(MAX_SKIN_PREPARATIONS_PER_PASS);
     let assets = assets();

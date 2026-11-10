@@ -246,7 +246,7 @@ fn artwork_refreshes_after_an_import_changes_the_catalog_then_fails() {
             .extension()
             .is_some_and(|extension| extension == "mcpack")
         {
-            std::fs::remove_file(path).unwrap();
+            std::fs::write(path, b"not an archive").unwrap();
         }
     }
     let mut refreshed = false;
@@ -569,6 +569,67 @@ fn commit_completion_clears_the_temporary_worker_status() {
     assert_eq!(
         completed.revision, 0,
         "acknowledgement does not replace staged lists"
+    );
+}
+
+#[test]
+fn a_missing_pack_notice_outlives_the_startup_apply_acknowledgement() {
+    let root = std::env::temp_dir().join(format!(
+        "cinnabar-pack-worker-missing-notice-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut library = GlobalPackLibrary::open(root.clone(), engine_version()).unwrap();
+    let lost = import_fixture(&mut library, &root, 1);
+    let kept = import_fixture(&mut library, &root, 2);
+    library.activate(lost.id).unwrap();
+    library.activate(kept.id).unwrap();
+    library.apply().unwrap();
+    let selection: Vec<_> = library
+        .active()
+        .iter()
+        .filter(|active| active.id == kept.id)
+        .cloned()
+        .collect();
+    drop(library);
+    let archive = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(&lost.id.to_string())
+        })
+        .unwrap();
+    std::fs::remove_file(archive).unwrap();
+
+    let events = collect_events(
+        root.clone(),
+        vec![
+            Command::Commit(selection.clone()),
+            Command::Commit(selection),
+        ],
+    );
+    std::fs::remove_dir_all(root).unwrap();
+    let messages: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Snapshot(snapshot) => Some(snapshot.message.as_str()),
+            Event::Apply(..) | Event::MinecraftImport(..) | Event::MinecraftImportStatus(_) => None,
+        })
+        .collect();
+    let [.., first_commit, _, second_commit] = messages.as_slice() else {
+        panic!("each acknowledgement publishes a status and a result: {messages:?}");
+    };
+    assert!(
+        first_commit.contains("Fixture 1"),
+        "the startup acknowledgement must not hide the notice: {messages:?}"
+    );
+    assert!(
+        second_commit.is_empty(),
+        "the next acknowledgement clears it: {messages:?}"
     );
 }
 

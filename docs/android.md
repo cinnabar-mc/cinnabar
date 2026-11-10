@@ -1,10 +1,11 @@
 # Android (experimental)
 
 The Android client is the desktop client built for arm64-v8a Android 8+ devices with Vulkan.
-The APK holds the client library, the Go core and `assetc`, plus
+The APK holds the client library, the Go core, `assetc` and the shader-pack compiler, plus
 the prep kit. It ships no game assets: first launch asks you to accept the Minecraft EULA,
 then downloads Mojang's sample resource pack and compiles the carriers into the app's private
-storage. Keep the app open until setup finishes.
+storage. Consent, progress and any failure appear on the startup screen. Keep the app open
+until setup finishes.
 
 ## Release APKs
 
@@ -15,7 +16,7 @@ signing key so later APKs can update the installed app. The desktop updater does
 Uninstall an earlier CI test build before installing a release APK; this clears its app data.
 
 On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
-device, a readable exit cause with its numeric reason, and the end of the client log. Consecutive
+device, a readable exit cause with its numeric reason, and the start and end of long client logs, retaining build and startup context. Consecutive
 duplicate log lines appear once with a repeat count. Include those details when reporting a crash.
 **Save report** writes a ZIP to Downloads with those details and Android's retained crash trace,
 when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;
@@ -65,6 +66,10 @@ shader debug settings, storage layouts and runtime bounds checks. A missing vali
 a named missing-fixture message; allocation-layout checks still run. Host terrain fixtures also
 honor `WGPU_DEBUG=0` to exercise release-style shader debug settings while retaining shader
 runtime checks.
+
+Set `MALIOC` to Arm's Mali Offline Compiler to compile the terrain programs for Mali-G57 with
+`cargo test --locked -p render --lib terrain_programs_keep_bools -- --nocapture`. Without it
+the test reports a named missing fixture and checks only the structural rule.
 
 The same tests can run directly on an arm64 Android device through ADB, without installing
 the app, downloading game assets or signing in. Prepare the executable before reserving a

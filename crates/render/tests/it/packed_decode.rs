@@ -2,7 +2,7 @@
 use crate::{gpu_snapshot, shader_source};
 use bevy::math::{Mat4, Vec3};
 use gpu_snapshot::Gpu;
-use meshing::{Face, PackedLiquidQuad, PackedModelRef, PackedQuad};
+use meshing::{Face, PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad};
 
 const OUTPUT_BINDING: u32 = 28;
 const LIGHTMAP_BINDING: u32 = 27;
@@ -27,6 +27,7 @@ fn packed_decoder_witnesses_validate() {
         (CUBE_SHADER, CUBE_WITNESS),
         (MODEL_SHADER, MODEL_WITNESS),
         (MODEL_SHADER, MODEL_SHADE_WITNESS),
+        (MODEL_SHADER, MODEL_PATCH_SHADE_WITNESS),
         (LIQUID_SHADER, LIQUID_WITNESS),
     ] {
         let module = naga::front::wgsl::parse_str(&source(shader, witness)).unwrap();
@@ -130,14 +131,30 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     // Visibility word: 1 = visible, 4 = every UV inside one tile (the fixture's UVs are zero).
     let mut repeating = template.clone();
     repeating[10] = 4097; // First UV word: u past one tile.
+    let mut patched = geometry.clone();
+    patched[1] = PackedModelDrawRef::new(1, 0)
+        .with_surface_tile(4, 16)
+        .words()[1];
     let mut cases = vec![
         ("visible", geometry.clone(), template.clone(), 0, 1 | 4),
         ("repeating", geometry.clone(), repeating, 0, 1),
+        ("surface tile", patched, template.clone(), 0, 1 | 4),
     ];
+    let border = 16 << meshing::surface::BORDER_SHIFT;
     for (name, word, value) in [
         ("masked", 7, 0),
         ("padded", 1, 1),
         ("quad overflow", 1, 32),
+        (
+            "tile overflow",
+            1,
+            (meshing::surface::TILE_COUNT << meshing::surface::TILE_SHIFT) | border,
+        ),
+        (
+            "draw word overflow",
+            1,
+            meshing::surface::DRAW_WORD_MASK + 1,
+        ),
         ("reference overflow", 0, 0x4000_0000),
         ("missing reference", 0, 3),
         ("missing template", 5, 1),
@@ -308,6 +325,98 @@ fn detail_quads_take_the_shade_face_their_light_carries() {
 }
 
 #[test]
+fn cropped_model_faces_interpolate_exponent_shaded_source_corners() {
+    let Some(gpu) = Gpu::for_fixture("cropped model AO exponents") else {
+        return;
+    };
+    let storage = wgpu::BufferUsages::STORAGE;
+    let uniform = wgpu::BufferUsages::UNIFORM;
+    let border = 16;
+    let mut geometry = PackedModelDrawRef::new(1, 0).words().to_vec();
+    geometry.extend(
+        PackedModelDrawRef::new(1, 0)
+            .with_surface_tile(4, border)
+            .words(),
+    );
+    geometry.extend(PackedModelRef::new(0, 0, 4, 1).words());
+    let samples = [0, 1, 3, 4].map(|ao| 0x00f0 | (ao << 8));
+    geometry.extend([
+        samples[0] | (samples[1] << 16),
+        samples[2] | (samples[3] << 16),
+    ]);
+    let geometry = gpu.words(&geometry, storage);
+    let mut template = vec![1, 0, 1, 0];
+    let positions = [[0_u16, 0, 0], [256, 0, 0], [256, 256, 0], [0, 256, 0]];
+    let coordinates = positions.into_iter().flatten().collect::<Vec<_>>();
+    template.extend(
+        coordinates
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[low, high]| u32::from(low) | (u32::from(high) << 16)),
+    );
+    template.extend([0; 4]);
+    template.extend([0, assets::BlockFace::North.model_quad_face_id()]);
+    let template = gpu.words(&template, storage);
+    let origins = gpu.words(&[0; 8], storage);
+    let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
+    let empty = gpu.words(&[0; 8], storage);
+    let clock = gpu.words(&[0; 4], uniform);
+    let lightmap = gpu.lightmap(&[1.0; 256 * 4]);
+    let shader = source(MODEL_SHADER, MODEL_PATCH_SHADE_WITNESS);
+    for alpha in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        for exponent in [0, 80] {
+            let flags = alpha | (exponent << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT);
+            let materials = gpu.words(&[0, flags, assets::NO_ANIMATION, 0, 0, 0], storage);
+            let bindings = [
+                (0, view.as_entire_binding()),
+                (2, origins.as_entire_binding()),
+                (3, materials.as_entire_binding()),
+                (9, empty.as_entire_binding()),
+                (10, empty.as_entire_binding()),
+                (11, clock.as_entire_binding()),
+                (12, template.as_entire_binding()),
+                (13, geometry.as_entire_binding()),
+                (LIGHTMAP_BINDING, lightmap.as_entire_binding()),
+            ]
+            .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
+            let values = gpu.compute_readback(&shader, &bindings, OUTPUT_BINDING, 8, 8);
+            let power = if exponent == 0 { 1.0 } else { 0.8 };
+            let source_shades = [1.0_f32, 0.8, 0.4, 0.2].map(|ao| (ao * 0.8).powf(power));
+            for (corner, sample) in values[..4].iter().enumerate() {
+                for actual in sample.map(f32::from_bits) {
+                    assert!((actual - source_shades[corner]).abs() < 1.0e-5);
+                }
+            }
+            let inset = f32::from(border) / 256.0;
+            for (corner, sample) in values[4..].iter().enumerate() {
+                let [x, y] = [
+                    [inset, inset],
+                    [1.0 - inset, inset],
+                    [1.0 - inset, 1.0 - inset],
+                    [inset, 1.0 - inset],
+                ][corner];
+                let weights = [(1.0 - x) * (1.0 - y), x * (1.0 - y), x * y, (1.0 - x) * y];
+                let expected: f32 = weights
+                    .into_iter()
+                    .zip(source_shades)
+                    .map(|(weight, shade)| weight * shade)
+                    .sum();
+                for actual in sample.map(f32::from_bits) {
+                    assert!(
+                        (actual - expected).abs() < 1.0e-5,
+                        "flags {flags:#x}, corner {corner}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn packed_liquid_vertices_mask_route_flags_and_use_the_records_section_tint() {
     let Some(gpu) = Gpu::for_fixture("packed liquid decoder") else {
         return;
@@ -378,7 +487,7 @@ fn packed_liquid_vertices_mask_route_flags_and_use_the_records_section_tint() {
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 8], storage);
     let clock = gpu.words(&[0; 4], uniform);
-    let atmosphere = gpu.words(&[0; 36], uniform);
+    let atmosphere = gpu.words(&[0; 40], uniform);
     let tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let lightmap = gpu.lightmap(bytemuck::cast_slice(
         &render_model::LightmapInputs::default().build(),
@@ -513,8 +622,8 @@ const MODEL_WITNESS: &str = r#"
 @group(0) @binding(29) var<uniform> query: vec4<u32>;
 @compute @workgroup_size(1) fn witness() {
     let quad = model_quad(query.x, 0u);
-    results[0].x = u32(quad.valid);
-    if (quad.valid) {
+    results[0].x = quad.valid;
+    if (quad.valid != 0u) {
         results[0] = vec4(1u, quad.material_id, quad.selected_material_id, quad.quad_flags);
         results[1] = vec4(vec3<u32>(quad.block_position), u32(quad.chunk_origin.w));
         for (var corner = 0u; corner < 4u; corner++) {
@@ -523,7 +632,7 @@ const MODEL_WITNESS: &str = r#"
     }
     for (var corner = 0u; corner < 4u; corner++) {
         let vertex = model_vertex(corner, query.x);
-        if (quad.valid) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
+        if (quad.valid != 0u) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
         else { results[3u + corner] = bitcast<vec4<u32>>(vertex.clip_position); }
     }
 }
@@ -533,6 +642,14 @@ const MODEL_SHADE_WITNESS: &str = r#"
 @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
     let vertex = model_vertex(0u, id.x);
     results[id.x] = vec4(bitcast<u32>(vertex.native_ao_face), vertex.visibility.x & MODEL_VISIBLE, 0u, 0u);
+}
+"#;
+
+const MODEL_PATCH_SHADE_WITNESS: &str = r#"
+/// Reads whole and cropped vertices through the production lighting path.
+@compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
+    let vertex = model_vertex(id.x % 4u, id.x / 4u);
+    results[id.x] = bitcast<vec4<u32>>(vec4(vertex.lighting, vertex.native_ao_face));
 }
 "#;
 

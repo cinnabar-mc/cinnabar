@@ -52,7 +52,7 @@ fn new_images_preserve_the_slots_and_allocations_of_resident_images() {
     let next = publish(&mut cache, &[&first, &third]).expect("a new image appends");
     assert_eq!(cache.image_location(&first), original_location);
     for (old, new) in both.pages().iter().zip(next.pages()) {
-        assert!(Arc::ptr_eq(&old.rgba8, &new.rgba8));
+        assert!(old.rgba8.ptr_eq(&new.rgba8));
     }
     assert!(cache.image_location(&third).is_some());
     assert!(
@@ -139,7 +139,7 @@ fn full_residency_replaces_only_an_offscreen_slot() {
     assert!(cache.image_location(&images[1]).is_none());
     for (index, (old, new)) in original.pages().iter().zip(next.pages()).enumerate() {
         assert_eq!(
-            Arc::ptr_eq(&old.rgba8, &new.rgba8),
+            old.rgba8.ptr_eq(&new.rgba8),
             index != usize::from(evicted.page()) - 1
         );
     }
@@ -167,7 +167,7 @@ fn base_replacement_invalidates_pages_even_without_visible_images() {
     assert!(cache.image_location(&image).is_none());
     assert!(cache.pages.is_none());
     let next = publish(&mut cache, &replacement, std::slice::from_ref(&image)).unwrap();
-    assert!(Arc::ptr_eq(&next.pages()[0].rgba8, &image.rgba8));
+    assert!(Arc::ptr_eq(&next.pages()[0].rgba8.parts()[0], &image.rgba8));
     let mut routes_changed = replacement.clone();
     routes_changed.entity_identity = [17; 32];
     let rebuilt = publish(&mut cache, &routes_changed, &[image]).unwrap();
@@ -243,7 +243,7 @@ fn page_id_pressure_uses_the_existing_grouped_admission_policy() {
         width: 1,
         height: 1,
         layers: 1,
-        rgba8: Arc::from([1; 4]),
+        rgba8: [1; 4].into(),
         color_mask: false,
         multitexture: false,
     };

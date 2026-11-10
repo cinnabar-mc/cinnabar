@@ -14,10 +14,93 @@ fn state(grants: ModGrants) -> State {
     State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
+#[test]
+fn scroll_requires_controls_and_a_frame_callback_and_claims_commit_transactionally() {
+    let mut state = state(ModGrants::default());
+    assert!(state.read_scroll().unwrap().is_err());
+    assert!(state.reserve_scroll(vec!["KeyC".into()]).unwrap().is_err());
+    state.grants.controls = true;
+    state.controls.scroll = crate::ScrollFrame {
+        line_x: 0.5,
+        line_y: 2.0,
+        pixel_x: 0.0,
+        pixel_y: -12.0,
+    };
+    state.controls.frame.focused = true;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state.controls.begin_text_frame();
+    let first = state.read_scroll().unwrap().unwrap();
+    assert_eq!(first.line_y, 2.0);
+    assert_eq!(state.read_scroll().unwrap().unwrap(), first);
+    state.controls.frame.panel_open = true;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state.controls.frame.panel_open = false;
+    state.controls.frame.focused = false;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state
+        .reserve_scroll(vec!["KeyC".into(), "KeyC".into()])
+        .unwrap()
+        .unwrap();
+    assert!(state.controls.scroll_keys.is_empty());
+    state.controls.commit();
+    assert_eq!(state.controls.scroll_keys, ["KeyC"]);
+    assert!(
+        state
+            .reserve_scroll(vec!["../bad".into()])
+            .unwrap()
+            .is_err()
+    );
+    state.reserve_scroll(Vec::new()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(state.controls.scroll_keys.is_empty());
+    state.reserve_scroll(vec!["KeyC".into()]).unwrap().unwrap();
+    state.controls.revoke();
+    state.controls.commit();
+    assert!(state.controls.scroll_keys.is_empty());
+    assert_eq!(state.controls.scroll, crate::empty_scroll());
+}
+
+#[test]
+fn scroll_transactions_keep_observations_and_commit_only_successful_reservations() {
+    let grants = ModGrants {
+        controls: true,
+        ..Default::default()
+    };
+    let mut native = state(grants.clone());
+    native.controls.frame.focused = true;
+    native.controls.begin_text_frame();
+    native.controls.scroll = crate::ScrollFrame {
+        line_y: 1.0,
+        ..crate::empty_scroll()
+    };
+    native.reserve_scroll(vec!["KeyC".into()]).unwrap().unwrap();
+    native.controls.commit();
+
+    let mut callback = state(grants);
+    callback.controls = native.controls.transaction();
+    native.controls.scroll = crate::empty_scroll();
+    assert_eq!(callback.read_scroll().unwrap().unwrap().line_y, 1.0);
+    assert_eq!(callback.controls.scroll_keys, ["KeyC"]);
+    callback
+        .reserve_scroll(vec!["KeyR".into()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(native.controls.scroll_keys, ["KeyC"]);
+    native.controls.accept(callback.controls, true, true);
+    native.controls.commit();
+    assert_eq!(native.controls.scroll_keys, ["KeyR"]);
+    assert_eq!(native.controls.scroll, crate::empty_scroll());
+
+    native.reserve_scroll(vec!["KeyA".into()]).unwrap().unwrap();
+    native.controls.rollback();
+    native.controls.commit();
+    assert_eq!(native.controls.scroll_keys, ["KeyR"]);
+}
+
 /// A minimal surface panel with the `controls` JSON array.
 fn panel_json(controls: &str) -> String {
     format!(
-        r#"{{"toggle_key":"ShiftRight","controls":{controls},"surface":{}}}"#,
+        r#"{{"controls":{controls},"surface":{}}}"#,
         crate::tests::panel_surface("local")
     )
 }
@@ -117,7 +200,7 @@ fn native_text_input_rejects_invalid_batches_transactionally() {
 #[test]
 fn native_text_input_survives_callback_deferral() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -163,7 +246,12 @@ fn native_text_input_survives_callback_deferral() {
 /// is rejected before any guest can read it.
 #[test]
 fn pointer_and_wheel_reach_only_an_open_panel() {
-    let engine = Engine::new(wasmtime::Config::new().consume_fuel(true)).unwrap();
+    let engine = Engine::new(
+        wasmtime::Config::new()
+            .consume_fuel(true)
+            .async_support(true),
+    )
+    .unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
         (core instance $i (instantiate $m))
@@ -591,7 +679,8 @@ fn interaction_requires_current_held_input_and_never_survives_frame() {
         state.controls.interaction,
         InteractionOutput {
             attack_reach: Some(5.0),
-            attack_pulse: true
+            attack_pulse: true,
+            ..Default::default()
         }
     );
     state.controls.begin_frame();
@@ -643,7 +732,7 @@ fn rejects_malformed_controls_and_bounded_import_spam() {
 #[test]
 fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -723,25 +812,6 @@ fn larger_panel_catalogs_do_not_increase_the_input_batch_limit() {
         value: 1.,
     });
     assert!(validate_frame(&frame).is_err());
-}
-
-#[test]
-fn opening_panel_is_granted_transactional_and_requires_content() {
-    use cinnabar::extension::panel::Host as _;
-    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
-    assert!(state.set_open(true).unwrap().is_err());
-    state.grants.controls = true;
-    assert!(state.set_open(true).unwrap().is_err());
-    state.set_content(panel()).unwrap().unwrap();
-    assert!(state.set_open(true).unwrap().is_ok());
-    assert!(!state.controls.open);
-    state.controls.commit();
-    assert!(state.controls.open);
-    state.set_open(false).unwrap().unwrap();
-    assert!(state.controls.open);
-    state.controls.revoke();
-    state.controls.commit();
-    assert!(!state.controls.open);
 }
 
 /// Live changes survive deferred callbacks, coalesce, and remain separate from legacy commits.
@@ -895,7 +965,7 @@ fn native_field_input_deferred_submits_preserve_retained_values() {
 fn local_weather_policy_commits_and_revokes() {
     use cinnabar::extension::environment::{Host as _, Weather};
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -984,3 +1054,21 @@ fn weather_policy_admission_rejects_denied_writes() {
     );
     assert!(allowed.environment.pending_weather.is_none());
 }
+
+/// Native editor ownership is reported only with controls authority and only as supplied.
+#[test]
+fn native_editing_is_granted_and_reports_the_supplied_frame_state() {
+    let mut granted = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(false));
+    granted.controls.native_editing = true;
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(true));
+    let mut denied = state(ModGrants::default());
+    denied.controls.native_editing = true;
+    assert!(denied.read_native_editing().unwrap().is_err());
+}
+
+#[path = "controls_tests/panel_visibility.rs"]
+mod panel_visibility;

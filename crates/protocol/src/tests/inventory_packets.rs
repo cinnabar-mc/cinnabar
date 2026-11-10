@@ -12,7 +12,7 @@ use bedrock_protocol_1_26_60::types::{
     ActorUniqueID, BedrockSafetyRedactableString, BlockPos, FullContainerName, ItemStackNetID,
     ItemStackRequestID, ItemStackResponseContainerInfo, ItemStackResponseInfo,
     ItemStackResponseSlotInfo, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
-    StructureEditorData,
+    StructureEditorData, StructureRedactableName,
 };
 use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 use bytes::Bytes;
@@ -286,31 +286,55 @@ fn response_filtered_name_preserves_optional_wire_shape() {
     }
 }
 
-/// Structure editor names retain their two adjacent strings, and a malicious
-/// declared length must fail before allocating or reading past the available
-/// bytes.
+/// Structure editor names are a name plus an optional filtered name, and a
+/// malicious declared length must fail before allocating or reading past the
+/// available bytes.
 #[test]
-fn structure_editor_name_uses_two_bounded_adjacent_strings() {
+fn structure_editor_name_is_a_bounded_redactable_string() {
+    let unfiltered = StructureEditorData {
+        structure_name: StructureRedactableName {
+            unredacted: "structure".into(),
+            redacted: None,
+        },
+        data_field: "payload".into(),
+        ..Default::default()
+    };
+    let encoded = unfiltered.encode_to_vec().unwrap();
+    assert_eq!(&encoded[..12], b"\x09structure\x00\x07");
+    assert_eq!(
+        StructureEditorData::decode_exact(&encoded).unwrap(),
+        unfiltered
+    );
+
     let structure = StructureEditorData {
-        structure_name: "structure".into(),
-        filtered_structure_name: "filtered".into(),
+        structure_name: StructureRedactableName {
+            unredacted: "structure".into(),
+            redacted: Some("filtered".into()),
+        },
         data_field: "payload".into(),
         ..Default::default()
     };
     let encoded = structure.encode_to_vec().unwrap();
-    assert_eq!(&encoded[..20], b"\x09structure\x08filtered\x07");
+    assert_eq!(&encoded[..21], b"\x09structure\x01\x08filtered\x07");
 
     let shared = Bytes::from(encoded.clone());
     let decoded = StructureEditorData::decode_shared(&shared, &wire::Limits::default()).unwrap();
     assert_eq!(decoded, structure);
-    assert_eq!(decoded.structure_name.as_bytes(), b"structure");
-    assert_eq!(decoded.filtered_structure_name.as_bytes(), b"filtered");
+    assert_eq!(decoded.structure_name.unredacted.as_bytes(), b"structure");
+    assert_eq!(
+        decoded
+            .structure_name
+            .redacted
+            .as_ref()
+            .map(|name| name.as_bytes()),
+        Some(&b"filtered"[..])
+    );
     assert_eq!(decoded.encode_to_vec().unwrap(), encoded);
 
     assert!(matches!(
-        StructureEditorData::decode(&mut wire::Reader::new(&[0, 5, b'x'])),
+        StructureEditorData::decode(&mut wire::Reader::new(&[0, 1, 5, b'x'])),
         Err(wire::DecodeError::LengthNotRepresentable {
-            field: bedrock_protocol_1_26_60::fields::STRUCTURE_EDITOR_DATA_FILTERED_STRUCTURE_NAME,
+            field: bedrock_protocol_1_26_60::fields::STRUCTURE_REDACTABLE_NAME_REDACTED,
             needed: 5,
             remaining: 1
         })

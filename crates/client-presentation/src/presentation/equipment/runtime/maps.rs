@@ -1,6 +1,9 @@
 //! Immutable paper and image planes shared by both held map slots.
 use super::*;
 
+/// The paper background and map-image planes share one reserved geometry pair.
+pub(super) const MAP_MESH_COUNT: usize = 2;
+
 impl EquipmentRuntime {
     /// Shares pack paper at its authored resolution, falling back to the startup pack.
     pub(crate) fn map_background(&self) -> Option<render_model::HandItemAtlas> {
@@ -21,12 +24,12 @@ impl EquipmentRuntime {
             width: texture.width,
             height: texture.height,
             layers: 1,
-            rgba8: Arc::clone(&texture.rgba8),
+            rgba8: Arc::clone(&texture.rgba8).into(),
         })
     }
 
     /// Registers two static planes once; pixel updates change only their image binding.
-    pub(crate) fn map_meshes(&mut self) -> [EntityRigId; 2] {
+    pub(crate) fn map_meshes(&mut self) -> [EntityRigId; MAP_MESH_COUNT] {
         if let Some(meshes) = self.map_meshes {
             return meshes;
         }

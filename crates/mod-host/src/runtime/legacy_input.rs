@@ -121,6 +121,8 @@ pub(super) fn link(
                 })?;
             };
         }
+        forward!("read-movement-input", read_movement_input);
+        forward!("set-movement-input", set_movement_input, input: Option<gameplay::MovementInput>);
         forward!("cancel-jump", cancel_jump);
         forward!("pulse-jump", pulse_jump);
         forward!("set-movement-intents", set_movement_intents, intents: Option<gameplay::MovementIntents>);
@@ -128,6 +130,7 @@ pub(super) fn link(
         forward!("rotate", rotate, yaw: f32, pitch: f32);
         forward!("set-attack-reach", set_attack_reach, reach: Option<f32>);
         forward!("pulse-attack", pulse_attack);
+        forward!("set-block-mining", set_block_mining, held: bool);
         forward!("set-packet-delay", set_packet_delay, delay: u32);
         forward!("read-relayed-position", read_relayed_position);
         forward!("read-camera", read_camera);

@@ -3999,56 +3999,6 @@ impl wire::Decode for AnimateAction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum AnimationMode {
-    #[default]
-    None,
-    Layers,
-    Blocks,
-    Unknown(u8),
-}
-
-impl From<u8> for AnimationMode {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::None,
-            1 => Self::Layers,
-            2 => Self::Blocks,
-            value => Self::Unknown(value),
-        }
-    }
-}
-
-impl AnimationMode {
-    pub fn to_raw(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::Layers => 1,
-            Self::Blocks => 2,
-            Self::Unknown(value) => value,
-        }
-    }
-}
-
-impl From<AnimationMode> for u8 {
-    fn from(value: AnimationMode) -> Self {
-        value.to_raw()
-    }
-}
-
-impl wire::Encode for AnimationMode {
-    fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
-        wire::U8(self.to_raw()).encode(writer)?;
-        Ok(())
-    }
-}
-
-impl wire::Decode for AnimationMode {
-    fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
-        Ok(Self::from(<wire::U8 as wire::Decode>::decode(reader)?.0))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum BossBarColor {
     #[default]
     Pink,
@@ -7245,59 +7195,6 @@ impl wire::Decode for MinecraftEventingPOIBlockInteractionType {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum Mirror {
-    #[default]
-    None,
-    X,
-    Z,
-    Xz,
-    Unknown(u8),
-}
-
-impl From<u8> for Mirror {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::None,
-            1 => Self::X,
-            2 => Self::Z,
-            3 => Self::Xz,
-            value => Self::Unknown(value),
-        }
-    }
-}
-
-impl Mirror {
-    pub fn to_raw(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::X => 1,
-            Self::Z => 2,
-            Self::Xz => 3,
-            Self::Unknown(value) => value,
-        }
-    }
-}
-
-impl From<Mirror> for u8 {
-    fn from(value: Mirror) -> Self {
-        value.to_raw()
-    }
-}
-
-impl wire::Encode for Mirror {
-    fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
-        wire::U8(self.to_raw()).encode(writer)?;
-        Ok(())
-    }
-}
-
-impl wire::Decode for Mirror {
-    fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
-        Ok(Self::from(<wire::U8 as wire::Decode>::decode(reader)?.0))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum MoLangVersion {
     #[default]
     Invalid,
@@ -8345,59 +8242,6 @@ impl wire::Encode for RewindType {
 }
 
 impl wire::Decode for RewindType {
-    fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
-        Ok(Self::from(<wire::U8 as wire::Decode>::decode(reader)?.0))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum Rotation {
-    #[default]
-    None,
-    Rotate90,
-    Rotate180,
-    Rotate270,
-    Unknown(u8),
-}
-
-impl From<u8> for Rotation {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => Self::None,
-            1 => Self::Rotate90,
-            2 => Self::Rotate180,
-            3 => Self::Rotate270,
-            value => Self::Unknown(value),
-        }
-    }
-}
-
-impl Rotation {
-    pub fn to_raw(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::Rotate90 => 1,
-            Self::Rotate180 => 2,
-            Self::Rotate270 => 3,
-            Self::Unknown(value) => value,
-        }
-    }
-}
-
-impl From<Rotation> for u8 {
-    fn from(value: Rotation) -> Self {
-        value.to_raw()
-    }
-}
-
-impl wire::Encode for Rotation {
-    fn encode(&self, writer: &mut wire::Writer<'_>) -> wire::EncodeResult<()> {
-        wire::U8(self.to_raw()).encode(writer)?;
-        Ok(())
-    }
-}
-
-impl wire::Decode for Rotation {
     fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
         Ok(Self::from(<wire::U8 as wire::Decode>::decode(reader)?.0))
     }

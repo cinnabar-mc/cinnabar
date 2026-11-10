@@ -1,5 +1,6 @@
 //! Headless checks for native-view ownership during shader-pack presentation.
 
+use super::super::pipelines::GpuContext;
 use super::*;
 use bevy::camera::CameraMainTextureUsages;
 use bevy::ecs::system::RunSystemOnce;

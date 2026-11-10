@@ -7,6 +7,20 @@ use super::{
 use crate::menu::settings_sections::{SECTION_DEFINITIONS, SETTINGS_TABS, SettingSection};
 use std::collections::BTreeSet;
 
+#[test]
+fn nametag_background_percentage_persists_clamps_and_resets() {
+    let id = SettingId::NametagBackgroundOpacity;
+    let mut settings = SettingsOptions::default();
+    assert_eq!(settings.value(id), id.definition().default);
+    for (requested, expected) in [(-1, 0), (0, 0), (50, 50), (100, 100), (101, 100)] {
+        settings.set(id.index(), requested);
+        settings = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(settings.value(id), expected);
+    }
+    settings.reset_group(SettingsGroup::Video);
+    assert_eq!(settings.value(id), id.definition().default);
+}
+
 /// Third-person self visuals are opt-in, so third person stays vanilla until the player enables them.
 #[test]
 fn third_person_self_visuals_default_off() {

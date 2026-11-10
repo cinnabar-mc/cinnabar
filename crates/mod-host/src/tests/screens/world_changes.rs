@@ -14,7 +14,7 @@ fn loading_gap_preserves_undelivered_catalog_notifications() {
     host.bind_drawing_session(original);
     host.reload_if_changed().unwrap();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert!(budget.reserve(CALLBACK_FUEL).is_some());
     assert!(budget.reserve(LOAD_FUEL).is_some());
     let snapshot = session(7, 1);

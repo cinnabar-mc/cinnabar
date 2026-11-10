@@ -66,6 +66,7 @@ impl Fixture {
             previous_body_yaw: 0.0,
             body_yaw: 0.0,
             render: &[],
+            visibility: crate::RenderVisibility::default(),
             attachments: None,
             bone_names: &self.names,
             skin_geometry: Some(&self.skin),

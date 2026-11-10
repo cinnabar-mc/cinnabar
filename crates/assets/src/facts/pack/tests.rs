@@ -366,6 +366,7 @@ fn pack_rules_preserve_mineral_wire_and_texture_contracts() {
 #[test]
 fn pack_rules_preserve_typed_texture_and_block_requests() {
     for (slot, old) in [
+        (PackTexture::Missing, "missing"),
         (PackTexture::PaleMossCarpetSide, "pale_moss_carpet_side"),
         (PackTexture::BambooFenceGate, "bamboo_fence_gate"),
         (PackTexture::BeaconCore, "beacon_core"),

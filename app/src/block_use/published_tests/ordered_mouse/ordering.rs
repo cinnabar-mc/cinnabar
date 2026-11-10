@@ -292,7 +292,8 @@ fn ordered_mouse_older_movement_and_held_release_fence_the_entire_mixed_burst() 
             world
                 .resource::<client_state::PlayerRuntime>()
                 .selected_hotbar_slot(),
-            Some(0)
+            Some(if release { 0 } else { 1 }),
+            "selection is local, so only an accepted release can still refuse it",
         );
         flush_movement(&mut world);
         assert_eq!(

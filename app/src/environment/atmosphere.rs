@@ -39,6 +39,7 @@ pub(crate) struct AtmospherePreferences<'w> {
     weather: Option<Res<'w, super::VisualWeatherOverride>>,
     server: Option<Res<'w, super::ClientPartEnvironment>>,
     clouds: Option<ResMut<'w, render_scene::CloudVisibility>>,
+    cloud_distance: Option<ResMut<'w, render_scene::CloudDistanceChunks>>,
     skybox: Option<ResMut<'w, render_scene::SkyboxSettings>>,
 }
 
@@ -103,11 +104,18 @@ pub(crate) fn update_atmosphere_frame(
                 .and_then(|server| server.weather)
         });
     let clouds = preferences.clouds;
+    let cloud_distance = preferences.cloud_distance;
     let skybox = preferences.skybox;
+    let cloud_chunks = options
+        .as_ref()
+        .map(|options| options.value(SettingId::CloudDistance).clamp(8, 128) as u16);
     if let Some(mut clouds) = clouds {
         clouds.0 = options
             .as_ref()
             .is_none_or(|options| options.value(SettingId::RenderClouds) != 0);
+    }
+    if let (Some(mut cloud_distance), Some(chunks)) = (cloud_distance, cloud_chunks) {
+        cloud_distance.0 = chunks;
     }
     if let Some(mut skybox) = skybox {
         skybox.visible = options
@@ -174,6 +182,12 @@ pub(crate) fn update_atmosphere_frame(
             vision.darkness * darkness_scale,
             vision.night_vision,
         );
+    let next_frame = match cloud_chunks {
+        Some(chunks) => next_frame.with_cloud_fade_distance(
+            render_scene::CloudDistanceChunks(chunks).fade_distance_blocks(),
+        ),
+        None => next_frame,
+    };
     *frame = apply_boss_environment(next_frame, medium.0, state);
     let mut sunrise = frame.sunrise_band();
     for c in &mut sunrise[..3] {
