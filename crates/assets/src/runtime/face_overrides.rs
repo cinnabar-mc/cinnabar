@@ -1,8 +1,9 @@
-//! Face rebinding for plain full cubes with independent carried cube art.
+//! Face rebinding for plain full cubes with independent carried cube art, and for the art of
+//! invisible terrain markers.
 
 use crate::{AssetError, BlockFlags, BlockVisual, Material, VisualKind};
 
-/// Replaces named cube faces without moving models or their material groups.
+/// Replaces named cube or terrain-marker faces without moving models or their material groups.
 pub(super) fn apply(
     replacements: &[(u32, [Option<u32>; 6])],
     visuals: &mut [BlockVisual],
@@ -25,14 +26,16 @@ pub(super) fn apply(
         let visual = visuals
             .get_mut(id as usize)
             .ok_or_else(|| invalid("base face override visual is out of bounds"))?;
-        if visual.kind != VisualKind::Cube
-            || visual.model_template != crate::NO_MODEL_TEMPLATE
-            || visual.variant != 0
-            || visual.flags.contains(BlockFlags::LEAF_MODEL)
-            || visual
-                .faces
-                .iter()
-                .any(|&id| materials[id as usize].flags & crate::MATERIAL_FLAG_TINT_MASK != 0)
+        let marker = crate::TerrainMarker::from_variant(visual.kind, visual.variant).is_some();
+        if !marker
+            && (visual.kind != VisualKind::Cube
+                || visual.model_template != crate::NO_MODEL_TEMPLATE
+                || visual.variant != 0
+                || visual.flags.contains(BlockFlags::LEAF_MODEL)
+                || visual
+                    .faces
+                    .iter()
+                    .any(|&id| materials[id as usize].flags & crate::MATERIAL_FLAG_TINT_MASK != 0))
         {
             continue;
         }
