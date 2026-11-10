@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use launcher::menu::settings_options::ExpandedTextTooLarge;
 use protocol::{
     CommandOutputEvent, HudEvent, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
 };
@@ -41,6 +42,19 @@ impl UiRuntime {
         }
         let event_millis = envelope.local_millis;
         let outcome = match envelope.event {
+            UiEvent::Locator(events) => {
+                let before = self.session.locator.skipped;
+                for event in events {
+                    self.session.locator.apply(event);
+                }
+                if self.session.locator.skipped != before {
+                    tracing::warn!(
+                        skipped = self.session.locator.skipped - before,
+                        "skipped invalid locator data"
+                    );
+                }
+                UiApplyOutcome::Applied
+            }
             UiEvent::DeathInfo(event) => {
                 self.apply_death_info(event);
                 UiApplyOutcome::Applied
@@ -82,22 +96,25 @@ impl UiRuntime {
                 UiApplyOutcome::Applied
             }
             UiEvent::ChatAutocomplete(event) => {
-                self.chat_autocomplete_catalog
+                self.session
+                    .chat_autocomplete_catalog
                     .apply(event)
                     .map_err(UiRuntimeError::ChatAutocompleteCatalog)?;
                 UiApplyOutcome::Applied
             }
             UiEvent::AvailableCommands(event) => {
-                self.chat_autocomplete_catalog.apply_commands(event);
+                self.session.chat_autocomplete_catalog.apply_commands(event);
                 UiApplyOutcome::Applied
             }
             UiEvent::Objective(event) => scoreboard_adapter::apply_outcome(
-                self.scoreboards
+                self.session
+                    .scoreboards
                     .apply(envelope.fifo_sequence, scoreboard_adapter::objective(event))
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
             UiEvent::Score(event) => scoreboard_adapter::apply_outcome(
-                self.scoreboards
+                self.session
+                    .scoreboards
                     .apply(envelope.fifo_sequence, scoreboard_adapter::score(event))
                     .map_err(UiRuntimeError::RetainedUiSequence)?,
             ),
@@ -106,7 +123,7 @@ impl UiRuntime {
             // Targeted mode updates must pass the world stream's local-unique-ID
             // admission first; a direct UI injection cannot establish that identity.
             UiEvent::PlayerGameMode { .. } => {
-                self.gameplay_hud.note_odd_hud_packet();
+                self.session.gameplay_hud.note_odd_hud_packet();
                 UiApplyOutcome::IgnoredByReceiveStore
             }
             UiEvent::DefaultGameMode(event) => {
@@ -119,7 +136,8 @@ impl UiRuntime {
             }
             UiEvent::SleepStatus(event) => self.apply_sleep_status(&event),
             UiEvent::ShowCredits(event) => {
-                self.credits
+                self.session
+                    .credits
                     .open(event.runtime_id, envelope.fifo_sequence, event_millis);
                 UiApplyOutcome::Applied
             }
@@ -131,15 +149,20 @@ impl UiRuntime {
                     title = ?event.title,
                     "form received"
                 );
-                let busy = self.chat_focused
+                let busy = self.session.chat_focused
                     || self.container_shows_menu(player_runtime)
-                    || self.data_driven.owns_input();
-                self.forms
-                    .admit(event, envelope.fifo_sequence, self.session_id, busy);
+                    || self.command_block_shows_menu()
+                    || self.session.data_driven.owns_input();
+                self.session.forms.admit(
+                    event,
+                    envelope.fifo_sequence,
+                    self.session.session_id,
+                    busy,
+                );
                 // A form over a container takes the pointer, so the container never sees the
                 // release that would end a drag in flight; forget the gesture instead.
-                if !busy && self.inventory_open && self.forms.owns_input() {
-                    self.screen.pointer.reset();
+                if !busy && self.session.inventory_open && self.session.forms.owns_input() {
+                    self.session.screen.pointer.reset();
                 }
                 UiApplyOutcome::Applied
             }
@@ -148,8 +171,8 @@ impl UiRuntime {
                 self.apply_data_driven_ui(event, busy)
             }
         };
-        self.last_fifo_sequence = Some(envelope.fifo_sequence);
-        self.last_local_millis = Some(envelope.local_millis);
+        self.session.last_fifo_sequence = Some(envelope.fifo_sequence);
+        self.session.last_local_millis = Some(envelope.local_millis);
         if let Some(server_tick) = envelope.server_tick {
             self.observe_presentation_tick(server_tick, envelope.local_millis);
         }
@@ -202,7 +225,12 @@ impl UiRuntime {
                 return self.push_chat(event, fifo_sequence, event_millis);
             }
         };
-        slot(&mut self.hud, event.message, fifo_sequence, event_millis);
+        slot(
+            &mut self.session.hud,
+            event.message,
+            fifo_sequence,
+            event_millis,
+        );
         Ok(UiApplyOutcome::Applied)
     }
 
@@ -221,19 +249,32 @@ impl UiRuntime {
             TextKind::Raw | TextKind::System | TextKind::Json => ChatMessageKind::System,
             TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip => unreachable!(),
         };
-        match self.chat.push(ChatMessage {
+        let row = ChatMessage {
             fifo_sequence,
             received_millis: event_millis,
             kind,
             source: event.source,
             message: event.message,
             parameters: event.parameters,
-        }) {
+        };
+        // Vanilla shows raw text as a client message, which keeps its placeholders.
+        let row = if event.kind == TextKind::Raw {
+            row
+        } else {
+            match self.expand_chat_placeholders(row) {
+                Ok(row) => row,
+                Err(ExpandedTextTooLarge) => {
+                    self.session.gameplay_hud.note_oversized_chat_row();
+                    return Ok(UiApplyOutcome::IgnoredByReceiveStore);
+                }
+            }
+        };
+        match self.session.chat.push(row) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             // An oversized server row is odd data, not a wire fault: skip the
             // whole row, count it, keep the session alive.
             ChatApplyResult::RejectedTooLarge => {
-                self.gameplay_hud.note_oversized_chat_row();
+                self.session.gameplay_hud.note_oversized_chat_row();
                 Ok(UiApplyOutcome::IgnoredByReceiveStore)
             }
             result => Err(UiRuntimeError::ChatRejected(result)),
@@ -242,7 +283,7 @@ impl UiRuntime {
 
     /// Adds a client-generated system line that consumes no server sequence.
     pub fn push_local_chat_line(&mut self, message: Arc<str>, now_millis: u64) {
-        let _ = self.chat.push_local(ChatMessage {
+        let _ = self.session.chat.push_local(ChatMessage {
             fifo_sequence: 0,
             received_millis: now_millis,
             kind: ChatMessageKind::System,
@@ -270,10 +311,10 @@ impl UiRuntime {
                 parameters: Arc::clone(&message.parameters),
             })
             .collect();
-        match self.chat.push_batch(messages) {
+        match self.session.chat.push_batch(messages) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             ChatApplyResult::RejectedTooLarge => {
-                self.gameplay_hud.note_oversized_chat_row();
+                self.session.gameplay_hud.note_oversized_chat_row();
                 Ok(UiApplyOutcome::IgnoredByReceiveStore)
             }
             result => Err(UiRuntimeError::ChatRejected(result)),
@@ -286,19 +327,32 @@ impl UiRuntime {
         fifo_sequence: u64,
         event_millis: u64,
     ) -> Result<(), UiRuntimeError> {
+        let text = match event.action {
+            TitleAction::SetTitle
+            | TitleAction::SetTitleJson
+            | TitleAction::SetSubtitle
+            | TitleAction::SetSubtitleJson
+            | TitleAction::ActionBar
+            | TitleAction::ActionBarJson => self.expand_hud_placeholders(event.text),
+            TitleAction::Clear | TitleAction::Reset | TitleAction::SetDurations => event.text,
+        };
         match event.action {
-            TitleAction::Clear => self.hud.clear_titles(),
-            TitleAction::Reset => self.hud.reset_titles(),
+            TitleAction::Clear => self.session.hud.clear_titles(),
+            TitleAction::Reset => self.session.hud.reset_titles(),
             TitleAction::SetTitle | TitleAction::SetTitleJson => {
-                self.hud.set_title(event.text, fifo_sequence, event_millis);
+                self.session
+                    .hud
+                    .set_title(text, fifo_sequence, event_millis);
             }
             TitleAction::SetSubtitle | TitleAction::SetSubtitleJson => {
-                self.hud
-                    .set_subtitle(event.text, fifo_sequence, event_millis);
+                self.session
+                    .hud
+                    .set_subtitle(text, fifo_sequence, event_millis);
             }
             TitleAction::ActionBar | TitleAction::ActionBarJson => {
-                self.hud
-                    .set_actionbar(event.text, fifo_sequence, event_millis);
+                self.session
+                    .hud
+                    .set_actionbar(text, fifo_sequence, event_millis);
             }
             TitleAction::SetDurations => {
                 // Negative tick counts are semantically odd but well-formed:
@@ -308,12 +362,65 @@ impl UiRuntime {
                     event.stay_ticks,
                     event.fade_out_ticks,
                 ) {
-                    Some(durations) => self.hud.set_durations(durations),
-                    None => self.gameplay_hud.note_odd_hud_packet(),
+                    Some(durations) => self.session.hud.set_durations(durations),
+                    None => self.session.gameplay_hud.note_odd_hud_packet(),
                 }
             }
         }
         Ok(())
+    }
+
+    /// Names the player's bound controls in `:_input_<binding>:` placeholders, as vanilla does
+    /// for titles, subtitles, the action bar and chat other than raw text when they arrive.
+    /// Tips and popups keep their text unchanged. A result that would exceed the largest chat
+    /// row the client retains is refused.
+    fn expand_input_placeholders(
+        &self,
+        text: &str,
+    ) -> Result<Option<String>, ExpandedTextTooLarge> {
+        const UNASSIGNED: &str = "controllerLayoutScreen.unassigned";
+        if !text.contains(':') {
+            return Ok(None);
+        }
+        let unassigned = self.translation(UNASSIGNED);
+        self.control_settings.expand_input_placeholders(
+            text,
+            self.input_mode,
+            unassigned.as_deref().unwrap_or(UNASSIGNED),
+            ui::MAX_CHAT_RETAINED_BYTES,
+        )
+    }
+
+    /// Expands a title or action bar, keeping the received text and counting the packet as odd
+    /// when the expansion is too large.
+    fn expand_hud_placeholders(&mut self, text: Arc<str>) -> Arc<str> {
+        match self.expand_input_placeholders(&text) {
+            Ok(Some(expanded)) => Arc::from(expanded),
+            Ok(None) => text,
+            Err(ExpandedTextTooLarge) => {
+                self.session.gameplay_hud.note_odd_hud_packet();
+                text
+            }
+        }
+    }
+
+    /// Expands a chat row as it will read. A translated row whose localized line names a
+    /// control is kept as that expanded line, as vanilla localizes before expanding.
+    fn expand_chat_placeholders(
+        &self,
+        mut row: ChatMessage,
+    ) -> Result<ChatMessage, ExpandedTextTooLarge> {
+        if row.kind == ChatMessageKind::Translation {
+            let line = ui_screens::text::resolve_chat_line(&row, |key| self.translation(key));
+            if let Some(expanded) = self.expand_input_placeholders(&line)? {
+                row.kind = ChatMessageKind::System;
+                row.message = Arc::from(expanded);
+                row.parameters = Arc::from([]);
+            }
+        } else if let Some(expanded) = self.expand_input_placeholders(&row.message)? {
+            row.message = Arc::from(expanded);
+        }
+        Ok(row)
     }
 
     pub(super) fn apply_hud(
@@ -333,13 +440,16 @@ impl UiRuntime {
                     Ok(health) => {
                         let maximum = health.max(20);
                         self.publish_local_player_alive(health > 0);
-                        self.hud.set_health(BoundedStat::new(health, maximum));
+                        self.session
+                            .hud
+                            .set_health(BoundedStat::new(health, maximum));
                     }
-                    Err(_) => self.gameplay_hud.note_odd_hud_packet(),
+                    Err(_) => self.session.gameplay_hud.note_odd_hud_packet(),
                 }
             }
             HudEvent::PlayerStatus(status) => {
-                self.hud
+                self.session
+                    .hud
                     .set_player_status(hud_adapter::player_status(status));
             }
         }
@@ -364,16 +474,16 @@ impl UiRuntime {
         toast.expires_millis = received_millis
             .saturating_add(self.toast_display_millis)
             .saturating_add(ui::TOAST_SLIDE_OUT_MILLIS);
-        self.hud.push_toast(toast);
+        self.session.hud.push_toast(toast);
     }
 
     /// Stands a client toast that stays while its cause lasts.
     pub fn stand_toast(&mut self, toast: ui::StandingToast) {
-        self.hud.stand_toast(toast);
+        self.session.hud.stand_toast(toast);
     }
 
     /// Slides the standing toast out from `now_millis`.
     pub fn retire_standing_toast(&mut self, now_millis: u64) {
-        self.hud.retire_standing_toast(now_millis);
+        self.session.hud.retire_standing_toast(now_millis);
     }
 }

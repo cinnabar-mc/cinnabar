@@ -808,17 +808,6 @@ fn scroll_changed_reaches_the_guest() {
     assert!(skipped.commands.is_empty());
 }
 
-/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
-/// dep-info paths are relative to the workspace, so two worktrees building into one target would
-/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
-/// each worktree's guests its own.
-fn worktree_dir(name: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-    format!("{name}-{:016x}", hasher.finish())
-}
-
 /// The bundle imports call the same host that personal mods use, with bundle-scoped grants.
 #[test]
 fn client_part_drawing_and_sky_commit_together_and_revoke() {
@@ -1011,7 +1000,7 @@ fn canonical_drawing_import_reports_only_bundle_grants() {
     ] {
         let guest = format!(
             r#"(component
-            (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+            (import "cinnabar:world-draw/drawing@0.2.0" (instance $drawing
                 (type $flags (flags "world-draw" "entity-observe" "entity-highlight" "render-through-walls" "render-material" "render-post"))
                 (export "permissions" (type $permissions (eq $flags)))
                 (export "capabilities" (func (result $permissions)))))
@@ -1051,7 +1040,7 @@ fn canonical_drawing_import_reports_only_bundle_grants() {
 #[test]
 fn epoch_callback_observes_entities_and_resolves_mask_targets() {
     let guest = r#"(component
-        (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+        (import "cinnabar:world-draw/drawing@0.2.0" (instance $drawing
             (type $handle (record (field "owner" u64) (field "generation" u64) (field "slot" u64)))
             (export "handle" (type $h (eq $handle)))
             (type $code (enum "denied" "invalid" "budget-exceeded" "stale-handle" "unsupported" "in-use"))
@@ -1063,7 +1052,7 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             (export "observe-entities" (func (result (result (list $o) (error $e)))))))
         (alias export $drawing "handle" (type $h))
         (alias export $drawing "draw-error" (type $e))
-        (import "cinnabar:world-draw/masks@0.1.0" (instance $masks
+        (import "cinnabar:world-draw/masks@0.2.0" (instance $masks
             (export "handle" (type (eq $h)))
             (export "draw-error" (type (eq $e)))
             (export "entity" (func (param "runtime-id" u64) (result (result $h (error $e)))))))
@@ -1135,6 +1124,7 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             candidates: vec![actor],
             live: vec![actor],
             targets: vec![(target, 3)],
+            blocks: Vec::new(),
         };
         host.dispatch(&Event::Epoch, 2, &context)
             .unwrap()

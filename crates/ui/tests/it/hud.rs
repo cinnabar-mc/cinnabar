@@ -36,6 +36,96 @@ fn title_reset_clears_text_and_restores_vanilla_durations() {
     assert_eq!(hud.durations(), TitleDurations::default());
 }
 
+// Vanilla clears its queued title message after each title or subtitle, and a new title
+// replaces the shown title message whole, so a subtitle never carries over to a later title.
+#[test]
+fn a_later_title_without_a_subtitle_shows_none() {
+    let mut hud = HudStore::default();
+    hud.set_subtitle(Arc::from("first subtitle"), 1, 0);
+    hud.set_title(Arc::from("first"), 2, 0);
+    hud.expire(50);
+    assert_eq!(hud.subtitle().unwrap().text.as_ref(), "first subtitle");
+
+    hud.set_title(Arc::from("second"), 3, 1_000);
+    hud.expire(1_050);
+
+    assert_eq!(hud.title().unwrap().text.as_ref(), "second");
+    assert!(hud.subtitle().is_none());
+    assert_eq!(hud.subtitle_text(), "");
+    let roles: Vec<HudViewRole> = hud.view_nodes(1_050).iter().map(|n| n.role).collect();
+    assert_eq!(roles, [HudViewRole::Title]);
+}
+
+#[test]
+fn a_subtitle_joins_the_title_sent_with_it_in_either_order() {
+    let mut hud = HudStore::default();
+    hud.set_title(Arc::from("title"), 1, 500);
+    hud.set_subtitle(Arc::from("after"), 2, 500);
+    let subtitle = hud.subtitle().unwrap();
+    assert_eq!(subtitle.text.as_ref(), "after");
+    assert_eq!(subtitle.started_millis, 500);
+    assert_eq!(subtitle.expires_millis, hud.title().unwrap().expires_millis);
+
+    let mut hud = HudStore::default();
+    hud.set_subtitle(Arc::from("before"), 1, 500);
+    assert!(hud.subtitle().is_none(), "a subtitle alone shows nothing");
+    hud.expire(10_000);
+    hud.set_title(Arc::from("title"), 2, 20_000);
+    assert_eq!(hud.subtitle().unwrap().text.as_ref(), "before");
+}
+
+#[test]
+fn a_subtitle_update_on_a_shown_title_is_not_reused_by_the_next_title() {
+    let mut hud = HudStore::default();
+    hud.set_title(Arc::from("title"), 1, 0);
+    hud.expire(50);
+    hud.set_subtitle(Arc::from("update"), 2, 100);
+    hud.expire(150);
+    assert_eq!(hud.subtitle().unwrap().text.as_ref(), "update");
+
+    hud.set_title(Arc::from("next"), 3, 200);
+    assert!(hud.subtitle().is_none());
+
+    // An empty subtitle cancels the queued one.
+    hud.set_subtitle(Arc::from("queued"), 4, 250);
+    hud.set_subtitle(Arc::from(""), 5, 250);
+    hud.set_title(Arc::from("last"), 6, 250);
+    assert!(hud.subtitle().is_none());
+}
+
+// Vanilla shows the queued title message at its HUD tick, so everything sent between two ticks
+// settles together.
+#[test]
+fn titles_and_subtitles_between_two_ticks_settle_together() {
+    // A second title in the same tick keeps the queued subtitle.
+    let mut hud = HudStore::default();
+    hud.set_subtitle(Arc::from("queued"), 1, 0);
+    hud.set_title(Arc::from("first"), 2, 0);
+    hud.set_title(Arc::from("second"), 3, 0);
+    hud.expire(50);
+    assert_eq!(hud.title().unwrap().text.as_ref(), "second");
+    assert_eq!(hud.subtitle().unwrap().text.as_ref(), "queued");
+
+    // An empty subtitle cancels one sent after a title in the same tick.
+    let mut hud = HudStore::default();
+    hud.set_title(Arc::from("title"), 1, 0);
+    hud.set_subtitle(Arc::from("cancelled"), 2, 0);
+    hud.set_subtitle(Arc::from(""), 3, 0);
+    hud.expire(50);
+    assert!(hud.subtitle().is_none());
+    assert_eq!(hud.subtitle_text(), "");
+
+    // On a title shown before the tick, the cancelled update leaves the shown subtitle.
+    let mut hud = HudStore::default();
+    hud.set_subtitle(Arc::from("shown"), 1, 0);
+    hud.set_title(Arc::from("title"), 2, 0);
+    hud.expire(50);
+    hud.set_subtitle(Arc::from("cancelled"), 3, 100);
+    hud.set_subtitle(Arc::from(""), 4, 100);
+    hud.expire(150);
+    assert_eq!(hud.subtitle().unwrap().text.as_ref(), "shown");
+}
+
 // The tip text has its own slot: it does not overwrite the action bar.
 #[test]
 fn a_tip_text_does_not_replace_the_action_bar() {

@@ -44,27 +44,22 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             content.view.renderer,
         )?;
     }
-    if render_model::SHADER_PACKS_ENABLED {
-        let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
-            .then_some(content.view.shader_pack.as_deref())
-            .flatten()
-            .map_or("Off", pack_label);
-        super::services::action_row_text(
-            content,
-            &format!("Shaders: {selected}"),
-            "",
-            "Open",
-            Some(MenuAction::SettingsShaders),
-        )?;
-    }
+    let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
+        .then_some(content.view.shader_pack.as_deref())
+        .flatten()
+        .map_or("Off", pack_label);
+    super::services::action_row_text(
+        content,
+        &format!("Shaders: {selected}"),
+        "",
+        "Open",
+        Some(MenuAction::SettingsShaders),
+    )?;
     Ok(())
 }
 
 /// Draws Off and every pack as one pick-one list, ending in the host's import controls.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return Ok(());
-    }
     let view = content.view;
     content.heading(
         "Shader pack",

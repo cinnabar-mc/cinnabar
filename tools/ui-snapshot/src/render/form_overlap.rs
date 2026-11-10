@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{
+    FORM_HANDOFF_GRACE_MILLIS, LocalFormAction, UiRuntime, presentation::UiPresentationRuntime,
+};
 use image::ImageEncoder;
 use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm};
 
@@ -10,6 +12,9 @@ use crate::{
     carriers::{self, Error},
     fixtures::State,
 };
+
+/// Fixed capture instant shared by controller expiry and presentation.
+const CAPTURE_MILLIS: u64 = 1_000;
 
 /// Captures the menu left visible after two requests reuse one protocol ID.
 pub(super) fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
@@ -50,7 +55,7 @@ pub(super) fn png_for(state: &State, dir: &Path, runtime: &UiRuntime) -> Result<
         .build(
             &player_state::PlayerState::new(1),
             runtime,
-            1_000,
+            CAPTURE_MILLIS,
             state.size,
             ui::DpiScale::new(1.0).unwrap(),
         )
@@ -66,4 +71,43 @@ pub(super) fn png_for(state: &State, dir: &Path, runtime: &UiRuntime) -> Result<
         )
         .map_err(|error| error.to_string())?;
     Ok(png)
+}
+
+/// Captures the same answered menu before a possible replacement arrives.
+pub(super) fn handoff_png(state: &State, dir: &Path, retained: bool) -> Result<Vec<u8>, Error> {
+    let mut runtime = UiRuntime::new(1);
+    runtime.server_forms_mut().admit(
+        FormRequestEvent {
+            form_id: 7,
+            kind: FormKind::Menu,
+            title: Some("Server menu".into()),
+            json: "{}".into(),
+            model: ServerFormModel::TextMenu(TextMenuForm {
+                title: "Server menu".into(),
+                content: "Choose Continue to open the next menu.".into(),
+                buttons: vec!["Continue".into(), "Return".into()].into(),
+                button_images: [].into(),
+                omitted_images: 0,
+            }),
+        },
+        1,
+        1,
+        false,
+    );
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let action = LocalFormAction::SubmitButton(0);
+    let response = if retained {
+        runtime.respond_to_server_form_at(
+            identity,
+            action,
+            CAPTURE_MILLIS.saturating_sub(FORM_HANDOFF_GRACE_MILLIS / 2),
+        )
+    } else {
+        runtime.respond_to_server_form(identity, action)
+    };
+    response.map_err(|error| format!("{error:?}"))?;
+    client_ui::ui_runtime::flush_form_response(&mut runtime, |_| false, |_| Ok(()))
+        .map_err(|error| format!("{error:?}"))?;
+    runtime.advance_form_handoff(CAPTURE_MILLIS);
+    png_for(state, dir, &runtime)
 }

@@ -17,6 +17,7 @@ pub(crate) fn profiler(
 ) -> RuntimeStageProfiler {
     RuntimeStageProfiler::for_gameplay(enabled, trace_path)
         .with_diagnostic_sink(diagnostics::console::defer_stderr)
+        .with_thread_cpu_clock(diagnostics::thread_cpu::thread_cpu_time)
 }
 
 /// Feeds slow-frame thresholds the primary window's monitor interval, or a slower frame cap.
@@ -78,6 +79,7 @@ pub(crate) fn flush_trace_on_exit(
 ) {
     if exit.read().next().is_some() {
         profiler.flush_trace();
+        client_runtime::shutdown::log_shutdown_phase("trace_flush");
     }
 }
 
@@ -99,8 +101,10 @@ pub(crate) fn run(app: &mut App) -> AppExit {
     // Like TeardownWatchdog, install before runner cleanup adds blocking render teardown resources.
     app.insert_resource(TraceExportOnTeardown(profiler.clone()));
     let exit = app.run();
+    client_runtime::shutdown::log_shutdown_phase("app_run");
     profiler.flush_trace();
     profiler.wait_for_trace_export();
+    client_runtime::shutdown::log_shutdown_phase("trace_export");
     exit
 }
 

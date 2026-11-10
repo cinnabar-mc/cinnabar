@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Builds a signed arm64-v8a APK. The client, Go core, local server and assetc ship as native
-# libraries, the only files Android lets an app execute; the prep kit ships as APK assets. Game
-# assets never enter the APK: first launch downloads and compiles them on the device.
+# Builds a signed arm64-v8a APK. The client, Go core, local server, assetc and the shader-pack
+# compiler ship as native libraries, the only files Android lets an app execute; the prep kit ships
+# as APK assets. Game assets never enter the APK: first launch downloads and compiles them on the
+# device.
 #
 # Needs ANDROID_HOME holding the SDK packages runtime.json pins, the aarch64-linux-android Rust
 # target, cargo-ndk, Go, a JDK, zip and librsvg or ImageMagick for the launcher icon.
 # CINNABAR_ANDROID_PROFILE picks the Cargo profile (release).
-# PACKAGE_CARGO_FEATURES supplies the release channel's comma-separated Cargo features.
 # Signing uses CINNABAR_ANDROID_KEYSTORE and CINNABAR_ANDROID_KEY_ALIAS with passwords in
 # CINNABAR_ANDROID_STORE_PASSWORD and CINNABAR_ANDROID_KEY_PASSWORD, else a generated test key.
 set -euo pipefail
@@ -49,13 +49,10 @@ export CINNABAR_BUILD_COMMIT="${CINNABAR_BUILD_COMMIT:-$(git rev-parse HEAD)}"
 # 16 KB pages: Android 15 devices may use them, and every LOAD segment must allow it.
 page_flags='-Wl,-z,max-page-size=16384'
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=$page_flags"
-# Bash 3.2 needs a guarded expansion for an empty array under nounset.
-feature_args=()
-if [[ -n "${PACKAGE_CARGO_FEATURES:-}" ]]; then
-    feature_args=(--features "$PACKAGE_CARGO_FEATURES")
-fi
-cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p "$client_package" ${feature_args[@]+"${feature_args[@]}"}
-cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p asset-compiler --bin assetc ${feature_args[@]+"${feature_args[@]}"}
+cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p "$client_package"
+cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p asset-compiler --bin assetc
+read -r worker worker_package < <(awk '$3 == "SHADERPACK_WORKER" {print $1, $2}' "$runtime_binary_list")
+cargo ndk -t "$abi" --platform "$min_sdk" build --profile "$profile" --locked -p "$worker_package" --bin "$worker"
 target_dir="$(cargo metadata --format-version 1 --no-deps --locked | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')"
 # Cargo writes the `dev` profile's artifacts under `debug`.
 profile_dir="$profile"
@@ -63,6 +60,7 @@ profile_dir="$profile"
 rust_out="$target_dir/$triple/$profile_dir"
 install -m 0755 "$rust_out/lib$client_library.so" "$libs/lib$client_library.so"
 install -m 0755 "$rust_out/assetc" "$libs/$(pin compiler_library)"
+install -m 0755 "$rust_out/$worker" "$libs/$(pin shaderpack_worker_library)"
 install -m 0644 "$toolchain/sysroot/usr/lib/$triple/libc++_shared.so" "$libs/libc++_shared.so"
 
 # shellcheck source=build-go-helpers.sh

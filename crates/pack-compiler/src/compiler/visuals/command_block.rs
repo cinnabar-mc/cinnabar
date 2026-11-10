@@ -9,14 +9,7 @@ use super::state::{exact_tagged_byte, exact_tagged_int};
 use assets::facts::{BlockProperty as P, BlockRenderKind as R, block_render_fact};
 use assets::{MODEL_POSITION_SCALE, MODEL_UV_SCALE};
 
-const FRONTS: [BlockFace; 6] = [
-    BlockFace::Down,
-    BlockFace::Up,
-    BlockFace::North,
-    BlockFace::South,
-    BlockFace::West,
-    BlockFace::East,
-];
+const FRONTS: [BlockFace; 6] = BlockFace::FACING_ORDER;
 
 /// Admits only command identities selected by the compiled block policy.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {

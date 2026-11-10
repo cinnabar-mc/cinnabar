@@ -56,6 +56,8 @@ func fakeLoaded() Loaded {
 				DisplayName: "Fake Cube",
 				Textures:    []Texture{{Slot: "*", Path: "/fake/assets/cube.png"}},
 				Mining:      Mining{Breakable: &Breakable{Hardness: 1.5}},
+				Drops:       DropsItself,
+				Item:        ItemListed,
 			},
 			{
 				ID:          "fake:wall",
@@ -65,6 +67,8 @@ func fakeLoaded() Loaded {
 					{Slot: "up", Path: "/fake/assets/wall_top.png"},
 				},
 				Mining: Mining{Unbreakable: &Unbreakable{}},
+				Drops:  DropsItself,
+				Item:   ItemListed,
 			},
 		},
 	}
@@ -196,6 +200,11 @@ func TestProbeCallbackRoundTrip(t *testing.T) {
 	}
 	if o := loaded.Overlays; o == nil || !slices.Equal(o.Hosts, []string{"probe:bus"}) || len(o.Types) != 1 || o.Types[0].ID != "probe:plate" {
 		t.Fatalf("loaded overlays %s, want probe:bus carrying probe:plate", jsonOf(loaded.Overlays))
+	}
+	if b := loaded.Blocks; b[0].Drops != DropsItself || b[0].Item != ItemListed || b[2].Item != ItemUnlisted ||
+		b[3].Drops != DropsNothing || b[3].Item != ItemNone || len(loaded.Items) != 1 || loaded.Items[0].Listed {
+		t.Fatalf("loaded blocks %s and items %s, want the probe's content rules", jsonOf(loaded.Blocks),
+			jsonOf(loaded.Items))
 	}
 	got, err := s.Call(probeInteract(probeCount))
 	if err != nil {

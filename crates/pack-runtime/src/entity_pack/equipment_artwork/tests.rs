@@ -82,7 +82,12 @@ fn mixed_equipment_artwork_reuses_compiler_pixels_and_decodes_only_missing_paths
             .iter()
             .all(|texture| texture.identifier.as_ref() != EXTRA)
     );
-    merge(&view, &mut compiled.equipment_textures, sources);
+    merge(
+        &view,
+        &mut compiled.equipment_textures,
+        sources,
+        &mut compiled.equipment_raster_drops,
+    );
     let retained = compiled
         .equipment_textures
         .iter()

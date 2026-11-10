@@ -26,7 +26,7 @@ fn dynamic_slot(dynamic_id: u32, slot: u8, stack_network_id: i32) -> StackReques
             name: CONTAINER_NAME_DYNAMIC,
             dynamic_id: Some(dynamic_id),
         },
-        slot,
+        slot: u16::from(slot),
         stack_network_id,
     }
 }

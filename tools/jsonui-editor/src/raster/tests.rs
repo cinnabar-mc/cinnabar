@@ -493,3 +493,38 @@ fn sdf_smoothing_tracks_the_uv_derivative_area_on_both_paths() {
         assert_eq!(first_pixel(&triangle(list), &texture), rect_pixel);
     }
 }
+
+#[test]
+fn rgb_coverage_preserves_black_background_and_texture_alpha() {
+    let bounds = rect(0., 0., 4., 1.);
+    let draw = UiTree::new(vec![
+        UiNode::new(UiNodeId::new(0), None, bounds).with_visual(UiVisual::Solid {
+            texture_page: 0,
+            color: [40, 80, 120, 255],
+        }),
+        UiNode::new(UiNodeId::new(1), None, bounds).with_visual(UiVisual::RgbCoverageSprite {
+            texture_page: 1,
+            uv: [0, 0, 4, 1],
+            color: [255; 4],
+        }),
+    ])
+    .unwrap()
+    .build_draw_list()
+    .unwrap();
+    let white = Page::white();
+    let source = Page {
+        width: 4,
+        height: 1,
+        rgba: std::sync::Arc::from([
+            0, 0, 0, 255, 255, 255, 255, 255, 128, 64, 0, 255, 255, 255, 255, 128,
+        ]),
+        repeat_content: None,
+    };
+    let mut canvas = Canvas::new(4, 1);
+    canvas.draw(&draw, |page| Some(if page == 0 { &white } else { &source }));
+    let rgba = canvas.into_rgba();
+    assert_eq!(&rgba[0..4], &[40, 80, 120, 255]);
+    assert_eq!(&rgba[4..8], &[255; 4]);
+    assert_eq!(&rgba[8..12], &[148, 104, 60, 255]);
+    assert_eq!(&rgba[12..16], &[148, 168, 188, 255]);
+}

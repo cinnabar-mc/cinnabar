@@ -3,7 +3,7 @@ use crate::device_settings::vertex_storage_buffers;
 
 #[cfg(test)]
 mod cutout_contact_tests;
-mod descriptors;
+pub(in crate::chunk) mod descriptors;
 mod terrain_blend;
 mod terrain_cutout;
 
@@ -443,7 +443,7 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: Some(AtmosphereFrame::min_size()),
+                    min_binding_size: Some(crate::atmosphere_render::AtmosphereUniform::min_size()),
                 },
                 count: None,
             },

@@ -292,7 +292,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
     );
     assert_eq!(
         app.world_mut()
-            .query::<(&Aabb, &Visibility)>()
+            .query::<(&ChunkRenderInstance, &Visibility, &NoCpuCulling)>()
             .iter(app.world())
             .count(),
         1,
@@ -400,7 +400,8 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("mix(current_sample, next_sample, frame_blend)"));
     assert!(shader.contains("@interpolate(flat) current_texture: u32"));
     assert!(shader.contains("@interpolate(flat) next_texture: u32"));
-    assert!(shader.contains("@interpolate(flat) frame_blend_uv_limit: vec3<f32>"));
+    assert!(shader.contains("@interpolate(flat) frame_blend: f32"));
+    assert!(shader.contains("@interpolate(flat) quad_shape: u32"));
     assert!(shader.contains("@location(3) @interpolate(flat) material_flags: u32"));
     assert!(shader.contains("@interpolate(flat) material_flags: u32"));
     assert_eq!(
@@ -478,10 +479,11 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../../src/lighting.wesl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap.raw[sample & 255u].rgb"));
-    for (shader, liquid) in [
-        (include_str!("../../../src/chunk.wesl"), false),
-        (include_str!("../../../src/model.wesl"), false),
-        (include_str!("../../../src/liquid.wesl"), true),
+    // Vanilla cube fragments read only the native table, so their vertices bake no colour.
+    for (shader, liquid, baked_colour) in [
+        (include_str!("../../../src/chunk.wesl"), false, false),
+        (include_str!("../../../src/model.wesl"), false, true),
+        (include_str!("../../../src/liquid.wesl"), true, true),
     ] {
         assert!(shader.contains("import render::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
@@ -515,11 +517,10 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
             naga::ShaderStage::Fragment,
             15
         ));
-        assert!(entry_points_call_function(
-            &module,
-            naga::ShaderStage::Vertex,
-            "light_colour"
-        ));
+        assert_eq!(
+            entry_points_call_function(&module, naga::ShaderStage::Vertex, "light_colour"),
+            baked_colour
+        );
         assert!(entry_points_call_function(
             &module,
             naga::ShaderStage::Fragment,
@@ -740,14 +741,27 @@ fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
 
 #[test]
 fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
-    use bevy::camera::primitives::{Aabb, Frustum};
+    use bevy::camera::{
+        Camera,
+        primitives::Frustum,
+        visibility::{VisibilityPlugin, VisibleEntities},
+    };
     let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .add_plugins(ChunkRenderPlugin::new(1));
+    app.add_plugins((
+        MinimalPlugins,
+        bevy::asset::AssetPlugin::default(),
+        bevy::mesh::MeshPlugin,
+        VisibilityPlugin,
+    ))
+    .add_plugins(ChunkRenderPlugin::new(1));
     let key = SubChunkKey::new(0, 0, 0, 0);
     let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
         &glam::camera::rh::proj::directx::orthographic(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
     ));
+    let camera = app
+        .world_mut()
+        .spawn((Camera::default(), frustum, VisibleEntities::default()))
+        .id();
     for models in [false, true, false, true] {
         let cube = solid_mesh(1);
         let mesh = if models {
@@ -768,14 +782,14 @@ fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
             .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
             .unwrap();
         app.update();
-        let bounds = *app
-            .world_mut()
-            .query::<&Aabb>()
-            .single(app.world())
-            .unwrap();
+        let visible = app
+            .world()
+            .get::<VisibleEntities>(camera)
+            .unwrap()
+            .len(std::any::TypeId::of::<ChunkRenderInstance>());
         assert_eq!(
-            frustum.intersects_obb_identity(&bounds),
-            models,
+            visible,
+            usize::from(models),
             "displaced model overhang must survive a frustum excluding the whole cell, including cube/model replacement"
         );
     }

@@ -32,6 +32,8 @@ bitflags! {
         const FIRE_FLAMMABLE = 1 << 5;
         /// The support component accepts full support on the top face.
         const FIRE_TOP_SUPPORT = 1 << 6;
+        /// A chorus plant above roots into this block.
+        const CHORUS_ROOT = 1 << 7;
     }
 }
 
@@ -113,6 +115,7 @@ bitflags! {
         const BLOCK_ENTITY_BACKING = 1 << 60;
         const FARMLAND = 1 << 61;
         const CAN_CONTAIN_LIQUID_SOURCE = 1 << 62;
+        const INTERACTIVE = 1 << 63;
     }
 }
 

@@ -491,6 +491,9 @@ impl RuntimeAssets {
             &materials,
             material_base..material_base + overlay.materials.len() as u32,
         )?;
+        super::face_overrides::rebind_replaced_sheets(self, &mut visuals, &materials);
+        let retextured_visuals =
+            super::face_overrides::retextured_visuals(self, &visuals, &materials);
         for visual in &overlay.visuals {
             if overlay
                 .model_templates
@@ -584,6 +587,7 @@ impl RuntimeAssets {
                 .unwrap_or_else(|| self.biomes.clone()),
             provenance: self.provenance,
             carrier_identity: None,
+            retextured_visuals,
             missing: AtomicU64::new(0),
         })
     }
