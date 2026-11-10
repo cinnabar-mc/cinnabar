@@ -685,7 +685,6 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
 }
 
 /// Bedrock artwork is already raw; Java artwork and glint gain raw views for packs.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
