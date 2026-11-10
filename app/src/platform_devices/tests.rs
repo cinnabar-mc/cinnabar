@@ -277,9 +277,13 @@ fn gameplay_touch_switches_to_touch_when_no_higher_priority_physical_input() {
 fn platform_mouse_input_survives_bevy_input_systems() {
     let mut app = App::new();
     app.add_plugins((bevy::prelude::MinimalPlugins, bevy::input::InputPlugin))
+        .add_message::<WindowEvent>()
         .add_systems(
             bevy::prelude::PreUpdate,
-            drain_platform_mouse_events.before(bevy::input::InputSystems),
+            (
+                drain_platform_mouse_events.before(bevy::input::InputSystems),
+                detect_physical_mouse_activity.after(bevy::input::InputSystems),
+            ),
         )
         .init_resource::<PlatformMouseActivity>();
     let _globals = ingress::lock_test_globals();
@@ -450,6 +454,9 @@ fn platform_mouse_events_reach_ordered_window_events_in_order() {
     app.world_mut()
         .run_system_once(drain_platform_mouse_events)
         .unwrap();
+    app.world_mut()
+        .run_system_once(detect_physical_mouse_activity)
+        .unwrap();
 
     let events = app.world().resource::<Messages<WindowEvent>>();
     let kinds = events
@@ -473,4 +480,107 @@ fn platform_mouse_events_reach_ordered_window_events_in_order() {
     let recorded = &app.world().resource::<PlatformButtonModifiers>().0;
     assert_eq!(recorded.len(), 1);
     assert!(recorded[0].1.shift);
+}
+
+/// An app with the production hybrid-input schedule, one connected mouse and gameplay already
+/// switched to Touch by a gameplay touch.
+fn hybrid_input_app_in_touch_mode() -> App {
+    let mut app = App::new();
+    app.add_plugins((bevy::prelude::MinimalPlugins, bevy::input::InputPlugin))
+        .add_message::<WindowEvent>()
+        .add_message::<CursorMoved>();
+    configure_hybrid_input(&mut app);
+    ingress::set_platform_physical_devices(1, 0);
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::KeyboardMouse
+    );
+    app.world_mut().write_message(gameplay_touch_start(20));
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::Touch
+    );
+    app
+}
+
+/// Clears the process-wide platform queues and device counts a test leaves behind.
+fn reset_platform_globals() {
+    let _ = ingress::take_platform_mouse_motion();
+    let _ = ingress::take_platform_mouse_events();
+    ingress::set_platform_physical_devices(0, 0);
+}
+
+/// Mouse input that winit delivers straight to the window event stream, which the activity's
+/// own mouse forwarding never sees, returns gameplay from Touch to Keyboard & Mouse.
+#[test]
+fn window_mouse_input_returns_touch_mode_to_keyboard_mouse() {
+    let _globals = ingress::lock_test_globals();
+    let window = Entity::PLACEHOLDER;
+    let inputs = [
+        WindowEvent::MouseMotion(MouseMotion {
+            delta: Vec2::new(3.0, -2.0),
+        }),
+        WindowEvent::CursorMoved(CursorMoved {
+            window,
+            position: Vec2::new(40.0, 30.0),
+            delta: None,
+        }),
+        WindowEvent::MouseButtonInput(MouseButtonInput {
+            button: MouseButton::Right,
+            state: ButtonState::Pressed,
+            window,
+        }),
+        WindowEvent::MouseWheel(MouseWheel {
+            unit: MouseScrollUnit::Line,
+            x: 0.0,
+            y: -1.0,
+            window,
+            phase: TouchPhase::Moved,
+        }),
+    ];
+    for input in inputs {
+        reset_platform_globals();
+        let mut app = hybrid_input_app_in_touch_mode();
+        if let WindowEvent::MouseMotion(motion) = &input {
+            // The window backend writes raw motion to both streams.
+            app.world_mut().write_message(*motion);
+        }
+        app.world_mut().write_message(input.clone());
+        app.update();
+        assert_eq!(
+            app.world().resource::<EffectiveGameplayInputMode>().0,
+            InputMode::KeyboardMouse,
+            "{input:?}"
+        );
+    }
+    reset_platform_globals();
+}
+
+/// A mouse release, which also arrives when capture or focus is lost, and a touch-emulated UI
+/// press, which never reaches the window event stream, leave Touch selected.
+#[test]
+fn mouse_release_and_touch_emulated_press_keep_touch_mode() {
+    let _globals = ingress::lock_test_globals();
+    reset_platform_globals();
+    let mut app = hybrid_input_app_in_touch_mode();
+    let window = Entity::PLACEHOLDER;
+    app.world_mut()
+        .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+            button: MouseButton::Left,
+            state: ButtonState::Released,
+            window,
+        }));
+    app.world_mut().write_message(MouseButtonInput {
+        button: MouseButton::Left,
+        state: ButtonState::Pressed,
+        window,
+    });
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::Touch
+    );
+    reset_platform_globals();
 }

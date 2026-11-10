@@ -1979,9 +1979,15 @@ Gameplay enables Bevy's controller device plugin. Physical Xbox controller accep
 macOS, including gameplay input, remains incomplete.
 
 Android controller key and joystick events reach Bevy as gamepads through the pinned winit
-fork, with hotplug scans naming devices. Physical keyboards use winit's existing key path;
-mouse input and capture use the activity's hybrid input path described below. Device
-acceptance with Xbox, PlayStation and generic controllers remains incomplete, as do
+fork, with hotplug scans naming devices. Physical keyboards use winit's existing key path.
+The winit fork delivers mice as cursor, button, wheel and relative-motion input instead of
+touches and finishes those events as handled, so Android never dispatches them to the
+activity's own mouse forwarding;
+the hybrid input path described below reads mouse activity from the window event stream for
+mode arbitration. Gameplay asks the activity for pointer capture from both the mobile input
+plugin and the hybrid path, which remain to be merged into one requester along with removing
+the unreachable activity mouse forwarding. Device acceptance with Bluetooth and USB mice and
+keyboards, and Xbox, PlayStation and generic controllers remains incomplete, as do
 controllers whose right stick uses `AXIS_RX`/`AXIS_RY`.
 iOS reads physical keys, mouse motion, buttons and scrolling, and extended-profile controllers
 through the Game Controller framework. Keyboard and mouse callbacks reach both Bevy's typed
@@ -1994,13 +2000,6 @@ so mouse clicks do not also arrive as touches. While text input is enabled, the 
 Backspace yields to winit's text path. Device acceptance remains incomplete, including mouse
 delta and scroll directions and scales, pointer-touch deduplication, Enter handling in focused
 text fields, and micro-profile controllers.
-Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
-winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
-look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
-gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
-winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
-PlayStation and generic controllers remains incomplete, as do controllers whose right stick
-uses `AXIS_RX`/`AXIS_RY`.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
