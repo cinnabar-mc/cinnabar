@@ -144,7 +144,7 @@ pub(super) fn resolve_binding(
         channel_bindings: Arc::clone(&plan.channels),
         render: Vec::new(),
         visibility: RenderVisibility::default(),
-        may_use_always_depth_material: plan.always_depth,
+        may_use_occlusion_bypass_material: plan.occlusion_bypass,
         scale: None,
         held_item_scale: None,
         layer_skeletons: plan.skeletons.iter().cloned().collect(),

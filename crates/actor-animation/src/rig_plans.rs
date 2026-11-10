@@ -80,7 +80,7 @@ pub(super) struct RigPlan {
     pub(super) swing: bool,
     pub(super) frames: bool,
     pub(super) presentation: evaluation::PresentationReads,
-    pub(super) always_depth: bool,
+    pub(super) occlusion_bypass: bool,
 }
 
 impl Default for Cache {
@@ -346,13 +346,13 @@ impl RigPlan {
             presentation: render_frame::camera::presentation_expressions(
                 assets, layout, binding, geometry,
             ),
-            always_depth: assets.render_layers(binding).iter().any(|layer| {
+            occlusion_bypass: assets.render_layers(binding).iter().any(|layer| {
                 assets
                     .render_data()
                     .materials(layer)
                     .any(|(_, _, definition)| {
                         definition.is_some_and(|definition| {
-                            definition.render_state().ignores_stored_depth()
+                            definition.render_state().may_pass_behind_terrain()
                         })
                     })
             }),
@@ -375,7 +375,7 @@ impl RigPlan {
             swing: _,
             frames: _,
             presentation: _,
-            always_depth: _,
+            occlusion_bypass: _,
         } = self;
         let arrays = arc_bytes::<pose::Composition>(
             size_of::<pose::Composition>().checked_add(composition.heap_bytes())?,

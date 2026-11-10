@@ -277,3 +277,68 @@ fn a_sessions_dyed_alpha_tested_layer_is_prewarmed_under_msaa() {
             .is_some()
     );
 }
+
+#[test]
+fn authored_session_rasters_keep_native_pipelines_when_msaa_changes() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let authored = render_model::ActorMaterial {
+        state: Some(assets::EntityRenderMaterialState::default()),
+        render_state: Some(render_api::render_state::RenderState::default()),
+        ..Default::default()
+    };
+    world.insert_resource(render_scene::ActorRenderFrame {
+        authored_rasters: authored.presentation_rasters().collect(),
+        ..Default::default()
+    });
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        for mut samples in world.query::<&mut Msaa>().iter_mut(world) {
+            *samples = msaa;
+        }
+        world.run_system_once(prepare_actor_pipelines).unwrap();
+        let hdr = world
+            .query::<&bevy::render::camera::ExtractedCamera>()
+            .single(world)
+            .unwrap()
+            .hdr;
+        let pipeline = world.resource::<ActorPipeline>();
+        assert!(
+            pipeline
+                .draw_variant(msaa, hdr, false, authored.gpu_word(), authored.raster())
+                .is_some()
+        );
+        for (material, raster) in prewarm_materials() {
+            assert!(
+                pipeline
+                    .draw_variant(msaa, hdr, false, material, raster)
+                    .is_some(),
+                "native draw at {msaa:?}: {material}, {raster:?}"
+            );
+            if pipeline.motion_supported && super::super::motion::eligible(material, &raster) {
+                assert!(
+                    pipeline
+                        .motion_variant(ActorPipelineKey {
+                            msaa,
+                            hdr,
+                            enhanced: false,
+                            material,
+                            raster,
+                        })
+                        .is_some()
+                );
+            }
+        }
+        assert!(pipeline.ready_with((msaa, hdr, false), |_| true));
+        world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+            assert!(
+                pipeline
+                    .prewarm(world.resource::<PipelineCache>(), msaa, hdr, false)
+                    .is_some()
+            );
+        });
+    }
+}

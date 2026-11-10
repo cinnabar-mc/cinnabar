@@ -306,7 +306,7 @@ fn a_split_group_downscales_together_so_every_member_is_admitted() {
         &members,
         [1024, 1024],
         false,
-        |chunk| (group_page(1024, chunk.len()), ()),
+        |chunk, _| (group_page(1024, chunk.len()), ()),
         |chunk, _, (), _| placed += chunk.len(),
     );
     assert_eq!(placed, 9);
@@ -328,7 +328,7 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
         &members,
         [128, 128],
         false,
-        |chunk| {
+        |chunk, _| {
             assert!(
                 originals
                     .iter()
@@ -347,4 +347,76 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
     assert!(chunks > 1, "the fixture must split into several pages");
     assert_eq!(placed, members.len());
     assert!(pages.iter().all(|page| page.dimensions() == (64, 64)));
+}
+
+#[test]
+fn multitexture_expansion_allocates_only_the_remaining_pixel_budget() {
+    let textures: Vec<_> = (0..20)
+        .map(|source| {
+            let (width, height) = match source {
+                0 => (128, 1),
+                1 => (1, 128),
+                _ => (1, 1),
+            };
+            assets::ActorTexture {
+                source,
+                width,
+                height,
+                pixel_sha256: [0; 32],
+                rgba8: [source as u8, 0, 0, 255]
+                    .repeat(usize::from(width) * usize::from(height))
+                    .into(),
+            }
+        })
+        .collect();
+    let sources =
+        assets::ActorMultitextureSources::from_draws((2..20).map(|source| [0, 1, source]));
+    let groups = multitexture::pack_pages(&textures, &sources);
+    assert_eq!(groups.len(), 1);
+    let ((width, height), members) = &groups[0];
+    let remaining = members.len() * 4 * 4 * 4;
+    let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - remaining;
+    let (mut pages, mut placed) = (Vec::new(), 0);
+    let ((), allocations) = test_alloc::measure(|| {
+        push_group(
+            &mut pages,
+            &mut gpu_bytes,
+            members,
+            [*width, *height],
+            true,
+            |chunk, limit| {
+                let [out_width, out_height] = crate::fitted_dimensions(*width, *height, limit);
+                let layers: Vec<_> = chunk
+                    .iter()
+                    .map(|index| {
+                        multitexture::replicated(&textures[*index], *width, *height, limit)
+                    })
+                    .collect();
+                (
+                    ActorTexturePage {
+                        width: out_width,
+                        height: out_height,
+                        layers: chunk.len() as u32,
+                        rgba8: PagePixels::from_layers(layers.iter()),
+                        multitexture: true,
+                    },
+                    (),
+                )
+            },
+            |chunk, _, (), kept| {
+                assert!(kept, "expansion already fits the budget");
+                placed += chunk.len();
+            },
+        );
+    });
+    assert_eq!(placed, textures.len());
+    assert_eq!(pages[0].dimensions(), (4, 4));
+    assert_eq!(gpu_bytes, MAX_ACTOR_GPU_PIXEL_BYTES);
+    assert!(
+        allocations.bytes < remaining * 4 + 16 * 1024,
+        "small sources must not allocate the unbudgeted expanded page: {allocations:?}"
+    );
+    for (index, layer) in pages[0].rgba8.parts().iter().enumerate() {
+        assert_eq!(layer.as_ref(), [index as u8, 0, 0, 255].repeat(16));
+    }
 }

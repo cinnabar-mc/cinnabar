@@ -90,31 +90,94 @@ pub(super) fn pack_pages(
     pages
 }
 
-/// `texture` resampled to one layer of a `width` by `height` page.
-pub(super) fn replicated(texture: &assets::ActorTexture, width: u16, height: u16) -> Arc<[u8]> {
-    if (texture.width, texture.height) == (width, height) {
+/// Replicates one layer and box-filters it to `limit` without allocating the expanded image.
+pub(super) fn replicated(
+    texture: &assets::ActorTexture,
+    width: u16,
+    height: u16,
+    limit: u32,
+) -> Arc<[u8]> {
+    let [out_width, out_height] = crate::fitted_dimensions(width, height, limit);
+    if (texture.width, texture.height) == (width, height)
+        && (out_width, out_height) == (width, height)
+    {
         return Arc::clone(&texture.rgba8);
     }
-    let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height) * 4);
-    append_nearest(&mut pixels, texture, width, height);
+    let mut pixels = Vec::with_capacity(usize::from(out_width) * usize::from(out_height) * 4);
+    append_fitted(&mut pixels, texture, width, height, limit);
     pixels.into()
 }
 
+/// Builds catalog layers directly at their budgeted page dimensions.
 pub(super) fn page_pixels(
     catalog: &RuntimeActorCatalog,
     indices: &[usize],
     width: u16,
     height: u16,
+    limit: u32,
 ) -> Vec<u8> {
+    let [out_width, out_height] = crate::fitted_dimensions(width, height, limit);
     let mut pixels =
-        Vec::with_capacity(usize::from(width) * usize::from(height) * 4 * indices.len());
+        Vec::with_capacity(usize::from(out_width) * usize::from(out_height) * 4 * indices.len());
     for &index in indices {
         let texture = &catalog.textures()[index];
-        append_nearest(&mut pixels, texture, width, height);
+        append_fitted(&mut pixels, texture, width, height, limit);
     }
     pixels
 }
 
+/// Counts replicated texels of each source texel within one box-filter interval.
+fn replication_weights(
+    start: usize,
+    end: usize,
+    source: usize,
+    expanded: usize,
+) -> impl Iterator<Item = (usize, u64)> {
+    let first = start * source / expanded;
+    let last = (end - 1) * source / expanded;
+    (first..=last).map(move |texel| {
+        let low = (texel * expanded).div_ceil(source).max(start);
+        let high = ((texel + 1) * expanded).div_ceil(source).min(end);
+        (texel, (high - low) as u64)
+    })
+}
+
+/// Averages replicated boxes using source-texel weights, without visiting repeated texels.
+fn append_fitted(
+    pixels: &mut Vec<u8>,
+    texture: &assets::ActorTexture,
+    width: u16,
+    height: u16,
+    limit: u32,
+) {
+    let factor = crate::actor::texel_fit::reduction(width, height, limit);
+    if factor == 1 {
+        append_nearest(pixels, texture, width, height);
+        return;
+    }
+    let [out_width, out_height] = crate::fitted_dimensions(width, height, limit).map(usize::from);
+    let (width, height) = (usize::from(width), usize::from(height));
+    let (source_width, source_height) = (usize::from(texture.width), usize::from(texture.height));
+    for y in 0..out_height {
+        let (top, bottom) = (y * factor, ((y + 1) * factor).min(height));
+        for x in 0..out_width {
+            let (left, right) = (x * factor, ((x + 1) * factor).min(width));
+            let mut sums = [0u64; 4];
+            for (sy, rows) in replication_weights(top, bottom, source_height, height) {
+                for (sx, columns) in replication_weights(left, right, source_width, width) {
+                    let at = (sy * source_width + sx) * 4;
+                    for (sum, value) in sums.iter_mut().zip(&texture.rgba8[at..at + 4]) {
+                        *sum += u64::from(*value) * rows * columns;
+                    }
+                }
+            }
+            let count = ((right - left) * (bottom - top)) as u64;
+            pixels.extend(sums.map(|sum| (sum / count) as u8));
+        }
+    }
+}
+
+/// Appends one full-resolution layer with nearest texel replication.
 fn append_nearest(pixels: &mut Vec<u8>, texture: &assets::ActorTexture, width: u16, height: u16) {
     if (texture.width, texture.height) == (width, height) {
         pixels.extend_from_slice(&texture.rgba8);
@@ -222,6 +285,40 @@ mod tests {
         for (index, pixel) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let source = (index % 4) / 2;
             assert_eq!(pixel, &texture.rgba8[source * 4..source * 4 + 4]);
+        }
+    }
+
+    #[test]
+    fn budgeted_replication_matches_expansion_then_box_filtering() {
+        for (source_width, source_height, width, height) in [
+            (1, 1, 16, 16),
+            (8, 1, 8, 8),
+            (1, 8, 8, 8),
+            (2, 3, 7, 5),
+            (5, 3, 5, 3),
+            (3, 2, 9, 6),
+        ] {
+            let texture = assets::ActorTexture {
+                source: 0,
+                width: source_width,
+                height: source_height,
+                pixel_sha256: [0; 32],
+                rgba8: (0..usize::from(source_width) * usize::from(source_height) * 4)
+                    .map(|byte| (byte * 17) as u8)
+                    .collect::<Vec<_>>()
+                    .into(),
+            };
+            let mut expanded = Vec::new();
+            append_nearest(&mut expanded, &texture, width, height);
+            for limit in [1, 2, 3, 7, 16] {
+                let expected = crate::fit_rgba_within(width, height, &expanded, limit)
+                    .map_or_else(|| expanded.clone(), |(_, pixels)| pixels);
+                assert_eq!(
+                    replicated(&texture, width, height, limit).as_ref(),
+                    expected,
+                    "source {source_width}x{source_height}, page {width}x{height}, limit {limit}"
+                );
+            }
         }
     }
 
