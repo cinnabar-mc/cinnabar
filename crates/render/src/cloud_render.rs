@@ -175,7 +175,7 @@ pub(crate) fn prepare_cloud_records(
     gpu.views.retain(|entity, _| views.contains(*entity));
     let config = CloudRenderConfig::legacy_fancy();
     let (mesh_size, grid_size) = match distance_chunks {
-        Some(chunks) => ((chunks.0.clamp(8, 128) * 2).min(256), 1),
+        Some(chunks) => (chunks.mesh_span_cells(), 1),
         None => (config.mesh_size(), config.grid_size()),
     };
     let CloudGpu {

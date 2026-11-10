@@ -183,7 +183,9 @@ pub(crate) fn update_atmosphere_frame(
             vision.night_vision,
         );
     let next_frame = match cloud_chunks {
-        Some(chunks) => next_frame.with_cloud_fade_distance(f32::from(chunks) * 16.0 / 1.9),
+        Some(chunks) => next_frame.with_cloud_fade_distance(
+            render_scene::CloudDistanceChunks(chunks).fade_distance_blocks(),
+        ),
         None => next_frame,
     };
     *frame = apply_boss_environment(next_frame, medium.0, state);

@@ -195,6 +195,7 @@ fn build(
             CloudRenderConfig::legacy_fancy(),
             identity,
             texture,
+            viewport,
             &records,
             CLOUD_WORLD_PERIOD as u32 * 1_000,
             (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
