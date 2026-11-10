@@ -23,6 +23,44 @@ fn overlay_app() -> App {
 }
 
 #[test]
+fn clear_chat_chord_replaces_messages_with_a_single_confirmation() {
+    let mut app = overlay_app();
+    {
+        let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
+        ui.push_local_chat_line(Arc::from("First"), 0);
+        ui.push_local_chat_line(Arc::from("Second"), 0);
+    }
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::F3);
+        keys.press(KeyCode::KeyD);
+    }
+    app.update();
+    let messages = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .chat()
+        .messages();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].message.as_ref(), "[Debug] Cleared chat");
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .push_local_chat_line(Arc::from("After"), 0);
+    app.update();
+    let messages = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .chat()
+        .messages();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[1].message.as_ref(), "After");
+}
+
+#[test]
 fn reload_chunks_reports_whether_a_world_is_loaded() {
     for world_loaded in [false, true] {
         let mut app = overlay_app();
@@ -47,8 +85,7 @@ fn reload_chunks_reports_whether_a_world_is_loaded() {
         let messages = app
             .world()
             .resource::<UiRuntimeResource>()
-            .session
-            .chat
+            .chat()
             .messages();
         assert_eq!(messages.len(), 1);
         assert_eq!(
@@ -129,8 +166,7 @@ fn debug_help_does_not_drop_the_held_stack() {
         assert!(
             app.world()
                 .resource::<UiRuntimeResource>()
-                .session
-                .chat
+                .chat()
                 .messages()
                 .iter()
                 .any(|line| line.message.as_ref() == "[Debug] F3 + Q = Show this help list")
@@ -190,8 +226,7 @@ fn debug_modifier_remapped_to_a_suffix_still_toggles_overlay() {
         assert!(
             app.world()
                 .resource::<UiRuntimeResource>()
-                .session
-                .chat
+                .chat()
                 .messages()
                 .is_empty()
         );

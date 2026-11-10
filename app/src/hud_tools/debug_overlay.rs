@@ -292,7 +292,7 @@ fn publish_debug_overlay(
             }
             if chord_a {
                 let message = if let Some(stream) = context.client_world.stream.as_mut() {
-                    stream.remesh_all_resident(chunk_pipeline::web_time::Instant::now());
+                    stream.remesh_all_resident(web_time::Instant::now());
                     "[Debug] Reloading all chunks"
                 } else {
                     "[Debug] Cannot reload chunks: no world is loaded"
@@ -303,7 +303,7 @@ fn publish_debug_overlay(
             }
             if chord_d {
                 if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.session.chat.clear();
+                    ui.clear_chat_messages();
                     ui.push_local_chat_line(std::sync::Arc::from("[Debug] Cleared chat"), now);
                 }
             }
