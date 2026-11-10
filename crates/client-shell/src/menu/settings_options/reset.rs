@@ -43,7 +43,6 @@ impl MenuRuntime {
             }
         }
         self.settings.dropdown = None;
-        self.settings.scale_picker = false;
     }
 }
 

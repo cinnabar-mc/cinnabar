@@ -45,8 +45,8 @@ pub use atlas::{
 };
 pub use banner::{BannerLayer, BannerModel, BannerMount};
 pub use beam::BeaconModel;
-pub use bed::{BedModel, bed_color};
-pub use bell::{BellAttachment, BellModel, swing_degrees};
+pub use bed::{BedModel, DEFAULT_BED_DYE, bed_color, bed_crack_shape};
+pub use bell::{BellAttachment, BellModel};
 pub use book::{BookPose, EnchantingBook};
 pub use chalkboard::ChalkboardModel;
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
@@ -59,7 +59,7 @@ pub use crystal_beam::CrystalBeamModel;
 pub use dragon_death::DragonDeathModel;
 pub use frame::{
     FramedMap, ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
-    item_frame_item_transform,
+    item_frame_block_transform, item_frame_item_transform,
 };
 
 pub use held::{

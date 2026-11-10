@@ -23,6 +23,10 @@ impl NativeFocus {
 }
 
 #[cfg(all(windows, not(test)))]
+mod pointer_paint;
+#[cfg(all(windows, not(test)))]
+pub(super) use pointer_paint::install as install_pointer_paint;
+#[cfg(all(windows, not(test)))]
 mod raw_mouse;
 #[cfg(all(windows, not(test)))]
 pub(super) use raw_mouse::WindowsRawMouse;

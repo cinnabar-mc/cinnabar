@@ -15,6 +15,9 @@ mod fox_tests;
 #[cfg(test)]
 #[path = "native_bind_pose/snow_golem_tests.rs"]
 mod snow_golem_tests;
+#[cfg(test)]
+#[path = "native_bind_pose/villager_tests.rs"]
+mod villager_tests;
 
 const POLAR_BEAR_PATH: &str = "models/entity/polar_bear.geo.json";
 const POLAR_BEAR_GEOMETRY: &str = "geometry.polarbear";
@@ -28,6 +31,8 @@ const OCELOT_PATH: &str = "models/entity/ocelot.geo.json";
 const OCELOT_GEOMETRY: &str = "geometry.ocelot.v1.8";
 const SNOW_GOLEM_PATH: &str = "models/entity/snow_golem.geo.json";
 const SNOW_GOLEM_GEOMETRY: &str = "geometry.snowgolem.v1.8";
+const VILLAGER_PATH: &str = "models/entity/villager_v2.geo.json";
+const VILLAGER_GEOMETRY: &str = "geometry.villager_v2";
 // Canonical pinned sample source, not a blanket default for similarly named custom models.
 const SAMPLE_SHA256: [u8; 32] = [
     0x54, 0x11, 0xea, 0x78, 0xae, 0x01, 0xce, 0x1f, 0xa1, 0xbe, 0x30, 0xa5, 0x18, 0x59, 0xe5, 0x1e,
@@ -53,6 +58,10 @@ const SNOW_GOLEM_SAMPLE_SHA256: [u8; 32] = [
     0x0d, 0x01, 0x46, 0xdd, 0x81, 0xf5, 0x5e, 0xeb, 0xfc, 0x67, 0xdf, 0x09, 0xe6, 0x98, 0x24, 0xd3,
     0x45, 0xe8, 0x2b, 0x95, 0xfe, 0x84, 0xbb, 0x41, 0x9f, 0xce, 0xca, 0x6c, 0x6a, 0x23, 0x05, 0x0c,
 ];
+const VILLAGER_SAMPLE_SHA256: [u8; 32] = [
+    0x33, 0x27, 0x1d, 0xb5, 0xb8, 0x7d, 0x3b, 0xe5, 0x65, 0x6f, 0xad, 0x93, 0xd0, 0x8f, 0x41, 0x75,
+    0xbc, 0xa9, 0xaf, 0xc1, 0x69, 0x2e, 0x91, 0x88, 0x54, 0x45, 0xb0, 0xc8, 0x56, 0xb4, 0x6d, 0xcb,
+];
 /// Cube names and the X/Y/Z bind rotation each keeps.
 type CubeBinds = &'static [(&'static str, [f32; 3])];
 // Repaired body cubes retain a +90-degree X bind independently of bone rotation.
@@ -64,6 +73,9 @@ const FOX_BINDS: CubeBinds = &[
     ("tail", [80.0, 0.0, 0.0]),
 ];
 const BODY_BINDS: CubeBinds = &[("body", NATIVE_BODY_BIND_ROTATION)];
+// The matching zombie-villager brim serializes this bind. Its use for the pinned
+// villager omission is provisional until the native villager default is verified.
+const VILLAGER_BINDS: CubeBinds = &[("brim", [-90.0, 0.0, 0.0])];
 // Adult cat and ocelot body and tail cubes lie along Z; the baby model has its own defaults.
 const FELINE_BINDS: CubeBinds = &[
     ("body", NATIVE_BODY_BIND_ROTATION),
@@ -72,7 +84,7 @@ const FELINE_BINDS: CubeBinds = &[
 ];
 // Shipped 1.26.60.4 cube binds omitted by the pinned modern snow-golem sample.
 const SNOW_GOLEM_BINDS: CubeBinds = &[("arm1", [0.0, 0.0, 57.3]), ("arm2", [0.0, 180.0, -57.3])];
-// Sample path, geometry, source digest and the cube binds its older shipped definition retains.
+// Sample path, geometry, source digest and the retained cube binds.
 const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
     (
         POLAR_BEAR_PATH,
@@ -94,6 +106,12 @@ const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
         SNOW_GOLEM_GEOMETRY,
         SNOW_GOLEM_SAMPLE_SHA256,
         SNOW_GOLEM_BINDS,
+    ),
+    (
+        VILLAGER_PATH,
+        VILLAGER_GEOMETRY,
+        VILLAGER_SAMPLE_SHA256,
+        VILLAGER_BINDS,
     ),
 ];
 

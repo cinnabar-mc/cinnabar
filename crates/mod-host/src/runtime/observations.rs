@@ -43,6 +43,13 @@ impl Instance {
                     .all(|pair| pair[0].sequence < pair[1].sequence),
             "invalid chat observation"
         );
+        if self
+            .continuation
+            .as_ref()
+            .is_some_and(|call| call.observed_world != world.as_ref().map(|world| world.session))
+        {
+            self.cancel_continuation();
+        }
         let state = self.store.data_mut();
         if state.world_output_available() {
             self.world_entry

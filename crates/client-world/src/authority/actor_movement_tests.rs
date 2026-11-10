@@ -99,6 +99,74 @@ fn forced_actor_move_interpolates_below_half_a_block_and_snaps_at_the_boundary()
 }
 
 #[test]
+fn minecart_late_base_preserves_spawn_origin_and_half_block_teleport_boundary() {
+    for late in [false, true] {
+        let mut authority = authority(false, true);
+        let registry = || {
+            WorldEvent::Actor(ActorEvent::Identifiers(protocol::ActorIdentifierRegistry {
+                entries: Arc::from([protocol::ActorIdentifier {
+                    identifier: "fixture:cart".into(),
+                    base_identifier: "minecraft:hopper_minecart".into(),
+                }]),
+                skipped: 0,
+            }))
+        };
+        if !late {
+            authority.apply_ordered_event(registry(), Some(2)).unwrap();
+        }
+        authority
+            .apply_ordered_event(
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                    runtime_id: 2,
+                    kind: ActorKind::Entity {
+                        identifier: "fixture:cart".into(),
+                    },
+                    position: [0.0, -32.0, 0.0],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    held_item: Default::default(),
+                    metadata: [].into(),
+                    attributes: [].into(),
+                    properties: [].into(),
+                    links: [].into(),
+                })),
+                Some(if late { 2 } else { 3 }),
+            )
+            .unwrap();
+        if late {
+            authority.apply_ordered_event(registry(), Some(3)).unwrap();
+        }
+        let actor = authority.actor(2).unwrap();
+        assert_eq!(
+            actor.native_position()[1].to_bits(),
+            (-32.0_f32).to_bits(),
+            "late {late}"
+        );
+        assert_eq!(
+            actor.last_received_native_position()[1].to_bits(),
+            (-32.0_f32).to_bits()
+        );
+        let mut movement = movement(None, true);
+        movement.position[1] = Some(-31.5);
+        authority
+            .apply_ordered_event(WorldEvent::Actor(ActorEvent::Move(movement)), Some(4))
+            .unwrap();
+        let actor = authority.actor(2).unwrap();
+        assert!(
+            actor.teleported,
+            "half-block movement must snap, late {late}"
+        );
+        assert_eq!(actor.interpolation_ticks_remaining, 0);
+        assert_eq!(actor.native_position()[1].to_bits(), (-31.5_f32).to_bits());
+    }
+}
+
+#[test]
 fn ordinary_moves_snap_only_when_the_target_column_is_absent() {
     for loaded in [false, true] {
         let mut authority = authority(false, loaded);

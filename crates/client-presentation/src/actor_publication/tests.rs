@@ -1061,6 +1061,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
     };
     let input = crate::presentation::equipment::ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,

@@ -42,9 +42,18 @@ impl MenuRuntime {
             && self.settings.slider_selected.is_none()
             && self.settings.key_remap.is_none()
             && self.settings.dropdown.is_none()
-            && !self.settings.scale_picker
         {
             self.activate(launcher::menu::MenuAction::ClearSettingsSearch);
+            return;
+        }
+        if self.screen == launcher::menu::MenuScreen::Settings
+            && self.settings.section == launcher::menu::settings_storage::SECTION_INDEX
+            && self.dialog.is_none()
+            && !self.storage_query.as_str().is_empty()
+        {
+            self.activate(launcher::menu::MenuAction::SettingsStorage(
+                launcher::menu::settings_storage::StorageAction::ClearSearch,
+            ));
             return;
         }
         if self.clear_settings_slider_selection() {
@@ -73,6 +82,23 @@ mod tests {
     use bevy::prelude::*;
     use launcher::menu::{MenuAction, MenuScreen};
 
+    #[test]
+    fn escape_clears_pack_search_and_leaving_settings_resets_it() {
+        use launcher::menu::{MenuAction, MenuField, MenuScreen, settings_storage::StorageAction};
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.settings.section = launcher::menu::settings_storage::SECTION_INDEX;
+        menu.activate(MenuAction::SettingsStorage(StorageAction::Search));
+        menu.edit_text("islands");
+        assert_eq!(menu.view().storage_query, "islands");
+        assert_eq!(menu.view().field, Some(MenuField::StorageQuery));
+        menu.go_back_from_input();
+        assert_eq!(menu.view().screen, MenuScreen::Settings);
+        assert!(menu.view().storage_query.is_empty());
+        menu.edit_text("harbor");
+        menu.activate(MenuAction::AddBack);
+        assert!(menu.view().storage_query.is_empty());
+    }
     #[test]
     fn escape_clears_search_before_leaving_settings_and_reopening_starts_empty() {
         let mut menu = MenuRuntime::new(true, 2, "Player".into());
@@ -172,6 +198,49 @@ mod tests {
         );
         app.update();
         assert!(app.world().resource::<MenuRuntime>().is_visible());
+    }
+
+    #[test]
+    fn chat_settings_back_consumes_same_frame_enter_without_reopening_home() {
+        use bevy::input::keyboard::{Key, NativeKey};
+        use client_state::CursorFocus;
+
+        for enter in [KeyCode::Enter, KeyCode::NumpadEnter] {
+            let mut menu = MenuRuntime::new(false, 2, "Player".into());
+            menu.open_chat_settings();
+            let mut app = harness(menu);
+            let window = app
+                .world_mut()
+                .query_filtered::<Entity, With<PrimaryWindow>>()
+                .single(app.world())
+                .unwrap();
+            let mut focus = CursorFocus::default();
+            focus.begin_frame(false);
+            focus.begin_frame(true);
+            focus.record_activation(true);
+            app.insert_resource(focus);
+            for key_code in [KeyCode::Escape, enter] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: Key::Unidentified(NativeKey::Unidentified),
+                    state: ButtonState::Pressed,
+                    text: None,
+                    repeat: false,
+                    window,
+                });
+            }
+            app.update();
+            assert!(!app.world().resource::<MenuRuntime>().is_visible());
+            assert!(app.world().resource::<CursorFocus>().capture_allowed());
+
+            app.world_mut().resource_mut::<MenuRuntime>().open_pause();
+            app.update();
+            assert_eq!(
+                app.world().resource::<MenuRuntime>().scene(),
+                Some(MenuScreen::Pause),
+                "the consumed Enter must not activate Resume on the next frame"
+            );
+        }
     }
 
     /// Runs production menu input with an original font fixture and a focused window.

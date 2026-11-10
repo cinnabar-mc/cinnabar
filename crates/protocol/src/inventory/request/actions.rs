@@ -50,9 +50,11 @@ pub enum StackRequestContainer {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct StackRequestSlot {
     pub container: StackRequestContainer,
-    pub slot: u8,
+    /// The container's cell. The wire carries only its low byte, as native's request slot does,
+    /// and the stack network ID still identifies the item.
+    pub slot: u16,
     /// A positive server id, `0` for an empty cell, or a negative odd request
-    /// id naming a prior prediction (including empty cells) or created output.
+    /// id naming a prediction (including a preceding action in this request) or created output.
     pub stack_network_id: i32,
 }
 
@@ -151,6 +153,42 @@ pub enum StackRequestAction {
         results: Arc<[CraftResult]>,
         crafts: u8,
     },
+}
+
+impl StackRequestAction {
+    /// Explicit cells a transfer, swap, drop or destroy changes before the next action.
+    /// Crafting consumption and generated outputs follow their separate recipe contracts.
+    pub fn updated_slots(&self) -> impl Iterator<Item = StackRequestSlot> {
+        let (first, second) = match self {
+            Self::Take {
+                source,
+                destination,
+                ..
+            }
+            | Self::Place {
+                source,
+                destination,
+                ..
+            }
+            | Self::Swap {
+                source,
+                destination,
+            } => (Some(*source), Some(*destination)),
+            Self::Drop { source, .. } | Self::Destroy { source, .. } => (Some(*source), None),
+            Self::Consume { .. }
+            | Self::Create { .. }
+            | Self::BeaconPayment { .. }
+            | Self::MineBlock { .. }
+            | Self::CraftRecipe { .. }
+            | Self::AutoCraft { .. }
+            | Self::CraftCreative { .. }
+            | Self::CraftRecipeOptional { .. }
+            | Self::Grindstone { .. }
+            | Self::Loom { .. }
+            | Self::CraftResultsDeprecated { .. } => (None, None),
+        };
+        first.into_iter().chain(second)
+    }
 }
 
 /// Largest count one stack-request action moves: the codec's bound, which a test pins to the
@@ -350,40 +388,44 @@ fn item_descriptor(descriptor: &StackItemDescriptor) -> ItemDescriptor {
 }
 
 /// Encodes one slot with the container name and wire index vanilla uses.
-fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketError> {
+pub(super) fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketError> {
     use StackRequestContainer as C;
     let invalid = InventoryPacketError::InvalidStackRequestSlot {
         container: slot.container,
         slot: slot.slot,
     };
+    let low_byte = slot.slot as u8;
+    // Only a container sized by the server has cells past the one-byte range.
+    let fixed = u8::try_from(slot.slot).ok();
+    let in_range = |limit: u8| fixed.is_some_and(|fixed| fixed < limit);
     let (container_name, wire_slot, dynamic_id) = match slot.container {
-        C::PlayerInventory if slot.slot < crate::HOTBAR_SLOT_COUNT => {
-            (Name::HotbarContainer, slot.slot, None)
+        C::PlayerInventory if in_range(crate::HOTBAR_SLOT_COUNT) => {
+            (Name::HotbarContainer, low_byte, None)
         }
-        C::PlayerInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
-            (Name::InventoryContainer, slot.slot, None)
+        C::PlayerInventory if in_range(PLAYER_INVENTORY_SLOTS) => {
+            (Name::InventoryContainer, low_byte, None)
         }
-        C::CombinedInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
-            (Name::CombinedHotbarAndInventoryContainer, slot.slot, None)
+        C::CombinedInventory if in_range(PLAYER_INVENTORY_SLOTS) => {
+            (Name::CombinedHotbarAndInventoryContainer, low_byte, None)
         }
         C::Cursor if slot.slot == 0 => (Name::CursorContainer, 0, None),
-        C::Armor if slot.slot < ARMOR_SLOTS => (Name::ArmorContainer, slot.slot, None),
-        C::Offhand if matches!(slot.slot, 0 | OFFHAND_WIRE_SLOT) => {
+        C::Armor if in_range(ARMOR_SLOTS) => (Name::ArmorContainer, low_byte, None),
+        C::Offhand if matches!(fixed, Some(0 | OFFHAND_WIRE_SLOT)) => {
             (Name::OffhandContainer, OFFHAND_WIRE_SLOT, None)
         }
-        C::CraftingInput if CRAFTING_INPUT_SLOTS.contains(&slot.slot) => {
-            (Name::CraftingInputContainer, slot.slot, None)
+        C::CraftingInput if fixed.is_some_and(|fixed| CRAFTING_INPUT_SLOTS.contains(&fixed)) => {
+            (Name::CraftingInputContainer, low_byte, None)
         }
-        C::CreatedOutput if slot.slot == CREATED_OUTPUT_SLOT => {
-            (Name::CreatedOutputContainer, slot.slot, None)
+        C::CreatedOutput if fixed == Some(CREATED_OUTPUT_SLOT) => {
+            (Name::CreatedOutputContainer, low_byte, None)
         }
-        C::LevelEntity { dynamic_id } => (Name::LevelEntityContainer, slot.slot, dynamic_id),
+        C::LevelEntity { dynamic_id } => (Name::LevelEntityContainer, low_byte, dynamic_id),
         C::OpenWindow { name, dynamic_id }
             if container_window(name) == Some(ContainerWindow::Open) =>
         {
             (
                 open_window_name(name).ok_or(invalid.clone())?,
-                slot.slot,
+                low_byte,
                 dynamic_id,
             )
         }
@@ -447,12 +489,21 @@ mod tests {
                 info.full_container_name.container_name,
                 Name::CombinedHotbarAndInventoryContainer
             );
-            assert_eq!(info.slot.0, cell);
+            assert_eq!(u16::from(info.slot.0), cell);
         }
         assert!(slot(at(StackRequestContainer::CombinedInventory, 36, 7)).is_err());
     }
 
-    fn at(container: StackRequestContainer, slot: u8, id: i32) -> StackRequestSlot {
+    #[test]
+    fn storage_cells_past_one_byte_send_their_low_byte() {
+        let storage = StackRequestContainer::LevelEntity { dynamic_id: None };
+        for (cell, wire) in [(255, 255), (256, 0), (300, 44), (508, 252)] {
+            assert_eq!(slot(at(storage, cell, 7)).unwrap().slot.0, wire, "{cell}");
+        }
+        assert!(slot(at(StackRequestContainer::PlayerInventory, 256, 7)).is_err());
+    }
+
+    fn at(container: StackRequestContainer, slot: u16, id: i32) -> StackRequestSlot {
         StackRequestSlot {
             container,
             slot,

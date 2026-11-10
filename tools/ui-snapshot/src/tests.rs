@@ -263,3 +263,29 @@ fn named_cursor_capture_uses_the_requested_resource_pack() {
         "the pack's solid cursor replaces the built-in plus"
     );
 }
+
+#[test]
+fn coverage_font_expansion_does_not_consume_extra_fixed_texture_capacity() {
+    let font = ui_engine::test_support::fixture_font()
+        .as_ref()
+        .clone()
+        .with_coverage_pages();
+    let mut pages: Vec<_> = font
+        .pages()
+        .iter()
+        .map(|page| jsonui_editor::raster::Page {
+            repeat_content: None,
+            width: page.width,
+            height: page.height,
+            rgba: vec![255; page.width as usize * page.height as usize * 4].into(),
+        })
+        .collect();
+    pages.push(jsonui_editor::raster::Page::white());
+    let font_bytes = font
+        .pages()
+        .iter()
+        .map(|page| page.pixels.bytes().len())
+        .sum::<usize>();
+    assert!(pages.iter().map(|page| page.rgba.len()).sum::<usize>() > font_bytes + 4);
+    assert_eq!(carriers::fixed_texture_bytes(&font, &pages), font_bytes + 4);
+}

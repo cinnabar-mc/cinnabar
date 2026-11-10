@@ -23,11 +23,13 @@ pub(super) struct ClipOutputs<'a> {
 /// Compiles one clip for one geometry; returns its index and how many channels were dropped
 /// because an axis expression is outside the reviewed Molang surface. Bones the geometry lacks
 /// are skipped, as vanilla binds animations to each model by bone name, but still set the length.
+/// A skin-modelled geometry instead keeps them bound by name: a player's skin replaces that
+/// model at runtime and may define the bones itself.
 pub(super) fn compile_clip_for_geometry(
     symbol: u32,
     source: u32,
     definition: &Map<String, Value>,
-    (geometry, effective_bones): (Option<u32>, &[Box<str>]),
+    (geometry, effective_bones, skin_modelled): (Option<u32>, &[Box<str>], bool),
     outputs: ClipOutputs<'_>,
 ) -> Result<(u32, usize), ClipCompileError> {
     let ClipOutputs {
@@ -103,15 +105,18 @@ pub(super) fn compile_clip_for_geometry(
                         return Err(ClipCompileError::Invalid(error));
                     }
                 }
-                let Some(bone_index) = bone_index else {
-                    molang.rollback(mark);
-                    local_keyframes.truncate(first_keyframe as usize);
-                    continue;
+                // The index of a name-bound skin bone is never read; the first bone keeps it valid.
+                let (bone_index, name_bound) = match bone_index {
+                    Some(index) => (index, geometry.is_none()),
+                    None if skin_modelled && !effective_bones.is_empty() => (0, true),
+                    None => {
+                        molang.rollback(mark);
+                        local_keyframes.truncate(first_keyframe as usize);
+                        continue;
+                    }
                 };
                 local_channels.push(EntityAnimationChannel {
-                    bone_name: geometry
-                        .is_none()
-                        .then(|| bone_name.to_ascii_lowercase().into()),
+                    bone_name: name_bound.then(|| bone_name.to_ascii_lowercase().into()),
                     bone: bone_index,
                     property,
                     first_keyframe,
@@ -218,11 +223,13 @@ fn parse_channel(
     let timeline = value
         .as_object()
         .ok_or_else(|| invalid("animation channel must be a vector or timeline"))?;
-    for (time, value) in timeline {
-        let time = time
-            .parse::<f32>()
-            .map_err(|_| invalid("malformed animation keyframe time"))?;
-        if !time.is_finite() || time < 0.0 {
+    let first = output.len();
+    for (key, value) in timeline {
+        // Native ignores a key that is not a plain decimal time, such as a `vector` wrapper.
+        let Some(time) = timeline_key_time(key) else {
+            continue;
+        };
+        if !time.is_finite() {
             return Err(invalid("invalid animation keyframe time").into());
         }
         *maximum_time = maximum_time.max(time);
@@ -259,7 +266,26 @@ fn parse_channel(
             });
         }
     }
+    // Every key was ignored, so the channel animates nothing.
+    if output.len() == first && !timeline.is_empty() {
+        return Err(ChannelError::Unsupported);
+    }
+    // Keys arrive in text order ("10" before "2"); sampling needs time order. The sort is
+    // stable, so a keyframe's pre value stays ahead of its post value.
+    output[first..]
+        .sort_by(|left, right| left.time_seconds.get().total_cmp(&right.time_seconds.get()));
     Ok(())
+}
+
+/// The time of a timeline key native accepts: one or more ASCII digits, optionally followed by
+/// `.` and one or more digits. `None` for any other key, which native ignores.
+fn timeline_key_time(key: &str) -> Option<f32> {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let plain = match key.split_once('.') {
+        Some((whole, fraction)) => digits(whole) && digits(fraction),
+        None => digits(key),
+    };
+    plain.then(|| key.parse().ok()).flatten()
 }
 
 pub(super) fn looks_like_expression(value: &str) -> bool {

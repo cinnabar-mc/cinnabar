@@ -35,7 +35,10 @@ pub(super) fn hud_model(
             id_aux: stack.map(|stack| facts.id_aux(stack)),
             count: stack.map_or(0, |stack| u32::from(stack.count)),
             selected,
-            durability: stack.and(durability).map(f64::from),
+            durability: stack
+                .and(durability)
+                .filter(|_| mode != Some(protocol::PlayerGameMode::Creative))
+                .map(f64::from),
         }
     };
     let hotbar = (0..9)
@@ -99,7 +102,7 @@ pub(super) fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: bounded_visible_text(text.as_ref()).to_owned(),
+                text: text.into_owned(),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
@@ -107,6 +110,10 @@ pub(super) fn hud_model(
         .collect();
     let now_tick = runtime.estimated_server_tick(now);
     let (player_position, days_played) = world_text_lines(runtime, frame);
+    let locator = mode_allows_hotbar
+        && frame.mount_jump.is_none()
+        && frame.locator_view.is_some()
+        && runtime.session.locator.visible(frame.dimension, now);
     HudModel {
         survival_ui: survival,
         armor_visible: runtime
@@ -115,7 +122,8 @@ pub(super) fn hud_model(
             .is_some_and(|armor| armor.current() > 0),
         hotbar_visible: mode_allows_hotbar && selected.is_some(),
         touch_inventory: false,
-        xp_bar: survival && experience.is_some() && frame.mount_jump.is_none(),
+        xp_bar: survival && experience.is_some() && frame.mount_jump.is_none() && !locator,
+        locator_bar: locator,
         exp_progress: experience.map_or(0.0, |xp| f64::from(xp.progress)),
         level: experience.map_or(0, |xp| xp.level),
         hotbar,
@@ -140,7 +148,11 @@ pub(super) fn hud_model(
         subtitle_text: Some(
             bounded_text(runtime.hud().subtitle_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
         ),
-        actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        actionbar: runtime.hud().actionbar_request().map(timed),
+        actionbar_creation_id: runtime
+            .hud()
+            .actionbar_request()
+            .map(|text| text.fifo_sequence),
         tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,
@@ -148,6 +160,7 @@ pub(super) fn hud_model(
         chat_color: ui_screens::settings_chat::default_color(settings),
         chat_mention_color: Some(settings.mentions_color_code()),
         chat_local_player: Arc::clone(&runtime.session.local_player_display_name),
+        chat_mentions_only_self: settings.mentions_only_self(),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         chat_text: ui_screens::settings_chat::chat_text(settings),

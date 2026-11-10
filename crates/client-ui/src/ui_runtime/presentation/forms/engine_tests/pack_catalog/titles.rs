@@ -301,10 +301,8 @@ fn subtitle_bindings_keep_fields_beyond_the_visible_label_limit() {
 }
 
 #[test]
-fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
-    if vanilla("subtitle_binding_survives_the_native_title_fade_and_works_without_a_title")
-        .is_none()
-    {
+fn subtitle_binding_survives_the_native_title_fade_and_waits_for_a_title() {
+    if vanilla("subtitle_binding_survives_the_native_title_fade_and_waits_for_a_title").is_none() {
         return;
     }
     let pack = layer(br##"{
@@ -345,9 +343,12 @@ fn subtitle_binding_survives_the_native_title_fade_and_works_without_a_title() {
             )
             .unwrap();
         let texts = pack_harness::drawn_texts(&presentation.last_frame.as_ref().unwrap().nodes);
-        assert!(
+        // Vanilla binds the shown title's subtitle: it outlives the fade, but a subtitle sent
+        // before any title waits for one.
+        assert_eq!(
             texts.contains(&"Retained overlay".to_owned()),
-            "subtitle input disappeared: {texts:?}"
+            with_title,
+            "subtitle binding: {texts:?}"
         );
         assert!(
             !texts.contains(&"Transient title".to_owned()),

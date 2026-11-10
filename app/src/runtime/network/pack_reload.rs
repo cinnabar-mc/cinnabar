@@ -491,6 +491,31 @@ pub(crate) fn reload_resource_packs(
                 {
                     gpu.cancel_except(current.binding_identity());
                 }
+                let art_changed = reload.previous.as_ref().is_none_or(|old| {
+                    !same_optional(
+                        &old.block_entity_art,
+                        &prepared.application.block_entity_art,
+                    )
+                });
+                if art_changed
+                    && let (Some(scene), Some(art)) = (
+                        block_entity_scene.as_mut(),
+                        prepared.application.block_entity_art.as_ref(),
+                    )
+                    && !scene.reload_prepared_assets(art)
+                {
+                    reload.geometry = Default::default();
+                    if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref()) {
+                        gpu.cancel_except(current.binding_identity());
+                    }
+                    reload.error = Some(
+                        "Block-entity artwork cannot fit cached canvases and sign capacity"
+                            .to_owned(),
+                    );
+                    reload.applied = reload.revision;
+                    reload.loading_screen_requested = false;
+                    return;
+                }
                 if let Some(gpu) = gpu_reload.as_ref()
                     && reload.geometry.publish(&mut chunks, gpu)
                     && textures.as_ref().is_some_and(|current| {
@@ -514,12 +539,6 @@ pub(crate) fn reload_resource_packs(
                             &prepared.application.item_components,
                         )
                 });
-                let art_changed = reload.previous.as_ref().is_none_or(|old| {
-                    !same_optional(
-                        &old.block_entity_art,
-                        &prepared.application.block_entity_art,
-                    )
-                });
                 reload.aim_assist_textures = prepared.application.aim_assist_textures.clone();
                 reload.replace_previous(Some(prepared.application.clone()));
                 reload.previous_assets = Some(prepared.assets.clone());
@@ -530,12 +549,6 @@ pub(crate) fn reload_resource_packs(
                 let terrain_identity_changed =
                     world.terrain_resource_identity != packs.terrain_identity;
                 world.terrain_resource_identity = packs.terrain_identity;
-                if art_changed
-                    && let (Some(scene), Some(art)) =
-                        (block_entity_scene.as_mut(), packs.block_entity_art.as_ref())
-                {
-                    scene.reload_prepared_assets(art);
-                }
                 if let (Some(current), Some(next)) =
                     (entity_artwork.as_mut(), packs.entity_artwork.as_ref())
                     && current.identity() != next.identity()

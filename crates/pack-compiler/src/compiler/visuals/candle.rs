@@ -33,7 +33,7 @@ pub(in crate::compiler) fn descriptor(
     record: &RegistryRecord,
     lit: bool,
 ) -> Option<(Descriptor, Box<str>)> {
-    let TextureKey { key, rotate_uv } =
+    let TextureKey { key, uv_rotation } =
         resolve_texture_key(&pack.blocks, record, assets::BlockFace::Down);
     let key = key?;
     let (path, state_variant) = pack
@@ -45,12 +45,7 @@ pub(in crate::compiler) fn descriptor(
             texture_key: key.clone(),
             state_variant,
             flipbook_selector: None,
-            flags: MATERIAL_FLAG_ALPHA_CUTOUT
-                | if rotate_uv {
-                    MATERIAL_FLAG_ROTATE_UV
-                } else {
-                    0
-                },
+            flags: MATERIAL_FLAG_ALPHA_CUTOUT | uv_rotation,
         },
         key,
     ))

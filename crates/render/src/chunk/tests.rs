@@ -90,7 +90,7 @@ pub(super) fn opaque_runtime_assets() -> &'static Arc<RuntimeAssets> {
                         rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                     })
                     .collect::<Vec<_>>()
-                    .into_boxed_slice(),
+                    .into(),
             })]
             .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),
@@ -195,6 +195,8 @@ mod gpu_queue;
 mod gpu_queue_biomes;
 #[path = "gpu/session_tests.rs"]
 mod gpu_session;
+#[path = "transparent/liquid_evidence_tests.rs"]
+mod liquid_draw_evidence;
 #[path = "presentation/tests.rs"]
 mod presentation;
 #[path = "presentation/command_tests.rs"]

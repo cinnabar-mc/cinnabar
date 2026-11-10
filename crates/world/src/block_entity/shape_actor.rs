@@ -1,5 +1,6 @@
 //! Actor inputs decoded once, before collision and interaction queries.
 
+use super::PistonMotion;
 use crate::block_state_identity::{StateValue, state_identity};
 use crate::{BlockEntityNbt, NbtValue};
 
@@ -11,9 +12,8 @@ mod tests;
 pub enum ShapeActor {
     #[default]
     None,
-    Piston {
-        progress_bits: u32,
-    },
+    /// A piston's arm actor: the client motion its reported `State` drives.
+    Piston { motion: PistonMotion },
     Moving {
         state_identity: [u8; 32],
         piston: [i32; 3],
@@ -31,16 +31,14 @@ impl ShapeActor {
             return Self::None;
         };
         if nbt.id() == Some("PistonArm") {
-            let progress = match root.get("Progress") {
-                Some(NbtValue::Float(value)) => *value,
-                _ => 0.0,
+            // A client reads only the state (`PistonBlockActor::load`); a missing or mistyped
+            // byte loads as retracted.
+            let state = match root.get("State") {
+                Some(NbtValue::Byte(value)) => value.to_le_bytes()[0],
+                _ => 0,
             };
-            return if progress.is_finite() && (0.0..=1.0).contains(&progress) {
-                Self::Piston {
-                    progress_bits: progress.to_bits(),
-                }
-            } else {
-                Self::None
+            return Self::Piston {
+                motion: PistonMotion::reported_state(state),
             };
         }
         let Some(block) = root.compound("movingBlock") else {

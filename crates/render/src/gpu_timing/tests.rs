@@ -59,6 +59,50 @@ fn shaderpack_owned_pass_queries_follow_frame_detail() {
     }
 }
 
+thread_local! {
+    /// Timestamp-only marker passes recorded on this thread.
+    pub(super) static MARKER_PASSES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// With encoder timestamps the whole-frame bracket records no timestamp-only pass and still
+/// reads back as complete whole-frame evidence; without them it falls back to two marker passes.
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn encoder_timestamps_bracket_the_frame_without_marker_passes() {
+    for (features, marker_passes) in [
+        (wgpu::Features::empty(), 2),
+        (wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS, 0),
+    ] {
+        let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY | features);
+        let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
+        timestamps.begin(1, |_, _, _| unreachable!("no readback yet"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        world.insert_resource(device.clone());
+        world.init_resource::<PendingCommandBuffers>();
+        MARKER_PASSES.with(|passes| passes.set(0));
+        world.run_system_once(begin_coarse_graph).unwrap();
+        world.run_system_once(encode_readback).unwrap();
+        assert_eq!(MARKER_PASSES.with(std::cell::Cell::get), marker_passes);
+        queue.submit(
+            world
+                .resource_mut::<PendingCommandBuffers>()
+                .finish()
+                .collect::<Vec<_>>(),
+        );
+        let mut timestamps = world.remove_resource::<GpuTimestamps>().unwrap();
+        timestamps.request_readback(&queue);
+        complete_readback(&mut timestamps, &device, &queue);
+        let mut whole_frames = 0;
+        timestamps.begin(2, |id, _, whole_frame| {
+            assert_eq!(id, 1);
+            assert!(whole_frame);
+            whole_frames += 1;
+        });
+        assert_eq!(whole_frames, 1);
+    }
+}
+
 /// Creates a validation device with the requested timestamp capabilities.
 pub(crate) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
@@ -776,8 +820,18 @@ fn readback_includes_every_camera_in_submission_order() {
                 .resource::<GpuTimestamps>()
                 .open_pass(stage.into_inner().0)
                 .unwrap();
-            mark(context.command_encoder(), span.queries, span.begin);
-            mark(context.command_encoder(), span.queries, span.begin + 1);
+            mark(
+                context.command_encoder(),
+                span.queries,
+                span.begin,
+                span.in_encoder,
+            );
+            mark(
+                context.command_encoder(),
+                span.queries,
+                span.begin + 1,
+                span.in_encoder,
+            );
         },
     );
     world.add_schedule(views);

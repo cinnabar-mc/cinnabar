@@ -267,6 +267,12 @@ fn resolver_title_object_actions_present_degraded_components_without_json() {
                 .unwrap(),
             UiApplyOutcome::Applied
         );
+        // A subtitle waits for the title it is shown with.
+        if action == TitleAction::SetSubtitleJson {
+            runtime
+                .apply(&mut player_runtime, envelope(1, 2, title("Shown title")))
+                .unwrap();
+        }
         let presented = read(&runtime).expect("resolved title text is presented");
         assert_eq!(presented.as_ref(), "partial key");
         assert!(!presented.contains('{'));

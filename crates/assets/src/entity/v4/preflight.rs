@@ -8,13 +8,12 @@ use super::super::{
     MAX_GEOMETRY_LOCATORS,
 };
 use super::{
-    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
-    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
+    MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
     MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
-    MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS,
-    MAX_ENTITY_RIG_GEOMETRIES, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
-    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_OPS,
+    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
+    MAX_MOLANG_OPS,
 };
 
 #[derive(Deserialize)]
@@ -317,9 +316,9 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         (counts.sources.0, MAX_ENTITY_ASSET_SOURCES),
         (counts.symbols.0, MAX_ENTITY_ASSET_SYMBOLS),
         (counts.seat_layouts.0, MAX_ENTITY_ASSET_SYMBOLS),
-        (counts.animation_clips.0, MAX_ENTITY_ANIMATION_CLIPS),
-        (counts.animation_channels.0, MAX_ENTITY_ANIMATION_CHANNELS),
-        (counts.animation_keyframes.0, MAX_ENTITY_ANIMATION_KEYFRAMES),
+        (counts.animation_clips.0, MAX_ENTITY_ANIMATION_ENTRIES),
+        (counts.animation_channels.0, MAX_ENTITY_ANIMATION_ENTRIES),
+        (counts.animation_keyframes.0, MAX_ENTITY_ANIMATION_ENTRIES),
         (counts.molang_symbols.0, MAX_MOLANG_EXPRESSIONS),
         (counts.molang_expressions.0, MAX_MOLANG_EXPRESSIONS),
         (counts.molang_ops.0, MAX_MOLANG_OPS),
@@ -340,7 +339,7 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         ),
         (counts.rig_bindings.0, MAX_ENTITY_RIG_BINDINGS),
         (counts.rig_geometries.0, MAX_ENTITY_RIG_GEOMETRIES),
-        (counts.rig_animations.0, MAX_ENTITY_RIG_ANIMATIONS),
+        (counts.rig_animations.0, MAX_ENTITY_ANIMATION_ENTRIES),
         (counts.rig_controllers.0, MAX_ENTITY_RIG_CONTROLLERS),
         (counts.render.layers.0, MAX_ENTITY_RENDER_LAYERS),
         (counts.render.slots.0, MAX_ENTITY_RENDER_SLOTS),

@@ -43,7 +43,7 @@ impl<'a> AuthoredPbr<'a> {
         mer_pages: [&'a TextureArray; 2],
         words: &[u32],
     ) -> Self {
-        use render_scene::EnhancedTextureAssets;
+        use assets::texture::EnhancedTextureAssets;
 
         let (carrier, overrides) =
             words.split_at(words.len().min(EnhancedTextureAssets::REFERENCE_BASE_WORDS));

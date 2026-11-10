@@ -3,6 +3,9 @@
 use super::{layout::SettingPanel, reset::SettingsGroup};
 use assets::audio_category::AudioCategory;
 
+/// Help text shared by the native and JSON-UI Video settings rows.
+pub const DYNAMIC_LIGHTS_DESCRIPTION: &str = "Adds smooth client-side light from nearby players holding light-emitting items and from dropped light-emitting items. Existing block and sky lighting stay unchanged.";
+
 #[derive(Clone, Copy, Debug)]
 pub struct SettingChoice {
     pub name: &'static str,
@@ -363,6 +366,8 @@ settings! {
         [(SettingPanel::Keyboard, 4)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
+    CinnabarChatInput => "cinnabar_chat_input", dropdown("Chat Input", super::chat::CHAT_INPUTS, 0),
+        [(SettingPanel::VideoGeneral, 3), (SettingPanel::Chat, 6)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
         [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
@@ -434,9 +439,11 @@ settings! {
     CameraShake => "camera_shake", toggle("options.screenShake", true),
         [(SettingPanel::AccessibilityGameplay, 0), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
-        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoClouds, 2)], [SettingsGroup::Video], None, None;
     RenderClouds => "render_clouds", toggle("options.renderclouds", true),
         [(SettingPanel::VideoClouds, 0)], [SettingsGroup::Video], None, Some("options.renderClouds");
+    CloudDistance => "cloud_distance", slider("options.cloudDistance", 8, 128, 64),
+        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, Some("options.cloudDistance.name");
     FancySkies => "fancy_skies", toggle("options.fancyskies", true),
         [(SettingPanel::VideoGraphics, 8)], [SettingsGroup::Video], None, None;
     SmoothLighting => "smooth_lighting", toggle("options.smooth_lighting", true),
@@ -504,13 +511,15 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 10)], [SettingsGroup::Chat], None, None;
     ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
-        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
+        [(SettingPanel::Chat, 11)], [SettingsGroup::Chat], None, None;
     ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
-        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
-    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
+    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
+    MentionsTarget => "mentions_target", dropdown("chat.settings.mentionsTarget", super::chat::MENTIONS_TARGETS, 0),
+        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
         [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),
@@ -547,13 +556,19 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
         [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+    DynamicLights => "dynamic_lights", toggle("Dynamic Lights", false),
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
-    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+    TouchControlMode => "touch_control_mode", dropdown("options.controlMode.name", super::touch_control_mode::TOUCH_CONTROL_MODE_CHOICES, super::touch_control_mode::DEFAULT_TOUCH_CONTROL_MODE),
         [(SettingPanel::Touch, 0)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 1)], [], None, None;
+    NametagBackgroundOpacity => "nametag_background_opacity", slider("options.nametagBackgroundOpacity", 0, 100, 25),
+        [(SettingPanel::VideoCustomization, 15)], [SettingsGroup::Video], None, None;
 
 }

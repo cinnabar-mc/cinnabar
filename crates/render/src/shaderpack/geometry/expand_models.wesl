@@ -1,5 +1,5 @@
 // Expands placed block-model quads (plants, stairs, slabs, translucent cubes ...) into Iris faces.
-import render::model::{model_quad_at, model_corner_position, model_corner_uv, model_light_sample, model_quad_normal, model_shade_normal, stem_colour};
+import render::model::{model_quad_at, model_corner_position, model_corner_uv, model_light_sample, model_quad_normal, model_shade_normal, stem_colour, patch_coordinate, patch_weight};
 import render::material::materials;
 import render::biome_tint::blended_biome_tint_gamma;
 import render::lighting::{light_ao_factor, material_ambient_occlusion, material_face_shade};
@@ -37,6 +37,17 @@ fn model_face(job: vec4<u32>) -> JobFace {
         samples[corner] = sample;
         corners.light[corner] = vec2(f32(sample & 15u), f32((sample >> 4u) & 15u));
         corners.ao[corner] = material_ambient_occlusion(light_ao_factor((sample >> 8u) & 7u), material.flags);
+        if (quad.surface_patch != 0u) {
+            let point = patch_coordinate(quad, corner);
+            corners.light[corner] = vec2(0.0);
+            corners.ao[corner] = 0.0;
+            for (var source = 0u; source < 4u; source += 1u) {
+                let weight = patch_weight(quad, source, point);
+                let original = model_light_sample(quad, source);
+                corners.light[corner] += weight * vec2(f32(original & 15u), f32((original >> 4u) & 15u));
+                corners.ao[corner] += weight * material_ambient_occlusion(light_ao_factor((original >> 8u) & 7u), material.flags);
+            }
+        }
     }
     // Wrapped template UVs repeat the sprite; an atlas sprite cannot, so shift the quad's
     // rectangle to its first repeat and clamp what extends past it.

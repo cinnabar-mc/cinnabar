@@ -64,6 +64,14 @@ impl cinnabar::extension::input::Host for State {
         controls::reserve(self, keys)
     }
 
+    fn read_scroll(&mut self) -> Result<Result<crate::ScrollFrame, String>> {
+        controls::read_scroll(self)
+    }
+
+    fn reserve_scroll(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
+        controls::reserve_scroll(self, keys)
+    }
+
     /// Reports native editor ownership of this frame's keys under controls authority.
     fn read_native_editing(&mut self) -> Result<Result<bool, String>> {
         self.charge()?;
@@ -72,6 +80,25 @@ impl cinnabar::extension::input::Host for State {
         } else {
             Err("controls permission denied".into())
         })
+    }
+}
+
+impl Instance {
+    pub(crate) fn scroll_capture_keys(&self) -> &[String] {
+        &self.store.data().controls.scroll_keys
+    }
+
+    pub(crate) fn observe_scroll(&mut self, scroll: crate::ScrollFrame) {
+        let allowed = self.is_active()
+            && self.store.data().grants.controls
+            && [scroll.line_x, scroll.line_y, scroll.pixel_x, scroll.pixel_y]
+                .iter()
+                .all(|v| v.is_finite());
+        self.store.data_mut().controls.scroll = if allowed {
+            scroll
+        } else {
+            crate::empty_scroll()
+        };
     }
 }
 
@@ -91,7 +118,12 @@ impl Instance {
             self.is_active(),
             "native text events require an active component"
         );
-        controls::queue_text_events(self.store.data_mut(), events)
+        let changed = !events.is_empty();
+        controls::queue_text_events(self.store.data_mut(), events)?;
+        if changed {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
+        }
+        Ok(())
     }
 }
 
@@ -105,7 +137,20 @@ impl Instance {
             self.is_active(),
             "native field events require an active component"
         );
-        controls::queue_field_events(self.store.data_mut(), events)
+        let changed = !events.is_empty();
+        controls::queue_field_events(self.store.data_mut(), events)?;
+        if changed {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
+        }
+        if self.continuation.is_some() {
+            // Values are current state; submit and navigation keys are expired input edges.
+            self.store
+                .data_mut()
+                .controls
+                .field_events
+                .retain(|event| matches!(event, ui::mod_panel::FieldEvent::Change(_)));
+        }
+        Ok(())
     }
 }
 
@@ -118,6 +163,23 @@ pub(crate) struct PointerState {
     committed: Option<[f32; 2]>,
 }
 impl PointerState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            screen: self.screen.clone(),
+            available: self.available,
+            pending: None,
+            committed: None,
+        }
+    }
+
+    /// Transfers a request only while the native container and pointer owner still agree.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        if self.available && self.screen == transaction.screen {
+            self.pending = transaction.pending;
+        }
+    }
+
     /// Reconciles input ownership before each callback and invalidates departed requests.
     fn observe(&mut self, screen: Option<&str>, available: bool) {
         if self.screen.as_deref() != screen || !available {

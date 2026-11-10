@@ -30,9 +30,12 @@ impl ChunkStore {
             loaded_chunks: self.loaded_chunks.clone(),
             authoritative_sub_chunks: self.authoritative_sub_chunks.clone(),
             collision_revisions: self.collision_revisions.clone(),
+            collision_generation: next_content_revision(),
             collision_revision_allocator: Arc::clone(&self.collision_revision_allocator),
             collision_snapshot: Mutex::default(),
             content_revision: next_content_revision(),
+            simulation_tick: self.simulation_tick,
+            moving_pistons: std::collections::BTreeSet::new(),
         });
         *cached = Arc::downgrade(&snapshot);
         snapshot
