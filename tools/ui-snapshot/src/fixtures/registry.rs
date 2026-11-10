@@ -22,6 +22,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 
 pub(super) const STATES: &[State] = &[
     State {
+        name: "profile-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::profile_loaded,
+    },
+    State {
         name: "chat-incoming-while-scrolled",
         size: SIZE,
         gui_scale: GUI_SCALE,

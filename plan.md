@@ -1291,6 +1291,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Profile banners and the Create World preview use prepared perspective views of the
+  fetched panorama, with featured screenshots and saved-world thumbnails taking priority.
+  Optional panorama views use the capacity left after other UI textures; budget fallback
+  preserves existing artwork.
+  Broader menu visual acceptance remains open.
   Mods use explicit open, close and toggle requests for their panels; the latest opening owns
   input and closes other panels. Panel content rejects the removed shortcut metadata.
   Play tabs switch with `[` / `]` and the bumpers, as Bedrock's view-scoped
@@ -1899,6 +1904,11 @@ existing fallback policy, including failures after the first completed frame. Me
 and ordinary exits do not exclude an API; settings changes and exhausted-candidate retries
 retain their existing recovery behavior. Native Windows startup, update and crash-restart
 acceptance, including device-loss recovery on affected hardware, remains incomplete.
+
+Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain and actor
+fragment interfaces fit the fifteen inter-stage variables V3DV exposes, including
+front-facing. Clean-install and displayed-frame acceptance across supported Pi
+models remain incomplete.
 
 ## Experimental hosts and extensions
 
