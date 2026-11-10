@@ -21,6 +21,9 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
 ];
 
 /// Chooses whether mention colors apply to every name or only the local player.
+///
+/// Only Me is the default because vanilla colors only the local display name and the
+/// all-player mention; Everyone is a Cinnabar opt-in.
 pub const MENTIONS_TARGETS: &[SettingChoice] = &[
     SettingChoice {
         name: "mentions_target_everyone",
