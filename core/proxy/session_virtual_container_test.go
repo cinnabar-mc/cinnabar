@@ -2,316 +2,183 @@ package proxy
 
 import (
 	"bytes"
-	"fmt"
-	"log/slog"
-	"strings"
+	"net"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-func TestSessionPreservesPersonalInventoryOpen(t *testing.T) {
-	session := containerTestSession()
-	open := encodeTestPacket(&packet.ContainerOpen{
-		WindowID:                protocol.WindowIDInventory,
-		ContainerType:           255,
-		ContainerEntityUniqueID: 42,
-	})
-	if err := session.WritePacketRaw(open); err != nil {
-		t.Fatal(err)
-	}
-	if got := takeContainerTestPacket(t, session); !bytes.Equal(got, open) {
-		t.Fatalf("personal inventory open changed: %x, want %x", got, open)
-	}
-	close := encodeTestPacket(&packet.ContainerClose{WindowID: protocol.WindowIDInventory, ContainerType: 255})
-	if err := session.WritePacketRaw(close); err != nil {
-		t.Fatal(err)
-	}
-	if got := takeContainerTestPacket(t, session); !bytes.Equal(got, close) {
-		t.Fatalf("personal inventory close changed: %x, want %x", got, close)
+// windowStep is one relayed packet: server-sent values are checked client-bound and client closes server-bound.
+type windowStep struct {
+	sent, want packet.Packet
+}
+
+func serverOpen(window, windowType, want byte) windowStep {
+	return windowStep{
+		&packet.ContainerOpen{WindowID: window, ContainerType: windowType, ContainerPosition: protocol.BlockPos{1, 2, 3}, ContainerEntityUniqueID: -1},
+		&packet.ContainerOpen{WindowID: window, ContainerType: want, ContainerPosition: protocol.BlockPos{1, 2, 3}, ContainerEntityUniqueID: -1},
 	}
 }
 
-func TestVirtualContainerTranslation(t *testing.T) {
-	for _, serverSide := range []bool{false, true} {
-		for _, closeType := range []byte{255, 0} {
-			t.Run(fmt.Sprintf("server_side=%t/type=%d", serverSide, closeType), func(t *testing.T) {
-				session := containerTestSession()
-				open := &packet.ContainerOpen{
-					WindowID:                9,
-					ContainerType:           255,
-					ContainerPosition:       protocol.BlockPos{1, 2, 3},
-					ContainerEntityUniqueID: 51003,
-				}
-				if err := session.WritePacket(open); err != nil {
-					t.Fatal(err)
-				}
-				open.ContainerType = 0
-				if got, want := takeContainerTestPacket(t, session), encodeTestPacket(open); !bytes.Equal(got, want) {
-					t.Fatalf("translated open = %x, want %x", got, want)
-				}
-
-				if !serverSide {
-					close := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
-					got := readContainerTestClose(t, session, close)
-					close.ContainerType = 255
-					if want := encodeTestPacket(close); !bytes.Equal(got, want) {
-						t.Fatalf("translated client close = %x, want %x", got, want)
-					}
-				}
-
-				close := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: closeType, ServerSide: serverSide}
-				if err := session.WritePacket(close); err != nil {
-					t.Fatal(err)
-				}
-				close.ContainerType = 0
-				if got, want := takeContainerTestPacket(t, session), encodeTestPacket(close); !bytes.Equal(got, want) {
-					t.Fatalf("translated server close = %x, want %x", got, want)
-				}
-
-				// A later close must not inherit the retired translation.
-				clientClose := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
-				if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(clientClose); !bytes.Equal(got, want) {
-					t.Fatalf("close after retirement = %x, want %x", got, want)
-				}
-			})
-		}
+func serverClose(window, windowType, want byte, serverSide bool) windowStep {
+	return windowStep{
+		&packet.ContainerClose{WindowID: window, ContainerType: windowType, ServerSide: serverSide},
+		&packet.ContainerClose{WindowID: window, ContainerType: want, ServerSide: serverSide},
 	}
 }
 
-func TestVirtualContainerReplacementBeforeCloseAck(t *testing.T) {
-	for _, closeType := range []byte{255, 0} {
-		for _, ackFirst := range []bool{false, true} {
-			t.Run(fmt.Sprintf("type=%d/ack_first=%t", closeType, ackFirst), func(t *testing.T) {
-				session := containerTestSession()
-				open := &packet.ContainerOpen{WindowID: 9, ContainerType: 255, ContainerEntityUniqueID: 51003}
-				translatedOpen := *open
-				translatedOpen.ContainerType = 0
-				writeContainerTestPacket(t, session, open, &translatedOpen)
-
-				clientClose := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
-				serverClose := *clientClose
-				serverClose.ContainerType = 255
-				if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(&serverClose); !bytes.Equal(got, want) {
-					t.Fatalf("translated client close = %x, want %x", got, want)
-				}
-				writeContainerTestPacket(t, session, open, &translatedOpen)
-
-				ack := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: closeType}
-				forced := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 255, ServerSide: true}
-				closes := []*packet.ContainerClose{forced, ack}
-				if ackFirst {
-					closes[0], closes[1] = closes[1], closes[0]
-				}
-				for _, close := range closes {
-					translated := *close
-					translated.ContainerType = 0
-					writeContainerTestPacket(t, session, close, &translated)
-				}
-				writeContainerTestPacket(t, session, forced, forced)
-			})
-		}
-	}
+// clientClose is a close the client sends and the relay reads after every earlier server step.
+func clientClose(window, windowType, want byte) windowStep {
+	step := serverClose(window, windowType, want, false)
+	step.sent = clientPacket{step.sent.(*packet.ContainerClose)}
+	return step
 }
 
-func TestVirtualContainerCloseAckOrder(t *testing.T) {
-	session := containerTestSession()
-	windowTypes := []byte{255, 0, 255}
-	for _, windowType := range windowTypes {
-		open := &packet.ContainerOpen{WindowID: 9, ContainerType: windowType, ContainerEntityUniqueID: 51003}
-		translatedOpen := *open
-		translatedOpen.ContainerType = 0
-		writeContainerTestPacket(t, session, open, &translatedOpen)
+type clientPacket struct{ *packet.ContainerClose }
 
-		close := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
-		translatedClose := *close
-		translatedClose.ContainerType = windowType
-		if got, want := readContainerTestClose(t, session, close), encodeTestPacket(&translatedClose); !bytes.Equal(got, want) {
-			t.Fatalf("client close for type %d = %x, want %x", windowType, got, want)
-		}
-	}
-	for _, windowType := range windowTypes {
-		close := &packet.ContainerClose{WindowID: 9, ContainerType: windowType}
-		translated := *close
-		translated.ContainerType = 0
-		writeContainerTestPacket(t, session, close, &translated)
-	}
-	close := &packet.ContainerClose{WindowID: 9, ContainerType: 255}
-	writeContainerTestPacket(t, session, close, close)
-}
-
-func TestVirtualContainerReplacementWithoutClientClose(t *testing.T) {
+// Each interleaving keeps virtual menus storage-typed for the client and virtual-typed for the server,
+// whatever order replacements, client closes, acknowledgements and server closes are relayed in.
+func TestVirtualContainerWindowInterleavings(t *testing.T) {
+	const (
+		window    = 9
+		virtual   = virtualWindowType
+		storage   = storageWindowType
+		inventory = protocol.WindowIDInventory
+	)
 	for _, test := range []struct {
-		name        string
-		windowTypes []byte
+		name  string
+		steps []windowStep
 	}{
-		{name: "ordinary_to_virtual", windowTypes: []byte{0, 255}},
-		{name: "virtual_to_ordinary", windowTypes: []byte{255, 0}},
-		{name: "repeated_virtual", windowTypes: []byte{255, 255}},
-		{name: "repeated_ordinary_then_virtual", windowTypes: []byte{0, 0, 255}},
-		{name: "multiple_replacements", windowTypes: []byte{255, 0, 255}},
+		{name: "client close then virtual acknowledgement", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverClose(window, virtual, storage, false),
+		}},
+		{name: "client close then storage acknowledgement", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverClose(window, storage, storage, false),
+		}},
+		{name: "server close", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			serverClose(window, virtual, storage, true),
+		}},
+		{name: "storage menu unchanged", steps: []windowStep{
+			serverOpen(window, storage, storage),
+			clientClose(window, storage, storage),
+			serverClose(window, storage, storage, false),
+		}},
+		{name: "personal inventory unchanged", steps: []windowStep{
+			serverOpen(inventory, virtual, virtual),
+			clientClose(inventory, virtual, virtual),
+			serverClose(inventory, virtual, virtual, false),
+			clientClose(inventory, storage, storage),
+		}},
+		{name: "virtual reopen before acknowledgement then server close", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverOpen(window, virtual, storage),
+			serverClose(window, virtual, storage, false),
+			serverClose(window, virtual, storage, true),
+		}},
+		{name: "virtual reopen before server close then acknowledgement", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverOpen(window, virtual, storage),
+			serverClose(window, virtual, storage, true),
+			serverClose(window, virtual, storage, false),
+		}},
+		{name: "virtual replacement relayed before an older client close", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverClose(window, virtual, storage, true),
+			serverClose(window, virtual, storage, false),
+		}},
+		{name: "storage replacement relayed before an older virtual close", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			serverOpen(window, storage, storage),
+			clientClose(window, storage, storage),
+			serverClose(window, storage, storage, true),
+			serverClose(window, storage, storage, false),
+		}},
+		{name: "storage menu replaced by virtual menu without a close", steps: []windowStep{
+			serverOpen(window, storage, storage),
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverClose(window, virtual, storage, false),
+		}},
+		{name: "repeated virtual opens then one close", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			serverOpen(window, virtual, storage),
+			serverOpen(window, virtual, storage),
+			clientClose(window, storage, virtual),
+			serverClose(window, virtual, storage, false),
+			clientClose(window, storage, virtual),
+			serverClose(window, virtual, storage, false),
+		}},
+		{name: "other window types keep their close", steps: []windowStep{
+			serverOpen(window, 2, 2),
+			serverOpen(window, virtual, storage),
+			clientClose(window, 2, 2),
+			serverClose(window, 2, 2, false),
+		}},
+		{name: "window IDs translate independently", steps: []windowStep{
+			serverOpen(window, virtual, storage),
+			serverOpen(window+1, storage, storage),
+			clientClose(window+1, storage, storage),
+			clientClose(window, storage, virtual),
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			session := containerTestSession()
-			for _, windowType := range test.windowTypes {
-				open := &packet.ContainerOpen{WindowID: 9, ContainerType: windowType, ContainerEntityUniqueID: 51003}
-				translated := *open
-				translated.ContainerType = 0
-				writeContainerTestPacket(t, session, open, &translated)
-			}
-
-			clientClose := &packet.ContainerClose{WindowID: 9, ContainerType: 0}
-			serverClose := *clientClose
-			serverClose.ContainerType = test.windowTypes[len(test.windowTypes)-1]
-			if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(&serverClose); !bytes.Equal(got, want) {
-				t.Fatalf("replacement client close = %x, want %x", got, want)
-			}
-			writeContainerTestPacket(t, session, &serverClose, clientClose)
-
-			// Repeated opens must not leave another window waiting to close.
-			if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(clientClose); !bytes.Equal(got, want) {
-				t.Fatalf("close after replacement = %x, want %x", got, want)
-			}
-			writeContainerTestPacket(t, session, &serverClose, &serverClose)
-			forced := &packet.ContainerClose{WindowID: clientClose.WindowID, ContainerType: 255, ServerSide: true}
-			writeContainerTestPacket(t, session, forced, forced)
-		})
-	}
-}
-
-func TestVirtualContainerReplacementBeforeClientCloseRead(t *testing.T) {
-	for _, oldType := range []byte{255, 0} {
-		for _, replacementType := range []byte{255, 0} {
-			for _, ackFirst := range []bool{false, true} {
-				t.Run(fmt.Sprintf("old_type=%d/replacement_type=%d/ack_first=%t", oldType, replacementType, ackFirst), func(t *testing.T) {
-					session := containerTestSession()
-					open := &packet.ContainerOpen{WindowID: 9, ContainerType: oldType, ContainerEntityUniqueID: 51003}
-					translatedOpen := *open
-					translatedOpen.ContainerType = 0
-					writeContainerTestPacket(t, session, open, &translatedOpen)
-
-					clientClose := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
-					queueContainerTestClose(t, session, clientClose)
-					open.ContainerType = replacementType
-					writeContainerTestPacket(t, session, open, &translatedOpen)
-
-					serverClose := *clientClose
-					serverClose.ContainerType = oldType
-					if got, want := readQueuedContainerTestClose(t, session), encodeTestPacket(&serverClose); !bytes.Equal(got, want) {
-						t.Fatalf("delayed client close = %x, want %x", got, want)
-					}
-
-					forced := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: replacementType, ServerSide: true}
-					closes := []*packet.ContainerClose{forced, &serverClose}
-					if ackFirst {
-						closes[0], closes[1] = closes[1], closes[0]
-					}
-					for _, close := range closes {
-						translated := *close
-						translated.ContainerType = 0
-						writeContainerTestPacket(t, session, close, &translated)
-					}
-					forced.ContainerType = 255
-					writeContainerTestPacket(t, session, forced, forced)
-				})
-			}
-		}
-	}
-}
-
-func TestInventoryDiagnosticsBoundContentWithoutDroppingRawPacket(t *testing.T) {
-	previous := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(previous) })
-	for _, test := range []struct {
-		name   string
-		slots  int
-		logged bool
-	}{
-		{name: "ordinary", slots: 36, logged: true},
-		{name: "oversized", slots: 8192},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var logs bytes.Buffer
-			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-			session := containerTestSession()
-			data := encodeTestPacket(&packet.InventoryContent{Content: make([]protocol.ItemInstance, test.slots)})
-			if err := session.WritePacketRaw(data); err != nil {
-				t.Fatal(err)
-			}
-			if got := takeContainerTestPacket(t, session); !bytes.Equal(got, data) {
-				t.Fatal("diagnostic decoding changed the raw inventory packet")
-			}
-			if logged := strings.Contains(logs.String(), "slots_count="); logged != test.logged {
-				t.Fatalf("decoded inventory diagnostic = %t, want %t", logged, test.logged)
+			local, peer := net.Pipe()
+			session := newSessionConn(streamnet.NewFramedConn(local))
+			client := streamnet.NewFramedConn(peer)
+			t.Cleanup(func() {
+				_ = session.Close()
+				_ = client.Close()
+			})
+			// Client-bound packets stay in the forming batch, as an unflushed replacement would.
+			for index, step := range test.steps {
+				var got []byte
+				if sent, ok := step.sent.(clientPacket); ok {
+					got = relayClientPacket(t, session, client, sent.ContainerClose)
+				} else {
+					got = relayServerPacket(t, session, step.sent)
+				}
+				if want := encodeTestPacket(step.want); !bytes.Equal(got, want) {
+					t.Fatalf("step %d relayed %+v as %x, want %+v", index, step.sent, got, step.want)
+				}
 			}
 		})
 	}
 }
 
-// containerTestSession keeps both relay directions in memory without starting a transport reader.
-func containerTestSession() *sessionConn {
-	return &sessionConn{
-		frames:              make(chan sessionRead, 1),
-		clientPool:          minecraft.DefaultProtocol.Packets(true),
-		serverPool:          minecraft.DefaultProtocol.Packets(false),
-		virtualWindows:      make(map[byte]bool),
-		pendingWindowCloses: make(map[byte][]bool),
-	}
-}
-
-// writeContainerTestPacket checks the client-bound packet after translation.
-func writeContainerTestPacket(t *testing.T, session *sessionConn, value, want packet.Packet) {
+// relayServerPacket returns the client-bound bytes the session forms for value.
+func relayServerPacket(t *testing.T, session *sessionConn, value packet.Packet) []byte {
 	t.Helper()
 	if err := session.WritePacket(value); err != nil {
 		t.Fatal(err)
-	}
-	if got, want := takeContainerTestPacket(t, session), encodeTestPacket(want); !bytes.Equal(got, want) {
-		t.Fatalf("translated %T = %x, want %x", value, got, want)
-	}
-}
-
-// takeContainerTestPacket consumes exactly one packet queued for the client.
-func takeContainerTestPacket(t *testing.T, session *sessionConn) []byte {
-	t.Helper()
-	if len(session.pending) == 0 {
-		t.Fatal("no packet queued for the client")
 	}
 	packets, err := splitSessionBatch(session.pending[1:])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(packets) != 1 {
-		t.Fatalf("queued %d packets, want one", len(packets))
-	}
-	session.pending = nil
-	return packets[0]
+	return packets[len(packets)-1]
 }
 
-// readContainerTestClose returns the server-bound bytes for a client close.
-func readContainerTestClose(t *testing.T, session *sessionConn, close *packet.ContainerClose) []byte {
+// relayClientPacket returns the server-bound bytes the session reads for a client close.
+func relayClientPacket(t *testing.T, session *sessionConn, client *streamnet.FramedConn, value *packet.ContainerClose) []byte {
 	t.Helper()
-	queueContainerTestClose(t, session, close)
-	return readQueuedContainerTestClose(t, session)
-}
-
-// queueContainerTestClose receives a close without letting the relay consume it yet.
-func queueContainerTestClose(t *testing.T, session *sessionConn, close *packet.ContainerClose) {
-	t.Helper()
-	frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(close))
-	packets, err := session.readClientBatch(frame)
-	if err != nil {
+	frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(value))
+	if _, err := client.Write(frame); err != nil {
 		t.Fatal(err)
 	}
-	session.frames <- sessionRead{packets: packets}
-}
-
-// readQueuedContainerTestClose consumes one server-bound close from a queued client batch.
-func readQueuedContainerTestClose(t *testing.T, session *sessionConn) []byte {
-	t.Helper()
-	packets, err := session.ReadBatchRaw(func(id uint32) bool { return id == packet.IDContainerClose })
+	packets, err := session.ReadBatchRaw(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,4 +186,18 @@ func readQueuedContainerTestClose(t *testing.T, session *sessionConn) []byte {
 		t.Fatalf("read %d packets, want one", len(packets))
 	}
 	return packets[0].Data
+}
+
+// A translated packet keeps header bits outside the packet ID.
+func TestVirtualContainerKeepsPacketHeader(t *testing.T) {
+	session := &sessionConn{serverPool: minecraft.DefaultProtocol.Packets(false)}
+	data := encodeTestPacket(&packet.ContainerClose{WindowID: 9, ContainerType: virtualWindowType})
+	header := new(bytes.Buffer)
+	_ = (&packet.Header{PacketID: packet.IDContainerClose, SenderSubClient: 1, TargetSubClient: 2}).Write(header)
+	data = append(header.Bytes(), data[1:]...)
+	got := session.translateServerWindow(data)
+	want := append(bytes.Clone(data[:len(data)-2]), storageWindowType, 0)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("translated %x as %x, want %x", data, got, want)
+	}
 }

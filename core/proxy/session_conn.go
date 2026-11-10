@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -38,9 +37,7 @@ type sessionConn struct {
 	pending []byte // the Batch frame being formed, kind byte included
 	ended   bool   // a terminal message was written
 
-	virtualWindowsMu    sync.Mutex
-	virtualWindows      map[byte]bool
-	pendingWindowCloses map[byte][]bool // virtual translations for client closes, in send order
+	virtualWindows [256]atomic.Bool // whether each window ID's latest server open was a virtual menu
 
 	trace       *latencytrace.Trace // nil unless tracing; the rest are guarded by writeMu
 	traceConn   int64
@@ -50,20 +47,18 @@ type sessionConn struct {
 }
 
 type sessionRead struct {
-	packets [][]byte
-	err     error
+	frame []byte
+	err   error
 }
 
 func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 	session := &sessionConn{
-		conn:                conn,
-		frames:              make(chan sessionRead),
-		done:                make(chan struct{}),
-		readDone:            make(chan struct{}),
-		clientPool:          minecraft.DefaultProtocol.Packets(true),
-		serverPool:          minecraft.DefaultProtocol.Packets(false),
-		virtualWindows:      make(map[byte]bool),
-		pendingWindowCloses: make(map[byte][]bool),
+		conn:       conn,
+		frames:     make(chan sessionRead),
+		done:       make(chan struct{}),
+		readDone:   make(chan struct{}),
+		clientPool: minecraft.DefaultProtocol.Packets(true),
+		serverPool: minecraft.DefaultProtocol.Packets(false),
 	}
 	if trace := latencytrace.Active(); trace != nil {
 		session.trace, session.traceConn = trace, trace.NextConn()
@@ -76,12 +71,8 @@ func (session *sessionConn) read() {
 	defer close(session.readDone)
 	for {
 		frame, err := session.conn.ReadPacket()
-		read := sessionRead{err: err}
-		if err == nil {
-			read.packets, read.err = session.readClientBatch(frame)
-		}
 		select {
-		case session.frames <- read:
+		case session.frames <- sessionRead{frame: frame, err: err}:
 		case <-session.done:
 			if err == nil && session.terminalDelivered.Load() {
 				// The session has ended; consume in-flight client bytes until its close.
@@ -89,7 +80,7 @@ func (session *sessionConn) read() {
 			}
 			return
 		}
-		if read.err != nil {
+		if err != nil {
 			return
 		}
 	}
@@ -133,50 +124,19 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if read.err != nil {
 		return nil, read.err
 	}
-	return rawSessionPackets(read.packets, decode, session.clientPool, session.shieldID.Load())
-}
-
-// readClientBatch captures close translations before a received batch waits for the relay.
-func (session *sessionConn) readClientBatch(frame []byte) ([][]byte, error) {
-	if len(frame) == 0 || frame[0] != bridgecontract.SessionKindBatch {
+	if len(read.frame) == 0 || read.frame[0] != bridgecontract.SessionKindBatch {
 		return nil, fmt.Errorf("%w: expected batch", errMalformedSession)
 	}
-	packets, err := splitSessionBatch(frame[1:])
+	packets, err := splitSessionBatch(read.frame[1:])
 	if err != nil {
 		return nil, err
 	}
-	for i, raw := range packets {
-		if id, ok := sessionPacketID(raw); ok {
-			switch id {
-			case packet.IDInventoryTransaction:
-				slog.Info("CLIENT sent InventoryTransaction")
-			case packet.IDContainerClose:
-				slog.Info("CLIENT sent ContainerClose")
-				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.ContainerClose); ok {
-					// Keep the acknowledgement separate from any replacement window.
-					session.virtualWindowsMu.Lock()
-					wasVirtual := session.virtualWindows[pk.WindowID]
-					delete(session.virtualWindows, pk.WindowID)
-					session.pendingWindowCloses[pk.WindowID] = append(session.pendingWindowCloses[pk.WindowID], wasVirtual)
-					session.virtualWindowsMu.Unlock()
-
-					if wasVirtual {
-						pk.ContainerType = 255
-						buf := new(bytes.Buffer)
-						(&packet.Header{PacketID: pk.ID()}).Write(buf)
-						pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
-						packets[i] = buf.Bytes()
-						slog.Info("Rewrote client CONTAINER CLOSE to type 255", "window_id", pk.WindowID)
-					}
-				}
-			case packet.IDInteract:
-				slog.Info("CLIENT sent Interact")
-			case packet.IDItemStackRequest:
-				slog.Info("CLIENT sent ItemStackRequest")
-			}
+	for index, data := range packets {
+		if id, ok := sessionPacketID(data); ok && id == packet.IDContainerClose {
+			packets[index] = session.translateClientClose(data)
 		}
 	}
-	return packets, nil
+	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
 }
 
 // WritePacketRaw adds an upstream packet to the forming batch. A usable Transfer instead flushes
@@ -199,73 +159,8 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					})
 				}
 			}
-		case packet.IDContainerOpen:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ContainerOpen); ok {
-				slog.Info("CONTAINER OPEN received from server",
-					"window_id", pk.WindowID,
-					"container_type", pk.ContainerType,
-					"pos", pk.ContainerPosition,
-					"entity_id", pk.ContainerEntityUniqueID,
-				)
-				isVirtual := pk.ContainerType == 255 && pk.WindowID != protocol.WindowIDInventory
-				session.virtualWindowsMu.Lock()
-				session.virtualWindows[pk.WindowID] = isVirtual
-				session.virtualWindowsMu.Unlock()
-
-				if isVirtual {
-					pk.ContainerType = 0
-					buf := new(bytes.Buffer)
-					(&packet.Header{PacketID: pk.ID()}).Write(buf)
-					pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
-					data = buf.Bytes()
-					slog.Info("Rewrote virtual CONTAINER OPEN to type 0", "window_id", pk.WindowID)
-				}
-			}
-		case packet.IDContainerClose:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.ContainerClose); ok {
-				slog.Info("CONTAINER CLOSE received from server",
-					"window_id", pk.WindowID,
-					"container_type", pk.ContainerType,
-					"server_side", pk.ServerSide,
-				)
-				session.virtualWindowsMu.Lock()
-				wasVirtual := false
-				if pk.ServerSide {
-					wasVirtual = session.virtualWindows[pk.WindowID]
-					delete(session.virtualWindows, pk.WindowID)
-				} else if pending := session.pendingWindowCloses[pk.WindowID]; len(pending) != 0 {
-					wasVirtual = pending[0]
-					if len(pending) == 1 {
-						delete(session.pendingWindowCloses, pk.WindowID)
-					} else {
-						session.pendingWindowCloses[pk.WindowID] = pending[1:]
-					}
-				}
-				session.virtualWindowsMu.Unlock()
-
-				if wasVirtual && pk.ContainerType == 255 {
-					pk.ContainerType = 0
-					buf := new(bytes.Buffer)
-					(&packet.Header{PacketID: pk.ID()}).Write(buf)
-					pk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, session.shieldID.Load()))
-					data = buf.Bytes()
-					slog.Info("Rewrote server CONTAINER CLOSE to type 0", "window_id", pk.WindowID)
-				}
-			}
-		case packet.IDInventoryContent:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), true).(*packet.InventoryContent); ok {
-				slog.Info("INVENTORY CONTENT received from server",
-					"window_id", pk.WindowID,
-					"slots_count", len(pk.Content),
-				)
-			}
-		case packet.IDInventorySlot:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), true).(*packet.InventorySlot); ok {
-				slog.Info("INVENTORY SLOT received from server",
-					"window_id", pk.WindowID,
-					"slot", pk.Slot,
-				)
-			}
+		case packet.IDContainerOpen, packet.IDContainerClose:
+			data = session.translateServerWindow(data)
 		}
 	}
 	if len(session.pending) == 0 {
@@ -277,6 +172,59 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		session.traceIDs = append(session.traceIDs, id)
 	}
 	return nil
+}
+
+// Some servers open menus on a non-inventory window ID with the player-inventory window type; the
+// client mounts those as generic storage, and the server keeps its own type on closes.
+const (
+	virtualWindowType = 255 // the player-inventory window type, -1 on the wire
+	storageWindowType = 0
+)
+
+// translateServerWindow returns a virtual menu's open or close as generic storage. Closes need no
+// history: after translation the client holds no window of the virtual type on a non-inventory ID.
+func (session *sessionConn) translateServerWindow(data []byte) []byte {
+	window, windowType, open, ok := sessionWindowFields(session.serverPool, data)
+	if !ok || window == protocol.WindowIDInventory {
+		return data
+	}
+	virtual := windowType == virtualWindowType
+	if open {
+		session.virtualWindows[window].Store(virtual)
+	}
+	if !virtual {
+		return data
+	}
+	return withSessionWindowType(data, storageWindowType)
+}
+
+// translateClientClose returns a storage close with the virtual type when the server's latest open
+// for its window ID was virtual, since that is the window the server applies the close to.
+func (session *sessionConn) translateClientClose(data []byte) []byte {
+	window, windowType, _, ok := sessionWindowFields(session.clientPool, data)
+	if !ok || windowType != storageWindowType || !session.virtualWindows[window].Load() {
+		return data
+	}
+	return withSessionWindowType(data, virtualWindowType)
+}
+
+// sessionWindowFields reads a well-formed ContainerOpen or ContainerClose.
+func sessionWindowFields(pool packet.Pool, data []byte) (window, windowType byte, open, ok bool) {
+	switch value := decodeSessionPacket(pool, data, 0, false).(type) {
+	case *packet.ContainerOpen:
+		return value.WindowID, value.ContainerType, true, true
+	case *packet.ContainerClose:
+		return value.WindowID, value.ContainerType, false, true
+	}
+	return 0, 0, false, false
+}
+
+// withSessionWindowType copies a decoded open or close, whose type byte follows the header and window ID.
+func withSessionWindowType(data []byte, windowType byte) []byte {
+	_, header := readSessionVaruint32(data)
+	data = bytes.Clone(data)
+	data[header+1] = windowType
+	return data
 }
 
 // traceBatchRead stamps the forming batch with when its upstream batch was read and decoded.
