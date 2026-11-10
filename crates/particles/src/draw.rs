@@ -107,7 +107,8 @@ fn basis_for(
     };
     match facing {
         Facing::RotateXyz => (view.right, view.up),
-        Facing::LookatXyz => facing_axes(view.up),
+        // Faces the camera with its up kept toward world Y.
+        Facing::LookatXyz => facing_axes(world_up),
         Facing::RotateY => {
             let right = unit([view.right[0], 0.0, view.right[2]]).unwrap_or([1.0, 0.0, 0.0]);
             (right, world_up)
@@ -940,6 +941,26 @@ mod tests {
         );
         assert!(dot(right, up).abs() < 1e-5);
         assert!((dot(right, right) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn lookat_quads_stay_upright_under_a_pitched_camera() {
+        use std::f32::consts::FRAC_1_SQRT_2;
+
+        let pitched = ParticleView {
+            up: [0.0, FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+            forward: [0.0, -FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+            ..view()
+        };
+        let (right, up) = basis_for(
+            Facing::LookatXyz,
+            &pitched,
+            &[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [4.0, -5.0, -3.0],
+            None,
+        );
+        assert!(right[1].abs() < 1e-5, "{right:?}");
+        assert!(up[1] > 0.0, "{up:?}");
     }
 }
 
