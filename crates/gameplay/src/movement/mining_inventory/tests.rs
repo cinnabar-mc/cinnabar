@@ -36,6 +36,22 @@ fn replace_tool(ledger: &mut PlayerInventoryLedger, stack_network_id: i32) {
     }));
 }
 
+/// Restates the complete player inventory, holding a fresh tool with the server's stack name.
+fn restate_inventory(ledger: &mut PlayerInventoryLedger, stack_network_id: i32) {
+    let mut slots = vec![NetworkItemStack::empty(); usize::from(protocol::PLAYER_INVENTORY_SLOTS)];
+    slots[0] = NetworkItemStack {
+        network_id: 300,
+        count: 1,
+        stack_network_id,
+        ..NetworkItemStack::empty()
+    };
+    ledger.apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: protocol::ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+}
+
 /// Admits an exact tool change to an unsent movement tick and commits its inventory effect.
 fn attach_wear(
     ticker: &mut MovementTicker,
@@ -154,8 +170,12 @@ fn revoked_socket_pending_wear_requires_recovery_without_guessing_delivery() {
     assert_eq!(unverified.stack_network_id, 0);
     assert!(ledger.resync_required());
     assert!(ticker.acknowledge_physics_send(sent.unwrap()));
+    // One slot update leaves the rest of the player surface unverified.
     replace_tool(&mut ledger, 77);
     assert_eq!(ledger.backing_stack(0).unwrap().stack_network_id, 77);
+    assert!(ledger.resync_required());
+    restate_inventory(&mut ledger, 78);
+    assert_eq!(ledger.backing_stack(0).unwrap().stack_network_id, 78);
     assert!(!ledger.resync_required());
 }
 
