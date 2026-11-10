@@ -7,6 +7,8 @@ pub(super) struct Inputs<'a> {
     pub assets: &'a Arc<RuntimeEntityAssets>,
     pub bones: &'a BodyBones,
     pub owner_names: &'a [Box<str>],
+    /// The owner's controller layers; roots may follow bones of the models they draw.
+    pub owner_layers: &'a [actor_animation::RenderTextureLayer],
     pub geometry: (u32, u32),
     pub local: &'a [BoneTransform],
     pub hidden: &'a Arc<[u32]>,
@@ -20,6 +22,7 @@ struct Entry {
     assets: Arc<RuntimeEntityAssets>,
     bones: BodyBones,
     owner_names: Vec<Box<str>>,
+    owner_layers: Vec<OwnerLayer>,
     geometry: (u32, u32),
     local: Vec<BoneTransform>,
     hidden: Arc<[u32]>,
@@ -57,6 +60,7 @@ impl PlacementCache {
             assets,
             bones,
             owner_names,
+            owner_layers,
             geometry,
             local,
             hidden,
@@ -77,6 +81,12 @@ impl PlacementCache {
             && Arc::ptr_eq(&entry.assets, assets)
             && entry.bones == *bones
             && entry.owner_names == owner_names
+            && entry.owner_layers.len() == owner_draws(owner_layers).count()
+            && entry
+                .owner_layers
+                .iter()
+                .zip(owner_draws(owner_layers))
+                .all(|(a, b)| a.same(b))
             && entry.geometry == geometry
             && entry.hidden == *hidden
             && entry.scale == scale.map(f32::to_bits)
@@ -119,6 +129,7 @@ impl PlacementCache {
                 assets: Arc::clone(assets),
                 bones: bones.clone(),
                 owner_names: owner_names.to_vec(),
+                owner_layers: owner_draws(owner_layers).map(OwnerLayer::new).collect(),
                 geometry,
                 local: local.to_vec(),
                 hidden: Arc::clone(hidden),
@@ -132,6 +143,47 @@ impl PlacementCache {
         );
         Some(poses)
     }
+}
+
+/// One drawing owner controller layer: the body (`None`), whose poses the owner endpoints
+/// already key, or another model and the pose allocations a root may follow.
+struct OwnerLayer {
+    geometry: Option<u32>,
+    previous: Arc<[BoneTransform]>,
+    current: Arc<[BoneTransform]>,
+}
+
+impl OwnerLayer {
+    fn new(layer: &actor_animation::RenderTextureLayer) -> Self {
+        Self {
+            geometry: layer.geometry,
+            previous: Arc::clone(&layer.previous_pose),
+            current: Arc::clone(&layer.pose),
+        }
+    }
+
+    /// Whether `layer` draws the same model, and another model from the same pose allocations.
+    fn same(&self, layer: &actor_animation::RenderTextureLayer) -> bool {
+        layer.geometry == self.geometry
+            && (self.geometry.is_none()
+                || Arc::ptr_eq(&self.previous, &layer.previous_pose)
+                    && Arc::ptr_eq(&self.current, &layer.pose))
+    }
+}
+
+/// Owner layers that draw, in controller order. A root takes the first that has its bone, so
+/// the body's position among the other models matters as well as their poses.
+fn owner_draws(
+    layers: &[actor_animation::RenderTextureLayer],
+) -> impl Iterator<Item = &actor_animation::RenderTextureLayer> {
+    layers.iter().filter(|layer| layer.texture_slot == 0)
+}
+
+/// Owner layers drawing their own models, in controller order; only these add root bones.
+fn owner_models(
+    layers: &[actor_animation::RenderTextureLayer],
+) -> impl Iterator<Item = &actor_animation::RenderTextureLayer> {
+    owner_draws(layers).filter(|layer| layer.geometry.is_some())
 }
 
 /// Floating-point bits retain signed-zero and NaN identity in pose inputs.
@@ -161,17 +213,36 @@ fn render_equal(a: &[RenderBoneTransform], b: &[RenderBoneTransform]) -> bool {
         })
 }
 
-/// Parent interpolation depends on frame time only for an attachment following changing owner bones.
+/// Whether the owner's body or any controller model a root may follow differs between its
+/// previous and current endpoints.
+pub(super) fn owner_changing(
+    body: &ActorRigSubmission,
+    owner_layers: &[actor_animation::RenderTextureLayer],
+) -> bool {
+    (!Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones)
+        && !render_equal(&body.input.previous_bones, &body.input.current_bones))
+        || owner_models(owner_layers).any(|layer| {
+            !Arc::ptr_eq(&layer.previous_pose, &layer.pose)
+                && (layer.previous_pose.len() != layer.pose.len()
+                    || !layer
+                        .previous_pose
+                        .iter()
+                        .zip(layer.pose.iter())
+                        .all(|(a, b)| local_equal(*a, *b)))
+        })
+}
+
+/// Parent interpolation depends on frame time only for an attachment following changing owner
+/// bones: the body's, or those of a controller model in `owner_layers` a root may follow.
 pub(super) fn alpha(
     body: &ActorRigSubmission,
+    owner_layers: &[actor_animation::RenderTextureLayer],
     rig: &actor_animation::AttachableRigSnapshot<'_>,
     geometry: u32,
     count: usize,
     alpha: f32,
 ) -> Option<f32> {
-    let changing = !Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones)
-        && !render_equal(&body.input.previous_bones, &body.input.current_bones);
-    (changing
+    (owner_changing(body, owner_layers)
         && (0..count).any(|index| {
             matches!(
                 rig.bone_parent(geometry, index),

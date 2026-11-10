@@ -139,9 +139,28 @@ impl ActorArtworkPages {
         rig: EntityRigId,
         sources: [u32; 3],
     ) -> Option<ActorArtworkLocation> {
-        let mut base = self.variant_location(rig, sources[0])?;
-        let second = self.variant_location(rig, sources[1])?;
-        let third = self.variant_location(rig, sources[2])?;
+        self.combine_samplers(sources, |source| self.variant_location(rig, source))
+    }
+
+    /// Routes samplers together for a catalog model without its own artwork route, such as a
+    /// player's cosmetic controller, as [`Self::source_location`] routes one texture.
+    pub fn source_multitexture_location(
+        &self,
+        pack: bool,
+        sources: [u32; 3],
+    ) -> Option<ActorArtworkLocation> {
+        self.combine_samplers(sources, |source| self.source_location(pack, source))
+    }
+
+    /// Joins the base location with its two extra samplers when they share one texture page.
+    fn combine_samplers(
+        &self,
+        sources: [u32; 3],
+        locate: impl Fn(u32) -> Option<ActorArtworkLocation>,
+    ) -> Option<ActorArtworkLocation> {
+        let mut base = locate(sources[0])?;
+        let second = locate(sources[1])?;
+        let third = locate(sources[2])?;
         if base.page != second.page || base.page != third.page {
             return None;
         }

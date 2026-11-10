@@ -416,7 +416,7 @@ fn graphics_mode_changes_rebuild_reload_materials() {
     let previous = PackApplication {
         fancy_graphics: !first.fancy_graphics,
         entities: first.entities.as_deref().cloned().map(Arc::new),
-        item_icons: first.item_icons.as_deref().cloned().map(Arc::new),
+        item_icons: Some(Arc::default()),
         block_overlay: Some(Arc::new(super::super::CompiledBlockOverlay {
             overlay: Default::default(),
             gaps: Default::default(),

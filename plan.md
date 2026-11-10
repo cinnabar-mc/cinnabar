@@ -853,9 +853,19 @@ pose in authored order. A completed all-false activation result suppresses the b
 and its skin/cape/cosmetic attachments; absent controllers and unresolved artwork retain
 their distinct fallback behavior. The description's `hide_held_items` expression controls
 held equipment independently of worn armor in the actor's world or UI render context.
-Tick, frame-sampled and retained outputs carry these policies. Primary rig selection still
-occurs at compilation, and attachable parent-bone lookup across multiple passing controllers
-and version-matched in-game acceptance remain incomplete.
+Tick, frame-sampled and retained outputs carry these policies. Every passing controller draws
+its chosen model in list order, posed by bone name from the rig. A player's own rig keeps its
+default model, which the skin replaces, so a pack's cosmetic controllers listed ahead of the
+body draw beside it with their catalog textures. When only such models pass, the player
+still draws its skin body, whose slot capes, hats, flames and equipment read; native draws no
+default body then, which remains incomplete. Attachable roots take the first passing
+controller model that has the parent bone, then the body, as native
+`attemptToSetParentBoneMapping` does. A player's body layer keeps
+the body slot and draws before controller models listed ahead of it, which differs from native
+list order only where a blended model overlaps the body. Other entities still choose their
+primary rig controller at compilation, the UI paperdoll and first-person hand draw only the body, how native substitutes a
+skin's model for controllers other than the body is unverified, and version-matched in-game
+acceptance remains incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
