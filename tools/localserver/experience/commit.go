@@ -94,13 +94,12 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 }
 
 // apply checks snap against the world in tx and validates every op before it applies any. Then
-// it applies the block and state ops in their order, the data writes, the slots and drops, and
-// last the tells, and
-// returns the client messages for commit to send. A position's data write follows its last block
-// op, as validate checks, so applying the data writes after every block op changes nothing; a
-// state op keeps the block's data and generation. Writes that shrink data go before those that
-// grow it, so the Experience's total only falls and then rises to the net that validate checked,
-// and no single write exceeds the quota.
+// it applies the block and state ops in their order, the data writes, the slots and drops, the
+// entity ops, damage, and last the tells, and returns the client messages for commit to send.
+// A position's data write follows its last block op, as validate checks, so applying the data
+// writes after every block op changes nothing; a state op keeps the block's data and generation.
+// Writes that shrink data go before those that grow it, so the Experience's total only falls
+// and then rises to the net that validate checked, and no single write exceeds the quota.
 func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op) ([]*SendClientOp, error) {
 	actor, err := h.current(tx, exp, ev, snap)
 	if err != nil {
@@ -190,9 +189,6 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	for _, w := range plan.powers {
 		h.applyPower(tx, exp, ev.instance, w)
 	}
-	if plan.damage != nil {
-		plan.damage.apply(actor)
-	}
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
@@ -207,6 +203,10 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
 	h.applyEntities(tx, exp, ev, actor, ops)
+	// Death can dismount the actor, so entity operations must finish first.
+	if plan.damage != nil {
+		plan.damage.apply(actor)
+	}
 	if plan.pass {
 		passInteraction(actor, ev)
 	}
