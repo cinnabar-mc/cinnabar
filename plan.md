@@ -768,6 +768,8 @@ lookup across the passing list.
   Framed filled maps wait for image data without displaying their inventory icon.
   Received framed maps select the full-face rim even without a server map bit. Map and
   text canvas pages grow without moving live pixel rects; the former 16-map ceiling is removed.
+  Map growth reserves capacity for every admitted sign page. Artwork reloads that cannot
+  retain the cached canvases report an error before publishing the replacement pack.
   Moving-camera map-wall qualification and overflow beyond the atlas texture-side budget
   remain incomplete.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,

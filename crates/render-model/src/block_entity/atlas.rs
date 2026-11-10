@@ -552,8 +552,10 @@ impl DynamicCells {
     }
 
     /// The map slot holding `key`; see [`CellPool::slot`].
+    /// Growth leaves room for every text page admitted with the artwork.
     pub fn map_slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
-        let can_grow = self.layout.height + MAP_STRIP_HEIGHT <= self.height_limit;
+        let reserved_text = (MAX_TEXT_PAGES - self.text.pages.len()) as u32 * TEXT_PAGE_HEIGHT;
+        let can_grow = self.layout.height + MAP_STRIP_HEIGHT + reserved_text <= self.height_limit;
         self.maps.max_pages = self.maps.pages.len() + usize::from(can_grow);
         let slot = self.maps.slot(key, make);
         self.layout
@@ -745,7 +747,8 @@ mod tests {
     fn map_growth_respects_reserved_static_rows_without_moving_existing_cells() {
         let mut cells = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let initial_height = cells.layout.height;
-        cells.set_height_limit(initial_height).unwrap();
+        let reserved_height = dynamic_height(MAX_TEXT_PAGES as u32);
+        cells.set_height_limit(reserved_height).unwrap();
         let page_slots = u64::from(MAP_COLUMNS * MAP_ROWS);
         let canvas = || vec![7; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize];
         for key in 0..page_slots {
@@ -759,12 +762,37 @@ mod tests {
         assert!(cells.map_slot(page_slots, canvas).is_none());
         assert_eq!(cells.layout, layout);
         cells
-            .set_height_limit(initial_height + MAP_STRIP_HEIGHT)
+            .set_height_limit(reserved_height + MAP_STRIP_HEIGHT)
             .unwrap();
         assert!(cells.map_slot(page_slots, canvas).is_some());
         assert_eq!(cells.layout.text, layout.text);
         assert_eq!(cells.layout.maps[0], layout.maps[0]);
         assert!(cells.set_height_limit(initial_height).is_none());
+    }
+
+    #[test]
+    fn map_growth_preserves_capacity_for_every_admitted_text_page() {
+        let mut cells = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
+        cells.set_height_limit(MAX_ATLAS_SIDE - 4096).unwrap();
+        for _ in 0..224usize.div_ceil(MAX_NEW_CELLS_PER_FRAME) {
+            for key in 0..224 {
+                cells.map_slot(key, || vec![7; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize]);
+            }
+            cells.begin_frame();
+        }
+        let count = MAX_TEXT_PAGES * TEXT_SLOT_COUNT;
+        for _ in 0..count.div_ceil(MAX_NEW_CELLS_PER_FRAME) {
+            for key in 0..count as u64 {
+                cells.text_slot(key, || canvas(23));
+            }
+            cells.begin_frame();
+        }
+        for key in 0..count as u64 {
+            assert!(
+                cells.text_slot(key, || panic!("cached text")).is_some(),
+                "text {key} must fit after leaving the map wall"
+            );
+        }
     }
 
     #[test]

@@ -258,18 +258,22 @@ impl BlockEntityScene {
             text.reset(artwork.atlas.size()[0])
                 .expect("prepared artwork admits dynamic atlas rows");
         }
-        self.reload_prepared_assets(artwork);
+        assert!(self.reload_prepared_assets(artwork));
     }
 
     /// Prepares artwork on the caller; runtime reloads use [`Self::reload_prepared_assets`].
-    pub fn reload_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) {
-        if let Some(prepared) = self.artwork_preparer().prepare(assets) {
-            self.reload_prepared_assets(&prepared);
-        }
+    /// Returns false if preparation or publication cannot fit the atlas.
+    #[must_use]
+    pub fn reload_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) -> bool {
+        self.artwork_preparer()
+            .prepare(assets)
+            .is_some_and(|prepared| self.reload_prepared_assets(&prepared))
     }
 
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
-    pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
+    /// Returns false without changing the scene if the retained pages do not fit.
+    #[must_use]
+    pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) -> bool {
         let mut atlas = artwork.atlas.clone();
         let text = self.text.get_or_insert_with(|| {
             DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
@@ -279,7 +283,7 @@ impl BlockEntityScene {
             .is_none()
         {
             tracing::warn!("block-entity artwork reload cannot retain the live canvas pages");
-            return;
+            return false;
         }
         text.resize_width(atlas.size()[0])
             .expect("prepared artwork admits dynamic atlas rows");
@@ -296,6 +300,7 @@ impl BlockEntityScene {
         };
         self.reusable = None;
         self.cached_submissions.clear();
+        true
     }
 
     /// Builds block models from the entity catalog's geometry.
