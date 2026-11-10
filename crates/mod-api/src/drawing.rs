@@ -5,6 +5,66 @@ pub use crate::bindings::cinnabar::world_draw::drawing as api;
 
 pub mod shapes;
 
+/// Per-owner cells across block grids, enough for a 3 by 3 chunk view 256 blocks high.
+pub const MAX_BLOCK_CELLS: usize = 2 * 1024 * 1024;
+/// Largest dimension of a block grid; the total cell allowance also applies.
+pub const MAX_BLOCK_EXTENT: u32 = 384;
+/// Distinct resolved states in a block-grid palette.
+pub const MAX_BLOCK_PALETTE: usize = 4096;
+/// UTF-8 bytes in one palette's named state descriptions.
+pub const MAX_BLOCK_STATE_BYTES: usize = 256 * 1024;
+/// Block-grid input bytes admitted in one callback, separate from ordinary drawing uploads.
+pub const MAX_BLOCK_MUTATION_BYTES: usize = 16 * 1024 * 1024;
+/// Mesh triangles in one generation, including model blocks and liquids.
+pub const MAX_BLOCK_TRIANGLES: usize = 2 * 1024 * 1024;
+/// Submitted block triangles across an owner's placements.
+pub const MAX_BLOCK_DRAW_TRIANGLES: usize = MAX_BLOCK_TRIANGLES * 2;
+/// Packed terrain mesh bytes in one generation.
+pub const MAX_BLOCK_MESH_BYTES: usize = 128 * 1024 * 1024;
+/// GPU bytes for an owner's block arenas, orders and placement uniforms.
+pub const MAX_BLOCK_GPU_BYTES: u64 = 256 * 1024 * 1024;
+/// Simultaneously retained clip resources per owner.
+pub const MAX_DRAW_CLIPS: usize = 8;
+/// Maximum private clip attachment storage across an owner's views.
+pub const MAX_CLIP_ATTACHMENT_BYTES: u64 = 128 * 1024 * 1024;
+/// Two coverage levels allow one clip nested inside another.
+pub const MAX_DRAW_CLIP_DEPTH: usize = 2;
+
+/// Largest solved sky or block light channel.
+pub const MAX_BLOCK_LIGHT: u8 = 15;
+
+/// Encodes a palette index and optional solved lights for a compact dense grid upload.
+pub fn pack_block_cell(cell: api::BlockCell) -> Option<u32> {
+    if cell.palette as usize >= MAX_BLOCK_PALETTE
+        || cell.sky_light.is_some_and(|v| v > MAX_BLOCK_LIGHT)
+        || cell.block_light.is_some_and(|v| v > MAX_BLOCK_LIGHT)
+    {
+        return None;
+    }
+    Some(
+        cell.palette
+            | (u32::from(cell.sky_light.unwrap_or(u8::MAX)) << u16::BITS)
+            | (u32::from(cell.block_light.unwrap_or(u8::MAX)) << (u16::BITS + u8::BITS)),
+    )
+}
+
+/// Decodes the canonical grid word and rejects unknown light codes or palette slots.
+pub fn unpack_block_cell(word: u32) -> Option<api::BlockCell> {
+    let sky = (word >> u16::BITS) as u8;
+    let block = (word >> (u16::BITS + u8::BITS)) as u8;
+    let cell = api::BlockCell {
+        palette: u32::from(word as u16),
+        sky_light: (sky != u8::MAX).then_some(sky),
+        block_light: (block != u8::MAX).then_some(block),
+    };
+    pack_block_cell(cell).filter(|packed| *packed == word)?;
+    Some(cell)
+}
+
+/// Native retained-instance storage, checked against the renderer's typed record.
+pub const INSTANCE_GPU_BYTES: usize =
+    (16 + 4 + 4 + crate::materials::PARAMS) * std::mem::size_of::<f32>();
+
 /// Fixed host tessellation for a round join or semicircular end cap.
 pub const ROUND_SEGMENTS: usize = 8;
 
@@ -26,6 +86,7 @@ pub fn instance(geometry: api::Handle, anchor: api::Anchor) -> api::Instance {
     api::Instance {
         geometry,
         material: None,
+        clip: None,
         params: crate::materials::Preset::default().0.to_vec(),
         anchor,
         transform: api::Transform {
@@ -46,7 +107,7 @@ pub fn instance(geometry: api::Handle, anchor: api::Anchor) -> api::Instance {
 macro_rules! permissions {
     ($($field:ident),+ $(,)?) => {
         /// Independently consented drawing authority. Absence always denies a capability.
-        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         pub struct DrawingPermissions { $(pub $field: bool,)+ }
         impl DrawingPermissions {
             /// Canonical capability names, generated from their owning fields.
@@ -67,7 +128,9 @@ macro_rules! permissions {
 permissions! { world_draw, entity_observe, entity_highlight, render_through_walls, render_material, render_post }
 
 /// A token belongs to one owner incarnation; slots never authorize another incarnation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct DrawingHandle {
     pub owner: u64,
     pub generation: u64,
@@ -75,7 +138,7 @@ pub struct DrawingHandle {
 }
 
 /// Trusted connection and dimension fence, independent of a server address.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DrawingSession {
     pub connection: u64,
     pub dimension: i32,
@@ -130,7 +193,9 @@ impl MaskStyle {
 }
 
 /// An actor incarnation, shared with trusted frame publication; never disclosed to shaders.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct MaskEntity {
     pub connection: u64,
     pub dimension: i32,
@@ -139,7 +204,9 @@ pub struct MaskEntity {
 }
 
 /// Draw-time depth authority cannot be changed after mask creation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum MaskDepth {
     Test,
     Always,
@@ -191,5 +258,27 @@ mod tests {
             );
         }
         assert_eq!(DrawingPermissions::effective(all, all, all, all), all);
+    }
+    #[test]
+    fn packed_grid_cells_round_trip_all_solved_lights_and_reject_reserved_codes() {
+        for palette in [0, (MAX_BLOCK_PALETTE - 1) as u32] {
+            for sky in (0..=MAX_BLOCK_LIGHT).map(Some).chain([None]) {
+                for block in (0..=MAX_BLOCK_LIGHT).map(Some).chain([None]) {
+                    let word = pack_block_cell(api::BlockCell {
+                        palette,
+                        sky_light: sky,
+                        block_light: block,
+                    })
+                    .unwrap();
+                    let cell = unpack_block_cell(word).unwrap();
+                    assert_eq!(
+                        (cell.palette, cell.sky_light, cell.block_light),
+                        (palette, sky, block)
+                    );
+                }
+            }
+        }
+        assert!(unpack_block_cell(16 << u16::BITS).is_none());
+        assert!(unpack_block_cell(MAX_BLOCK_PALETTE as u32).is_none());
     }
 }

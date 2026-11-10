@@ -17,35 +17,48 @@ pub(super) fn spawn(world: &mut World, z: f32) {
 
 /// Commits a selectable actor of the requested kind into the fixture's stream.
 fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
-    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_mut().unwrap();
-    let sequence = stream.committed_sequence() + 1;
-    stream
-        .submit(
-            sequence,
-            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
-                dimension: 0,
-                unique_id: 99,
-                runtime_id: 99,
-                kind,
-                position: [4.5, 1.5, z],
-                velocity: [0.0; 3],
-                pitch: 0.0,
-                yaw: 0.0,
-                head_yaw: 0.0,
-                body_yaw: 0.0,
-                held_item: protocol::NetworkItemStack::empty(),
-                metadata: [].into(),
-                attributes: [].into(),
-                properties: [].into(),
-                links: [].into(),
-            })),
-        )
+    spawn_without_pick(world, z, kind);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
         .unwrap();
-    test_time::eventually_within(Duration::from_secs(5), "fixture actor spawn", || {
-        stream.poll([4.5, 2.620_01, 8.5], 0);
-        stream.committed_sequence() >= sequence
-    });
+}
+
+/// Commits new actor geometry without changing the already retained frame observation.
+fn spawn_without_pick(world: &mut World, z: f32, kind: protocol::ActorKind) {
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(
+                    protocol::ActorSpawnEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                        runtime_id: 99,
+                        kind,
+                        position: [4.5, 1.5, z],
+                        velocity: [0.0; 3],
+                        pitch: 0.0,
+                        yaw: 0.0,
+                        head_yaw: 0.0,
+                        body_yaw: 0.0,
+                        held_item: protocol::NetworkItemStack::empty(),
+                        metadata: [].into(),
+                        attributes: [].into(),
+                        properties: [].into(),
+                        links: [].into(),
+                    },
+                )),
+            )
+            .unwrap();
+        test_time::eventually("fixture actor spawn", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
 }
 
 #[test]
@@ -66,7 +79,7 @@ fn actor_use_is_admitted_on_the_press_frame_before_the_next_physics_tick() {
     assert_eq!(tx.runtime_id, 99);
     assert_eq!(tx.slot, 0);
     assert_eq!(tx.from_position, [4.5, 2.620_01, 8.5]);
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
     hold_use(&mut world);
     world.run_system_cached(produce_block_use).unwrap();
     assert!(
@@ -94,7 +107,7 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
     world.insert_resource(network);
     world.run_system_cached(produce_block_use).unwrap();
     let runtime = world.resource::<BlockUseRuntime>();
-    assert!(!runtime.press_interacted());
+    assert!(!runtime.press_consumed());
     assert!(
         runtime
             .due(
@@ -114,7 +127,7 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
     hold_use(&mut world);
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(captured.drain().len(), 1);
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
 }
 
 /// Uses a snowball on a player after the server set `interact_text`, returning the packet kinds.
@@ -166,4 +179,391 @@ fn a_throwable_used_on_a_player_without_an_interaction_still_throws() {
 #[test]
 fn a_server_offered_player_interaction_consumes_the_use() {
     assert_eq!(throw_at_player("action.interact.ride.horse"), ["interact"]);
+}
+
+/// Uses original component facts with the production actor and held-item FIFO producers.
+fn throw_at_entity(
+    identifier: &str,
+    offered_use: assets::entity::offered_use::EntityUseAdmission,
+    interact_text: &str,
+) -> Vec<&'static str> {
+    throw_at_entity_in_session(identifier, offered_use, interact_text, false, None)
+}
+
+/// Replays negotiated native startup and an optional empty live registry before selecting a stack.
+/// `held` replaces the snowball with one stack of that item.
+fn throw_at_entity_in_session(
+    identifier: &str,
+    offered_use: assets::entity::offered_use::EntityUseAdmission,
+    interact_text: &str,
+    native_startup_then_empty: bool,
+    held: Option<&str>,
+) -> Vec<&'static str> {
+    let mut compiled =
+        assets::carriers::startup::test_carriers::synthetic_interaction_assets(identifier);
+    let mut sources = compiled.sources.into_vec();
+    sources.insert(
+        0,
+        assets::EntityAssetSource {
+            path: "behavior/entities/fixture.json".into(),
+            source_bytes: 1,
+            source_sha256: [1; 32],
+        },
+    );
+    let (source_bytes, source_sha256) = assets::item_use::source_identity();
+    sources.push(assets::EntityAssetSource {
+        path: assets::item_use::SOURCE_PATH.into(),
+        source_bytes,
+        source_sha256,
+    });
+    compiled.symbols[0].source_index += 1;
+    compiled.sources = sources.into();
+    compiled.item_use_profiles = assets::item_use::compile(&compiled.item_visuals);
+    compiled
+        .interaction_traits
+        .iter_mut()
+        .find(|entry| entry.identifier.as_ref() == identifier)
+        .unwrap()
+        .offered_use = offered_use;
+    let entities = std::sync::Arc::new(
+        assets::RuntimeEntityAssets::decode(&assets::encode_entity_blob(&compiled).unwrap())
+            .unwrap(),
+    );
+    let (mut world, mut captured) = super::fixture_with_entity_assets(
+        NetworkHandle::<PackApplication>::stub_capturing_packets(),
+        Some(entities),
+    );
+    if native_startup_then_empty {
+        let mut entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:snowball")
+            .unwrap()
+            .clone();
+        entry.component_based = true;
+        entry.version = protocol::ItemRegistryVersion::None;
+        entry.components = None;
+        entry.canonical_empty_component_data = true;
+        assert!(entry.component_based);
+        assert_eq!(entry.version, protocol::ItemRegistryVersion::None);
+        assert!(entry.canonical_empty_component_data);
+        assert!(entry.components.is_none());
+        assert!(entry.item_tags.is_empty());
+        let network_id = entry.network_id;
+        let startup = protocol::ItemRegistryEvent {
+            entries: [entry].into(),
+        };
+        let live = protocol::ItemRegistryEvent { entries: [].into() };
+        {
+            let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+            let stream = client.stream.as_mut().unwrap();
+            assert!(stream.seed_item_registry(startup.clone()));
+            let sequence = stream.committed_sequence() + 1;
+            stream
+                .submit(
+                    sequence,
+                    protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Registry(
+                        live.clone(),
+                    )),
+                )
+                .unwrap();
+            test_time::eventually_within(
+                Duration::from_secs(5),
+                "empty live item registry",
+                || {
+                    stream.poll([4.5, 2.620_01, 8.5], 0);
+                    stream.committed_sequence() >= sequence
+                },
+            );
+        }
+        {
+            let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+            player.inventory.ledger_mut().apply_registry(&startup);
+            player.inventory.ledger_mut().apply_registry(&live);
+        }
+        super::item_use_tests::hold_air_stack(&mut world, network_id, 16, [].into());
+    } else if let Some(item) = held {
+        super::item_use_tests::hold_air_item(&mut world, item, 1, [].into());
+    } else {
+        super::item_use_tests::hold_snowball(&mut world);
+    }
+    spawn_kind(
+        &mut world,
+        7.5,
+        protocol::ActorKind::Entity {
+            identifier: identifier.into(),
+        },
+    );
+    world
+        .resource_mut::<UiRuntimeResource>()
+        .apply_local_metadata(
+            7,
+            u64::MAX,
+            &[protocol::ActorMetadata {
+                key: protocol_ids::ActorDataKey::InteractText.wire_value(),
+                value: protocol::ActorMetadataValue::String(interact_text.into()),
+            }],
+        )
+        .unwrap();
+    world.run_system_cached(produce_block_use).unwrap();
+    produce_air_use(&mut world);
+    captured
+        .drain()
+        .into_iter()
+        .filter_map(|packet| match observe_transaction(&packet)?.body {
+            TransactionBody::ItemUseOnActor(tx) => {
+                assert_eq!(tx.runtime_id, 99);
+                assert_eq!(tx.action, Some(ActorUseAction::Interact));
+                Some("interact")
+            }
+            TransactionBody::ItemUse(_) => Some("use"),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A no-offering descriptor is evidence only alongside the actor's verified resolver disposition.
+fn no_component_offering() -> assets::entity::offered_use::EntityUseAdmission {
+    assets::entity::offered_use::EntityUseAdmission::Components {
+        source: 0,
+        offerings: Box::new([]),
+    }
+}
+
+#[test]
+fn a_throwable_used_on_a_zombie_without_an_offering_still_throws_after_interact() {
+    assert_eq!(
+        throw_at_entity("minecraft:zombie", no_component_offering(), ""),
+        ["interact", "use"]
+    );
+}
+
+#[test]
+fn a_held_use_aimed_at_an_actor_without_an_offering_starts_after_interact() {
+    for actor in ["minecraft:creeper", "minecraft:skeleton"] {
+        assert_eq!(
+            throw_at_entity_in_session(
+                actor,
+                no_component_offering(),
+                "",
+                false,
+                Some("minecraft:potion")
+            ),
+            ["interact", "use"],
+            "{actor}"
+        );
+    }
+}
+
+#[test]
+fn server_text_native_prevent_default_and_unresolved_actors_preserve_interaction() {
+    assert_eq!(
+        throw_at_entity(
+            "minecraft:zombie",
+            no_component_offering(),
+            "action.interact.fixture"
+        ),
+        ["interact"]
+    );
+    assert_eq!(
+        throw_at_entity("minecraft:armor_stand", no_component_offering(), ""),
+        ["interact"]
+    );
+    assert_eq!(
+        throw_at_entity("minecraft:villager_v2", no_component_offering(), ""),
+        ["interact"]
+    );
+    assert_eq!(
+        throw_at_entity("minecraft:zombie", Default::default(), ""),
+        ["interact"]
+    );
+}
+
+#[test]
+fn possible_ride_feed_equipment_and_offhand_offerings_consume_the_actor_press() {
+    use assets::entity::offered_use::{
+        ComponentUse, EntityUseAdmission, UseCondition, UseSelector,
+    };
+    for (identifier, component, condition) in [
+        (
+            "minecraft:horse",
+            "minecraft:rideable",
+            UseCondition::Unresolved,
+        ),
+        (
+            "minecraft:happy_ghast",
+            "minecraft:ageable",
+            UseCondition::HeldItem {
+                identifier: "minecraft:snowball".into(),
+                metadata: None,
+            },
+        ),
+        (
+            "minecraft:zombie",
+            "minecraft:equippable",
+            UseCondition::HeldItem {
+                identifier: "minecraft:snowball".into(),
+                metadata: None,
+            },
+        ),
+        (
+            "minecraft:zombie",
+            "minecraft:interact",
+            UseCondition::Unresolved,
+        ),
+    ] {
+        let definition = EntityUseAdmission::Components {
+            source: 0,
+            offerings: Box::from([ComponentUse {
+                selector: UseSelector::UnresolvedComponentGroup { group: 0 },
+                component: component.into(),
+                condition,
+            }]),
+        };
+        assert_eq!(
+            throw_at_entity(identifier, definition, ""),
+            ["interact"],
+            "{component}"
+        );
+    }
+}
+
+#[test]
+fn native_startup_then_empty_live_registry_still_throws_after_actor_interact() {
+    assert_eq!(
+        throw_at_entity_in_session("minecraft:zombie", no_component_offering(), "", true, None),
+        ["interact", "use"]
+    );
+}
+/// Removes the fixture chest so the eye ray reaches actors beyond it.
+pub(super) fn clear_line(world: &mut World) {
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        stream.predict_block([4, 2, 6], 0, stream.air_block_id());
+    }
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
+}
+
+/// The fixture actor's intercept and its distance from the eye along the full mouse pick ray.
+pub(super) fn ray_hit(world: &World) -> ([f32; 3], f64) {
+    let client = world.resource::<crate::runtime::world::ClientWorld>();
+    let authority = client.stream.as_ref().unwrap().authority();
+    let hit = gameplay::melee::pick_actor(
+        authority.remote_actors(),
+        None,
+        [4.5, 2.5, 8.5],
+        [0.0, 0.0, -1.0],
+        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
+    )
+    .unwrap();
+    (hit.point, hit.distance)
+}
+
+#[test]
+fn actor_use_targets_an_actor_only_within_the_survival_cap() {
+    for (z, within) in [(5.6, true), (4.1, false)] {
+        let (mut world, mut captured) = fixture();
+        spawn(&mut world, z);
+        clear_line(&mut world);
+        let (point, distance) = ray_hit(&world);
+        // Both actors lie on the pick ray; only the near one is inside the 3-block cap.
+        assert_eq!(distance + 0.1 < 3.0, within, "distance {distance}");
+        world.run_system_cached(produce_block_use).unwrap();
+        let interactions: Vec<_> = captured
+            .drain()
+            .iter()
+            .filter_map(observe_transaction)
+            .filter_map(|tx| tx.actor_use().cloned())
+            .collect();
+        if within {
+            assert_eq!(interactions.len(), 1);
+            let tx = &interactions[0];
+            assert_eq!(tx.action, Some(ActorUseAction::Interact));
+            assert_eq!(tx.runtime_id, 99);
+            assert_eq!(tx.slot, 0);
+            assert_eq!(tx.from_position, [4.5, 2.620_01, 8.5]);
+            assert_eq!(tx.hit_position, point);
+        } else {
+            assert!(interactions.is_empty(), "{interactions:?}");
+        }
+    }
+}
+
+/// Retaining actor geometry must preserve the classifier's strict radius-adjusted use boundary.
+#[test]
+fn a_retained_actor_hit_keeps_the_strict_radius_adjusted_reach_cap() {
+    for (z, accepted) in [(5.15, false), (5.65, true)] {
+        let (mut world, mut captured) = fixture();
+        super::frame_picks::update(&mut world, [4, 2, 6], "minecraft:air");
+        spawn(&mut world, z);
+        world.run_system_cached(produce_block_use).unwrap();
+        let actors = captured
+            .drain()
+            .iter()
+            .filter_map(observe_transaction)
+            .filter(|tx| tx.actor_use().is_some())
+            .count();
+        assert_eq!(actors, usize::from(accepted), "actor z={z}");
+    }
+}
+
+/// A runtime ID reused after removal cannot inherit an earlier actor's saved point.
+#[test]
+fn a_retained_actor_pick_cannot_target_a_replacement_lifetime() {
+    let (mut world, mut captured) = fixture();
+    spawn(&mut world, 7.5);
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(
+                    protocol::ActorRemoveEvent {
+                        dimension: 0,
+                        unique_id: 99,
+                    },
+                )),
+            )
+            .unwrap();
+        test_time::eventually("old picked actor removed", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
+    spawn_without_pick(
+        &mut world,
+        1.5,
+        protocol::ActorKind::Entity {
+            identifier: "minecraft:villager_v2".into(),
+        },
+    );
+    world.run_system_cached(produce_block_use).unwrap();
+    assert!(captured.drain().iter().all(|packet| {
+        observe_transaction(packet).is_none_or(|transaction| transaction.actor_use().is_none())
+    }));
+}
+
+/// Terrain beyond a nearby actor is unnecessary to establish its unobstructed pick.
+#[test]
+fn a_foreground_actor_remains_usable_before_an_unloaded_column() {
+    let (mut world, mut captured) = super::frame_picks::bridge_fixture(
+        [4.5, 2.620_01, 13.0],
+        Quat::from_rotation_y(std::f32::consts::PI),
+    );
+    spawn(&mut world, 14.0);
+    world.run_system_cached(produce_block_use).unwrap();
+    let packets = captured.drain();
+    let actors: Vec<_> = packets
+        .iter()
+        .filter_map(|packet| {
+            observe_transaction(packet)
+                .and_then(|transaction| transaction.actor_use().map(|actor| actor.runtime_id))
+        })
+        .collect();
+    assert_eq!(actors, [99]);
 }

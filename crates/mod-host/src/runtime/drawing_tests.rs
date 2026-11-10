@@ -221,6 +221,61 @@ fn event_geometry_commits_and_its_handles_survive_the_next_frame() {
     assert!(instance.render().0.retained.is_empty());
 }
 
+/// Draws `geometry` once at the camera with default material and blending.
+fn frame_draw(geometry: wit::Handle) -> wit::Instance {
+    wit::Instance {
+        geometry,
+        material: None,
+        clip: None,
+        params: Vec::new(),
+        anchor: wit::Anchor::Camera,
+        transform: wit::Transform {
+            translation: (0., 0., 0.),
+            rotation: (0., 0., 0., 1.),
+            scale: (1., 1., 1.),
+        },
+        tint: (1., 1., 1., 1.),
+        depth: wit::Depth::Test,
+        blend: wit::Blend::Premultiplied,
+        width: 1.,
+        width_mode: wit::WidthMode::World,
+        join: wit::Join::Bevel,
+        cap: wit::Cap::Butt,
+    }
+}
+
+/// A frame group drawn by a successful frame callback stays published until the next frame,
+/// rather than expiring in the same commit that publishes it.
+#[test]
+fn a_frame_group_drawn_by_a_frame_stays_published_after_its_commit() {
+    let mut instance = instance();
+    let mut geometry = None;
+    instance
+        .run(CALLBACK_FUEL, commit_event, |_, store| {
+            geometry = Some(store.data_mut().create_geometry(mesh(3))?.unwrap());
+            Ok(())
+        })
+        .unwrap();
+    let geometry = geometry.unwrap();
+    instance.begin_frame();
+    instance
+        .run(FRAME_FUEL, commit, |exports, store| {
+            store
+                .data_mut()
+                .replace_frame_group("frame".into(), vec![frame_draw(geometry)])?
+                .unwrap();
+            exports.frame(store)
+        })
+        .unwrap();
+    assert_eq!(instance.render().0.retained[0].instances.len(), 1);
+    // The group expires only when a later callback commits without redrawing it.
+    instance.begin_frame();
+    instance
+        .run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
+        .unwrap();
+    assert!(instance.render().0.retained[0].instances.is_empty());
+}
+
 #[test]
 fn retained_mutation_and_import_budgets_reset_for_each_event() {
     let mut instance = instance();
@@ -316,4 +371,120 @@ fn a_trapped_event_revokes_committed_and_staged_geometry_and_masks() {
     assert!(!instance.is_active());
     assert!(instance.render().0.retained.is_empty());
     assert!(instance.render().0.masks.is_empty());
+}
+
+#[test]
+fn dimension_rebind_invalidates_old_drawing_and_observations_before_callbacks() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let directory = tempfile::tempdir().unwrap();
+    let bytes = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    let mut host = crate::ModHost::prepare_snapshot_in_session(
+        &directory.path().join("drawing.wat"),
+        bytes,
+        ModGrants {
+            render: true,
+            ..Default::default()
+        },
+        None,
+        Some(session),
+    )
+    .unwrap();
+    // Set up native world-owned output under the same path used by guest imports.
+    host.grants.world_draw = true;
+    host.instance.store.data_mut().grants.world_draw = true;
+    let state = host.instance.store.data_mut();
+    let geometry = state.create_geometry(mesh(3)).unwrap().unwrap();
+    state.render.commit();
+    state.world.commands.push("old-world-command".into());
+    state.player_state.world = Some(crate::WorldObservation {
+        session: 1,
+        world: "fixture".into(),
+        dimension: 0,
+        position: (0., 0., 0.),
+        alive: true,
+        runtime_id: 1,
+    });
+    assert!(!host.render().0.retained.is_empty());
+    let identity = host.instance.filter_identity;
+    host.bind_drawing_world(session, false);
+    assert!(host.is_active());
+    assert_eq!(host.instance.filter_identity, identity);
+    assert!(!host.grants().world_draw);
+    assert!(host.render().0.retained.is_empty());
+    let state = host.instance.store.data_mut();
+    assert!(state.player_state.world.is_none());
+    assert!(state.world.commands.is_empty());
+    assert!(
+        state
+            .render
+            .retained
+            .remove(mod_api::drawing::DrawingHandle {
+                owner: geometry.owner,
+                generation: geometry.generation,
+                slot: geometry.slot
+            })
+            .is_err()
+    );
+    host.bind_drawing_session(DrawingSession {
+        dimension: 1,
+        ..session
+    });
+    assert!(host.is_active());
+    let state = host.instance.store.data_mut();
+    assert!(state.grants.world_draw);
+    assert!(
+        state
+            .render
+            .retained
+            .remove(mod_api::drawing::DrawingHandle {
+                owner: geometry.owner,
+                generation: geometry.generation,
+                slot: geometry.slot
+            })
+            .is_err()
+    );
+    let resources = state.render.retained.snapshot();
+    assert_eq!((resources.connection, resources.dimension), (1, 1));
+}
+
+#[test]
+fn block_creation_requires_both_generic_drawing_grants() {
+    let mut instance = instance();
+    let grid = wit::GeometrySpec::Blocks(wit::BlockGrid {
+        size: (1, 1, 1),
+        palette: vec![wit::BlockState::RuntimeId(1)],
+        cells: vec![
+            mod_api::drawing::pack_block_cell(mod_api::drawing::api::BlockCell {
+                palette: 0,
+                sky_light: None,
+                block_light: None,
+            })
+            .unwrap(),
+        ],
+    });
+    let state = instance.store.data_mut();
+    assert!(matches!(
+        state
+            .create_geometry(grid.clone())
+            .unwrap()
+            .unwrap_err()
+            .code,
+        wit::ErrorCode::Denied
+    ));
+    state.grants.render_material = true;
+    assert!(state.create_geometry(grid.clone()).unwrap().is_ok());
+    state.grants.world_draw = false;
+    assert!(matches!(
+        state.create_geometry(grid).unwrap().unwrap_err().code,
+        wit::ErrorCode::Denied
+    ));
 }

@@ -12,6 +12,8 @@ pub(super) enum Phase {
     AwaitingConsent,
     Downloading,
     Running,
+    /// Preparing the local-world server, whose report labels stand alone.
+    LocalWorlds,
     Done,
     Failed,
 }
@@ -52,25 +54,16 @@ impl Status {
         Self::new(Phase::Running, 0, 0, "Starting setup")
     }
 
+    /// Every required setup stage has finished; the game can start.
+    pub(super) fn ready() -> Self {
+        Self::new(Phase::Done, 0, 0, "Ready")
+    }
+
     pub(super) fn downloading(downloaded: u64, total: Option<u64>) -> Self {
         Self {
             downloaded: Some(downloaded),
             download_total: total,
             ..Self::new(Phase::Downloading, 0, 0, "Downloading Minecraft resources")
-        }
-    }
-
-    /// One line for a plain progress display, with downloads in megabytes.
-    pub(super) fn summary(&self) -> String {
-        match (self.downloaded, self.download_total) {
-            (Some(received), Some(total)) => format!(
-                "{}: {} / {} MB",
-                self.label,
-                received / 1_000_000,
-                total / 1_000_000
-            ),
-            (Some(received), None) => format!("{}: {} MB", self.label, received / 1_000_000),
-            _ => self.label.clone(),
         }
     }
 

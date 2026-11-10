@@ -31,6 +31,7 @@ mod block_entity;
 mod chunk;
 
 mod cloud_render;
+mod deferred_resource;
 mod device_poll;
 pub mod device_settings;
 
@@ -40,7 +41,11 @@ pub use enhanced::EnhancedRenderPlugin;
 pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "frame-generation")))]
+pub mod frame_generation;
 mod gpu_allocation;
+mod gpu_error_policy;
+pub use gpu_error_policy::{GpuFailure, install_error_policy};
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 
@@ -56,7 +61,7 @@ pub use input_pacing::{FramePacing, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
-pub use media::MediaTexture;
+pub use media::{MediaTexture, MediaUpload};
 mod media_screen;
 
 mod material_shader;
@@ -77,15 +82,23 @@ mod pack_skybox;
 mod panorama_render;
 mod particle_render;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod pipeline_compilation;
 mod pipeline_warmup;
+#[cfg(not(target_arch = "wasm32"))]
+pub use pipeline_compilation::PipelineCompilationPlugin;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
 
+mod post_process;
 mod present_mode;
+pub use post_process::ClientPostProcessPlugin;
 mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
+mod render_scale;
+pub use render_scale::{RenderScaleOutput, RenderScaleSharpen, RenderScaleSystems};
 
 mod runtime_profile_phases;
 
@@ -94,10 +107,12 @@ mod scene_target;
 
 mod queue_writes;
 mod screen_overlay_render;
+mod shader_asset;
 mod shader_safety;
-#[cfg(feature = "shaderpacks")]
+#[cfg(test)]
+#[path = "shader_safety/spirv_tests.rs"]
+mod shader_spirv_tests;
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
-#[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::geometry::{
     BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,
     DRAW_ORIGIN_VERTEX_BUFFER, FRAME_EXPANSION_FACES, GEOMETRY_VERTEX_BUFFER, GeometryCategory,
@@ -114,6 +129,7 @@ mod surface_capabilities;
 mod surface_lifecycle;
 mod transparent_phase;
 mod ui_render;
+pub use ui_render::presentation::UiFrameContent;
 #[cfg(all(test, target_os = "macos"))]
 mod upload_allocation_tests;
 mod upload_staging;
@@ -146,7 +162,6 @@ pub use actor_render::publication_test_support::{
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{BlockEntityRenderPlugin, DRAGON_DEATH_BLEND};
 
-pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
     ChunkRenderPlugin, ChunkTextureUploadStats, DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
     MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef,
@@ -160,6 +175,7 @@ pub use chunk::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
     publication_render_terminal_snapshot, publication_terrain_draws, settle_publication_noop_frame,
 };
+pub use chunk::{minimum_vertex_storage_buffers, required_vertex_storage_buffers};
 
 pub use dropped_item_render::DroppedItemRenderPlugin;
 
@@ -179,6 +195,12 @@ mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
 pub mod startup_presentation;
+#[cfg(test)]
+#[path = "startup_presentation/timing_tests.rs"]
+mod startup_timing_tests;
+mod stock_systems;
+pub use stock_systems::StockSystemsPlugin;
+mod world_passes;
 
 #[cfg(test)]
 mod queue_review_support;

@@ -9,13 +9,15 @@ use std::{
     collections::BTreeMap,
     fmt,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
-/// Frozen elapsed-time publication service bounds.
+/// Elapsed-time geometry service and per-frame publication work limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicationServiceConfig {
     pub minimum_items_per_second: u32,
     pub minimum_bytes_per_second: u64,
+    /// Geometry payload credits; zero-byte work uses its separate frame allowance.
     pub target_items_per_second: u32,
     pub target_bytes_per_second: u64,
     pub maximum_frame_items: usize,
@@ -24,6 +26,8 @@ pub struct PublicationServiceConfig {
     pub maximum_burst_bytes: u64,
     pub maximum_zero_byte_operations_per_frame: usize,
     pub urgent_zero_byte_reserve: usize,
+    /// Render-thread time one frame may spend preparing uploads; the first upload always runs.
+    pub maximum_frame_preparation_time: Duration,
 }
 
 impl PublicationServiceConfig {
@@ -38,6 +42,8 @@ impl PublicationServiceConfig {
         maximum_burst_bytes: 128 * 1024 * 1024,
         maximum_zero_byte_operations_per_frame: 256,
         urgent_zero_byte_reserve: 16,
+        // Half the 240 Hz render-CPU p99 budget, leaving the rest of the frame to cull and draw.
+        maximum_frame_preparation_time: Duration::from_millis(1),
     };
 }
 
@@ -68,7 +74,7 @@ struct PublicationAllowanceState {
     next_permit_id: u64,
     remaining_items: usize,
     remaining_bytes: u64,
-    frame_remaining_items: usize,
+    frame_remaining_operations: usize,
     frame_remaining_bytes: u64,
     remaining_zero_byte_operations: usize,
     live_payload_items: usize,
@@ -108,7 +114,7 @@ impl PublicationAllowance {
                 next_permit_id: 0,
                 remaining_items: 0,
                 remaining_bytes: 0,
-                frame_remaining_items: 0,
+                frame_remaining_operations: 0,
                 frame_remaining_bytes: 0,
                 remaining_zero_byte_operations: 0,
                 live_payload_items: 0,
@@ -142,10 +148,7 @@ impl PublicationAllowance {
             .checked_add(issued_bytes)
             .unwrap_or(state.config.maximum_burst_bytes)
             .min(state.config.maximum_burst_bytes);
-        state.frame_remaining_items = state
-            .remaining_items
-            .min(state.config.maximum_frame_items)
-            .min(frame_item_limit);
+        state.frame_remaining_operations = state.config.maximum_frame_items.min(frame_item_limit);
         state.frame_remaining_bytes = state.remaining_bytes.min(state.config.maximum_frame_bytes);
         state.remaining_zero_byte_operations =
             issued_zero_byte_operations.min(state.config.maximum_zero_byte_operations_per_frame);
@@ -158,7 +161,7 @@ impl PublicationAllowance {
         }
         let mut state = self.lock();
         if state.remaining_items == 0
-            || state.frame_remaining_items == 0
+            || state.frame_remaining_operations == 0
             || bytes > state.remaining_bytes
             || bytes > state.frame_remaining_bytes
             || state.live_payload_items >= state.config.maximum_frame_items
@@ -171,7 +174,7 @@ impl PublicationAllowance {
         }
         state.remaining_items = state.remaining_items.checked_sub(1)?;
         state.remaining_bytes = state.remaining_bytes.checked_sub(bytes)?;
-        state.frame_remaining_items = state.frame_remaining_items.checked_sub(1)?;
+        state.frame_remaining_operations = state.frame_remaining_operations.checked_sub(1)?;
         state.frame_remaining_bytes = state.frame_remaining_bytes.checked_sub(bytes)?;
         Some(insert_permit(
             &mut state,
@@ -193,14 +196,12 @@ impl PublicationAllowance {
             .maximum_zero_byte_operations_per_frame
             .saturating_add(usize::from(urgent) * state.config.urgent_zero_byte_reserve);
         if state.remaining_zero_byte_operations == 0
-            || state.remaining_items == 0
-            || state.frame_remaining_items == 0
+            || state.frame_remaining_operations == 0
             || state.live_zero_byte_operations >= live_limit
         {
             return None;
         }
-        state.remaining_items = state.remaining_items.checked_sub(1)?;
-        state.frame_remaining_items = state.frame_remaining_items.checked_sub(1)?;
+        state.frame_remaining_operations = state.frame_remaining_operations.checked_sub(1)?;
         state.remaining_zero_byte_operations =
             state.remaining_zero_byte_operations.checked_sub(1)?;
         Some(insert_permit(
@@ -211,6 +212,7 @@ impl PublicationAllowance {
     }
 
     #[must_use]
+    /// Returns unused elapsed-time geometry credits, independent of zero-byte work.
     pub fn remaining_items(&self) -> usize {
         self.lock().remaining_items
     }
@@ -239,14 +241,21 @@ impl PublicationAllowance {
             .saturating_add(usize::from(urgent) * state.config.urgent_zero_byte_reserve);
         state
             .remaining_zero_byte_operations
-            .min(state.remaining_items)
-            .min(state.frame_remaining_items)
+            .min(state.frame_remaining_operations)
             .min(live_limit.saturating_sub(state.live_zero_byte_operations))
     }
 
     #[must_use]
+    /// Returns geometry admission capacity within both elapsed and shared frame limits.
     pub fn frame_remaining_items(&self) -> usize {
-        self.lock().frame_remaining_items
+        let state = self.lock();
+        state.remaining_items.min(state.frame_remaining_operations)
+    }
+
+    /// Returns shared frame operations available to either publication class.
+    #[must_use]
+    pub fn frame_remaining_operations(&self) -> usize {
+        self.lock().frame_remaining_operations
     }
 
     #[must_use]
@@ -484,6 +493,33 @@ fn remove_live_permit(state: &mut PublicationAllowanceState, id: u64) -> bool {
 mod tests {
     use super::*;
 
+    /// Air evidence and withdrawals use their own authority without consuming upload credits.
+    #[test]
+    fn zero_byte_work_preserves_payload_credits() {
+        let config = PublicationServiceConfig::DEFAULT;
+        let allowance = PublicationAllowance::new(config);
+        allowance.begin_frame(1, 1, 64, 2, 3);
+        assert!(allowance.try_admit_zero_byte().unwrap().retire());
+        assert!(allowance.try_admit_zero_byte().unwrap().retire());
+        assert_eq!(allowance.remaining_items(), 1);
+        assert!(allowance.try_admit_payload(64).unwrap().retire());
+        assert_eq!(allowance.frame_remaining_items(), 0);
+        assert!(allowance.try_admit_payload(1).is_none());
+        assert!(allowance.try_admit_zero_byte().is_none());
+    }
+
+    /// Exhausted upload credits cannot stop a separately authorized removal.
+    #[test]
+    fn zero_byte_work_progresses_without_payload_credits() {
+        let allowance = PublicationAllowance::new(PublicationServiceConfig::DEFAULT);
+        allowance.begin_frame(1, 0, 0, 1, 1);
+        assert_eq!(allowance.zero_byte_admission_capacity(), 1);
+        assert!(allowance.try_admit_payload(1).is_none());
+        assert!(allowance.try_admit_zero_byte().unwrap().retire());
+        assert_eq!(allowance.zero_byte_admission_capacity(), 0);
+        assert!(allowance.try_admit_zero_byte().is_none());
+    }
+
     #[test]
     fn one_linear_permit_transfers_across_every_stage() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::DEFAULT);
@@ -545,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn five_hundred_twelve_mixed_payload_and_zero_byte_attempts_share_exact_item_caps() {
+    fn mixed_payload_and_zero_byte_work_share_the_frame_operation_cap() {
         let config = PublicationServiceConfig::DEFAULT;
         let allowance = PublicationAllowance::new(config);
         allowance.begin_frame(
@@ -565,7 +601,7 @@ mod tests {
 
         assert_eq!(payload.iter().flatten().count(), 256);
         assert_eq!(zero_byte.iter().flatten().count(), 256);
-        assert_eq!(allowance.remaining_items(), 0);
+        assert_eq!(allowance.remaining_items(), 256);
         assert_eq!(allowance.frame_remaining_items(), 0);
         assert_eq!(allowance.remaining_bytes(), 256);
         assert_eq!(allowance.remaining_zero_byte_operations(), 0);
@@ -604,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn rejected_zero_byte_attempts_preserve_shared_item_authority_with_zero_cap() {
+    fn rejected_zero_byte_attempts_preserve_payload_authority_with_zero_cap() {
         let allowance = PublicationAllowance::new(PublicationServiceConfig::DEFAULT);
         allowance.begin_frame(
             1,
@@ -622,7 +658,7 @@ mod tests {
 
         let payload = allowance
             .try_admit_payload(1)
-            .expect("zero-byte rejection must not burn the shared item");
+            .expect("zero-byte rejection must not burn the payload credit");
         assert_eq!(allowance.remaining_items(), 0);
         assert_eq!(allowance.frame_remaining_items(), 0);
         assert!(payload.retire());

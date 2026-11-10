@@ -194,11 +194,32 @@ pub fn image_form(
     images: Vec<Option<protocol::FormButtonImage>>,
 ) -> UiRuntime {
     let mut runtime = UiRuntime::new(1);
+    admit_image_form(&mut runtime, player_runtime, title, buttons, images);
+    runtime
+}
+
+/// Delivers an action form to a running session, as the server would.
+pub fn admit_action_form(
+    runtime: &mut UiRuntime,
+    player_runtime: &mut player_state::PlayerState,
+    title: &str,
+    buttons: &[&str],
+) {
+    admit_image_form(runtime, player_runtime, title, buttons, Vec::new());
+}
+
+fn admit_image_form(
+    runtime: &mut UiRuntime,
+    player_runtime: &mut player_state::PlayerState,
+    title: &str,
+    buttons: &[&str],
+    images: Vec<Option<protocol::FormButtonImage>>,
+) {
     runtime
         .apply(
             player_runtime,
             SequencedUiEvent {
-                session_id: 1,
+                session_id: runtime.session_id(),
                 fifo_sequence: 1,
                 local_millis: 0,
                 server_tick: None,
@@ -221,7 +242,6 @@ pub fn image_form(
             },
         )
         .unwrap();
-    runtime
 }
 
 /// Text drawn by `nodes`, rebuilt from each layout's glyph codepoints.
@@ -263,7 +283,7 @@ pub fn engine_presentation() -> Option<UiPresentationRuntime> {
     let carrier = ui_engine::test_support::carrier()?;
     let mut presentation =
         UiPresentationRuntime::new(Arc::new((*font()).clone().with_coverage_pages())).unwrap();
-    presentation.enable_json_ui(carrier).unwrap();
+    presentation.enable_json_ui_inline(carrier).unwrap();
     let vanilla = local(&launcher::install_layout::vanilla_pack_relative());
     let engine = presentation.engine.as_mut().unwrap();
     engine.textures.set_fallbacks(

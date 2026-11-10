@@ -60,14 +60,14 @@ fn bare_arm_and_fallback_held_envelopes_match_fixed_matrices() {
 
 #[test]
 fn third_person_tool_inherits_the_attack_and_item_parent_once() {
-    use crate::equipment::held_sprite_display;
+    use crate::equipment::{SpriteGrip, held_sprite_display};
     for case in cases() {
         let pose = legacy_swing_pose(number(&case["progress"]), 0.0);
         let arm = Mat4::from_translation((pose.right_shoulder + Vec3::Y * 22.0) / 16.0)
             * Mat4::from_rotation_y(-pose.right_rotation.y)
             * Mat4::from_rotation_x(-pose.right_rotation.x);
         let item_parent = Mat4::from_translation(Vec3::new(1.0, -7.0, 1.0) / 16.0);
-        let display = held_sprite_display(true);
+        let display = held_sprite_display(SpriteGrip::HandEquipped);
         let grip = Mat4::from_scale_rotation_translation(
             Vec3::splat(display.scale),
             display.rotation,

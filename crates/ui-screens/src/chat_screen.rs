@@ -23,7 +23,7 @@ use ui_engine::engine::{
 use crate::chat_coordinates::ChatCoordinates;
 use crate::regions::{segments, window_rect};
 use crate::settings_chat::ChatSettings;
-use crate::text::{bounded_visible_text, resolve_chat_line_formatted};
+use crate::text::{bounded_visible_text, resolve_chat_line};
 
 pub const CHAT_SCREEN: &str = "chat.chat_screen";
 
@@ -40,6 +40,7 @@ const MAX_MESSAGES: usize = 100;
 /// The edit box caret's on and off time.
 const CARET_BLINK_MILLIS: u64 = 500;
 const MESSAGES_VIEW: &str = "messages_panel";
+const MESSAGE_ROW_PREFIX: &str = "message_";
 
 /// What a pointer press on the chat screen means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,26 +93,30 @@ pub struct ChatScreen {
     history_bounds: Option<UiRect>,
     /// Virtual px scrolled up from the newest message.
     from_bottom: f64,
-    messages: usize,
+    history_revision: (u64, usize),
     open: bool,
     /// Logical px per virtual px, from the last frame.
     scale: f32,
     pointer: Option<UiPoint>,
-    /// The chat context, kept while the engine context and placement stay.
-    context: crate::chat_position::PlacedContext,
+    /// The chat context, kept while the engine context, placement and input style stay.
+    context: crate::hud_placement::PlacedContext<(crate::hud_placement::HudPlacement, bool)>,
 }
 
 /// What one chat paint reads from the client's chat state.
 pub struct ChatInput<'a> {
+    /// The current local actor display name used for mention matching.
+    pub local_player: &'a str,
     pub editor: &'a ui::ChatEditor,
     /// The history, oldest first.
     pub messages: &'a VecDeque<ui::ChatMessage>,
+    /// The first retained row's monotonic identity, independent of network FIFO batches.
+    pub first_message_id: u64,
     pub suggestions: &'a [Arc<str>],
     pub usage: Option<&'a str>,
     /// The keyboard-selected suggestion.
     pub selected_suggestion: Option<usize>,
     /// Chat text the personal HUD turns into extension actions.
-    pub annotations: &'a [ui::mod_hud::ChatAction],
+    pub annotations: &'a [ui::mod_presentation::ChatAction],
     pub clocks: &'a BTreeMap<String, f64>,
     pub now_millis: u64,
 }
@@ -125,13 +130,10 @@ impl ChatScreen {
         input: ChatInput<'_>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<(), PaintError> {
-        let messages = input.messages.len();
-        // The view jumps to the newest message on open and on every update.
-        if !self.open || messages != self.messages {
+        if !self.open {
             self.from_bottom = 0.0;
         }
         self.open = true;
-        self.messages = messages;
         let translate = frame.translate;
         let mut data = chat_data(&input, &self.settings, translate);
         crate::chat_coordinates::bind(self, &mut data, input.now_millis, &|key| {
@@ -147,21 +149,44 @@ impl ChatScreen {
             data.set_control_values(name, metrics.feedback());
         }
         let view = self.view_state(input.selected_suggestion);
+        let revision = (input.first_message_id, input.messages.len());
+        let anchors = if revision != self.history_revision {
+            history::anchors(self.screen.nodes(), self.scroll.as_ref(), self.from_bottom)
+        } else {
+            Vec::new()
+        };
+        self.history_revision = revision;
+        let options = &self.settings.options;
         let context = self.context.get(
             engine.context(),
-            self.settings.options.chat_at_top(),
-            crate::chat_position::placed,
+            (
+                crate::hud_placement::HudPlacement::from_settings(options),
+                options.bedrock_chat_input(),
+            ),
+            |base, (placement, bedrock)| {
+                crate::chat_position::with_input(placement.placed(base), bedrock)
+            },
         );
         let catalog = Arc::clone(engine.screen_catalog(CHAT_SCREEN));
         let metrics = frame.metrics;
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
         let color = crate::settings_chat::default_color(&self.settings.options);
-        let text_color = |node: &json_ui::DrawNode| {
-            crate::settings_chat::message_color(&node.key, MESSAGES_VIEW, color)
+        let text_format = |node: &json_ui::DrawNode, text: &str| {
+            crate::settings_chat::message_text(
+                &node.key,
+                MESSAGES_VIEW,
+                text,
+                color,
+                Some(self.settings.options.mentions_color_code()),
+                self.settings
+                    .options
+                    .mentions_only_self()
+                    .then_some(input.local_player),
+            )
         };
         let art = ScreenArt {
-            text_color: Some(&text_color),
+            text_format: Some(&text_format),
             pointer: self.pointer.map(|point| {
                 [
                     (point.x() - frame.safe_area.left()) / px,
@@ -176,8 +201,10 @@ impl ChatScreen {
             ..ScreenArt::default()
         };
         let screen = &mut self.screen;
+        let data = Arc::new(data);
         let drawn = engine.draw(art, frame, |env, root| {
-            screen.render_with(
+            history::render(
+                screen,
                 CHAT_SCREEN,
                 &catalog,
                 &context,
@@ -185,6 +212,7 @@ impl ChatScreen {
                 (root, px, language),
                 env,
                 &view,
+                &anchors,
             )
         })?;
         self.hits.clear();
@@ -201,6 +229,9 @@ impl ChatScreen {
             .iter()
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
             .map(|(key, metrics)| (key.clone(), metrics.clone()));
+        if let Some((_, metrics)) = &self.scroll {
+            self.from_bottom = (metrics.max_offset() - metrics.offset).max(0.0);
+        }
         self.history_bounds = self.scroll.as_ref().and_then(|(_, metrics)| {
             let [x, y, w, h] = metrics.viewport_rect?;
             ui::UiRect::new(
@@ -575,8 +606,8 @@ impl ChatScreen {
         };
         // Keyboard completion keeps its hover look while the pointer follows message controls.
         view.focus_memory.held = selected;
-        // The view's `jump_to_bottom_on_update` jumps to the newest line whenever
-        // its maximum changes; otherwise it keeps `from_bottom`.
+        // Follow updates only at the bottom. While reading history, the controller
+        // owns the offset and restores a surviving message after layout.
         if let Some((key, metrics)) = &self.scroll {
             let max = metrics.max_offset();
             view.scroll
@@ -584,7 +615,7 @@ impl ChatScreen {
             view.scroll_state.insert(
                 key.clone(),
                 json_ui::ScrollRetained {
-                    extent: Some(max),
+                    extent: (self.from_bottom == 0.0).then_some(max),
                     ..Default::default()
                 },
             );
@@ -644,11 +675,16 @@ fn chat_data(
     let chat_text = crate::settings_chat::chat_text(settings);
     let items = messages
         .iter()
+        .enumerate()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
         .filter(|_| settings.value(SettingId::HideChat) == 0)
-        .map(|line| {
-            let text = resolve_chat_line_formatted(line, translate, Some(settings.mentions_color_code()));
+        .map(|(index, line)| {
+            let text = resolve_chat_line(line, translate);
             FactoryItem::new("chat_screen_messages", 0.0)
+                .named(format!(
+                    "{MESSAGE_ROW_PREFIX}{}",
+                    input.first_message_id + index as u64
+                ))
                 .value(
                     "#text",
                     Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
@@ -656,7 +692,10 @@ fn chat_data(
                 .var("chat_font_type", Value::from("default"))
                 .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
                 .var("chat_line_spacing", Value::from(chat_text.line_spacing))
-                .var("chat_background_opacity", Value::from(crate::settings_chat::background_opacity(settings)))
+                .var(
+                    "chat_background_opacity",
+                    Value::from(crate::settings_chat::background_opacity(settings)),
+                )
         })
         .collect();
     data.set_factory("messages_factory", items);
@@ -730,6 +769,9 @@ fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
 
 #[cfg(test)]
 mod geometry_tests;
+mod history;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod hover_tests;
 #[cfg(test)]

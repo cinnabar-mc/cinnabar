@@ -1,6 +1,25 @@
 use super::style::style_scene;
 use super::*;
-mod counter;
+mod annotation;
+mod box_height;
+
+/// Builds annotation spans sharing one colour at one position.
+pub(super) fn spans(
+    texts: &[&str],
+    color: [f32; 4],
+    position: ui::mod_presentation::SpanPosition,
+) -> Arc<ui::mod_presentation::Spans> {
+    Arc::new(ui::mod_presentation::Spans {
+        spans: texts
+            .iter()
+            .map(|text| ui::mod_presentation::Span {
+                text: (*text).into(),
+                color,
+            })
+            .collect(),
+        position,
+    })
+}
 use protocol_ids::ActorFlag;
 
 mod badges;
@@ -112,7 +131,7 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
         view_depth: 5.0,
         camera_forward_y: 0.0,
         cinnabar_badge: false,
-        counter: None,
+        annotation: None,
     }
 }
 
@@ -135,19 +154,19 @@ fn scene_with_font(anchors: &[NametagAnchor], font: &RuntimeFontCatalog) -> Name
 }
 
 #[test]
-fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
+fn metadata_scale_multiplies_only_the_box_height() {
     let mut actor = actor();
     actor.metadata.insert(38, ActorMetadataValue::Float(2.0));
-    assert_eq!(tag_height(&actor), 2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE);
     actor
         .metadata
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
-    assert_eq!(tag_height(&actor), 2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * 3.6 + HEAD_CLEARANCE);
     let player_kind = actor.kind.clone();
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:zombie".into(),
     };
-    assert_eq!(tag_height(&actor), 2.0 * (3.6 + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * 3.6 + HEAD_CLEARANCE);
     actor.kind = player_kind;
     actor.metadata.insert(
         0,
@@ -156,8 +175,34 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
     actor.metadata.remove(&METADATA_HEIGHT);
     assert_eq!(
         tag_height(&actor),
-        2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
+        2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE - SNEAK_PLAYER_Y_OFFSET
     );
+}
+
+#[test]
+fn upright_players_follow_a_server_published_box_height() {
+    let mut actor = actor();
+    let feet = Vec3::new(0.0, 0.0, -5.0);
+    for (published, expected) in [
+        (None, DEFAULT_HEIGHT),
+        (Some(1.8), 1.8),
+        (Some(3.2), 3.2),
+        (Some(0.9), 0.9),
+    ] {
+        match published {
+            Some(height) => actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(height)),
+            None => actor.metadata.remove(&METADATA_HEIGHT),
+        };
+        let tag = extract_nametag_at_feet(&actor, view(Vec3::ZERO), None, "Npc".into(), None, feet)
+            .unwrap();
+        assert!(
+            (tag.position.y - (feet.y + expected + HEAD_CLEARANCE)).abs() < 1e-6,
+            "published height {published:?} placed the label at {}",
+            tag.position.y
+        );
+    }
 }
 
 #[test]
@@ -192,7 +237,7 @@ fn player_collision_height_does_not_lower_java_labels_again_while_crouching() {
             )
             .unwrap();
             let rendered = scene(&[tag]);
-            let expected_anchor = feet.y + (DEFAULT_HEIGHT + HEAD_CLEARANCE) * scale
+            let expected_anchor = feet.y + DEFAULT_HEIGHT * scale + HEAD_CLEARANCE
                 - if sneaking { SNEAK_PLAYER_Y_OFFSET } else { 0.0 };
             for record in &rendered.records {
                 assert!(
@@ -209,7 +254,7 @@ fn player_collision_height_does_not_lower_java_labels_again_while_crouching() {
 }
 
 #[test]
-fn near_zero_scale_floating_text_tags_sit_at_the_hosts_feet() {
+fn near_zero_scale_floating_text_tags_keep_the_clearance_above_the_minimum_box() {
     let mut actor = actor();
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:falling_block".into(),
@@ -218,10 +263,22 @@ fn near_zero_scale_floating_text_tags_sit_at_the_hosts_feet() {
         .metadata
         .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
     for (height, scale, expected) in [
-        (0.98, 0.000_000_1, 0.0),
-        (0.98, 0.0, 0.0),
+        (
+            0.98,
+            0.000_000_1,
+            client_world::MIN_COLLISION_DIMENSION + HEAD_CLEARANCE,
+        ),
+        (
+            0.98,
+            0.0,
+            client_world::MIN_COLLISION_DIMENSION + HEAD_CLEARANCE,
+        ),
         // An empty published box is a size, not a missing one.
-        (0.0, 1.0, HEAD_CLEARANCE),
+        (
+            0.0,
+            1.0,
+            client_world::MIN_COLLISION_DIMENSION + HEAD_CLEARANCE,
+        ),
     ] {
         actor
             .metadata
@@ -247,16 +304,16 @@ fn near_zero_scale_floating_text_tags_sit_at_the_hosts_feet() {
 }
 
 #[test]
-fn java_head_clearance_and_sneaking_offsets_keep_the_label_world_scale() {
+fn java_sneaking_offsets_keep_the_label_world_scale() {
     let mut actor = actor();
-    assert!((tag_height(&actor) - 2.3).abs() < 1e-6);
+    assert!((tag_height(&actor) - 2.5).abs() < 1e-6);
     actor.metadata.insert(
         0,
         ActorMetadataValue::Flags(
             (1 << ActorFlag::Sneaking.wire_value()) | (1 << ActorFlag::ShowName.wire_value()),
         ),
     );
-    assert!((tag_height(&actor) - 2.175).abs() < 1e-6);
+    assert!((tag_height(&actor) - 2.375).abs() < 1e-6);
     let tag = extract_nametag(
         &actor,
         view(Vec3::new(0.0, 0.0, 5.0)),
@@ -289,7 +346,7 @@ fn sleeping_players_lower_the_label_with_the_body() {
     let mut actor = actor();
     actor.metadata.insert(26, ActorMetadataValue::Byte(2));
     assert!(actor.is_sleeping());
-    assert!((tag_height(&actor) - 0.8).abs() < 1e-6);
+    assert!((tag_height(&actor) - 1.0).abs() < 1e-6);
 }
 
 #[test]
@@ -367,7 +424,7 @@ fn projected_tags_keep_mount_names_and_hide_only_their_score() {
         project_nametags(
             cache,
             &boards,
-            stream,
+            stream.authority().nametag_ui(),
             view(Vec3::ZERO),
             None,
             1.0,
@@ -706,10 +763,12 @@ fn cosmetic_shadow_and_border_preserve_each_records_depth_selection_and_record_b
         ],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(
-        serde_json::json!({"scale":2.,"shadow":true,"border_color":[1.,1.,1.,1.]}),
-    )
-    .unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        scale: 2.,
+        shadow: true,
+        border_color: Some([1.; 4]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, None);
     assert!(
         scene.records[..7]
@@ -754,7 +813,13 @@ fn own_tag_color_and_border_width_preserve_other_tags() {
         records: vec![plate, glyph, remote],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(serde_json::json!({"border_width":3.,"border_color":[1.,1.,1.,1.],"text_color":[0.,1.,0.,1.],"own_text_color":[1.,0.,0.,1.]})).unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        border_width: 3.,
+        border_color: Some([1.; 4]),
+        text_color: Some([0., 1., 0., 1.]),
+        own_text_color: Some([1., 0., 0., 1.]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, Some(glyph.runtime_id));
     assert_eq!(scene.records[0].rect, [-5., -4., 5., -1.]);
     assert_eq!(scene.records[5].color, [1., 0., 0., 0.125]);
@@ -823,7 +888,7 @@ fn projection_limits_extraction_to_the_nearest_tags_and_reuses_their_text() {
         project_nametags(
             cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view(Vec3::new(0.0, 1.62, 5.0)),
             None,
             0.5,
@@ -898,7 +963,7 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     assert_ne!(first.position, moved.position);
     assert_eq!(
         moved.position.y,
-        2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
+        2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE - SNEAK_PLAYER_Y_OFFSET
     );
     assert!(moved.depth_tested);
     assert_eq!(moved.text_alpha, DIM_TEXT_ALPHA);

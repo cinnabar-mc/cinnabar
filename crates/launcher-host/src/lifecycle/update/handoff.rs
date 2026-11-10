@@ -41,18 +41,28 @@ pub(super) fn spawn(layout: &InstallLayout, ready: &Ready) -> Result<()> {
     if let Some(lease) = &ready.lease {
         lease.set_modified(SystemTime::now())?;
     }
-    let args = [
-        ready.stage.as_os_str().to_owned(),
-        apply_target(ready)?.into_os_string(),
-        std::process::id().to_string().into(),
-        ready.channel.name().into(),
-    ];
+    let args = helper_args(ready, apply_target(ready)?, std::process::id());
     spawn_with_args(layout, &args)?;
     if let Some(lease) = &ready.lease {
         // Keep the parent reader through actual process exit, just like the helper copy reader.
         std::mem::forget(lease.clone());
     }
     Ok(())
+}
+
+/// Carries downgrade consent separately from the selected signed stage and its publishing channel.
+pub(super) fn helper_args(ready: &Ready, target: PathBuf, parent: u32) -> Vec<OsString> {
+    let mut args = vec![
+        ready.stage.as_os_str().to_owned(),
+        target.into_os_string(),
+        parent.to_string().into(),
+        ready.channel().name().into(),
+    ];
+    if let Some(build) = &ready.switch_from {
+        args.push(build.version.clone().into());
+        args.push(build.number.to_string().into());
+    }
+    args
 }
 
 /// A downloaded copy applies to its original installation, rather than replacing itself.
@@ -185,11 +195,11 @@ pub(super) fn manual_check<'a>(
     current: &'a update_manifest::build::Build,
 ) -> Check<'a> {
     Check {
-        channel: ready.channel.name(),
+        channel: ready.channel().name(),
         platform,
         current: &current.version,
         current_build: current.number,
-        switch_now: ready.switch_now || ready.target.is_some(),
+        switch_now: ready.switch_from.is_some() || ready.target.is_some(),
     }
 }
 

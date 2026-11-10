@@ -16,6 +16,7 @@ pub(super) fn configure(app: &mut App) {
     };
     crate::game_frame::configure_client_frame_schedule(app);
     crate::game_frame::configure_world(app);
+    crate::melee::server_swings::configure(app);
     app.init_resource::<CanvasCapture>();
     app.add_plugins((
         client_runtime::ClientRuntimePlugin::<network::resource_packs::PackApplication>::default(),
@@ -25,7 +26,7 @@ pub(super) fn configure(app: &mut App) {
     .init_resource::<crate::acceptance::AcceptanceRun>()
     .init_resource::<client_interaction::movement::LocomotionState>()
     .init_resource::<world::WorldStreamFramePoll>()
-    .init_resource::<client_state::EmoteInputConsumed>()
+    .init_resource::<client_state::ScreenInputConsumed>()
     .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
     .init_resource::<crate::melee::MeleeTarget>()
     .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
@@ -52,6 +53,7 @@ pub(super) fn configure(app: &mut App) {
             network::receive_network_events,
             super::session::observe_terminal,
             world::reconcile_world_stream_before_physics,
+            crate::ui_runtime::outbound::reconcile_mining_inventory,
             world::drain_committed_ui_before_authority,
         )
             .chain()

@@ -101,6 +101,57 @@ fn actor_attacks(
 }
 
 #[test]
+fn controller_and_touch_attacks_record_the_admitted_actor_for_storage() {
+    for (mode, frame) in [
+        (
+            semantic_input::InputMode::GamePad,
+            semantic_input::DeviceFrame {
+                controllers: vec![semantic_input::ControllerFrame {
+                    device_id: 1,
+                    activity_sequence: 1,
+                    axes: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ),
+        (
+            semantic_input::InputMode::Touch,
+            semantic_input::DeviceFrame {
+                touches: vec![semantic_input::TouchContact {
+                    contact_id: 1,
+                    activity_sequence: 1,
+                    position: [0.8, 0.8],
+                    delta: [0.0; 2],
+                    hit_id: Some(semantic_input::touch::ATTACK),
+                }],
+                ..Default::default()
+            },
+        ),
+    ] {
+        let (mut world, mut captured) = unpublished_attack_fixture(7.5);
+        let snapshot = world
+            .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+            .route_and_finalize(frame)
+            .unwrap();
+        assert_eq!(snapshot.input_mode, mode);
+        assert!(snapshot.phases[Action::Attack as usize].pressed);
+        assert!(snapshot.ordered.is_none());
+        world.insert_resource(client_state::SemanticInputSnapshot(
+            semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+        ));
+        produce(&mut world);
+        assert_eq!(actor_attacks(&mut captured).len(), 1);
+        let now = world.resource::<Time<Real>>().elapsed();
+        assert_eq!(
+            world.resource::<BlockUseRuntime>().recent_actor_use(7, now),
+            Some(99),
+            "the {mode:?} attack must retain its storage anchor"
+        );
+    }
+}
+
+#[test]
 fn attack_press_waits_for_backing_drop_admission() {
     let (mut world, mut captured) = unpublished_attack_fixture(7.5);
     world.resource_scope(|world, mut player: Mut<client_state::PlayerRuntime>| {
@@ -143,6 +194,11 @@ fn attack_press_waits_for_backing_drop_admission() {
     produce(&mut world);
     assert!(actor_attacks(&mut captured).is_empty());
     assert!(world.resource::<MeleeRuntime>().press_pending());
+    let now = world.resource::<Time<Real>>().elapsed();
+    assert_eq!(
+        world.resource::<BlockUseRuntime>().recent_actor_use(7, now),
+        None
+    );
 
     {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
@@ -188,6 +244,10 @@ fn attack_press_waits_for_backing_drop_admission() {
         "the admitted drop leaves an empty hand"
     );
     assert!(!world.resource::<MeleeRuntime>().press_pending());
+    assert_eq!(
+        world.resource::<BlockUseRuntime>().recent_actor_use(7, now),
+        Some(99)
+    );
 }
 
 #[test]
@@ -219,11 +279,11 @@ fn attack_admission_uncached_actor_press_does_not_mine_the_block_behind_it() {
 
 #[test]
 fn attack_admission_uncached_actor_press_holds_native_item_use() {
-    for delay_fix in [false, true] {
+    for pulse in [false, true] {
         let (mut world, mut captured) = unpublished_attack_fixture(7.5);
-        let scope = item_use_tests::hold_snowball(&mut world);
-        if delay_fix {
-            world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
+        item_use_tests::hold_snowball(&mut world);
+        if pulse {
+            world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });
         }
         let mut router = crate::semantic_controls::SemanticInputRuntime::default();
         hold(&mut world, &mut router, Vec::new(), vec![1, 2]);
@@ -243,8 +303,8 @@ fn attack_admission_uncached_actor_press_holds_native_item_use() {
             .count();
         assert_eq!(
             throws,
-            usize::from(delay_fix),
-            "native use respects the attack; the explicit override permits it"
+            usize::from(pulse),
+            "native use respects the attack; a use pulse skips that hold-off"
         );
     }
 }
@@ -277,6 +337,9 @@ fn attack_admission_assisted_reach_uses_the_box_without_replacing_its_selected_p
     ] {
         let distance = gameplay::mining::creative_reach(wire) as f32 + 0.2;
         let (mut world, mut captured) = assisted_fixture(distance, true);
+        let mut physics = client_interaction::movement::LocalPhysicsController::default();
+        physics.reanchor_network_position([4.5, 2.620_01, 8.5], 101, false);
+        world.insert_resource(physics);
         assisted_attack(&mut world, input);
         let attacks = actor_attacks(&mut captured);
         assert_eq!(attacks.len(), 1, "the near box edge remains in pick reach");

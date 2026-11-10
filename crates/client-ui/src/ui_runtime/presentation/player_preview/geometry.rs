@@ -16,9 +16,9 @@ use {
     ui::IconRef,
 };
 
-mod fire;
-mod held;
-mod lighting;
+pub(in crate::ui_runtime::presentation) mod fire;
+pub(in crate::ui_runtime::presentation) mod held;
+pub(in crate::ui_runtime::presentation) mod lighting;
 mod sources;
 pub use fire::PreviewFire;
 pub(in crate::ui_runtime::presentation) use sources::MeshSources;
@@ -226,6 +226,7 @@ fn append(
                 atlas_edge(top, bottom, vertex.uv[1])?,
             ];
             vertices.push(UiMeshVertex {
+                terrain_mips: false,
                 position: [
                     projected.screen[0] / PREVIEW_WIDTH as f32,
                     projected.screen[1] / PREVIEW_HEIGHT as f32,

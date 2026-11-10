@@ -6,7 +6,7 @@ use super::{
     Direction, Guest, Outbound, PACKET_MOD_LOAD_DEADLINE, PACKET_MOD_TRANSFER_BYTES,
     SessionIdentity, SessionPack,
     limits::PacketLimits,
-    native_capabilities::{FRAME, MENU, NATIVE_INIT, NativeExports},
+    native_capabilities::{FRAME, NATIVE_INIT, NativeExports},
     wasi,
 };
 use crate::{ModGrants, execution};
@@ -40,10 +40,11 @@ const SESSION_PACK_BYTES: u32 = 12;
 type StartParams = (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32);
 
 /// Store data: the locked-down WASI preview 1 context and the memory limiter.
-struct State {
+pub(super) struct State {
     wasi: WasiP1Ctx,
     limits: PacketLimits,
     log: wasi::LogBudget,
+    pub(super) panel: super::panel::PanelHandle,
 }
 
 /// A compiled module linked against WASI preview 1 only with the `wasi` grant.
@@ -52,6 +53,7 @@ pub(super) struct Program {
     pre: InstancePre<State>,
     native_capabilities: u32,
     camera_players: bool,
+    controls: bool,
 }
 
 impl Program {
@@ -84,12 +86,14 @@ impl Program {
                 &mut state.wasi
             })?;
         }
+        super::panel::link(&mut linker)?;
         let pre = linker.instantiate_pre(&module).context("link packet mod")?;
         Ok((
             Self {
                 pre,
                 native_capabilities,
                 camera_players: grants.players,
+                controls: grants.controls,
             },
             image_bytes,
         ))
@@ -104,6 +108,7 @@ impl Program {
                 wasi: wasi::builder(&log).build_p1(),
                 limits: PacketLimits::default(),
                 log,
+                panel: super::panel::PanelHandle::new(self.controls),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -139,17 +144,11 @@ impl Program {
             post(ON_BATCH)?,
             post(TICK)?,
             post(FRAME)?,
-            post(MENU)?,
             post(super::native_capabilities::CAMERA_FRAME)?,
             post(super::native_capabilities::RENDER_FRAME)?,
         ];
         let frame = if self.native_capabilities & mod_api::native_frame::CAMERA_PLAYERS != 0 {
             Some(instance.get_typed_func(&mut store, FRAME)?)
-        } else {
-            None
-        };
-        let menu = if self.native_capabilities & mod_api::native_menu::CONTROLS != 0 {
-            Some(instance.get_typed_func(&mut store, MENU)?)
         } else {
             None
         };
@@ -172,7 +171,6 @@ impl Program {
             frame,
             camera_frame,
             render_frame,
-            menu,
             posts,
         };
         Ok(Box::new(CoreGuest {
@@ -196,9 +194,8 @@ struct Calls {
     frame: Option<TypedFunc<(i32, i32), i32>>,
     camera_frame: Option<TypedFunc<(i32, i32), i32>>,
     render_frame: Option<TypedFunc<(i32, i32), i32>>,
-    menu: Option<TypedFunc<(i32, i32), i32>>,
-    /// Post-return functions of `start`, `on-batch`, `tick` and optional `frame` and `menu`.
-    posts: [Option<TypedFunc<i32, ()>>; 7],
+    /// Post-return functions of `start`, `on-batch`, `tick` and optional camera and drawing calls.
+    posts: [Option<TypedFunc<i32, ()>>; 6],
 }
 
 struct CoreGuest {
@@ -365,7 +362,7 @@ impl Guest for CoreGuest {
             .deadline
             .run(frame.call_async(&mut self.store, input))?;
         self.lift_bounded(
-            6,
+            5,
             result,
             mod_api::native_render::MAX_BYTES,
             |reader, at| reader.result(at, |reader, at| reader.list(at).map(Some)),
@@ -385,27 +382,17 @@ impl Guest for CoreGuest {
         let result = self
             .deadline
             .run(frame.call_async(&mut self.store, input))?;
-        self.lift_bounded(5, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
+        self.lift_bounded(4, result, mod_api::native_frame::MAX_BYTES, |reader, at| {
             reader.result(at, |reader, at| reader.list(at).map(Some))
         })
     }
 
-    fn has_native_menu(&self) -> bool {
-        self.calls.menu.is_some()
-    }
-
-    fn menu(&mut self, json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
-        let Some(menu) = self.calls.menu.clone() else {
-            return Ok(Ok(None));
-        };
-        let input = self.lower(json)?;
-        let result = self.deadline.run(menu.call_async(&mut self.store, input))?;
-        self.lift_bounded(
-            4,
-            result,
-            mod_api::native_menu::MAX_OUTPUT_BYTES,
-            |reader, at| reader.result(at, |reader, at| reader.list(at).map(Some)),
-        )
+    fn panel(&self) -> Option<super::panel::PanelHandle> {
+        self.store
+            .data()
+            .panel
+            .enabled()
+            .then(|| self.store.data().panel.clone())
     }
 
     fn peak_memory(&self) -> usize {

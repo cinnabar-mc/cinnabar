@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
@@ -406,7 +407,7 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 		seen[id] = true
 		selected = append(selected, sessionPack{
 			UUID: offer.info.UUID.String(), Version: offer.info.Version, SubPack: entry.subPack,
-			ContentKey: offer.info.ContentKey, Size: uint64(max(offer.pack.Size(), 0)),
+			ContentKey: sessionContentKey(offer.info.ContentKey), Size: uint64(max(offer.pack.Size(), 0)),
 		})
 		packs = append(packs, offer.pack)
 	}
@@ -465,13 +466,22 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 
 // newSessionDownstream accepts only the pinned protocol and valid login client data; a device
 // replaces the client's claimed device and lets the upstream dialer derive SelfSignedId.
-// Without a core device, the caller's device and identity claims remain intact.
+// A core device also scopes offline identity to the install and persona. Without it,
+// client device claims remain intact and offline login gets a fresh identity.
 func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
 	}
 	if claimed != nil {
+		switch claimed.OS {
+		case protocol.DeviceOSX, protocol.DeviceWin10, protocol.DeviceWin32, protocol.DeviceLinux:
+			clientData.PlatformType = login.PlatformTypeDesktop
+			clientData.MarkClaims("PlatformType")
+		case protocol.DeviceIOS:
+			clientData.PlatformType = login.PlatformTypeMobile
+			clientData.MarkClaims("PlatformType")
+		}
 		claimed.Apply(&clientData)
 	}
 	pinned := minecraft.DefaultProtocol
@@ -494,8 +504,12 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		clientData.SelfSignedID = ""
 		clientData.MarkClaims("SelfSignedId")
 	}
+	profile := device.Profile{}
+	if claimed != nil {
+		profile = *claimed
+	}
 	return &sessionDownstream{
-		identity:    login.IdentityData{DisplayName: clientData.ThirdPartyName},
+		identity:    authcache.OfflineIdentity(profile, clientData.ThirdPartyName),
 		clientData:  clientData,
 		clientCache: request.ClientCache,
 	}, nil

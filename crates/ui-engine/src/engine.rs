@@ -16,7 +16,7 @@ use std::{
 use assets::{RuntimeFontCatalog, RuntimeUiAssets};
 use json_ui::{
     Catalog, Context, DataSource, Draw, DrawNode, FormModel, FormRender, LayoutEnv, RectOut,
-    ResolvedControl, ViewState, bind_form_over, render_bound_gated,
+    ResolvedControl, ViewState,
 };
 use ui::{TextLayoutCache, TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiVisual};
 
@@ -26,6 +26,8 @@ mod banner_renderer;
 mod dependencies;
 mod fill_renderers;
 mod filter;
+#[cfg(test)]
+mod form_animation_tests;
 mod formatting_colors;
 mod fragment;
 pub use fragment::{CachedFragment, CachedFragmentTextures, normalize_fragment};
@@ -37,12 +39,16 @@ mod ownership_tests;
 pub mod pack_catalog;
 mod paint_bounds;
 pub use paint_bounds::{PaintBounds, PaintObserver};
+pub mod layout_task;
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
+mod retained_paint;
+pub use retained_paint::RetainedPaint;
 mod rounded;
 pub mod screen;
 pub mod screen_cache;
+mod server_form;
 mod sprites;
 pub mod text_paint;
 mod vector_icons;
@@ -76,7 +82,7 @@ pub struct FormEngine {
     pub server_ui: bool,
     /// The last form's bound tree and laid-out output, reused while unchanged.
     pub cache: Option<FormCache>,
-    /// Resolve+bind and layout passes run, for cache tests and profiling.
+    /// Base form resolve/bind and layout passes, excluding sampled geometry refreshes.
     pub passes: [usize; 2],
     screens: screen_cache::ScreenCache,
     /// Logical dependencies of recent immutable draw-node snapshots.
@@ -85,24 +91,26 @@ pub struct FormEngine {
     animator: std::sync::Mutex<json_ui::Animator>,
 }
 
+/// The strongest image change collected since the previous frame's poll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageUpdate {
+    /// No image readiness or dimensions changed.
+    None,
+    /// Artwork or masks settled without changing layout inputs.
+    Readiness,
+    /// Image dimensions or source metadata changed, including during the previous paint.
+    Metadata,
+}
+
 pub struct FormCache {
     model: FormModel,
     components: json_ui::Components,
     catalog: Arc<Catalog>,
     /// A rejected bind retains its input key without publishing a partial tree.
     bound: Option<ResolvedControl>,
-    laid: Option<LaidForm>,
+    laid: Option<server_form::LaidForm>,
     /// The screen's Escape target; flattening the screen per frame deep-clones pack controls.
     screen_cancel: Option<String>,
-}
-
-struct LaidForm {
-    view: ViewState,
-    layout: json_ui::LayoutCacheKey,
-    text: [usize; 3],
-    font: assets::FontCatalogIdentity,
-    texture_metadata: u64,
-    render: FormRender,
 }
 
 /// Borrowed texture sources a paint reads.
@@ -229,10 +237,17 @@ impl FormEngine {
         self.screens.invalidate_layouts();
     }
 
-    /// Polls original-image readiness even when the current menu needs no repaint.
-    pub fn poll_native_images(&mut self) -> bool {
+    /// Collects image changes without treating pixel readiness as a layout change.
+    pub fn poll_native_images(&mut self) -> ImageUpdate {
         let atlas = self.textures.atlas_mut();
-        atlas.poll_native_images() | atlas.take_metadata_changed()
+        let ready = atlas.poll_native_images();
+        if atlas.take_metadata_changed() {
+            ImageUpdate::Metadata
+        } else if ready {
+            ImageUpdate::Readiness
+        } else {
+            ImageUpdate::None
+        }
     }
 
     /// The atlas page images when they changed since the last call.
@@ -244,36 +259,6 @@ impl FormEngine {
         self.server_pages = atlas.images().to_vec();
         self.server_sheet_pages = atlas.native_pages().to_vec();
         Some(&self.server_pages)
-    }
-
-    /// The last form's sprite textures, and those resolving to no source.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn drawn_sprites(&self) -> (Vec<String>, Vec<String>) {
-        let atlas = self.textures.lock();
-        let view = Textures {
-            assets: &self.assets,
-            set: &self.textures,
-            atlas: &atlas,
-            images: None,
-        };
-        let mut drawn: Vec<String> = self
-            .cache
-            .iter()
-            .flat_map(|cache| cache.laid.iter())
-            .flat_map(|laid| laid.render.nodes.iter())
-            .filter_map(|node| match &node.draw {
-                Draw::Sprite { texture, .. } => Some(view.canonical(texture).into_owned()),
-                _ => None,
-            })
-            .collect();
-        drawn.sort();
-        drawn.dedup();
-        let missing = drawn
-            .iter()
-            .filter(|key| view.sprite(key).is_none())
-            .cloned()
-            .collect();
-        (drawn, missing)
     }
 
     /// Apply a server pack's ui files over vanilla and the built-in packs; none restores the base.
@@ -315,81 +300,6 @@ impl FormEngine {
             .animator
             .get_mut()
             .unwrap_or_else(|poison| poison.into_inner()) = json_ui::Animator::new();
-    }
-
-    /// Render `model`; `Ok(None)` without its template. Layout holds until model or scroll change.
-    pub fn render(
-        &mut self,
-        model: &FormModel,
-        view: &ViewState,
-        frame: &mut PaintFrame<'_>,
-    ) -> Result<Option<EngineFrame>, PaintError> {
-        let current = self.cache.as_ref().is_some_and(|cache| {
-            cache.model == *model
-                && cache.components.same_bindings(&view.components)
-                && Arc::ptr_eq(&cache.catalog, &self.catalog)
-        });
-        if !current {
-            self.passes[0] += 1;
-            let components = &view.components;
-            self.cache = Some(FormCache {
-                components: components.clone(),
-                model: model.clone(),
-                catalog: Arc::clone(&self.catalog),
-                bound: bind_form_over(model, &self.catalog, self.registry.context(), components),
-                laid: None,
-                screen_cancel: json_ui::form_screen_cancel(&self.catalog),
-            });
-        }
-        let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
-        let text = frame.language;
-        let font = frame.font.identity();
-        let texture_metadata = self.textures.metadata_revision();
-        let art = Art {
-            assets: &self.assets,
-            set: &self.textures,
-            animator: &self.animator,
-            dependencies: &self.dependencies,
-        };
-        let screen_cancel = self
-            .cache
-            .as_ref()
-            .and_then(|cache| cache.screen_cancel.clone());
-        let (cache, passes) = (&mut self.cache, &mut self.passes[1]);
-        let screen_art = ScreenArt {
-            view: Some(view),
-            ..ScreenArt::default()
-        };
-        let drawn = render_with(art, frame, screen_art, move |env, root| {
-            let cache = cache.as_mut()?;
-            let layout = json_ui::LayoutCacheKey::new(root, px, env);
-            let fresh = cache.laid.as_ref().is_some_and(|laid| {
-                laid.view.same_layout(view)
-                    && laid.layout == layout
-                    && laid.text == text
-                    && laid.font == font
-                    && laid.texture_metadata == texture_metadata
-            });
-            if !fresh {
-                let bound = cache.bound.clone()?;
-                *passes += 1;
-                let measures = &mut Default::default();
-                let render = render_bound_gated(bound, root, env, view, measures);
-                cache.laid = Some(LaidForm {
-                    view: view.clone(),
-                    layout,
-                    text,
-                    font,
-                    texture_metadata,
-                    render,
-                });
-            }
-            cache.laid.as_ref().map(|laid| &laid.render)
-        })?;
-        Ok(drawn.map(|mut drawn| {
-            drawn.cancel_target = drawn.cancel_target.or(screen_cancel);
-            drawn
-        }))
     }
 
     pub fn assets(&self) -> &RuntimeUiAssets {
@@ -500,8 +410,8 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
     .map_err(PaintError::Geometry)
 }
 
-/// Selects a label's optional default formatting color after binding and localization.
-pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
+/// Optionally changes a label's presentation after binding and localization.
+pub type TextFormat<'a> = &'a dyn Fn(&DrawNode, &str) -> Option<String>;
 
 /// What the engine paints a screen against besides its layout: the interaction state, the
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
@@ -521,8 +431,8 @@ pub struct ScreenArt<'a> {
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
-    /// Default formatting color chosen per label after binding and localization.
-    pub text_color: Option<TextColor<'a>>,
+    /// Optional label presentation after binding and localization.
+    pub text_format: Option<TextFormat<'a>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
@@ -532,6 +442,7 @@ pub struct ScreenArt<'a> {
 }
 
 impl ScreenArt<'_> {
+    /// Whether the caller replaced this drawn control or an ancestor with native artwork.
     fn omits(&self, node: &DrawNode) -> bool {
         self.omit_controls.iter().any(|name| {
             node.key
@@ -842,7 +753,9 @@ impl Canvas<'_> {
             || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
-            || (!floats && (dest[2] <= dest[0] || dest[3] <= dest[1]))
+            // Custom renderers can use a point or line as their painting origin.
+            || (!matches!(&node.draw, Draw::Custom { .. })
+                && (dest[2] <= dest[0] || dest[3] <= dest[1]))
             || opacity <= 0.0
         {
             return Ok(());
@@ -865,19 +778,15 @@ impl Canvas<'_> {
                 .edit
                 .filter(|edit| edit.text == node.key)
                 .map(|edit| edit.feedback);
-            let colored = self
-                .art
-                .text_color
-                .and_then(|color| color(node))
-                .map(|code| {
-                    let text = if *localize {
-                        text_paint::localized(text, self.translate)
-                    } else {
-                        Cow::Borrowed(text.as_str())
-                    };
-                    apply_chat_color(text.as_ref(), code)
-                });
-            let (text, localize) = colored
+            let formatted = self.art.text_format.map(|format| {
+                let text = if *localize {
+                    text_paint::localized(text, self.translate)
+                } else {
+                    Cow::Borrowed(text.as_str())
+                };
+                format(node, &text).map(Cow::Owned).unwrap_or(text)
+            });
+            let (text, localize) = formatted
                 .as_deref()
                 .map_or((text.as_str(), *localize), |text| (text, false));
             let style = TextPaint {
@@ -956,36 +865,4 @@ impl Canvas<'_> {
         };
         self.push(visual, bounds)
     }
-}
-
-/// Applies active chat color prefix and restores it across Minecraft format resets (§r, §f).
-fn apply_chat_color(text: &str, code: char) -> String {
-    let mut result = String::with_capacity(text.len() + 16);
-    result.push('§');
-    result.push(code);
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '§' {
-            if let Some(&next) = chars.peek() {
-                chars.next();
-                if next == 'r' {
-                    result.push('§');
-                    result.push('r');
-                    result.push('§');
-                    result.push(code);
-                } else if next == 'f' {
-                    result.push('§');
-                    result.push(code);
-                } else {
-                    result.push('§');
-                    result.push(next);
-                }
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }

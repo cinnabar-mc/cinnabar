@@ -9,12 +9,15 @@ fn totem_pending_world_commit_keeps_the_pre_consumption_snapshot() {
     let (mut runtime, mut player, _) = queued_player();
     runtime.retain_totem_snapshot(&mut player, 1, 4);
     assert!(
-        runtime.item_activation.is_none(),
+        runtime.session.item_activation.is_none(),
         "publication still owns admission"
     );
     runtime.drain_pending_inventory(&mut player);
     runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
-    assert_eq!(runtime.item_activation.as_ref().unwrap().metadata, 7);
+    assert_eq!(
+        runtime.session.item_activation.as_ref().unwrap().metadata,
+        7
+    );
 }
 
 #[test]
@@ -22,23 +25,26 @@ fn totem_pending_snapshot_is_retired_with_its_session() {
     let (mut runtime, mut player, _) = queued_player();
     runtime.retain_totem_snapshot(&mut player, 1, 4);
     runtime.begin_session(2);
-    assert!(runtime.pending_totem_snapshots.is_empty());
+    assert!(runtime.session.pending_totem_snapshots.is_empty());
     runtime.retain_totem_snapshot(&mut player, 1, 5);
-    assert!(runtime.pending_totem_snapshots.is_empty());
+    assert!(runtime.session.pending_totem_snapshots.is_empty());
 }
 
 #[test]
 fn totem_equipment_only_main_hand_keeps_the_activation_prefix() {
-    equipment_only_prefix(protocol::ActorHandedness::Right);
+    activation_prefix(protocol::ActorHandedness::Right);
 }
 
+/// The local offhand comes only from inventory authority, since vanilla ignores the local
+/// player's own offhand MobEquipment.
 #[test]
-fn totem_equipment_only_offhand_keeps_the_activation_prefix() {
-    equipment_only_prefix(protocol::ActorHandedness::Left);
+fn totem_inventory_offhand_keeps_the_activation_prefix() {
+    activation_prefix(protocol::ActorHandedness::Left);
 }
 
-/// Sends equipment and consumption around an activation without inventory-cell packets.
-fn equipment_only_prefix(hand: protocol::ActorHandedness) {
+/// States a totem, then its consumption, around an activation: main-hand equipment echoes, or
+/// offhand inventory content.
+fn activation_prefix(hand: protocol::ActorHandedness) {
     let mut runtime = UiRuntime::new(1);
     let mut player = player_state::PlayerState::new(1);
     player
@@ -54,37 +60,51 @@ fn equipment_only_prefix(hand: protocol::ActorHandedness) {
         .inventory
         .enqueue_item_registry_event(1, 1, ItemRegistryEvent { entries: registry })
         .unwrap();
-    let equipment = protocol::EquipmentEvent {
-        actor_runtime_id: 42,
-        stack: NetworkItemStack {
-            network_id: id,
-            count: 1,
-            metadata: 13,
-            ..NetworkItemStack::empty()
-        },
-        inventory_slot: 0,
-        selected_slot: 0,
-        window_id: if hand == protocol::ActorHandedness::Left {
-            119
-        } else {
-            0
-        },
-        handedness: Some(hand),
+    let totem = NetworkItemStack {
+        network_id: id,
+        count: 1,
+        metadata: 13,
+        ..NetworkItemStack::empty()
     };
-    runtime.retain_local_selected_equipment(&mut player, 2, equipment.clone());
+    let state = |runtime: &mut UiRuntime,
+                 player: &mut player_state::PlayerState,
+                 sequence,
+                 stack: NetworkItemStack| {
+        if hand == protocol::ActorHandedness::Left {
+            runtime
+                .enqueue_inventory_event(
+                    player,
+                    1,
+                    sequence,
+                    InventoryEvent::Content(InventoryContentEvent {
+                        container: ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                        slots: vec![stack].into(),
+                        storage_item: NetworkItemStack::empty(),
+                    }),
+                )
+                .unwrap();
+        } else {
+            runtime.retain_local_selected_equipment(
+                player,
+                sequence,
+                protocol::EquipmentEvent {
+                    actor_runtime_id: 42,
+                    stack,
+                    inventory_slot: 0,
+                    selected_slot: 0,
+                    window_id: 0,
+                    handedness: Some(hand),
+                },
+            );
+        }
+    };
+    state(&mut runtime, &mut player, 2, totem);
     runtime.retain_totem_snapshot(&mut player, 1, 3);
-    runtime.retain_local_selected_equipment(
-        &mut player,
-        4,
-        protocol::EquipmentEvent {
-            stack: NetworkItemStack::empty(),
-            ..equipment
-        },
-    );
+    state(&mut runtime, &mut player, 4, NetworkItemStack::empty());
     runtime.drain_pending_inventory(&mut player);
     runtime.activate_totem(&mut player, 1, 3, 100).unwrap();
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().metadata,
+        runtime.session.item_activation.as_ref().unwrap().metadata,
         13,
         "{hand:?}"
     );
@@ -103,18 +123,18 @@ fn totem_stall_advances_only_bounded_client_time_and_backward_time_is_inert() {
     runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
     runtime.advance_item_activation(3_100);
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.05)
     );
     runtime.advance_item_activation(100);
     runtime.advance_item_activation(3_100);
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.05)
     );
     runtime.advance_item_activation(3_125);
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.0625)
     );
 }
@@ -130,7 +150,12 @@ fn totem_activation_before_frame_advance_excludes_the_preceding_frame_gap() {
             .unwrap();
         runtime.advance_item_activation(activation_frame);
         assert_eq!(
-            runtime.item_activation.as_ref().unwrap().elapsed_millis,
+            runtime
+                .session
+                .item_activation
+                .as_ref()
+                .unwrap()
+                .elapsed_millis,
             partial_tick,
             "only the current partial tick belongs to a newly admitted activation"
         );
@@ -140,9 +165,9 @@ fn totem_activation_before_frame_advance_excludes_the_preceding_frame_gap() {
             runtime.advance_item_activation(now);
         }
         runtime.advance_item_activation(expires_at - 1);
-        assert!(runtime.item_activation.is_some());
+        assert!(runtime.session.item_activation.is_some());
         runtime.advance_item_activation(expires_at);
-        assert!(runtime.item_activation.is_none());
+        assert!(runtime.session.item_activation.is_none());
     }
 }
 
@@ -153,17 +178,17 @@ fn totem_uses_the_current_client_partial_tick_when_triggered_between_ticks() {
     runtime.advance_item_activation(125);
     runtime.activate_totem(&mut player, 1, 4, 125).unwrap();
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.0125)
     );
     runtime.advance_item_activation(150);
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.025)
     );
     runtime.activate_totem(&mut player, 1, 6, 150).unwrap();
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.0)
     );
 }
@@ -226,7 +251,10 @@ fn queued_player() -> (UiRuntime, player_state::PlayerState, i32) {
 fn totem_snapshots_offhand_before_consumption_and_survives_inventory_removal() {
     let (mut runtime, mut player, _) = queued_player();
     runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
-    assert_eq!(runtime.item_activation.as_ref().unwrap().metadata, 7);
+    assert_eq!(
+        runtime.session.item_activation.as_ref().unwrap().metadata,
+        7
+    );
     runtime.drain_pending_inventory(&mut player);
     assert!(
         player
@@ -235,14 +263,14 @@ fn totem_snapshots_offhand_before_consumption_and_survives_inventory_removal() {
             .target_stack(InventoryTarget::Offhand)
             .is_none()
     );
-    let activation = runtime.item_activation.as_ref().unwrap();
+    let activation = runtime.session.item_activation.as_ref().unwrap();
     assert_eq!(activation.metadata, 7);
     assert_eq!(activation.progress(), Some(0.0));
     for now in (200..=1_100).step_by(100) {
         runtime.advance_item_activation(now);
     }
     assert_eq!(
-        runtime.item_activation.as_ref().unwrap().progress(),
+        runtime.session.item_activation.as_ref().unwrap().progress(),
         Some(0.5)
     );
     for now in (1_200..=2_000).step_by(100) {
@@ -251,6 +279,7 @@ fn totem_snapshots_offhand_before_consumption_and_survives_inventory_removal() {
     runtime.advance_item_activation(2_099);
     assert!(
         runtime
+            .session
             .item_activation
             .as_ref()
             .unwrap()
@@ -258,7 +287,7 @@ fn totem_snapshots_offhand_before_consumption_and_survives_inventory_removal() {
             .is_some()
     );
     runtime.advance_item_activation(2_100);
-    assert!(runtime.item_activation.is_none());
+    assert!(runtime.session.item_activation.is_none());
 }
 
 #[test]
@@ -266,11 +295,11 @@ fn totem_retrigger_uses_main_hand_and_session_replacement_retires_it() {
     let (mut runtime, mut player, _) = queued_player();
     runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
     runtime.activate_totem(&mut player, 1, 6, 1_000).unwrap();
-    let activation = runtime.item_activation.as_ref().unwrap();
+    let activation = runtime.session.item_activation.as_ref().unwrap();
     assert_eq!(activation.metadata, 3);
     assert_eq!(activation.progress(), Some(0.0));
     runtime.begin_session(2);
-    assert!(runtime.item_activation.is_none());
+    assert!(runtime.session.item_activation.is_none());
 }
 
 #[test]
@@ -310,15 +339,18 @@ fn totem_activation_without_an_equipped_totem_replaces_the_previous_image() {
         )
         .unwrap();
     runtime.activate_totem(&mut player, 1, 8, 1_000).unwrap();
-    assert!(runtime.item_activation.is_none());
+    assert!(runtime.session.item_activation.is_none());
 }
 
 #[test]
 fn totem_rejected_activation_does_not_drain_inventory_or_replace_the_snapshot() {
     let (mut runtime, mut player, _) = queued_player();
     assert!(runtime.activate_totem(&mut player, 2, 4, 100).is_err());
-    assert!(runtime.item_activation.is_none());
+    assert!(runtime.session.item_activation.is_none());
     runtime.activate_totem(&mut player, 1, 4, 100).unwrap();
     assert!(runtime.activate_totem(&mut player, 1, 4, 101).is_err());
-    assert_eq!(runtime.item_activation.as_ref().unwrap().metadata, 7);
+    assert_eq!(
+        runtime.session.item_activation.as_ref().unwrap().metadata,
+        7
+    );
 }

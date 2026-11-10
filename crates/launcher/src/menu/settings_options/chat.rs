@@ -20,6 +20,7 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
     },
 ];
 
+/// Chooses whether mention colors apply to every name or only the local player.
 pub const MENTIONS_TARGETS: &[SettingChoice] = &[
     SettingChoice {
         name: "mentions_target_everyone",
@@ -28,6 +29,22 @@ pub const MENTIONS_TARGETS: &[SettingChoice] = &[
     SettingChoice {
         name: "mentions_target_self",
         label: "chat.settings.mentionsTarget.self",
+    },
+];
+
+/// Client presentation preference; Java's input line over the game remains the default.
+pub const CHAT_INPUT_OPTION: SettingDefinition = super::SettingId::CinnabarChatInput.definition();
+
+/// The open chat's input presentations, in saved-value order. Each choice's name is also the
+/// built-in HUD pack's context flag for it.
+pub const CHAT_INPUTS: &[SettingChoice] = &[
+    SettingChoice {
+        name: "cinnabar_chat_input_java",
+        label: "Java",
+    },
+    SettingChoice {
+        name: "cinnabar_chat_input_bedrock",
+        label: "Bedrock",
     },
 ];
 
@@ -77,6 +94,11 @@ impl SettingsOptions {
         self.value(CHAT_POSITION_OPTION.id) == 1
     }
 
+    /// Selects vanilla Bedrock's full chat screen instead of Java's input line.
+    pub fn bedrock_chat_input(&self) -> bool {
+        self.value(CHAT_INPUT_OPTION.id) == 1
+    }
+
     /// Scales the bundled chat font independently of any retired typeface preference.
     pub fn chat_font_scale(&self) -> f64 {
         f64::from(self.value(SettingId::ChatFontSize)) / 10.0
@@ -87,17 +109,19 @@ impl SettingsOptions {
         f64::from(self.value(SettingId::ChatLineSpacing)) / 10.0 + 0.001
     }
 
-    /// Uses the seven legacy chat colors from the vanilla indexed palette.
+    /// Uses the saved index in the chat presentation palette.
     pub fn chat_color_code(&self) -> char {
         let val = self.value(SettingId::ChatColor) as usize;
         CHAT_PALETTE.get(val).map_or('f', |c| c.code)
     }
 
+    /// Uses the saved index in the mention presentation palette.
     pub fn mentions_color_code(&self) -> char {
         let val = self.value(SettingId::MentionsColor) as usize;
         CHAT_PALETTE.get(val).map_or('e', |c| c.code)
     }
 
+    /// Restricts mention coloring to the local display name and all-player mentions.
     pub fn mentions_only_self(&self) -> bool {
         self.value(SettingId::MentionsTarget) == 1
     }

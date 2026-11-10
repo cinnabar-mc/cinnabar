@@ -4,7 +4,7 @@ use sim::MovementEffects;
 
 use super::physics::MovementEffectSource;
 
-const TRACKED_EFFECT_COUNT: usize = 8;
+const TRACKED_EFFECT_COUNT: usize = 10;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -21,6 +21,8 @@ enum TrackedEffect {
     ConduitPower,
     Weaving,
     Blindness,
+    Strength,
+    Weakness,
 }
 
 impl TrackedEffect {
@@ -34,6 +36,8 @@ impl TrackedEffect {
             Some(Effect::ConduitPower) => Some(Self::ConduitPower),
             Some(Effect::Weaving) => Some(Self::Weaving),
             Some(Effect::Blindness) => Some(Self::Blindness),
+            Some(Effect::Strength) => Some(Self::Strength),
+            Some(Effect::Weakness) => Some(Self::Weakness),
             _ => None,
         }
     }
@@ -48,6 +52,8 @@ impl TrackedEffect {
             Self::ConduitPower => 5,
             Self::Weaving => 6,
             Self::Blindness => 7,
+            Self::Strength => 8,
+            Self::Weakness => 9,
         }
     }
 
@@ -118,6 +124,14 @@ pub struct MiningEffects {
     pub conduit_power: Option<i32>,
 }
 
+/// Effects the local attack sound reads: wire amplifiers and whether blindness is active.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeleeEffects {
+    pub strength: Option<i32>,
+    pub weakness: Option<i32>,
+    pub blindness: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MovementEffectDiagnostics {
     pub stale_or_wrong_session: u64,
@@ -131,7 +145,8 @@ pub struct MovementEffectDiagnostics {
 /// only when local fixed-step prediction successfully commits a tick. Packet
 /// ticks remain correlation metadata and deliberately do not schedule or
 /// expire an effect in the local prediction clock.
-/// Haste, Mining Fatigue, and Conduit Power are retained for destroy-rate prediction.
+/// Haste, Mining Fatigue, and Conduit Power are retained for destroy-rate prediction, and
+/// Strength and Weakness for the local attack sound.
 #[derive(Debug, Default)]
 pub struct LocalMovementEffectTimeline {
     session_generation: u64,
@@ -209,6 +224,17 @@ impl LocalMovementEffectTimeline {
             haste: amplifier(TrackedEffect::Haste),
             mining_fatigue: amplifier(TrackedEffect::MiningFatigue),
             conduit_power: amplifier(TrackedEffect::ConduitPower),
+        }
+    }
+
+    /// Current effects that change a local attack's damage or critical hit.
+    pub fn melee_effects(&self) -> MeleeEffects {
+        let amplifier =
+            |effect: TrackedEffect| self.active[effect.index()].map(|effect| effect.amplifier);
+        MeleeEffects {
+            strength: amplifier(TrackedEffect::Strength),
+            weakness: amplifier(TrackedEffect::Weakness),
+            blindness: self.active[TrackedEffect::Blindness.index()].is_some(),
         }
     }
 
@@ -362,5 +388,34 @@ mod tests {
         assert!(timeline.snapshot().weaving);
         timeline.commit_successful_tick();
         assert!(!timeline.snapshot().weaving);
+    }
+
+    #[test]
+    fn melee_effects_report_strength_and_weakness_amplifiers() {
+        let mut timeline = LocalMovementEffectTimeline::default();
+        timeline.begin_session(1);
+        let event = |effect: Effect, amplifier| ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 1,
+            action: ActorEffectAction::Add,
+            effect_id: effect.wire_value(),
+            amplifier,
+            particles: false,
+            ambient: false,
+            duration_ticks: -1,
+            tick: 0,
+        };
+        assert_eq!(timeline.melee_effects(), MeleeEffects::default());
+        timeline.apply(1, 1, event(Effect::Strength, 1));
+        timeline.apply(1, 2, event(Effect::Weakness, 0));
+        timeline.apply(1, 3, event(Effect::Blindness, 0));
+        assert_eq!(
+            timeline.melee_effects(),
+            MeleeEffects {
+                strength: Some(1),
+                weakness: Some(0),
+                blindness: true,
+            }
+        );
     }
 }

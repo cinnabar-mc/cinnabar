@@ -17,8 +17,7 @@ POWERSHELL ?= powershell
 
 NO_VSYNC ?= 0
 TRACY ?= 0
-SHADERPACKS ?= 0
-CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy) $(if $(filter 1,$(SHADERPACKS)),--features shaderpacks)
+CLIENT_FEATURES = $(if $(filter 1,$(TRACY)),--features tracy)
 # Identifies the client build in its session log and supplies runtime acceptance markers.
 # The pre-rename RUST_MCBE_BUILD_COMMIT is still honoured for one release.
 ifdef RUST_MCBE_BUILD_COMMIT
@@ -51,14 +50,18 @@ HUD_PACK_DIR ?= $(PACK_DIR)
 FONT_SOURCE_MANIFEST ?= assets/cinnangles-sans-source.json
 FONT_SOURCE ?= assets/fonts/CinnanglesSans.ttf
 BEDROCK_TARGET_MANIFEST ?= assets/bedrock-target.json
-REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json
-HUD_SOURCE_MANIFEST ?= assets/hud-source-v2193.json
+REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2225.json
+HUD_SOURCE_MANIFEST ?= assets/hud-source-v2225.json
 # Development-only outputs of explicitly selected local packs; the carrier table owns the rest.
 LOCAL_ASSET_DIR ?= .local/assets/compiled
-PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2193.bin
+PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2225.bin
 CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
-ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin assetc --
+ASSET_COMPILER_BINARY = assetc
+ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin $(ASSET_COMPILER_BINARY) --
+# The isolated shader-pack compiler the client spawns beside the core, from the runtime table.
+SHADERPACK_WORKER_BINARY = $(shell awk '$$3 == "SHADERPACK_WORKER" {print $$1}' packaging/common/runtime-binaries.txt)
+SHADERPACK_WORKER_PACKAGE = $(shell awk '$$3 == "SHADERPACK_WORKER" {print $$2}' packaging/common/runtime-binaries.txt)
 VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --accept-eula
 # One in-process parallel pass over the carrier table; carriers whose fingerprint is unchanged are skipped.
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")
@@ -69,7 +72,7 @@ LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source
 .PHONY: registry-foundation-check jsonui-editor figma-plugin
 
 help:
-	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
+	@echo make registry-foundation-check - Validate the exact protocol-2225 registry foundation
 	@echo make vanilla-assets  - Acquire the pinned official Mojang sample resource pack
 	@echo make assets          - Build every stale carrier in one parallel pass, fetching the pack if needed
 	@echo make NAME-assets     - Build one carrier and what it reads, e.g. hud-assets or audio-bank-assets
@@ -79,7 +82,6 @@ help:
 	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
 	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
-	@echo make play SHADERPACKS=1 - Run with the experimental Java shader-pack renderer
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
 	@echo make jsonui-editor   - Build the static JSON-UI editor site into JSONUI_EDITOR_OUT
 	@echo make figma-plugin    - Build the Figma to JSON-UI plugin into tools/figma-plugin/dist
@@ -132,7 +134,8 @@ local-server:
 	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 	$(CARGO) build -p experience-runtime -p cinnabar-cxb --release --locked
 
-# Full game from the launcher menu: refresh assets, build the core and local server beside the client, run it.
+# Full game from the launcher menu: refresh assets, build the core and local server beside the client
+# (plus the pinned DX12 shader compiler on Windows), run it.
 play-build: assets
 ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
@@ -140,14 +143,18 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
+	$(CARGO) build --profile $(PROFILE) -p $(SHADERPACK_WORKER_PACKAGE) --bin $(SHADERPACK_WORKER_BINARY) --locked
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
+ifeq ($(OS),Windows_NT)
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/fetch-dxc.ps1 -Out "target/$(PROFILE_DIR)"
+endif
 
 # macOS grants Game Mode only to bundled games, so `make play` runs the build from a dev bundle
 # whose Info.plist comes from the release template; its binaries are refreshed hard links.
 DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
 # The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
 DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
-DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper
+DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(SHADERPACK_WORKER_BINARY)
 play: play-build
 ifneq ($(findstring Darwin,$(shell uname -s)),)
 	@mkdir -p "$(DEV_APP)/Contents/MacOS"
@@ -183,7 +190,7 @@ PACKAGE_CARGO_FLAGS ?=
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

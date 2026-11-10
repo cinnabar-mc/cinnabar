@@ -1,8 +1,42 @@
 //! Single-finger menu gestures defer control activation until a completed tap.
 
+use super::mode::MenuInputMode;
 use super::*;
 
+/// How long a finger rests on an OreUI control before its press sounds.
+const OREUI_TOUCH_SOUND_DELAY_SECONDS: f64 = 0.15;
+
+/// When a captured finger's press sounds: once it has rested for vanilla's delay on an OreUI
+/// control, or else as a tap completes. Swiping off the control beforehand keeps it silent.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct TouchPressSound {
+    started: f64,
+    played: bool,
+}
+
+impl TouchPressSound {
+    fn begin(now: f64) -> Self {
+        Self {
+            started: now,
+            played: false,
+        }
+    }
+
+    /// Whether the resting finger's sound is due at `now`; reports that only once.
+    fn rested(&mut self, now: f64) -> bool {
+        let due = !self.played && now - self.started >= OREUI_TOUCH_SOUND_DELAY_SECONDS;
+        self.played |= due;
+        due
+    }
+
+    /// Whether a completed tap still owes its sound; reports that only once.
+    fn tapped(&mut self) -> bool {
+        !std::mem::replace(&mut self.played, true)
+    }
+}
+
 /// Applies one captured finger while preserving slider ownership and cancelling swiped taps.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drive(
     menu: &mut MenuRuntime,
     presentation: &UiPresentationRuntime,
@@ -11,16 +45,17 @@ pub(super) fn drive(
     native_settings: bool,
     server_list_owns_pointer: bool,
     scrolled: Option<u64>,
+    now: f64,
 ) -> Option<(UiPoint, MenuField)> {
     let mut caret_press = None;
-    let press = |menu: &mut MenuRuntime, action| {
+    let press = |menu: &mut MenuRuntime, action, sound: bool| {
         let action = if native_settings {
             menu.live_settings_action(action)
         } else {
             action
         };
-        if let Some(sound) = presentation.menu_sound(action) {
-            client_ui::sound_requests::ui_control_sound(sound);
+        if sound {
+            presentation.play_menu_press_sound(action);
         }
         menu.activate_from_input(action);
     };
@@ -43,24 +78,14 @@ pub(super) fn drive(
             && let Some(action) = native_settings
                 .then(|| presentation.settings_slider_thumb_hit_test(position))
                 .flatten()
-                .map(|index| {
-                    launcher::menu::MenuAction::SettingsOption(
-                        index,
-                        menu.settings_options.get(usize::from(index)),
-                    )
-                })
+                .map(|row| settings_pointer::slider_thumb_action(menu, row))
                 .or_else(|| presentation.hit_test_menu(position))
         {
             menu.input_mode = MenuInputMode::Touch;
             {
-                if !native_settings
-                    || !matches!(action, launcher::menu::MenuAction::SettingsOption(index, _)
-                    if launcher::menu::settings_options::SETTINGS_OPTIONS.get(usize::from(index))
-                        .is_some_and(|option| matches!(option.kind, launcher::menu::settings_options::SettingKind::Slider)))
-                    || matches!(action, launcher::menu::MenuAction::SettingsOption(index, _)
-                        if presentation.settings_slider_thumb_contains(index, position))
-                {
-                    menu.focus_pointer(action);
+                if is_captured_slider(presentation, action, position) {
+                    focus_touch(menu, presentation, action, position, native_settings);
+                    capture.gui_scale_track = presentation.gui_scale_slider_track();
                 }
                 menu.pressed = Some(action);
                 if let launcher::menu::MenuAction::SettingsOption(index, _) = action
@@ -80,6 +105,7 @@ pub(super) fn drive(
                     capture.touch_press = None;
                 } else {
                     capture.touch_press = Some((touch.id(), action, position));
+                    capture.touch_press_sound = TouchPressSound::begin(now);
                 }
             }
         }
@@ -125,23 +151,47 @@ pub(super) fn drive(
                 .and_then(|point| presentation.hit_test_menu(point));
             if !UiPoint::new(position.x, position.y)
                 .ok()
-                .is_some_and(|point| slider_drag(menu, presentation, &mut action, point, true))
+                .is_some_and(|point| {
+                    slider_drag(
+                        menu,
+                        presentation,
+                        &mut action,
+                        capture.gui_scale_track,
+                        point,
+                        true,
+                    )
+                })
                 && let Some(action) = native_release_action(action, hovered)
             {
-                press(menu, action);
+                if let Ok(point) = UiPoint::new(position.x, position.y) {
+                    focus_touch(menu, presentation, action, point, native_settings);
+                }
+                press(menu, action, capture.touch_press_sound.tapped());
                 caret_press = UiPoint::new(position.x, position.y)
                     .ok()
                     .zip(action.text_field());
             }
             capture.touch_press = None;
         } else if let Some(touch) = touches.get_pressed(id) {
+            if presentation.menu_sounds_follow_oreui() && capture.touch_press_sound.rested(now) {
+                presentation.play_menu_press_sound(action);
+            }
             let position = touch.position();
             let hovered = UiPoint::new(position.x, position.y)
                 .ok()
                 .and_then(|point| presentation.hit_test_menu(point));
             let shader_dragged = UiPoint::new(position.x, position.y)
                 .ok()
-                .is_some_and(|point| slider_drag(menu, presentation, &mut action, point, false));
+                .is_some_and(|point| {
+                    slider_drag(
+                        menu,
+                        presentation,
+                        &mut action,
+                        capture.gui_scale_track,
+                        point,
+                        false,
+                    )
+                });
             if shader_dragged {
                 capture.touch_press = Some((id, action, start));
             } else if native_release_action(action, hovered).is_some() {
@@ -161,15 +211,17 @@ pub(super) fn drive(
 }
 
 /// Updates the slider that captured the finger even outside its original track.
+/// `gui_scale_track` is the GUI-scale track as laid out when the finger captured it.
 fn slider_drag(
     menu: &mut MenuRuntime,
     presentation: &UiPresentationRuntime,
     captured: &mut launcher::menu::MenuAction,
+    gui_scale_track: Option<ui::UiRect>,
     point: UiPoint,
     released: bool,
 ) -> bool {
     if matches!(captured, launcher::menu::MenuAction::SettingsScale(_)) {
-        if let Some(action) = presentation.gui_scale_drag_action(point) {
+        if let Some(action) = presentation.gui_scale_drag_action(point, gui_scale_track) {
             if released || *captured != action {
                 menu.activate_from_input(action);
             }
@@ -195,7 +247,7 @@ fn is_captured_slider(
         shader_options::{Action, Input},
     };
     match action {
-        MenuAction::SettingsScale(_) => presentation.gui_scale_drag_action(point).is_some(),
+        MenuAction::SettingsScale(_) => presentation.gui_scale_drag_action(point, None).is_some(),
         MenuAction::ShaderOptions(Action::Element {
             screen,
             index,
@@ -204,5 +256,51 @@ fn is_captured_slider(
             .shader_option_slider_drag_action(screen, index, point)
             .is_some(),
         _ => false,
+    }
+}
+
+/// Ordinary touch controls gain focus after a tap, so a pending pan cannot reveal its tile.
+fn focus_touch(
+    menu: &mut MenuRuntime,
+    presentation: &UiPresentationRuntime,
+    action: launcher::menu::MenuAction,
+    point: UiPoint,
+    native_settings: bool,
+) {
+    if native_settings
+        && let launcher::menu::MenuAction::SettingsOption(index, _) = action
+        && launcher::menu::settings_options::SETTINGS_OPTIONS
+            .get(usize::from(index))
+            .is_some_and(|option| {
+                matches!(
+                    option.kind,
+                    launcher::menu::settings_options::SettingKind::Slider
+                )
+            })
+        && !presentation.settings_slider_thumb_contains(index, point)
+    {
+        return;
+    }
+    menu.focus_pointer(action);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quick_tap_sounds_once_as_it_completes() {
+        let mut sound = TouchPressSound::begin(0.0);
+        assert!(!sound.rested(OREUI_TOUCH_SOUND_DELAY_SECONDS / 2.0));
+        assert!(sound.tapped());
+        assert!(!sound.tapped());
+    }
+
+    #[test]
+    fn a_resting_finger_sounds_once_at_the_delay_and_not_on_release() {
+        let mut sound = TouchPressSound::begin(0.0);
+        assert!(sound.rested(OREUI_TOUCH_SOUND_DELAY_SECONDS));
+        assert!(!sound.rested(1.0));
+        assert!(!sound.tapped());
     }
 }

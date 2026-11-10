@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt::Write as _, sync::OnceLock};
+use std::{collections::BTreeMap, fmt::Write as _};
 
 use meshing::DiagnosticGeometrySummary;
 use serde::Serialize;
@@ -48,32 +48,6 @@ impl DiagnosticAttributionSnapshot {
             self.total_quad_count, top, self.omitted_identity_count, self.omitted_quad_count
         )
     }
-}
-
-#[derive(Debug)]
-struct DiagnosticCatalogEntry {
-    name: Box<str>,
-}
-
-fn active_protocol_catalog() -> &'static [DiagnosticCatalogEntry] {
-    static CATALOG: OnceLock<Box<[DiagnosticCatalogEntry]>> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        let records = assets::read_registry_for_protocol(
-            assets::pinned_block_registry_bytes(),
-            assets::active_content_registry_protocol(),
-        )
-        .expect("checked-in active-protocol registry must remain valid");
-        records
-            .into_vec()
-            .into_iter()
-            .enumerate()
-            .map(|(index, record)| {
-                assert_eq!(record.sequential_id as usize, index);
-                DiagnosticCatalogEntry { name: record.name }
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice()
-    })
 }
 
 #[derive(Debug)]
@@ -176,7 +150,6 @@ impl DiagnosticQuadTracker {
 
     #[must_use]
     pub fn snapshot(&self) -> DiagnosticAttributionSnapshot {
-        let catalog = active_protocol_catalog();
         let mut counts = self
             .totals
             .iter()
@@ -196,8 +169,8 @@ impl DiagnosticQuadTracker {
             .into_iter()
             .map(|(sequential_id, network_id, quad_count)| {
                 let name = sequential_id
-                    .and_then(|id| catalog.get(id as usize))
-                    .map_or_else(|| "unknown".to_owned(), |entry| entry.name.to_string());
+                    .and_then(assets::pinned_block_identity)
+                    .map_or_else(|| "unknown".to_owned(), |(name, _)| name.to_owned());
                 DiagnosticAttributionEntry {
                     sequential_id,
                     network_id,

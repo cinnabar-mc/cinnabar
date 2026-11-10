@@ -1,4 +1,5 @@
 use super::*;
+use crate::nbt_tree::test_tree::Nbt;
 
 fn compound(fields: Vec<(&str, Nbt)>) -> Nbt {
     Nbt::Compound(
@@ -18,12 +19,8 @@ fn flags(states: &[&str]) -> Nbt {
 }
 
 fn axes_of(root: &Nbt) -> StateAxes {
-    let traits = root
-        .list("traits")
-        .iter()
-        .map(|value| (None, value))
-        .collect::<Vec<_>>();
-    state_axes(root, &traits)
+    let root = root.view();
+    state_axes(root, root.list("traits").iter().map(|value| (None, value)))
 }
 
 fn names(states: &StateAxes) -> Vec<&str> {

@@ -115,11 +115,15 @@ fn hotbar_top(render: &ScreenRender) -> f64 {
         .nodes
         .iter()
         .filter_map(|node| match &node.draw {
-            Draw::Custom { renderer, .. } if renderer == "hotbar_renderer" => Some(node.dest.y),
+            Draw::Custom { renderer, .. }
+                if renderer == json_ui::vanilla::Renderer::HotbarSlotsRenderer.as_str() =>
+            {
+                Some(node.dest.y)
+            }
             _ => None,
         })
         .min_by(f64::total_cmp)
-        .expect("hotbar cells")
+        .expect("hotbar slots")
 }
 
 #[test]

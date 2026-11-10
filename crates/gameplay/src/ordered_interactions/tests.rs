@@ -1,5 +1,44 @@
 use super::*;
 
+#[test]
+fn latest_build_press_owns_continuation_until_either_hand_button_releases() {
+    for (first, second) in [(Action::Attack, Action::Use), (Action::Use, Action::Attack)] {
+        for released in [first, second] {
+            let mut frames = OrderedInteractions::default();
+            frames.synchronize(scope(), false);
+            frames.observe_build_button(first, true);
+            frames.observe_build_button(second, true);
+            frames.observe_frame(scope(), InputSequence::new(2));
+            assert!(!frames.build_action_active(first));
+            assert!(frames.build_action_active(second));
+            frames.observe_build_button(released, false);
+            assert!(!frames.build_action_active(first));
+            assert!(!frames.build_action_active(second));
+            frames.observe_build_button(first, true);
+            assert!(frames.build_action_active(first));
+        }
+    }
+}
+
+#[test]
+fn build_intention_survives_position_changes_but_not_input_cancellation_or_gaps() {
+    let mut frames = OrderedInteractions::default();
+    frames.synchronize(scope(), false);
+    frames.observe_build_button(Action::Attack, true);
+    let corrected = InteractionScope {
+        position: PositionAuthorityGeneration::new(4),
+        ..scope()
+    };
+    frames.synchronize(corrected, false);
+    assert!(frames.build_action_active(Action::Attack));
+    frames.synchronize(corrected, true);
+    assert!(!frames.build_action_active(Action::Attack));
+    frames.observe_build_button(Action::Use, true);
+    frames.quarantine();
+    frames.observe_neutral(true);
+    assert!(!frames.build_action_active(Action::Use));
+}
+
 /// Supplies independent world, position and input authority identities.
 fn scope() -> InteractionScope {
     InteractionScope {

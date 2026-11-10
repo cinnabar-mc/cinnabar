@@ -1,4 +1,4 @@
-use assets::facts::{BlockRenderKind as R, block_render_fact};
+use assets::facts::block_render_fact;
 use std::sync::OnceLock;
 
 use super::context::{
@@ -34,8 +34,8 @@ const EMBEDDED_TABLES: [EmbeddedTable; 2] = [
         bytes: include_bytes!("../../../data/vanilla-fallback-v1001.bin"),
     },
     EmbeddedTable {
-        protocol: 2193,
-        bytes: include_bytes!("../../../../assets/data/vanilla-fallback-v2193.bin"),
+        protocol: 2225,
+        bytes: include_bytes!("../../../../assets/data/vanilla-fallback-v2225.bin"),
     },
 ];
 
@@ -147,7 +147,11 @@ impl<'a> FallbackInventory<'a> {
         self.entry_unfiltered(record)
     }
 
-    fn entry_unfiltered(&self, record: &RegistryRecord) -> Option<([i16; 3], [i16; 3], u8)> {
+    /// Inventory hit for `record`, including families with an exact route.
+    pub(in crate::compiler) fn entry_unfiltered(
+        &self,
+        record: &RegistryRecord,
+    ) -> Option<([i16; 3], [i16; 3], u8)> {
         let mut left = 0;
         let mut right = self.entry_count;
         while left < right {
@@ -236,13 +240,20 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         .kind
         .route()
         .overrides_fallback
+        || super::heavy_core::is_record(record)
+        || super::speleothem::is_record(record)
+        || super::chorus::is_flower(record)
+        || super::chorus::is_plant(record)
+        || super::spore_blossom::is_record(record)
+        || super::redstone_wire::is_record(record)
+        || super::dried_ghast::is_record(record)
+        || super::turtle_egg::is_record(record)
+        || super::dripleaf::is_record(record)
+        || super::trip_wire::is_record(record)
+        || super::scaffolding::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
-        )
-        || matches!(
-            block_render_fact(&record.name).kind,
-            R::Ice | R::FrostedIce | R::SnowLayer
         )
 }
 
@@ -350,6 +361,16 @@ pub(in crate::compiler) fn compile_rule(
         materials,
         min,
         max,
+        if record
+            .traits
+            .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+        {
+            assets::MODEL_TEMPLATE_FLAG_CHORUS
+        } else if block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea {
+            assets::MODEL_TEMPLATE_FLAG_AZALEA
+        } else {
+            0
+        },
         template_by_key,
         storage.templates,
         storage.quads,
@@ -364,12 +385,93 @@ mod tests {
     use super::*;
 
     #[test]
+    fn inventory_selection_preserves_the_placed_envelope() {
+        let protocol = assets::active_content_registry_protocol();
+        let records =
+            assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+                .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("textures")).unwrap();
+        for (path, content) in [
+            ("blocks.json", "{}"),
+            ("textures/terrain_texture.json", r#"{"texture_data":{}}"#),
+            ("textures/flipbook_textures.json", "[]"),
+        ] {
+            std::fs::write(directory.path().join(path), content).unwrap();
+        }
+        let pack = read_pack(directory.path()).unwrap();
+        let descriptors = BTreeMap::new();
+        let inputs = RuleInputs {
+            pack: &pack,
+            material_by_descriptor: &descriptors,
+            vanilla_fallback_material: 1,
+            fallback: inventory(protocol).unwrap(),
+            sheet_tiles: &Default::default(),
+        };
+        let mut templates = Vec::new();
+        let mut quads = Vec::new();
+        let mut interned = BTreeMap::new();
+        let mut seen = 0;
+        for record in records.iter().filter(|record| {
+            block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
+        }) {
+            let (min, max, _) = inputs.fallback.entry(record).unwrap();
+            let CompileRuleResult::Compiled(visual) = compile_rule(
+                record,
+                &inputs,
+                &mut interned,
+                &mut ModelStorage {
+                    templates: &mut templates,
+                    quads: &mut quads,
+                },
+            )
+            .unwrap() else {
+                panic!("missing inventory visual")
+            };
+            let template = &templates[visual.model_template as usize];
+            let expected =
+                if block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea {
+                    assets::MODEL_TEMPLATE_FLAG_AZALEA
+                } else {
+                    assets::MODEL_TEMPLATE_FLAG_CHORUS
+                };
+            assert_eq!(template.flags, expected);
+            let placed = &quads[template.quad_start as usize..][..template.quad_count as usize];
+            let mut bounds = [[i16::MAX; 3], [i16::MIN; 3]];
+            for point in placed.iter().flat_map(|quad| quad.positions) {
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+            }
+            assert_eq!(bounds, [min, max]);
+            let ordinary = intern_cuboid_template(
+                visual.faces,
+                min,
+                max,
+                0,
+                &mut interned,
+                &mut templates,
+                &mut quads,
+            )
+            .unwrap();
+            assert_ne!(
+                ordinary, visual.model_template,
+                "GUI shape participates in interning"
+            );
+            assert_eq!(templates[ordinary as usize].flags, 0);
+            seen += 1;
+        }
+        assert!(seen >= 2, "both azalea block types are registered");
+    }
+
+    #[test]
     fn embedded_inventories_are_sorted_unique_and_bounded() {
-        // Protocol 2193 fans the 16 trip wire states out to their 256 connection variants.
+        // The current inventory includes expanded tripwire and redstone connection states.
         for (table_bytes, entries) in EMBEDDED_TABLES
             .iter()
             .map(|table| table.bytes)
-            .zip([2_031, 2_271])
+            .zip([2_031, 3_614])
         {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
             assert_eq!(table.entry_count, entries);
@@ -426,11 +528,11 @@ mod tests {
     #[test]
     fn generated_current_inventory_matches_only_the_checked_in_current_registry_identities() {
         let records = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
-            2193,
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
         )
-        .expect("decode checked-in protocol-2193 registry");
-        let table = inventory(2193).expect("resolve the current-stamped inventory");
+        .expect("decode checked-in protocol-2225 registry");
+        let table = inventory(2225).expect("resolve the current-stamped inventory");
         let matched = records
             .iter()
             .filter(|record| table.entry_unfiltered(record).is_some())
@@ -440,7 +542,7 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 2_271);
+        assert_eq!(matched.len(), 3_614);
         assert_eq!(names.len(), 335);
         assert!(
             matched
@@ -465,11 +567,11 @@ mod tests {
             .expect("every legacy entry resolves against the legacy registry");
 
         let current_records = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
-            2193,
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
         )
-        .expect("decode checked-in protocol-2193 registry");
-        inventory(2193)
+        .expect("decode checked-in protocol-2225 registry");
+        inventory(2225)
             .expect("resolve the current-stamped inventory")
             .validate_coverage(&current_records)
             .expect("every current entry resolves against the current registry");
@@ -478,14 +580,14 @@ mod tests {
     #[test]
     fn selection_binds_each_supported_protocol_to_its_own_stamped_inventory() {
         let legacy = inventory(1001).expect("resolve the legacy-stamped inventory");
-        let current = inventory(2193).expect("resolve the current-stamped inventory");
+        let current = inventory(2225).expect("resolve the current-stamped inventory");
         assert!(!std::ptr::eq(legacy, current));
 
         let error = inventory(9999).expect_err("an unstamped protocol must fail closed");
         let message = error.to_string();
         assert!(message.contains("9999"), "{message}");
         assert!(message.contains("1001"), "{message}");
-        assert!(message.contains("2193"), "{message}");
+        assert!(message.contains("2225"), "{message}");
     }
 
     #[test]
@@ -526,10 +628,10 @@ mod tests {
         stale[HEADER_BYTES + 4] ^= 1;
         let table = FallbackInventory::parse(&stale).expect("a stale copy keeps a valid format");
         let records = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
-            2193,
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
         )
-        .expect("decode checked-in protocol-2193 registry");
+        .expect("decode checked-in protocol-2225 registry");
 
         let error = table
             .validate_coverage(&records)
@@ -692,6 +794,7 @@ mod tests {
                 material_by_descriptor: &BTreeMap::new(),
                 vanilla_fallback_material: DIAGNOSTIC_MATERIAL,
                 fallback,
+                sheet_tiles: &Default::default(),
             };
             compile_rule(
                 &record,

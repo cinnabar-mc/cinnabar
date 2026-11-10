@@ -97,6 +97,21 @@ pub(in crate::chunk) struct TerrainUnitBatches {
 }
 
 impl TerrainUnitBatches {
+    /// Rewrites retained pages from CPU descriptors after a failed terrain publication.
+    pub(in crate::chunk) fn invalidate_publication(&mut self) {
+        for view in self.views.values_mut() {
+            view.stale = true;
+            for page in view
+                .streams
+                .iter_mut()
+                .chain(std::iter::once(&mut view.occluders))
+                .flat_map(|stream| &mut stream.pages)
+            {
+                page.invalidate();
+            }
+        }
+    }
+
     /// Rewrites selected flags from this frame's bits, or clears all retained flags on fallback.
     pub(in crate::chunk) fn encode_masks(
         &self,
@@ -154,9 +169,13 @@ impl TerrainUnitBatches {
 
 /// Adds the unit resource, commands and preparation after current direct-occlusion results.
 pub(in crate::chunk) fn install(render_app: &mut SubApp) {
+    crate::world_passes::install(render_app);
     render_app
         .init_resource::<TerrainUnitBatches>()
-        .add_systems(RenderStartup, configure_support)
+        .add_systems(
+            RenderStartup,
+            configure_support.after(bevy::render::init_gpu_resource::<ChunkPipeline>),
+        )
         .add_render_command::<Opaque3d, DrawTerrainUnits<0>>()
         .add_render_command::<Opaque3d, commands::DrawTerrainOccluders>()
         .add_render_command::<Opaque3d, DrawTerrainUnits<1>>()
@@ -165,7 +184,7 @@ pub(in crate::chunk) fn install(render_app: &mut SubApp) {
         .add_systems(
             Render,
             prepare::prepare_units
-                .run_if(render_scene::panorama::world_passes_enabled)
+                .in_set(crate::world_passes::WorldPassSystems)
                 .in_set(RenderSystems::PrepareResources)
                 .after(gpu_cull::direct::prepare_direct_occlusion),
         );
@@ -182,7 +201,7 @@ fn configure_support(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(info.backend),
-        apple_gpu(&info),
+        direct_draws_required(&info),
     );
     pipeline.unit_supported = supported(mode, &device.limits());
 }

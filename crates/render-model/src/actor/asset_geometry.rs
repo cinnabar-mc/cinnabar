@@ -51,15 +51,22 @@ pub fn equipment_geometry(
 
 /// Rig geometry for every binding of a session pack catalog, under pack rig ids;
 /// an unbuildable binding is omitted so its actors take the missing-rig route.
+/// Bindings and layers naming one catalog geometry share one vertex allocation.
 pub fn pack_geometries(assets: &RuntimeEntityAssets) -> Vec<ActorRigGeometry> {
+    let mut built = std::collections::HashMap::<usize, Option<ActorRigGeometry>>::new();
     let mut geometries: Vec<_> = (0..assets.rig_geometries().len())
         .filter_map(|binding| {
             let id = super::pack_rig_id(u32::try_from(binding).ok()?);
             let geometry = assets.rig_geometries().get(binding)?.geometry as usize;
-            geometry_from_geometry_index(assets, geometry, id).ok()
+            built
+                .entry(geometry)
+                .or_insert_with(|| geometry_from_geometry_index(assets, geometry, id).ok())
+                .as_ref()
+                .map(|built| built.with_id(id))
         })
         .collect();
     geometries.extend(super::layer_geometries(assets, super::pack_rig_id(0)));
+    super::share_identical_vertices(&mut geometries);
     geometries
 }
 
@@ -81,30 +88,86 @@ pub fn geometry_from_geometry_index(
     if bones.is_empty() || bones.len() > MAX_RENDER_BONES_PER_ACTOR {
         return Err(ActorRigGeometryError::BoneCount);
     }
+    let texture_size = assets
+        .geometries()
+        .get(geometry_index)
+        .map(|geometry| (geometry.texture_width, geometry.texture_height))
+        .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
+    let vertices = bone_vertices(&bones, texture_size)?;
+    let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
+    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
+}
+
+/// Draws named part hierarchies without changing their animation-palette indices.
+/// Each part's cubes and quads precede the shared triangle pass.
+fn bone_vertices(
+    bones: &[EntityGeometryBone],
+    texture_size: (u16, u16),
+) -> Result<Vec<super::ActorRigVertex>, ActorRigGeometryError> {
     let mut vertices = Vec::new();
-    for (bone_index, bone) in bones.iter().enumerate() {
-        if bone.never_render == Some(true) {
-            continue;
-        }
+    let order = model_part_order(bones);
+    let visible = order
+        .iter()
+        .copied()
+        .filter(|&index| bones[index].never_render != Some(true))
+        .map(|index| (index as u32, &bones[index]))
+        .collect::<Vec<_>>();
+    for &(bone_index, bone) in &visible {
         for cube in &bone.cubes {
             super::geometry::append_entity_bone_cube_vertices(
                 &mut vertices,
                 cube,
-                bone_index as u32,
-                assets
-                    .geometries()
-                    .get(geometry_index)
-                    .map(|geometry| (geometry.texture_width, geometry.texture_height))
-                    .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?,
+                bone_index,
+                texture_size,
                 bone,
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
         }
+        super::poly_mesh::append_quads(&mut vertices, bone, bone_index, texture_size)?;
     }
-    let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
-    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
+    for &(bone_index, bone) in &visible {
+        super::poly_mesh::append_triangles(&mut vertices, bone, bone_index, texture_size)?;
+    }
+    Ok(vertices)
+}
+
+/// Registers each named part before its ordered children, skipping already registered parts.
+fn model_part_order(bones: &[EntityGeometryBone]) -> Vec<usize> {
+    let keys = bones
+        .iter()
+        .map(|bone| bone.name.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let named = keys
+        .iter()
+        .enumerate()
+        .map(|(index, name)| (name.as_str(), index))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut children = vec![Vec::new(); bones.len()];
+    for &index in named.values() {
+        if let Some(parent) = bones[index]
+            .parent
+            .as_deref()
+            .and_then(|name| named.get(name.to_ascii_lowercase().as_str()))
+        {
+            children[*parent].push(index);
+        }
+    }
+    let mut order = Vec::with_capacity(bones.len());
+    let mut visited = vec![false; bones.len()];
+    let mut pending = Vec::new();
+    for &index in named.values() {
+        pending.push(index);
+        while let Some(index) = pending.pop() {
+            if std::mem::replace(&mut visited[index], true) {
+                continue;
+            }
+            order.push(index);
+            pending.extend(children[index].iter().rev().copied());
+        }
+    }
+    order
 }
 
 /// Rig geometry of a player skin's own model under `id`. Cubes carry their resolved mirror and
@@ -118,33 +181,7 @@ pub fn skin_geometry(
         return Err(ActorRigGeometryError::BoneCount);
     }
     let texture_size = (geometry.texture_width, geometry.texture_height);
-    let mut vertices = Vec::new();
-    for (bone_index, bone) in bones.iter().enumerate() {
-        if bone.never_render == Some(true) {
-            continue;
-        }
-        for cube in &bone.cubes {
-            super::geometry::append_entity_bone_cube_vertices(
-                &mut vertices,
-                cube,
-                bone_index as u32,
-                texture_size,
-                bone,
-            )?;
-            if vertices.len() > MAX_ACTOR_RIG_VERTICES {
-                return Err(ActorRigGeometryError::CatalogCapacity);
-            }
-        }
-    }
-    for (bone_index, mesh) in geometry.poly_meshes.iter().enumerate() {
-        if bones[bone_index].never_render == Some(true) {
-            continue;
-        }
-        let Some(mesh) = mesh else {
-            continue;
-        };
-        super::skin_poly_mesh::append(&mut vertices, mesh, bone_index as u32, texture_size)?;
-    }
+    let vertices = bone_vertices(bones, texture_size)?;
     if vertices.is_empty() {
         return Err(ActorRigGeometryError::VertexCount);
     }
@@ -379,6 +416,7 @@ mod tests {
             name: "body".into(),
             binding: None,
             texture_meshes: Box::new([]),
+            poly_mesh: None,
             parent: None,
             pivot: None,
             rotation: None,

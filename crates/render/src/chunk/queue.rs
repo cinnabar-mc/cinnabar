@@ -1,5 +1,5 @@
 use crate::chunk::*;
-use bevy::prelude::DetectChangesMut;
+use bevy::{camera::visibility::NoCpuCulling, prelude::DetectChangesMut};
 use render_scene::{
     ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureReload,
     ChunkUploadAcknowledgements, ChunkUploadBudget, RuntimeStageProfiler,
@@ -128,6 +128,7 @@ pub(in crate::chunk) struct RenderQueueRuntime<'w, 's> {
         ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
     >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    markers: ResMut<'w, super::markers::TerrainMarkerSections>,
     priorities: Local<'s, MainUploadPriorities>,
 }
 
@@ -160,6 +161,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         acknowledgements,
         mut immediate_terrain,
         profiler,
+        mut markers,
         mut priorities,
     } = runtime;
     let _timer = profiler
@@ -173,14 +175,17 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         }
         drop(gpu_removals.take_ready(usize::MAX, |_| true));
         acknowledgements.clear();
-        for (_, entity) in entities.0.drain() {
+        markers.clear();
+        let retiring: HashSet<_> = entities.0.drain().map(|(_, entity)| entity).collect();
+        for &entity in &retiring {
             if let Ok(instance) = existing_instances.get(entity)
                 && let Some(slot) = &instance.publication_permit
             {
                 drop(slot.take());
             }
-            commands.entity(entity).despawn();
         }
+        // Flush removal observers once, before this update's new-session spawns apply.
+        commands.despawn_all_where::<Entity, ()>(move |entity| retiring.contains(&entity));
     }
     let maximum_zero_byte_operations = budget
         .max_zero_byte_operations_per_frame
@@ -286,6 +291,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     continue;
                 }
             };
+            markers.remove(key);
             if let Some(entity) = entities.0.remove(&key) {
                 if let Ok(instance) = existing_instances.get(entity)
                     && let Some(slot) = &instance.publication_permit
@@ -369,6 +375,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             }
         };
         gpu_removals.cancel(key);
+        markers.set(key, pending.mesh.terrain_markers());
         if pending.mesh.is_empty() {
             queue.tracked_generations.remove(&key);
             if let Some(entity) = entities.0.remove(&key) {
@@ -434,18 +441,17 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         let has_transparent_liquid = liquid_quads
             .first()
             .is_some_and(|quad| !quad.is_depth_writing());
-        let bounds = super::bounds::aabb(!model_refs.is_empty());
         let instance = ChunkRenderInstance {
             key,
-            cube_quads: Arc::from(cube_quads),
-            cube_lighting: Arc::from(cube_lighting),
+            cube_quads,
+            cube_lighting,
             cube_layout,
-            model_refs: Arc::from(model_refs),
-            model_lighting: Arc::from(model_lighting),
-            model_draw_refs: Arc::from(model_draw_refs),
-            transparent_model_draw_refs: Arc::from(transparent_model_draw_refs),
-            liquid_quads: Arc::from(liquid_quads),
-            liquid_lighting: Arc::from(liquid_lighting),
+            model_refs,
+            model_lighting,
+            model_draw_refs,
+            transparent_model_draw_refs,
+            liquid_quads,
+            liquid_lighting,
             has_depth_liquid,
             has_transparent_liquid,
             depth_liquid_start,
@@ -463,15 +469,13 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             {
                 drop(slot.take());
             }
-            commands.entity(entity).insert((instance, bounds));
+            commands.entity(entity).insert(instance);
         } else {
+            // `Visibility` carries cave culling; `NoCpuCulling` leaves frustum culling to
+            // `visibility::publish_chunk_visibility`, so nothing maintains the entity's
+            // `ViewVisibility`.
             let entity = commands
-                .spawn((
-                    instance,
-                    Visibility::default(),
-                    Transform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
-                    bounds,
-                ))
+                .spawn((instance, Visibility::default(), NoCpuCulling))
                 .id();
             entities.0.insert(key, entity);
         }

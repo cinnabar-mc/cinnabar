@@ -10,6 +10,7 @@ use render_model::{
 use render_scene::ActorRenderScene;
 
 /// Evaluates hidden local contacts from the unmasked body, before body-only draw visibility.
+#[cfg(test)]
 pub(super) fn hidden(
     body: &ActorRigSubmission,
     rig: &actor_animation::ActorRigSnapshot<'_>,
@@ -62,6 +63,7 @@ pub(super) fn hidden(
 }
 
 /// Samples hidden persona geometry without publishing texture pages or visible submissions.
+#[cfg(test)]
 fn hidden_skin(
     body: &ActorRigSubmission,
     rig: &actor_animation::ActorRigSnapshot<'_>,

@@ -1,6 +1,7 @@
 //! Video renderer choices and the shader-pack library use separate settings tabs.
 
 use super::super::icons::Icon;
+use super::super::motion::{Kind, mix, opacity};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, CAPTION, EDGE, TEXT, TEXT_DIMMER};
 use super::super::widgets::{self, Variant};
@@ -8,7 +9,7 @@ use super::Content;
 use launcher::menu::{
     MenuAction, RendererChoice,
     settings_storage::{StorageAction, StorageFolder},
-    shader_pack_status::pack_label,
+    shader_pack_status::{PackIssue, pack_label},
 };
 use launcher::shader_options::Action;
 use ui_engine::engine::screen::PaintError;
@@ -43,27 +44,22 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             content.view.renderer,
         )?;
     }
-    if render_model::SHADER_PACKS_ENABLED {
-        let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
-            .then_some(content.view.shader_pack.as_deref())
-            .flatten()
-            .map_or("Off", pack_label);
-        super::services::action_row(
-            content,
-            &format!("Shaders: {selected}"),
-            "",
-            "Open",
-            Some(MenuAction::SettingsShaders),
-        )?;
-    }
+    let selected = (content.view.render_mode == ui::RenderMode::ShaderPack)
+        .then_some(content.view.shader_pack.as_deref())
+        .flatten()
+        .map_or("Off", pack_label);
+    super::services::action_row_text(
+        content,
+        &format!("Shaders: {selected}"),
+        "",
+        "Open",
+        Some(MenuAction::SettingsShaders),
+    )?;
     Ok(())
 }
 
-/// Draws Off and every pack as one pick-one list, ending in the drop zone that adds packs.
+/// Draws Off and every pack as one pick-one list, ending in the host's import controls.
 pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return Ok(());
-    }
     let view = content.view;
     content.heading(
         "Shader pack",
@@ -75,8 +71,11 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     )?;
     let active = view.render_mode == ui::RenderMode::ShaderPack;
     let removing = view.shader_pack_removing.as_deref();
-    let status = if view.renderer_failure.is_some() {
-        Chip::Failed
+    let status = if let Some(issue) = &view.renderer_issue {
+        match issue {
+            PackIssue::Failure(_) => Chip::Failed,
+            PackIssue::Warning(_) => Chip::Partial,
+        }
     } else if view.shader_pack_loading {
         Chip::Loading
     } else {
@@ -154,7 +153,24 @@ pub(super) fn shaders(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             },
         )?;
     }
-    drop_zone(content)
+    if view.storage.accepts_file_drops || view.storage.opens_folders {
+        drop_zone(content)
+    } else {
+        super::resources::actions(
+            content,
+            &[(
+                if view.shader_pack_importing {
+                    "Adding shader packs…"
+                } else {
+                    "Import shader pack"
+                },
+                Variant::Primary,
+                (!view.shader_pack_importing).then_some(MenuAction::ImportShaderPacks),
+            )],
+        )?;
+        content.y += content.canvas.r(0.8);
+        super::resources::caption(content, "Tap to choose a .zip")
+    }
 }
 
 /// A short state or kind label beside a pack's name.
@@ -163,6 +179,7 @@ enum Chip {
     Active,
     Loading,
     Failed,
+    Partial,
     Removing,
     Zip,
     Folder,
@@ -174,6 +191,7 @@ impl Chip {
             Self::Active => "Active",
             Self::Loading => "Loading…",
             Self::Failed => "Failed",
+            Self::Partial => "Active with warnings",
             Self::Removing => "Removing…",
             Self::Zip => "ZIP",
             Self::Folder => "Folder",
@@ -194,7 +212,7 @@ impl Chip {
     /// Draws the chip filling `bounds` from [`Self::size`].
     fn draw(self, canvas: &mut Canvas<'_>, bounds: Bounds) -> Result<(), PaintError> {
         let [fill, text] = match self {
-            Self::Active => [theme::PRIMARY_ROLE.fill, TEXT],
+            Self::Active | Self::Partial => [theme::PRIMARY_ROLE.fill, TEXT],
             Self::Failed => [theme::DESTRUCTIVE.fill, TEXT],
             Self::Loading | Self::Removing | Self::Zip | Self::Folder => {
                 [theme::NEUTRAL80.fill, TEXT_DIMMER]
@@ -345,7 +363,7 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
     };
     let failure = entry
         .controls
-        .then_some(view.renderer_failure.as_deref())
+        .then_some(view.renderer_issue.as_ref().map(PackIssue::description))
         .flatten();
     let failure_height = match failure {
         Some(text) => {
@@ -460,7 +478,11 @@ fn entry(content: &mut Content<'_, '_>, entry: Entry<'_>) -> Result<(), PaintErr
         canvas.frame(bounds, EDGE, theme::BORDER)?;
         canvas.fill(
             [bounds[0], bounds[1], bounds[0] + canvas.r(0.4), bounds[3]],
-            theme::DESTRUCTIVE_TINT,
+            if matches!(view.renderer_issue, Some(PackIssue::Warning(_))) {
+                theme::PRIMARY_ROLE.fill
+            } else {
+                theme::DESTRUCTIVE_TINT
+            },
         )?;
         canvas.text(
             text,
@@ -562,7 +584,8 @@ fn banner(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
     Ok(())
 }
 
-/// The dashed import target closing the list, with the folder shortcut where the host has one.
+/// The dashed import target closing the list: pressing it opens the file picker, files dropped
+/// on hosts that take them import too, and the folder shortcut drawn over it wins its presses.
 /// An empty library centres it as a larger first-use prompt.
 fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
@@ -574,7 +597,14 @@ fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     } else {
         1.6
     });
-    let title = "Drop a .zip or folder here";
+    let pick = (!view.shader_pack_importing).then_some(MenuAction::ImportShaderPacks);
+    let title = if view.shader_pack_importing {
+        "Adding shader packs…"
+    } else if view.storage.accepts_file_drops {
+        "Drop a .zip or folder here, or click to browse"
+    } else {
+        "Tap to add a .zip shader pack"
+    };
     let caption = empty.then_some("Shader packs you add appear in this list.");
     let open = view
         .storage
@@ -610,7 +640,39 @@ fn drop_zone(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         (Some(_), false) => stack + gap + button[1],
     };
     let bounds = [left, content.y, right, content.y + body + 2.0 * pad];
-    dashed_frame(canvas, bounds, theme::TEXT_DIMMEST)?;
+    let state = canvas.interaction(view, pick);
+    let motion = canvas.feedback(state, pick.is_some(), false, Kind::Surface);
+    if pick.is_some() {
+        let role = canvas.role(theme::NEUTRAL);
+        canvas.fill(
+            bounds,
+            opacity(
+                motion.color(role.hovered, role.hovered, role.pressed),
+                motion.hover.max(motion.press),
+            ),
+        )?;
+    }
+    dashed_frame(
+        canvas,
+        bounds,
+        mix(theme::TEXT_DIMMEST, TEXT_DIMMER, motion.hover),
+    )?;
+    if motion.focus > 0.0 {
+        let ring = canvas.r(0.4);
+        canvas.frame(
+            [
+                bounds[0] - ring,
+                bounds[1] - ring,
+                bounds[2] + ring,
+                bounds[3] + ring,
+            ],
+            EDGE,
+            opacity(theme::OUTLINE, motion.focus),
+        )?;
+    }
+    if let Some(pick) = pick {
+        canvas.hit(pick, bounds)?;
+    }
     let text_top = if inline {
         (bounds[1] + bounds[3] - stack) * 0.5
     } else {

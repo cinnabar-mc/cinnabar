@@ -4,9 +4,10 @@ use std::{io::Read, net::TcpListener};
 /// Models the public asset API with a content-derived digest.
 fn asset(name: &str, bytes: &[u8]) -> Asset {
     Asset {
-        id: 42,
         name: name.into(),
         size: bytes.len() as u64,
+        url: None,
+        revision_update: None,
         digest: Some(format!("sha256:{:x}", Sha256::digest(bytes))),
     }
 }
@@ -14,7 +15,7 @@ fn asset(name: &str, bytes: &[u8]) -> Asset {
 #[test]
 fn selects_only_one_exact_asset_with_a_bounded_size_and_sha256() {
     let assets = [asset("other.wasm", b"other"), asset("zoom.wasm", b"wasm")];
-    assert_eq!(select(&assets, "zoom.wasm", 4).unwrap().id, 42);
+    assert_eq!(select(&assets, "zoom.wasm", 4).unwrap().name, "zoom.wasm");
     assert!(select(&assets, "Zoom.wasm", 4).is_none());
     assert!(select(&assets, "zoom.wasm", 3).is_none());
     let duplicate = [asset("zoom.wasm", b"a"), asset("zoom.wasm", b"b")];
@@ -31,29 +32,19 @@ fn selects_only_one_exact_asset_with_a_bounded_size_and_sha256() {
     }
 }
 
-#[test]
-fn asset_redirects_require_credential_free_https_on_known_hosts() {
-    for url in [
-        "https://api.github.com/a",
-        "https://release-assets.githubusercontent.com/a?sig=x",
-        "https://objects.githubusercontent.com/a",
-    ] {
-        assert!(trusted(&url.parse().unwrap()));
-    }
-    for url in [
-        "http://github.com/a",
-        "https://github.com.evil.test/a",
-        "https://github.com@evil.test/a",
-        "https://u:p@github.com/a",
-        "https://github.com:8443/a",
-        "https://127.0.0.1/a",
-    ] {
-        assert!(!trusted(&url.parse().unwrap()));
-    }
-}
-
 /// Sends a tiny real HTTP body through the same bounded staging path as release downloads.
 fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<Downloaded> {
+    stage_in(&tempfile::env::temp_dir(), bytes, asset, limit, cancelled)
+}
+
+/// Exercises staging in the caller-selected directory without process-wide environment changes.
+fn stage_in(
+    staging: &Path,
+    bytes: &[u8],
+    asset: &Asset,
+    limit: usize,
+    cancelled: bool,
+) -> Result<Downloaded> {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let bytes = bytes.to_vec();
@@ -82,6 +73,7 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
             .send()
             .await?;
         let candidate = Candidate {
+            revision_update: None,
             id: 1,
             repository: "example/zoom".into(),
             version: "1.0.0".into(),
@@ -94,7 +86,7 @@ fn stage(bytes: &[u8], asset: &Asset, limit: usize, cancelled: bool) -> Result<D
             authorization: 1,
             progress: Progress::default(),
         };
-        receive(response, &candidate, "1.1.0", asset, fence, limit).await
+        receive(response, &candidate, "1.1.0", asset, fence, limit, staging).await
     });
     server.join().unwrap();
     result
@@ -117,4 +109,21 @@ fn staged_download_verifies_bytes_length_digest_and_cancellation() {
     ] {
         assert!(stage(body, &expected, limit, cancelled).is_err());
     }
+}
+
+/// Android downloads use app-owned storage even when the system temp directory is unavailable.
+#[test]
+fn staged_download_uses_the_owned_directory_and_never_falls_back() {
+    let root = tempfile::tempdir().unwrap();
+    let staging = root.path().join("app-data/mods/.updates");
+    let expected = asset("zoom.wasm", b"component");
+    let download = stage_in(&staging, b"component", &expected, 16, false).unwrap();
+    assert_eq!(download.path().parent(), Some(staging.as_path()));
+    assert_eq!(std::fs::read(download.path()).unwrap(), b"component");
+    drop(download);
+    assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 0);
+    let blocked = root.path().join("blocked");
+    std::fs::write(&blocked, b"not a directory").unwrap();
+    assert!(stage_in(&blocked, b"component", &expected, 16, false).is_err());
+    assert_eq!(std::fs::read(blocked).unwrap(), b"not a directory");
 }

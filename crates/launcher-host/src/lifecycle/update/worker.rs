@@ -13,6 +13,8 @@ use time::OffsetDateTime;
 use update_installer::stage::{self, Download, Selection};
 use update_manifest::{TrustedKeys, channel::Channel, select::Check};
 
+/// The verified stage below the update directory that Restart installs.
+const READY_STAGE: &str = "ready";
 const UNVERIFIED_INSTALLATION: &str = "Could not read the installed version. Automatic installation is unavailable; use the downloaded package to repair the installation.";
 
 /// A manual check bypasses scheduling and cached manifests without enabling automatic checks.
@@ -108,6 +110,7 @@ pub(super) fn start(force: bool) {
         }
         state.running = true;
         state.status = Status::Checking;
+        state.download = None;
         let check_now = std::mem::take(&mut state.check_now);
         let manual = std::mem::take(&mut state.manual_check);
         let mode = if manual {
@@ -276,7 +279,7 @@ fn run(
     {
         state.stable_available = true;
     }
-    let destination = root.join("ready");
+    let destination = root.join(READY_STAGE);
     stage::recover(&destination, &keys, check, OffsetDateTime::now_utc())?;
     // A postponed stage stays offered while periodic checks continue, and a newer release replaces it.
     let retained = STATE.lock().ok().and_then(|state| state.ready.clone());
@@ -307,6 +310,7 @@ fn run(
             generation,
         );
     }
+    prepare_offer(layout, &lease, &keys, check, generation);
     if (!preferences.checks && !switch_now && mode != FetchMode::Manual) || !active(generation) {
         return Ok(());
     }
@@ -369,6 +373,7 @@ fn run(
         if let Ok(mut state) = STATE.lock()
             && state.generation == generation
         {
+            state.target = Some(update_manifest::build::Build::from(&selected.manifest));
             set_switch_offer(&mut state, switch_available);
         }
         if !switch_now
@@ -403,8 +408,8 @@ fn run(
         let directory = if let Some(directory) = reused {
             directory
         } else {
-            set_status(generation, Status::Downloading);
             let mut download = Download::begin(&root, selected)?;
+            download_progress(generation, download.offset(), artifact.size as u64);
             let offset = download.offset();
             // Retain only the current partial transfer. A channel change can restart another digest safely.
             for entry in fs::read_dir(&root)? {
@@ -450,6 +455,7 @@ fn run(
                     );
                     if offset != 0 {
                         download.restart()?;
+                        download_progress(generation, download.offset(), artifact.size as u64);
                     }
                 }
                 if let Some(length) = response.content_length() {
@@ -461,9 +467,11 @@ fn run(
                 while let Some(chunk) = response.chunk().await? {
                     ensure!(active(generation), "update check cancelled");
                     download.write(&chunk)?;
+                    download_progress(generation, download.offset(), artifact.size as u64);
                 }
             }
             ensure!(active(generation), "update check cancelled");
+            set_status(generation, Status::Verifying);
             download.finish(&destination)?
         };
         ensure!(
@@ -483,8 +491,77 @@ fn run(
             verified,
             generation,
         );
+        prepare_offer(layout, &lease, &keys, check, generation);
         record(&stamp_path, stamp_check, now_secs())
     })
+}
+
+/// Unpacks the writable offer beside its installation, so Restart only has to swap it in, then
+/// hands its prep kit to [`NEXT_RELEASE`].
+fn prepare_offer(
+    layout: &InstallLayout,
+    lease: &update_installer::lease::Lease,
+    keys: &TrustedKeys,
+    check: Check<'_>,
+    generation: u64,
+) {
+    if !update_installer::apply::PREPARES {
+        return;
+    }
+    let _preparing = PREPARING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Checked under the lock: once Restart is accepted, the exit handoff waits only for work already started.
+    let Some(ready) = STATE
+        .lock()
+        .ok()
+        .filter(|state| state.accepts_worker(generation))
+        .map(|state| state.ready.clone().filter(|ready| ready.notice.writable))
+    else {
+        return;
+    };
+    let Some(ready) = ready else {
+        // An expired or switched offer whose payload remains may be offered again.
+        if !lease.root().join(READY_STAGE).exists() {
+            next_release(layout, None);
+        }
+        return;
+    };
+    let result = handoff::apply_target(&ready).and_then(|target| {
+        let candidate = update_installer::apply::prepare(
+            &ready.stage,
+            &target,
+            keys,
+            check,
+            OffsetDateTime::now_utc(),
+            lease,
+        )?;
+        if let Some(kit) = candidate_kit(layout, &target, &candidate) {
+            next_release(layout, Some(&kit));
+        }
+        Ok(())
+    });
+    if let Err(error) = result {
+        tracing::debug!("prepare update: {error:#}");
+    }
+}
+
+/// Runs the registered [`super::NextRelease`] hook, if any.
+fn next_release(layout: &InstallLayout, kit: Option<&Path>) {
+    if let Some(hook) = NEXT_RELEASE.get() {
+        hook(layout, kit);
+    }
+}
+
+/// The prep kit inside an unpacked `candidate` for `target`, where the running install keeps its
+/// own; `None` when this process runs from elsewhere or the candidate is a single file.
+pub(super) fn candidate_kit(
+    layout: &InstallLayout,
+    target: &Path,
+    candidate: &Path,
+) -> Option<PathBuf> {
+    let kit = candidate.join(layout.prep_kit().strip_prefix(target).ok()?);
+    kit.is_dir().then_some(kit)
 }
 
 /// Publishes worker progress only while its channel and consent are still current.
@@ -493,6 +570,13 @@ fn set_status(generation: u64, status: Status) {
         && state.accepts_worker(generation)
     {
         state.status = status;
+    }
+}
+
+/// Relays actual resumed and received bytes without allowing cancelled workers to change the view.
+fn download_progress(generation: u64, received: u64, total: u64) {
+    if let Ok(mut state) = STATE.lock() {
+        state.download_progress(generation, received, total);
     }
 }
 
@@ -508,7 +592,7 @@ pub(super) fn retained_manifest(
         &ready.stage,
         keys,
         Check {
-            switch_now: ready.switch_now,
+            switch_now: ready.switch_from.is_some(),
             ..check
         },
         now,
@@ -603,7 +687,7 @@ pub(super) fn set_switch_offer(state: &mut State, available: bool) {
 pub(super) fn offer_switch(state: &mut State) {
     state.switch_available = true;
     state.message = Some(
-        "This channel has an older version. Wait for its next release, or choose Switch now."
+        "The selected release is older. Choose whether to install it now or wait for a newer release."
             .into(),
     );
 }
@@ -625,7 +709,7 @@ fn publish(
         check.current_build,
     )
     .unwrap_or(false);
-    let writable = newer
+    let writable = (newer || check.switch_now)
         && verified
         && target
             .clone()
@@ -633,7 +717,12 @@ fn publish(
             .and_then(|target| update_installer::target::access(&target))
             .is_ok_and(update_installer::target::Access::permits_update);
     if let Ok(mut state) = STATE.lock() {
-        let mut ready = Ready::new(stage, reader, selected, check.switch_now, writable);
+        let switch_from = check.switch_now.then(|| update_manifest::build::Build {
+            version: check.current.into(),
+            number: check.current_build,
+            channel: None,
+        });
+        let mut ready = Ready::new(stage, reader, selected, switch_from, writable);
         ready.target = target;
         state.offer(ready, generation);
         if !verified && state.accepts_worker(generation) {

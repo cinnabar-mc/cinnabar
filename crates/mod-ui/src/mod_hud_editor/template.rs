@@ -11,7 +11,7 @@ fn rect(size: [f64; 2], offset: [f64; 2], color: [f64; 4]) -> Value {
         "size":size,"offset":offset,"color":color,"anchor_from":"top_left","anchor_to":"top_left"})
 }
 /// Creates a literal, clipped editor label using the active carrier font.
-fn label(style: ui::mod_hud::EditorStyle, text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
+fn label(style: EditorStyle, text: &str, size: [f64; 2], offset: [f64; 2]) -> Value {
     json!({"type":"label","text":text,"size":[size[0],"default"],"max_size":size,
         "offset":[offset[0],offset[1]+size[1]*0.5-1.],"localize":false,
         "font_type":style.font.name(),"font_scale_factor":style.text_scale,"color":[1,1,1,1],"shadow":true,"text_alignment":"left",
@@ -25,8 +25,12 @@ fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) 
 }
 
 /// Builds stable card previews and a bounded grid with editor controls.
-pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> {
-    let style = hud.editor_style.unwrap_or_default();
+pub(super) fn catalog(
+    hud: &Hud,
+    viewport: [f64; 2],
+    history_buttons: bool,
+) -> Result<Catalog, String> {
+    let style = EditorStyle::default();
     let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
     if hud.surface.is_none() {
@@ -224,6 +228,16 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                 ("grid", "#grid_label"),
                 ("snap", "#snap_label"),
             ]
+        } else if history_buttons {
+            &[
+                ("save", "Save"),
+                ("cancel", "Cancel"),
+                ("undo", "Undo"),
+                ("redo", "Redo"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
+            ]
         } else {
             &[
                 ("save", "Save"),
@@ -246,15 +260,18 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             if matches!(action, "grid" | "snap") {
                 textnode["bindings"] = json!([{"binding_name":text}]);
             }
-            toolbar.push(named(
-                action,
-                button(
-                    &format!("hud.{action}"),
-                    [slot, 24.],
-                    [4. + index as f64 * slot, 2.],
-                    vec![named("text", textnode)],
-                ),
-            ));
+            let mut control = button(
+                &format!("hud.{action}"),
+                [slot, 24.],
+                [4. + index as f64 * slot, 2.],
+                vec![named("text", textnode)],
+            );
+            if matches!(action, "undo" | "redo") {
+                control["bindings"] = json!([
+                    {"binding_name":format!("#hud_can_{action}"),"binding_name_override":"#enabled"},
+                    {"binding_name":format!("#hud_{action}_alpha"),"binding_name_override":"#alpha"}]);
+            }
+            toolbar.push(named(action, control));
         }
         controls.push(named(
             "toolbar",

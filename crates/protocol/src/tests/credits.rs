@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_51::packets::ShowCredits;
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::ShowCredits;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{WorldEvent, into_world_event};
 
 #[test]

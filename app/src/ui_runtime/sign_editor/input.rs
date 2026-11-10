@@ -6,13 +6,19 @@ use bevy::{
     prelude::{
         ButtonInput, KeyCode, Local, MessageReader, MouseButton, Res, ResMut, Single, Window, With,
     },
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow},
+    window::{CursorOptions, PrimaryWindow},
 };
 use client_runtime::network::NetworkHandle;
+use client_shell::physical_input::set_cursor_capture;
 
-use crate::ui_runtime::interaction::input_capture::restore_gameplay_input_after_chat;
+use crate::ui_runtime::{
+    input_owner::InputOwner, interaction::input_capture::restore_gameplay_input_after_chat,
+};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::sign_editor::{MAX_LINE_DESIGN_PIXELS, SignEdit};
+use client_ui::ui_runtime::{
+    scene_stack::Scene,
+    sign_editor::{MAX_LINE_DESIGN_PIXELS, SignEdit},
+};
 use {
     crate::{
         block_entities::{BlockEntityFont, BlockEntityRuntime},
@@ -45,19 +51,22 @@ pub(crate) fn drive_sign_editor(
     mut runtime: ResMut<UiRuntimeResource>,
     mut owned_last_frame: Local<bool>,
     collisions: Option<Res<client_interaction::movement::PhysicsCollisionRegistries>>,
-    authority: SignInputAuthority,
+    (authority, owner): (SignInputAuthority, InputOwner),
 ) {
     let SignInputAuthority { mut focus, driven } = authority;
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    if runtime.credits().owns_input() {
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
+    if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
+        runtime.sign_editor_mut().close();
         keyboard.clear();
         *owned_last_frame = false;
         return;
     }
-    if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
-        runtime.sign_editor_mut().close();
+    // A screen above the editor owns the keys: an editor under it waits, and a sign edit
+    // requested meanwhile opens once that screen closes.
+    if frame.covers(Scene::SignEditor) {
         keyboard.clear();
         *owned_last_frame = false;
         return;
@@ -100,13 +109,18 @@ pub(crate) fn drive_sign_editor(
         return;
     }
     *owned_last_frame = true;
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    set_cursor_capture(&mut cursor, false);
     let mut measure = measure;
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
-    if input_available {
-        if mouse.just_pressed(MouseButton::Back) {
+    if input_available && frame.reads(|scene| scene == Scene::SignEditor) {
+        // The editor takes every typed key, so only a mouse Menu Cancel finishes it here.
+        if client_shell::menu::settings_options::control_bindings::menu_cancel_mouse(
+            menu.as_deref(),
+            &mouse,
+        )
+        .is_some()
+        {
             finish = true;
             explicit_finish = true;
         }
@@ -184,3 +198,6 @@ pub(crate) fn drive_sign_editor(
         *owned_last_frame = false;
     }
 }
+
+#[cfg(test)]
+mod tests;

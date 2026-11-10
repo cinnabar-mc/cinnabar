@@ -12,10 +12,20 @@ pub struct TickInput {
     pub sprint_down: bool,
     /// Sneak control after the hold/toggle setting, before forced-pose admission.
     pub sneak_down: bool,
+    /// The sneak control is held while it acts as the toggle-sneak control:
+    /// always on a gamepad, otherwise under the toggle-sneak setting.
+    pub sneak_toggle_down: bool,
     /// Server sprint state applied before this tick admits local sprint input.
     pub server_sprinting: Option<bool>,
     /// Server sneak state applied before this tick admits local sneak input.
     pub server_sneaking: Option<bool>,
+    /// Locomotion mode this tick started with, after server flag writes, which
+    /// vanilla makes without a start or stop action.
+    pub server_mode: Option<sim::MovementMode>,
+    /// Independent pose flags this tick starts with, including server writes.
+    pub server_pose_flags: Option<super::PoseFlags>,
+    /// Riptide spin this tick started with, after server flag writes.
+    pub server_spinning: Option<bool>,
 }
 
 /// Button edges and server stance updates wait for a completed tick.

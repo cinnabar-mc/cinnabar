@@ -29,9 +29,7 @@ pub(super) fn retain_fallback_filters(row: &mut RawControl, builtin: &RawControl
     }
 }
 
-/// Ensures resource-pack overrides of `hud.chat_grid_item` still honor the player's
-/// configured `$chat_font_scale_factor`, `$chat_line_spacing`, and `$chat_background_opacity`
-/// on the closed HUD chat instead of hardcoding fixed scale or alpha values.
+/// Keeps saved font, spacing and background settings on overridden HUD chat rows.
 pub(super) fn preserve_chat_settings_vars(control: &mut RawControl) {
     if control.name == "chat_background" {
         control.props.insert(

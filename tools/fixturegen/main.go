@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	gameVersion     = "1.26.50"
-	protocolID      = 2193
+	gameVersion     = protocol.CurrentVersion
+	protocolID      = protocol.CurrentProtocol
 	senderSubClient = 1
 	targetSubClient = 2
 )
@@ -116,6 +116,11 @@ func generate(out string) error {
 
 func fixtures() []fixture {
 	return append([]fixture{
+		{
+			name: "ItemStackRequestPartialMoves",
+			file: "item_stack_request_partial_moves.bin",
+			pk:   partialMovesFixture(),
+		},
 		{
 			name: "NetworkSettings",
 			file: "network_settings.bin",

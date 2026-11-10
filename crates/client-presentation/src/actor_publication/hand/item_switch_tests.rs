@@ -5,7 +5,10 @@ use native_tests::{fixture, hand_source_for_mode, player_feed};
 /// Builds an ordinary stack without any live inventory or installed game assets.
 fn item(identifier: &str) -> WornItem {
     WornItem {
+        trim: None,
         variant: Default::default(),
+        map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         identifier: identifier.into(),
         metadata: 0,

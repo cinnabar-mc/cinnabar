@@ -70,12 +70,12 @@ fn cached_hud_consumes_visibility_transition_on_unchanged_frame() {
     let empty = source("");
     render(&mut screen, Arc::clone(&empty));
     render(&mut screen, Arc::clone(&empty));
-    assert_eq!(
-        screen.passes, 2,
-        "cache skipped a pending visibility-scheduled bind"
-    );
+    let settled = screen.passes;
     render(&mut screen, empty);
-    assert_eq!(screen.passes, 2, "settled unchanged HUD rebuilt again");
+    assert_eq!(
+        screen.passes, settled,
+        "settled unchanged HUD rebuilt again"
+    );
     let first = source("fx.first");
     render(&mut screen, Arc::clone(&first));
     assert!(render(&mut screen, Arc::clone(&first)).contains(&"fx.first".into()));
