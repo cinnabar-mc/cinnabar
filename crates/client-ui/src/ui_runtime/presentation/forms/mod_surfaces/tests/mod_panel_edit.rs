@@ -17,6 +17,19 @@ fn opened() -> UiPresentationRuntime {
     presentation
 }
 
+/// A press that opens a native field editor is still reported as a press on its control.
+#[test]
+fn native_editor_presses_report_their_control() {
+    let mut presentation = opened();
+    let number = point(&presentation, "mod.edit:1", 0.5);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(number, true, true);
+    let (_, press) = presentation.mod_ui().mod_panel_press().unwrap();
+    assert_eq!(press.id, "strength");
+    assert!(press.held);
+}
+
 #[test]
 fn pointer_cancellation_preserves_number_and_dropdown_edits() {
     let mut presentation = opened();

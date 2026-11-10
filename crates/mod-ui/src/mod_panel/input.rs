@@ -119,7 +119,11 @@ impl ModPanel {
             self.press = hit
                 .zip(
                     action
-                        .and_then(|action| action.strip_prefix("mod.control:"))
+                        .and_then(|action| {
+                            action
+                                .strip_prefix("mod.control:")
+                                .or_else(|| action.strip_prefix("mod.edit:"))
+                        })
                         .and_then(|index| index.parse::<usize>().ok()),
                 )
                 .and_then(|(hit, control)| {
