@@ -8,9 +8,9 @@ Mod updates remain independent.
 
 ## Build and install
 
-On Linux, install `flatpak`, `flatpak-builder`, Python 3.11 or newer, the repository's
-Rust toolchain, and a Go compiler supporting its modules. Prepare the sources from
-the repository root:
+On Linux, install Flatpak 1.16 or newer, `flatpak-builder`, Python 3.11 or newer,
+the repository's Rust toolchain, and a Go compiler supporting its modules. Prepare
+the sources from the repository root:
 
 ```sh
 python3 packaging/flatpak/prepare.py
@@ -42,6 +42,8 @@ flatpak install --user Cinnabar-x86_64.flatpak
 ## Permissions and acceptance
 
 The package requests network, GPU, controller, audio, Wayland and fallback X11 access.
+Discord integration has read-only access to its native sockets and Flatpak/Snap
+runtime directories.
 It does not request home-directory access or permission to run host commands. File
 imports and browser links use the existing desktop portals. Settings, downloaded
 resources, logs and worlds use Flatpak's per-application XDG directories, separately
@@ -49,8 +51,8 @@ from an existing AppImage install.
 
 Before publishing, test a clean first run, sign-in and browser return, a multiplayer
 join, native local-world startup, world/pack import, controllers, audio, Wayland and X11,
-and an update that preserves settings and worlds. Docker-backed local worlds on other
-architectures are outside this initial x86-64 package.
+Discord activity and invitations, and an update that preserves settings and worlds.
+Docker-backed local worlds on other architectures are outside this initial x86-64 package.
 
 ## Flathub publication
 

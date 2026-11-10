@@ -4,6 +4,38 @@ use update_manifest::TrustedKeys;
 pub(super) const TEST_SEED: [u8; update_manifest::KEY_BYTES] = [7; update_manifest::KEY_BYTES];
 
 #[test]
+fn only_cinnabars_flatpak_sandbox_manages_application_updates() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join(".flatpak-info");
+    assert!(!owns_flatpak_sandbox(&marker));
+    for info in [
+        String::new(),
+        "[Application]\nname=com.valvesoftware.Steam\n".into(),
+        format!("[Runtime]\nname={FLATPAK_APP_ID}\n"),
+        format!("[Application]\n[Context]\nname={FLATPAK_APP_ID}\n"),
+        format!("[Application]\nname={FLATPAK_APP_ID}.other\n"),
+    ] {
+        std::fs::write(&marker, &info).unwrap();
+        assert!(!owns_flatpak_sandbox(&marker), "{info}");
+    }
+    std::fs::write(
+        &marker,
+        format!("# Sandbox\r\n[Application]\r\nname = {FLATPAK_APP_ID}\r\n[Context]\r\n"),
+    )
+    .unwrap();
+    assert!(owns_flatpak_sandbox(&marker));
+}
+
+#[test]
+fn flatpak_update_identity_matches_the_package() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../packaging/flatpak/io.github.cinnabar_mc.cinnabar.json"
+    ))
+    .unwrap();
+    assert_eq!(manifest["app-id"].as_str(), Some(FLATPAK_APP_ID));
+}
+
+#[test]
 fn running_clients_check_each_interval_from_completion_without_skipped_ticks_deferring_it() {
     let root = tempfile::tempdir().unwrap();
     let mut state = State::new();

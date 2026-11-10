@@ -30,6 +30,7 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const CHECK_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const FLATPAK_APP_ID: &str = "io.github.cinnabar_mc.cinnabar";
 static LAYOUT: OnceLock<InstallLayout> = OnceLock::new();
 static STATE: Mutex<State> = Mutex::new(State::new());
 #[cfg(unix)]
@@ -397,11 +398,30 @@ pub fn view() -> View {
     }
 }
 
-/// Flatpak exposes its installation marker independently of the app's environment variables.
+/// Only this application's Flatpak installation delegates updates to the package manager.
 fn managed_install() -> bool {
     static MANAGED: OnceLock<bool> = OnceLock::new();
     *MANAGED.get_or_init(|| {
-        cfg!(target_os = "linux") && std::path::Path::new("/.flatpak-info").is_file()
+        cfg!(target_os = "linux") && owns_flatpak_sandbox(std::path::Path::new("/.flatpak-info"))
+    })
+}
+
+/// Matches the marker's application identity, ignoring runtime and context entries.
+fn owns_flatpak_sandbox(marker: &std::path::Path) -> bool {
+    let Ok(info) = std::fs::read_to_string(marker) else {
+        return false;
+    };
+    let mut application = false;
+    info.lines().any(|line| {
+        let line = line.trim();
+        if line.starts_with('[') {
+            application = line == "[Application]";
+            return false;
+        }
+        application
+            && line
+                .split_once('=')
+                .is_some_and(|(key, value)| key.trim() == "name" && value.trim() == FLATPAK_APP_ID)
     })
 }
 

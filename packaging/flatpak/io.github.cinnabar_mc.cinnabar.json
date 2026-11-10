@@ -12,7 +12,20 @@
         "--socket=fallback-x11",
         "--socket=pulseaudio",
         "--device=dri",
-        "--device=input"
+        "--device=input",
+        "--filesystem=xdg-run/discord-ipc-0:ro",
+        "--filesystem=xdg-run/discord-ipc-1:ro",
+        "--filesystem=xdg-run/discord-ipc-2:ro",
+        "--filesystem=xdg-run/discord-ipc-3:ro",
+        "--filesystem=xdg-run/discord-ipc-4:ro",
+        "--filesystem=xdg-run/discord-ipc-5:ro",
+        "--filesystem=xdg-run/discord-ipc-6:ro",
+        "--filesystem=xdg-run/discord-ipc-7:ro",
+        "--filesystem=xdg-run/discord-ipc-8:ro",
+        "--filesystem=xdg-run/discord-ipc-9:ro",
+        "--filesystem=xdg-run/app/com.discordapp.Discord:ro",
+        "--filesystem=xdg-run/snap.discord:ro",
+        "--filesystem=xdg-run/snap.discord-canary:ro"
     ],
     "build-options": {
         "append-path": "/usr/lib/sdk/golang/bin",

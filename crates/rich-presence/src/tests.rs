@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn flatpak_permissions_cover_discord_sockets_without_broad_filesystem_access() {
+    use discord_presence::connection::location::{SocketId, SocketLocation};
+    use std::{collections::BTreeSet, path::PathBuf};
+
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../packaging/flatpak/io.github.cinnabar_mc.cinnabar.json"
+    ))
+    .unwrap();
+    let actual: BTreeSet<_> = manifest["finish-args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|arg| arg.as_str().unwrap().strip_prefix("--filesystem="))
+        .map(|path| PathBuf::from(path.strip_suffix(":ro").expect("read-only socket access")))
+        .collect();
+    let mut expected = BTreeSet::new();
+    for location in [
+        SocketLocation::Root,
+        SocketLocation::Flatpak,
+        SocketLocation::Snap,
+        SocketLocation::SnapCanary,
+    ] {
+        let root = location.append_to_root("xdg-run");
+        match location {
+            SocketLocation::Root => {
+                for number in (0..=u8::MAX)
+                    .take_while(|number| SocketId::without_location(*number).validate_number())
+                {
+                    expected.insert(root.join(format!("discord-ipc-{number}")));
+                }
+            }
+            SocketLocation::Flatpak | SocketLocation::Snap | SocketLocation::SnapCanary => {
+                expected.insert(root);
+            }
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn configuration_uses_default_override_and_explicit_disable() {
     let default = application_id(None)
         .unwrap()

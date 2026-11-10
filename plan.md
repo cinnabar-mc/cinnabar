@@ -403,8 +403,9 @@ Windows runtime executables use `asInvoker` manifests and allow both normal and 
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 
 Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
-updates to Flatpak. Clean-install, login, rendering, local-world, import and update acceptance
-inside the sandbox, and a stable-release Flathub submission remain incomplete.
+updates to Flatpak only in its own sandbox. Clean-install, login, rendering, local-world,
+import, Discord integration and update acceptance inside the sandbox, and a stable-release
+Flathub submission remain incomplete.
 
 ## Experimental hosts and extensions
 

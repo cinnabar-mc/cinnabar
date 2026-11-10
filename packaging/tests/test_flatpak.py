@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -55,7 +56,23 @@ class FlatpakTests(unittest.TestCase):
         metadata = ET.parse(ROOT / f"packaging/flatpak/{app_id}.metainfo.xml").getroot()
         self.assertEqual(metadata.findtext("id"), app_id)
         self.assertEqual(metadata.findtext("launchable"), f"{app_id}.desktop")
-        self.assertFalse(any("filesystem=" in arg for arg in manifest["finish-args"]))
+
+    @unittest.skipUnless(shutil.which("flatpak"), "missing fixture: Flatpak build tool")
+    def test_build_tool_accepts_manifest_permissions(self):
+        """Finish an empty package with the real build tool and the shipped permissions."""
+        manifest = json.loads(PREPARE.TEMPLATE.read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "files").mkdir()
+            (root / "metadata").write_text(
+                f"[Application]\nname={manifest['app-id']}\n"
+                f"runtime={manifest['runtime']}/x86_64/{manifest['runtime-version']}\n"
+                f"sdk={manifest['sdk']}/x86_64/{manifest['runtime-version']}\n"
+            )
+            subprocess.run(
+                ["flatpak", "build-finish", *manifest["finish-args"], str(root)],
+                check=True,
+            )
 
 
 if __name__ == "__main__":

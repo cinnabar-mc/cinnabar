@@ -25,9 +25,12 @@ jobs:
           persist-credentials: false
       - name: Install build tools
         run: |
+          sudo add-apt-repository --yes ppa:flatpak/stable
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           rustup toolchain install
+      - name: Test package permissions
+        run: python3 -m unittest discover -s packaging/tests -p test_flatpak.py
       - uses: actions/setup-go@v6
         with:
           go-version: stable
