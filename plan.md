@@ -766,6 +766,10 @@ qualification remain open.
 Remote players remain eligible while their collision box contains the camera. Render and
 animation bounds containing the eye survive frustum rejection after distance admission;
 matched overlapping-player visual qualification remains open.
+Ocelot controllers receive the native movement-state variable from synced flags before
+authored pre-animation, including sitting and native flag precedence. Custom actors
+inherit their advertised ocelot base. Contributor gameplay captures confirm the sitting
+pose; moving-state visual qualification remains open.
 Named villager eggs use the selected current actor's
 [spawn egg icon](docs/reference/retail-villager-eggs.md), preserving authored
 aliases and indices. Generic villager auxiliaries resolve their declared current
