@@ -298,11 +298,11 @@ fn authored_changes_retain_geometry_but_release_authored_maps() {
     let mut f = fixture(1);
     let array = f.assets.assets().texture_array().clone();
     let maps = Arc::new(
-        render_scene::EnhancedTextureAssets::new(
+        assets::texture::EnhancedTextureAssets::new(
             [array.clone(), array.clone()],
             [array.clone(), array.clone()],
             [array.clone(), array],
-            vec![u32::MAX; render_scene::EnhancedTextureAssets::REFERENCE_BASE_WORDS]
+            vec![u32::MAX; assets::texture::EnhancedTextureAssets::REFERENCE_BASE_WORDS]
                 .into_boxed_slice(),
         )
         .unwrap(),

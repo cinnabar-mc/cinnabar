@@ -7,7 +7,10 @@ publish = false
 
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
-reads = ["crates/assets/data/*"]
+reads = [
+    "crates/assets/data/*",
+    "docs/evidence/material-fixtures/texture-pack/textures/height_uniform.texture_set.json",
+]
 
 [dependencies]
 pack-json = { path = "../../pack-json" }

@@ -409,7 +409,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(face_normal(face), (light_sample & 2048u) != 0u, material.flags);
     @if(ENHANCED)
-    out.lighting = light_colour(light_sample) * ao * dimming;
+    out.lighting = light_colour(light_sample) * material_ao_shade(ao * dimming, material.flags);
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
     @if(ENHANCED)

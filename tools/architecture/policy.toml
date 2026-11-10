@@ -2373,6 +2373,11 @@ literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
 
 [[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/texture_set.rs"
+literal = "color"
+reason = "Layer key of the Bedrock texture_set.json schema, not a block or item identifier."
+
+[[identifier_literal_exceptions]]
 path = "crates/experience-runtime/src/protocol/visuals.rs"
 literal = "bottom"
 reason = "A vertical-half property value, independent of pack asset identifiers."

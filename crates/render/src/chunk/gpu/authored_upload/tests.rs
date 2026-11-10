@@ -97,7 +97,10 @@ fn reference_table_twice_the_frame_budget_completes_in_three_frames() {
     let old_references = prepared.enhanced_texture_refs.id();
     let old_views = prepared.enhanced_views.each_ref().map(|view| view.id());
     let source = oversized_references();
-    assert!(source.fits_device_limits(&device.limits()));
+    assert!(render_scene::enhanced_maps_fit_device_limits(
+        &source,
+        &device.limits()
+    ));
     assert_eq!(
         std::mem::size_of_val(source.texture_refs.as_ref()),
         2 * FRAME_UPLOAD_BYTES
