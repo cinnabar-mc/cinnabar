@@ -83,7 +83,7 @@ pub fn highlight_mentions<'a>(
             }
             continue;
         }
-        if ch == '@' {
+        if ch == '@' && !previous.is_alphanumeric() && !matches!(previous, '_' | '.' | '-' | '@') {
             let remaining = &text[idx..];
             let matched = if only_self.is_some() {
                 [Some(protocol::ALL_PLAYERS_MENTION), target.as_deref()]
@@ -97,7 +97,7 @@ pub fn highlight_mentions<'a>(
                                 .is_some_and(u8::is_ascii_alphanumeric)
                         })
                     })
-            } else if !previous.is_alphanumeric() && !matches!(previous, '_' | '.' | '-' | '@') {
+            } else {
                 let name = &remaining[1..];
                 let len = if let Some(quoted) = name.strip_prefix('"') {
                     quoted.find('"').map_or(0, |end| end + 2)
@@ -105,8 +105,6 @@ pub fn highlight_mentions<'a>(
                     unquoted_mention_len(name, previous == '(')
                 };
                 (len > 0).then_some(&remaining[..len + 1])
-            } else {
-                None
             };
             if let Some(matched) = matched {
                 let end = idx + matched.len();
@@ -337,10 +335,23 @@ mod tests {
     }
 
     #[test]
-    fn emails_or_inner_ats_are_not_mentions() {
-        let text = "Contact test@example.com for info";
-        let formatted = highlight_mentions(text, Some("Alex"), 'e');
-        assert_eq!(formatted, "Contact test@example.com for info");
+    fn only_self_mode_excludes_email_addresses_and_inner_ats() {
+        for name in ["Alex", "Alex One", ""] {
+            for text in [
+                "test@Alex",
+                "test.name@Alex",
+                "test-name@Alex",
+                "test_name@Alex",
+                "@@Alex",
+                "test@here",
+                "@@here",
+                "test@\"Alex One\"",
+            ] {
+                let formatted = highlight_mentions(text, Some(name), 'e');
+                assert!(matches!(formatted, Cow::Borrowed(_)), "{name:?}: {text}");
+                assert_eq!(formatted, text);
+            }
+        }
     }
 
     #[test]
