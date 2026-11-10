@@ -490,13 +490,26 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 		logger := joinprofile.Logger(ctx, logger)
 		return connectUpstream(ctx, target.address, authenticationMode(dialer.TokenSource), logger, func(ctx context.Context, address string) (upstreamSession, error) {
 			attempt := withJoinStages(localHopDialer(target, address, dialer, accountTokenSource(connections.account)), logger)
+			if connections.addressNetwork == nil && attempt.TokenSource != nil {
+				transfer, matched, probeErr := netherConnectTransfer(ctx, address, attempt.Protocol)
+				if matched {
+					if probeErr != nil {
+						return nil, probeErr
+					}
+					return nil, transfer
+				}
+			}
+			network, dialAddress, err := connections.transferHop(target, address, logger)
+			if err != nil {
+				return nil, err
+			}
+			address = dialAddress
 			dial := attempt.DialContextNetwork
 			if attempt.TokenSource != nil {
 				dial = func(ctx context.Context, network minecraft.Network, address string) (*minecraft.Conn, error) {
 					return dialWithPreparedTransport(ctx, network, address, attempt.DialContextNetwork)
 				}
 			}
-			network := connections.hopNetwork(target, address)
 			if local, ok := network.(localNetherNetNetwork); ok && target.keylessFallback && strings.EqualFold(address, target.address) {
 				observed := &localBDSAuthNetwork{localNetherNetNetwork: local}
 				upstream, err := dialMinecraftUpstream(ctx, observed, address, dial)

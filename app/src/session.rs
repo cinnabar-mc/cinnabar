@@ -65,6 +65,7 @@ pub(crate) struct SessionController {
     /// Where the current session plays, for Discord presence and invites.
     presence: Option<rich_presence::Target>,
     destination_identity: Option<String>,
+    loopback_login_address: Option<String>,
     local_world: bool,
     /// Automatic transfer-follow hops remaining in the current chain.
     transfer_hops_remaining: u32,
@@ -95,6 +96,7 @@ impl SessionController {
             client_id_load: None,
             presence: None,
             destination_identity: None,
+            loopback_login_address: None,
             local_world: false,
             transfer_hops_remaining: MAX_TRANSFER_CHAIN_HOPS,
             connecting: false,
@@ -118,6 +120,9 @@ impl SessionController {
 
     /// Names a direct `--address` session's destination.
     pub(crate) fn with_address(mut self, address: Option<&str>) -> Self {
+        self.loopback_login_address = address
+            .and_then(client_runtime::session::loopback_login_address)
+            .map(str::to_owned);
         self.presence = address.map(|address| presence_target(address, false));
         self.destination_identity =
             address.map(|address| format!("remote:{}", address.trim().to_lowercase()));
@@ -161,6 +166,20 @@ impl SessionController {
 
     fn begin_fresh_transfer_chain(&mut self) {
         self.transfer_hops_remaining = MAX_TRANSFER_CHAIN_HOPS;
+        self.loopback_login_address = None;
+    }
+
+    /// Remembers a local proxy while following its identity transfers.
+    fn select_login_address(&mut self, address: &str) -> String {
+        if address.starts_with(bridge::contract::NETHERNET_TARGET_PREFIX) {
+            return self
+                .loopback_login_address
+                .clone()
+                .unwrap_or_else(|| address.to_owned());
+        }
+        self.loopback_login_address =
+            client_runtime::session::loopback_login_address(address).map(str::to_owned);
+        address.to_owned()
     }
 
     /// Spends one automatic transfer-follow hop; `false` once the chain is exhausted.
@@ -386,6 +405,7 @@ fn attempt_connect(
     // provisioning the new endpoint fails before the connecting screen opens.
     menu.show_home();
     session.retire();
+    session.controller.select_login_address(&address);
     session.controller.trust = None;
     session
         .state
@@ -524,7 +544,7 @@ fn poll_join(
         }
     };
     let attempt = controller.join.take().expect("pending join");
-    let server_address = login_server_address(&attempt.address, attempt.local_world);
+    let join_address = login_server_address(&attempt.address, attempt.local_world);
     use client_session::connection::JoinPoll;
     match attempt.poll(
         controller.generation,
@@ -557,7 +577,7 @@ fn poll_join(
                 controller.bind_directory(directory);
             }
             let mut login_settings = login_settings(menu, session.input.as_deref());
-            login_settings.server_address = server_address;
+            login_settings.server_address = controller.select_login_address(&join_address);
             if let Err(error) = start_network(
                 commands,
                 menu,
@@ -886,104 +906,4 @@ fn end_transfer_without_follow(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn login_profanity_preference_comes_from_saved_settings_with_a_hidden_menu() {
-        use launcher::menu::settings_options::{SETTINGS_FILE, SETTINGS_OPTIONS, SettingsOptions};
-
-        let index = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.id == SettingId::FilterProfanity)
-            .unwrap();
-        for filter_profanity in [false, true] {
-            let layout =
-                launcher::test_support::scratch(&format!("login-profanity-{filter_profanity}"));
-            let mut saved = SettingsOptions::default();
-            saved.set(index, i32::from(filter_profanity));
-            saved
-                .save(&layout.user_config_root.join(SETTINGS_FILE))
-                .unwrap();
-            let menu = MenuRuntime::new_with_layout(
-                false,
-                None,
-                "Direct".to_owned(),
-                layout,
-                client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
-            );
-            let settings = login_settings(&menu, None);
-            assert_eq!(settings.filter_profanity, filter_profanity);
-        }
-    }
-
-    // A hidden-menu direct launch must still report the player's saved GUI scale.
-    #[test]
-    fn login_settings_carry_the_saved_gui_scale_without_a_visible_menu() {
-        let layout = launcher::test_support::scratch("login-settings");
-        std::fs::create_dir_all(&layout.user_config_root).unwrap();
-        std::fs::write(
-            layout.user_config_root.join("video-settings.json"),
-            r#"{"gui_scale_offset":-1}"#,
-        )
-        .unwrap();
-        let menu = MenuRuntime::new_with_layout(
-            false,
-            None,
-            "Direct".to_owned(),
-            layout,
-            client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
-        );
-        let settings = login_settings(&menu, None);
-        assert_eq!(settings.gui_scale_offset, -1);
-        assert_eq!(settings.input_mode, protocol::PlayerInputMode::Mouse);
-    }
-
-    #[test]
-    fn login_settings_carry_the_saved_view_radius_without_a_visible_menu() {
-        use launcher::menu::settings_options::{SETTINGS_FILE, SETTINGS_OPTIONS, SettingsOptions};
-
-        let index = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.id == SettingId::RenderDistance)
-            .unwrap();
-        for radius in [8, 35] {
-            let layout = launcher::test_support::scratch(&format!("login-radius-{radius}"));
-            let mut saved = SettingsOptions::default();
-            saved.set(index, radius);
-            saved
-                .save(&layout.user_config_root.join(SETTINGS_FILE))
-                .unwrap();
-            let menu = MenuRuntime::new_with_layout(
-                false,
-                None,
-                "Direct".to_owned(),
-                layout,
-                client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
-            );
-            assert_eq!(
-                login_settings(&menu, None).view_distance_chunks,
-                radius as u8
-            );
-        }
-    }
-
-    #[test]
-    fn the_automatic_transfer_chain_is_bounded() {
-        let mut controller = SessionController::default();
-
-        // A user-initiated join always starts a fresh bounded chain.
-        controller.begin_fresh_transfer_chain();
-        for _ in 0..MAX_TRANSFER_CHAIN_HOPS {
-            assert!(controller.consume_transfer_chain_hop());
-        }
-        assert!(
-            !controller.consume_transfer_chain_hop(),
-            "an exhausted chain must refuse to follow again"
-        );
-
-        // And another user join renews it after exhaustion.
-        controller.begin_fresh_transfer_chain();
-        assert!(controller.consume_transfer_chain_hop());
-    }
-}
+mod tests;

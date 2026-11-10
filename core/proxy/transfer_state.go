@@ -22,8 +22,9 @@ type TransferTarget struct {
 // TransferState holds the upstream that the next local client connection dials
 // after a server-directed transfer. The zero value is ready to use.
 type TransferState struct {
-	mu   sync.Mutex
-	next string
+	mu      sync.Mutex
+	next    string
+	version uint64
 	// OnTransfer, when set, is called after each recorded transfer; it must not block.
 	OnTransfer func(TransferTarget)
 }
@@ -36,12 +37,17 @@ func (s *TransferState) Record(target TransferTarget) error {
 	}
 	s.mu.Lock()
 	s.next = address
+	s.version++
 	callback := s.OnTransfer
 	s.mu.Unlock()
 	if callback != nil {
-		host, port, _ := net.SplitHostPort(address)
-		parsed, _ := strconv.ParseUint(port, 10, 16)
-		callback(TransferTarget{Host: host, Port: uint16(parsed)})
+		if target.Port == 0 {
+			callback(TransferTarget{Host: strings.TrimSpace(target.Host)})
+		} else {
+			host, port, _ := net.SplitHostPort(address)
+			parsed, _ := strconv.ParseUint(port, 10, 16)
+			callback(TransferTarget{Host: host, Port: uint16(parsed)})
+		}
 	}
 	return nil
 }
@@ -56,9 +62,15 @@ func (s *TransferState) Upstream(initial string) string {
 
 // Pending returns the recorded transfer address; ok is false before any transfer.
 func (s *TransferState) Pending() (address string, ok bool) {
+	address, _, ok = s.pendingVersion()
+	return address, ok
+}
+
+// pendingVersion snapshots the destination and the event that installed it.
+func (s *TransferState) pendingVersion() (address string, version uint64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.next, s.next != ""
+	return s.next, s.version, s.next != ""
 }
 
 // Clear drops any recorded transfer.
@@ -68,11 +80,10 @@ func (s *TransferState) Clear() {
 	s.mu.Unlock()
 }
 
-// clearIf drops the recorded transfer only when it is still address, so a newer
-// transfer recorded mid-dial survives.
-func (s *TransferState) clearIf(address string) {
+// clearIf drops only the transfer event observed before the dial started.
+func (s *TransferState) clearIf(address string, version uint64) {
 	s.mu.Lock()
-	if strings.EqualFold(s.next, address) {
+	if s.version == version && strings.EqualFold(s.next, address) {
 		s.next = ""
 	}
 	s.mu.Unlock()
@@ -84,13 +95,13 @@ func consumeTransferOnDial(
 	transfers *TransferState,
 ) func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error) {
 	return func(ctx context.Context, target *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
-		pending, hadPending := transfers.Pending()
+		pending, version, hadPending := transfers.pendingVersion()
 		upstream, err := inner(ctx, target, dialer)
 		if err != nil || upstream == nil {
 			return upstream, err
 		}
-		if hadPending && strings.EqualFold(target.address, pending) {
-			transfers.clearIf(pending)
+		if hadPending && (strings.EqualFold(target.address, pending) || strings.EqualFold(NetherNetTargetPrefix+NetherNetSignalingJSONRPC+"/"+target.address, pending)) {
+			transfers.clearIf(pending, version)
 		}
 		return upstream, nil
 	}
@@ -124,6 +135,9 @@ func transferAddress(host string, port uint16) (string, error) {
 		return "", errors.New("proxy: invalid transfer: empty address")
 	}
 	if port == 0 {
+		if isRawNetherNetAddress(host) {
+			return NetherNetTargetPrefix + NetherNetSignalingJSONRPC + "/" + host, nil
+		}
 		return "", errors.New("proxy: invalid transfer: zero port")
 	}
 	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
@@ -145,17 +159,20 @@ func observeTransfers(upstream upstreamSession, state *TransferState, logger *sl
 
 func (s *transferObservingSession) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.RawPacket, error) {
 	batch, err := s.upstreamSession.ReadBatchRaw(func(id uint32) bool {
-		return id == packet.IDTransfer || decode != nil && decode(id)
+		return id != packet.IDTransfer && decode != nil && decode(id)
 	})
-	for _, raw := range batch {
-		for _, value := range raw.Decoded {
-			transfer, ok := value.(*packet.Transfer)
-			if !ok {
-				continue
-			}
-			if recordErr := s.state.Record(TransferTarget{Host: transfer.Address, Port: transfer.Port}); recordErr != nil && s.logger != nil {
-				s.logger.Warn("ignoring unusable server transfer", "error", recordErr)
-			}
+	for index := range batch {
+		raw := &batch[index]
+		if raw.ID != packet.IDTransfer {
+			continue
+		}
+		transfer := decodeSessionTransfer(minecraft.DefaultProtocol.Packets(false), raw.Data)
+		if transfer == nil {
+			continue
+		}
+		raw.Decoded = []packet.Packet{transfer}
+		if recordErr := s.state.Record(TransferTarget{Host: transfer.Address, Port: transfer.Port}); recordErr != nil && s.logger != nil {
+			s.logger.Warn("ignoring unusable server transfer", "error", recordErr)
 		}
 	}
 	return batch, err

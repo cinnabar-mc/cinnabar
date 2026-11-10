@@ -144,7 +144,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 		case packet.IDItemRegistry:
 			session.observeItemRegistry(data)
 		case packet.IDTransfer:
-			if transfer, ok := decodeSessionPacket(session.serverPool, data, 0, false).(*packet.Transfer); ok {
+			if transfer := decodeSessionTransfer(session.serverPool, data); transfer != nil {
 				if _, err := transferAddress(transfer.Address, transfer.Port); err == nil {
 					return session.endLocked(bridgecontract.SessionKindTransfer, sessionTransfer{
 						Address: transfer.Address, Port: transfer.Port, ReloadWorld: transfer.ReloadWorld,

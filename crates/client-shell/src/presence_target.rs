@@ -100,6 +100,7 @@ pub fn presence_target(address: &str, local_world: bool) -> rich_presence::Targe
     let address = address.trim();
     let (destination, join) = match launcher_host::launcher_core::target_for(address) {
         ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
+        ConnectTarget::NetherNet(_) => (Destination::Experience, None),
         ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
         ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
         ConnectTarget::Realm(_) => (Destination::Realm, None),

@@ -119,3 +119,18 @@ func (connections *preparedConnections) hopNetwork(target *resolvedUpstreamTarge
 	}
 	return networkForAddress(target, address, connections.serverTrust)
 }
+
+// transferHop resolves identity transfers without bypassing a session handler's restricted dialer.
+func (connections *preparedConnections) transferHop(target *resolvedUpstreamTarget, address string, logger *slog.Logger) (minecraft.Network, string, error) {
+	if !strings.HasPrefix(address, NetherNetTargetPrefix+NetherNetSignalingJSONRPC+"/") {
+		return connections.hopNetwork(target, address), address, nil
+	}
+	if connections.account == nil || connections.addressNetwork != nil {
+		return nil, "", errors.New("proxy: NetherNet transfer requires an authenticated native session")
+	}
+	_, id, err := parseNetherNetTarget(address)
+	if err != nil {
+		return nil, "", err
+	}
+	return newScopedNetherNetNetwork(connections.account, logger), id, nil
+}

@@ -1770,6 +1770,27 @@ menu frame. Uploaded panorama faces remain ready during gameplay while their CPU
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
 retirement. Regression coverage fences immediate reconnect attempts; displayed-frame and
 reference-hardware leave latency remain unqualified.
+Zero-port NetherNet identity transfers route through authenticated signaling, including
+transfers received during a session. The identified NetherConnect loopback transfer server
+uses a dedicated handshake that reads its legacy identity transfer without decoding its
+synthetic resource-pack offer or StartGame as a world; legacy identity transfers during a
+session are also recognized. Identity transfers after a loopback join retain the local endpoint
+as their login address as a provisional NetherConnect compatibility workaround; vanilla's login
+address for this path remains unverified. A diagnostic patched NetherConnect build reached Hive,
+and integrated Windows headless builds using Vulkan completed an authenticated Hive join and its
+subsequent identity transfer. Released NetherConnect still rejects the signaling exchange; its
+separate messaging fix must be available for this path. Native login-address parity and broader
+transfer acceptance remain unverified. A Windows 1.26.63 native comparison against the proxy's
+RakNet loopback entry failed with Terracotta InitialConnection-149 before a login was captured;
+[Mojang's server setup guide](https://help.minecraft.net/hc/en-us/articles/49914677714957)
+documents the current migration to NetherNet and this unsupported-transport error. An isolated
+NetherNet HTTP entry reached the native client but failed with Block InitialConnection-90 before
+a login was captured. A replacement entry using a normal login and StartGame delivered a transfer
+to an isolated Go client. A Windows 1.26.63 client later completed this entry and transferred to
+the patched downstream listener, which decoded login address `:0` before its older parser rejected
+the empty SelfSignedID. This establishes the diagnostic NetherNet-entry path only; native behavior
+after NetherConnect's RakNet entry remains unverified. The inspected NetherConnect proxy replaces
+the incoming login address with its selected destination before connecting upstream.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
