@@ -16,16 +16,26 @@ const CUSTOM_SKIN_PACK_ID: &str = "aaaaaaaa-7b21-4637-9b63-8ad63622ef01";
 
 /// Geometry data for a skin without its own model: the styled JSON `null` that Bedrock writes for
 /// an empty geometry document. Servers parse this field as JSON, so it is never left empty.
-const ABSENT_GEOMETRY_DATA: &str = "null\n";
+pub(crate) const ABSENT_GEOMETRY_DATA: &str = "null\n";
+
+/// The trusted-skin flag a client-authored skin carries. The server decides trust itself, but the
+/// flag must name a state: Bedrock Dedicated Server drops the connection when it is empty.
+const UNTRUSTED_SKIN_FLAG: &str = "false";
 
 /// Returns a built-in skin's pack identity without minting a per-login UUID.
 pub fn builtin_skin_id(name: &str) -> String {
     format!("{CLASSIC_SKIN_PACK_ID}.{name}")
 }
 
-/// Returns an imported skin's pack identity from its persisted image name.
+/// Returns an imported skin's pack identity: the custom pack plus a UUID, the same shape native
+/// gives the files it imports. The UUID comes from the persisted image name, so an image keeps its
+/// identity across joins, and a 64-digit digest name doesn't reach the 100-character limit some
+/// servers enforce on skin IDs.
 pub fn custom_skin_id(image_name: &str) -> String {
-    format!("{CUSTOM_SKIN_PACK_ID}.{image_name}")
+    let digest = Sha256::digest(image_name.as_bytes());
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    format!("{CUSTOM_SKIN_PACK_ID}.{}", uuid::Uuid::from_bytes(bytes))
 }
 
 /// Returns the classic model's skin-pack identity, independent of login and player UUIDs.
@@ -118,6 +128,7 @@ pub fn player_skin_packet(
                 SkinArmSize::Wide
             },
             is_primary_user: true,
+            trusted_skin_flag: UNTRUSTED_SKIN_FLAG.into(),
             ..Default::default()
         },
         localized_new_skin_name: name.into(),
@@ -129,6 +140,18 @@ pub fn player_skin_packet(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    /// Imported images are stored under a SHA-256 digest; Nukkit refuses skin IDs of 100 characters.
+    #[test]
+    fn imported_skin_ids_fit_server_limits_and_stay_distinct_per_image() {
+        let digest = "0123456789abcdef".repeat(4);
+        let other = "fedcba9876543210".repeat(4);
+        let id = custom_skin_id(&digest);
+        assert!(id.len() < 100, "{} characters: {id}", id.len());
+        assert!(id.starts_with(CUSTOM_SKIN_PACK_ID));
+        assert_eq!(id, custom_skin_id(&digest));
+        assert_ne!(id, custom_skin_id(&other));
+    }
 
     #[test]
     fn selected_skin_update_preserves_wire_pixels_geometry_and_model() {
@@ -224,6 +247,29 @@ mod tests {
             wire.serialized_skin.full_id,
             classic_skin_id("wide").as_str()
         );
+    }
+
+    /// Bedrock Dedicated Server 1.26.61 drops the connection on an appearance update whose
+    /// trusted-skin flag is empty, and its own updates spell an untrusted skin `false`.
+    #[test]
+    fn appearance_updates_mark_the_skin_untrusted() {
+        let skin = render_api::StandardSkin {
+            width: render_api::CLASSIC_SKIN_SIDE as u32,
+            height: render_api::CLASSIC_SKIN_SIDE as u32,
+            rgba8: vec![255; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4]
+                .into(),
+            cape: None,
+            geometry: None,
+        };
+        let packet = player_skin_packet([1; 16], &skin, "wide", &classic_skin_id("wide"), "");
+        let packet = crate::decode_batch(crate::encode(&packet).unwrap())
+            .unwrap()
+            .pop()
+            .unwrap();
+        let packets::Packet::PlayerSkin(wire) = *packet.data else {
+            panic!("skin packet")
+        };
+        assert_eq!(wire.serialized_skin.trusted_skin_flag, "false");
     }
 
     /// Servers such as Dragonfly disconnect a player whose appearance update has unparsable

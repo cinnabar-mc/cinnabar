@@ -31,15 +31,17 @@ fn completed_admission_wakes_without_waiting_for_file_poll() {
 fn authority_changes_wake_admission_without_a_registration_edit() {
     let directory = tempfile::tempdir().unwrap();
     let prepared = candidate(directory.path(), "authority.wasm", "Hello");
-    let entry = prepared.registration.clone();
-    select_entry(directory.path(), entry.clone());
+    select_entry(directory.path(), prepared.registration.clone());
     let watcher =
         Watcher::start_with_poll_interval(directory.path().into(), Duration::from_secs(3600))
             .unwrap();
     let mut update = wait_update(&watcher, "initial authority fixture admission", |update| {
         !update.changes.is_empty()
     });
-    let candidate = *update.changes.remove(0).result.unwrap();
+    // The observer keys everything by its resolved entry, not the fixture's unresolved temp path.
+    let change = update.changes.remove(0);
+    let entry = change.entry;
+    let candidate = *change.result.unwrap();
     let identity = candidate.identity;
     watcher.send(Message::Acknowledge {
         generation: update.generation,
@@ -86,7 +88,7 @@ fn authority_changes_wake_admission_without_a_registration_edit() {
         .unwrap()
         .frame_host()
         .unwrap();
-    assert!(host.is_active());
     assert_eq!(host.drawing_session(), Some(session));
+    assert!(host.is_active());
     assert!(!host.needs_drawing_restart());
 }

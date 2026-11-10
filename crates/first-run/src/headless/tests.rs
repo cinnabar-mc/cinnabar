@@ -134,10 +134,10 @@ fn attempt(
             consent_events.borrow_mut().push(Event::Consent);
             accept
         },
-        |line| {
+        |status: &Status| {
             progress_events
                 .borrow_mut()
-                .push(Event::Progress(line.to_owned()));
+                .push(Event::Progress(status.label.clone()));
         },
         fixture,
     )
@@ -145,7 +145,7 @@ fn attempt(
 
 /// Whether setup told the activity it could start the game.
 fn is_ready(event: &Event) -> bool {
-    matches!(event, Event::Progress(line) if line == &Status::ready().summary())
+    matches!(event, Event::Progress(line) if line == &Status::ready().label)
 }
 
 #[test]
@@ -328,11 +328,11 @@ fn cancelling_from_local_world_progress_does_not_start_the_stage() {
             &layout,
             &cancel,
             |_, _| true,
-            |line| {
-                if line == LOCAL_WORLDS_LABEL {
+            |status: &Status| {
+                if status.label == LOCAL_WORLDS_LABEL {
                     cancel.store(true, Ordering::Relaxed);
                 }
-                progress.push(Event::Progress(line.into()));
+                progress.push(Event::Progress(status.label.clone()));
             },
             &mut fixture,
         )

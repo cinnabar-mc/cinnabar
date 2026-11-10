@@ -334,12 +334,6 @@ impl ModUi {
         }
     }
 
-    pub fn mod_panel_toggle_key(&self) -> Option<&str> {
-        self.mod_panel
-            .as_ref()
-            .map(|panel| panel.panel.toggle_key.as_str())
-    }
-
     /// Events use only geometry from the last rendered frame. Slider drags stay captured.
     pub fn mod_panel_events(
         &mut self,

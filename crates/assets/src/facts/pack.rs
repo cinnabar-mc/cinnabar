@@ -20,6 +20,7 @@ macro_rules! domain {
 }
 
 domain!(PackTexture {
+    Missing,
     PaleMossCarpetSide,
     BambooFenceGate,
     BeaconCore,
@@ -51,10 +52,12 @@ domain!(PackTexture {
 });
 domain!(PackBlock {
     RedstoneTorch,
+    RedstoneWire,
     UnlitRedstoneTorch,
     Beacon,
     Obsidian,
     Glass,
+    GlassPane,
     BeeNest,
     Beehive,
     ChiseledBookshelf,
@@ -64,7 +67,10 @@ domain!(PackBlock {
     Farmland,
     ResinClump,
     Dirt,
+    ChorusPlant,
+    EndStone,
     SporeBlossom,
+    CarvedPumpkin,
     ChorusFlower,
     PointedDripstone,
     SulfurSpike,
@@ -76,6 +82,8 @@ domain!(PackBlock {
     HeavyCore,
     Crafter,
     DriedGhast,
+    TurtleEgg,
+    TripWire,
     SculkSensor,
     CalibratedSculkSensor,
     SculkShrieker,

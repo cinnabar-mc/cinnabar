@@ -309,26 +309,41 @@ fn compile() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
 /// The model quad a state draws for one world face.
 fn quad(runtime: &RuntimeAssets, record: &RegistryRecord, face: BlockFace) -> assets::ModelQuad {
     let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
-    let template = runtime.model_templates()[visual
+    let template = visual
         .model_template()
-        .unwrap_or_else(|| panic!("{} {} draws a model", record.name, record.canonical_state))
-        as usize];
+        .unwrap_or_else(|| panic!("{} {} draws a model", record.name, record.canonical_state));
+    // A piston's item cube carries the same flips over the whole face, unlike its cropped body.
+    let template = assets::item_model_template(runtime.model_templates(), template);
+    let template = runtime.model_templates()[template as usize];
     let quad = runtime.model_quads()[template.quad_start as usize..]
         [..template.quad_count as usize][face as usize];
     assert_eq!(quad.material, visual.face(face).material_id());
     quad
 }
 
-/// Quarter turns (1 and 2 opposite, 3 a half) carrying `reference` UVs onto `turned`.
-fn quarter_turns(reference: &assets::ModelQuad, turned: &assets::ModelQuad) -> Option<u8> {
+/// Quarter turns (1 and 2 opposite, 3 a half) carrying `reference` UVs onto `turned`. The two
+/// quarter turns swap on faces that read their art right to left: north and east.
+fn quarter_turns(
+    face: BlockFace,
+    reference: &assets::ModelQuad,
+    turned: &assets::ModelQuad,
+) -> Option<u8> {
     let scale = MODEL_UV_SCALE;
+    let [first, second] = if matches!(face, BlockFace::North | BlockFace::East) {
+        [2, 1]
+    } else {
+        [1, 2]
+    };
     (0..4).find(|&turn| {
         reference.uvs.iter().zip(turned.uvs).all(|(&[u, v], uv)| {
-            uv == match turn {
-                1 => [v, scale - u],
-                2 => [scale - v, u],
-                3 => [scale - u, scale - v],
-                _ => [u, v],
+            uv == if turn == first {
+                [v, scale - u]
+            } else if turn == second {
+                [scale - v, u]
+            } else if turn == 3 {
+                [scale - u, scale - v]
+            } else {
+                [u, v]
             }
         })
     })
@@ -398,7 +413,7 @@ fn assert_faces(
             record.canonical_state
         );
         assert_eq!(
-            quarter_turns(&quad(runtime, reference, world), &drawn),
+            quarter_turns(world, &quad(runtime, reference, world), &drawn),
             Some(turn),
             "{} {} {world:?} turns its artwork",
             record.name,
@@ -432,7 +447,7 @@ fn slot_name(face: BlockFace) -> &'static str {
 fn mapped_face_blocks_turn_their_authored_faces_with_their_state() {
     let (compiled, records) = compile();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
-    // An upward piston body draws every face unturned, the reference for each face's UVs.
+    // An upward piston draws every face unturned, the reference for each face's UVs.
     let reference = named(&records, "minecraft:piston")
         .find(|r| int(r, BlockProperty::FacingDirection) == 1)
         .unwrap();

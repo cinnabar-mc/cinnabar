@@ -100,14 +100,15 @@ impl UiRuntime {
         self.session.data_driven.host = host;
     }
 
-    /// Whether the top screen shows a menu, so a screen request must answer busy: vanilla
-    /// refuses one while a menu screen is showing.
+    /// Whether the top screen shows a menu, or the command block editor asked for earlier in the
+    /// server's order will, so a screen request must answer busy: vanilla refuses one while a
+    /// menu screen is showing.
     pub(super) fn data_driven_busy(&self, player_runtime: &player_state::PlayerState) -> bool {
         let host = SceneHost {
             loading: self.loading_screen,
             ..self.session.data_driven.host
         };
-        self.shows_menu(player_runtime, host)
+        self.shows_menu(player_runtime, host) || self.command_block_shows_menu()
     }
 
     /// Applies a DDUI event. `busy` is true while a menu screen shows.

@@ -37,6 +37,8 @@ fn exhausted_store_rejects_load_before_mutation() {
         collision_revision_allocator: allocator,
         collision_snapshot: Default::default(),
         content_revision: 0,
+        simulation_tick: 0,
+        moving_pistons: Default::default(),
     };
     let ceiling = ChunkKey::new(0, 0, 0);
     let rejected = ChunkKey::new(0, 1, 0);
@@ -84,6 +86,8 @@ fn exhausted_loaded_store(key: ChunkKey) -> ChunkStore {
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(0)),
         collision_snapshot: Default::default(),
         content_revision: 0,
+        simulation_tick: 0,
+        moving_pistons: Default::default(),
     }
 }
 
@@ -162,6 +166,8 @@ fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
         collision_revision_allocator: allocator,
         collision_snapshot: Default::default(),
         content_revision: 0,
+        simulation_tick: 0,
+        moving_pistons: Default::default(),
     };
     let prepare = |key, id| {
         ChunkStore::prepare_sub_chunk_blocks(key, None, &[BlockUpdate::new(0, 0, 0, 0, id)], 0)
@@ -199,6 +205,8 @@ fn successful_batch_assigns_revisions_in_sorted_column_order() {
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(100)),
         collision_snapshot: Default::default(),
         content_revision: 0,
+        simulation_tick: 0,
+        moving_pistons: Default::default(),
     };
     let prepare = |key, id| {
         ChunkStore::prepare_sub_chunk_blocks(key, None, &[BlockUpdate::new(0, 0, 0, 0, id)], 0)

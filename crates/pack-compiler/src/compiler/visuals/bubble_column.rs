@@ -63,6 +63,10 @@ pub(in crate::compiler) fn material_descriptors(
 }
 
 /// Compiles positional shell groups without sampling the auxiliary east/west slots.
+///
+/// `BlockTessellator::tessellateBubbleColumnInWorld` emits each face once, but the
+/// `BubbleColumnBlock` constructor puts the column in render layer 8 with ladders, fire and big
+/// dripleaf, whose single faces draw from both sides; a player inside a column sees its bubbles.
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
@@ -106,7 +110,8 @@ pub(in crate::compiler) fn compile_rule(
                         [inset, 0, inset],
                         [256 - inset, 256, 256 - inset],
                     )[face as usize];
-                    quad.flags &= MODEL_QUAD_FLAG_FACE_MASK;
+                    quad.flags =
+                        (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) | MODEL_QUAD_FLAG_TWO_SIDED;
                     quads.push(quad);
                 }
             }
@@ -116,7 +121,7 @@ pub(in crate::compiler) fn compile_rule(
                     [0; 3],
                     [256; 3],
                 )[BlockFace::Up as usize];
-                quad.flags &= MODEL_QUAD_FLAG_FACE_MASK;
+                quad.flags = (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) | MODEL_QUAD_FLAG_TWO_SIDED;
                 quads.push(quad);
             }
             push_model_template(

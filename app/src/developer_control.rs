@@ -2,11 +2,13 @@
 //! and applies them through the same seams real input, chat and joins use.
 
 pub(crate) mod actors;
+mod benchmark;
 mod camera;
 mod cape;
 mod capture;
 pub(crate) mod cursor_isolation;
 mod input;
+mod inventory;
 #[cfg(target_os = "macos")]
 mod macos;
 mod scoreboards;
@@ -172,8 +174,17 @@ fn dispatch(world: &mut World) {
                 crash(kind);
             }
             Command::CameraPath(path) => camera::start(world, path),
+            Command::CameraPathRealTime(path) => camera::start_realtime(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),
+            Command::InventoryOpen => {
+                inventory::open(world, reply);
+                continue;
+            }
+            Command::InventoryClose => inventory::close(world),
+            Command::InventoryClick(click) => inventory::click(world, click),
+            Command::Inventory => Ok(inventory::snapshot(world)),
+            Command::BenchmarkState => benchmark::snapshot(world),
             Command::WaitFor {
                 condition,
                 timeout_ms,

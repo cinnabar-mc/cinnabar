@@ -116,6 +116,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     name: "root".into(),
                     binding: None,
                     texture_meshes: Box::new([]),
+                    poly_mesh: None,
                     parent: None,
                     pivot: Some([scalar(1.0), scalar(0.0), scalar(0.0)]),
                     rotation: None,
@@ -144,6 +145,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     name: "wing".into(),
                     binding: None,
                     texture_meshes: Box::new([]),
+                    poly_mesh: None,
                     parent: Some("root".into()),
                     pivot: Some([scalar(0.0), scalar(2.0), scalar(0.0)]),
                     rotation: None,
@@ -271,6 +273,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
             scale_expressions: None,
             held_item_scale: None,
+            hide_held_items: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {

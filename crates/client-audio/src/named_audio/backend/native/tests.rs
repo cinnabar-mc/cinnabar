@@ -13,6 +13,8 @@ fn route() -> (
         Route {
             stream: None,
             mixer: Arc::new(Mutex::new(Some(mixer))),
+            failures: FailureStreak::default(),
+            unavailable: Arc::default(),
         },
         controller,
     )
@@ -155,6 +157,7 @@ fn a_temporary_output_gap_does_not_discard_the_owner() {
     let mut device = super::super::AudioDevice {
         output: Some(Output {
             mixer: controller,
+            unavailable: Arc::default(),
             _release: release,
         }),
         ..super::super::AudioDevice::disabled()
@@ -183,6 +186,7 @@ fn a_device_change_during_named_submission_preserves_all_sources() {
     let mut device = super::super::AudioDevice {
         output: Some(Output {
             mixer: controller,
+            unavailable: Arc::default(),
             _release: release,
         }),
         ..super::super::AudioDevice::disabled()
@@ -231,6 +235,7 @@ fn named_sources_queue_without_failure_during_an_output_gap() {
     let mut device = super::super::AudioDevice {
         output: Some(Output {
             mixer: controller,
+            unavailable: Arc::default(),
             _release: release,
         }),
         ..super::super::AudioDevice::disabled()
@@ -258,4 +263,77 @@ fn named_sources_queue_without_failure_during_an_output_gap() {
             .take(64)
             .any(|sample| sample > 0.0)
     );
+}
+
+#[test]
+fn only_the_first_failure_of_each_streak_is_logged_as_a_warning() {
+    let (mut route, _) = route();
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| None);
+    assert_eq!(
+        route.settle(Some("busy".into())),
+        Some(("busy".into(), true))
+    );
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| None);
+    assert_eq!(
+        route.settle(Some("busy".into())),
+        Some(("busy".into(), false))
+    );
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    assert_eq!(route.settle(None), None);
+    route.refresh(None, PartialEq::eq, open);
+    assert_eq!(
+        route.settle(Some("gone".into())),
+        Some(("gone".into(), true))
+    );
+}
+
+#[test]
+fn only_a_sustained_outage_marks_the_output_unavailable() {
+    let (mut route, _) = route();
+    for _ in 1..SUSTAINED_FAILED_CHECKS {
+        route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| None);
+        route.settle(Some("busy".into()));
+        assert!(!route.unavailable.load(Ordering::Relaxed));
+    }
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| None);
+    route.settle(Some("busy".into()));
+    assert!(route.unavailable.load(Ordering::Relaxed));
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    route.settle(None);
+    assert!(!route.unavailable.load(Ordering::Relaxed));
+}
+
+#[test]
+fn a_device_handoff_shorter_than_the_threshold_never_marks_the_output_unavailable() {
+    let (mut route, _) = route();
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    route.settle(None);
+    for _ in 0..3 {
+        for _ in 1..SUSTAINED_FAILED_CHECKS {
+            route.refresh(Some(44_100), |_, _| false, |_, _| None);
+            route.settle(Some("switching".into()));
+        }
+        route.refresh(Some(MIXER_RATE), |_, _| false, open);
+        route.settle(None);
+        assert!(!route.unavailable.load(Ordering::Relaxed));
+    }
+}
+
+#[test]
+fn the_device_reports_the_owner_threads_outage_flag() {
+    let (controller, _) = dynamic_mixer::mixer::<f32>(CAPTURE_CHANNELS, MIXER_RATE);
+    let (release, _released) = mpsc::channel();
+    let unavailable = Arc::new(AtomicBool::new(false));
+    let mut device = super::super::AudioDevice {
+        output: Some(Output {
+            mixer: controller,
+            unavailable: Arc::clone(&unavailable),
+            _release: release,
+        }),
+        ..super::super::AudioDevice::disabled()
+    };
+    assert!(!device.output_unavailable());
+    unavailable.store(true, Ordering::Relaxed);
+    assert!(device.output_unavailable());
+    assert!(!super::super::AudioDevice::disabled().output_unavailable());
 }

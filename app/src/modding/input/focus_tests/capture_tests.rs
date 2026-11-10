@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 /// Publishes a saved shortcut and its physical reservation before guest key capture begins.
 fn capturing_shortcut_fixture() -> String {
-    let panel = r#"{"toggle_key":"ShiftRight","capture_key":true,"controls":[{"kind":"keybind","id":"shortcut","label":"Shortcut","key":"KeyR","capturing":true}]}"#;
+    let panel = r#"{"capture_key":true,"controls":[{"kind":"keybind","id":"shortcut","label":"Shortcut","key":"KeyR","capturing":true}]}"#;
     fixture_with_panel(panel)
         .replace(
             "(export \"demo-pressed\" (func (result bool)))",
@@ -58,7 +58,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         assert!(
             matches!(&saved.controls[0], ui::mod_panel::Control::Keybind { key, .. } if key == "KeyR")
         );
-        let gameplay_reservations = app.world().resource::<ReservedControls>().0.clone();
+        let gameplay_reservations = app.world().resource::<ReservedControls>().keys.clone();
         let event = KeyboardInput {
             key_code,
             logical_key,
@@ -97,7 +97,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         assert_eq!(runtime.hosts.host(0).panel(), Some(&saved));
         assert_eq!(runtime.hosts.host(0).reserved_keys(), reservations);
         assert_eq!(
-            app.world().resource::<ReservedControls>().0,
+            app.world().resource::<ReservedControls>().keys,
             gameplay_reservations
         );
         let keys = app.world().resource::<ButtonInput<KeyCode>>();
@@ -144,7 +144,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         let normal_open_states: &[bool] = if key_code == KeyCode::Escape {
             &[false]
         } else {
-            &[false, true]
+            &[true, true]
         };
         for &expected_open in normal_open_states {
             app.world_mut()
@@ -167,10 +167,13 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
             let keys = app.world().resource::<ButtonInput<KeyCode>>();
             assert!(
                 !keys.just_pressed(key_code),
-                "toggle leaked a gameplay edge"
+                "panel input leaked a gameplay edge"
             );
             if !expected_open {
-                assert!(!keys.pressed(key_code), "closing toggle leaked to gameplay");
+                assert!(
+                    !keys.pressed(key_code),
+                    "navigation close leaked to gameplay"
+                );
             }
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()

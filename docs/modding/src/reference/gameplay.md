@@ -30,6 +30,26 @@ record vector3 {
 | `y` | `f32` |  |
 | `z` | `f32` |  |
 
+<a id="type-block-position"></a>
+
+### `block-position`
+
+Integer world coordinates of one block.
+
+```wit
+record block-position {
+    x: s32,
+    y: s32,
+    z: s32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `x` | `s32` |  |
+| `y` | `s32` |  |
+| `z` | `s32` |  |
+
 <a id="type-player"></a>
 
 ### `player`
@@ -132,8 +152,8 @@ record movement-intents {
 
 ### `movement-input`
 
-A resolved local control vector: right and forward axes are finite and bounded to -1..1.
-Buttons add holds to physical controls; axes replace walking input for this frame.
+A local control vector: right and forward axes are finite and bounded to -1..1.
+Buttons hold their controls as if bound; axes replace walking input for this frame.
 
 ```wit
 record movement-input {
@@ -157,8 +177,9 @@ record movement-input {
 
 ### `control-modes`
 
-The game's own control modes, replacing the player's toggle sprint, toggle sneak and
-always sprint settings while renewed. Always sprint applies only to keyboard and mouse.
+The game's own control modes, turned on in addition to the player's toggle sprint, toggle
+sneak and always sprint settings while renewed; false leaves the player's own setting.
+Always sprint applies only to keyboard and mouse.
 
 ```wit
 record control-modes {
@@ -314,10 +335,12 @@ Types: [`movement-input`](gameplay.md#type-movement-input).
 set-movement-input: func(input: option<movement-input>) -> result<_, string>;
 ```
 
-Replaces walking axes and supplies resolved button holds for one successful frame.
-Requires movement authority and focused gameplay. Renew every frame; none restores input.
-Sprint applies to the supplied direction; hunger, item use, collision, input locks and
-server authority still apply. A complete vector belongs to the earliest supplying mod.
+Replaces walking axes and holds buttons as if bound, so the player's toggle and
+always-sprint modes still apply. Requires movement authority and focused gameplay. Renew
+every frame; none restores input. A frame whose callback the host defers keeps the last
+vector. Sprint applies to the supplied direction; hunger, item use, collision, input
+locks and server authority still apply. A complete vector belongs to the earliest
+supplying mod.
 
 Types: [`movement-input`](gameplay.md#type-movement-input).
 
@@ -329,8 +352,9 @@ Types: [`movement-input`](gameplay.md#type-movement-input).
 set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;
 ```
 
-Renew every focused gameplay frame; omission releases both intents. Requires movement
-authority; server movement, hunger and item-use restrictions still apply.
+Renew every focused gameplay frame; omission releases both intents, and a frame whose
+callback the host defers keeps them. Requires movement authority; server movement,
+hunger and item-use restrictions still apply.
 
 Types: [`movement-intents`](gameplay.md#type-movement-intents).
 
@@ -342,8 +366,9 @@ Types: [`movement-intents`](gameplay.md#type-movement-intents).
 set-control-modes: func(modes: option<control-modes>) -> result<_, string>;
 ```
 
-Renew every focused gameplay frame; omission restores the player's own settings.
-Requires movement authority. With several mods, a mode is on when any of them sets it.
+Renew every focused gameplay frame; omission restores the player's own settings, and a
+frame whose callback the host defers keeps the modes. Requires movement authority. With
+several mods, a mode is on when any of them sets it.
 
 Types: [`control-modes`](gameplay.md#type-control-modes).
 
@@ -380,6 +405,66 @@ pulse-attack: func() -> result<_, string>;
 
 One attack-press edge, only while the physical attack control is held.
 An active action filter receives it as a repeat.
+
+<a id="set-block-mining"></a>
+
+### `set-block-mining`
+
+```wit
+set-block-mining: func(held: bool) -> result<_, string>;
+```
+
+Holds ordinary mining on the crosshair block for one successful gameplay frame.
+Requires interaction authority and a current gameplay frame when true; false releases
+only this mod's request. Renew every frame. Omission, focus loss, unload and failed
+callbacks release it. Does not press attack or select targets; normal block reach,
+obstruction, game mode, tool timing, item use and server checks still apply.
+
+<a id="read-block-target"></a>
+
+### `read-block-target`
+
+```wit
+read-block-target: func() -> result<option<vector3>, string>;
+```
+
+Center of the current crosshair block in world coordinates. Requires terrain and focused gameplay.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
+<a id="set-block-mining-target"></a>
+
+### `set-block-mining-target`
+
+```wit
+set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
+```
+
+Redirects held physical block mining toward a world point for one successful frame.
+Requires interaction, terrain and focused gameplay. Does not hold attack or rotate the
+view. Renew every frame; none or omission restores the crosshair. The first supplying
+mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
+<a id="break-blocks"></a>
+
+### `break-blocks`
+
+```wit
+break-blocks: func(positions: list<block-position>) -> result<_, string>;
+```
+
+Requests immediate destruction of explicit block positions on the next movement tick.
+Requires interaction, terrain and focused gameplay. At most MAX_BLOCK_BREAKS per frame,
+within MAX_BLOCK_BREAK_DISTANCE of the eye. Duplicate positions are coalesced.
+This explicit override bypasses local mining time, reach and obstruction, but retains
+game-mode permissions, loaded terrain and server validation. The host supplies held
+item and wire identities. Requests commit only after a successful callback and are
+discarded on focus loss or world changes. No camera or physical input is changed.
+The cells change only when the server updates them; a rejected cell simply stays.
+
+Types: [`block-position`](gameplay.md#type-block-position).
 
 <a id="set-packet-delay"></a>
 

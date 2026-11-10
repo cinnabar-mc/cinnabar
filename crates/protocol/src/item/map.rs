@@ -11,11 +11,13 @@ pub fn item_map_id(extra_data: &[u8]) -> Option<i64> {
     }
     let mut payload = root_tag(&mut &*nbt, 8, b"map_uuid")?;
     let length = usize::from(read_u16_le(&mut payload)?);
-    decimal_prefix(payload.get(..length)?)
+    map_id_from_decimal(payload.get(..length)?)
 }
 
 /// Parses a signed decimal prefix after ASCII whitespace, rejecting missing digits and overflow.
-fn decimal_prefix(mut bytes: &[u8]) -> Option<i64> {
+/// Both inventory items and block-entity items use this map identity representation.
+#[must_use]
+pub fn map_id_from_decimal(mut bytes: &[u8]) -> Option<i64> {
     while bytes
         .first()
         .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c))

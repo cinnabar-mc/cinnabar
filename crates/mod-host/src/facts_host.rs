@@ -15,6 +15,26 @@ pub(super) struct FactsState {
 }
 
 impl FactsState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            reads: 0,
+            food: self.food.clone(),
+            foods: self.foods.clone(),
+        }
+    }
+
+    /// Keeps lazy catalog results only when the native catalog is still the frozen one.
+    pub(super) fn accept_reads(&mut self, transaction: Self) {
+        if match (&self.food, &transaction.food) {
+            (Some(current), Some(frozen)) => Arc::ptr_eq(current, frozen),
+            (None, None) => true,
+            _ => false,
+        } {
+            self.foods = transaction.foods;
+        }
+    }
+
     /// Starts a callback with a fresh read allowance.
     pub fn begin(&mut self) {
         self.reads = 0;

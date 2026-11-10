@@ -1,8 +1,9 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
 //! Metal times whole frames with marker command buffers and owned passes with queries; shared
 //! draws stay absent.
-//! Elsewhere, frames that nothing inspects pass by pass record only the whole-frame span: each
-//! marker is its own pass, and two per frame cost far less than two per timed node.
+//! Elsewhere, frames that nothing inspects pass by pass record only the whole-frame span. Marks
+//! go straight into the encoder where the device allows it; otherwise each is its own pass, and
+//! two per frame cost far less than two per timed node.
 
 use bevy::prelude::IntoSystemSet;
 mod categories;
@@ -86,11 +87,11 @@ pub(crate) fn within_stage<R>(
         .filter(|timestamps| timestamps.pass_detail && timestamps.graph_span_enabled(stage))
         .and_then(|timestamps| timestamps.open_pass(stage));
     if let Some(span) = &span {
-        mark(encoder, span.queries, span.begin);
+        mark(encoder, span.queries, span.begin, span.in_encoder);
     }
     let result = record(encoder);
     if let Some(span) = &span {
-        mark(encoder, span.queries, span.begin + 1);
+        mark(encoder, span.queries, span.begin + 1, span.in_encoder);
     }
     result
 }
@@ -264,7 +265,12 @@ fn begin_coarse_graph(world: &World, mut context: RenderContext) {
         return;
     }
     if let Some((span, false)) = timestamps.open_graph_span(RuntimeStage::GpuFrame) {
-        mark(context.command_encoder(), span.queries, span.begin);
+        mark(
+            context.command_encoder(),
+            span.queries,
+            span.begin,
+            span.in_encoder,
+        );
         timestamps
             .frame
             .graph_coverage
@@ -296,17 +302,40 @@ pub(crate) fn timed<'w, R>(
         .get_resource::<GpuTimestamps>()
         .and_then(|timestamps| timestamps.open_graph_span(stage));
     if let Some((span, _)) = &span {
-        mark(context.command_encoder(), span.queries, span.begin);
+        mark(
+            context.command_encoder(),
+            span.queries,
+            span.begin,
+            span.in_encoder,
+        );
     }
     let result = record(context);
     if let Some((span, true)) = &span {
-        mark(context.command_encoder(), span.queries, span.begin + 1);
+        mark(
+            context.command_encoder(),
+            span.queries,
+            span.begin + 1,
+            span.in_encoder,
+        );
     }
     result
 }
 
-/// Writes one timestamp with an empty compute pass, valid between any two passes.
-fn mark(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, index: u32) {
+/// Writes one timestamp between passes: directly into the encoder when `in_encoder` (see
+/// [`encoder_timestamps`]), otherwise with an empty compute pass, which every timestamp-capable
+/// device accepts but which costs a pass's barriers and backend calls.
+fn mark(
+    encoder: &mut wgpu::CommandEncoder,
+    queries: &wgpu::QuerySet,
+    index: u32,
+    in_encoder: bool,
+) {
+    if in_encoder {
+        encoder.write_timestamp(queries, index);
+        return;
+    }
+    #[cfg(test)]
+    tests::MARKER_PASSES.with(|passes| passes.set(passes.get() + 1));
     encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some("gpu timestamp"),
         timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
@@ -362,10 +391,19 @@ pub(crate) fn time_draw<'w, R>(
     result
 }
 
+/// Whether between-pass marks may be written straight into the encoder. Metal keeps marker
+/// passes: its whole-frame timing comes from command buffers, and encoder timestamps between
+/// passes are unreliable on Apple GPUs.
+fn encoder_timestamps(features: wgpu::Features) -> bool {
+    !cfg!(target_os = "macos") && features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
+}
+
 /// A begin/end query pair; the end index is `begin + 1`.
 struct Span<'a> {
     queries: &'a wgpu::QuerySet,
     begin: u32,
+    /// [`GpuTimestamps::encoder_marks`].
+    in_encoder: bool,
 }
 
 /// Lock-free span allocation for the frame being recorded, shared by graph threads.
@@ -408,6 +446,8 @@ pub(crate) struct GpuTimestamps {
     ui_categories: bool,
     /// Whether this frame times every timed node rather than only the whole frame.
     pass_detail: bool,
+    /// Marks between passes use encoder timestamps instead of marker passes.
+    encoder_marks: bool,
     frame: FrameSpans,
     health: Option<health::QueryHealth>,
     /// Frames begun so far.
@@ -463,6 +503,7 @@ impl GpuTimestamps {
                 && features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES),
             ui_categories: ui_profiling_requested(),
             pass_detail: profiling,
+            encoder_marks: encoder_timestamps(features),
             frame: FrameSpans {
                 slot: AtomicU32::new(NO_SLOT),
                 passes: AtomicU32::new(0),
@@ -526,6 +567,7 @@ impl GpuTimestamps {
         Some(Span {
             queries: &self.queries,
             begin: (slot * SLOT_SPANS + span) * 2,
+            in_encoder: self.encoder_marks,
         })
     }
 
@@ -644,7 +686,7 @@ impl GpuTimestamps {
         }
         let open_frame = self.frame.open_frame.swap(NO_SPAN, Ordering::AcqRel);
         if open_frame != NO_SPAN {
-            mark(encoder, &self.queries, open_frame + 1);
+            mark(encoder, &self.queries, open_frame + 1, self.encoder_marks);
         }
         if !cfg!(target_os = "macos") {
             self.resolve_slot(encoder, slot as usize, passes, draws);

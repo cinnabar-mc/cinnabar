@@ -1,5 +1,8 @@
 use {super::*, mod_api::MAX_LOADED_MODS};
 
+#[path = "scroll_tests.rs"]
+mod scroll;
+
 const EMPTY_COMPONENT: &str = r#"(component
     (core module $m (func (export "init")) (func (export "frame")))
     (core instance $i (instantiate $m))
@@ -103,6 +106,7 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
         run_frame(
             runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -282,7 +286,7 @@ fn panel_hosts(directory: &Path) -> ModHosts {
     );
     for (index, key) in ["KeyA", "KeyB", "KeyC"].into_iter().enumerate() {
         let bundle = serde_json::json!({
-            "panel": {"toggle_key":key, "controls":[], "surface":{"screen":format!("{key}.root"),
+            "panel": {"controls":[], "surface":{"screen":format!("{key}.root"),
                 "document":serde_json::json!({"namespace":key,"root":{"type":"panel"}}).to_string()}},
             "surfaces":{}
         });
@@ -299,12 +303,17 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
     let directory = tempfile::tempdir().unwrap();
     for (key, selected) in [("KeyA", 0), ("KeyB", 0), ("KeyC", 1)] {
         let mut runtime = panel_hosts(directory.path());
-        runtime.select_panel(&[key.into()]);
+        let index = ["KeyA", "KeyB", "KeyC"]
+            .iter()
+            .position(|item| *item == key)
+            .unwrap();
+        runtime.host_mut(index).set_panel_open(true);
+        runtime.select_opened_panel(index);
         let removed = runtime.remove(0);
-        assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
+        assert_eq!(removed.panel().unwrap().surface.screen, "KeyA.root");
         assert_eq!(runtime.host_count(), 2);
-        assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyB");
-        assert_eq!(runtime.host(1).panel().unwrap().toggle_key, "KeyC");
+        assert_eq!(runtime.host(0).panel().unwrap().surface.screen, "KeyB.root");
+        assert_eq!(runtime.host(1).panel().unwrap().surface.screen, "KeyC.root");
         assert_eq!(runtime.panel_owner(), selected);
     }
 }
@@ -313,7 +322,8 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
 fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = panel_hosts(directory.path());
-    assert!(runtime.select_panel(&["KeyC".into()]));
+    runtime.host_mut(2).set_panel_open(true);
+    assert!(runtime.select_opened_panel(2));
     runtime.host_mut(2).set_panel_open(true);
     runtime.swap(0, 2);
     assert_eq!(runtime.panel_owner(), 0);
@@ -325,7 +335,7 @@ fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     assert_eq!(runtime.panel_owner(), 1);
     runtime.remove(0);
     assert_eq!(runtime.panel_owner(), 0);
-    assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyC");
+    assert_eq!(runtime.host(0).panel().unwrap().surface.screen, "KeyC.root");
     assert!(runtime.host(0).panel_open());
 }
 
@@ -361,7 +371,7 @@ struct Probe {
     label: &'static str,
     ticks: u32,
     rig_x: f32,
-    command: &'static str,
+    command: String,
     second_frame_cues: usize,
     extra: &'static str,
 }
@@ -373,7 +383,7 @@ impl Probe {
             label,
             ticks,
             rig_x,
-            command: "/ability flash",
+            command: "/ability flash".into(),
             second_frame_cues: 2,
             extra: "",
         }
@@ -396,7 +406,7 @@ impl Probe {
             .replace("$LABEL_LENGTH", &self.label.len().to_string())
             .replace("$LABEL", self.label)
             .replace("$COMMAND_LENGTH", &self.command.len().to_string())
-            .replace("$COMMAND", self.command)
+            .replace("$COMMAND", &self.command)
             .replace("$TICKS", &self.ticks.to_string())
             .replace("$RIG_X", &self.rig_x.to_string())
             .replace("$SECOND_FRAME_CUES", &self.second_frame_cues.to_string())
@@ -453,6 +463,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
         merged = run_frame(
             &mut runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -549,6 +560,7 @@ fn grants_stay_per_mod() {
     let merged = run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -624,6 +636,7 @@ fn inactive_hosts_do_not_capture_world_state() {
     run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -649,7 +662,11 @@ fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
             .collect(),
     )
     .into_iter();
-    ModHosts::new(hosts.next().unwrap(), hosts.collect())
+    let mut runtime = ModHosts::new(hosts.next().unwrap(), hosts.collect());
+    runtime.budget = mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, || {
+        std::time::Duration::ZERO
+    });
+    runtime
 }
 
 #[test]
@@ -673,6 +690,7 @@ fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods(
     run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             pressed: false,
             controls: &controls,
             previous_cues: &[],
@@ -957,6 +975,7 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
         run_frame(
             runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -1035,6 +1054,7 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
     run_frame_callbacks(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -1063,73 +1083,19 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
     );
 }
 
-/// Loads sound observers against the same component ABI fixture as the host.
-fn sound_observers(bodies: &[(&str, bool)]) -> ModHosts {
-    let directory = tempfile::tempdir().unwrap();
-    let mods = bodies
-        .iter()
-        .enumerate()
-        .map(|(index, (body, inverse))| {
-            let mut source = include_str!("../../../mod-host/src/tests/audio.wat")
-                .replace("$BODY", body)
-                .replace("$LENGTH", "local.get 1");
-            if *inverse {
-                source = source
-                    .replace(
-                        "i32.const 1024 i32.const 0 i32.store8",
-                        "i32.const 1024 i32.const 1 i32.store8",
-                    )
-                    .replace(
-                        "i32.const 1025 i32.const 1 i32.store8",
-                        "i32.const 1025 i32.const 0 i32.store8",
-                    );
-            }
-            let path = directory.path().join(format!("sound-{index}.wat"));
-            std::fs::write(&path, source).unwrap();
-            (
-                path,
-                ModGrants {
-                    audio: true,
-                    ..Default::default()
-                },
-            )
-        })
-        .collect();
-    load_set(mods)
-}
+/// Event-handler composition across components.
+#[path = "multi_handler_tests.rs"]
+mod handlers;
 
-/// Each observer can cancel independently, but cannot undo another's cancellation.
-#[test]
-fn sound_filter_cancellations_combine_across_components() {
-    let mut hosts = sound_observers(&[("", false), ("", true)]);
-    let events = vec![
-        mod_host::SoundEvent {
-            name: "fixture.sound".into(),
-            position: None,
-            looping: false
-        };
-        2
-    ];
-    assert_eq!(hosts.filter_sounds(&events), [false, false]);
-}
+#[path = "multi_budget_tests.rs"]
+mod budget;
 
-/// Runaway callbacks consume the pool; skipped observers remain active and retry next frame.
+/// A native editor sampled for one panel owner never reaches a mod that took the panel
+/// before delivery, nor a closed panel.
 #[test]
-fn sound_filter_budget_bounds_fanout_without_trapping_skipped_components() {
-    let runaway_count = (mod_api::TOTAL_SOUND_FILTER_FUEL / mod_host::FRAME_FUEL) as usize;
-    let mut bodies = vec![("(loop $forever br $forever)", false); runaway_count];
-    bodies.push(("", false));
-    let mut hosts = sound_observers(&bodies);
-    let events = vec![
-        mod_host::SoundEvent {
-            name: "fixture.sound".into(),
-            position: None,
-            looping: false
-        };
-        2
-    ];
-    assert_eq!(hosts.filter_sounds(&events), [true, true]);
-    assert!((0..runaway_count).all(|index| !hosts.host(index).is_active()));
-    assert!(hosts.host(runaway_count).has_sound_filter());
-    assert_eq!(hosts.filter_sounds(&events), [false, true]);
+fn native_editing_reaches_only_the_sampled_open_owner() {
+    assert!(editing_for(0, Some(0), true));
+    assert!(!editing_for(1, Some(0), true));
+    assert!(!editing_for(0, Some(0), false));
+    assert!(!editing_for(0, None, true));
 }
