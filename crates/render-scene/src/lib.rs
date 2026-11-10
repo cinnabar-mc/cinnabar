@@ -104,14 +104,14 @@ pub use cloud_config::{
     CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
-pub use cloud_visibility::CloudVisibility;
+pub use cloud_visibility::{CloudDistanceChunks, CloudVisibility};
 pub use dropped_item::DroppedItemScene;
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
 pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
 pub use gpu_times::GpuFrameTimes;
 pub use hand_rig::HandRigScene;
-pub use lighting::{WorldFullbright, WorldLighting};
+pub use lighting::{WorldFullbright, WorldLighting, WorldPointLight, WorldPointLightSource};
 pub use lightning::{
     BoltRecord, BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, LightningScene,
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,

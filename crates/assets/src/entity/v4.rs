@@ -17,9 +17,11 @@ use super::{
 /// are addressed by `u32` indices and counts, which is the format's only limit on them: vanilla
 /// keeps every animation a pack defines, and the source and catalog byte limits bound memory.
 pub const MAX_ENTITY_ANIMATION_ENTRIES: usize = u32::MAX as usize;
-pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
-pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
-pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
+/// Controllers compile once per owning entity and geometry, so a server pack whose hundreds of
+/// attachables share the same controllers multiplies them; these bounds leave that room.
+pub const MAX_ENTITY_CONTROLLERS: usize = 65_536;
+pub const MAX_ENTITY_CONTROLLER_STATES: usize = 262_144;
+pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 524_288;
 pub const MAX_ENTITY_CONTROLLER_ANIMATIONS: usize = 524_288;
 pub const MAX_MOLANG_EXPRESSIONS: usize = 65_536;
 /// Expression lengths and jump targets are stored as `u16`; large authored scripts use all of it.
@@ -792,7 +794,14 @@ fn validate_controller_payload(compiled: &CompiledEntityAssets) -> Result<(), As
         || compiled.controller_animations.len() > MAX_ENTITY_CONTROLLER_ANIMATIONS
         || compiled.controller_transitions.len() > MAX_ENTITY_CONTROLLER_TRANSITIONS
     {
-        return Err(invalid("entity controller payload count exceeds bound"));
+        return Err(invalid(format!(
+            "entity controller payload count exceeds bound: {} controllers, {} states, {} \
+             animations, {} transitions",
+            compiled.controllers.len(),
+            compiled.controller_states.len(),
+            compiled.controller_animations.len(),
+            compiled.controller_transitions.len(),
+        )));
     }
     for controller in &compiled.controllers {
         if controller.state_count == 0

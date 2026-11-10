@@ -3,6 +3,9 @@
 use super::{layout::SettingPanel, reset::SettingsGroup};
 use assets::audio_category::AudioCategory;
 
+/// Help text shared by the native and JSON-UI Video settings rows.
+pub const DYNAMIC_LIGHTS_DESCRIPTION: &str = "Adds smooth client-side light from nearby players holding light-emitting items and from dropped light-emitting items. Existing block and sky lighting stay unchanged.";
+
 #[derive(Clone, Copy, Debug)]
 pub struct SettingChoice {
     pub name: &'static str,
@@ -436,9 +439,11 @@ settings! {
     CameraShake => "camera_shake", toggle("options.screenShake", true),
         [(SettingPanel::AccessibilityGameplay, 0), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
-        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoClouds, 2)], [SettingsGroup::Video], None, None;
     RenderClouds => "render_clouds", toggle("options.renderclouds", true),
         [(SettingPanel::VideoClouds, 0)], [SettingsGroup::Video], None, Some("options.renderClouds");
+    CloudDistance => "cloud_distance", slider("options.cloudDistance", 8, 128, 64),
+        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, Some("options.cloudDistance.name");
     FancySkies => "fancy_skies", toggle("options.fancyskies", true),
         [(SettingPanel::VideoGraphics, 8)], [SettingsGroup::Video], None, None;
     SmoothLighting => "smooth_lighting", toggle("options.smooth_lighting", true),
@@ -551,6 +556,8 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
         [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+    DynamicLights => "dynamic_lights", toggle("Dynamic Lights", false),
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
@@ -561,5 +568,7 @@ settings! {
         [(SettingPanel::Touch, 0)], [], None, None;
     TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
         [(SettingPanel::Touch, 1)], [], None, None;
+    NametagBackgroundOpacity => "nametag_background_opacity", slider("options.nametagBackgroundOpacity", 0, 100, 25),
+        [(SettingPanel::VideoCustomization, 15)], [SettingsGroup::Video], None, None;
 
 }

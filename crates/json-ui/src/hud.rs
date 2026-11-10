@@ -40,6 +40,8 @@ pub struct HudModel {
     pub title_text: Option<String>,
     pub subtitle_text: Option<String>,
     pub actionbar: Option<Timed>,
+    /// Controller request identity; absent uses the action bar's creation clock.
+    pub actionbar_creation_id: Option<u64>,
     /// The tip text above the hotbar, which server packs reposition (the
     /// Lumine array list moves it to the screen's top right).
     pub tip: Option<Timed>,
@@ -619,6 +621,7 @@ fn titles(data: &mut DataSource, model: &HudModel) {
             "hud_actionbar_text_factory",
             vec![
                 FactoryItem::new("hud_actionbar_text", 0.0)
+                    .identified(model.actionbar_creation_id.unwrap_or(bar.born.to_bits()))
                     .clocked(ACTIONBAR_CLOCK)
                     .named("hud_actionbar_text")
                     .var("actionbar_text", Value::from(bar.text.clone()))

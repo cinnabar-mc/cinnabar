@@ -111,7 +111,7 @@ pub(super) fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: bounded_visible_text(text.as_ref()).to_owned(),
+                text: text.into_owned(),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
@@ -157,7 +157,11 @@ pub(super) fn hud_model(
         subtitle_text: Some(
             bounded_text(runtime.hud().subtitle_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
         ),
-        actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        actionbar: runtime.hud().actionbar_request().map(timed),
+        actionbar_creation_id: runtime
+            .hud()
+            .actionbar_request()
+            .map(|text| text.fifo_sequence),
         tip: visible(runtime.hud().tip(), now).map(timed),
         item_name: item_name.filter(|_| popup.is_none()),
         popup,

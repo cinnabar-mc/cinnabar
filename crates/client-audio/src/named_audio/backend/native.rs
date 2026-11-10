@@ -1,23 +1,27 @@
-//! Default-device changes replace the transport while retaining every mixer source.
+//! Device changes and stream failures replace the transport while retaining mixer sources.
 
 use super::{CAPTURE_CHANNELS, CaptureMixer, MIXER_RATE};
 #[cfg(not(any(windows, target_os = "macos")))]
 use rodio::cpal::traits::DeviceTrait;
-use rodio::{OutputStream, Source, cpal::traits::HostTrait, dynamic_mixer};
+use rodio::{Source, cpal::traits::HostTrait, dynamic_mixer};
+
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     time::Duration,
 };
 
+mod hardware;
+
 /// Device checks and retries stay off the game thread.
 const DEVICE_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 /// Consecutive failed checks, about three seconds, after which an outage is no longer a
 /// default-device handoff and the player is told.
 const SUSTAINED_FAILED_CHECKS: u32 = 6;
+type StreamFailure = Arc<OnceLock<rodio::cpal::StreamError>>;
 type MixerSlot = Arc<Mutex<Option<CaptureMixer>>>;
 pub(super) type Opening<H = SharedOutput> = Receiver<Option<(H, Sender<()>)>>;
 
@@ -92,6 +96,7 @@ impl Drop for MixerLease {
 pub(super) struct Route<D, S> {
     stream: Option<(D, S)>,
     mixer: MixerSlot,
+    failure: StreamFailure,
     failures: FailureStreak,
     unavailable: Arc<AtomicBool>,
 }
@@ -122,17 +127,23 @@ impl FailureStreak {
 }
 
 impl<D, S> Route<D, S> {
-    /// Replaces a changed output after the old callback has returned its mixer.
+    /// Replaces a changed or failed output after the old callback has returned its mixer.
     fn refresh(
         &mut self,
         device: Option<D>,
         same: impl FnOnce(&D, &D) -> bool,
-        open: impl FnOnce(&D, MixerLease) -> Option<S>,
+        open: impl FnOnce(&D, MixerLease) -> Option<(S, StreamFailure)>,
     ) {
         if let (Some((previous, _)), Some(device)) = (&self.stream, &device)
+            && self.failure.get().is_none()
             && same(previous, device)
         {
             return;
+        }
+        if self.stream.is_some()
+            && let Some(error) = self.failure.get()
+        {
+            bevy::log::warn!(%error, "audio output stream failed; reopening default output");
         }
         // Drop on the owner thread before lending the mixer to another callback.
         self.stream = None;
@@ -146,7 +157,8 @@ impl<D, S> Route<D, S> {
             mixer: Some(mixer),
             returned: Arc::clone(&self.mixer),
         };
-        if let Some(stream) = open(&device, source) {
+        if let Some((stream, failure)) = open(&device, source) {
+            self.failure = failure;
             self.stream = Some((device, stream));
         }
     }
@@ -169,12 +181,15 @@ impl<D, S> Route<D, S> {
 }
 
 /// Builds one persistent mixer and attempts the initial default output on its owner thread.
-pub(super) fn open_default_output()
--> Option<(Route<rodio::cpal::Device, OutputStream>, SharedOutput)> {
+pub(super) fn open_default_output() -> Option<(
+    Route<rodio::cpal::Device, rodio::cpal::Stream>,
+    SharedOutput,
+)> {
     let (controller, mixer) = dynamic_mixer::mixer::<f32>(CAPTURE_CHANNELS, MIXER_RATE);
     let mut route = Route {
         stream: None,
         mixer: Arc::new(Mutex::new(Some(mixer))),
+        failure: Arc::new(OnceLock::new()),
         failures: FailureStreak::default(),
         unavailable: Arc::default(),
     };
@@ -187,26 +202,19 @@ pub(super) fn open_default_output()
 }
 
 /// Queries the OS default without enumerating or selecting an alternate output.
-pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, OutputStream>) {
+pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, rodio::cpal::Stream>) {
     let device = rodio::cpal::default_host().default_output_device();
     let missing = device.is_none();
     let mut failure = None;
-    route.refresh(
-        device,
-        same_device,
-        |device, source| match OutputStream::try_from_device(device) {
-            Ok((stream, handle)) => {
-                handle
-                    .play_raw(super::priority::CallbackSource::new(source))
-                    .ok()?;
-                Some(stream)
-            }
+    route.refresh(device, same_device, |device, source| {
+        match hardware::open(device, source) {
+            Ok(output) => Some(output),
             Err(error) => {
                 failure = Some(error.to_string());
                 None
             }
-        },
-    );
+        }
+    });
     let failure = failure.or_else(|| missing.then(|| "no default output device".to_owned()));
     match route.settle(failure) {
         Some((error, true)) => {

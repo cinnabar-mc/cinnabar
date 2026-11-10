@@ -312,7 +312,7 @@ impl SessionResources<'_> {
             self.block_entity_scene.as_mut(),
             crate::runtime::network::block_entity_art::base(),
         ) {
-            scene.0.reload_prepared_assets(startup);
+            scene.0.install_prepared_assets(startup);
         }
     }
 

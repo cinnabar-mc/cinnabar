@@ -134,7 +134,6 @@ fn liquid_output(in: VertexOutput) -> LiquidOutput {
     liquid.sky_light = in.sky_ao.x;
     @if(ENHANCED)
     liquid.ambient_occlusion = in.sky_ao.y;
-    @if(ENHANCED)
     liquid.normal = in.normal;
     @if(ENHANCED)
     liquid.surface_class = in.surface_class;

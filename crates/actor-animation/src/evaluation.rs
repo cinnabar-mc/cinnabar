@@ -153,6 +153,7 @@ pub(super) struct EngineSlots {
     pub(super) horse_stand_anim: Option<usize>,
     pub(super) horse_shake_tail: Option<usize>,
     pub(super) horse_open_mouth: Option<usize>,
+    pub(super) ocelot_state: Option<usize>,
     pub(super) shulker_peek_amount: Option<usize>,
     pub(super) shulker_facing_direction: Option<usize>,
     /// Dense slots for each requested dragon historical frame's yaw or height.
@@ -275,6 +276,7 @@ impl VariableLayout {
                 horse_stand_anim: slot(V::StandAnim.name()),
                 horse_shake_tail: slot(V::ShakeTail.name()),
                 horse_open_mouth: slot(V::OpenMouth.name()),
+                ocelot_state: slot(V::State.name()),
                 shulker_peek_amount: slot(V::ShulkerPeekAmount.name()),
                 shulker_facing_direction: slot(V::ShulkerFacingDirection.name()),
                 dragon_history: symbols[variable_base..variable_base + variable_count]

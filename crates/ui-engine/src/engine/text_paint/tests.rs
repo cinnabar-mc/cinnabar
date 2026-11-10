@@ -1,5 +1,7 @@
 use super::*;
 
+mod glyph_overflow;
+
 use assets::{
     FontPixels, FontRendering, FontTexturePage, GlyphMetrics, RuntimeUiAssets, encode_font_catalog,
     encode_ui_catalog,

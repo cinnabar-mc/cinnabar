@@ -90,7 +90,7 @@ impl GeometryLayout {
     ) -> Arc<FormRender> {
         // Form ownership keeps removals alive independently of sampling or emitted primitives.
         for key in &self.owned_controls {
-            animator.hides(key);
+            animator.hides(key, clocks);
         }
         let mut writes = Vec::with_capacity(self.programs.len());
         for program in &self.programs {

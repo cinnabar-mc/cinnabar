@@ -33,6 +33,8 @@ pub const TRIPOD_CAMERA_COMPONENT_IDENTIFIER: &str = "minecraft:tripod_camera";
 pub const ENDERMAN_IDENTIFIER: &str = "minecraft:enderman";
 /// The actor type whose native renderer draws a carved pumpkin on its head until sheared.
 pub const SNOW_GOLEM_IDENTIFIER: &str = "minecraft:snow_golem";
+/// The actor type whose movement flags select its native animation state.
+pub const OCELOT_IDENTIFIER: &str = "minecraft:ocelot";
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]

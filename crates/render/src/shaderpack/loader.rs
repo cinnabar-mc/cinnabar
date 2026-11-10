@@ -595,7 +595,15 @@ fn build_translation(
                 .stages
                 .iter()
                 .filter_map(|s| s.result.as_ref().ok())
-                .map(|c| (c.stage, c.module.clone()))
+                .map(|c| {
+                    let mut module = c.module.clone();
+                    if c.stage == StageKind::Vertex
+                        && program.program.group == ProgramGroup::Gbuffers
+                    {
+                        super::depth_prepass::invariant_position(&mut module);
+                    }
+                    (c.stage, module)
+                })
                 .collect();
             let modules = shader_modules(&gpu.device, &program.program.name, &stages);
             if matches!(

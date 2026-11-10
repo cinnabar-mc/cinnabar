@@ -400,6 +400,11 @@ impl HudStore {
             .filter(|text| text.visible_at(self.presentation_millis))
     }
 
+    /// Last action-bar request until explicit clear/reset. Pack controls own their display lifetime.
+    pub fn actionbar_request(&self) -> Option<&TimedText> {
+        self.actionbar.as_ref()
+    }
+
     pub fn tip(&self) -> Option<&TimedText> {
         self.tip
             .as_ref()

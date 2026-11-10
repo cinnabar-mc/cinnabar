@@ -17,6 +17,9 @@
   "manual_assets": {
     "android": {
       "arm64": "Cinnabar-arm64-v8a.apk"
+    },
+    "ios": {
+      "arm64": "Cinnabar-arm64-unsigned.ipa"
     }
   },
   "symbols": {
