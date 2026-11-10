@@ -52,36 +52,15 @@ impl PreparedBlockItems {
         entities: &RuntimeEntityAssets,
         icons: &RuntimeIconCatalog,
     ) -> Arc<Self> {
-        let mut blocks = world.as_deref().map_or_else(
-            || BlockSheets {
-                sheets: Vec::new(),
-                by_visual: BTreeMap::new(),
-                models: BTreeMap::new(),
-            },
-            |world| {
-                let mut blocks =
-                    render_model::equipment::blocks::collect_held(world, entities, icons);
-                blocks.prefer_carried_faces(world, icons);
-                blocks
-            },
-        );
-        let mut carried = BTreeMap::new();
-        for sheet in carried_sheets(entities, icons, &blocks.models) {
-            let index = *carried.entry(sheet.sprite).or_insert_with(|| {
-                let index = blocks.sheets.len();
-                blocks
-                    .sheets
-                    .push(icons.sprites()[sheet.sprite as usize].clone());
-                index
-            });
-            blocks.by_visual.insert(sheet.visual.0, index);
-        }
+        let blocks =
+            render_model::equipment::blocks::prepare_held(world.as_deref(), entities, icons);
         let BlockSheets {
             sheets,
             by_visual,
             models,
         } = blocks;
-        let alpha = alpha::block_alpha_modes(world.as_deref(), &by_visual);
+        let alpha =
+            render_model::equipment::blocks::block_alpha_modes(world.as_deref(), &by_visual);
         let atlas = SpriteAtlas::pack(&sheets);
         Arc::new(Self {
             world,
@@ -92,19 +71,6 @@ impl PreparedBlockItems {
             rasters: atlas.layers,
         })
     }
-}
-
-/// Selects compatible authored carried routes without replacing a shaped block model.
-fn carried_sheets<'a>(
-    entities: &RuntimeEntityAssets,
-    icons: &'a RuntimeIconCatalog,
-    models: &'a BTreeMap<u32, Vec<render_model::ActorRigVertex>>,
-) -> impl Iterator<Item = &'a assets::IconBlockSheet> {
-    let compatible = icons.source_manifest_sha256() == entities.source_manifest_sha256();
-    let visual_count = entities.block_visual_count();
-    icons.block_sheets().iter().filter(move |sheet| {
-        compatible && sheet.visual.0 < visual_count && !models.contains_key(&sheet.visual.0)
-    })
 }
 
 impl PreparedBlockItems {
@@ -205,8 +171,8 @@ impl PreparedBlockItems {
 
 impl EquipmentRuntime {
     /// Selects the button placement only for a matching pinned block-item identity.
-    pub(super) fn first_person_button(item: &WornItem) -> bool {
-        let HeldKind::Block(visual) = item.kind else {
+    pub(super) fn first_person_button(&self, item: &WornItem) -> bool {
+        let Some(visual) = self.held_block_visual(item.kind) else {
             return false;
         };
         assets::registry::pinned_block_model_family(visual) == Some(assets::ModelFamily::Button)
@@ -221,7 +187,7 @@ impl EquipmentRuntime {
         {
             return true;
         }
-        let HeldKind::Block(visual) = item.kind else {
+        let Some(visual) = self.held_block_visual(item.kind) else {
             return false;
         };
         if assets::registry::pinned_block_model_family(visual) == Some(assets::ModelFamily::Stair)
@@ -244,7 +210,7 @@ impl EquipmentRuntime {
         if !block {
             return 0;
         }
-        let HeldKind::Block(visual) = item.kind else {
+        let Some(visual) = self.held_block_visual(item.kind) else {
             return 0;
         };
         self.blocks.source.world.as_deref().map_or(0, |world| {
@@ -291,6 +257,18 @@ impl EquipmentRuntime {
         self.pending
             .retain(|geometry| !self.free_meshes.contains(&geometry.id));
         self.blocks = blocks.clone();
+    }
+
+    /// The prepared carried visual a held stack draws. A retained stack draws the state it names,
+    /// or, when that state has no prepared art (a turned log), its item's own block.
+    pub(super) fn held_block_visual(&self, kind: HeldKind) -> Option<u32> {
+        match kind {
+            HeldKind::Block(visual) => Some(visual),
+            HeldKind::RetainedBlock { state, item } => state
+                .filter(|state| self.blocks.source.sheets.contains_key(state))
+                .or(item),
+            HeldKind::Sprite | HeldKind::Other => None,
+        }
     }
 
     /// Resolves a block's sheet and location from the same generation as its model.

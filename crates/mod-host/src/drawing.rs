@@ -92,10 +92,57 @@ impl wit::Host for State {
         &mut self,
         spec: wit::GeometrySpec,
     ) -> anyhow::Result<Result<wit::Handle, wit::DrawError>> {
-        if let Err(error) = self.drawing_allowed()? {
-            return Ok(Err(error));
+        let permissions = match self.drawing_allowed()? {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
+        if matches!(&spec, wit::GeometrySpec::Blocks(_)) && !permissions.render_material {
+            return Ok(Err(convert_error(domain::DrawError {
+                code: domain::ErrorCode::Denied,
+                detail: "block geometry",
+            })));
         }
         let spec = match spec {
+            wit::GeometrySpec::Blocks(grid) => {
+                domain::GeometrySpec::Blocks(domain::blocks::BlockGrid {
+                    revision: 0,
+                    size: grid.size.into(),
+                    palette: grid
+                        .palette
+                        .into_iter()
+                        .map(|state| match state {
+                            wit::BlockState::RuntimeId(id) => {
+                                domain::blocks::BlockState::RuntimeId(id)
+                            }
+                            wit::BlockState::Named(state) => domain::blocks::BlockState::Named {
+                                name: state.name,
+                                states: state.states,
+                            },
+                        })
+                        .collect(),
+                    cells: {
+                        let cells: Option<Vec<_>> = grid
+                            .cells
+                            .into_iter()
+                            .map(|word| {
+                                let cell = mod_api::drawing::unpack_block_cell(word)?;
+                                Some(domain::blocks::BlockCell {
+                                    palette: cell.palette,
+                                    sky_light: cell.sky_light,
+                                    block_light: cell.block_light,
+                                })
+                            })
+                            .collect();
+                        let Some(cells) = cells else {
+                            return Ok(Err(convert_error(domain::DrawError {
+                                code: domain::ErrorCode::Invalid,
+                                detail: "packed block cell",
+                            })));
+                        };
+                        cells
+                    },
+                })
+            }
             wit::GeometrySpec::Triangles(mesh) => domain::GeometrySpec::Triangles {
                 vertices: mesh.vertices.into_iter().map(vertex).collect(),
                 indices: mesh.indices,
@@ -109,6 +156,115 @@ impl wit::Host for State {
             .render
             .retained
             .create_geometry(spec)
+            .map(output_handle)
+            .map_err(convert_error))
+    }
+
+    fn update_blocks(
+        &mut self,
+        id: wit::Handle,
+        edits: Vec<wit::BlockEdit>,
+    ) -> anyhow::Result<Result<(), wit::DrawError>> {
+        let permissions = match self.drawing_allowed()? {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
+        let edits = edits
+            .into_iter()
+            .map(|edit| domain::blocks::BlockEdit {
+                position: edit.position.into(),
+                cell: domain::blocks::BlockCell {
+                    palette: edit.cell.palette,
+                    sky_light: edit.cell.sky_light,
+                    block_light: edit.cell.block_light,
+                },
+            })
+            .collect();
+        Ok(self
+            .render
+            .retained
+            .update_blocks(handle(id), edits, permissions)
+            .map_err(convert_error))
+    }
+
+    fn geometry_status(
+        &mut self,
+        id: wit::Handle,
+    ) -> anyhow::Result<Result<wit::GeometryState, wit::DrawError>> {
+        if let Err(error) = self.drawing_allowed()? {
+            return Ok(Err(error));
+        }
+        Ok(self
+            .render
+            .retained
+            .geometry_status(handle(id))
+            .map(|ready| {
+                if ready {
+                    wit::GeometryState::Ready
+                } else {
+                    wit::GeometryState::Pending
+                }
+            })
+            .map_err(convert_error))
+    }
+
+    fn clip_status(
+        &mut self,
+        id: wit::Handle,
+    ) -> anyhow::Result<Result<wit::GeometryState, wit::DrawError>> {
+        if let Err(error) = self.drawing_allowed()? {
+            return Ok(Err(error));
+        }
+        Ok(self
+            .render
+            .retained
+            .clip_status(handle(id))
+            .map(|ready| {
+                if ready {
+                    wit::GeometryState::Ready
+                } else {
+                    wit::GeometryState::Pending
+                }
+            })
+            .map_err(convert_error))
+    }
+
+    fn create_clip(
+        &mut self,
+        spec: wit::ClipSpec,
+    ) -> anyhow::Result<Result<wit::Handle, wit::DrawError>> {
+        let permissions = match self.drawing_allowed()? {
+            Ok(p) => p,
+            Err(e) => return Ok(Err(e)),
+        };
+        let placement = instance(wit::Instance {
+            geometry: spec.geometry,
+            material: None,
+            clip: None,
+            params: Vec::new(),
+            anchor: spec.anchor,
+            transform: spec.transform,
+            tint: (1., 1., 1., 1.),
+            depth: wit::Depth::Test,
+            blend: wit::Blend::Premultiplied,
+            width: 1.,
+            width_mode: wit::WidthMode::World,
+            join: wit::Join::Bevel,
+            cap: wit::Cap::Butt,
+        });
+        Ok(self
+            .render
+            .retained
+            .create_clip(
+                domain::Clip {
+                    status: Default::default(),
+                    geometry: placement.geometry,
+                    anchor: placement.anchor,
+                    transform: placement.transform,
+                    parent: spec.parent.map(handle),
+                },
+                permissions,
+            )
             .map(output_handle)
             .map_err(convert_error))
     }
@@ -223,6 +379,7 @@ fn instance(spec: wit::Instance) -> domain::Instance {
     domain::Instance {
         geometry: handle(spec.geometry),
         material: spec.material.map(handle),
+        clip: spec.clip.map(handle),
         params: std::array::from_fn(|index| spec.params.get(index).copied().unwrap_or(0.)),
         anchor: match spec.anchor {
             wit::Anchor::World(anchor) => domain::Anchor::World {

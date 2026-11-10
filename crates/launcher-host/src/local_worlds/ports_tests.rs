@@ -1,5 +1,8 @@
 use super::*;
 
+/// Fixture tries per reserved socket; Windows often refuses a TCP bind on a fresh UDP port.
+const FIXTURE_ATTEMPTS: usize = 1024;
+
 #[test]
 fn automatic_allocation_moves_past_a_reusable_but_udp_blocked_candidate() {
     let players = 3;
@@ -28,7 +31,7 @@ fn automatic_allocation_moves_past_a_reusable_but_udp_blocked_candidate() {
 /// Holds an OS-assigned TCP port and its complete UDP window, retrying contested candidates.
 fn reserved_window(players: u32) -> (TcpListener, Vec<UdpSocket>) {
     let mut rejected = Vec::new();
-    for _ in 0..AUTOMATIC_ATTEMPTS {
+    for _ in 0..FIXTURE_ATTEMPTS {
         let tcp = TcpListener::bind((LOCAL_SERVER_HOST, 0)).expect("reserve fixture TCP");
         let port = tcp.local_addr().expect("address").port();
         if u32::from(port) <= MAX_PORT - players + 1 {
@@ -67,7 +70,7 @@ fn exhausted_automatic_allocation_releases_rejected_signaling_ports() {
     let mut candidates = Vec::new();
     let error = automatic_bds_port(1, || {
         let mut rejected_udp = Vec::new();
-        for _ in 0..AUTOMATIC_ATTEMPTS {
+        for _ in 0..FIXTURE_ATTEMPTS {
             let udp = UdpSocket::bind((LOCAL_SERVER_HOST, 0))?;
             let port = udp.local_addr()?.port();
             if let Ok(tcp) = TcpListener::bind((LOCAL_SERVER_HOST, port)) {

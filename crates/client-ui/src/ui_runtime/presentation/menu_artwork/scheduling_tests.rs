@@ -23,7 +23,7 @@ fn cosmetic_preparation_waits_for_each_decode_slice() {
     assert_eq!(missing.len(), items.len());
     assert!(items.iter().all(|&item| prepared_frame(item).is_none()));
 
-    cache.decode(&missing[..1], &set);
+    cache.decode(&missing[..1]);
     assert!(prepared_frame(items[0]).is_some());
     assert!(prepared_frame(items[1]).is_none());
     assert!(cache.decoded.contains_key(&missing[0].key()));
@@ -32,7 +32,7 @@ fn cosmetic_preparation_waits_for_each_decode_slice() {
     let missing = cache.missing(&set);
     assert_eq!(missing.len(), 1);
     assert!(prepared_frame(items[1]).is_none());
-    cache.decode(&missing, &set);
+    cache.decode(&missing);
     assert!(prepared_frame(items[1]).is_some());
     assert!(cache.missing(&set).is_empty());
 }

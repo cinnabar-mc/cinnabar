@@ -53,14 +53,24 @@ fn native_slot_growth_cannot_displace_admitted_static_artwork() {
     let base = near_fixed_limit();
     let mut pages = base.pages()[base.dynamic_start()..].to_vec();
     pages[UI_PLAYER_SKIN_PAGE_OFFSET] = rgba([render_api::MAX_STANDARD_SKIN_SIDE; 2]);
-    let model = rgba([UI_MODEL_ATLAS_SIDE; 2]);
+    let model = rgba([UI_MODEL_ATLAS_SIDE; 2]).with_terrain_mips().unwrap();
     for page in &mut pages
         [UI_MODEL_ATLAS_PAGE_OFFSET..UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES]
     {
         *page = model.clone();
     }
+    for page in &mut pages[UI_SESSION_MODEL_PAGES] {
+        *page = rgba([UI_MODEL_ATLAS_SIDE; 2]);
+    }
+    for page in &mut pages
+        [UI_PACK_EQUIPMENT_PAGE_OFFSET..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES]
+    {
+        *page = model.clone();
+    }
     pages[UI_SESSION_ICON_PAGE_OFFSET] = rgba([MAX_UI_TEXTURE_SIDE; 2]);
     pages[UI_PARTICLE_PAGE_OFFSET] = rgba([MAX_UI_TEXTURE_SIDE; 2]);
+    pages[UI_NATIVE_SHEET_PAGE_OFFSET] = rgba([MAX_UI_TEXTURE_SIDE; 2]);
+    pages[UI_NATIVE_SHEET_PAGE_OFFSET + 1] = rgba([MAX_UI_TEXTURE_SIDE, MAX_UI_TEXTURE_SIDE / 2]);
     let glyph = rgba([UI_SESSION_GLYPH_PAGE_SIDE; 2]);
     for page in &mut pages
         [UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES]

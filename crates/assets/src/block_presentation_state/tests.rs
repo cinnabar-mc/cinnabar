@@ -41,6 +41,7 @@ fn admitted_registry_covers_every_portal_and_crafter_state_in_both_id_spaces() {
                     }),
                     crafter_triggered: None,
                     beacon_base: false,
+                    candle_flames: CandleFlames::None,
                 }
             }
             "minecraft:crafter" => {
@@ -51,6 +52,7 @@ fn admitted_registry_covers_every_portal_and_crafter_state_in_both_id_spaces() {
                     ),
                     portal_axis: None,
                     beacon_base: false,
+                    candle_flames: CandleFlames::None,
                 }
             }
             _ => continue,
@@ -159,4 +161,62 @@ fn every_beacon_base_block_is_admitted_in_both_id_spaces_and_nothing_else_is() {
         }
     }
     assert_eq!(seen.len(), BEACON_BASE_BLOCKS.len());
+}
+
+#[test]
+fn every_candle_block_state_admits_its_flames_only_when_lit() {
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let admitted = BlockPresentationStates::from_records(&records);
+    let (mut lit_candles, mut unlit_candles, mut lit_cakes, mut unlit_cakes) = (0, 0, 0, 0);
+    for record in records.iter() {
+        let cake = record.name.ends_with("candle_cake");
+        if !cake && !record.name.ends_with("candle") {
+            continue;
+        }
+        let source: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
+        let lit = source["lit"]["value"].as_u64().unwrap() != 0;
+        let expected = match (cake, lit) {
+            (_, false) => CandleFlames::None,
+            (true, true) => CandleFlames::Cake,
+            (false, true) => {
+                CandleFlames::Candles(source["candles"]["value"].as_u64().unwrap() as u8)
+            }
+        };
+        let counter = match (cake, lit) {
+            (false, true) => &mut lit_candles,
+            (false, false) => &mut unlit_candles,
+            (true, true) => &mut lit_cakes,
+            (true, false) => &mut unlit_cakes,
+        };
+        *counter += 1;
+        for state in [
+            admitted.get(NetworkIdMode::Sequential, record.sequential_id),
+            admitted.get(NetworkIdMode::Hashed, record.network_hash),
+        ] {
+            assert_eq!(state.candle_flames, expected, "{}", record.canonical_state);
+        }
+    }
+    // The undyed block and sixteen colours: four counts per lit state, or one cake per lit state.
+    assert_eq!(
+        [lit_candles, unlit_candles, lit_cakes, unlit_cakes],
+        [68, 68, 17, 17]
+    );
+}
+
+#[test]
+fn malformed_candle_states_show_no_flames() {
+    for json in [
+        "malformed",
+        "{}",
+        r#"{"lit":{"value":1}}"#,
+        r#"{"lit":{"value":1},"candles":{"value":4}}"#,
+        r#"{"lit":{"value":0},"candles":{"value":1}}"#,
+    ] {
+        let state = BlockPresentationState::decode("minecraft:candle", json);
+        assert_eq!(state.candle_flames, CandleFlames::None, "{json}");
+    }
 }

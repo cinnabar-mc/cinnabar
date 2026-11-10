@@ -1,7 +1,10 @@
 mod bindings;
 pub use bindings::{BiomeProfileIndex, FogBindings, FogProfileIndex};
-use chunk_pipeline::WorldStream;
+use chunk_pipeline::{TerrainSampleCache, WorldStream};
 use render_model::PRECIPITATION_SAMPLE_OFFSETS;
+
+/// Raw biome ids on the precipitation lattice, in [`PRECIPITATION_SAMPLE_OFFSETS`] order.
+pub type LatticeBiomes = [Option<u32>; PRECIPITATION_SAMPLE_OFFSETS.len()];
 
 /// The fog and weather renderers use the same native precipitation lattice.
 fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSETS.len()] {
@@ -10,14 +13,39 @@ fn sample_positions(position: [f32; 3]) -> [[f32; 3]; PRECIPITATION_SAMPLE_OFFSE
         .map(|offset| std::array::from_fn(|axis| origin[axis] + offset[axis] as f32))
 }
 
-/// Samples the current client's 27-position biome layer.
+/// Reads the raw biome id at every lattice position around `position`.
+pub fn lattice_biomes(stream: &WorldStream, position: [f32; 3]) -> LatticeBiomes {
+    sample_positions(position).map(|position| stream.camera_biome_id(position))
+}
+
+/// The biome at the camera and on its lattice, re-read only when the camera's block, the
+/// dimension or the terrain changes.
+#[derive(Default)]
+pub struct CameraBiomes(TerrainSampleCache<[u32; 3], (Option<u32>, LatticeBiomes)>);
+
+impl CameraBiomes {
+    /// Returns `stream.camera_biome_id(position)` and [`lattice_biomes`] at `position`.
+    ///
+    /// Both read only the block holding `position`, so the floored position keys the cache.
+    pub fn sample(
+        &mut self,
+        stream: &WorldStream,
+        position: [f32; 3],
+    ) -> (Option<u32>, LatticeBiomes) {
+        let block = position.map(f32::floor);
+        self.0.sample(stream, block.map(f32::to_bits), |stream, _| {
+            (stream.camera_biome_id(block), lattice_biomes(stream, block))
+        })
+    }
+}
+
+/// Maps the current client's 27-position biome layer to fog profiles.
 pub fn fog_biome_samples(
-    stream: &WorldStream,
-    position: [f32; 3],
+    biomes: &LatticeBiomes,
+    dimension: i32,
     bindings: &FogBindings,
 ) -> [Option<FogProfileIndex>; PRECIPITATION_SAMPLE_OFFSETS.len()] {
-    sample_positions(position)
-        .map(|position| bindings.fog(stream.camera_biome_id(position), stream.current_dimension()))
+    biomes.map(|biome| bindings.fog(biome, dimension))
 }
 
 /// Counts admitted samples without renormalizing absent columns.
@@ -31,13 +59,12 @@ fn count_precipitation_samples(samples: impl IntoIterator<Item = Option<bool>>) 
     known.then_some(count)
 }
 
-/// Samples the session registry on the same bounded lattice as weather.
-pub fn fog_precipitation_count(stream: &WorldStream, position: [f32; 3]) -> Option<usize> {
+/// Counts precipitation-eligible lattice biomes in the session registry, as weather does.
+pub fn fog_precipitation_count(stream: &WorldStream, biomes: &LatticeBiomes) -> Option<usize> {
     let registry = stream.authority().resolved_biome_tints();
-    count_precipitation_samples(sample_positions(position).map(|position| {
-        let id = stream.camera_biome_id(position)?;
+    count_precipitation_samples(biomes.map(|id| {
         Some(world::weather::precipitation_eligible(
-            registry.biome(id)?.downfall,
+            registry.biome(id?)?.downfall,
         ))
     }))
 }

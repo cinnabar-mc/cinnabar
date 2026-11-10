@@ -41,6 +41,7 @@ impl HudEditor {
                 self.cancel_pointer_input();
                 self.settle_anchor_motion();
                 if let Some(index) = self.selected {
+                    let [min_scale, max_scale] = self.draft.scale_bounds();
                     let card = &mut self.draft.cards[index];
                     let scale = (card.scale
                         + if action == "hud.scale_up" {
@@ -48,7 +49,7 @@ impl HudEditor {
                         } else {
                             -0.05
                         })
-                    .clamp(ui::mod_hud::MIN_CARD_SCALE, ui::mod_hud::MAX_CARD_SCALE);
+                    .clamp(min_scale, max_scale);
                     if card.scale != scale {
                         card.scale = scale;
                         self.catalog = None;

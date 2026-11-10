@@ -82,6 +82,7 @@ fn committed_movement_correction_preserves_local_rotation() {
         &mut view,
         &mut settings,
         &mut pending_surface_spawn,
+        &mut |_| None,
     );
 
     assert_eq!(view.eye_translation(), Vec3::new(27.5, 111.0, 91.5));
@@ -118,6 +119,7 @@ fn committed_correction_ignores_non_finite_rotation_defensively() {
         &mut view,
         &mut settings,
         &mut pending_surface_spawn,
+        &mut |_| None,
     );
 
     assert!(view.rotation().abs_diff_eq(local_rotation, 0.0001));
@@ -151,6 +153,7 @@ fn committed_correction_offsets_only_the_third_person_view() {
         &mut view,
         &mut settings,
         &mut pending_surface_spawn,
+        &mut |_| None,
     );
 
     let subject = Vec3::from_array(correction.position);
@@ -347,7 +350,7 @@ fn movement_evidence_is_production_shaped_exact_bounded_and_dimension_correlated
     assert_eq!(identity_json.as_object().unwrap().len(), 15);
     assert_eq!(identity_json["schema"], "rust-mcbe-movement-identity-v1");
     assert_eq!(identity_json["target"], "Zeqa");
-    assert_eq!(identity_json["protocol"], 2193);
+    assert_eq!(identity_json["protocol"], 2225);
     assert_eq!(identity_json["session_generation"], 7);
     assert_eq!(identity_json["preg_sha256"], "11".repeat(32));
     assert_eq!(identity_json["breg_sha256"], "22".repeat(32));

@@ -273,7 +273,7 @@ fn chorus_inventory_geometry_has_three_outward_protrusions() {
 }
 
 #[test]
-fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
+fn carried_panes_show_a_full_plate_with_body_and_edge_materials() {
     let materials = BlockFace::ALL.map(|face| face as u32 + 1);
     let templates = [ModelTemplate {
         quad_start: 0,
@@ -342,11 +342,14 @@ fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
     );
     let held =
         block_item_quads(VisualKind::Model, materials, Some(0), &templates, &source).unwrap();
-    assert_eq!(
-        held.len(),
-        source.len(),
-        "held geometry keeps the placed template"
-    );
+    assert_eq!(held.len(), BlockFace::ALL.len());
+    for (held, shown) in held.iter().zip(&inventory) {
+        assert_eq!(held.material, shown.material);
+        assert_eq!(held.uvs, shown.uvs);
+        for (held, shown) in held.corners.iter().zip(shown.corners) {
+            assert_eq!([held[0] - 0.2, held[1], held[2]], shown);
+        }
+    }
 }
 
 #[test]
@@ -674,6 +677,10 @@ fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
         quad_count: 0,
         flags: MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     }];
+    assert_eq!(
+        BlockModelOrder::for_template(Some(&templates[0])),
+        BlockModelOrder::Paint
+    );
     let gui = block_gui_quads(
         crate::facts::BlockRenderKind::BambooFence,
         VisualKind::Model,
@@ -683,6 +690,18 @@ fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
         &[],
     )
     .unwrap();
+    let held = block_item_quads(VisualKind::Model, [7; 6], Some(0), &templates, &[]).unwrap();
+    assert_ne!(gui, held);
+    let ordinary = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [7; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    assert_ne!(gui, ordinary);
     let post = gui
         .iter()
         .find(|q| q.corners.iter().all(|p| p[2] == 0.25) && q.corners.iter().any(|p| p[1] == 1.0))

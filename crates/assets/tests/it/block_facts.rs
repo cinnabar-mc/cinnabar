@@ -169,7 +169,7 @@ fn typed_lantern_properties_and_copper_bars_are_admitted_end_to_end() {
 
 #[test]
 fn pinned_property_vocabulary_is_complete_and_domains_match_admitted_values() {
-    let vocabulary = include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv");
+    let vocabulary = include_str!("../../data/vanilla-pack-vocabulary-1.26.60.tsv");
     let names: std::collections::BTreeSet<_> = vocabulary
         .lines()
         .filter_map(|row| row.strip_prefix("property\t"))
@@ -235,7 +235,7 @@ fn per_block_domains_match_each_blocks_palette_values() {
 #[test]
 fn compiled_support_and_block_entity_membership_have_one_input_owner() {
     let records = palette();
-    let bytes = include_bytes!("../../data/block-physics-v2193.bin");
+    let bytes = include_bytes!("../../data/block-physics-v2225.bin");
     let physics = assets::read_physics_registry_for_protocol(
         bytes,
         assets::pinned_block_registry_bytes(),
@@ -296,14 +296,14 @@ fn dense_facts_reject_an_out_of_order_palette() {
 #[test]
 fn pinned_block_components_are_compiled_without_runtime_json() {
     let records = palette();
-    for row in include_str!("../../data/block-components-v2193.tsv")
+    for row in include_str!("../../data/block-components-v2225.tsv")
         .lines()
         .skip(1)
     {
         let (name, components) = row.split_once('\t').unwrap();
         let matched: Vec<_> = records.iter().filter(|r| r.name.as_ref() == name).collect();
         if matched.is_empty() {
-            let expansion = include_str!("../../data/facts-expansion-v2193.tsv")
+            let expansion = include_str!("../../data/facts-expansion-v2225.tsv")
                 .lines()
                 .find(|row| row.split('\t').next() == Some(name))
                 .unwrap();

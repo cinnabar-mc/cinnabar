@@ -41,6 +41,7 @@ fn request(call: Call, step: SimulationStep, handles: Vec<ScheduleHandle>) -> Re
         snapshot: Vec::new(),
         network: None,
         inventory: None,
+        containers: None,
         call,
     }
 }

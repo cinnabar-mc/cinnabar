@@ -297,6 +297,13 @@ impl PredictionHistory {
                 .world
                 .as_ref()
                 .map_or(world as &dyn CollisionWorld, |snapshot| snapshot);
+            // Controller decisions read the world as the preceding tick left it, as live
+            // prediction does.
+            if let Some(snapshot) = &frame.world
+                && let Some(preceding) = simulated_tick.checked_sub(1)
+            {
+                snapshot.begin_tick(preceding);
+            }
             prepare(
                 &mut replayed_state,
                 &mut input,

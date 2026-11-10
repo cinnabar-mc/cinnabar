@@ -36,6 +36,27 @@ impl TouchBounds {
         }
         delta
     }
+
+    /// The D-pad cell under `position` as (column, row) from the top left, in thirds.
+    fn dpad_cell(self, position: [f32; 2]) -> [u8; 2] {
+        std::array::from_fn(|axis| {
+            let fraction = (position[axis] - self.min[axis]) / (self.max[axis] - self.min[axis]);
+            (fraction * 3.0).clamp(0.0, 2.0) as u8
+        })
+    }
+}
+
+/// The digital direction of a D-pad cell, positive Y forward. The forward diagonals in the top
+/// corners only steer a finger already moving forward, as they appear only while forward is held.
+fn dpad_direction([column, row]: [u8; 2], moving_forward: bool) -> [f32; 2] {
+    match (column, row) {
+        (1, 0) => [0.0, 1.0],
+        (0, 0) | (2, 0) if moving_forward => [f32::from(column) - 1.0, 1.0],
+        (0, 1) => [-1.0, 0.0],
+        (2, 1) => [1.0, 0.0],
+        (1, 2) => [0.0, -1.0],
+        _ => [0.0; 2],
+    }
 }
 
 /// The control under a finger when it went down.
@@ -52,6 +73,8 @@ struct CapturedContact {
     position: [f32; 2],
     look_delta: [f32; 2],
     region: Option<TouchControlRegion>,
+    /// A D-pad finger's current direction, which latches forward for the diagonals.
+    dpad: [f32; 2],
 }
 
 /// Each finger keeps the control it pressed until release, so sliding never changes control.
@@ -83,19 +106,24 @@ impl TouchControlState {
                 && region.hit_id != 0
                 && region.bounds.valid()
                 && region.bounds.contains(position)
-                && (!matches!(region.hit_id, touch::JOYSTICK | touch::LOOK_SURFACE)
-                    || !self.contacts.iter().any(|held| {
-                        held.region
-                            .is_some_and(|other| other.hit_id == region.hit_id)
-                    }))
+                && (!matches!(
+                    region.hit_id,
+                    touch::JOYSTICK | touch::DPAD | touch::LOOK_SURFACE
+                ) || !self.contacts.iter().any(|held| {
+                    held.region
+                        .is_some_and(|other| other.hit_id == region.hit_id)
+                }))
         });
-        self.contacts.push(CapturedContact {
+        let mut contact = CapturedContact {
             contact_id,
             activity_sequence,
             position,
             look_delta: [0.0; 2],
             region,
-        });
+            dpad: [0.0; 2],
+        };
+        contact.steer_dpad();
+        self.contacts.push(contact);
         region.is_some()
     }
 
@@ -123,6 +151,7 @@ impl TouchControlState {
             }
             contact.position = position;
             contact.activity_sequence = activity_sequence;
+            contact.steer_dpad();
         }
         contact.region.is_some()
     }
@@ -156,10 +185,21 @@ impl TouchControlState {
     }
 }
 
+impl CapturedContact {
+    /// Follows a D-pad finger to the cell under it.
+    fn steer_dpad(&mut self) {
+        if let Some(region) = self.region.filter(|region| region.hit_id == touch::DPAD) {
+            let cell = region.bounds.dpad_cell(self.position);
+            self.dpad = dpad_direction(cell, self.dpad[1] > 0.0);
+        }
+    }
+}
+
 fn sample_contact(contact: &mut CapturedContact) -> Option<TouchContact> {
     let region = contact.region?;
     let delta = match region.hit_id {
         touch::JOYSTICK => region.bounds.joystick_deflection(contact.position),
+        touch::DPAD => contact.dpad,
         touch::LOOK_SURFACE => std::mem::take(&mut contact.look_delta),
         _ => [0.0; 2],
     };

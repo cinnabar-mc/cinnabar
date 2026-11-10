@@ -40,8 +40,19 @@ pub(super) fn loading() -> Fixture {
     let loading = PackLoad::Loading {
         pack: PACK,
         programs: Some((23, 61)),
+        pipelines: None,
     };
     toast(&[loading, loading])
+}
+
+/// The loading toast once the GPU build has started.
+pub(super) fn building() -> Fixture {
+    let building = PackLoad::Loading {
+        pack: PACK,
+        programs: None,
+        pipelines: Some((23, 61)),
+    };
+    toast(&[building, building])
 }
 
 pub(super) fn loaded() -> Fixture {
@@ -49,6 +60,7 @@ pub(super) fn loaded() -> Fixture {
         PackLoad::Loading {
             pack: PACK,
             programs: None,
+            pipelines: None,
         },
         PackLoad::Ready {
             pack: PACK,
@@ -62,6 +74,7 @@ pub(super) fn failed() -> Fixture {
         PackLoad::Loading {
             pack: PACK,
             programs: None,
+            pipelines: None,
         },
         PackLoad::Failed {
             pack: PACK,
@@ -211,6 +224,12 @@ pub(super) const STATES: &[State] = &[
         fixture: loading,
     },
     State {
+        name: "toast-shader-pack-building",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: building,
+    },
+    State {
         name: "toast-shader-pack-loaded",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -265,6 +284,7 @@ mod tests {
             _ => unreachable!(),
         };
         assert!(title(loading()).starts_with("Loading"));
+        assert!(title(building()).starts_with("Loading"));
         assert!(title(loaded()).ends_with("loaded"));
         assert!(title(failed()).ends_with("failed to load"));
     }

@@ -8,7 +8,7 @@ use crate::{
     registry::{BlockTraits as T, ModelFamily as F},
 };
 
-pub const BLOCK_PLACEMENT_SOURCE_PATH: &str = "crates/assets/data/block-placement-v2193.tsv";
+pub const BLOCK_PLACEMENT_SOURCE_PATH: &str = "crates/assets/data/block-placement-v2225.tsv";
 
 /// Declares placement names and their parser from one exhaustive list.
 macro_rules! named_facts {
@@ -216,7 +216,7 @@ mod tests {
         .unwrap();
         let catalog =
             placement_catalog(&records, &super::super::rules::policy().placement_rules).unwrap();
-        let rows: Vec<_> = include_str!("../../data/block-placement-v2193.tsv")
+        let rows: Vec<_> = include_str!("../../data/block-placement-v2225.tsv")
             .lines()
             .skip(1)
             .collect();

@@ -17,6 +17,7 @@ pub(super) struct Raster {
     pub(super) binding: wgpu::BindGroup,
     pub(super) item_glint: wgpu::Texture,
     pub(super) viewport: wgpu::Buffer,
+    pub(super) models: wgpu::Buffer,
     pub(super) materials: [wgpu::RenderPipeline; 4],
     pub(super) clear: wgpu::RenderPipeline,
     pub(super) invert: wgpu::RenderPipeline,
@@ -265,6 +266,21 @@ impl Raster {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let model_bones: Vec<_> = input
+            .models
+            .iter()
+            .flat_map(|model| model.bones.iter().copied())
+            .collect();
+        let model_bytes = if model_bones.is_empty() {
+            vec![0; std::mem::size_of::<render_model::UiModelBone>()]
+        } else {
+            bytemuck::cast_slice(&model_bones).to_vec()
+        };
+        let models = buffer(
+            &gpu,
+            &model_bytes,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
         let binding = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bindings,
@@ -297,6 +313,10 @@ impl Raster {
                     binding: 6,
                     resource: wgpu::BindingResource::Sampler(&glint_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: models.as_entire_binding(),
+                },
             ],
         });
         Some(Self {
@@ -308,6 +328,7 @@ impl Raster {
             binding,
             item_glint,
             viewport,
+            models,
         })
     }
 }

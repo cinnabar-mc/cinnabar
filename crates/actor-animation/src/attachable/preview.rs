@@ -47,6 +47,7 @@ impl AttachableState {
         state.clip_clocks = evaluated.clip_clocks;
         state.current = evaluated.pose;
         state.scale = evaluated.scale;
+        state.visibility = evaluated.visibility;
         state.initialized = true;
         state.reset_pending = false;
         state.completed_tick = tick;

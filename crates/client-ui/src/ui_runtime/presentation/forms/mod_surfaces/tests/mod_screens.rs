@@ -117,3 +117,51 @@ fn forbidden_overlay_edit_boxes_release_focus_and_reject_focus_requests() {
         [("focus_test.search".into(), "kept!".into())]
     );
 }
+
+/// A shown mod view hides the inventory, so no cell is left for a named click to press.
+#[test]
+fn a_shown_mod_view_leaves_no_inventory_cell_pressable() {
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
+    let Some(mut presentation) = crate::test_support::engine_presentation() else {
+        eprintln!("skipping mod view cell test: missing installed UI carrier; make assets");
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player, None);
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation
+            .build(&player, &runtime, now, [1920, 1080], dpi)
+            .unwrap();
+    }
+    let screen = InventoryScreen::of_runtime(&player, &runtime);
+    assert!(!presentation.inventory_screen_cells(screen).is_empty());
+
+    let template = serde_json::json!({"namespace":"view_test",
+        "view": {"type":"panel", "size":["100%","100%"]}});
+    let files = Arc::new(screen::Files {
+        namespace: "view_test".into(),
+        templates: [(
+            "ui/view.json".into(),
+            serde_json::to_vec(&template).unwrap(),
+        )]
+        .into(),
+        textures: Vec::new(),
+    });
+    let view = "ui/view.json".to_owned();
+    let data = screen::Modal::default();
+    presentation.set_mod_screens(Some(ModScreensInput {
+        id: "view_test",
+        files: &files,
+        overlay: None,
+        view: Some(&view),
+        focus: None,
+        data: &data,
+    }));
+    presentation
+        .build(&player, &runtime, 1000, [1920, 1080], dpi)
+        .unwrap();
+    assert!(presentation.mod_ui().mod_view_shown());
+    assert!(presentation.inventory_screen_cells(screen).is_empty());
+}

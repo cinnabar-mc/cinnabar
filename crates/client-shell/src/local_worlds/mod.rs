@@ -128,6 +128,13 @@ impl LocalWorlds {
         self.host = host;
     }
 
+    /// Supplies the connected host's login name for commands targeting that player.
+    pub fn set_player_name(&self, name: &str) {
+        if let Some(manager) = &self.manager {
+            manager.set_player_name(name);
+        }
+    }
+
     pub fn menu(&self) -> &WorldsMenu {
         &self.menu
     }

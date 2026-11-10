@@ -122,6 +122,7 @@ pub fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
+    let culling_bounds = actor_animation::actor_culling_bounds(rig.culling_bounds(), actor, scale);
     // Culling places the model frame's box at the model origin, as the drawn submission does.
     let (origin, bounds) = sampled_rig_placement(
         rig,
@@ -134,10 +135,10 @@ pub fn rig_may_be_visible(
             rig.axis_scale[2],
         ],
     )
-    .map_or((feet, rig.culling_bounds()), |placement| {
+    .map_or((feet, culling_bounds), |placement| {
         (
             placement.model_origin(),
-            placement.frame.culling_bounds(rig.culling_bounds()),
+            placement.frame.culling_bounds(culling_bounds),
         )
     });
     if !actor_bounds_are_visible(origin, scale, bounds, Some(view)) {
@@ -382,7 +383,12 @@ fn place(
         return None;
     }
     submission.world_from_actor = placement.world_from_model;
-    submission.culling_bounds = placement.frame.culling_bounds(submission.culling_bounds);
+    let bounds = actor_animation::actor_culling_bounds(
+        submission.culling_bounds,
+        actor,
+        submission.culling_scale(),
+    );
+    submission.culling_bounds = placement.frame.culling_bounds(bounds);
     submission.overlay_rgba8 =
         crate::presentation::combat::overlay(actor, render_api::DEFAULT_COMBAT_VISUALS);
     present_thrown_trident(submission, actor);
@@ -677,22 +683,29 @@ pub fn attach_layers<Context>(
 /// keeps drawing unlit rather than black.
 pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline::WorldStream) {
     for submission in &mut batch.submissions {
-        let feet = submission.world_from_actor.map(|row| row[3]);
-        let light = stream
-            .authority()
-            .actor(submission.input.identity.runtime_id)
-            .map_or_else(
-                || stream.solved_light_at(feet),
-                |actor| {
-                    let position =
-                        ModelFrame::of(actor).actor_position(&submission.world_from_actor);
-                    stream.actor_light_at(actor, position)
-                },
-            );
-        if let Some((block, sky)) = light {
+        if let Some((block, sky)) = body_light(submission, stream) {
             submission.light = render_model::pack_actor_light(block, sky);
         }
     }
+}
+
+/// The `(block, sky)` light a body draws with: its actor's collision-box endpoints at the
+/// placed feet, or the feet alone without an actor. `None` while light is unsolved.
+pub fn body_light(
+    submission: &ActorRigSubmission,
+    stream: &chunk_pipeline::WorldStream,
+) -> Option<(u8, u8)> {
+    let feet = submission.world_from_actor.map(|row| row[3]);
+    stream
+        .authority()
+        .actor(submission.input.identity.runtime_id)
+        .map_or_else(
+            || stream.solved_light_at(feet),
+            |actor| {
+                let position = ModelFrame::of(actor).actor_position(&submission.world_from_actor);
+                stream.actor_light_at(actor, position)
+            },
+        )
 }
 
 /// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the

@@ -31,6 +31,11 @@ struct Failure {
 }
 
 impl MenuRuntime {
+    /// Whether load feedback still needs a final outcome or cancellation update.
+    pub(super) fn has_shader_pack_feedback(&self) -> bool {
+        self.shader_pack_status.loading.is_some()
+    }
+
     /// Mirrors the render host's `load` state at `now`: raises the toast each change calls
     /// for and keeps the failure for the Renderer row. Touches `runtime` only on a change.
     pub fn sync_shader_pack_status(
@@ -184,6 +189,7 @@ mod tests {
         let loading = |programs| PackLoad::Loading {
             pack: "Dusk.zip",
             programs,
+            pipelines: None,
         };
         menu.sync_shader_pack_status(loading(None), &mut &mut runtime, Duration::ZERO);
         assert!(runtime.hud().standing_toast().is_none());
@@ -227,6 +233,7 @@ mod tests {
         let loading = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: None,
+            pipelines: None,
         };
         menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
         menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
@@ -269,6 +276,7 @@ mod tests {
         let retry = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: None,
+            pipelines: None,
         };
         menu.sync_shader_pack_status(retry, &mut &mut runtime, Duration::from_secs(9));
         assert_eq!(menu.view().renderer_issue, None, "loading it again");
@@ -284,6 +292,7 @@ mod tests {
         let loading = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: Some((4, 4)),
+            pipelines: None,
         };
         menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
         menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
@@ -310,6 +319,7 @@ mod tests {
         let loading = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: Some((4, 4)),
+            pipelines: None,
         };
         menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
         menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
@@ -344,6 +354,7 @@ mod tests {
         let loading = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: None,
+            pipelines: None,
         };
         menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
         menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
@@ -367,6 +378,7 @@ mod tests {
         let loading = PackLoad::Loading {
             pack: "Dusk.zip",
             programs: None,
+            pipelines: None,
         };
         menu.sync_shader_pack_status(loading, &mut &mut runtime, Duration::ZERO);
         menu.sync_shader_pack_status(loading, &mut &mut runtime, LOADING_TOAST_DELAY);
