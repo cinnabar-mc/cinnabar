@@ -223,6 +223,14 @@ allows rather than its type: `spectator` without collision, `creative` with the 
 inventory, `adventure` without world editing, and `survival` otherwise, so the local server's
 `/fly`, which lets a mode fly, reads as the mode it wraps.
 
+Server WIT 0.12's `callback.pose` reads where the actor faces and how it moves, snapshotted
+with its inventory (`player-unavailable` without a player actor). `yaw` is in degrees in
+(-180, 180], 0 facing +z and 90 facing -x; `pitch` is in degrees in [-90, 90], positive
+looking down. The flags are the on-ground, sneaking, sprinting, swimming and gliding states the
+player reports. The adapter wraps yaw and clamps pitch into those ranges and leaves the pose out
+when the rotation is not finite; the runtime refuses a pose outside them, or without an actor,
+as malformed.
+
 Server WIT 0.12 adds the `content-rules` export, which runs once after `register`:
 
 | Rule | Contract |

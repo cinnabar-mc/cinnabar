@@ -388,7 +388,8 @@ impl LocalPhysicsController {
             state.swim_pose_active = [flags.swimming, flags.crawling].contains(&Some(true));
         }
         self.modes.adopt_actor_flags(flags);
-        self.adopt_live_flags(flags);
+        let stamp = self.state.as_ref().map_or(0, |state| state.tick);
+        self.adopt_live_flags(flags, stamp, false);
     }
 
     /// Records one sparse server flag write without replacing prior replay actions.

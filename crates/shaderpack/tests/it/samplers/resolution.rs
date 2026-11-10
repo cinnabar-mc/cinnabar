@@ -161,6 +161,39 @@ fn raw_directives_match_normalized_names_and_shapes_only() {
 }
 
 #[test]
+fn renamed_samplers_match_their_original_image_and_raw_texture_properties() {
+    for uniform in ["resource", "_r_resource"] {
+        let fragment = format!(
+            "#version 330\nuniform sampler2D {uniform}; void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)); }}"
+        );
+        for (properties, expected) in [
+            (
+                format!("image.scratch = {uniform} rgba rgba8 unsigned_byte false false 4 4\n"),
+                "image.scratch".to_owned(),
+            ),
+            (
+                format!(
+                    "texture.composite.{uniform} = lut.dat TEXTURE_2D RGBA8 1 1 RGBA UNSIGNED_BYTE\n"
+                ),
+                format!("texture.composite.{uniform}"),
+            ),
+        ] {
+            let translated = pack(&fragment, &properties, &[]).translate(&Default::default());
+            let reflected = reflection(program(&translated, "composite"));
+            assert_eq!(crate::texture_names(reflected), [expected.as_str()]);
+            assert_eq!(
+                reflected
+                    .samplers
+                    .iter()
+                    .filter_map(|sampler| sampler.class())
+                    .collect::<Vec<_>>(),
+                [SamplerClass::ClampLinear]
+            );
+        }
+    }
+}
+
+#[test]
 fn core_sampler_declarations_keep_their_exact_names() {
     for uniform in ["texture", "gcolor"] {
         for declaration in ["image", "raw"] {

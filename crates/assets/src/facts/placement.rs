@@ -58,12 +58,24 @@ named_facts!(
     WallSign,
     Dispenser,
     Piston,
-    Button
+    Button,
+    FrogSpawn
 });
 
 named_facts!(
     /// Support classifications retained by provisional placement prediction.
-    SupportKind { Stone, PowderSnow, Leaves, Water, Lava, Air, Fire, SnowLayer, Vanilla }
+    SupportKind {
+        Stone,
+        PowderSnow,
+        Leaves,
+        Water,
+        WaterSource,
+        Lava,
+        Air,
+        Fire,
+        SnowLayer,
+        Vanilla
+    }
 );
 
 impl SupportKind {

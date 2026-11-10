@@ -64,7 +64,9 @@ pub(crate) fn install_cloud_render(app: &mut App) {
     crate::upload_staging::install(app);
     crate::pipeline_warmup::register::<CloudPipeline>(app);
     app.init_resource::<CloudVisibility>()
-        .add_plugins(ExtractResourcePlugin::<CloudVisibility>::default());
+        .init_resource::<render_scene::CloudDistanceChunks>()
+        .add_plugins(ExtractResourcePlugin::<CloudVisibility>::default())
+        .add_plugins(ExtractResourcePlugin::<render_scene::CloudDistanceChunks>::default());
     load_internal_asset!(
         app,
         CLOUD_SHADER_HANDLE,
@@ -157,6 +159,7 @@ pub(crate) fn prepare_cloud_records(
     atmosphere: Res<AtmosphereFrame>,
     uploads: crate::upload_staging::FrameUploads,
     visibility: Res<CloudVisibility>,
+    distance_chunks: Option<Res<render_scene::CloudDistanceChunks>>,
     views: Query<(Entity, &ExtractedView), With<Camera3d>>,
     mut gpu: ResMut<CloudGpu>,
 ) {
@@ -171,6 +174,10 @@ pub(crate) fn prepare_cloud_records(
     let identity = requested.identity();
     gpu.views.retain(|entity, _| views.contains(*entity));
     let config = CloudRenderConfig::legacy_fancy();
+    let (mesh_size, grid_size) = match distance_chunks {
+        Some(chunks) => (chunks.mesh_span_cells(), 1),
+        None => (config.mesh_size(), config.grid_size()),
+    };
     let CloudGpu {
         views: prepared_views,
         diagnostics,
@@ -187,8 +194,8 @@ pub(crate) fn prepare_cloud_records(
                 f64::from(camera.x) + f64::from(atmosphere.cloud_scroll_blocks()),
                 f64::from(camera.z),
             ],
-            config.mesh_size(),
-            config.grid_size(),
+            mesh_size,
+            grid_size,
             above,
             false,
         ) else {

@@ -49,6 +49,10 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "crates/render-model/src/hats/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+[[owned_artifacts]]
+path = "tools/localserver/testdata/player-preview-layers/textures/"
+ownership_record = "tools/localserver/testdata/player-preview-layers/README.md"
+
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
 path = "crates/assets/data/entity-facts-v2225.bin"
@@ -124,10 +128,17 @@ path = "crates/shaderpack-worker"
 allowed_dependencies = ["shaderpack", "test-time", "update-manifest"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+# Java Edition resource-pack translation into Bedrock pack files; archive admission stays in `resource-pack`.
+[[crates]]
+name = "java-resource-pack"
+path = "crates/java-resource-pack"
+allowed_dependencies = ["pack-json"]
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+
 [[crates]]
 name = "resource-pack"
 path = "crates/resource-pack"
-allowed_dependencies = ["pack-json", "protocol", "zip-footer"]
+allowed_dependencies = ["java-resource-pack", "pack-json", "protocol", "zip-footer"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
 
@@ -199,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["pack-json", "assets"]
+allowed_dependencies = ["pack-json", "assets", "protocol-ids"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -408,7 +419,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "particles"
 path = "crates/particles"
-allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids"]
+allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -640,7 +651,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "shaderpack", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "semantic-input", "shaderpack", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -950,6 +961,11 @@ kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
+literal = "CINNABAR_SHUTDOWN_PHASE"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
 literal = "CINNABAR_SHUTDOWN_WATCHDOG_ARMED"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
@@ -1165,6 +1181,27 @@ path = "crates/block-transform"
 allowed_dependencies = []
 dependency_free = true
 
+# A screen takes keyboard, pointer, touch and gamepad input as the frame's owner.
+# Everything listed here takes input without being a screen, and each reason says why.
+[input_owner]
+root = "app/src/ui_runtime/"
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/platform_back.rs::press_mouse_back_for_platform_back"
+reason = "Turns the platform Back key into a mouse button during input collection; screens read that button as the owner."
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/touch_pointer.rs::emulate_ui_pointer"
+reason = "Turns touches into pointer events before input systems run; screens read those events as the owner."
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/gameplay_touch.rs::drive_gameplay_touch_targets"
+reason = "Gameplay input, which every scene's absorbs_input setting governs."
+
+[[input_owner.exceptions]]
+item = "app/src/ui_runtime/interaction/inventory.rs::drive_world_inventory_keys"
+reason = "Gameplay input, which every scene's absorbs_input setting governs."
+
 # Tests wait with `test_time::eventually` (Rust) or `testwait`/`testing/synctest` (Go), never sleep.
 # Each exception names why the file still sleeps; converting it removes the entry.
 # Domain crates take `now` from their caller; only edge code reads the clock.
@@ -1174,6 +1211,7 @@ clock_free_crates = [
     "crates/block-transform",
     "crates/input",
     "crates/inventory",
+    "crates/java-resource-pack",
     "crates/json-ui",
     "crates/pack-json",
     "crates/meshing",
@@ -1422,6 +1460,61 @@ reason = "The standalone guest example demonstrates an animated liquid in a name
 path = "examples/mods/portal-view/src/lib.rs"
 literal = "minecraft:obsidian"
 reason = "The standalone guest example supplies a concrete named block for its retained frame."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/hud.rs"
+literal = "air"
+reason = "Java HUD sprite file name (gui/sprites/hud/air.png) translated into a Bedrock UI texture, not a block identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_drinkable"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_splash"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "splash_potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "lingering_potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_lingering"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_overlay"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "wither"
+reason = "Bedrock potion texture suffix (potion_bottle_wither.png) paired with its tint, not an actor identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/translate.rs"
+literal = "turtle_scute"
+reason = "Java 1.21.2+ equipment texture file name renamed to the Bedrock turtle armour layer, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "missing_tile"
+reason = "terrain_texture.json key that native BlockGraphics uses for blocks without graphics, not a block identifier."
 
 [identifier_literals]
 owners = [
@@ -1699,7 +1792,7 @@ literal = "_sword"
 reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
-path = "app/src/runtime/network/block_overlay.rs"
+path = "app/src/runtime/network/block_overlay/materials.rs"
 literal = "water"
 reason = "Material tint_method schema value; this selects a tint channel, not a block identity."
 
@@ -2194,6 +2287,11 @@ literal = "jungle"
 reason = "Value in the retained legacy sapling_type state domain."
 
 [[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/bell.rs"
+literal = "hanging"
+reason = "Value in the pinned bell attachment state domain."
+
+[[identifier_literal_exceptions]]
 path = "crates/pack-compiler/src/compiler/visuals/grindstone.rs"
 literal = "hanging"
 reason = "Value in the pinned grindstone attachment state domain."
@@ -2273,6 +2371,11 @@ forbidden_dependencies = ["bevy", "wgpu"]
 path = "tools/mod-docs/src/types.rs"
 literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/texture_set.rs"
+literal = "color"
+reason = "Layer key of the Bedrock texture_set.json schema, not a block or item identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/experience-runtime/src/protocol/visuals.rs"

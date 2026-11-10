@@ -14,6 +14,11 @@ const CENTRE_MIN_UV: u16 = 1792;
 const CENTRE_MAX_UV: u16 = 2301;
 const FULL_UV: u16 = 4096;
 const SIDE_ROWS: [u16; 2] = [0, FULL_UV];
+/// Top and bottom rail heights of glass panes, whose one-sided rails face away from each other.
+const PANE_RAIL_HEIGHTS: [i16; 2] = [256, 0];
+/// Top and bottom rail heights of metal bars. Native draws rails 0.001 inside the block, rounded
+/// here to the model's 1/256 grid, so the two-sided rails of stacked bars never share a plane.
+const BAR_RAIL_HEIGHTS: [i16; 2] = [255, 1];
 
 /// One connection direction in native order: north, east, south, west.
 #[derive(Clone, Copy)]
@@ -66,7 +71,8 @@ const ARMS: [Arm; 4] = [
     },
 ];
 
-/// Metal bars draw each wall as one plane, which is also why their icon is flat.
+/// Metal bars draw each wall as one plane, which is also why their icon is flat. Their native
+/// `alpha_test` render layer disables backface culling, so all of their quads show from both sides.
 fn draws_single_plane(record: &RegistryRecord) -> bool {
     block_render_fact(&record.name).flat_icon
 }
@@ -145,6 +151,11 @@ pub(in crate::compiler) fn pane_quads(
     } else {
         0
     };
+    let [rail_top, rail_bottom] = if single_plane {
+        BAR_RAIL_HEIGHTS
+    } else {
+        PANE_RAIL_HEIGHTS
+    };
     let wall = |positions: [[i16; 3]; 4], columns: [u16; 2], face: BlockFace| ModelQuad {
         positions,
         uvs: [
@@ -160,7 +171,7 @@ pub(in crate::compiler) fn pane_quads(
         positions,
         uvs,
         material: edge,
-        flags: shade_id(face),
+        flags: shade_id(face) | plane_flag,
     };
     let connections = mask.count_ones();
     let connected = |index: usize| mask & ARMS[index % 4].bit != 0;
@@ -219,10 +230,10 @@ pub(in crate::compiler) fn pane_quads(
         }
         quads.push(rail(
             [
-                at(arm, CENTRE, -HALF_WIDTH, 256),
-                at(arm, HALF_WIDTH, -HALF_WIDTH, 256),
-                at(arm, HALF_WIDTH, HALF_WIDTH, 256),
-                at(arm, CENTRE, HALF_WIDTH, 256),
+                at(arm, CENTRE, -HALF_WIDTH, rail_top),
+                at(arm, HALF_WIDTH, -HALF_WIDTH, rail_top),
+                at(arm, HALF_WIDTH, HALF_WIDTH, rail_top),
+                at(arm, CENTRE, HALF_WIDTH, rail_top),
             ],
             [
                 [CENTRE_MIN_UV, FULL_UV],
@@ -234,10 +245,10 @@ pub(in crate::compiler) fn pane_quads(
         ));
         quads.push(rail(
             [
-                at(arm, CENTRE, -HALF_WIDTH, 0),
-                at(arm, CENTRE, HALF_WIDTH, 0),
-                at(arm, HALF_WIDTH, HALF_WIDTH, 0),
-                at(arm, HALF_WIDTH, -HALF_WIDTH, 0),
+                at(arm, CENTRE, -HALF_WIDTH, rail_bottom),
+                at(arm, CENTRE, HALF_WIDTH, rail_bottom),
+                at(arm, HALF_WIDTH, HALF_WIDTH, rail_bottom),
+                at(arm, HALF_WIDTH, -HALF_WIDTH, rail_bottom),
             ],
             [
                 [CENTRE_MIN_UV, FULL_UV],
@@ -251,10 +262,10 @@ pub(in crate::compiler) fn pane_quads(
     let [low, high] = [CENTRE - HALF_WIDTH, CENTRE + HALF_WIDTH];
     quads.push(rail(
         [
-            [low, 256, high],
-            [high, 256, high],
-            [high, 256, low],
-            [low, 256, low],
+            [low, rail_top, high],
+            [high, rail_top, high],
+            [high, rail_top, low],
+            [low, rail_top, low],
         ],
         [
             [CENTRE_MIN_UV, CENTRE_MAX_UV],
@@ -266,10 +277,10 @@ pub(in crate::compiler) fn pane_quads(
     ));
     quads.push(rail(
         [
-            [low, 0, high],
-            [low, 0, low],
-            [high, 0, low],
-            [high, 0, high],
+            [low, rail_bottom, high],
+            [low, rail_bottom, low],
+            [high, rail_bottom, low],
+            [high, rail_bottom, high],
         ],
         [
             [CENTRE_MIN_UV, CENTRE_MAX_UV],

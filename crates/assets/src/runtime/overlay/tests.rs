@@ -101,6 +101,28 @@ fn overlay_shards_share_the_runtime_page_allocations() {
     assert_eq!(base.texture_shards().len(), 0);
 }
 
+/// The compiled overlay and its base stay retained beside the merged assets, so merging
+/// shares their texel storage instead of copying every page.
+#[test]
+fn merging_an_overlay_does_not_copy_texture_pixels() {
+    let base = RuntimeAssets::diagnostic();
+    let overlay = cube_overlay(page(1024));
+    let pixel_bytes: usize = overlay.textures[0]
+        .mips
+        .iter()
+        .map(|mip| mip.rgba8.len())
+        .sum();
+    let (runtime, allocated) =
+        test_alloc::measure(|| base.with_block_overlay(1, &overlay).unwrap());
+    assert!(
+        allocated.bytes < pixel_bytes / 2,
+        "merging allocated {} bytes beside {pixel_bytes} shard texel bytes",
+        allocated.bytes
+    );
+    assert_shared_shards(&overlay.textures, &runtime.texture_pages()[1..]);
+    assert_shared_shards([base.texture_array()], runtime.texture_pages());
+}
+
 #[test]
 fn overlay_source_dimensions_are_bounded_by_their_own_shard() {
     let mut overlay = cube_overlay(page(16));

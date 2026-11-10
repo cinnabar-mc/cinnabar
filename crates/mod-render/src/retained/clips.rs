@@ -76,7 +76,7 @@ impl Store {
     /// Reports private attachment admission without copying or drawing mask geometry.
     pub fn clip_status(&self, id: Handle) -> Result<bool, DrawError> {
         self.check(id)?;
-        let resources = self.staged.as_ref().unwrap_or(&self.committed);
+        let resources = self.current();
         let clip = resources
             .clips
             .get(&id)
@@ -110,7 +110,7 @@ impl Store {
     /// Reports worker completion or its explicit failure without doing geometry work.
     pub fn geometry_status(&self, id: Handle) -> Result<bool, DrawError> {
         self.check(id)?;
-        let resources = self.staged.as_ref().unwrap_or(&self.committed);
+        let resources = self.current();
         let geometry = resources
             .geometry
             .get(&id)

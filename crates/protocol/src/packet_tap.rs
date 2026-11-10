@@ -4,13 +4,11 @@
 //! decoding, and each serverbound packet once after it is encoded. An observer must not block:
 //! it runs on the network tasks.
 //!
-//! Clientbound packets are reported when the transport reads their batch from the core's
-//! socket, which it does only when ingress asks for a packet and has none split; the handed-off
-//! startup packets are reported together as the first is asked for. An observer that times
-//! them therefore measures when the client read each batch: under ingress backpressure (a full
-//! world-event channel, slow decoding) that trails the batch reaching the socket, and the true
-//! socket arrival is not observable without reading ahead of ingress, which would change the
-//! session's flow control.
+//! Clientbound packets are reported as the transport expands bounded windows of a validated
+//! batch, including handed-off startup packets. An observer measures when ingress asks for
+//! each window. Under ingress backpressure (a full world-event channel, slow decoding) that
+//! trails the batch reaching the socket; true socket arrival is not observable without reading
+//! ahead of ingress, which would change the session's flow control.
 
 use std::fmt;
 

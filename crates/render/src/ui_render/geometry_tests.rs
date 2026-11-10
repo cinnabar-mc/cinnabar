@@ -176,6 +176,7 @@ fn model_input() -> UiRenderInput {
         normal: [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]],
         overlay: [0.; 4],
         uv_rect: [0., 0., 1., 1.],
+        uv_transform: [0., 0., 1., 1.],
         uv_cross: [0.; 4],
         tint: [1.; 4],
         styles: [0; 4],

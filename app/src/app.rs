@@ -94,8 +94,8 @@ use {
         shell_adapters::drive_menu_services,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-            drive_world_inventory_keys, flush_server_form_network,
+            drive_command_block, drive_inventory_ui_actions, drive_server_form_input,
+            drive_sign_editor, drive_world_inventory_keys, flush_server_form_network,
             gameplay_touch::drive_gameplay_touch_targets,
             presentation::{
                 dials::advance_dials, drive_menu_panorama, observe_mount_jump_input,
@@ -113,7 +113,7 @@ use {
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, log_shutdown_phase,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -585,8 +585,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         catalog: ui_catalog,
         block_entity_font,
     } = interface;
-    let mut ui_presentation = ui_presentation;
-    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
     ));
@@ -594,8 +592,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
-    #[cfg(target_os = "macos")]
-    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::thread_budget::ThreadBudget::configure_frame_threads(&mut app);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     crate::frame_pacing::display_link::install(&mut app);
     #[cfg(target_os = "macos")]
@@ -869,15 +867,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    log_shutdown_phase("runner_returned");
     PlatformClipboard::shutdown();
+    log_shutdown_phase("clipboard");
     client_shell::discord_presence::shutdown(&mut app);
+    log_shutdown_phase("discord");
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()
     {
         network.shutdown();
     }
+    log_shutdown_phase("network");
     drop(app);
+    log_shutdown_phase("world_dropped");
     bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),

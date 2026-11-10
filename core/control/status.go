@@ -50,14 +50,15 @@ const (
 	packApplicationApplied     = bridgecontract.PackApplicationApplied // the client confirmed applying the handed-off packs
 )
 
-// NetworkV1 is the current upstream transport's round-trip estimate.
+// NetworkV1 is the current upstream's ping as vanilla's network status reports it: the RakNet
+// round trip, or half the selected ICE round trip over NetherNet. The wire name predates that rule.
 type NetworkV1 struct {
 	AttemptID       uint64  `json:"attempt_id"`
 	LocalRuntimeID  uint64  `json:"local_runtime_id"`
 	RoundTripMillis *uint32 `json:"round_trip_ms"`
 }
 
-// NetworkObservation is the control plane's transport-neutral retained RTT sampler.
+// NetworkObservation is the control plane's transport-neutral retained ping sampler.
 // A nil sampler withdraws an attempt; a nil sample means no measured value.
 type NetworkObservation struct {
 	AttemptID       uint64

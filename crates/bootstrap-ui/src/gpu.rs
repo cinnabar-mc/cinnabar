@@ -55,9 +55,13 @@ impl Gpu {
     /// device fits the surface, so the caller can fall back to another prompt.
     pub fn new(window: Arc<Window>, faces: &PanoramaFaces) -> Result<Self> {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
+        let mut descriptor =
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone()));
+        descriptor.backends = bootstrap_backends(
+            launcher::graphics_backend::Platform::current(),
+            wgpu::Backends::from_env(),
         );
+        let instance = wgpu::Instance::new(descriptor);
         let surface = instance
             .create_surface(window.clone())
             .context("create window surface")?;
@@ -270,6 +274,21 @@ impl Gpu {
     }
 }
 
+/// Opens only the platform's preferred API unless the user explicitly overrides it.
+/// Initializing unused APIs can crash in a driver before adapter selection or dialog fallback.
+fn bootstrap_backends(
+    platform: launcher::graphics_backend::Platform,
+    override_backends: Option<wgpu::Backends>,
+) -> wgpu::Backends {
+    use launcher::graphics_backend::Backend;
+    override_backends.unwrap_or_else(|| match platform.backends()[0] {
+        Backend::Dx12 => wgpu::Backends::DX12,
+        Backend::Vulkan => wgpu::Backends::VULKAN,
+        Backend::Metal => wgpu::Backends::METAL,
+        Backend::Gl => wgpu::Backends::GL,
+    })
+}
+
 fn upload_faces(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -441,6 +460,32 @@ fn acquire_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootstrap_avoids_initializing_unused_windows_vulkan_drivers() {
+        use launcher::graphics_backend::Platform;
+        assert_eq!(
+            bootstrap_backends(Platform::Windows, None),
+            wgpu::Backends::DX12
+        );
+        assert_eq!(
+            bootstrap_backends(Platform::Linux, None),
+            wgpu::Backends::VULKAN
+        );
+        assert_eq!(
+            bootstrap_backends(Platform::Macos, None),
+            wgpu::Backends::METAL
+        );
+        for requested in [
+            wgpu::Backends::VULKAN,
+            wgpu::Backends::DX12 | wgpu::Backends::VULKAN,
+        ] {
+            assert_eq!(
+                bootstrap_backends(Platform::Windows, Some(requested)),
+                requested
+            );
+        }
+    }
 
     #[test]
     fn fatal_surface_failure_is_not_retried() {

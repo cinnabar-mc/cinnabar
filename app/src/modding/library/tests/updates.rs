@@ -14,18 +14,18 @@ fn revision_aware_install_requires_the_exact_promised_replacement_identity() {
         let path = directory.path().join("zoom.wasm");
         let identity = |revision: &str| {
             serde_json::json!({
-                "source": SOURCE, "package": "example-mod", "api_revision": "a".repeat(40), "revision": revision,
+                "source": SOURCE, "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE, "api_revision": "a".repeat(40), "revision": revision,
             })
             .to_string()
         };
-        let mut original = component("1.0.0", SOURCE, true);
+        let mut original = component_without_revision("1.0.0", SOURCE, true);
         section(
             &mut original,
             mod_api::REVISION_UPDATE_SECTION,
             identity(&"a".repeat(40)).as_bytes(),
         );
         fs::write(&path, &original).unwrap();
-        let mut next = component("1.1.0", SOURCE, true);
+        let mut next = component_without_revision("1.1.0", SOURCE, true);
         section(
             &mut next,
             mod_api::REVISION_UPDATE_SECTION,
@@ -53,7 +53,17 @@ fn revision_aware_install_requires_the_exact_promised_replacement_identity() {
 }
 
 /// Builds a valid host-world component with versioned, root-level update metadata.
-fn component(version: &str, source: &str, valid: bool) -> Vec<u8> {
+fn component_without_revision(version: &str, source: &str, valid: bool) -> Vec<u8> {
+    requesting_without_revision(
+        version,
+        source,
+        valid,
+        "{\"camera\":true,\"settings\":true}",
+    )
+}
+
+/// Builds a component like [`component_without_revision`] that requests `grants`.
+fn requesting_without_revision(version: &str, source: &str, valid: bool, grants: &str) -> Vec<u8> {
     let code = if valid {
         "(component (core module $m (func (export \"init\")) (func (export \"frame\"))) (core instance $i (instantiate $m)) (func (export \"init\") (canon lift (core func $i \"init\"))) (func (export \"frame\") (canon lift (core func $i \"frame\"))))"
     } else {
@@ -63,13 +73,35 @@ fn component(version: &str, source: &str, valid: bool) -> Vec<u8> {
     for (name, data) in [
         ("version", version),
         (mod_api::UPDATE_URL_SECTION, source),
-        (
-            mod_host::REQUESTED_GRANTS_SECTION,
-            "{\"camera\":true,\"settings\":true}",
-        ),
+        (mod_host::REQUESTED_GRANTS_SECTION, grants),
     ] {
         section(&mut bytes, name, data.as_bytes());
     }
+    bytes
+}
+
+/// Adds the official revision identity consumed by update admission.
+fn component(version: &str, source: &str, valid: bool) -> Vec<u8> {
+    requesting(
+        version,
+        source,
+        valid,
+        "{\"camera\":true,\"settings\":true}",
+    )
+}
+
+/// Builds an updatable component like [`component`] that requests `grants`.
+fn requesting(version: &str, source: &str, valid: bool, grants: &str) -> Vec<u8> {
+    let mut bytes = requesting_without_revision(version, source, valid, grants);
+    let revision = {
+        use sha2::{Digest, Sha256};
+        format!(
+            "{:x}",
+            Sha256::digest(version.trim_start_matches('v').as_bytes())
+        )[..40]
+            .to_owned()
+    };
+    section(&mut bytes, mod_api::REVISION_UPDATE_SECTION, serde_json::json!({"source":source, "package":ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE,"revision":revision,"api_revision":"a".repeat(40)}).to_string().as_bytes());
     bytes
 }
 
@@ -318,9 +350,9 @@ fn reloading_waits_for_the_new_runtime_ack_and_preserves_grants() {
     completion.recv().unwrap();
 }
 
-/// Packet reactors use the same opt-in update flow and keep the user's existing grants.
+/// Legacy packet update sections cannot authorize replacing a local component.
 #[test]
-fn automatic_packet_install_preserves_registration_and_authority() {
+fn local_packet_update_sections_do_not_authorize_replacement() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("packet.wasm");
     let code = include_str!("../../../../../crates/mod-host/src/packet_mod/tests/guest.wat")
@@ -347,7 +379,60 @@ fn automatic_packet_install_preserves_registration_and_authority() {
         "zoom.wasm",
         &next,
     );
-    install::<AppBackend>(directory.path(), &download).unwrap();
-    assert_eq!(fs::read(&path).unwrap(), next);
+    assert!(install::<AppBackend>(directory.path(), &download).is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
     assert_eq!(selection::registered(&config)[0].entry, before);
+}
+
+#[test]
+fn an_update_requesting_a_new_permission_asks_for_review_without_granting_it() {
+    let label = mod_host::ModGrants::CAPABILITIES
+        .iter()
+        .find(|capability| capability.name == "render_material")
+        .unwrap()
+        .label;
+    for adds in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let mods = directory.path().join("mods");
+        let config = directory.path().join("config");
+        fs::create_dir(&mods).unwrap();
+        let path = mods.join("client.wasm");
+        let old_request = r#"{"camera":true,"settings":true}"#;
+        fs::write(&path, requesting("1.0.0", SOURCE, true, old_request)).unwrap();
+        selection::select(&config, &path, true, "enabled".into()).unwrap();
+        selection::allow_requested(&config, &path, "consent".into()).unwrap();
+        let before = selection::registered(&config).remove(0).entry;
+        let previous = scan(&mods, &config, String::new()).installed.remove(0);
+        let new_request = if adds {
+            r#"{"camera":true,"settings":true,"render_material":true}"#
+        } else {
+            old_request
+        };
+        let next = requesting("1.1.0", SOURCE, true, new_request);
+        let download =
+            Downloaded::fixture(previous.id, "1.1.0", "example/zoom", "zoom.wasm", &next);
+        let mut installed = install::<AppBackend>(&mods, &download).unwrap();
+        installed.review_new_requests::<AppBackend>(&previous, &config);
+        assert_eq!(
+            installed.message.contains("It requests new permissions"),
+            adds,
+            "{}",
+            installed.message
+        );
+        assert_eq!(installed.message.contains(label), adds);
+        assert_eq!(selection::registered(&config)[0].entry, before);
+        let card = scan(&mods, &config, String::new()).installed.remove(0);
+        let waiting: Vec<_> = card
+            .awaiting_approval()
+            .map(|index| card.permissions[index].name.as_str())
+            .collect();
+        assert_eq!(waiting, if adds { vec![label] } else { Vec::new() });
+        selection::allow_requested(&config, &path, "approve".into()).unwrap();
+        assert_eq!(
+            selection::registered(&config)[0].entry.grants,
+            serde_json::from_str::<mod_host::ModGrants>(new_request).unwrap()
+        );
+        let card = scan(&mods, &config, String::new()).installed.remove(0);
+        assert_eq!(card.awaiting_approval().count(), 0);
+    }
 }

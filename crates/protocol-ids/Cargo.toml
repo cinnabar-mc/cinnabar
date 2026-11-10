@@ -5,5 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["docs/evidence/material-behavior.tsv"]
+
 [lints]
 workspace = true

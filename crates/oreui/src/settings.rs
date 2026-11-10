@@ -256,10 +256,14 @@ fn header(
         [0.0, height, width, height + canvas.r(0.4)],
         theme::HEADER_STRIP,
     )?;
-    let title = translate("hbui.Settings.title")
-        .or_else(|| translate("menu.settings.caps"))
-        .or_else(|| translate("menu.settings"))
-        .map_or_else(|| "Settings".to_owned(), |text| text.to_string());
+    let title = localization::locale_text("hbui.Settings.title", view.settings_options.language())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            translate("hbui.Settings.title")
+                .or_else(|| translate("menu.settings.caps"))
+                .or_else(|| translate("menu.settings"))
+                .map_or_else(|| "Settings".to_owned(), |text| text.to_string())
+        });
     canvas.text_centred(
         &title.to_uppercase(),
         [canvas.r(4.4), 0.0, width - canvas.r(4.4), height],
@@ -363,6 +367,31 @@ impl Content<'_, '_> {
         Ok(())
     }
 
+    /// Draws `text` above a determinate bar, both inside one row with the row's padding.
+    pub(super) fn progress_row(&mut self, text: &str, fraction: f32) -> Result<(), PaintError> {
+        let [left, right] = self.inset();
+        let bar = self.canvas.r(theme::PROGRESS_HEIGHT);
+        let pad = self.canvas.r(1.2);
+        let b = self.row("", text, right - left, None, bar + pad)?;
+        self.texts(b, "", text, right - left, bar + pad)?;
+        let bottom = b[3] - pad;
+        crate::progress::track(
+            self.canvas,
+            [left, bottom - bar, right, bottom],
+            Some(fraction),
+        )
+    }
+
+    fn title_height(&mut self, title: &str, width: f32) -> Result<f32, PaintError> {
+        if title.is_empty() {
+            return Ok(0.0);
+        }
+        Ok(self
+            .canvas
+            .measure_height(title, width.max(1.0), BODY)?
+            .max(self.canvas.r(BODY.line)))
+    }
+
     fn row(
         &mut self,
         title: &str,
@@ -371,10 +400,7 @@ impl Content<'_, '_> {
         action: Option<MenuAction>,
         extra: f32,
     ) -> Result<Bounds, PaintError> {
-        let title_height = self
-            .canvas
-            .measure_height(title, width.max(1.0), BODY)?
-            .max(self.canvas.r(BODY.line));
+        let title_height = self.title_height(title, width)?;
         let description_height = if description.is_empty() {
             0.0
         } else {
@@ -439,10 +465,7 @@ impl Content<'_, '_> {
         extra: f32,
     ) -> Result<(), PaintError> {
         let left = self.inset()[0];
-        let title_height = self
-            .canvas
-            .measure_height(title, width.max(1.0), BODY)?
-            .max(self.canvas.r(BODY.line));
+        let title_height = self.title_height(title, width)?;
         let description_height = if description.is_empty() {
             0.0
         } else {
@@ -451,10 +474,13 @@ impl Content<'_, '_> {
                 .max(self.canvas.r(CAPTION.line))
         };
         let top = (b[1] + b[3] - extra - title_height - description_height) * 0.5;
-        let height = self
-            .canvas
-            .text(title, [left, top], width.max(1.0), BODY, TEXT, false)?
-            .max(self.canvas.r(BODY.line));
+        let height = if title.is_empty() {
+            0.0
+        } else {
+            self.canvas
+                .text(title, [left, top], width.max(1.0), BODY, TEXT, false)?
+                .max(self.canvas.r(BODY.line))
+        };
         if !description.is_empty() {
             self.canvas.text(
                 description,
@@ -535,7 +561,7 @@ impl Content<'_, '_> {
                 let [left, right] = self.inset();
                 let shown = match id {
                     SettingId::FieldOfView => format!("{value}°"),
-                    SettingId::RenderDistance => self
+                    SettingId::RenderDistance | SettingId::CloudDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
                     SettingId::MaxFramerate => {

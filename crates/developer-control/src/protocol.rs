@@ -153,6 +153,54 @@ pub enum Condition {
     InWorld,
     /// A non-looping camera path has reached its last keyframe.
     CameraFinished,
+    /// An inventory screen is open and accepts clicks on its cells.
+    InventoryReady,
+    /// No inventory request is waiting for the server's answer.
+    InventorySettled,
+}
+
+/// The cells of an open inventory screen that an [`InventoryClick`] can address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InventoryContainer {
+    /// Player slots 0..=35: the hotbar is 0..=8, the main inventory 9..=35.
+    Inventory,
+    /// Armor slots 0..=3, head first.
+    Armor,
+    /// The offhand, slot 0.
+    Offhand,
+    /// The open chest or other storage window's cells, from 0.
+    Container,
+    /// The crafting grid in row-major order: 0..=3 for the inventory screen's 2x2 grid,
+    /// 0..=8 for a crafting table's 3x3 grid.
+    CraftingInput,
+    /// The crafting result, slot 0.
+    CraftingOutput,
+}
+
+/// Which mouse button a click uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClickButton {
+    /// Takes, places, merges or swaps the whole stack.
+    #[default]
+    Left,
+    /// Takes half of a stack with an empty cursor, or places one held item.
+    Right,
+}
+
+/// One complete click on an open inventory screen's cell, as the player's pointer makes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryClick {
+    pub container: InventoryContainer,
+    #[serde(default)]
+    pub slot: u16,
+    #[serde(default)]
+    pub button: ClickButton,
+    /// Shift-click: moves the stack to the other side of the screen.
+    #[serde(default)]
+    pub shift: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -246,6 +294,17 @@ pub enum Command {
         kind: CrashKind,
     },
     State,
+    /// Opens the player's inventory as the inventory key does. The reply waits until the
+    /// screen accepts clicks, but never for the server's answer to anything.
+    InventoryOpen,
+    /// Closes the open inventory or container screen as the player does, which returns held
+    /// and crafting-grid items.
+    InventoryClose,
+    /// Clicks a cell of the open screen. The reply comes once the client has predicted the
+    /// result and queued its request, without waiting for the server.
+    InventoryClick(InventoryClick),
+    /// Reports the client's own view of the cursor, inventory and crafting grid.
+    Inventory,
     /// Read-only timing and effective-setting observations for a diagnostic benchmark.
     BenchmarkState,
     WaitFor {

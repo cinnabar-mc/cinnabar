@@ -68,7 +68,7 @@ let drawing = api::create(&draw).expect("drawing instance admitted");
 
 Keep both handles in your state and `update` the instance to move the drawing instead of rebuilding geometry. Handles belong to one component and session: session changes, reload, revocation and dimension transfers invalidate them. Explicit instances persist until removed or revoked; frame groups expire on the next successful callback.
 
-The `masks` interface builds retained union silhouettes of actors under `entity_highlight`: resolve an actor with `entity`, `create` a mask, `select` its members, `set_style` its outline and glow, and optionally `register_effect` a post effect sampling it, which also needs `render_post`. The `entity` lookup additionally needs `entity_observe` and `render_through_walls`; masks that ignore depth also need `render_through_walls`. At most `MAX_MASKS` (8) masks with `MAX_MASK_ENTITIES` (32) actors each; both constants are in `mod_api::drawing`.
+The `masks` interface builds retained union silhouettes of actors under `entity_highlight`: resolve an actor with `entity`, `create` a mask, `select` its members, `set_style` its outline and glow, and optionally `register_effect` a post effect sampling it, which also needs `render_post`. The `entity` lookup additionally needs `entity_observe`, and without `render_through_walls` it resolves only the actors `observe_entities` reports. Masks that ignore depth also need `render_through_walls`, so a depth-tested mask covers only the parts of actors not hidden behind terrain. At most `MAX_MASKS` (8) masks with `MAX_MASK_ENTITIES` (32) actors each; both constants are in `mod_api::drawing`.
 
 ## Terrain
 
