@@ -145,6 +145,10 @@ fn new_stream(assets: &Arc<assets::RuntimeEntityAssets>, local_id: u64) -> World
     stream
 }
 
+/// Where the crowd stands: outside the view even with the wide model its controller selects,
+/// which a player draws beside or instead of its skin.
+const OFFSCREEN_FEET: [f32; 3] = [40.0, 0.0, -5.0];
+
 /// Publishes real roster appearances before spawning remote players in runtime-id order.
 fn player_world(
     assets: &Arc<assets::RuntimeEntityAssets>,
@@ -185,7 +189,7 @@ fn player_world(
                     if id == visible {
                         visible_feet
                     } else {
-                        [8.0, 0.0, -5.0]
+                        OFFSCREEN_FEET
                     },
                 ))),
             )

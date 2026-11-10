@@ -947,6 +947,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
                     assets: &assets,
                     bones: &bones,
                     owner_names: &bones.names,
+                    owner_layers: &[],
                     geometry: (0, 0),
                     local,
                     paired: true,
@@ -1005,6 +1006,7 @@ fn attachment_placement_shared_endpoint_composes_once() {
                 assets: &runtime.assets,
                 bones: &bones,
                 owner_names: &bones.names,
+                owner_layers: &[],
                 geometry: (0, 0),
                 local: &local,
                 hidden: &Arc::from([]),
@@ -1022,6 +1024,106 @@ fn attachment_placement_shared_endpoint_composes_once() {
     assert_eq!(work, 1);
     assert!(Arc::ptr_eq(&poses[0], &poses[1]));
 }
+/// An owner controller layer drawing `geometry` (the body when `None`) between two poses.
+fn owner_layer(
+    geometry: Option<u32>,
+    previous: actor_animation::BoneTransform,
+    current: actor_animation::BoneTransform,
+) -> actor_animation::RenderTextureLayer {
+    actor_animation::RenderTextureLayer {
+        material: Default::default(),
+        material_state: None,
+        source: 0,
+        texture_slot: 0,
+        multitexture: None,
+        color: [1.0; 4],
+        overlay: [0.0; 4],
+        hidden_bones: Arc::from([]),
+        uv_anim: render_model::IDENTITY_UV_ANIM,
+        geometry,
+        previous_pose: Arc::from([previous]),
+        pose: Arc::from([current]),
+        ignore_lighting: false,
+        light_color_multiplier: 1.0,
+        sampled_scale: None,
+        runtime_skin: false,
+        pack: true,
+    }
+}
+
+const STILL: actor_animation::BoneTransform = actor_animation::BoneTransform {
+    rotation: [0.0, 0.0, 0.0, 1.0],
+    translation_scale: [0.0, 0.0, 0.0, 1.0],
+    axis_scale: [1.0; 3],
+};
+
+/// A root may follow a controller model's bone, so that model moving makes placement depend on
+/// the frame time even while the body stands still.
+#[test]
+fn attachment_placement_interpolates_a_moving_controller_model_on_a_still_body() {
+    let (_, mut body, _) = block_fixture();
+    body.input.current_bones = Arc::clone(&body.input.previous_bones);
+    let moved = actor_animation::BoneTransform {
+        translation_scale: [0.0, 1.0, 0.0, 1.0],
+        ..STILL
+    };
+    assert!(!placement_cache::owner_changing(&body, &[]));
+    assert!(!placement_cache::owner_changing(
+        &body,
+        &[owner_layer(Some(1), STILL, STILL)]
+    ));
+    assert!(placement_cache::owner_changing(
+        &body,
+        &[owner_layer(Some(1), STILL, moved)]
+    ));
+}
+
+/// A root takes the first drawing layer that has its bone, so a body layer ahead of an
+/// unchanged model turning off moves the root even though no pose changed.
+#[test]
+fn attachment_placement_recomposes_when_the_body_layer_leaves_the_controller_order() {
+    let (runtime, body, _) = block_fixture();
+    let bones = body_bones(vec!["rightItem".into()]);
+    let local = [STILL];
+    let hidden = Arc::from([]);
+    let model = owner_layer(Some(1), STILL, STILL);
+    let ahead = [owner_layer(None, STILL, STILL), model.clone()];
+    let alone = [model];
+    let mut cache = placement_cache::PlacementCache::default();
+    let mut work = 0;
+    let mut sample = |owner_layers: &[actor_animation::RenderTextureLayer]| {
+        cache
+            .sample(
+                &body,
+                (true, 0),
+                1,
+                placement_cache::Inputs {
+                    assets: &runtime.assets,
+                    bones: &bones,
+                    owner_names: &bones.names,
+                    owner_layers,
+                    geometry: (0, 0),
+                    local: &local,
+                    hidden: &hidden,
+                    scale: [1.0; 3],
+                    alpha: None,
+                    paired: false,
+                },
+                |_, _| {
+                    work += 1;
+                    Some(body.input.current_bones[0])
+                },
+            )
+            .unwrap();
+    };
+    sample(&ahead);
+    // Body layers carry no pose of their own, so fresh empty poses still match.
+    sample(&[owner_layer(None, STILL, STILL), alone[0].clone()]);
+    sample(&alone);
+    drop(sample);
+    assert_eq!(work, 2);
+}
+
 mod walls;
 
 #[test]
