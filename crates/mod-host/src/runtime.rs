@@ -16,10 +16,10 @@ mod world_entry_tests;
 mod world_lifecycle;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
-    GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
-    ModGrants, ModScreens, PlayerStateSnapshot,
+    GameplayMovementSnapshot, GameplaySnapshot, MEMORY_BYTES, ModCue, ModEvent, ModGrants,
+    ModScreens, PlayerStateSnapshot,
 };
-use anyhow::{Result, bail};
+use anyhow::Result;
 use server_experience::{
     runtime::{CALLBACK_FUEL, LOAD_FUEL},
     screen::ScreenLayout as HostLayout,
@@ -193,63 +193,6 @@ impl State {
             touch: Default::default(),
             clock: None,
         }
-    }
-}
-
-impl cinnabar::extension::hud::Host for State {
-    fn local_message(&mut self, text: String) -> Result<Result<(), String>> {
-        hud::local_message(self, text)
-    }
-    /// Stages the mod's retained surface; it publishes when the callback succeeds.
-    fn set_surface(&mut self, json: String) -> Result<Result<(), String>> {
-        hud::surface::set(self, json)
-    }
-
-    /// Patches the staged or committed surface's bindings and collection order.
-    fn update_surface(&mut self, json: String) -> Result<Result<(), String>> {
-        hud::surface::update(self, json)
-    }
-
-    fn read_viewport(&mut self) -> Result<Option<cinnabar::extension::hud::Viewport>> {
-        Ok(hud::surface::viewport(self))
-    }
-
-    fn measure_text(
-        &mut self,
-        text: String,
-        font: cinnabar::extension::hud::Font,
-    ) -> Result<Result<f32, String>> {
-        Ok(hud::surface::measure(self, &text, font))
-    }
-
-    fn set_hidden_elements(
-        &mut self,
-        elements: Vec<cinnabar::extension::hud::VanillaElement>,
-    ) -> Result<Result<(), String>> {
-        hud::surface::set_hidden(self, elements)
-    }
-
-    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
-        hud::surface::set_position_hidden(self, hidden)
-    }
-
-    fn read_elements(
-        &mut self,
-    ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
-        Ok(hud::surface::elements(self))
-    }
-
-    /// Stages bounded plain text; nothing is published until the guest returns.
-    fn set_label(&mut self, text: String) -> Result<Result<(), String>> {
-        self.writes += 1;
-        if self.writes > MAX_IMPORT_WRITES {
-            bail!("HUD import budget exhausted");
-        }
-        if text.len() > MAX_LABEL_BYTES || text.chars().any(|c| c.is_control() || c == '§') {
-            return Ok(Err("label must be short plain text".into()));
-        }
-        self.pending = Some(text);
-        Ok(Ok(()))
     }
 }
 

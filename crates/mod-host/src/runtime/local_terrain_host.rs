@@ -83,6 +83,53 @@ mod tests {
     use super::*;
     use api::Host as _;
 
+    struct PendingSource;
+
+    impl native::Source for PendingSource {
+        /// Models a managed server that has not completed its first scan.
+        fn read(&self, _: &native::Query) -> Result<Option<Arc<native::Region>>, native::Error> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn callbacks_keep_local_terrain_reads_without_restoring_revoked_sources() {
+        let mut state = State::new(
+            crate::ModGrants {
+                local_terrain: true,
+                ..Default::default()
+            },
+            String::new(),
+            Default::default(),
+        );
+        state.player_state.world = Some(crate::WorldObservation {
+            session: 1,
+            world: "local-terrain-fixture".into(),
+            dimension: 0,
+            position: (0., 64., 0.),
+            alive: true,
+            runtime_id: 1,
+        });
+        state.local_terrain = Some(Arc::new(PendingSource));
+        let mut callback = state.frame_transaction();
+        state.local_terrain = None;
+        let query = api::Query {
+            dimension: 0,
+            min: super::super::cinnabar::extension::terrain::Position { x: 0, y: 64, z: 0 },
+            size: (1, 1, 1),
+            load: false,
+        };
+        assert_eq!(
+            callback.read_region(query.clone(), None).unwrap(),
+            Ok(ReadResult::Pending)
+        );
+        state.accept_frame(callback, true, true, 0);
+        assert_eq!(
+            state.read_region(query, None).unwrap(),
+            Err(ReadError::Unavailable)
+        );
+    }
+
     #[test]
     fn local_server_reads_require_independent_observation_and_loading_consent() {
         let mut state = State::new(Default::default(), String::new(), Default::default());

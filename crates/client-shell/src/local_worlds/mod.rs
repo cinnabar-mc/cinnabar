@@ -4,8 +4,8 @@
 //! the attached core where the open world is. The menu module embeds it by calling `attach`,
 //! `input`, `menu` and `take_ready`.
 
-use launcher::menu::settings_options::SettingId;
 mod client;
+mod focus;
 mod local_terrain;
 
 use launcher::local_worlds::model;
@@ -18,7 +18,7 @@ use launcher::install_layout::InstallLayout;
 use launcher_host::local_worlds::{Host, Manager};
 
 use bevy::{
-    prelude::{App, MessageReader, Plugin, Res, ResMut, Resource, Update},
+    prelude::{App, Plugin, ResMut, Resource, Update},
     window::WindowFocused,
 };
 
@@ -255,32 +255,6 @@ fn pump_local_worlds(mut worlds: ResMut<LocalWorlds>) {
     worlds.pump();
 }
 
-/// Applies the desktop focus preference before forwarding focus changes to the local world.
-fn pause_on_focus(
-    mut focus: MessageReader<WindowFocused>,
-    mut worlds: ResMut<LocalWorlds>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    desktop_focus: Option<Res<client_state::CursorFocus>>,
-    driven: Option<Res<client_state::DrivenInput>>,
-) {
-    if let Some(menu) = menu {
-        worlds.pause_on_unfocus = menu
-            .settings_snapshot()
-            .0
-            .value(SettingId::PauseMenuOnFocusLost)
-            != 0;
-        worlds.sync_pause();
-    }
-    if let Some(desktop_focus) = desktop_focus {
-        focus.clear();
-        worlds.focus_changed(driven.is_some() || desktop_focus.available());
-    } else {
-        for message in focus.read() {
-            worlds.focus_changed(message.focused);
-        }
-    }
-}
-
 /// Registers [`LocalWorlds`] (inert until attached) and its per-frame systems.
 pub struct LocalWorldsPlugin;
 
@@ -288,7 +262,7 @@ impl Plugin for LocalWorldsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<WindowFocused>()
             .init_resource::<LocalWorlds>()
-            .add_systems(Update, (pump_local_worlds, pause_on_focus));
+            .add_systems(Update, (pump_local_worlds, focus::pause_on_focus));
     }
 }
 
