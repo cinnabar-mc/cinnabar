@@ -276,6 +276,8 @@ type Op struct {
 	PassInteraction  *PassInteractionOp
 	SetContainerSlot *SetContainerSlotOp
 	SetRedstonePower *SetRedstonePowerOp
+	SetVelocity      *SetVelocityOp
+	KnockBack        *KnockBackOp
 }
 
 // PassInteractionOp passes an interaction's click on: once the rest of its result commits, the
@@ -744,6 +746,10 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(setContainerSlotWire{variantTag{typeSetContainerSlot}, o.SetContainerSlot})
 	case o.SetRedstonePower != nil:
 		return json.Marshal(setRedstonePowerWire{variantTag{typeSetRedstonePower}, o.SetRedstonePower})
+	case o.SetVelocity != nil:
+		return json.Marshal(setVelocityWire{variantTag{typeSetVelocity}, o.SetVelocity})
+	case o.KnockBack != nil:
+		return json.Marshal(knockBackWire{variantTag{typeKnockBack}, o.KnockBack})
 	}
 	return nil, errors.New("empty op")
 }
@@ -789,6 +795,10 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &setContainerSlotWire{SetContainerSlotOp: fresh(&o.SetContainerSlot)})
 	case typeSetRedstonePower:
 		return decodeStrict(data, &setRedstonePowerWire{SetRedstonePowerOp: fresh(&o.SetRedstonePower)})
+	case typeSetVelocity:
+		return decodeStrict(data, &setVelocityWire{SetVelocityOp: fresh(&o.SetVelocity)})
+	case typeKnockBack:
+		return decodeStrict(data, &knockBackWire{KnockBackOp: fresh(&o.KnockBack)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

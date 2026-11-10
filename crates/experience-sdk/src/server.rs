@@ -35,6 +35,7 @@
 //! `redstone` block reads the power it receives with [`Callback::redstone_power`] and sets what
 //! it emits with [`Callback::set_redstone_power`]. [`Callback::game_mode`] reads the actor's
 //! [`GameMode`], and [`Callback::pose`] where it faces and how it moves, as a [`PlayerPose`].
+//! [`Callback::set_velocity`] and [`Callback::knock_back`] move the actor.
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
