@@ -1,7 +1,7 @@
-//! Bucket targets through the production interaction producer and negotiated item registry.
+//! Bucket and bottle targets through the production interaction producer and negotiated item registry.
 
 use super::*;
-use assets::facts::EMPTY_BUCKET_IDENTIFIER;
+use assets::facts::{EMPTY_BUCKET_IDENTIFIER, GLASS_BOTTLE_IDENTIFIER};
 
 /// Replaces the chest with a liquid and puts an ordinary block behind it.
 fn liquid_fixture(
@@ -113,6 +113,21 @@ fn empty_bucket_clicks_the_liquid_source_instead_of_the_block_behind_it() {
 }
 
 #[test]
+fn glass_bottle_clicks_the_water_source_instead_of_the_block_behind_it() {
+    assert!(
+        protocol::vanilla_item_registry()
+            .iter()
+            .any(|entry| entry.identifier.as_ref() == GLASS_BOTTLE_IDENTIFIER)
+    );
+    let (mut world, mut captured) =
+        liquid_fixture(GLASS_BOTTLE_IDENTIFIER, 0, "minecraft:water", 0, false);
+    world.run_system_cached(produce_block_use).unwrap();
+    assert_eq!(transaction_targets(&mut captured), [[4, 2, 6]]);
+    let player = world.resource::<client_state::PlayerRuntime>();
+    assert_eq!(player.selected_stack().unwrap().count, 1);
+}
+
+#[test]
 fn liquid_pick_keeps_flowing_liquids_other_items_and_solid_occluders_distinct() {
     for (item, metadata, depth, obstructed, expected) in [
         (EMPTY_BUCKET_IDENTIFIER, 0, 1, false, [4, 2, 5]),
@@ -121,6 +136,8 @@ fn liquid_pick_keeps_flowing_liquids_other_items_and_solid_occluders_distinct() 
         ("minecraft:diamond_sword", 0, 0, false, [4, 2, 5]),
         ("fixture:bucket", 0, 0, false, [4, 2, 5]),
         (EMPTY_BUCKET_IDENTIFIER, 0, 0, true, [4, 2, 7]),
+        (GLASS_BOTTLE_IDENTIFIER, 0, 1, false, [4, 2, 5]),
+        (GLASS_BOTTLE_IDENTIFIER, 0, 0, true, [4, 2, 7]),
     ] {
         let (mut world, mut captured) =
             liquid_fixture(item, metadata, "minecraft:water", depth, obstructed);

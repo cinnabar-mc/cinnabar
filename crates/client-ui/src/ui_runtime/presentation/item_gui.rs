@@ -71,7 +71,12 @@ pub(super) fn cutout_cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option
             faces[face as usize],
         )
     });
-    block_model(&quads, lighting, BlockModelOrder::Depth)
+    block_model(
+        &quads,
+        assets::gui_item::GuiShading::Inventory,
+        lighting,
+        BlockModelOrder::Depth,
+    )
 }
 
 /// Converts directional face lighting or uniform brightness to the shared byte-space tint.

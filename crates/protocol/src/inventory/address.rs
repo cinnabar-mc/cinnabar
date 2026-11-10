@@ -29,26 +29,26 @@ use super::windows::{
     is_chest_like_name, is_open_window_name, is_result_preview_name, ui_slot_for_name,
 };
 
-/// `ContainerEnumName::Armorcontainer`, the player armor surface.
+/// `ContainerEnumName::ArmorContainer`, the player armor surface.
 pub const CONTAINER_NAME_ARMOR: u8 = ContainerName::Armor.wire_value();
-/// `ContainerEnumName::Levelentitycontainer`, the generic screen-specific
+/// `ContainerEnumName::LevelEntityContainer`, the generic screen-specific
 /// storage surface keyed by its dynamic container id.
 pub const CONTAINER_NAME_LEVEL_ENTITY: u8 = ContainerName::LevelEntity.wire_value();
-/// `ContainerEnumName::Combinedhotbarandinventorycontainer`, the combined
+/// `ContainerEnumName::CombinedHotbarAndInventoryContainer`, the combined
 /// player inventory surface every gesture request names.
 pub const CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY: u8 =
     ContainerName::CombinedHotBarAndInventory.wire_value();
 /// The distinct personal crafting input surface; wire cells 28..31.
 pub const CONTAINER_NAME_CRAFT_INPUT: u8 = ContainerName::CraftingInput.wire_value();
-/// `ContainerEnumName::Inventorycontainer`, the player-inventory name that
+/// `ContainerEnumName::InventoryContainer`, the player-inventory name that
 /// rides the legacy player window (the pinned fixture corpus encodes this shape).
 pub const CONTAINER_NAME_INVENTORY: u8 = ContainerName::Inventory.wire_value();
-/// `ContainerEnumName::Offhandcontainer`.
+/// `ContainerEnumName::OffhandContainer`.
 pub const CONTAINER_NAME_OFFHAND: u8 = ContainerName::Offhand.wire_value();
-/// `ContainerEnumName::Cursorcontainer`.
+/// `ContainerEnumName::CursorContainer`.
 pub const CONTAINER_NAME_CURSOR: u8 = ContainerName::Cursor.wire_value();
 
-/// `ContainerEnumName::Dynamiccontainer`, a bundle's contents keyed by dynamic id.
+/// `ContainerEnumName::DynamicContainer`, a bundle's contents keyed by dynamic id.
 pub const CONTAINER_NAME_DYNAMIC: u8 = ContainerName::Dynamic.wire_value();
 
 /// The combined player-inventory window id (`CONTAINER_ID_INVENTORY`).
@@ -242,7 +242,7 @@ pub fn personal_craft_slot_index(identity: &ContainerIdentity, slot: u16) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::enums::ContainerEnumName;
+    use bedrock_protocol_1_26_60::enums::ContainerEnumName;
 
     use super::*;
 
@@ -481,23 +481,23 @@ mod tests {
         let pairs = [
             (
                 CONTAINER_NAME_CRAFT_INPUT,
-                ContainerEnumName::Craftinginputcontainer,
+                ContainerEnumName::CraftingInputContainer,
             ),
-            (CONTAINER_NAME_ARMOR, ContainerEnumName::Armorcontainer),
+            (CONTAINER_NAME_ARMOR, ContainerEnumName::ArmorContainer),
             (
                 CONTAINER_NAME_LEVEL_ENTITY,
-                ContainerEnumName::Levelentitycontainer,
+                ContainerEnumName::LevelEntityContainer,
             ),
             (
                 CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY,
-                ContainerEnumName::Combinedhotbarandinventorycontainer,
+                ContainerEnumName::CombinedHotbarAndInventoryContainer,
             ),
             (
                 CONTAINER_NAME_INVENTORY,
-                ContainerEnumName::Inventorycontainer,
+                ContainerEnumName::InventoryContainer,
             ),
-            (CONTAINER_NAME_OFFHAND, ContainerEnumName::Offhandcontainer),
-            (CONTAINER_NAME_CURSOR, ContainerEnumName::Cursorcontainer),
+            (CONTAINER_NAME_OFFHAND, ContainerEnumName::OffhandContainer),
+            (CONTAINER_NAME_CURSOR, ContainerEnumName::CursorContainer),
         ];
         for (pinned, generated) in pairs {
             assert_eq!(pinned, encoded_name(generated));
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn named_inventory_alias_on_the_legacy_window_converges_with_unnamed_window_zero() {
-        let inventory_name = encoded_name(ContainerEnumName::Inventorycontainer);
+        let inventory_name = encoded_name(ContainerEnumName::InventoryContainer);
         let expected = CanonicalCell::PlayerInventory(4);
         assert_eq!(
             project_container_cell(&identity(0, Some(inventory_name)), 4),

@@ -44,7 +44,6 @@ const VANILLA_SOURCE_JSON: &str = crate::VANILLA_SOURCE_MANIFEST;
 const FONT_SOURCE_JSON: &str = include_str!("../../../../assets/cinnangles-sans-source.json");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
-const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = crate::MAX_ENTITY_CATALOG_BYTES as u64;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -70,11 +69,12 @@ pub struct CarrierMetrics {
     pub missing_mapping_count: u64,
 }
 
-/// Validated artwork needed by the menu, independent of world and actor decoding.
+/// Required startup artwork, reusable by deferred world decoding.
 #[derive(Clone)]
 pub struct MenuAssets {
     pub atmosphere: LoadedAtmosphereAssets,
     pub fonts: LoadedFontAssets,
+    pub entities: LoadedEntityAssets,
 }
 
 pub struct LoadedAssets {
@@ -98,6 +98,7 @@ pub struct LoadedAtmosphereAssets {
     selected_path: PathBuf,
 }
 
+#[derive(Clone)]
 pub struct LoadedEntityAssets {
     runtime: Arc<RuntimeEntityAssets>,
     identity: [u8; 32],

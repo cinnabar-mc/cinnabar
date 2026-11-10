@@ -27,11 +27,12 @@ const BADGE_WIDTH: f64 = 9.0;
 const HEAD_WIDTH: f64 = 9.0;
 
 /// One roster entry as the tab list draws it; the badge belongs to this entry, not its name.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RosterRow {
     pub name: Arc<str>,
     pub badged: bool,
-    pub annotation: Option<Arc<ui::mod_hud::CounterAnnotation>>,
+    /// Mod spans beside the name; spans placed above follow it, as a row has no line above.
+    pub annotation: Option<Arc<ui::mod_presentation::Spans>>,
     /// The admitted skin for this UUID; absent or unusable skins display Steve.
     pub skin: Option<render_api::StandardSkin>,
 }
@@ -55,6 +56,8 @@ pub struct PlayerList {
     data: Arc<DataSource>,
     dimensions: [usize; 2],
     geometry: Option<Geometry>,
+    header_source: String,
+    header: String,
     context: Context,
     portraits: BTreeMap<String, render_model::UiTexturePage>,
     heads: Vec<String>,
@@ -83,9 +86,50 @@ impl PlayerList {
             data: Arc::default(),
             dimensions: [0, 0],
             geometry: None,
+            header_source: String::new(),
+            header: String::new(),
             context: Context::default(),
             portraits: BTreeMap::new(),
             heads: Vec::new(),
+        }
+    }
+
+    /// Updates the optional level heading without rebuilding unchanged player portraits.
+    pub fn set_header(&mut self, header: &str) {
+        if self.header_source == header {
+            return;
+        }
+        self.header_source = header.to_owned();
+        self.header = header.split_whitespace().collect::<Vec<_>>().join(" ");
+        self.geometry = None;
+        self.bind_header();
+    }
+
+    /// Publishes the heading independently from roster changes.
+    fn bind_header(&mut self) {
+        let data = Arc::make_mut(&mut self.data);
+        data.set_global("#server_header", Scalar::Text(self.header.clone()));
+        data.set_global(
+            "#server_header_visible",
+            Scalar::Bool(!self.header.is_empty()),
+        );
+    }
+
+    /// The vertical space reserved only when a level name is available.
+    fn header_height(&self) -> f64 {
+        if self.header.is_empty() {
+            0.0
+        } else {
+            ROW_HEIGHT + 4.0
+        }
+    }
+
+    /// The displayed count includes the existing visible-roster disclosure.
+    fn title(&self) -> String {
+        if self.total > MAX_PLAYERS {
+            format!("Online players: {} (first {MAX_PLAYERS})", self.total)
+        } else {
+            format!("Online players: {}", self.total)
         }
     }
 
@@ -123,19 +167,17 @@ impl PlayerList {
             self.dimensions = [columns, rows];
             self.geometry = None;
             let mut data = DataSource::new();
-            let title = if players.len() > MAX_PLAYERS {
-                format!("Online players: {} (first {MAX_PLAYERS})", players.len())
-            } else {
-                format!("Online players: {}", players.len())
-            };
+            let title = self.title();
             data.set_global("#online_title", Scalar::Text(title));
             data.set_grid_dimensions("#players_dimensions", [columns as u32, rows as u32]);
             self.data = Arc::new(data);
+            self.bind_header();
         }
         [columns, rows]
     }
 
-    /// Binds names and independently tinted counter runs after the measured column width is known.
+    /// Binds names and independently tinted annotation spans after the measured column width
+    /// is known. Spans keep their width before the name when the column is narrow.
     fn bind_rows(&mut self, width: f64, text: &dyn json_ui::TextMeasure) {
         let [columns, rows] = self.dimensions;
         let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
@@ -143,8 +185,8 @@ impl PlayerList {
             .map(|index| {
                 let row = self.rows.get(index);
                 let annotation = row.and_then(|row| row.annotation.as_deref());
-                let [name, prefix, count, space] = row.map_or([0.; 4], |row| row_widths(row, text));
-                let inner = (width
+                let widths = row.map(|row| row_widths(row, text)).unwrap_or_default();
+                let mut remaining = (width
                     - 8.
                     - HEAD_WIDTH
                     - if row.is_some_and(|row| row.badged) {
@@ -153,17 +195,20 @@ impl PlayerList {
                         0.
                     })
                 .max(0.);
-                let count = count.min(inner);
-                let prefix = prefix.min(inner - count);
-                let space = space.min(inner - count - prefix);
-                let name = name.min(inner - count - prefix - space);
-                let before = annotation.is_some_and(|annotation| annotation.before);
-                let name_x = 2. + HEAD_WIDTH + if before { prefix + count + space } else { 0. };
-                let prefix_x = 2. + HEAD_WIDTH + if before { 0. } else { name + space };
-                let rgba = |color: [u8; 4]| {
-                    Scalar::Json(serde_json::json!(color.map(|v| f64::from(v) / 255.)))
-                };
-                CollectionItem::default()
+                let spans = widths.spans.map(|span| {
+                    let span = span.min(remaining);
+                    remaining -= span;
+                    span
+                });
+                let space = widths.space.min(remaining);
+                let name = widths.name.min(remaining - space);
+                let before = annotation.is_some_and(|annotation| {
+                    annotation.position == ui::mod_presentation::SpanPosition::Before
+                });
+                let spans_width: f64 = spans.iter().sum();
+                let name_x = 2. + HEAD_WIDTH + if before { spans_width + space } else { 0. };
+                let mut span_x = 2. + HEAD_WIDTH + if before { 0. } else { name + space };
+                let mut item = CollectionItem::default()
                     .with(
                         "#player_name",
                         Scalar::Text(row.map_or_else(String::new, |row| row.name.to_string())),
@@ -181,50 +226,67 @@ impl PlayerList {
                         "#name_offset",
                         Scalar::Json(serde_json::json!([name_x, 0.])),
                     )
-                    .with("#name_width", Scalar::Num(name))
-                    .with(
-                        "#counter_prefix",
-                        Scalar::Text(annotation.map_or_else(String::new, |v| v.prefix.to_string())),
-                    )
-                    .with(
-                        "#counter_value",
-                        Scalar::Text(annotation.map_or_else(String::new, |v| v.value.to_string())),
-                    )
-                    .with(
-                        "#prefix_offset",
-                        Scalar::Json(serde_json::json!([prefix_x, 0.])),
-                    )
-                    .with(
-                        "#value_offset",
-                        Scalar::Json(serde_json::json!([prefix_x + prefix, 0.])),
-                    )
-                    .with("#prefix_width", Scalar::Num(prefix))
-                    .with("#value_width", Scalar::Num(count))
-                    .with(
-                        "#prefix_color",
-                        rgba(annotation.map_or([255; 4], |v| v.prefix_color)),
-                    )
-                    .with(
-                        "#value_color",
-                        rgba(annotation.map_or([255; 4], |v| v.value_color)),
-                    )
+                    .with("#name_width", Scalar::Num(name));
+                for (slot, width) in spans.into_iter().enumerate() {
+                    let span = annotation.and_then(|annotation| annotation.spans.get(slot));
+                    let color = span.map_or([1.; 4], |span| span.color);
+                    item = item
+                        .with(
+                            format!("#span_{slot}_text"),
+                            Scalar::Text(
+                                span.map_or_else(String::new, |span| span.text.to_string()),
+                            ),
+                        )
+                        .with(
+                            format!("#span_{slot}_offset"),
+                            Scalar::Json(serde_json::json!([span_x, 0.])),
+                        )
+                        .with(format!("#span_{slot}_width"), Scalar::Num(width))
+                        .with(
+                            format!("#span_{slot}_color"),
+                            Scalar::Json(serde_json::json!(color.map(f64::from))),
+                        )
+                        .with(
+                            format!("#span_{slot}_alpha"),
+                            Scalar::Num(f64::from(color[3])),
+                        );
+                    span_x += width;
+                }
+                item
             })
             .collect();
         Arc::make_mut(&mut self.data).set_collection("online_players", entries);
     }
 }
 
+/// Measured widths of one row's name, each annotation span slot and the gap between them.
+#[derive(Default)]
+struct RowWidths {
+    name: f64,
+    spans: [f64; ui::mod_presentation::MAX_ANNOTATION_SPANS],
+    space: f64,
+}
+
+impl RowWidths {
+    /// The unclipped width of the whole row.
+    fn total(&self) -> f64 {
+        self.name + self.spans.iter().sum::<f64>() + self.space
+    }
+}
+
 /// Shares actual font measurements between column sizing and clipped row placement.
-fn row_widths(row: &RosterRow, text: &dyn json_ui::TextMeasure) -> [f64; 4] {
-    let name = text.extent(&row.name)[0];
-    row.annotation.as_ref().map_or([name, 0., 0., 0.], |value| {
-        [
-            name,
-            text.extent(&value.prefix)[0],
-            text.extent(&value.value)[0],
-            text.extent(" ")[0],
-        ]
-    })
+fn row_widths(row: &RosterRow, text: &dyn json_ui::TextMeasure) -> RowWidths {
+    let mut widths = RowWidths {
+        name: text.extent(&row.name)[0],
+        ..Default::default()
+    };
+    if let Some(annotation) = &row.annotation {
+        for (width, span) in widths.spans.iter_mut().zip(&annotation.spans) {
+            *width = text.extent(&span.text)[0];
+        }
+        widths.space = text.extent(" ")[0];
+    }
+    widths
 }
 
 /// Atlas namespace owned by the roster's prepared portrait textures.
@@ -259,7 +321,8 @@ impl PlayerList {
         let language = frame.language;
         let top_inset = available_y.start.clamp(0., frame.content[1]);
         let bottom = available_y.end.clamp(top_inset, frame.content[1]);
-        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0) / ROW_HEIGHT)
+        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0 - self.header_height())
+            / ROW_HEIGHT)
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
         let [columns, rows] = self.refresh(players, max_rows);
@@ -280,21 +343,26 @@ impl PlayerList {
                 let widest = self
                     .rows
                     .iter()
-                    .map(|row| row_widths(row, env.text).iter().sum())
+                    .map(|row| row_widths(row, env.text).total())
                     .fold(60.0, f64::max);
                 let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
                 let width = (widest + 8.0 + HEAD_WIDTH + badge_width)
                     .min((root[0] - 8.0).max(1.0) / columns as f64);
                 self.bind_rows(width, env.text);
-                let title = format!("Online players: {}", self.total);
+                let title = self.title();
                 let panel_width = (width * columns as f64 + 4.0)
-                    .max(env.text.extent(&title)[0] + 4.0)
+                    .max(env.text.extent(&title)[0] + 12.0)
+                    .max(env.text.extent(&self.header)[0] + 12.0)
                     .min(root[0]);
                 self.context = Context::default()
                     .with_var("top_inset", serde_json::json!(top_inset / px))
                     .with_var("row_height", serde_json::json!(ROW_HEIGHT))
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
-                    .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
+                    .with_var("title_top", serde_json::json!(4.0 + self.header_height()))
+                    .with_var(
+                        "grid_top",
+                        serde_json::json!(ROW_HEIGHT + 8.0 + self.header_height()),
+                    )
                     .with_var("cell_width", serde_json::json!(width))
                     .with_var("head_size", serde_json::json!(HEAD_WIDTH - 1.0))
                     .with_var("name_offset", serde_json::json!(2.0 + HEAD_WIDTH))
@@ -306,7 +374,9 @@ impl PlayerList {
                     .with_var("panel_width", serde_json::json!(panel_width))
                     .with_var(
                         "panel_height",
-                        serde_json::json!(ROW_HEIGHT + 5.0 + rows as f64 * ROW_HEIGHT),
+                        serde_json::json!(
+                            ROW_HEIGHT + 11.0 + self.header_height() + rows as f64 * ROW_HEIGHT
+                        ),
                     );
                 self.geometry = Some(geometry);
             }

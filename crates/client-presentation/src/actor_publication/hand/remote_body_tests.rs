@@ -203,7 +203,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                 );
                 let mut layer_poses = crate::presentation::entity_layers::LayerPoseCache::default();
                 let mut cape = crate::presentation::cape::CapeState::default();
-                let mut skin_layers = crate::presentation::skin_layers::SkinLayerCache::default();
+                let mut skin_layers = crate::presentation::skin_layers::ActorLayerCache::default();
                 let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
                 super::super::layers::attach(
                     &mut batch,

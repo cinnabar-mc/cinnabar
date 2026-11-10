@@ -74,7 +74,7 @@ impl StagedSessionIcons {
                 .unwrap_or_default();
             block_alpha.insert(
                 Box::from(sheet.identifier.as_ref()),
-                alpha::mode_for_material_flags(flags),
+                render_model::equipment::blocks::mode_for_material_flags(flags),
             );
             sprites.push(IconSprite {
                 width,
@@ -200,6 +200,14 @@ impl EquipmentRuntime {
         Some((sheet, placement, location))
     }
 
+    /// Whether the session carries every variant of `identifier` from zero up to `count`.
+    pub(super) fn session_has_variants(&self, identifier: &str, count: u32) -> bool {
+        self.session
+            .by_identifier
+            .get(identifier)
+            .is_some_and(|variants| (0..count).all(|variant| variants.contains_key(&variant)))
+    }
+
     /// The session icon for `identifier` with its atlas placement and artwork location.
     pub(super) fn session_sprite(
         &self,
@@ -244,7 +252,7 @@ pub(super) fn session_mesh_id(index: usize) -> Option<EntityRigId> {
         return None;
     }
     Some(item_mesh_rig_id(
-        u32::try_from(MAX_ITEM_MESHES + index).ok()?,
+        u32::try_from(STARTUP_MESH_ID_CAPACITY + index).ok()?,
     ))
 }
 
@@ -264,7 +272,7 @@ mod tests {
     fn session_mesh_ids_sit_above_the_startup_meshes() {
         assert_eq!(
             session_mesh_id(0),
-            Some(item_mesh_rig_id(MAX_ITEM_MESHES as u32))
+            Some(item_mesh_rig_id(STARTUP_MESH_ID_CAPACITY as u32))
         );
         assert_eq!(session_mesh_id(MAX_SESSION_MESHES), None);
     }

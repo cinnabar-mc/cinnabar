@@ -258,7 +258,8 @@ pub(super) fn draw_batches<'w>(
                 profile.record_draw(stage, range.end - range.start);
             }
             if !range.is_empty() {
-                pass.draw_indexed(range, 0, location.layer..location.layer + 1);
+                let instance = gpu.models.instance(batch, location.layer);
+                pass.draw_indexed(range, 0, instance..instance + 1);
                 nonempty = true;
             }
         }

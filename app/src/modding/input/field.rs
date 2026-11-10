@@ -137,7 +137,7 @@ pub(super) fn route_sample(
 /// Enables platform composition for our focused field without publishing unchanged window state.
 pub(super) fn sync_ime(
     physical: &mut PhysicalControls,
-    window: &mut Window,
+    window: &mut Mut<Window>,
     ui: &mut mod_ui::ModUi,
     accepting: bool,
 ) {
@@ -160,6 +160,41 @@ pub(super) fn sync_ime(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Counts updates whose window was marked changed, which triggers a native sync.
+    #[derive(Default, Resource)]
+    struct WindowChanges(u32);
+
+    fn sync_idle_ime(mut windows: Query<&mut Window>) {
+        sync_ime(
+            &mut PhysicalControls::default(),
+            &mut windows.single_mut().unwrap(),
+            &mut mod_ui::ModUi::default(),
+            false,
+        );
+    }
+
+    fn count_window_changes(
+        changed: Query<(), Changed<Window>>,
+        mut changes: ResMut<WindowChanges>,
+    ) {
+        changes.0 += u32::from(!changed.is_empty());
+    }
+
+    /// This runs every frame a mod is active, so it must not publish an unchanged window.
+    #[test]
+    fn ime_sync_leaves_an_unchanged_window_unmarked() {
+        let mut app = App::new();
+        app.init_resource::<WindowChanges>()
+            .add_systems(Update, (sync_idle_ime, count_window_changes).chain());
+        app.world_mut().spawn(Window::default());
+        app.update();
+        app.world_mut().resource_mut::<WindowChanges>().0 = 0;
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(app.world().resource::<WindowChanges>().0, 0);
+    }
 
     /// Physical enum names must keep matching every native field modifier, including right keys.
     #[test]

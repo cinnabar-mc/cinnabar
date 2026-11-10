@@ -1,8 +1,97 @@
 use super::*;
 
 #[test]
-fn pane_models_preserve_the_original_carried_sprite() {
-    for side in [16, 32] {
+fn identical_glass_and_grate_thumbnails_keep_distinct_coverage_keys() {
+    let root = tempfile::tempdir().unwrap();
+    write_fixture(root.path());
+    std::fs::write(
+        root.path().join("blocks.json"),
+        r#"{"glass":{"textures":"glass"},"copper_grate":{"textures":"glass"}}"#,
+    )
+    .unwrap();
+    image::RgbaImage::from_fn(16, 16, |x, y| {
+        image::Rgba([40, 80, 120, if x == y { 0 } else { 255 }])
+    })
+    .save(root.path().join("textures/blocks/glass.png"))
+    .unwrap();
+    let protocol = assets::active_content_registry_protocol();
+    let records =
+        assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+            .unwrap()
+            .into_vec()
+            .into_iter()
+            .filter(|record| {
+                matches!(
+                    record.name.as_ref(),
+                    "minecraft:air" | "minecraft:glass" | "minecraft:copper_grate"
+                )
+            })
+            .collect::<Vec<_>>();
+    let visual = |name: &str| {
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap()
+            .sequential_id
+    };
+    let glass = visual("minecraft:glass");
+    let grate = visual("minecraft:copper_grate");
+    let span = records
+        .iter()
+        .map(|record| record.sequential_id as usize + 1)
+        .max()
+        .unwrap();
+    let compiled_world = pack_compiler::compile_pack_with_biomes(
+        root.path(),
+        &root.path().join("behavior"),
+        &records,
+        &[],
+        &vec![assets::LightProperties::default(); span],
+        protocol,
+    )
+    .unwrap();
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled_world).unwrap()).unwrap();
+    let compiled = crate::compile_entity_assets(
+        root.path(),
+        include_bytes!("../../../../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut sprites = Vec::new();
+    let baked = run(
+        root.path(),
+        Some(&world),
+        Some(&blocks),
+        &BTreeMap::new(),
+        &BTreeMap::from([
+            (glass, Err(cube::Reject::Geometry)),
+            (grate, Err(cube::Reject::Geometry)),
+        ]),
+        &compiled,
+        &mut sprites,
+    )
+    .unwrap();
+    let glass = baked.model_sprites[&(glass, 0)];
+    let grate = baked.model_sprites[&(grate, 0)];
+    assert_eq!(
+        sprites[glass as usize], sprites[grate as usize],
+        "the fixture has identical artwork"
+    );
+    assert_ne!(
+        glass, grate,
+        "coverage policies must address distinct GUI models"
+    );
+    assert!(
+        !baked.block_models.iter().any(|model| model.sprite == grate),
+        "coverage isolation does not add a held model binding"
+    );
+}
+
+#[test]
+fn glass_panes_keep_their_carried_model_in_hand() {
+    for (side, name) in [16, 32].into_iter().flat_map(|side| {
+        ["minecraft:glass_pane", "minecraft:red_stained_glass_pane"].map(|name| (side, name))
+    }) {
         let root = tempfile::tempdir().unwrap();
         write_fixture(root.path());
         let artwork = image::RgbaImage::from_fn(side, side, |x, y| {
@@ -18,15 +107,12 @@ fn pane_models_preserve_the_original_carried_sprite() {
                 .into_vec()
                 .into_iter()
                 .filter(|record| {
-                    matches!(
-                        record.name.as_ref(),
-                        "minecraft:air" | "minecraft:glass_pane"
-                    )
+                    record.name.as_ref() == "minecraft:air" || record.name.as_ref() == name
                 })
                 .collect::<Vec<_>>();
         let visual = records
             .iter()
-            .find(|record| record.name.as_ref() == "minecraft:glass_pane")
+            .find(|record| record.name.as_ref() == name)
             .unwrap()
             .sequential_id;
         let span = records
@@ -67,12 +153,13 @@ fn pane_models_preserve_the_original_carried_sprite() {
             .iter()
             .find(|model| model.sprite == gui)
             .unwrap();
+        assert_eq!(model.visual.0, visual);
         let held = model
             .held_sprite
             .expect("a GUI pane keeps separate carried artwork");
         assert_ne!(held, gui);
         let entry = assets::IconEntry {
-            identifier: "minecraft:glass_pane".into(),
+            identifier: name.into(),
             metadata: 0,
             sprite: gui,
         };
@@ -128,7 +215,7 @@ fn write_fixture(root: &Path) {
         ("textures/flipbook_textures.json", "[]"),
         (
             "blocks.json",
-            r#"{"glass_pane":{"textures":"glass","sound":"glass"}}"#,
+            r#"{"glass_pane":{"textures":"glass","sound":"glass"},"red_stained_glass_pane":{"textures":"glass","sound":"glass"}}"#,
         ),
         (
             "textures/terrain_texture.json",

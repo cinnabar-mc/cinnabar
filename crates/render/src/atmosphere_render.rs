@@ -2,6 +2,9 @@ use bevy::render::render_resource::ShaderType;
 use bytemuck::Zeroable;
 use std::collections::HashMap;
 
+mod uniform;
+pub(crate) use uniform::AtmosphereUniform;
+
 use assets::{AtmosphereRole, AtmosphereTexture};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -118,7 +121,9 @@ pub(crate) fn install_atmosphere(app: &mut App) {
             Render,
             (
                 prepare_atmosphere_uniform.in_set(RenderSystems::PrepareResources),
-                prepare_atmosphere_textures.in_set(RenderSystems::PrepareResources),
+                prepare_atmosphere_textures
+                    .in_set(RenderSystems::PrepareResources)
+                    .run_if(render_scene::startup_work::world_work_allowed),
                 prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_atmosphere
                     .in_set(crate::world_passes::WorldPassSystems)
@@ -162,10 +167,10 @@ struct PreparedAtmosphereAssets {
 }
 
 fn init_atmosphere_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
-    AtmosphereFrame::assert_uniform_compat();
+    AtmosphereUniform::assert_uniform_compat();
     let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global atmosphere frame"),
-        contents: bytemuck::bytes_of(&AtmosphereFrame::default()),
+        contents: bytemuck::bytes_of(&AtmosphereUniform::from(AtmosphereFrame::default())),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
     });
     let skybox = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -219,7 +224,11 @@ fn prepare_atmosphere_uniform(
         )
     });
     if frame_changed {
-        uploads.write(&gpu.buffer, 0, bytemuck::bytes_of(&*frame));
+        uploads.write(
+            &gpu.buffer,
+            0,
+            bytemuck::bytes_of(&AtmosphereUniform::from(*frame)),
+        );
         #[cfg(test)]
         {
             gpu.uniform_writes[0] += 1;
@@ -265,7 +274,7 @@ impl FromWorld for AtmospherePipeline {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: Some(AtmosphereFrame::min_size()),
+                    min_binding_size: Some(AtmosphereUniform::min_size()),
                 },
                 count: None,
             },

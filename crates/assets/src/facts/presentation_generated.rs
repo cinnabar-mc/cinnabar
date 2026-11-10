@@ -49,6 +49,7 @@ pub fn dimension_id(name: &str) -> Option<i32> {
 /// Resolves an ambient callback once during block admission.
 pub(super) fn ambient_block(name: &str) -> super::presentation::AmbientBlock {
     match name {
+        "minecraft:ender_chest" => super::presentation::AmbientBlock::EnderChest,
         "minecraft:fire" => super::presentation::AmbientBlock::Fire,
         "minecraft:portal" => super::presentation::AmbientBlock::Portal,
         _ => super::presentation::AmbientBlock::Other,

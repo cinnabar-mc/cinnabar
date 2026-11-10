@@ -34,7 +34,8 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// the helper exiting; 3 the session items a dispatch carries; 4 restart initialization output;
 /// 5 terminal queue overflow; 6 registry confirmation; 7 terminal registry mismatches;
 /// 8 verified drawing assets, native context, held actor references and shared scene snapshots.
-const HELPER_PROTOCOL: u32 = 8;
+// 9 adds generation-fenced drawing admission feedback.
+const HELPER_PROTOCOL: u32 = 9;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;

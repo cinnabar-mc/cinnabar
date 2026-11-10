@@ -9,14 +9,14 @@ import (
 
 // sharedCollisionSeed projects the catalog's collision boxes into the carrier's fixed point format.
 func sharedCollisionSeed(record Record, properties sharedblock.Properties) (CollisionSeed, error) {
-	boxes, ok := sharedblock.Shape(properties.CollisionShape)
+	shape, boxes, ok := sharedCollision(record, properties)
 	if !ok {
 		return CollisionSeed{}, fmt.Errorf("shared collision shape is unavailable for %s at %#x", record.Name, record.NetworkHash)
 	}
 	if len(boxes) > maxCollisionBoxesPerRecord {
 		return CollisionSeed{}, fmt.Errorf("shared collision shape for %s exceeds carrier box limit", record.Name)
 	}
-	seed := CollisionSeed{ShapeID: properties.CollisionShape, Confidence: CollisionConfidenceCollisionOnly, Boxes: make([]CollisionBox, len(boxes))}
+	seed := CollisionSeed{ShapeID: shape, Confidence: CollisionConfidenceCollisionOnly, Boxes: make([]CollisionBox, len(boxes))}
 	for i, raw := range boxes {
 		var fixed [6]int32
 		for j, v := range raw {

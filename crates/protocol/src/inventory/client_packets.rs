@@ -1,10 +1,10 @@
 //! Client packets tied to inventory screens: block pick and book editing.
 
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     BlockPickRequest, BookEdit as BookEditPacket, LecternUpdate, PlayerToggleCrafterSlotRequest,
 };
-use bedrock_protocol_1_26_51::types::{BlockPos, BookEditAction};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::{BlockPos, BookEditAction};
+use bedrock_protocol_1_26_60::wire;
 
 /// The wire block position of `position`.
 fn block_pos(position: [i32; 3]) -> BlockPos {
@@ -31,7 +31,7 @@ pub fn block_pick_request_packet(position: [i32; 3], with_data: bool) -> crate::
 
 /// Requests the server's pick item for a retained actor, using its persistent unique ID.
 pub fn actor_pick_request_packet(unique_id: i64, with_data: bool) -> crate::Packet {
-    crate::Packet::new(bedrock_protocol_1_26_51::packets::ActorPickRequest {
+    crate::Packet::new(bedrock_protocol_1_26_60::packets::ActorPickRequest {
         actor_id: wire::I64LE(unique_id),
         max_slots: wire::U8(crate::HOTBAR_SLOT_COUNT),
         with_data,
@@ -145,7 +145,7 @@ pub fn book_edit_packet(book_slot: u8, edit: &BookEdit) -> Option<crate::Packet>
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_1_26_60::packets;
 
     use super::*;
 
@@ -169,7 +169,7 @@ mod tests {
     /// The page limit is exactly the bound the generated encoder enforces.
     #[test]
     fn book_text_limit_matches_the_codec_bound() {
-        use bedrock_protocol_1_26_51::wire::Encode;
+        use bedrock_protocol_1_26_60::wire::Encode;
         let page = |bytes: usize| BookEditAction::ReplacePage {
             page_index: wire::ZigZag32(0),
             page_text: "a".repeat(bytes).into(),

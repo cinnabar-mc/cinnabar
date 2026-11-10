@@ -196,3 +196,70 @@ fn request_and_reply_lines_round_trip() {
         (json!(9), Err("nope".into()))
     );
 }
+
+#[test]
+fn inventory_commands_parse_from_their_wire_form() {
+    assert_eq!(
+        parse(json!({ "cmd": "inventory_open" })).unwrap(),
+        Command::InventoryOpen
+    );
+    assert_eq!(
+        parse(json!({ "cmd": "inventory_close" })).unwrap(),
+        Command::InventoryClose
+    );
+    assert_eq!(
+        parse(json!({ "cmd": "inventory" })).unwrap(),
+        Command::Inventory
+    );
+    assert_eq!(
+        parse(json!({
+            "cmd": "inventory_click", "container": "crafting_input", "slot": 8, "button": "right"
+        }))
+        .unwrap(),
+        Command::InventoryClick(InventoryClick {
+            container: InventoryContainer::CraftingInput,
+            slot: 8,
+            button: ClickButton::Right,
+            shift: false,
+        })
+    );
+    assert_eq!(
+        parse(json!({ "cmd": "inventory_click", "container": "crafting_output", "shift": true }))
+            .unwrap(),
+        Command::InventoryClick(InventoryClick {
+            container: InventoryContainer::CraftingOutput,
+            slot: 0,
+            button: ClickButton::Left,
+            shift: true,
+        })
+    );
+    for condition in ["inventory_ready", "inventory_settled"] {
+        assert!(parse(json!({ "cmd": "wait_for", "condition": condition })).is_ok());
+    }
+    assert!(parse(json!({ "cmd": "inventory_click", "slot": 1 })).is_err());
+    assert!(parse(json!({ "cmd": "inventory_click", "container": "cursor" })).is_err());
+    assert!(
+        parse(json!({ "cmd": "inventory_click", "container": "inventory", "slot": -1 })).is_err()
+    );
+    assert!(
+        parse(json!({ "cmd": "inventory_click", "container": "inventory", "button": "middle" }))
+            .is_err()
+    );
+    assert!(
+        parse(json!({ "cmd": "inventory_click", "container": "inventory", "count": 1 })).is_err()
+    );
+}
+
+#[test]
+fn inventory_clicks_round_trip_through_the_request_line() {
+    let command = Command::InventoryClick(InventoryClick {
+        container: InventoryContainer::Inventory,
+        slot: 35,
+        button: ClickButton::Right,
+        shift: false,
+    });
+    let line = request_line(7, "t", &command);
+    let request = Request::parse(&line).unwrap();
+    assert_eq!(request.id, json!(7));
+    assert_eq!(request.command().unwrap(), command);
+}

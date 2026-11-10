@@ -59,19 +59,14 @@ fn descriptor(
     variant: usize,
     flags: u32,
 ) -> Option<(Descriptor, Box<str>)> {
-    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
+    let TextureKey { key, uv_rotation } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
     let (path, state_variant) = pack.terrain.get_clamped_untinted_variant(&key, variant)?;
     Some((
         Descriptor {
             path: path.into(),
             texture_key: key.clone(),
-            flags: flags
-                | if rotate_uv {
-                    MATERIAL_FLAG_ROTATE_UV
-                } else {
-                    0
-                },
+            flags: flags | uv_rotation,
             state_variant,
             flipbook_selector: None,
         },

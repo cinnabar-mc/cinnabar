@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::OnceLock};
 use crate::{BlockEntityRouteKind, NetworkIdMode, RuntimeAssets, VisualKind};
 
 /// The generated routing table owned by the active block registry.
-pub const BLOCK_ENTITY_FACTS_PATH: &str = "crates/assets/data/block-entities-v2193.json";
+pub const BLOCK_ENTITY_FACTS_PATH: &str = "crates/assets/data/block-entities-v2225.json";
 
 /// The renderer that consumes an admitted block entity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -35,6 +35,7 @@ pub enum BlockEntityRenderer {
     EndPortal,
     EndGateway,
     MobSpawner,
+    PistonArm,
 }
 
 /// A mount selected from the backing state's property shape at compile time.
@@ -147,7 +148,7 @@ impl BlockEntityFacts {
     pub fn pinned() -> &'static Self {
         static FACTS: OnceLock<BlockEntityFacts> = OnceLock::new();
         FACTS.get_or_init(|| {
-            let bytes = include_bytes!("../../data/block-entities-v2193.json");
+            let bytes = include_bytes!("../../data/block-entities-v2225.json");
             Self::decode(bytes, crate::pinned_block_registry_bytes())
                 .expect("valid generated block-entity facts; regenerate with registryc")
         })

@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::gui_item::{
-    BlockModelOrder, GUI_BLOCK_ALPHA_THRESHOLD, block_gui_quads, material_tile,
+    BlockModelOrder, GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, material_tile,
 };
 use assets::{
     BlockFace, BlockVisualId, Material, ModelQuad, ModelTemplate, NetworkIdMode, RuntimeAssets,
@@ -57,6 +57,7 @@ pub(super) fn mesh(
 
 /// Builds GUI geometry from a block shape, keeping the thumbnail when any input is unsupported.
 fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
+    let covered = assets::gui_item::forces_covered_gui_alpha(shape.render_kind);
     let quads = block_gui_quads(
         shape.render_kind,
         shape.kind,
@@ -66,6 +67,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         shape.quads,
     )
     .ok()?;
+    let shading = GuiShading::of(shape.kind, shape.template, shape.templates);
     let mut sources = BTreeMap::new();
     for quad in &quads {
         let std::collections::btree_map::Entry::Vacant(source) = sources.entry(quad.material)
@@ -84,7 +86,8 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         })
         .ok()?;
         // Blend-flagged art that is only opaque or cut out (the anvil's) draws like cutout.
-        if blend
+        if !covered
+            && blend
             && tile
                 .as_chunks::<4>()
                 .0
@@ -95,12 +98,14 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         }
         let side = u16::try_from(side).ok()?;
         let mut pixels = tile.to_vec();
-        for texel in pixels.as_chunks_mut::<4>().0 {
-            texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
-                255
-            } else {
-                0
-            };
+        if !covered {
+            for texel in pixels.as_chunks_mut::<4>().0 {
+                texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
+                    255
+                } else {
+                    0
+                };
+            }
         }
         source.insert((side, pixels));
     }
@@ -120,7 +125,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                     .template
                     .and_then(|id| shape.templates.get(id as usize)),
             );
-            item_gui::block_model(&placed, Default::default(), order)
+            item_gui::block_model(&placed, shading, Default::default(), order)
         },
     )
 }

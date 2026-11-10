@@ -15,7 +15,7 @@ const HEIGHT: f32 = 9.6;
 pub(super) fn available(view: &MenuView) -> bool {
     view.updates.manual_pending
         || view.updates.ready.is_some()
-        || !view.mods.library.updates.is_empty()
+        || view.mods.library.available_updates().next().is_some()
 }
 
 /// Fits the complete card and its inset inside the viewport.
@@ -70,7 +70,7 @@ pub(super) fn notice(
             Some(MenuAction::Update(ready.action())),
         )
     } else {
-        let updates = &view.mods.library.updates;
+        let updates: Vec<_> = view.mods.library.available_updates().collect();
         let Some(update) = updates.first() else {
             return Ok(());
         };
@@ -214,6 +214,29 @@ mod tests {
     }
 
     #[test]
+    fn home_ignores_local_mod_update_sources() {
+        let mut view = MenuView::new(true, "Player".into());
+        let library = &mut std::sync::Arc::make_mut(&mut view.mods).library;
+        library.installed.push(launcher::mods::InstalledMod {
+            id: 1,
+            file: "local.wasm".into(),
+            bytes: 1,
+            permissions: Vec::new(),
+            metadata: Default::default(),
+        });
+        library.updates.push(launcher::mods::AvailableUpdate {
+            id: 1,
+            version: "2.0.0".into(),
+            release_url: String::new(),
+        });
+        assert!(!available(&view));
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            notice(canvas, &view, [1280.0, 720.0]).unwrap()
+        });
+        assert!(hits.is_empty());
+    }
+
+    #[test]
     fn mod_notices_use_the_corner_card_and_open_the_mods_tab() {
         use launcher::mods::{Action as ModAction, AvailableUpdate};
         for size in [[1280.0, 720.0], [360.0, 240.0]] {
@@ -225,6 +248,16 @@ mod tests {
                     id: 1,
                     version: "1.1.0".into(),
                     release_url: String::new(),
+                });
+            std::sync::Arc::make_mut(&mut view.mods)
+                .library
+                .installed
+                .push(launcher::mods::InstalledMod {
+                    id: 1,
+                    file: format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX),
+                    bytes: 1,
+                    permissions: Vec::new(),
+                    metadata: Default::default(),
                 });
             let (_, hits, _) = paint(HashMap::new(), |canvas| {
                 notice(canvas, &view, size).unwrap();
