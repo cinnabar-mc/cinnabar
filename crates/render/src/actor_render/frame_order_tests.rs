@@ -185,8 +185,6 @@ fn render_app() -> App {
         .init_resource::<ViewBinnedRenderPhases<Opaque3d>>()
         .init_resource::<ViewUniforms>()
         .init_resource::<FrameCount>()
-        .init_resource::<render_scene::WorldLighting>()
-        .init_resource::<render_scene::WorldFullbright>()
         .init_resource::<render_scene::NametagSceneResource>()
         .init_resource::<ExecutedFrames>()
         .init_resource::<PreviousReceipt>()
@@ -201,6 +199,7 @@ fn render_app() -> App {
                 .in_set(RenderSystems::Render)
                 .before(submit_actor_presented_frame),
         );
+    crate::lighting::init_inputs(render.world_mut());
     app.insert_resource(Assets::<Shader>::default());
     app.insert_sub_app(RenderApp, render);
     app.add_plugins(ActorRenderPlugin);

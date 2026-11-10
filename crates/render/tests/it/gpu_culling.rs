@@ -871,8 +871,11 @@ impl Raster {
         let source = format!(
             "{}\n{UNSEALED_VERTEX}",
             shader_source::standalone(include_str!("../../src/chunk.wesl"), &definitions)
-        )
-        .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+        );
+        let point_light = gpu.disabled_point_light(&source);
+        let source = source
+            .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
+            .replace("@group(1) @binding(2)", "@group(0) @binding(28)");
         let depth_bindings = vertex_bindings(&source, vertex);
         let module = gpu
             .device
@@ -1024,6 +1027,7 @@ impl Raster {
                     query_tables.as_entire_binding(),
                 ),
                 (27, lightmap.as_entire_binding()),
+                (28, point_light.as_entire_binding()),
                 (
                     material_shader::NATIVE_LEAF_TEXTURE_BINDINGS[0],
                     wgpu::BindingResource::TextureView(&atlas),

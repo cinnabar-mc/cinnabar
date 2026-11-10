@@ -151,6 +151,10 @@ impl Fixture {
         let view = gpu.buffer(&gpu_snapshot::view(clip_from_world, eye), uniform);
         let atlas = solid_terrain_raster::pattern_texture(gpu);
         let sampler = gpu.device.create_sampler(&Default::default());
+        let point_light = gpu.disabled_point_light(&shader_source::standalone(
+            include_str!("../../src/liquid.wesl"),
+            &[],
+        ));
 
         let buffer = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
@@ -213,6 +217,7 @@ impl Fixture {
                         wgpu::BufferBindingType::Uniform,
                     ),
                     buffer(27, wgpu::BufferBindingType::Uniform),
+                    buffer(28, wgpu::BufferBindingType::Uniform),
                 ],
             });
         let entries = [
@@ -263,6 +268,7 @@ impl Fixture {
                 query_tables.as_entire_binding(),
             ),
             (27, lightmap.as_entire_binding()),
+            (28, point_light.as_entire_binding()),
         ]
         .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
         let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -473,8 +479,11 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
         return;
     };
     let fixture = Fixture::new(&gpu);
-    let lightmap =
-        |source: String| source.replace("@group(1) @binding(0)", "@group(0) @binding(27)");
+    let lightmap = |source: String| {
+        source
+            .replace("@group(1) @binding(0)", "@group(0) @binding(27)")
+            .replace("@group(1) @binding(2)", "@group(0) @binding(28)")
+    };
     // Encoded blending for ordinary views, linear output for HDR views.
     for defs in [&["NATIVE_GAMMA_BLEND"][..], &[]] {
         // Each family's own program, as its dedicated pipeline ran it before the merge.

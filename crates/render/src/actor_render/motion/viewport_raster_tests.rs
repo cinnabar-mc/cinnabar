@@ -23,8 +23,7 @@ fn world(device: &RenderDevice, queue: &RenderQueue) -> World {
     render.insert_resource(device.clone());
     render.insert_resource(queue.clone());
     render.insert_resource(PipelineCache::new(device.clone(), true));
-    render.init_resource::<render_scene::WorldLighting>();
-    render.init_resource::<render_scene::WorldFullbright>();
+    crate::lighting::init_inputs(render.world_mut());
     crate::lighting::install(&mut app);
     let render = app.sub_app_mut(RenderApp);
     render.world_mut().run_schedule(Render);
