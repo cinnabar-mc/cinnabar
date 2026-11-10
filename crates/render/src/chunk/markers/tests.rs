@@ -32,7 +32,7 @@ fn instances(
     marker_instances(
         sections,
         layers,
-        |block, _| (block == ART_BLOCK).then_some(ART),
+        |block, _| (block == ART_BLOCK).then_some([ART; 6]),
         &mut sprites,
         &mut boxes,
     );
@@ -62,7 +62,7 @@ fn only_shown_layers_with_art_become_instances_at_their_world_cells() {
         "a block the pack gives no art draws nothing"
     );
     assert_eq!(sprites[0].block, [19, -12, 37]);
-    assert_eq!(sprites[0].animation, ART);
+    assert_eq!(sprites[0].art[0], ART);
     assert_eq!((sprites[0].packed >> LIGHT_SHIFT) & 255, 13 | (4 << 4));
     assert_eq!(sprites[0].packed & BOX_FLAG, 0);
 
@@ -258,4 +258,51 @@ fn gridded_marker_art_samples_its_cell_at_source_resolution() {
     assert_eq!(marker.uv_scale, 0.5);
     // Terrain: (16 << 1) / 64 * 0.5.
     assert_eq!(marker.gradient_scale, [0.25; 2]);
+}
+
+/// Every alternative and face that draws the same flipbook or texture shares one table entry
+/// and its frames, so the bound tables grow with the pack's art, not with what is shown.
+#[test]
+fn alternatives_sharing_art_share_one_table_entry() {
+    let encode = |texture: TextureRef| MarkerTexture {
+        page: texture.page(),
+        layer: texture.layer(),
+        uv_scale: 1.0,
+        reserved: 0,
+        gradient_scale: [1.0; 2],
+    };
+    let frames = (0..64)
+        .map(|layer| TextureRef::new(1, layer).unwrap())
+        .collect::<Vec<_>>();
+    let animations = [Animation {
+        frame_start: 0,
+        frame_count: 64,
+        ticks_per_frame: 2,
+        atlas_index: 0,
+        atlas_tile_variant: 0,
+        replicate: 1,
+        flags: 0,
+    }];
+    let mut tables = MarkerTables::default();
+    for layer in 0..256 {
+        let alternative = Material {
+            texture: TextureRef::new(1, layer % 64).unwrap(),
+            animation: 0,
+            ..Material::unvaried()
+        };
+        assert_eq!(
+            tables.push(Some(&alternative), &animations, &frames, encode),
+            0
+        );
+    }
+    let still = Material {
+        texture: TextureRef::new(2, 3).unwrap(),
+        ..Material::unvaried()
+    };
+    for _ in 0..6 {
+        assert_eq!(tables.push(Some(&still), &animations, &frames, encode), 1);
+        assert_eq!(tables.push(None, &animations, &frames, encode), 2);
+    }
+    assert_eq!(tables.animations.len(), 3);
+    assert_eq!(tables.textures.len(), 65);
 }

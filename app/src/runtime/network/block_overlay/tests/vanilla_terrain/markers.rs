@@ -44,22 +44,23 @@ fn marker_base() -> RuntimeAssets {
     RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap()
 }
 
-/// Carrier sources for the three markers, named as the vanilla pack names their art.
+/// Carrier sources for the three markers, named as the vanilla pack names their art. The
+/// base pack gives barriers and structure voids world art and light blocks only carried art.
 fn marker_keys() -> MaterialKeys {
     let entries = [
         (1, "barrier", "textures/blocks/barrier"),
         (2, "light_block_15", "textures/items/light_block_15"),
         (3, "structure_void", "textures/blocks/structure_void"),
     ];
-    let block = |visual: u32, name: &str| BlockTextureSource {
+    let block = |visual: u32, name: &str, world: bool| BlockTextureSource {
         visual,
         name: format!("minecraft:{name}").into(),
         binding_name: name.into(),
         source_faces: [0, 1, 2, 3, 4, 5],
         source_rotations: [0; 6],
         cube_binding_eligible: false,
-        carried_keys: std::array::from_fn(|_| None),
-        carried_fallback_keys: std::array::from_fn(|_| None),
+        carried_keys: std::array::from_fn(|_| (!world).then(|| name.into())),
+        carried_fallback_keys: std::array::from_fn(|_| world.then(|| name.into())),
     };
     MaterialKeys::from_entries(entries.map(|(id, key, _)| (id, key)))
         .with_aliases(entries.map(|(_, key, path)| (key, path)))
@@ -78,9 +79,9 @@ fn marker_keys() -> MaterialKeys {
                 )
             }),
             [
-                block(0, "barrier"),
-                block(1, "light_block_15"),
-                block(2, "structure_void"),
+                block(0, "barrier", true),
+                block(1, "light_block_15", false),
+                block(2, "structure_void", true),
             ],
         )
 }
@@ -157,4 +158,39 @@ fn session_packs_rebind_marker_art_to_new_texture_keys() {
         );
     }
     assert_eq!(face_material(&base, 0, BlockFace::Up), 1);
+}
+
+/// Carried-only overrides change a marker's art only when no pack gives the block world art,
+/// so the world art a session inherits from the base pack stays in place.
+#[test]
+fn carried_only_overrides_keep_inherited_world_marker_art() {
+    let base = marker_base();
+    let keys = marker_keys();
+    let light = [240, 230, 60, 255];
+    let view = stack(&[(
+        json!({"texture_data":{
+            "red_sign":{"textures":"textures/red_sign"},
+            "bright_bulb":{"textures":"textures/bright_bulb"},
+        }}),
+        json!({
+            "barrier":{"carried_textures":"red_sign"},
+            "light_block_15":{"carried_textures":"bright_bulb"},
+            "structure_void":{"carried_textures":"red_sign"},
+        }),
+        vec![
+            ("textures/red_sign", [200, 20, 20, 255]),
+            ("textures/bright_bulb", light),
+        ],
+    )]);
+    let overlay = compile(&view, &base, &keys);
+    let runtime = base.with_block_overlay(3, &overlay.overlay).unwrap();
+
+    for face in BlockFace::ALL {
+        assert_eq!(face_material(&runtime, 0, face), 1, "{face:?}");
+        assert_eq!(face_material(&runtime, 2, face), 3, "{face:?}");
+        assert_eq!(
+            material_color(&runtime, face_material(&runtime, 1, face)),
+            light
+        );
+    }
 }

@@ -61,7 +61,7 @@ use super::gpu::bind_groups::{ChunkGpuAnimationClock, ChunkGpuTextureAssets};
 
 const MARKER_SHADER_HANDLE: Handle<Shader> = uuid_handle!("3f6c2a5e-8b1d-4c7a-9e24-5d0b7a1c6e93");
 const INSTANCE_BYTES: u64 = size_of::<MarkerInstance>() as u64;
-/// Instances per vertex buffer: 1.25 MiB, far below every device's buffer size limit.
+/// Instances per vertex buffer: 2.5 MiB, far below every device's buffer size limit.
 const CHUNK_INSTANCES: usize = 1 << 16;
 const SPRITE_VERTICES: u32 = 6;
 const BOX_VERTICES: u32 = 36;
@@ -112,9 +112,10 @@ struct MarkerInstance {
     block: [i32; 3],
     /// Box flag and cell light; see the shader's `marker_vertex`.
     packed: u32,
-    /// Index of the marker's art in [`MarkerTables::animations`]; a box's six faces follow
-    /// in [`BlockFace::ALL`] order.
-    animation: u32,
+    /// Each face's art index in [`MarkerTables::animations`], in [`BlockFace::ALL`] order for
+    /// a box; a sprite uses the first. Keeping the per-cell choice here lets the bound tables
+    /// grow only with the pack's distinct art.
+    art: [u32; 6],
 }
 
 /// One frame of marker art: its texture page, array layer, exposed UV scale and the source
@@ -139,21 +140,35 @@ struct MarkerAnimation {
     flags: u32,
 }
 
+/// What one face's art is drawn from. Equal sources share one table entry and its frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum ArtSource {
+    Missing,
+    Still(TextureRef),
+    Flipbook(u32),
+}
+
 /// The art of every shown marker, rebuilt with the instances.
+///
+/// Entries are shared by source, so both tables are bounded by the pack's own textures and
+/// flipbooks however many cells, alternatives or face combinations are shown.
 #[derive(Default, Debug)]
 struct MarkerTables {
     animations: Vec<MarkerAnimation>,
     textures: Vec<MarkerTexture>,
+    indices: HashMap<ArtSource, u32>,
 }
 
 impl MarkerTables {
     fn clear(&mut self) {
         self.animations.clear();
         self.textures.clear();
+        self.indices.clear();
     }
 
-    /// Appends `material`'s flipbook frames, or its one texture, and returns the art's index.
-    /// A missing material appends art with no frames, which draws nothing.
+    /// The index of `material`'s art: its flipbook frames, or its one texture, appended the
+    /// first time that source is seen. A missing material has art with no frames, which
+    /// draws nothing.
     fn push(
         &mut self,
         material: Option<&Material>,
@@ -161,27 +176,26 @@ impl MarkerTables {
         frames: &[TextureRef],
         texture: impl Fn(TextureRef) -> MarkerTexture,
     ) -> u32 {
-        let frame_start = self.textures.len() as u32;
-        let Some(material) = material else {
-            self.animations.push(MarkerAnimation {
-                frame_start,
-                frame_count: 0,
-                ticks_per_frame: 1,
-                flags: 0,
-            });
-            return (self.animations.len() - 1) as u32;
+        let flipbook = material.and_then(|material| {
+            let animation = animations
+                .get(material.animation as usize)
+                .filter(|animation| animation.ticks_per_frame != 0)?;
+            let start = animation.frame_start as usize;
+            let frames = frames.get(start..start.checked_add(animation.frame_count as usize)?)?;
+            (!frames.is_empty()).then_some((material.animation, animation, frames))
+        });
+        let source = match (material, flipbook) {
+            (None, _) => ArtSource::Missing,
+            (Some(_), Some((index, ..))) => ArtSource::Flipbook(index),
+            (Some(material), None) => ArtSource::Still(material.texture),
         };
-        let flipbook = animations
-            .get(material.animation as usize)
-            .filter(|animation| animation.ticks_per_frame != 0)
-            .and_then(|animation| {
-                let start = animation.frame_start as usize;
-                let frames =
-                    frames.get(start..start.checked_add(animation.frame_count as usize)?)?;
-                (!frames.is_empty()).then_some((animation, frames))
-            });
-        let (frame_count, ticks_per_frame, flags) = match flipbook {
-            Some((animation, frames)) => {
+        if let Some(&index) = self.indices.get(&source) {
+            return index;
+        }
+        let frame_start = self.textures.len() as u32;
+        let (frame_count, ticks_per_frame, flags) = match (material, flipbook) {
+            (None, _) => (0, 1, 0),
+            (Some(_), Some((_, animation, frames))) => {
                 self.textures
                     .extend(frames.iter().map(|&frame| texture(frame)));
                 (
@@ -190,18 +204,20 @@ impl MarkerTables {
                     animation.flags & ANIMATION_FLAG_BLEND,
                 )
             }
-            None => {
+            (Some(material), None) => {
                 self.textures.push(texture(material.texture));
                 (1, 1, 0)
             }
         };
+        let index = self.animations.len() as u32;
         self.animations.push(MarkerAnimation {
             frame_start,
             frame_count,
             ticks_per_frame,
             flags,
         });
-        (self.animations.len() - 1) as u32
+        self.indices.insert(source, index);
+        index
     }
 }
 
@@ -230,7 +246,7 @@ impl MarkerBatch {
 fn marker_instances(
     sections: &TerrainMarkerSections,
     layers: u8,
-    mut art: impl FnMut(u32, [i32; 3]) -> Option<u32>,
+    mut art: impl FnMut(u32, [i32; 3]) -> Option<[u32; 6]>,
     sprites: &mut Vec<MarkerInstance>,
     boxes: &mut Vec<MarkerInstance>,
 ) {
@@ -245,7 +261,7 @@ fn marker_instances(
             }
             let local = marker.local();
             let block = std::array::from_fn(|axis| origin[axis] + i32::from(local[axis]));
-            let Some(animation) = art(marker.block(), block) else {
+            let Some(art) = art(marker.block(), block) else {
                 continue;
             };
             let boxed = !class.is_camera_facing();
@@ -253,7 +269,7 @@ fn marker_instances(
                 block,
                 packed: if boxed { BOX_FLAG } else { 0 }
                     | (u32::from(marker.light()) << LIGHT_SHIFT),
-                animation,
+                art,
             };
             if boxed {
                 boxes.push(instance);
@@ -312,21 +328,21 @@ impl MarkerFaces {
         self
     }
 
-    /// Appends each face's art and returns the first face's index.
-    fn push(self, assets: &RuntimeAssets, tables: &mut MarkerTables) -> u32 {
-        let first = tables.animations.len() as u32;
-        for &material in self.drawn() {
+    /// Each face's art index in `tables`, adding art the tables do not hold yet.
+    fn push(self, assets: &RuntimeAssets, tables: &mut MarkerTables) -> [u32; 6] {
+        let mut art = [0; 6];
+        for (slot, &material) in art.iter_mut().zip(self.drawn()) {
             let material = (material != DIAGNOSTIC_MATERIAL)
                 .then(|| assets.materials().get(material as usize))
                 .flatten();
-            tables.push(
+            *slot = tables.push(
                 material,
                 assets.animations(),
                 assets.animation_frames(),
                 |texture| marker_texture(assets, texture),
             );
         }
-        first
+        art
     }
 }
 
@@ -666,9 +682,14 @@ impl FromWorld for MarkerPipeline {
                             shader_location: 1,
                         },
                         VertexAttribute {
-                            format: VertexFormat::Uint32,
+                            format: VertexFormat::Uint32x3,
                             offset: 16,
                             shader_location: 2,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Uint32x3,
+                            offset: 28,
+                            shader_location: 3,
                         },
                     ],
                 }],

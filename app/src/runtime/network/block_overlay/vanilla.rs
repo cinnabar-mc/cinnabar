@@ -216,8 +216,8 @@ impl Builder<'_> {
     /// Rebinds the art of barrier, light-block and structure-void markers that a pack remaps.
     ///
     /// Markers are invisible terrain, so the cube route above skips them. As the offline
-    /// compiler does, sprites take the up face's world art, or a light block's carried art,
-    /// and structure-void boxes take each face's own world art.
+    /// compiler does, sprites take the up face's world art, or carried art when no pack gives
+    /// the block world art, and structure-void boxes take each face's own art.
     pub(super) fn override_marker_bindings(
         &mut self,
         keys: &MaterialKeys,
@@ -239,8 +239,15 @@ impl Builder<'_> {
                 } else {
                     face
                 } as usize;
+                // World art wins over carried art, including world art the session packs
+                // inherit from the base pack, as the offline compiler resolves it.
+                let world = |key: &&str| *key != pack_compile_input::pack::MISSING_TILE_TEXTURE_KEY;
                 let Some(key) = bindings
                     .texture(&source.name, &source.binding_name, art_face, false)
+                    .filter(world)
+                    .or(source.carried_fallback_keys[art_face]
+                        .as_deref()
+                        .filter(world))
                     .or_else(|| {
                         bindings.texture(&source.name, &source.binding_name, art_face, true)
                     })

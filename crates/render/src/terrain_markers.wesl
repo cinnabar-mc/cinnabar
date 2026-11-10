@@ -44,8 +44,10 @@ fn marker_vertex(
     @location(0) block: vec3<i32>,
     // Bit 0 selects the box, bits 8..16 hold the cell light.
     @location(1) packed: u32,
-    // The art's index; a box's six faces follow in west, east, down, up, north, south order.
-    @location(2) art_index: u32,
+    // Each face's art index in west, east, down, up, north, south order; a sprite uses the
+    // first.
+    @location(2) art_low: vec3<u32>,
+    @location(3) art_high: vec3<u32>,
 ) -> VertexOutput {
     // Two triangles over a unit quad's corners.
     var corners = array<vec2<f32>, 6>(
@@ -63,12 +65,16 @@ fn marker_vertex(
     );
     let corner = corners[vertex_index % 6u];
     var local: vec3<f32>;
-    var animation_index = art_index;
+    var animation_index = art_low.x;
     if ((packed & 1u) != 0u) {
         let face_index = min(vertex_index / 6u, 5u);
         let face = faces[face_index];
         local = face[0] + face[1] * corner.x + face[2] * corner.y;
-        animation_index += face_index;
+        if (face_index < 3u) {
+            animation_index = art_low[face_index];
+        } else {
+            animation_index = art_high[face_index - 3u];
+        }
     } else {
         // A one-block sprite centred in its cell, spanning the view's right and up axes.
         let right = view.world_from_view[0].xyz;
