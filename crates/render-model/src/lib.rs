@@ -42,7 +42,7 @@ mod visibility;
 pub mod visibility_bounds;
 
 pub use actor::{
-    ACTOR_RIG_VERTEX_WORDS, ActorEmitterTransform, ActorRigGeometry, ActorRigGeometryError,
+    ACTOR_RIG_VERTEX_WORDS, ActorEmitterTransform, ActorMaterialMasks, ActorRigGeometry, ActorRigGeometryError,
     ActorRigSurface, ActorRigVertex, ActorSkinPixels, ActorVertex, DEFAULT_PLAYER_SKIN_PATH,
     DEFAULT_SKIN_PROVENANCE, DIAGNOSTIC_RIG_ID, EntityRigId, FrameSlotRecency,
     ITEM_MESH_RIG_ID_CAPACITY, MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES,

@@ -74,8 +74,8 @@ pub mod weather_textures;
 pub use actor::{
     ActorArtworkBinding, ActorMultitextureSources, ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS,
     MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES,
-    RuntimeActorCatalog, actor_multitexture_sources, actor_sources_keeping_alpha,
-    encode_actor_catalog, neutral_actor_geometry_sampled_texels,
+    RuntimeActorCatalog, actor_material_mask_sources, actor_multitexture_sources,
+    actor_sources_keeping_alpha, encode_actor_catalog, neutral_actor_geometry_sampled_texels,
     neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
     neutral_actor_pose_mode,
 };
@@ -114,20 +114,20 @@ pub use block_entity::{
 };
 pub use block_names::{legacy_resource_pack_block_alias, vanilla_skull_type};
 pub use compiled::{
-    BlockFace, BlockVisual, CAULDRON_WATER_COLOUR, CompiledAssets, DIAGNOSTIC_MATERIAL,
-    MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
-    MATERIAL_FLAG_CAULDRON_WATER, MATERIAL_FLAG_DISABLE_AO, MATERIAL_FLAG_DISABLE_FACE_DIMMING,
-    MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_EXPOSED_FOLIAGE,
-    MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
-    MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_NATIVE_LEAF_COLOUR,
-    MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_SEASONAL_FOLIAGE,
-    MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_TWO_SIDED, MATERIAL_FLAG_UV_INVERT,
-    MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_UV_ROTATE_180, MATERIAL_FLAG_UV_ROTATE_270,
-    MATERIAL_FLAG_UV_ROTATION_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
-    MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
-    MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_CARRIER_TEXTURE_LAYERS,
-    MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, TEXTURE_LAYER_MASK,
-    material_leaf_ao_exponent, material_position_random, positional_material_id,
+    BlockFace, BlockVisual, CAULDRON_WATER_COLOUR, CompiledAssets, DEFAULT_AO_EXPONENT,
+    DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT,
+    MATERIAL_FLAG_BIRCH_FOLIAGE, MATERIAL_FLAG_CAULDRON_WATER, MATERIAL_FLAG_DISABLE_AO,
+    MATERIAL_FLAG_DISABLE_FACE_DIMMING, MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+    MATERIAL_FLAG_EXPOSED_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK, MATERIAL_FLAG_FOLIAGE_TINT,
+    MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
+    MATERIAL_FLAG_NATIVE_LEAF_COLOUR, MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV,
+    MATERIAL_FLAG_SEASONAL_FOLIAGE, MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_TWO_SIDED,
+    MATERIAL_FLAG_UV_INVERT, MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_UV_ROTATE_180,
+    MATERIAL_FLAG_UV_ROTATE_270, MATERIAL_FLAG_UV_ROTATION_MASK, MATERIAL_FLAG_WATER_TINT,
+    MATERIAL_FLAGS_MASK, MATERIAL_FLAGS_RESERVED, MATERIAL_LEAF_METADATA_MASK,
+    MAX_CARRIER_TEXTURE_LAYERS, MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS,
+    Material, NO_MASK, TEXTURE_LAYER_MASK, block_render_method_for, material_position_random,
+    positional_material_id,
 };
 pub use effects::{EFFECT_DESCRIPTORS, EffectDescriptor};
 pub use effects::{effect_descriptor, effect_descriptor_by_identifier, effect_registry_version};
@@ -143,7 +143,8 @@ pub use entity::{
     EntityGeometryBone, EntityGeometryBounds, EntityGeometryCube, EntityGeometryFaceUv,
     EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator,
     EntityGeometryPolyCorner, EntityGeometryPolyMesh, EntityGeometryScalar,
-    EntityGeometryTextureMesh, EntityGeometryUv, EntityRenderCandidate, EntityRenderData,
+    EntityGeometryTextureMesh, EntityGeometryUv, EntityMaterialMasks, EntityRenderCandidate,
+    EntityRenderData,
     EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
     EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
@@ -240,9 +241,10 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_TWISTING_VINE, MODEL_TEMPLATE_FLAG_WALL, MODEL_TEMPLATE_FLAG_WEEPING_VINE,
     MODEL_UV_SCALE, ModelQuad, ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION,
     NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET,
-    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT,
-    TOP_SNOW_LAYER_COUNT, TerrainMarker, TexturePage, TextureRef, VisualKind, VisualSupport,
-    bubble_column_quad_count, item_model_template, model_template_parts, scaffolding_is_supported,
+    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, STAIR_TEMPLATE_COUNT,
+    TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT, TOP_SNOW_LAYER_COUNT, TerrainMarker, TexturePage,
+    TextureRef, VisualKind, VisualSupport, bubble_column_quad_count, item_model_template,
+    model_template_parts, model_template_span, scaffolding_is_supported,
     whole_sheet_model_template, world_aligned_uv,
 };
 pub use ogg::{decode_ogg, decode_sound};

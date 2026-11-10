@@ -179,6 +179,7 @@ fn render_rasters(
                 material,
                 state,
                 definition,
+                ..
             } => Some((*material, *state, *definition)),
             _ => None,
         });
@@ -242,6 +243,7 @@ mod authored_raster_tests {
                 material: assets::EntityRenderMaterial::Default,
                 state: None,
                 definition: Some(1),
+                masks: None,
             }]),
             ..Default::default()
         };
@@ -273,6 +275,7 @@ mod authored_raster_tests {
                 material: assets::EntityRenderMaterial::Default,
                 state: Some(state),
                 definition: Some(0),
+                masks: None,
             }]),
             ..Default::default()
         };

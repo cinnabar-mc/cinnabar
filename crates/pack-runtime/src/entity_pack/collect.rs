@@ -236,12 +236,14 @@ pub fn collect_files(
     }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
+    textures.extend(material_binding_textures(view));
     files.extend(entities);
     files.extend(
         materials
             .into_iter()
             .map(|(path, bytes)| (path.into(), bytes)),
     );
+    files.extend(material_bindings(view));
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -326,6 +328,49 @@ fn declared_texture_stem(path: &str) -> Option<String> {
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
+}
+
+/// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
+/// when invalid; the compiler then ignores it and the reason is logged here.
+fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
+    let document = material_bindings_document(view)?;
+    if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
+        tracing::warn!(%reason, "ignoring the pack's material bindings");
+    }
+    Some((
+        pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
+        serde_json::to_vec(&document).ok()?,
+    ))
+}
+
+/// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
+fn material_binding_textures(view: &LayeredPackView) -> Vec<String> {
+    let Some(document) = material_bindings_document(view) else {
+        return Vec::new();
+    };
+    document
+        .get("materials")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|materials| materials.values())
+        .filter_map(|material| material.get("textures")?.as_object())
+        .flat_map(|textures| textures.values())
+        .filter_map(|path| path.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The stack's winning `cinnabar/material-bindings.json` document.
+pub fn material_bindings_document(view: &LayeredPackView) -> Option<Value> {
+    parse_pack_json(&view.read(pack_entity_compiler::MATERIAL_BINDINGS_PATH)?)
+}
+
+/// The stack's `.material` documents, merged per path and in path order, as entity
+/// compilation reads them.
+pub fn material_documents(view: &LayeredPackView) -> Vec<Value> {
+    material_files(view)
+        .into_iter()
+        .filter_map(|(_, bytes)| parse_pack_json(&bytes))
+        .collect()
 }
 
 /// Material files merged per path across the stack, lowest precedence first, as the client

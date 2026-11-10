@@ -1,8 +1,19 @@
 use super::*;
 use assets::{BlockFlags, BlockVisual, ModelQuad, ModelTemplate};
 
-/// Builds original model fixtures with unchanged material ids and contiguous template parts.
-fn model(kind: VisualKind, parts: &[(u32, u32)], quad_material: u32) -> RuntimeAssets {
+/// Builds original model fixtures with unchanged material ids and contiguous template parts;
+/// both visuals draw the last part.
+pub(super) fn model(kind: VisualKind, parts: &[(u32, u32)], quad_material: u32) -> RuntimeAssets {
+    model_at(kind, parts, quad_material, parts.len() as u32 - 1)
+}
+
+/// [`model`] with both visuals drawing template `template`.
+pub(super) fn model_at(
+    kind: VisualKind,
+    parts: &[(u32, u32)],
+    quad_material: u32,
+    template: u32,
+) -> RuntimeAssets {
     let diagnostic = RuntimeAssets::diagnostic();
     let (corners, uvs) = assets::gui_item::cube_face(BlockFace::Up);
     let quad = ModelQuad {
@@ -15,7 +26,7 @@ fn model(kind: VisualKind, parts: &[(u32, u32)], quad_material: u32) -> RuntimeA
     visual.kind = kind;
     visual.support = VisualSupport::Exact;
     visual.faces = [1, 1, 1, 2, 1, 1];
-    visual.model_template = parts.len() as u32 - 1;
+    visual.model_template = template;
     let mut quads = Vec::new();
     let templates = parts
         .iter()

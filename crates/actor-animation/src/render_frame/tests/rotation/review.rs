@@ -489,11 +489,13 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
             material: assets::EntityRenderMaterial::Default,
             state: None,
             definition: None,
+            masks: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
             definition: None,
+            masks: None,
         },
     ]
     .into();
@@ -540,6 +542,7 @@ fn selected_material_decides_whether_textures_group_into_one_draw() {
             material: assets::EntityRenderMaterial::Default,
             state: None,
             definition: None,
+            masks: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
@@ -548,6 +551,7 @@ fn selected_material_decides_whether_textures_group_into_one_draw() {
                 ..Default::default()
             }),
             definition: None,
+            masks: None,
         },
     ]
     .into();
@@ -664,11 +668,13 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
             material: assets::EntityRenderMaterial::Default,
             state: None,
             definition: None,
+            masks: None,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
             definition: None,
+            masks: None,
         },
     ]
     .into();

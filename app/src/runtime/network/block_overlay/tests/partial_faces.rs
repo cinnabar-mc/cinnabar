@@ -197,18 +197,23 @@ fn isotropic_instances_randomize_only_their_own_faces() {
 }
 
 #[test]
-fn fractional_ambient_occlusion_reaches_the_exponent_field() {
-    // Approximations are counted per drawn face, as before.
-    for (exponent, encoded, approximated) in [(0.8, 80, 0), (0.805, 0, 6), (4.0, 0, 6)] {
+fn every_finite_ambient_occlusion_reaches_the_exponent_unchanged() {
+    // Approximations are counted per drawn face.
+    for (exponent, drawn, approximated) in [
+        (0.8, 0.8, 0),
+        (0.805, 0.805, 0),
+        (4.0, 4.0, 0),
+        (10.0, 10.0, 0),
+        (0.333, 0.333, 0),
+        (37.5, 37.5, 0),
+        (f32::NAN, assets::DEFAULT_AO_EXPONENT, 6),
+    ] {
         let mut instances = materials("lucky").unwrap();
         instances[0].ambient_occlusion = exponent;
         let compiled = compile_block_overlay(&view(), &full_block(instances), false, None).unwrap();
         let material = compiled.overlay.materials[compiled.overlay.visuals[0].faces[0] as usize];
-        assert_eq!(
-            material.flags & assets::MATERIAL_LEAF_AO_EXPONENT_MASK,
-            encoded << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT,
-            "{exponent}"
-        );
+        assert_eq!(material.ao_exponent, f32::to_bits(drawn), "{exponent}");
+        assert_eq!(material.flags & assets::MATERIAL_FLAG_DISABLE_AO, 0);
         assert_eq!(
             compiled.gaps.approximated_materials, approximated,
             "{exponent}"
