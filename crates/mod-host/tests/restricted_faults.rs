@@ -259,6 +259,17 @@ fn run(op: &str) -> String {
         }
         "ptrace" => status(unsafe { libc::ptrace(libc::PTRACE_TRACEME, 0, 0, 0) }),
         "unshare" => status(i64::from(unsafe { libc::unshare(libc::CLONE_NEWUSER) })),
+        "io-setup" => {
+            let mut context: libc::c_ulong = 0;
+            // SAFETY: a writable context handle, destroyed if setup succeeds.
+            let result = unsafe { libc::syscall(libc::SYS_io_setup, 1u32, &raw mut context) };
+            let report = status(result);
+            if result == 0 {
+                // SAFETY: setup returned this owned context.
+                unsafe { libc::syscall(libc::SYS_io_destroy, context) };
+            }
+            report
+        }
         "memory" => {
             // SAFETY: an anonymous mapping, unmapped if it is granted.
             let size = (DATA_LIMIT_BYTES + (64 << 20)) as usize;
@@ -500,6 +511,15 @@ fn the_lockdown_denies_queued_signals() {
         return;
     }
     assert_eq!(probe("queue-signal"), format!("denied {}", libc::EAGAIN));
+}
+
+/// The helper cannot allocate contexts against the system-wide legacy AIO budget.
+#[test]
+fn the_lockdown_denies_legacy_aio_setup() {
+    if !lockdown_supported() {
+        return;
+    }
+    assert_eq!(probe("io-setup"), format!("denied {}", libc::EPERM));
 }
 
 /// The helper may query and set its own resource limits but not the client's, which shares

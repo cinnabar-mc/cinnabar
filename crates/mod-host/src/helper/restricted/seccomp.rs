@@ -4,10 +4,10 @@
 //! processes, signalling, renicing, rescheduling or changing the resource limits of any
 //! process but the helper itself, changing file modes, owners, times, extended attributes or
 //! lengths (which Landlock does not cover, or covers only from ABI 3), System V IPC and POSIX
-//! message queues, namespaces and mounts, BPF, performance counters, keys, io_uring, modules and
-//! system administration. Calls numbered above the newest one reviewed, which later kernels
-//! add, report `ENOSYS`, so new kernel surface stays closed until reviewed. A foreign architecture or the x32 ABI kills
-//! the process.
+//! message queues, namespaces and mounts, BPF, performance counters, keys, legacy AIO,
+//! io_uring, modules and system administration. Calls numbered above the newest one reviewed,
+//! which later kernels add, report `ENOSYS`, so new kernel surface stays closed until reviewed.
+//! A foreign architecture or the x32 ABI kills the process.
 
 use anyhow::{Result, ensure};
 use libc::{
@@ -153,6 +153,7 @@ const DENIED: &[libc::c_long] = &[
     libc::SYS_add_key,
     libc::SYS_request_key,
     libc::SYS_userfaultfd,
+    libc::SYS_io_setup,
     libc::SYS_io_uring_setup,
     libc::SYS_io_uring_enter,
     libc::SYS_io_uring_register,
@@ -615,6 +616,12 @@ mod tests {
         ] {
             assert_eq!(helper(call, &[0, 0, 0]), EPERM, "{call}");
         }
+    }
+
+    /// The helper cannot reserve the system-wide legacy AIO budget.
+    #[test]
+    fn legacy_aio_setup_is_refused() {
+        assert_eq!(helper(libc::SYS_io_setup, &[1, 0]), EPERM);
     }
 
     /// A call through a 32-bit compatibility ABI, or through x32 on x86-64, kills the process
