@@ -73,13 +73,12 @@ mod vanilla_refs;
 pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
-    ActorArtworkBinding, ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES,
-    MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, RuntimeActorCatalog,
-    actor_sources_keeping_alpha, encode_actor_catalog,
-    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
-    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
-    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
-    neutral_actor_material_is_supported, neutral_actor_pose_mode,
+    ActorArtworkBinding, ActorMultitextureSources, ActorPageSharing, ActorPoseMode, ActorTexture,
+    MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
+    MAX_ACTOR_TEXTURES, RuntimeActorCatalog, actor_multitexture_sources, actor_page_sharing,
+    actor_sources_keeping_alpha, encode_actor_catalog, neutral_actor_geometry_sampled_texels,
+    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
+    neutral_actor_pose_mode,
 };
 pub use atmosphere::{
     AtmosphereRole, AtmosphereTexture, BiomeVisualProfile, CelestialBorderTexel, CelestialTile,
@@ -126,10 +125,9 @@ pub use compiled::{
     MATERIAL_FLAG_TINT_MASK, MATERIAL_FLAG_TWO_SIDED, MATERIAL_FLAG_UV_INVERT,
     MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_UV_ROTATE_180, MATERIAL_FLAG_UV_ROTATE_270,
     MATERIAL_FLAG_UV_ROTATION_MASK, MATERIAL_FLAG_WATER_TINT, MATERIAL_FLAGS_MASK,
-    MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
-    MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_CARRIER_TEXTURE_LAYERS,
-    MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, TEXTURE_LAYER_MASK,
-    material_leaf_ao_exponent, material_position_random, positional_material_id,
+    MATERIAL_LEAF_METADATA_MASK, MAX_CARRIER_TEXTURE_LAYERS, MAX_CARRIER_TEXTURE_PAGES,
+    MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, NO_MASK, TEXTURE_LAYER_MASK,
+    material_position_random, positional_material_id,
 };
 pub use effects::{EFFECT_DESCRIPTORS, EffectDescriptor};
 pub use effects::{effect_descriptor, effect_descriptor_by_identifier, effect_registry_version};
@@ -145,10 +143,11 @@ pub use entity::{
     EntityGeometryBone, EntityGeometryBounds, EntityGeometryCube, EntityGeometryFaceUv,
     EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator,
     EntityGeometryPolyCorner, EntityGeometryPolyMesh, EntityGeometryScalar,
-    EntityGeometryTextureMesh, EntityGeometryUv, EntityRenderCandidate, EntityRenderData,
-    EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
-    EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
-    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityGeometryTextureMesh, EntityGeometryUv, EntityMaterialDiagnostics, EntityMaterialMasks,
+    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
+    EntityRenderMaterial, EntityRenderMaterialSelection, EntityRenderMaterialState,
+    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     LEGACY_ENTITY_GEOMETRY_PATH, MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_ASSET_PATH_BYTES,
     MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CARRIER_BYTES,
     MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING,
@@ -242,9 +241,10 @@ pub use model::{
     MODEL_TEMPLATE_FLAG_TWISTING_VINE, MODEL_TEMPLATE_FLAG_WALL, MODEL_TEMPLATE_FLAG_WEEPING_VINE,
     MODEL_UV_SCALE, ModelQuad, ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION,
     NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET,
-    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT,
-    TOP_SNOW_LAYER_COUNT, TerrainMarker, TexturePage, TextureRef, VisualKind, VisualSupport,
-    bubble_column_quad_count, item_model_template, model_template_parts, scaffolding_is_supported,
+    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, STAIR_TEMPLATE_COUNT,
+    TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT, TOP_SNOW_LAYER_COUNT, TerrainMarker, TexturePage,
+    TextureRef, VisualKind, VisualSupport, bubble_column_quad_count, item_model_template,
+    model_template_parts, model_template_span, scaffolding_is_supported,
     whole_sheet_model_template, world_aligned_uv,
 };
 pub use particle::{

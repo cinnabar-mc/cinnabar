@@ -230,8 +230,7 @@ struct ModelWitnessCase { light_texture: vec4<f32>, distance_frames: vec4<f32> }
     out.native_ao_face = witness.distance_frames.z;
     out.tint_gamma = vec3(1.0);
     out.world_position = vec3(witness.distance_frames.x, 0.0, 0.0);
-    out.visibility.y = 1u;
-    out.visibility.x = 1u;
+    out.visibility = model_visibility(MODEL_VISIBLE | MODEL_TWO_SIDED, vec3(0u));
     return out;
 }
 "#;

@@ -201,6 +201,7 @@ pub(super) fn pack_swell_fixture_with(
             layer,
             assets::EntityRenderLayer {
                 first_slot: 1,
+                material_masks: None,
                 geometry_count: 1,
                 ..layer
             },

@@ -35,6 +35,15 @@ impl Plan {
 /// Finds gates independent of the scripts that visibility-only sampling skips.
 fn plan(assets: &RuntimeEntityAssets, state: &ActorRigState, frame: &FrameState) -> Option<Mode> {
     let rig = assets.rig_bindings().get(state.rig_binding)?;
+    // Empty material choices need the full evaluation to distinguish draws from fallbacks.
+    if assets.render_layers(state.rig_binding).iter().any(|layer| {
+        assets
+            .render_data()
+            .material_nodes(layer)
+            .any(|node| matches!(node, assets::EntityRenderMaterialSelection::Empty))
+    }) {
+        return None;
+    }
     let mut variables = std::collections::BTreeSet::new();
     for expression in assets
         .render_layers(state.rig_binding)

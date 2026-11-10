@@ -88,9 +88,30 @@ pub(crate) fn manifest_actor(
         .map(|actor| (actor, true))
 }
 
+/// The session's entity material counts, recorded once per server pack compile, and the
+/// render world's count of actor materials drawn with the unauthored pipeline instead.
+fn material_report(world: &World) -> Value {
+    let pack = world
+        .get_resource::<ClientWorld>()
+        .and_then(|client| client.pack_entities.as_ref());
+    json!({
+        "server_pack": pack.is_some(),
+        "entity_materials": pack.and_then(|pack| pack.material_report.as_ref()).map(|report| report.diagnostics),
+        "entity": super::materials::entity_materials(world),
+        "blocks": super::materials::block_materials(world),
+        "pipeline_fallbacks": world
+            .get_resource::<render_scene::ActorPipelineReadiness>()
+            .map(render_scene::ActorPipelineReadiness::material_fallbacks),
+    })
+}
+
 pub(super) fn snapshot(world: &World) -> Value {
     let Some(frame) = world.get_resource::<ActorRenderFrame>() else {
-        return json!({ "available": false, "camera": camera(world) });
+        return json!({
+            "available": false,
+            "camera": camera(world),
+            "materials": material_report(world),
+        });
     };
     let rig = &frame.rig;
     let mut entries = rig
@@ -227,6 +248,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "matrix_rows": MAX_MATRIX_ROWS - matrix_budget,
         "geometry_vertices": MAX_TOTAL_VERTICES - vertex_budget,
         "camera": camera(world),
+        "materials": material_report(world),
         "instances": instances,
         "geometries": geometries,
     })
@@ -249,5 +271,22 @@ mod hand_tests {
         assert_eq!(hand_item_counts(&instances), [2, 1]);
         assert_eq!(hand_item_counts(&[]), [0, 0]);
         assert!(hand_snapshot(&World::new()).is_null());
+    }
+}
+
+#[cfg(test)]
+mod material_report_tests {
+    use super::*;
+
+    #[test]
+    fn the_snapshot_reports_render_target_fallbacks_beside_entity_material_counts() {
+        let mut world = World::new();
+        let readiness = render_scene::ActorPipelineReadiness::default();
+        readiness.publish_material_fallbacks(3);
+        world.insert_resource(readiness);
+        let report = material_report(&world);
+        assert_eq!(report["pipeline_fallbacks"], json!(3));
+        assert_eq!(report["server_pack"], json!(false));
+        assert_eq!(report["entity_materials"], Value::Null);
     }
 }

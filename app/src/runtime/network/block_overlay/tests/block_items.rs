@@ -444,6 +444,7 @@ fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         None,
+        true,
     )
     .unwrap();
     assert_eq!(items.overlay.visuals.len(), 1);
@@ -511,6 +512,7 @@ fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         Some(&shared),
+        true,
     );
     let inventory_view = resource_pack::LayeredPackView::tracked(stack.clone());
     let compiled = super::super::compile_block_overlay_with_textures(
@@ -521,6 +523,7 @@ fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         Some(&shared),
+        true,
     )
     .unwrap();
     let fresh_view = resource_pack::LayeredPackView::tracked(stack);
@@ -532,6 +535,7 @@ fn shared_terrain_catalog_preserves_inventory_output_and_replays_reads() {
         assets::MAX_TEXTURE_LAYERS as u32,
         None,
         None,
+        true,
     )
     .unwrap();
     assert_eq!(

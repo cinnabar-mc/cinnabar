@@ -252,6 +252,10 @@ fn expand_section(name: &str, fixture: Fixture<'_>) -> Option<Expanded> {
                 material.variation_start,
                 material.variation_count,
                 material.variation_weight,
+                material.glow_mask,
+                material.emissive_mask,
+                material.mask_strength,
+                material.ao_exponent,
             ]
         })
         .collect();

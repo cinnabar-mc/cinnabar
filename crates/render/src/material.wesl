@@ -9,6 +9,12 @@ struct MaterialGpu {
     variation_start: u32,
     variation_count: u32,
     variation_weight: u32,
+    // Cinnabar mask texture references and the f32 bits of their strength.
+    glow_mask: u32,
+    emissive_mask: u32,
+    mask_strength: u32,
+    // f32 bits of the authored AO exponent; 1 draws vanilla AO.
+    ao_exponent: u32,
 }
 
 @if(!PACKED_TERRAIN)
@@ -19,15 +25,26 @@ fn materials(index: u32) -> MaterialGpu {
     @if(!PACKED_TERRAIN) return materials_data[index];
     @if(PACKED_TERRAIN) {
         if (index >= materials_length()) { var empty: MaterialGpu; return empty; }
-        let base = index * 6u;
-        return MaterialGpu(terrain_word(3u, base + 0u), terrain_word(3u, base + 1u), terrain_word(3u, base + 2u), terrain_word(3u, base + 3u), terrain_word(3u, base + 4u), terrain_word(3u, base + 5u));
+        let base = index * MATERIAL_RECORD_WORDS;
+        return MaterialGpu(terrain_word(3u, base + 0u), terrain_word(3u, base + 1u), terrain_word(3u, base + 2u), terrain_word(3u, base + 3u), terrain_word(3u, base + 4u), terrain_word(3u, base + 5u), terrain_word(3u, base + 6u), terrain_word(3u, base + 7u), terrain_word(3u, base + 8u), terrain_word(3u, base + 9u));
     }
 }
 
 // Returns the record count without including adjacent packed tables.
 fn materials_length() -> u32 {
     @if(!PACKED_TERRAIN) return arrayLength(&materials_data);
-    @if(PACKED_TERRAIN) return terrain_length(3u) / 6u;
+    @if(PACKED_TERRAIN) return terrain_length(3u) / MATERIAL_RECORD_WORDS;
+}
+
+const NO_MASK: u32 = MATERIAL_NO_MASK;
+
+// Mask references travel bit-inverted so a zeroed varying names no mask.
+fn material_mask_varyings(material: MaterialGpu) -> vec3<u32> {
+    return vec3(~material.glow_mask, ~material.emissive_mask, material.mask_strength);
+}
+
+fn material_mask_reference(inverted: u32) -> u32 {
+    return ~inverted;
 }
 
 const TWO_SIDED: u32 = MATERIAL_TWO_SIDED_FLAG;
@@ -65,12 +82,12 @@ fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
 }
 
 // Vanilla ambient occlusion raises the four-sample average * face coefficient to the source
-// material's exponent before vertex interpolation. Zero encoding keeps the default exponent 1.
-fn material_ao_shade(ao_face: f32, flags: u32) -> f32 {
-    let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    // Fixed-colour materials use these bits for redstone power.
-    if ((flags & MATERIAL_STEM_FLAG) != 0u || encoded == 0u) { return ao_face; }
-    return pow(ao_face, f32(encoded) / MATERIAL_LEAF_AO_EXPONENT_SCALE);
+// material's exponent before vertex interpolation; exponent 0 leaves the face unshaded.
+fn material_ao_shade(ao_face: f32, exponent_bits: u32) -> f32 {
+    let exponent = bitcast<f32>(exponent_bits);
+    if (exponent == 1.0) { return ao_face; }
+    if (exponent == 0.0) { return 1.0; }
+    return pow(ao_face, exponent);
 }
 
 // Vanilla uses wrapping coordinates, subtractive weights, last fallback.

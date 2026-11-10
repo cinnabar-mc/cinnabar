@@ -10,6 +10,8 @@ mod chunk_constants;
 mod gpu_snapshot;
 #[path = "../../src/hand_rig_render/bindings.rs"]
 mod hand_rig_bindings;
+#[path = "support/material_records.rs"]
+mod material_records;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;

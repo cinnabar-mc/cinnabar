@@ -41,16 +41,41 @@ fn header_keeps_the_subclients_and_the_entry_bytes() {
 fn every_ten_bit_id_matches_the_packet_table() {
     for id in 0..=0x3ff_u32 {
         match (
-            decode_packet_raw(&mut entry(id, 0, 0, &[])),
+            decode_entry_raw(&mut entry(id, 0, 0, &[])),
             PacketId::from_raw(id),
         ) {
-            (Ok(raw), Some(expected)) => assert_eq!(raw.id, expected, "id={id}"),
-            (Err(SessionError(SessionFailure::UnknownPacketId(unknown))), None) => {
-                assert_eq!(unknown, id);
-            }
+            (Ok(Ok(raw)), Some(expected)) => assert_eq!(raw.id, expected, "id={id}"),
+            (Ok(Err(unknown)), None) => assert_eq!(unknown.id, id),
             (actual, expected) => panic!("id={id}: {actual:?} vs {expected:?}"),
         }
     }
+}
+
+/// An ID the protocol does not define is well-formed: the batch splits, the entry keeps its raw
+/// ID and body, and the packets around it still arrive in order.
+#[test]
+fn unknown_packet_ids_are_split_without_failing_the_batch() {
+    const UNKNOWN: u32 = 508;
+    assert_eq!(PacketId::from_raw(UNKNOWN), None);
+    let batch = joined(&[
+        entry(0x02, 0, 0, &[1]),
+        entry(UNKNOWN, 0, 0, &[0xaa, 0xbb]),
+        entry(0x02, 0, 0, &[2]),
+    ]);
+    let mut entries = decode_batch_body(batch.clone(), 1024).expect("framing is valid");
+    assert_eq!(entries.remaining(), 3);
+    assert_eq!(entries.next_entry().unwrap().unwrap().body().as_ref(), &[1]);
+    let unknown = entries.next_entry().unwrap().expect_err("undefined ID");
+    assert_eq!(
+        (unknown.id, unknown.body.as_ref()),
+        (UNKNOWN, &[0xaa, 0xbb][..])
+    );
+    assert_eq!(entries.next_entry().unwrap().unwrap().body().as_ref(), &[2]);
+    assert!(entries.next_entry().is_none());
+
+    let known: Vec<_> = decode_batch_body(batch, 1024).unwrap().collect();
+    assert_eq!(known.len(), 2);
+    assert_eq!(known[1].body().as_ref(), &[2]);
 }
 
 #[test]
@@ -116,7 +141,7 @@ fn batch_bodies_split_in_order_within_their_bounds() {
     .collect::<Vec<_>>();
     assert_eq!(packets.len(), 2);
     assert_eq!(packets[1].body().as_ref(), &[2]);
-    assert_eq!(decode_batch_body(Bytes::new(), 0).unwrap().len(), 0);
+    assert_eq!(decode_batch_body(Bytes::new(), 0).unwrap().remaining(), 0);
     assert!(matches!(
         decode_batch_body(Bytes::from_static(&[0; 9]), 8),
         Err(SessionError(SessionFailure::BatchTooLarge {
@@ -177,7 +202,7 @@ fn batch_validation_does_not_allocate_per_packet_metadata() {
     let (packets, allocations) =
         test_alloc::measure(|| decode_batch_body(body, usize::MAX).unwrap());
     assert!(allocations.bytes < 1024, "{allocations:?}");
-    assert_eq!(packets.len(), COUNT);
+    assert_eq!(packets.remaining(), COUNT);
     let mut consumed = 0;
     for packet in packets {
         assert_eq!(packet.body().as_ref(), &[0]);

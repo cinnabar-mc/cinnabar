@@ -259,6 +259,7 @@ from executable bytes; directory packages retain their own lifecycle.
 | Section | Payload/grant |
 | --- | --- |
 | `cinnabar:extension/panel-bundle@1` | Panel JSON; `controls` |
+| `cinnabar:extension/panel-bundle@2` | Panel JSON as one Brotli stream; `controls` |
 | `cinnabar:extension/font@1` | Outline font; `controls` |
 | `cinnabar:extension/menu-logo@1` | PNG; `environment` |
 | `cinnabar:extension/menu-title@1` | Single-line UTF-8 heading; `environment` |
@@ -266,6 +267,9 @@ from executable bytes; directory packages retain their own lifecycle.
 | `cinnabar:extension/icon@1` | PNG Mods-tab icon |
 
 [SDK constants](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs) define byte/image limits.
+A component carries at most one panel bundle version. Version 2 holds the same JSON
+compressed with Brotli; its decompressed JSON has the same byte limit as version 1.
+Earlier clients reject version 2 as an unsupported asset version.
 Duplicate, nested, malformed or oversized presentation resources are rejected;
 invalid icon/metadata affects only the card. `CINNABAR_MOD_FONT` and
 `CINNABAR_MOD_UI` sidecars override embedded font/panel data. Mod cards read standard

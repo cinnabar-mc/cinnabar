@@ -381,6 +381,23 @@ fn line_programs_get_the_core_matrices_and_attributes_iris_supplies() {
 }
 
 #[test]
+fn vertex_and_instance_ids_are_signed_like_glsl_declares_them() {
+    // GLSL declares `gl_VertexID` and `gl_InstanceID` as `int`, so packs store and mix them
+    // with `int` values without a cast.
+    let vertex = "#version 330 compatibility\n\
+        void main() {\n\
+            int corner = gl_VertexID % 3;\n\
+            int column = gl_InstanceID * 2 - corner;\n\
+            ivec2 cell = ivec2(gl_InstanceID, -gl_VertexID);\n\
+            gl_Position = vec4(float(corner), float(column), vec2(cell));\n\
+        }\n";
+    let fragment = "#version 330 compatibility\nvoid main() { gl_FragData[0] = vec4(1.0); }\n";
+    let pack = inline_pack(&[("composite.vsh", vertex), ("composite.fsh", fragment)]);
+    let t = pack.translate(&TranslateConfig::default());
+    reflection(program(&t, "composite"));
+}
+
+#[test]
 fn a_texture_sampler_is_gtexture_in_every_version_and_const_in_parameters_compile() {
     // SEUS Renewed: `#version 130` gbuffers declare `uniform sampler2D texture` and take
     // `const in int` parameters.

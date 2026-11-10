@@ -1050,7 +1050,7 @@ fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
         assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
         assert!(!fixture.check(&mut cache).chat);
     }
-    for only_self in [true, false] {
+    for only_self in [false, true] {
         fixture
             .settings
             .set(SettingId::MentionsTarget.index(), i32::from(only_self));

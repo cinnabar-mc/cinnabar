@@ -192,6 +192,8 @@ pub struct ItemUseRuntime {
     gameplay_focused: bool,
     /// A gliding rocket's use was admitted; its boost is predicted before the server answers.
     rocket_boost: bool,
+    /// The tick a brush's use on a block last drew its effects, plus their cooldown.
+    brush_effects_until: u64,
 }
 
 impl ItemUseRuntime {
@@ -412,6 +414,7 @@ impl ItemUseRuntime {
         self.reported_using_item = None;
         self.rearm_millis = None;
         self.cooldowns.clear();
+        self.brush_effects_until = 0;
         self.predicted = None;
         self.inventory_change = None;
         self.crossbows.clear();

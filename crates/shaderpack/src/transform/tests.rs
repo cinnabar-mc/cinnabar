@@ -219,12 +219,17 @@ fn loop_shadowing_preserves_a_valid_shader() {
 
 /// Transforms one fragment stage and compiles it through naga.
 fn compile_fragment(text: &str) -> crate::compile::CompiledStage {
+    compile_stage("composite.fsh", text, StageKind::Fragment)
+}
+
+/// Transforms one `composite` stage from `file` and compiles it through naga.
+fn compile_stage(file: &str, text: &str, kind: StageKind) -> crate::compile::CompiledStage {
     let mut iface = ProgramInterface::default();
-    let (stage, lines) = draft("composite.fsh", text, StageKind::Fragment, &mut iface);
+    let (stage, lines) = draft(file, text, kind, &mut iface);
     let uniforms = merge_uniforms([&stage]).unwrap();
     let (glsl, origins) = assemble(&stage, &uniforms, &iface.location_defines().unwrap());
     let result = compile(
-        StageKind::Fragment,
+        kind,
         &OutputMap {
             glsl: &glsl,
             origins: &origins,
@@ -325,6 +330,28 @@ void main() {{ gl_FragData[0] = vec4(uv, 0.0, 1.0); }}
                 .iter()
                 .any(|argument| matches!(argument.binding, Some(naga::Binding::Location { .. }))),
             "{header}: `uv` is not a stage input"
+        );
+    }
+}
+
+#[test]
+fn signed_builtins_read_as_int() {
+    for (name, _) in legacy::SIGNED_BUILTINS {
+        // Primitive and sample indices are fragment inputs; the rest are vertex inputs.
+        let fragment = matches!(*name, "gl_PrimitiveID" | "gl_SampleID");
+        let (file, kind, output) = if fragment {
+            ("composite.fsh", StageKind::Fragment, "gl_FragData[0]")
+        } else {
+            ("composite.vsh", StageKind::Vertex, "gl_Position")
+        };
+        compile_stage(
+            file,
+            &format!(
+                "#version 460 compatibility
+void main() {{ int index = {name} % 3 - 1; {output} = vec4(float(index)); }}
+"
+            ),
+            kind,
         );
     }
 }

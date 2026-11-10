@@ -1,8 +1,25 @@
 use super::*;
 use assets::*;
 
+/// Whether the layer's selected material definition blends.
+fn blends(layer: &crate::RenderTextureLayer) -> bool {
+    layer
+        .render_state
+        .is_some_and(|state| state.blend.is_some())
+}
+
 /// Builds a static actor whose material selector reads one query, directly or through a script.
 fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<RuntimeEntityAssets> {
+    let compiled = compiled_material_assets(query, threshold, indirect);
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+}
+
+/// Builds the editable carrier for material selection sampling fixtures.
+fn compiled_material_assets(
+    query: MolangQuery,
+    threshold: f32,
+    indirect: bool,
+) -> CompiledEntityAssets {
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
     compiled.rig_bindings[0].pre_animation = None;
     compiled.render.layers[0].color = None;
@@ -61,18 +78,142 @@ fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<Ru
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
             state: Some(EntityRenderMaterialState::default()),
+            definition: Some(0),
+            masks: None,
+            uv_anim: true,
         },
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
-            state: Some(EntityRenderMaterialState {
-                blend: true,
-                ..Default::default()
-            }),
+            state: Some(EntityRenderMaterialState::default()),
+            definition: Some(1),
+            masks: None,
+            uv_anim: true,
+        },
+    ]
+    .into();
+    compiled.render.materials = vec![
+        assets::entity::material::EntityMaterialDefinition::default(),
+        assets::entity::material::EntityMaterialDefinition {
+            states: Box::new([assets::entity::material::EntityMaterialState::Blending]),
+            ..Default::default()
         },
     ]
     .into();
     compiled.render.layers[0].material_selection = Some(0);
-    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+    compiled
+}
+
+#[test]
+fn empty_material_choices_skip_draws_at_ticks_and_between_frames() {
+    let mut compiled = compiled_material_assets(MolangQuery::DistanceFromCamera, 8.0, false);
+    compiled.render.material_selections[2] = EntityRenderMaterialSelection::Empty;
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
+    let actor = crate::tests::actor_with_metadata(HashMap::new());
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let mut store = ActorAnimationStore::with_assets(assets);
+    store.insert(1, 0, &actor);
+    for distance in [9.0, 5.0, 9.0] {
+        store.advance_tick(&actors, None, None, true, true, |_| ActorTickContext {
+            camera_position: [0.0, 0.0, distance],
+            ..Default::default()
+        });
+        let completed = store.get(1).unwrap().render.to_vec();
+        assert_eq!(completed.is_empty(), distance >= 8.0);
+        let visibility = store.get(1).unwrap().visibility;
+        assert_eq!(visibility.hides_body(), distance >= 8.0);
+        assert_eq!(
+            visibility.controllers,
+            if distance >= 8.0 {
+                ControllerActivity::ActiveNoDraw
+            } else {
+                ControllerActivity::Active
+            }
+        );
+        let authored = authored_state(&store);
+        for visibility_only in [false, true] {
+            let mut storage = Vec::new();
+            for sample_distance in [5.0, 9.0, 9.0, 5.0] {
+                let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+                let sampled = store
+                    .render_layers_reusing(
+                        &actor,
+                        0.5,
+                        [0.0; 2],
+                        [0.0, 0.0, sample_distance],
+                        &mut budget,
+                        false,
+                        visibility_only,
+                        &mut storage,
+                    )
+                    .unwrap();
+                assert_eq!(sampled.render.is_empty(), sample_distance >= 8.0);
+                assert_eq!(sampled.visibility.hides_body(), sample_distance >= 8.0);
+            }
+        }
+        assert_eq!(store.get(1).unwrap().render, completed);
+        assert_eq!(store.get(1).unwrap().visibility, visibility);
+        assert_eq!(authored_state(&store), authored);
+    }
+}
+
+#[test]
+fn empty_material_choices_preserve_other_draws_and_missing_artwork_fallbacks() {
+    for missing_artwork in [false, true] {
+        let mut compiled = compiled_material_assets(MolangQuery::DistanceFromCamera, 8.0, false);
+        compiled.render.material_selections[2] = EntityRenderMaterialSelection::Empty;
+        let mut other = compiled.render.layers[0];
+        other.material_selection = None;
+        other.unresolved_textures = missing_artwork;
+        other.first_slot = compiled.render.slots.len() as u32;
+        if missing_artwork {
+            other.slot_count = 0;
+        } else {
+            let mut slot = compiled.render.slots[0];
+            slot.first_candidate = compiled.render.candidates.len() as u32;
+            compiled.render.slots = vec![compiled.render.slots[0], slot].into();
+            compiled.render.candidates =
+                vec![compiled.render.candidates[0], compiled.render.candidates[0]].into();
+        }
+        let mut layers = compiled.render.layers.into_vec();
+        layers.push(other);
+        compiled.render.layers = layers.into();
+        let assets = Arc::new(
+            RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+        );
+        let actor = crate::tests::actor_with_metadata(HashMap::new());
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut store = ActorAnimationStore::with_assets(assets);
+        store.insert(1, 0, &actor);
+        store.advance_tick(&actors, None, None, true, true, |_| ActorTickContext {
+            camera_position: [0.0, 0.0, 9.0],
+            ..Default::default()
+        });
+        let completed = store.get(1).unwrap();
+        assert_eq!(completed.render.is_empty(), missing_artwork);
+        assert_eq!(completed.visibility.controllers, ControllerActivity::Active);
+        assert!(!completed.visibility.hides_body());
+        for visibility_only in [false, true] {
+            let mut storage = Vec::new();
+            let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+            let sampled = store
+                .render_layers_reusing(
+                    &actor,
+                    0.5,
+                    [0.0; 2],
+                    [0.0, 0.0, 9.0],
+                    &mut budget,
+                    false,
+                    visibility_only,
+                    &mut storage,
+                )
+                .unwrap();
+            assert_eq!(sampled.render.is_empty(), missing_artwork);
+            assert_eq!(sampled.visibility.controllers, ControllerActivity::Active);
+            assert!(!sampled.visibility.hides_body());
+        }
+    }
 }
 
 #[test]
@@ -90,7 +231,7 @@ fn camera_only_material_selector_changes_between_ticks() {
         ..Default::default()
     });
     let completed = store.get(1).unwrap().render.to_vec();
-    assert!(!completed[0].material_state.unwrap().blend);
+    assert!(!blends(&completed[0]));
     let authored = authored_state(&store);
     for alpha in [0.0, 0.25, 0.75, 1.0] {
         for (distance, blend) in [(5.0, false), (9.0, true), (5.0, false)] {
@@ -106,7 +247,7 @@ fn camera_only_material_selector_changes_between_ticks() {
                 )
                 .unwrap();
             assert_eq!(layers.render.len(), 1);
-            assert_eq!(layers.render[0].material_state.unwrap().blend, blend);
+            assert_eq!(blends(&layers.render[0]), blend);
         }
     }
     assert_eq!(store.get(1).unwrap().render, completed);
@@ -130,11 +271,7 @@ fn frame_time_material_selectors_follow_authored_variable_dependencies() {
             let layers = store
                 .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut budget, false)
                 .unwrap();
-            assert_eq!(
-                layers.render[0].material_state.unwrap().blend,
-                blend,
-                "{query:?}"
-            );
+            assert_eq!(blends(&layers.render[0]), blend, "{query:?}");
         }
         assert_eq!(authored_state(&store), authored);
     }

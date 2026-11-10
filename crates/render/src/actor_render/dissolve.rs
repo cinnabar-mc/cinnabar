@@ -23,7 +23,7 @@ impl SortedDraws {
         for (index, span) in spans
             .iter()
             .enumerate()
-            .filter(|(_, span)| super::phase::sorted(span.material))
+            .filter(|(_, span)| super::phase::sorted(span.material, &span.raster))
         {
             if let Some(actor) = pair_owner(span, manifest) {
                 pairs.entry(actor).or_default().push(index);
@@ -32,7 +32,7 @@ impl SortedDraws {
         for (index, span) in spans
             .iter()
             .enumerate()
-            .filter(|(_, span)| super::phase::sorted(span.material))
+            .filter(|(_, span)| super::phase::sorted(span.material, &span.raster))
         {
             let start = self.indices.len();
             if let Some(actor) = pair_owner(span, manifest) {
@@ -74,14 +74,21 @@ fn owner(identity: ActorRenderIdentity) -> ActorRenderIdentity {
 
 /// Leaves ordinary dissolve pairs opaque and routes color with an owner's sorted depth mask.
 /// The sorted draw plan keeps each marked color adjacent to its depth mask.
-pub(super) fn instances(output: &mut [ActorGpuInstance], manifest: &[ActorDrawManifestEntry]) {
+pub(super) fn instances(
+    output: &mut [ActorGpuInstance],
+    manifest: &[ActorDrawManifestEntry],
+    rasters: &[render_api::render_state::RenderState],
+) {
     let late: BTreeSet<_> = output
         .iter()
         .zip(manifest)
         .filter(|(instance, _)| {
             instance.material & assets::EntityRenderMaterialState::KIND_MASK
                 == assets::EntityRenderMaterial::DissolveDepth as u32
-                && super::phase::sorted(instance.material)
+                && super::phase::sorted(
+                    instance.material,
+                    &crate::actor::material::instance_raster(rasters, instance),
+                )
         })
         .map(|(_, entry)| owner(entry.identity))
         .collect();

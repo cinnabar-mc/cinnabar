@@ -152,7 +152,7 @@ forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 [[crates]]
 name = "assets"
 path = "crates/assets"
-allowed_dependencies = ["env-compat", "block-transform", "protocol-ids"]
+allowed_dependencies = ["env-compat", "block-transform", "protocol-ids", "render-api"]
 forbidden_dependencies = ["asset-compiler", "bevy", "clap", "image", "wgpu", "diagnostics", "pack-runtime", "render", "render-model"]
 forbidden_transitive_dependencies = ["protocol", "tokio", "bevy", "bevy_*", "wgpu"]
 test_support_features = ["test-support"]
@@ -2126,11 +2126,6 @@ reason = "Behavior conformance scenario vocabulary selects checked physics fixtu
 path = "crates/sim/src/conformance.rs"
 literal = "scaffolding"
 reason = "Behavior conformance scenario vocabulary selects checked physics fixtures, not runtime block identities."
-
-[[identifier_literal_exceptions]]
-path = "crates/ui-engine/src/engine/vector_icons.rs"
-literal = "sword"
-reason = "Product vector-icon schema token selecting original Cinnabar artwork."
 
 [[identifier_literal_exceptions]]
 path = "crates/ui-screens/src/container_data.rs"

@@ -94,6 +94,16 @@ impl RawPacket {
     }
 }
 
+/// A well-formed batch entry whose ID this protocol version does not define.
+///
+/// Vanilla's receive loop creates no packet for such an ID and reads on, so the session counts
+/// and skips it instead of ending.
+#[derive(Debug, Clone)]
+pub(crate) struct UnknownPacket {
+    pub(crate) id: u32,
+    pub(crate) body: Bytes,
+}
+
 /// A validated batch that creates packet metadata only as its entries are consumed.
 #[derive(Debug)]
 pub(crate) struct RawBatch {
@@ -102,24 +112,40 @@ pub(crate) struct RawBatch {
     remaining: usize,
 }
 
+impl RawBatch {
+    /// Splits the next entry, or names the ID and body of one this protocol does not define.
+    pub(crate) fn next_entry(&mut self) -> Option<Result<RawPacket, UnknownPacket>> {
+        let frame = self.frames.next()?.expect("batch framing was validated");
+        self.remaining -= 1;
+        Some(raw_packet(frame, self.backing_len))
+    }
+
+    /// Entries not yet split, unknown IDs included.
+    pub(crate) const fn remaining(&self) -> usize {
+        self.remaining
+    }
+}
+
+/// Yields the known packets in order, passing over entries with unknown IDs.
 impl Iterator for RawBatch {
     type Item = RawPacket;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let frame = self.frames.next()?.expect("batch framing was validated");
-        self.remaining -= 1;
-        Some(raw_packet(frame, self.backing_len).expect("batch packet IDs were validated"))
+        loop {
+            if let Ok(packet) = self.next_entry()? {
+                return Some(packet);
+            }
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
+        (0, Some(self.remaining))
     }
 }
 
-impl ExactSizeIterator for RawBatch {}
-
 /// Validates every length-prefixed entry before yielding packets that share the batch bytes.
-/// The byte bound applies without a packet-count cap or a per-entry metadata allocation.
+/// The byte bound applies without a packet-count cap or a per-entry metadata allocation. An
+/// entry whose ID this protocol does not define is well-formed and does not fail the batch.
 pub(crate) fn decode_batch_body(body: Bytes, max_bytes: usize) -> Result<RawBatch, SessionError> {
     if body.len() > max_bytes {
         return Err(SessionFailure::BatchTooLarge {
@@ -134,8 +160,6 @@ pub(crate) fn decode_batch_body(body: Bytes, max_bytes: usize) -> Result<RawBatc
     for frame in wire::Frames::new(body.clone(), usize::MAX) {
         let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
         offset += frame.frame().len();
-        let id = frame.header().id;
-        PacketId::from_raw(id).ok_or(SessionFailure::UnknownPacketId(id))?;
         remaining += 1;
     }
     Ok(RawBatch {
@@ -145,9 +169,18 @@ pub(crate) fn decode_batch_body(body: Bytes, max_bytes: usize) -> Result<RawBatc
     })
 }
 
-/// Decodes the first packet entry in `cursor` and advances past it.
+/// Decodes the first packet entry in `cursor`, whose ID must be one this protocol defines, and
+/// advances past it.
 #[cfg(test)]
 pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, SessionError> {
+    decode_entry_raw(cursor).map(|entry| entry.expect("a packet ID this protocol defines"))
+}
+
+/// Splits the first entry in `cursor` like [`RawBatch::next_entry`] and advances past it.
+#[cfg(test)]
+pub(crate) fn decode_entry_raw(
+    cursor: &mut Bytes,
+) -> Result<Result<RawPacket, UnknownPacket>, SessionError> {
     let backing_len = cursor.len();
     let frame = wire::Frames::new(cursor.clone(), 1)
         .next()
@@ -157,7 +190,7 @@ pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, Session
         }))
         .map_err(|error| framing_failure(&cursor[..], error))?;
     let _ = cursor.split_to(frame.frame().len());
-    raw_packet(frame, backing_len)
+    Ok(raw_packet(frame, backing_len))
 }
 
 /// Splits a `0xfe`-marked uncompressed batch, as fixtures capture one, into raw packets.
@@ -191,10 +224,16 @@ fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
     .into()
 }
 
-/// Names a framed entry's packet; an ID the protocol does not define ends the session.
-fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, SessionError> {
+/// Names a framed entry's packet, or returns the raw ID and body of one this protocol does not
+/// define.
+fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, UnknownPacket> {
     let header = frame.header();
-    let id = PacketId::from_raw(header.id).ok_or(SessionFailure::UnknownPacketId(header.id))?;
+    let Some(id) = PacketId::from_raw(header.id) else {
+        return Err(UnknownPacket {
+            id: header.id,
+            body: frame.body(),
+        });
+    };
     Ok(RawPacket {
         header: GameHeader {
             id,
