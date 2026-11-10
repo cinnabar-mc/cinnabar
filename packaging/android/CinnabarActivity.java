@@ -124,7 +124,11 @@ public final class CinnabarActivity extends NativeActivity {
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         // Android releases pointer capture when the window loses focus.
-        if (hasFocus) applyPointerCapture();
+        if (hasFocus) {
+            applyPointerCapture();
+        } else {
+            clearHeldMouseButtons();
+        }
     }
 
     /**
@@ -291,13 +295,6 @@ public final class CinnabarActivity extends NativeActivity {
             } catch (UnsatisfiedLinkError e) {
                 // In case activity starts before native library methods are bound
             }
-        }
-    }
-
-    @Override public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus) {
-            clearHeldMouseButtons();
         }
     }
 
