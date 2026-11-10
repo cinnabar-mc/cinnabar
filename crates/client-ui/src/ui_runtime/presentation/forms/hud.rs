@@ -125,6 +125,7 @@ impl UiPresentationRuntime {
         let catalog = self.mod_hud_bindings.catalog(renderer.catalog());
         let options = self.screens.chat.settings.options();
         let mut sidebar_shown = false;
+        let mut position_shown = false;
         let model = if crosshair {
             None
         } else {
@@ -146,9 +147,10 @@ impl UiPresentationRuntime {
                 sidebar_key,
                 options,
                 hidden.contains(VanillaElement::StatusEffects),
-                hidden.hides_position(),
+                hidden.contains(VanillaElement::Position),
                 renderer.catalog(),
             );
+            position_shown = self.hud_cache.position_shown();
             let touch_inventory = self.screens.touch.enabled();
             if self.hud_cache.model.touch_inventory != touch_inventory {
                 self.hud_cache.model.touch_inventory = touch_inventory;
@@ -180,7 +182,7 @@ impl UiPresentationRuntime {
             self.hud_elements.observe_crosshair(&[], false, [0., 0.]);
             return Ok(true);
         }
-        let drawn_elements = Drawn::of(&paint, sidebar_shown);
+        let drawn_elements = Drawn::of(&paint, sidebar_shown, position_shown);
         if !crosshair {
             // Legacy HUDs embed this renderer; the separate overlay already draws it.
             // Inverting the same pixels twice restores the world behind the cursor.

@@ -63,7 +63,7 @@ pub(crate) fn candidates(
             .map(|(a, b)| (a - b).powi(2))
             .sum::<f32>();
         if !distance.is_finite()
-            || distance > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2)
+            || distance > mod_api::MAX_DRAW_ENTITY_RANGE_BLOCKS.powi(2)
             || actor.render_spawn_revision.get() == 0
         {
             continue;
@@ -186,7 +186,7 @@ pub(crate) fn publish_frame(
                     );
                     if !authority.terrain().is_chunk_loaded(chunk)
                         || position.distance_squared(camera.translation)
-                            > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2)
+                            > mod_api::MAX_DRAW_ENTITY_RANGE_BLOCKS.powi(2)
                     {
                         continue;
                     }

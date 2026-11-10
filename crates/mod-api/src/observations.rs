@@ -3,8 +3,14 @@
 /// Maximum bytes in a stable selected world or server identity.
 pub const MAX_WORLD_IDENTITY_BYTES: usize = 256;
 
-/// Bounded cosmetic actor and combat observations per sandbox callback.
-pub const MAX_OBSERVED_ACTORS: usize = 16;
+/// Most actors of each kind, players and other actors, observed for one callback, nearest
+/// first within `OBSERVED_ACTOR_RANGE_BLOCKS`; also the largest `read-actors-limited` limit.
+pub const MAX_OBSERVED_ACTORS: usize = 64;
+/// Rows `read-actors` returns: the nearest authorized observations.
+pub const MAX_READ_ACTORS: usize = 16;
+/// Radius around the local feet within which actors are observed, in blocks.
+pub const OBSERVED_ACTOR_RANGE_BLOCKS: f32 = 128.0;
+/// Bounded cosmetic combat observations per sandbox callback.
 pub const MAX_OBSERVED_ACTOR_BOXES: usize = 8;
 pub const MAX_OBSERVED_ACTOR_NAME_BYTES: usize = 128;
 pub const MAX_OBSERVED_COMBAT_EVENTS: usize = 64;

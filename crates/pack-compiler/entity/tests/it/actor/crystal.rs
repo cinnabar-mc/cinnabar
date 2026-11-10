@@ -80,10 +80,15 @@ fn fetched_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
     assert_eq!(geometry.bones[3].name.as_ref(), "base");
     assert!(!entities.animation_channels.is_empty());
     assert_eq!(entities.render.visibility.len(), 1);
+    let layer = &entities.render.layers[0];
+    assert!(layer.material_state.is_some_and(|state| state.alpha_test));
     assert!(
-        entities.render.layers[0]
-            .material_state
-            .is_some_and(|state| state.alpha_test && !state.blend)
+        layer
+            .material_definition
+            .and_then(|index| entities.render.materials.get(index as usize))
+            .is_some_and(|definition| {
+                !definition.has_state(assets::entity::material::EntityMaterialState::Blending)
+            })
     );
     let original = image::open(root.join("textures/entity/endercrystal/endercrystal.png"))
         .unwrap()

@@ -41,15 +41,12 @@ impl Fixture {
         // Material 0 textures water, material 1 the models; neither animates.
         let materials = gpu.words(
             &[
-                [0, 0, assets::NO_ANIMATION, 0, 0, 0],
-                [
+                crate::material_records::plain_material(0, 0, assets::NO_ANIMATION),
+                crate::material_records::plain_material(
                     0,
                     assets::MATERIAL_FLAG_ISOTROPIC,
                     assets::NO_ANIMATION,
-                    0,
-                    0,
-                    0,
-                ],
+                ),
             ]
             .concat(),
             storage,

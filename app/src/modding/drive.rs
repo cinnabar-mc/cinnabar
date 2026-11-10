@@ -318,12 +318,20 @@ pub(super) fn drive_mod(
         .hosts
         .observe_hud(hud_viewport, hud_elements, label_metrics);
     let panel_layout = presentation.mod_ui().mod_panel_layout();
+    let panel_press = presentation.mod_ui().mod_panel_press();
     for index in 0..extension.hosts.host_count() {
         let owner = extension.panel_ui_owner(index);
-        extension.hosts.host_mut(index).observe_panel_layout(
+        let host = extension.hosts.host_mut(index);
+        host.observe_panel_layout(
             panel_layout
                 .filter(|(laid_out, _)| *laid_out == owner)
                 .map(|(_, layout)| layout),
+        );
+        host.observe_panel_press(
+            panel_press
+                .as_ref()
+                .filter(|(pressed, _)| *pressed == owner)
+                .map(|(_, press)| press.clone()),
         );
     }
     let panel_owner = extension.hosts.panel_owner();
@@ -379,9 +387,8 @@ pub(super) fn drive_mod(
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
-            let mobs = gameplay.mobs(snapshot.as_ref(), grants);
             let movement = gameplay.movement_snapshot(captured && !absorbed, grants, &ui);
-            (snapshot, mobs, movement)
+            (snapshot, movement)
         },
         |index, error| {
             callback_failures.push((index, error));

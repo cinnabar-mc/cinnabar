@@ -95,6 +95,8 @@ impl ActorDrawBatch {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ActorDrawSpan {
     pub material: u32,
+    /// Raster state every instance in the span draws with.
+    pub raster: render_api::render_state::RenderState,
     pub page: ActorArtworkPageId,
     pub first: u32,
     pub count: u32,
@@ -298,6 +300,7 @@ mod tests {
         let tracker = ActorDrawTracker::default();
         let span = ActorDrawSpan {
             material: 0,
+            raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
             page: 0,
             first: 0,
             count: 1,
@@ -320,6 +323,7 @@ mod tests {
         let spans = [
             ActorDrawSpan {
                 material: 0,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 page: 0,
                 first: 0,
                 count: 1,
@@ -327,6 +331,7 @@ mod tests {
             },
             ActorDrawSpan {
                 material: 0,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 page: 1,
                 first: 1,
                 count: 1,
@@ -357,6 +362,7 @@ mod tests {
         let spans = (0..count)
             .map(|index| ActorDrawSpan {
                 material: (index % 2) as u32,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 page: 0,
                 first: index as u32,
                 count: 1,
@@ -406,6 +412,7 @@ mod tests {
         for bad in [
             ActorDrawSpan {
                 material: expected.material + 1,
+                raster: assets::entity::material::UNAUTHORED_RENDER_STATE,
                 ..expected
             },
             ActorDrawSpan {

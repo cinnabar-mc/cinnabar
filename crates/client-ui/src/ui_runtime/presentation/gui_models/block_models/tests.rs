@@ -33,6 +33,7 @@ fn material(flags: u32) -> Material {
         variation_start: 0,
         variation_count: 0,
         variation_weight: 0,
+        ..Material::unvaried()
     }
 }
 

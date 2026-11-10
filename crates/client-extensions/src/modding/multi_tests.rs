@@ -119,14 +119,20 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
                 chat_events: &[],
                 gameplay_facts: Default::default(),
             },
-            |_| (None, Vec::new(), None),
+            |_| (None, None),
             |index, error| panic!("mod {index} failed: {error}"),
         );
     };
     assert!(runtime.merged_presentation().chat_actions.is_empty());
     frame(&mut runtime);
     let merged = runtime.merged_presentation();
-    assert_eq!(merged.hurt_overlay.body, Some([1., 0., 0., 1.]));
+    let hurt = |merged: &ui::mod_presentation::Presentation| {
+        let mob = ui::mod_presentation::ActorFacts::default();
+        merged
+            .tint(&mob, ui::mod_presentation::TintState::Hurt)
+            .and_then(|tint| tint.body)
+    };
+    assert_eq!(hurt(&merged), Some([1., 0., 0., 1.]));
     assert_eq!(merged.chat_actions[0].action, "first");
     assert_eq!(runtime.chat_action_owner(), Some(0));
     frame(&mut runtime);
@@ -136,7 +142,7 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
     ));
     runtime.swap(0, 1);
     let swapped = runtime.merged_presentation();
-    assert_eq!(swapped.hurt_overlay.body, Some([0.5, 0., 0., 1.]));
+    assert_eq!(hurt(&swapped), Some([0.5, 0., 0., 1.]));
     assert_eq!(swapped.chat_actions[0].action, "second");
     assert_eq!(runtime.chat_action_owner(), Some(0));
     runtime.remove(0);
@@ -441,7 +447,6 @@ fn snapshot() -> GameplaySnapshot {
         pitch: 0.0,
         attack_held: false,
         frame_seconds: 0.016,
-        players: Vec::new(),
     }
 }
 
@@ -478,7 +483,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
             },
             |_| {
                 captures += 1;
-                (Some(snapshot()), Vec::new(), None)
+                (Some(snapshot()), None)
             },
             |index, _| failures.push(index),
         );
@@ -573,7 +578,7 @@ fn grants_stay_per_mod() {
             chat_events: &[],
             gameplay_facts: Default::default(),
         },
-        |_| (Some(snapshot()), Vec::new(), None),
+        |_| (Some(snapshot()), None),
         |_, error| panic!("{error}"),
     );
     // The ungranted first mod cannot claim time, rig or commands ahead of the granted one.
@@ -703,7 +708,7 @@ fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods(
             chat_events: &[],
             gameplay_facts: Default::default(),
         },
-        |_| (None, Vec::new(), None),
+        |_| (None, None),
         |index, _| failures.push(index),
     );
     assert_eq!(failures, [0, 1]);
@@ -791,7 +796,7 @@ fn hiding_component(directory: &Path, name: &str, elements: &[u8]) -> PathBuf {
         .collect();
     let source = format!(
         r#"(component
-  (type $e (enum "crosshair" "status-effects" "sidebar" "hunger"))
+  (type $e (enum "crosshair" "status-effects" "sidebar" "hunger" "position"))
   (import "{namespace}/hud@{version}" (instance $hud
     (export "vanilla-element" (type $ve (eq $e)))
     (export "set-hidden-elements" (func (param "elements" (list $ve)) (result (result (error string)))))))
@@ -858,7 +863,11 @@ fn hidden_hud_elements_combine_across_mods_and_hosts_share_hud_observations() {
         height: 240.,
         scale: 3.,
     };
-    hosts.observe_hud(Some(viewport), [ElementState::default(); 4], None);
+    hosts.observe_hud(
+        Some(viewport),
+        [ElementState::default(); VanillaElement::ALL.len()],
+        None,
+    );
     assert!(hosts.host(0).hud_surface().is_none());
 }
 
@@ -988,7 +997,7 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
                 chat_events: &[],
                 gameplay_facts: Default::default(),
             },
-            |_| (Some(snapshot()), Vec::new(), None),
+            |_| (Some(snapshot()), None),
             |index, _| failures.push(index),
         )
     };
@@ -1070,7 +1079,7 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
         |grants| {
             assert!(grants.inventory);
             assert!(grants.needs_gameplay());
-            (Some(snapshot()), Vec::new(), None)
+            (Some(snapshot()), None)
         },
         |index, error| panic!("mod {index} failed: {error}"),
     );

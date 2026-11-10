@@ -2,11 +2,8 @@
   (import "$GAMEPLAY" (instance $gameplay
     (type $v (record (field "x" f32) (field "y" f32) (field "z" f32)))
     (export "vector3" (type $vector3 (eq $v)))
-    (type $p (record (field "runtime-id" u64) (field "position" $vector3)))
-    (export "player" (type $player (eq $p)))
     (type $s (record (field "session" u64) (field "dimension" s32)
-      (field "eye" $vector3) (field "yaw" f32) (field "pitch" f32)
-      (field "frame-seconds" f32) (field "players" (list $player))))
+      (field "eye" $vector3) (field "yaw" f32) (field "pitch" f32) (field "frame-seconds" f32)))
     (export "snapshot" (type $snapshot (eq $s)))
     (export "read-frame" (func (result (result (option $snapshot) (error string)))))
     (export "cancel-jump" (func (result (result (error string)))))

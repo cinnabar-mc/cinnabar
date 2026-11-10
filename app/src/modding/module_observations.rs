@@ -278,6 +278,15 @@ impl Ord for NearbyActor<'_> {
     }
 }
 
+/// Squared distance between an actor's latest position and the observation origin.
+fn squared_distance(position: [f32; 3], origin: [f32; 3]) -> f32 {
+    position
+        .iter()
+        .zip(origin)
+        .map(|(a, b)| (a - b).powi(2))
+        .sum()
+}
+
 /// Returns the nearest in-range actors in order, retaining only the observation limit.
 fn nearest_observed_actors<'a>(
     actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
@@ -285,13 +294,8 @@ fn nearest_observed_actors<'a>(
 ) -> impl ExactSizeIterator<Item = &'a client_world::ActorSnapshot> {
     let mut nearby = BinaryHeap::new();
     for actor in actors {
-        let distance = actor
-            .position
-            .iter()
-            .zip(origin)
-            .map(|(a, b)| (a - b).powi(2))
-            .sum::<f32>();
-        if !distance.is_finite() || distance > 128. * 128. {
+        let distance = squared_distance(actor.position, origin);
+        if !distance.is_finite() || distance > mod_api::OBSERVED_ACTOR_RANGE_BLOCKS.powi(2) {
             continue;
         }
         let candidate = NearbyActor { distance, actor };
@@ -308,6 +312,114 @@ fn nearest_observed_actors<'a>(
         .into_sorted_vec()
         .into_iter()
         .map(|candidate| candidate.actor)
+}
+
+/// The nearest `MAX_OBSERVED_ACTORS` players and the nearest `MAX_OBSERVED_ACTORS` other
+/// actors around the local feet, merged nearest first, so the prefix a mod's grants admit holds
+/// the nearest actors of its kinds. Positions are presented at the frame's actor `partial` tick.
+fn observed_actors(
+    authority: &client_world::WorldAuthority,
+    world: &WorldObservation,
+    partial: f32,
+    target: Option<Option<u64>>,
+) -> Vec<ObservedActor> {
+    let origin = [world.position.0, world.position.1, world.position.2];
+    let player = |actor: &&client_world::ActorSnapshot| {
+        matches!(actor.kind, protocol::ActorKind::Player { .. })
+    };
+    let mut nearest: Vec<_> =
+        nearest_observed_actors(authority.remote_actors().filter(player), origin)
+            .chain(nearest_observed_actors(
+                authority.remote_actors().filter(|actor| !player(actor)),
+                origin,
+            ))
+            .map(|actor| NearbyActor {
+                distance: squared_distance(actor.position, origin),
+                actor,
+            })
+            .collect();
+    nearest.sort_unstable();
+    nearest
+        .into_iter()
+        .map(|NearbyActor { actor, .. }| observed_actor(authority, world, actor, partial, target))
+        .collect()
+}
+
+/// One actor's row: identity, presented pose and boxes, targeting facts and replicated health.
+fn observed_actor(
+    authority: &client_world::WorldAuthority,
+    world: &WorldObservation,
+    actor: &client_world::ActorSnapshot,
+    partial: f32,
+    target: Option<Option<u64>>,
+) -> ObservedActor {
+    let position = actor
+        .interpolated_position(partial)
+        .unwrap_or(actor.position);
+    let name = authority
+        .actor_name_tag(actor.unique_id)
+        .or_else(|| authority.actor_display_name(actor.unique_id));
+    let name = name.as_deref().unwrap_or("");
+    let mut end = name.len().min(mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    ObservedActor {
+        actor: ActorObservation {
+            session: world.session,
+            dimension: world.dimension,
+            identifier: match &actor.kind {
+                protocol::ActorKind::Player { .. } => {
+                    assets::facts::entity::NativeEntityClass::Player
+                        .identifier()
+                        .expect("pinned player identity")
+                        .into()
+                }
+                protocol::ActorKind::Entity { identifier } => bounded_text(identifier),
+            },
+            yaw: actor.yaw,
+            pitch: actor.pitch,
+            pickable: gameplay::melee::actor_is_pickable(actor),
+            hittable: target.map(|target| target == Some(actor.runtime_id)),
+            look_origin: look_origin(authority, actor, position)
+                .map(|point| (point[0], point[1], point[2])),
+            look_direction: {
+                let yaw = actor.head_yaw.to_radians();
+                let pitch = actor.pitch.to_radians();
+                Some((
+                    -yaw.sin() * pitch.cos(),
+                    -pitch.sin(),
+                    yaw.cos() * pitch.cos(),
+                ))
+            },
+            runtime_id: actor.runtime_id,
+            player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+            position: (position[0], position[1], position[2]),
+            boxes: actor
+                .hit_boxes_at(position)
+                .take(mod_api::MAX_OBSERVED_ACTOR_BOXES)
+                .map(|(min, max)| ActorObservationBounds {
+                    min: (min[0], min[1], min[2]),
+                    max: (max[0], max[1], max[2]),
+                })
+                .collect(),
+            name: name[..end]
+                .chars()
+                .filter(|character| !character.is_control())
+                .collect(),
+            invisible: actor.is_invisible(),
+            sneaking: actor.is_sneaking(),
+            hurt: actor.hurt_overlay_active(),
+            health: authority
+                .actor_health_by_unique(actor.unique_id)
+                .map(|(current, _)| current),
+        },
+        max_health: authority
+            .actor_health_by_unique(actor.unique_id)
+            .map(|(_, maximum)| maximum)
+            .filter(|maximum| maximum.is_finite() && *maximum > 0.),
+        unique_id: actor.unique_id,
+    }
 }
 
 impl ModuleObserver {
@@ -445,80 +557,9 @@ impl ModuleObserver {
                     saturation_modifier: food.saturation_modifier(),
                 }),
         });
-        let origin = [world.position.0, world.position.1, world.position.2];
         let target = current_target(gameplay, ui, interaction);
-        let actors = nearest_observed_actors(authority.remote_actors(), origin)
-            .map(|actor| {
-                let position = actor
-                    .interpolated_position(
-                        gameplay.actor_partial.as_ref().map_or(0., |tick| tick.0),
-                    )
-                    .unwrap_or(actor.position);
-                let name = authority
-                    .actor_name_tag(actor.unique_id)
-                    .or_else(|| authority.actor_display_name(actor.unique_id));
-                let name = name.as_deref().unwrap_or("");
-                let mut end = name.len().min(mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES);
-                while !name.is_char_boundary(end) {
-                    end -= 1;
-                }
-                ObservedActor {
-                    actor: ActorObservation {
-                        session: world.session,
-                        dimension: world.dimension,
-                        identifier: match &actor.kind {
-                            protocol::ActorKind::Player { .. } => {
-                                assets::facts::entity::NativeEntityClass::Player
-                                    .identifier()
-                                    .expect("pinned player identity")
-                                    .into()
-                            }
-                            protocol::ActorKind::Entity { identifier } => bounded_text(identifier),
-                        },
-                        yaw: actor.yaw,
-                        pitch: actor.pitch,
-                        pickable: gameplay::melee::actor_is_pickable(actor),
-                        hittable: target.map(|target| target == Some(actor.runtime_id)),
-                        look_origin: look_origin(authority, actor, position)
-                            .map(|point| (point[0], point[1], point[2])),
-                        look_direction: {
-                            let yaw = actor.head_yaw.to_radians();
-                            let pitch = actor.pitch.to_radians();
-                            Some((
-                                -yaw.sin() * pitch.cos(),
-                                -pitch.sin(),
-                                yaw.cos() * pitch.cos(),
-                            ))
-                        },
-                        runtime_id: actor.runtime_id,
-                        player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
-                        position: (position[0], position[1], position[2]),
-                        boxes: actor
-                            .hit_boxes_at(position)
-                            .take(mod_api::MAX_OBSERVED_ACTOR_BOXES)
-                            .map(|(min, max)| ActorObservationBounds {
-                                min: (min[0], min[1], min[2]),
-                                max: (max[0], max[1], max[2]),
-                            })
-                            .collect(),
-                        name: name[..end]
-                            .chars()
-                            .filter(|character| !character.is_control())
-                            .collect(),
-                        invisible: actor.is_invisible(),
-                        sneaking: actor.is_sneaking(),
-                        hurt: actor.hurt_overlay_active(),
-                        health: authority
-                            .actor_health_by_unique(actor.unique_id)
-                            .map(|(current, _)| current),
-                    },
-                    max_health: authority
-                        .actor_health_by_unique(actor.unique_id)
-                        .map(|(_, maximum)| maximum)
-                        .filter(|maximum| maximum.is_finite() && *maximum > 0.),
-                }
-            })
-            .collect();
+        let partial = gameplay.actor_partial.as_ref().map_or(0., |tick| tick.0);
+        let actors = observed_actors(authority, world, partial, target);
         if let Some(attack) = gameplay
             .melee
             .as_ref()
@@ -633,7 +674,8 @@ mod tests {
                     .zip(origin)
                     .map(|(a, b)| (a - b).powi(2))
                     .sum::<f32>();
-                (distance.is_finite() && distance <= 128. * 128.).then_some((distance, actor))
+                (distance.is_finite() && distance <= mod_api::OBSERVED_ACTOR_RANGE_BLOCKS.powi(2))
+                    .then_some((distance, actor))
             })
             .collect();
         nearby.sort_by(|a, b| {
@@ -785,7 +827,7 @@ mod tests {
     fn nearest_observations_allocation_benchmark() {
         let template = actor_template();
         let mut bounded_bytes = None;
-        for count in [16, 100, 1000] {
+        for count in [mod_api::MAX_OBSERVED_ACTORS, 100, 1000] {
             let actors = crowd(&template, count);
             let (old, before) = test_alloc::measure(|| full_sort_nearest(actors.iter(), [0.; 3]));
             let (new, after) =
@@ -823,6 +865,9 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "module_observations/actor_tests.rs"]
+mod actor_tests;
 #[cfg(test)]
 #[path = "module_observations/combat_tests.rs"]
 mod combat_tests;

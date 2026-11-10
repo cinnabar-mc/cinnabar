@@ -45,18 +45,7 @@ impl ModHost {
         snapshot: Option<GameplaySnapshot>,
         controls: ControlFrame,
     ) -> Result<()> {
-        self.frame_with_world(pressed, snapshot, Vec::new(), controls)
-    }
-
-    /// Adds nearby mobs, readable only with the entities grant and a current snapshot.
-    pub fn frame_with_world(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
-        controls: ControlFrame,
-    ) -> Result<()> {
-        self.frame_with_player_state(pressed, snapshot, mobs, None, controls)
+        self.frame_with_player_state(pressed, snapshot, None, controls)
     }
 
     /// Supplies read-only local facts independently of captured gameplay input.
@@ -64,11 +53,10 @@ impl ModHost {
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
         player_state: Option<PlayerStateSnapshot>,
         controls: ControlFrame,
     ) -> Result<()> {
-        self.frame_with_movement(pressed, snapshot, mobs, player_state, None, controls)
+        self.frame_with_movement(pressed, snapshot, player_state, None, controls)
     }
 
     /// Shares frame fuel; the booleans say whether a higher mod owns camera or time output.
@@ -92,7 +80,6 @@ impl ModHost {
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
         player_state: Option<PlayerStateSnapshot>,
         movement: Option<GameplayMovementSnapshot>,
         controls: ControlFrame,
@@ -107,7 +94,7 @@ impl ModHost {
                 match self.dispatch(Vec::new()) {
                     Ok(delivery) => self
                         .instance
-                        .observe_frame(pressed, snapshot, mobs, player_state, movement, controls)
+                        .observe_frame(pressed, snapshot, player_state, movement, controls)
                         .and_then(|()| self.instance.frame(delivery)),
                     Err(error) => Err(error),
                 }

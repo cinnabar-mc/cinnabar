@@ -53,6 +53,7 @@ fn base_source_override_retargets_variants_and_releases_replaced_pixels() {
             rgba8: Arc::from([7; 16]),
         }],
         &[],
+        &Default::default(),
     );
     let route = ActorArtworkLocation {
         page: 1,
@@ -66,7 +67,6 @@ fn base_source_override_retargets_variants_and_releases_replaced_pixels() {
             height: 1,
             layers: 1,
             rgba8: vec![3; 4].into(),
-            color_mask: false,
             multitexture: false,
         }]
         .into(),
@@ -110,7 +110,7 @@ fn packed_artwork_preserves_layer_pixels_and_equipment_locations() {
         pixel_sha256: [0; 32],
         rgba8,
     });
-    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
+    let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[], &Default::default());
     assert_eq!(
         pages.pages()[0].pixels().as_ref(),
         &[1, 2, 3, 4, 5, 6, 7, 8]
@@ -142,15 +142,14 @@ fn fitting_a_page_halves_until_it_fits_and_averages_texels() {
             .repeat(6)
             .concat()
             .into(),
-        color_mask: true,
-        multitexture: false,
+        multitexture: true,
     };
     let fitted = page.fit_within(4);
     assert_eq!((fitted.width, fitted.height), (1, 3));
     assert_eq!(&fitted.pixels()[..4], &[127, 127, 127, 255]);
     assert!(
-        fitted.color_mask,
-        "downscaling retains the material contract"
+        fitted.multitexture,
+        "downscaling retains the sampler grouping"
     );
     assert!(matches!(page.fit_within(6), std::borrow::Cow::Borrowed(_)));
 }
@@ -174,8 +173,11 @@ fn pack_artwork_routes_bindings_under_pack_rig_ids() {
         material: "entity".into(),
         pose_mode: assets::ActorPoseMode::CompiledLiteral,
     };
-    let pages = ActorArtworkPages::default()
-        .with_pack_artwork(&[texture(2)], &[binding(5, 0), binding(6, 9)]);
+    let pages = ActorArtworkPages::default().with_pack_artwork(
+        &[texture(2)],
+        &[binding(5, 0), binding(6, 9)],
+        &Default::default(),
+    );
     assert_eq!(pages.pages().len(), 1);
     let location = pages.route(crate::pack_rig_id(5)).unwrap();
     assert!(pages.valid(crate::pack_rig_id(5), location));
@@ -197,7 +199,8 @@ fn skin_models_draw_catalog_textures_their_controllers_name() {
         pixel_sha256: [fill; 32],
         rgba8: vec![fill; 16].into(),
     };
-    let pages = ActorArtworkPages::default().with_pack_artwork(&[texture(23, 1)], &[]);
+    let pages =
+        ActorArtworkPages::default().with_pack_artwork(&[texture(23, 1)], &[], &Default::default());
     let skin = crate::skin_rig_id(3);
     assert!(crate::is_skin_rig_id(skin));
     assert!(!crate::is_skin_rig_id(crate::item_mesh_rig_id(3)));
@@ -238,8 +241,11 @@ fn pack_rig_variants_resolve_in_the_pack_source_space() {
         material: "entity".into(),
         pose_mode: assets::ActorPoseMode::CompiledLiteral,
     };
-    let pages =
-        ActorArtworkPages::default().with_pack_artwork(&[texture(4, 1), texture(9, 2)], &[binding]);
+    let pages = ActorArtworkPages::default().with_pack_artwork(
+        &[texture(4, 1), texture(9, 2)],
+        &[binding],
+        &Default::default(),
+    );
     let rig = crate::pack_rig_id(0);
     let variant = pages.variant_location(rig, 9).unwrap();
     assert_eq!((variant.page(), variant.layer()), (1, 1));

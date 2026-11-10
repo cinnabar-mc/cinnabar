@@ -28,6 +28,8 @@ pub use geometry::{
     EntityGeometry, EntityGeometryBounds, EntityGeometryInheritance, GEOMETRY_NO_HEAD_BOB_FIELD,
 };
 pub use locator::{EntityGeometryLocator, EntityGeometryLocatorBinding, MAX_GEOMETRY_LOCATORS};
+#[path = "entity_material_report.rs"]
+pub mod material_report;
 #[path = "entity/poly_mesh.rs"]
 mod poly_mesh;
 mod source_paths;
@@ -35,6 +37,7 @@ mod source_paths;
 mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
+pub use material_report::{EntityMaterialDiagnostics, MaterialListReport};
 pub use poly_mesh::{EntityGeometryPolyCorner, EntityGeometryPolyMesh};
 pub use source_paths::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
@@ -43,6 +46,7 @@ pub use source_paths::{
 };
 use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
+pub use v4::material;
 
 use v4::validate_extended_payload;
 #[allow(unused_imports)]
@@ -51,8 +55,8 @@ pub use v4::{
     EntityAnimationClip, EntityAnimationController, EntityAnimationInterpolation,
     EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
-    EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityControllerTransition, EntityMaterialMasks, EntityRenderCandidate, EntityRenderData,
+    EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
     EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING,
@@ -69,8 +73,10 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-/// Includes authored held-item visibility; stale carriers need `make assets`.
-pub const ENTITY_BLOB_VERSION: u32 = 25;
+/// Includes item-use, seat, interaction, rig-frame, intrinsic shine, geometry-locator facts,
+/// authored held-item visibility, resolved entity material definitions and Cinnabar material
+/// masks; stale carriers need `make assets`.
+pub const ENTITY_BLOB_VERSION: u32 = 27;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).

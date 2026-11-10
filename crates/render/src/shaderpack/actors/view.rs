@@ -377,7 +377,13 @@ impl ViewActors {
         });
         source.for_each_instance(&mut |instance| {
             let data = instance.data;
-            let Some(class) = classify(data.material, data.glint[5], instance.blend, hand) else {
+            let Some(class) = classify(
+                data.material,
+                &instance.raster,
+                data.glint[5],
+                instance.blend,
+                hand,
+            ) else {
                 return;
             };
             let camera = (instance.camera && drawn(class.kind)).then_some(class.kind);

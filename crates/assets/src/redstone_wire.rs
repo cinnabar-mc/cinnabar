@@ -1,12 +1,10 @@
 //! Power colour carried by redstone wire materials.
 //!
-//! Wire shares the stem material's fixed colour channel. Its flag distinguishes the signal from
-//! the AO exponent stored in the same bits by other materials.
-
-use crate::compiled::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
+//! Wire shares the stem material's fixed colour channel; the signal bits are valid only with the
+//! stem flag.
 
 /// Bit offset of the encoded signal; zero means the material is a stem, not wire.
-pub const SIGNAL_SHIFT: u32 = MATERIAL_LEAF_AO_EXPONENT_SHIFT;
+pub const SIGNAL_SHIFT: u32 = 17;
 /// Material bits holding the signal plus one.
 pub const SIGNAL_MASK: u32 = 0x1f << SIGNAL_SHIFT;
 /// The strongest power a wire carries.

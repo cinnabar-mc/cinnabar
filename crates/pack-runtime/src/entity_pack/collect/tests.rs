@@ -234,15 +234,18 @@ fn changing_mob_geometry_keeps_both_owner_armour_variants() {
     }
 }
 
-fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
+/// A resource pack archive holding a manifest and `value` at `path`.
+fn archive_with(id: u128, path: &str, value: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_files(id, vec![(path, value)])
+}
+
+/// A resource pack archive holding a manifest and each `(path, value)` file.
+fn archive_files(id: u128, files: Vec<(&str, serde_json::Value)>) -> protocol::ResourcePackArchive {
     let id = format!("00000000-0000-0000-0000-{id:012x}");
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (path, value) in [
-        ("manifest.json", manifest),
-        ("materials/entity.material", material),
-    ] {
+    for (path, value) in std::iter::once(("manifest.json", manifest)).chain(files) {
         zip.start_file(path, zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(&serde_json::to_vec(&value).unwrap()).unwrap();
@@ -253,46 +256,6 @@ fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchi
         String::new(),
         zip.finish().unwrap().into_inner(),
     )
-}
-
-#[test]
-fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child() {
-    let lower = archive(
-        1,
-        json!({"materials":{
-            "version":"1.0.0",
-            "fixture:entity_alphatest":{"+states":["Blending"]},
-            "unchanged:entity_alphatest":{"-defines":["FANCY"]}
-        }}),
-    );
-    let upper = archive(
-        2,
-        json!({"materials":{
-            "version":"1.0.0",
-            "fixture:entity_alphatest_one_sided":{"+states":["DisableDepthWrite"]}
-        }}),
-    );
-    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
-    ));
-    let files = super::collect_files(&view, None, None);
-    let definitions = files
-        .iter()
-        .find_map(|(path, bytes)| {
-            path.starts_with("materials/").then(|| {
-                serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["materials"].clone()
-            })
-        })
-        .expect("authored material definitions must reach entity compilation");
-    assert_eq!(
-        definitions["fixture:entity_alphatest_one_sided"],
-        json!({"+states":["DisableDepthWrite"]})
-    );
-    assert_eq!(
-        definitions["unchanged:entity_alphatest"],
-        json!({"-defines":["FANCY"]})
-    );
-    assert!(definitions.get("fixture:entity_alphatest").is_none());
 }
 
 #[test]
@@ -443,7 +406,15 @@ fn vanilla_texture_lookup_does_not_leave_the_pack_root() {
     std::fs::create_dir_all(base.join("textures")).unwrap();
     std::fs::write(parent.path().join("outside.png"), b"outside").unwrap();
     let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
-    assert!(super::texture_file(&view, Some(&base), "textures/../../outside").is_none());
+    assert!(
+        super::texture_file(
+            &view,
+            Some(&base),
+            "textures/../../outside",
+            &mut super::TextureSetColours::default(),
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -530,7 +501,7 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
     std::fs::write(
         root.path().join("materials/fixture.material"),
         json!({"materials": {
-            "coat:coat_parent": {}, "coat_parent:armor_leather": {}
+            "version": "1.0.0", "coat:coat_parent": {}, "coat_parent:armor_leather": {}
         }})
         .to_string(),
     )
@@ -554,11 +525,15 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
         ("unrelated:entity", json!({"defines": []}), true),
     ] {
         let mut materials = serde_json::Map::new();
+        materials.insert("version".into(), json!("1.0.0"));
         materials.insert(declaration.into(), fields);
-        let authored = json!({"materials": materials});
+        let authored = (
+            "materials/entity.material".to_owned(),
+            json!({"materials": materials}),
+        );
         let inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
             Some(root.path()),
-            Some(&authored),
+            std::slice::from_ref(&authored),
         )
         .unwrap();
         assert_eq!(
@@ -1142,3 +1117,6 @@ fn inert_overrides_find_installed_entities_by_identifier_and_compatible_version(
         }
     }
 }
+
+#[path = "material_tests.rs"]
+mod material;

@@ -152,7 +152,33 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
 - [ ] Close server-pack block and entity material parity. The behavior baseline, native
   evidence and confirmed gaps are tracked in the
   [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
-  is `implemented` with a named test.
+  is `implemented` with a named test. The entity material declaration, definition and name
+  bounds are unverified implementation limits; past them a material draws without one. The
+  Graphics Mode video option (Fancy by default) selects server packs' entity material list,
+  `materials/fancy.json` or `materials/sad.json`; a change applies from the next pack application,
+  not to the packs already loaded.
+- [ ] Server block texture-set surface layers that do not fit the overlay's remaining terrain byte
+  budget or page capacity are dropped, and their set draws colour only. That budget is an
+  implementation limit, not a verified native one; deferred or streamed admission of the
+  remaining layers is incomplete. Only the disabled Enhanced renderer reads these layers.
+- [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  bindings take none: the schema rejects one, and the client binds unconditionally and counts the
+  ignored condition in its aggregate entity material diagnostics.
+- [ ] Stencil state stays partial: entity materials carry the complete stencil fields, but scene
+  depth (Bevy's `CORE_3D_DEPTH_FORMAT`) has no stencil aspect, so stencil tests and writes are not
+  rendered. The stencil rows close only with a stencil-capable scene depth target.
+- [x] Material robustness covers malformed or removed packs, back-to-back generations and
+  adapters that cannot represent a material. Device loss is an app-wide gap tracked under
+  acceptance and release qualification, not a material one.
+- [x] Offline material previews are not planned. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
+  a live session's choices, and the actor fragment's readback tests in
+  `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
+- [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
+  `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
+  (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps);
+  none exists yet.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
@@ -1236,12 +1262,18 @@ vertex transforms cannot separate their depth surfaces. Paired dissolve material
 retain their dedicated renderer contracts; applying their generated states to held
 and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the default
-branch. Whole-model material arrays and ternaries retain one controller layer and
-evaluate each material decision once, after activation and before authored part
-visibility. Render-controller expressions share frame dependency analysis, keeping
-camera-driven choices live between ticks. Dynamic per-bone material rules, selector
-admission and in-world qualification remain incomplete. The samples omit the iron
-golem's body controller; it is completed from the pack's default controller until a
+branch. Material arrays and ternaries retain one decision tree per authored rule;
+last-match bone ownership partitions layers without repeating selector expressions.
+Whole-model selectors retain one controller layer and evaluate each decision once,
+after activation and before authored part visibility. Bone material bindings preserve
+that selection on unbound bones; material-only bindings load installed entity definitions
+and their referenced resources. Render-controller expressions share frame dependency
+analysis, keeping camera-driven choices live between ticks.
+Unresolved selector members and choices lacking required controller textures draw nothing;
+actor presentation preserves that outcome without substituting the base body, while unavailable
+artwork retains its fallback. Valid sibling choices retain their own material and bone ownership.
+Per-bone selector admission and in-world qualification remain incomplete. The samples
+omit the iron golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
 Thrown tridents draw their pack model placed by the native flight rotation, with the
 item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
@@ -1258,13 +1290,15 @@ held build schedule, and starts the brush's local held use, which button-up rele
 Actors using a main-hand item with the brush use animation publish the native
 `variable.is_using_brush`, so the pack's third-person `brushing` pose sweeps the brush.
 The brush's 200-tick use duration is observed on BDS 1.26.61.1; its native registration
-is unverified. The native first-person brush sweep
-(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants are
-unverified), the brush dust the native client spawns every 8 ticks
-(particle type 86, drawn through the level's block-particle effect with unread
-parameters), a server-flag start of a brush taking its use duration, and the native
-`variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain
-incomplete.
+is unverified. A local brush stroke on a block sweeps vanilla's brush dust (particle
+type 86) off it once its 8-tick effects cooldown has passed: the block destruction
+effect at the stroke's hit, textured and tinted from the brushed block, with the
+terrain effect's top-face or side-face intensity, speed and radius. The native
+first-person brush sweep (`ItemInHandRenderer::renderFirstPerson` use animation 12,
+whose translations, tilt, time divisor and angle offset are unread), a server-flag
+start of a brush taking its use duration, and the native `variable.is_holding_spyglass`
+and `variable.is_tooting_goat_horn` flags (their items' use-animation registration is
+unread) remain incomplete.
 
 Feeding a baby animal arrives from vanilla BDS as actor event 57 followed by event 60 with
 zero data; event 60 now draws the vanilla crop-growth (bone meal) effect at the baby's
@@ -2053,7 +2087,10 @@ Flathub submission remain incomplete.
   tombstones from v0.1.29 to v0.1.31 show two pipeline-creation threads in its compiler, in half of
   them both faulting at the same instruction, with the failing program changing between launches. No
   Adreno phone has confirmed that serializing avoids the crash; if it persists, the single
-  compiling thread identifies the failing program.
+  compiling thread identifies the failing program. On these drivers the lock also covers
+  shader-module destruction, including each pipeline's temporary stage modules, and
+  pipeline-cache creation, reads and destruction. One Snapdragon tester still reports a crash
+  just after the menu on the first nightly with the lock; that crash report is still missing.
   Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
@@ -2114,6 +2151,8 @@ Flathub submission remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
   An Anti-Aliasing change keeps the world camera at its old sample count until every warm-up
   and actor variant for the new count and rendering configuration has compiled in the background.
+  The new count's pipelines are requested only after it stays selected for a short settle time, so dragging
+  the slider across stops does not queue compiles for the counts it passes.
   Readiness follows the current views and request, so cancelled sample counts cannot hold it;
   an acknowledgement from another HDR or rendering mode cannot authorize a switch. Pipelines
   outside warm-up still compile on first use, and hardware timing of the switch is unmeasured.
@@ -2353,8 +2392,9 @@ Flathub submission remain incomplete.
   in the remaining patches. Selection, collision and destruction overlays are unchanged.
   World changes and rule removal restore ordinary meshing. Headless module captures verify
   activation, restoration, breaking and outlines; pack-reload and performance qualification remain open.
-- The mod `presentation` capability sets native nametag parameters, per-actor nametag and
-  player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
+- The mod `presentation` capability sets native nametag parameters, ordered nametag visibility
+  and overlay tint rules over generic actor selectors (hurt or not hurt for tints, Hide HUD
+  for nametags), per-actor nametag and player-list annotation spans, item tooltip
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
   item, potion and effect tables and the installation's food; `player-state` reports the server
   world clock, totem activations as combat events and each admitted actor's life, which changes
@@ -2434,6 +2474,9 @@ Flathub submission remain incomplete.
   populated-world and displayed-frame acceptance remain pending. Panel motion
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
+  Surface scroll views can declare box and track hover and pressed states, a minimum
+  box fraction, their wheel easing and a mouse auto-hide; offline regressions cover
+  them, and displayed-frame acceptance remains pending.
   displayed-frame pacing and complete rendering acceptance.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized
@@ -2456,6 +2499,8 @@ Flathub submission remain incomplete.
   and platform acceptance remain pending.
   The host layout editor, now used by the touch-control layout, keeps nine anchors,
   snapping, undo/redo, grid and inspector behavior; mods build their own editors.
+  Its cards carry only placement, an optional title and a background; mods draw HUD
+  artwork and icons themselves with generic primitives such as `cinnabar_vector_path`.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.
@@ -2745,6 +2790,9 @@ frame, and runs a pending frame ahead of queued input once pointer moves have he
 1 ms. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
 screens with a free cursor still receive every raw report. Raw reports in gameplay are still
 handled one message at a time and are not bounded the same way; buffered reads are unmeasured.
+- [ ] GPU device loss is an app-wide gap: the renderer has no device-loss path or test seam, so no
+  subsystem recovers a lost device. Pipelines, bind groups and uploaded textures, materials and
+  Enhanced maps included, are lost with it.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

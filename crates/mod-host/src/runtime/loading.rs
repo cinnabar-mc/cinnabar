@@ -171,6 +171,7 @@ impl Instance {
             .map(|bundle| bundle.panel.clone());
         state.controls.finish_text_frame(false);
         state.controls.layout = None;
+        state.controls.press = None;
         state.touch.restart_guest();
         store.limiter(|state| &mut state.limits);
         store.data_mut().begin_callback();

@@ -8,6 +8,8 @@ use ui_screens::hud_renderers::{
 
 /// The vanilla control holding the scoreboard sidebar.
 const SIDEBAR_CONTROL: &str = json_ui::vanilla::Control::ScoreboardSidebar.as_str();
+/// The vanilla control holding the position line.
+const POSITION_CONTROL: &str = json_ui::vanilla::Control::PlayerPosition.as_str();
 
 /// Element states of the last painted HUD and crosshair screens.
 #[derive(Default)]
@@ -21,6 +23,8 @@ pub(in crate::ui_runtime::presentation) struct Drawn {
     pub effects: bool,
     /// Whether the scoreboard sidebar draws.
     pub sidebar: bool,
+    /// Whether the position line draws.
+    pub position: bool,
     /// The hunger row's cells as `[left, top, right, bottom]` from its renderer's top left,
     /// or none while vanilla draws no hunger row.
     pub hunger: Option<[f32; 4]>,
@@ -30,10 +34,11 @@ pub(in crate::ui_runtime::presentation) struct Drawn {
 
 impl Drawn {
     /// Captures the drawn rows of `paint`; call before hiding anything.
-    pub fn of(paint: &ui_screens::hud_renderers::HudPaint, sidebar: bool) -> Self {
+    pub fn of(paint: &ui_screens::hud_renderers::HudPaint, sidebar: bool, position: bool) -> Self {
         Self {
             effects: !paint.effects.icons.is_empty() || !paint.java_effects.is_empty(),
             sidebar,
+            position,
             hunger: cells(paint.hunger.cells(0)),
             java_effects: cells(paint.java_effects.iter().cloned()),
         }
@@ -63,7 +68,8 @@ fn cells(cells: impl Iterator<Item = ui_screens::hud_renderers::Cell>) -> Option
 impl HudElements {
     /// Records the HUD screen's elements: whether vanilla draws each this frame, ignoring
     /// hiding, and where in GUI units. Hunger covers the drawn row of shanks, effects the
-    /// vanilla column's renderer and the drawn Java rows, and the sidebar its laid-out draws.
+    /// vanilla column's renderer and the drawn Java rows, and the sidebar and position line
+    /// their laid-out draws, which a hidden one has none of.
     pub fn observe_hud(&mut self, nodes: &[DrawNode], drawn: &Drawn) {
         let custom = |name: &str| {
             nodes.iter().find(
@@ -95,6 +101,13 @@ impl HudElements {
             bounds: drawn
                 .sidebar
                 .then(|| union(nodes, |node| under(node, SIDEBAR_CONTROL)))
+                .flatten(),
+        };
+        self.states[VanillaElement::Position.index()] = ElementState {
+            visible: drawn.position,
+            bounds: drawn
+                .position
+                .then(|| union(nodes, |node| under(node, POSITION_CONTROL)))
                 .flatten(),
         };
     }
@@ -205,11 +218,19 @@ mod tests {
             ),
             node("root/scoreboard_sidebar/row[1]", "x", [500., 100., 60., 9.]),
             node("root/scoreboard_sidebar/title", "x", [490., 90., 80., 10.]),
+            node("root/player_position", "x", [2., 2., 100., 12.]),
+            node(
+                "root/player_position/player_position_text",
+                "x",
+                [3., 3., 90., 9.],
+            ),
+            node("root/number_of_days_played", "x", [2., 14., 90., 12.]),
         ];
         let mut elements = HudElements::default();
         let drawn = Drawn {
             effects: true,
             sidebar: true,
+            position: true,
             hunger: Some([-80., 0., 1., 9.]),
             java_effects: None,
         };
@@ -249,6 +270,29 @@ mod tests {
         assert_eq!(
             state(&elements, VanillaElement::Sidebar).bounds,
             Some([490., 90., 80., 19.])
+        );
+        assert_eq!(
+            state(&elements, VanillaElement::Position),
+            ElementState {
+                visible: true,
+                bounds: Some([2., 2., 100., 12.])
+            },
+            "the line and its background, without the days-played line"
+        );
+        elements.observe_hud(
+            &nodes[..5],
+            &Drawn {
+                position: true,
+                ..drawn
+            },
+        );
+        assert_eq!(
+            state(&elements, VanillaElement::Position),
+            ElementState {
+                visible: true,
+                bounds: None
+            },
+            "a hidden line still shows natively but is laid out nowhere"
         );
         elements.observe_crosshair(
             &[node("cross", CURSOR_RENDERER, [312., 172., 16., 16.])],

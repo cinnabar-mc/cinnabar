@@ -261,7 +261,10 @@ fn fuel_recovery_cancels_old_taps_and_keeps_trusted_drawing_observations() {
 
 #[test]
 fn fuel_recovery_keeps_presentation_and_discards_failed_parameter_writes() {
-    use cinnabar::extension::{presentation::Host as _, render::Rgba};
+    use cinnabar::extension::{
+        presentation::{ActorSelector, ActorTint, Host as _, TintState},
+        render::Rgba,
+    };
     let (engine, _ticker) = crate::execution::engine().unwrap();
     let mut instance = fuel_guest(
         &engine,
@@ -273,15 +276,17 @@ fn fuel_recovery_keeps_presentation_and_discards_failed_parameter_writes() {
     instance
         .store
         .data_mut()
-        .set_hurt_overlay(
-            Some(Rgba {
+        .set_actor_tints(vec![ActorTint {
+            actors: ActorSelector::All,
+            state: TintState::Hurt,
+            body: Some(Rgba {
                 r: 1.,
                 g: 0.,
                 b: 0.,
                 a: 1.,
             }),
-            None,
-        )
+            armor: None,
+        }])
         .unwrap()
         .unwrap();
     commit(&mut instance.store);
@@ -289,7 +294,7 @@ fn fuel_recovery_keeps_presentation_and_discards_failed_parameter_writes() {
     let published = published.clone();
     instance
         .run(FRAME_FUEL, commit, |_, store| {
-            store.data_mut().set_hurt_overlay(None, None)?.unwrap();
+            store.data_mut().set_actor_tints(Vec::new())?.unwrap();
             Err(wasmtime::Trap::OutOfFuel.into())
         })
         .unwrap_err();

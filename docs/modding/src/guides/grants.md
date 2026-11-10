@@ -30,9 +30,9 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `clock` | Clock | `clock.read-local-time` |
 | `environment` | Environment | Visual time and weather overrides, local menu branding |
 | `fullbright` | Fullbright | `environment.set-fullbright`, separately from `environment` |
-| `players` | Player poses | Remote player rows in actor reads and gameplay frames; per-actor presentation rows for players |
-| `entities` | Entities | Non-player actor rows and `gameplay.read-mobs` |
-| `hud` | HUD | HUD surfaces, nametag and annotation policy, hurt overlay, tooltip lines, chat actions |
+| `players` | Player poses | Remote player rows in actor reads; `gameplay.read-frame` and `gameplay.read-camera`; per-actor presentation rows for players |
+| `entities` | Entities | Non-player actor rows in actor reads; per-actor presentation rows for other actors |
+| `hud` | HUD | HUD surfaces, nametag style and rules, annotation policy, actor tints, tooltip lines, chat actions |
 | `controls` | Controls | Key edges, reserved keys, text input, touch buttons, the panel, chat-action clicks |
 | `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport handlers |
 | `interaction` | Attack reach | Bounded attack reach, held-attack press pulses and ordinary crosshair mining holds |
@@ -49,7 +49,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `render_through_walls` | Through walls | Elevated drawing and protected world observations |
 | `render_material` | Drawing materials | Procedural drawing materials |
 | `render_post` | Post effects | Scene post effects over retained drawing and masks |
-| `terrain` | Terrain | `terrain.read-region` and `terrain.find-blocks` |
+| `terrain` | Terrain | `terrain.read-region` and `terrain.find-blocks`; `gameplay.read-frame` and `gameplay.read-camera` |
 | `screen` | Screens | A `player-mod` package's overlay and view beside container screens |
 | `items` | Items | Reading the session's items (`player-mod` packages) |
 | `recipes` | Recipes | Reading the session's recipes (`player-mod` packages) |

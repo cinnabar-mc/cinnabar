@@ -18,7 +18,7 @@ fn texture_only_glint_pack_publishes_its_equipment_raster() {
         path.as_str(),
         png.get_ref(),
     )]));
-    let pack = super::compile_encoded(&view, None, None, None, false, &|| false)
+    let pack = super::compile_encoded(&view, None, None, None, true, false, &|| false)
         .unwrap()
         .0
         .unwrap();
@@ -49,7 +49,7 @@ fn texture_only_painting_pack_reaches_runtime_bindings_and_reload_tracking() {
         path.as_str(),
         png.get_ref(),
     )]));
-    let pack = super::compile_encoded(&view, None, None, None, false, &|| false)
+    let pack = super::compile_encoded(&view, None, None, None, true, false, &|| false)
         .unwrap()
         .0
         .expect("texture-only painting pack must compile through runtime collection");
@@ -97,7 +97,7 @@ fn chalkboard_geometry_only_pack_publishes_and_tracks_its_current_runtime_catalo
         "models/mobs.json",
         &bytes,
     )]));
-    let pack = super::compile_encoded(&view, None, None, None, false, &|| false)
+    let pack = super::compile_encoded(&view, None, None, None, true, false, &|| false)
         .unwrap()
         .0
         .expect("a supplied chalkboard does not need a client-entity definition");
@@ -111,7 +111,7 @@ fn chalkboard_geometry_only_pack_publishes_and_tracks_its_current_runtime_catalo
     assert!(dependencies.iter().any(|input|matches!(input,resource_pack::PackDependency::File{path,..} if path=="models/mobs.json")));
     let empty = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
     assert!(
-        super::compile_encoded(&empty, None, None, None, false, &|| false)
+        super::compile_encoded(&empty, None, None, None, true, false, &|| false)
             .unwrap()
             .0
             .is_none()

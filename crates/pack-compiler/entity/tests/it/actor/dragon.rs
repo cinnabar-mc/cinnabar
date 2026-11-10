@@ -23,7 +23,6 @@ fn dissolve_depth_artwork_retains_the_authored_fractional_alpha_mask() {
         .unwrap()
         .into_rgba8();
     assert_eq!(catalog.textures()[0].rgba8.as_ref(), raster.as_raw());
-    assert!(!catalog.texture_uses_color_mask(0));
     assert!(!catalog.texture_uses_multitexture(0));
 }
 
@@ -118,7 +117,6 @@ fn installed_dragon_art_admits_the_body_and_flat_wings() {
         let texture = &catalog.textures()[texture_index as usize];
         let authored = image::open(root.join(path)).unwrap().into_rgba8();
         assert_eq!(texture.rgba8.as_ref(), authored.as_raw());
-        assert!(!catalog.texture_uses_color_mask(texture_index as usize));
         assert!(!catalog.texture_uses_multitexture(texture_index as usize));
     }
     let geometry = &entities.geometries[binding.geometry as usize];

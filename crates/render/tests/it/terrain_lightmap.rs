@@ -256,8 +256,7 @@ const MODEL_VERTEX: &str = r#"
     out.native_light_levels = terrain_light_levels(witness_sample(corner));
     out.native_ao_face = 1.0;
     out.tint_gamma = vec3(1.0);
-    out.visibility.y = 1u;
-    out.visibility.x = 1u;
+    out.visibility = model_visibility(MODEL_VISIBLE | MODEL_TWO_SIDED, vec3(0u));
     return out;
 }
 "#;

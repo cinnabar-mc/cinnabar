@@ -8,6 +8,7 @@ use render_model::ActorRigSubmission;
 pub(super) struct LayerStyle {
     material: assets::EntityRenderMaterial,
     material_state: Option<assets::EntityRenderMaterialState>,
+    render_state: Option<render_api::render_state::RenderState>,
     color: [f32; 4],
     overlay: [f32; 4],
     uv_anim: [f32; 4],
@@ -21,6 +22,7 @@ impl LayerStyle {
         Self {
             material: layer.material,
             material_state: layer.material_state,
+            render_state: layer.render_state,
             color: layer.color,
             overlay: layer.overlay,
             uv_anim: layer.uv_anim,
@@ -47,6 +49,7 @@ impl LayerStyle {
     pub(super) fn apply(self, submission: &mut ActorRigSubmission) {
         submission.material.kind = self.material;
         submission.material.state = self.material_state;
+        submission.material.render_state = self.render_state;
         let allows_overlay = submission.material.allows_overlay();
         submission.material.suppress_overlay = !allows_overlay;
         submission.material.dissolve_multiplier = self.overlay[3];
