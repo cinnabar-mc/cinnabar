@@ -234,6 +234,29 @@ fn glass_panes_are_models_while_metal_bars_remain_flat() {
 }
 
 #[test]
+fn glass_pane_player_previews_keep_the_unprojected_texture() {
+    let root = tempfile::tempdir().unwrap();
+    write_pack(
+        root.path(),
+        r#"{"glass_pane":{"textures":"glass"}}"#,
+        r#"{"texture_data":{"glass":{"textures":"textures/blocks/glass"}}}"#,
+        "[]",
+    );
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let pane = blocks
+        .records
+        .iter()
+        .find(|record| record.name.as_ref() == "minecraft:glass_pane")
+        .unwrap();
+    assert_eq!(
+        blocks
+            .held_texture_path(BlockVisualId(pane.sequential_id))
+            .as_deref(),
+        Some("textures/blocks/glass")
+    );
+}
+
+#[test]
 fn crystal_and_spike_items_use_the_flat_inventory_variant() {
     let records = read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
