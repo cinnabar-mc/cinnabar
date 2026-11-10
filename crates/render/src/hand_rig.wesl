@@ -225,7 +225,7 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if (input.valid == 0u) {
         discard;
     }
-    if (reverse_cube && !cutout) {
+    if reverse_cube {
         discard;
     }
     let layer = i32(input.skin_layer & hand_material.layer_mask.x);

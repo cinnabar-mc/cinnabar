@@ -478,12 +478,9 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Keeps a flat carried override only for pane-family shapes without an item model.
+    /// Retains flat pane artwork as a fallback for carried models.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let record = self.records.get(visual.0 as usize)?;
-        if record.model_family != ModelFamily::Pane
-            || !assets::facts::block_render_fact(&record.name).flat_icon
-        {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
             return None;
         }
         self.texture_path(visual)

@@ -218,6 +218,45 @@ fn translucent_hand_blends_in_gamma_over_existing_scene_bytes() {
     );
     let center = (128 * 256 + 128) * 4;
     assert_eq!(&pixels[center..center + 4], &[128, 144, 160, 255]);
+    let reverse_source = format!(
+        "{source}\n@vertex fn plate_reverse(@builtin(vertex_index) index: u32) -> VertexOutput {{
+        let positions = array(vec2(-1.0, -1.0), vec2(-1.0, 3.0), vec2(3.0, -1.0));
+        var out: VertexOutput;
+        out.position = vec4(positions[index], 0.5, 1.0);
+        out.uv = vec4(0.5, 0.5, 0.0, 0.0);
+        out.back_uv = vec2(-1.0e9);
+        out.skin_layer = {layer}u;
+        out.valid = 1u; out.shade = 1.0;
+        out.glint_instance = 0xffffffffu; out.native_light = vec3(1.0);
+        return out;
+    }}",
+        layer = item | cutout
+    );
+    let reverse = gpu.render_with_state(
+        &reverse_source,
+        "plate_reverse",
+        &[Draw {
+            fragment: "hand_fragment",
+            vertices: 0..3,
+            bindings: &bindings,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            write_depth: true,
+        }],
+        crate::gpu_snapshot::RasterState {
+            clear_color: wgpu::Color {
+                r: 192.0 / 255.0,
+                g: 160.0 / 255.0,
+                b: 128.0 / 255.0,
+                a: 1.0,
+            },
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        &reverse[center..center + 4],
+        &[192, 160, 128, 255],
+        "one-sided cutout surfaces leave the background visible from behind"
+    );
 }
 
 #[test]

@@ -677,7 +677,10 @@ fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
         quad_count: 0,
         flags: MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     }];
-    assert!(block_gui_uses_paint_order(Some(&templates[0])));
+    assert_eq!(
+        BlockModelOrder::for_template(Some(&templates[0])),
+        BlockModelOrder::Paint
+    );
     let gui = block_gui_quads(
         crate::facts::BlockRenderKind::BambooFence,
         VisualKind::Model,

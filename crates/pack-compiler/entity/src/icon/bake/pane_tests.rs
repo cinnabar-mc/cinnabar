@@ -154,10 +154,37 @@ fn glass_panes_keep_their_carried_model_in_hand() {
             .find(|model| model.sprite == gui)
             .unwrap();
         assert_eq!(model.visual.0, visual);
+        let held = model
+            .held_sprite
+            .expect("a GUI pane keeps separate carried artwork");
+        assert_ne!(held, gui);
+        let entry = assets::IconEntry {
+            identifier: name.into(),
+            metadata: 0,
+            sprite: gui,
+        };
+        let icons = assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_blocks(
+                world.provenance().source_manifest_sha256,
+                &sprites,
+                std::slice::from_ref(&entry),
+                &baked.block_sheets,
+                &baked.block_models,
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            model.held_sprite, None,
-            "glass panes use their carried plate in both hands"
+            icons.lookup_index(&entry.identifier, entry.metadata),
+            Some(gui as usize)
         );
+        assert_eq!(
+            icons.lookup_held_index(&entry.identifier, entry.metadata),
+            Some(held as usize)
+        );
+        let held = &sprites[held as usize];
+        assert_eq!([held.width, held.height], [side as u16; 2]);
+        assert_eq!(held.rgba8.as_ref(), artwork.as_raw());
     }
 }
 

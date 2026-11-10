@@ -1039,8 +1039,11 @@ and version-matched in-game acceptance remain incomplete.
   Glowstone, sea lanterns, shroomlight, froglight and jack o’lantern GUI cubes retain uniform texture
   brightness. The emissive-cube census rejects missing classifications after registry
   changes; partial emissive faces and entries marked incomplete still need acceptance.
-  Glass-pane previews use thin plates with separate edges and retain their held sprites.
-  Glass panes use thin plates with separate edges in slots and both hands; player previews share the ordinary held model, sprite resolver and material alpha policy. Preview face sheets reuse resident artwork, with a counted sprite fallback when new held artwork cannot fit. Metal bars keep their flat carried sprites.
+  Glass panes use thin plates with separate body and edge artwork in slots and both hands.
+  Player previews share the ordinary held model, sprite resolver and material alpha policy.
+  Preview face sheets reuse resident artwork, with a counted sprite fallback when new held
+  artwork cannot fit. Flat pane artwork remains available as a fallback; metal bars keep
+  their flat carried sprites. Rendered glass-pane acceptance remains open.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
   Heavy-core inventory previews use their carried scale and screen offset.

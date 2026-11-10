@@ -31,6 +31,12 @@ pub const UI_SESSION_ICON_PAGE_OFFSET: usize =
 /// Bounded session-font allocation, shared by the default and named bitmap fonts.
 pub const UI_SESSION_GLYPH_PAGE_OFFSET: usize = UI_SESSION_ICON_PAGE_OFFSET + 1;
 pub const UI_SESSION_GLYPH_PAGES: usize = 8;
+/// Dynamic pages reserved for server resource-pack UI textures.
+pub const UI_SERVER_UI_PAGES: usize = 8;
+/// Dynamic pages reserved for a client part's modal textures.
+pub const UI_MODAL_UI_PAGES: usize = 4;
+/// Dynamic pages reserved for a player mod's screen textures.
+pub const UI_MOD_UI_PAGES: usize = 4;
 pub const UI_SESSION_GLYPH_PAGE_SIDE: u32 = 512;
 pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
 /// Model-atlas residency includes every prepared terrain level.
@@ -43,9 +49,12 @@ const fn model_atlas_texels() -> usize {
     }
     texels
 }
-/// Dedicated local-font slot after the glyphs and sixteen server, modal and mod UI pages.
-pub const UI_LOCAL_FONT_PAGE_OFFSET: usize =
-    UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES + 16;
+/// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
+pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = UI_SESSION_GLYPH_PAGE_OFFSET
+    + UI_SESSION_GLYPH_PAGES
+    + UI_SERVER_UI_PAGES
+    + UI_MODAL_UI_PAGES
+    + UI_MOD_UI_PAGES;
 /// Dedicated original-resolution atlas for particles in player previews.
 pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 /// Recoverable per-stack shield artwork follows the other fixed dynamic producers.

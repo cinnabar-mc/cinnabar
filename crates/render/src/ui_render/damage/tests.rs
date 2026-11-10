@@ -414,3 +414,60 @@ fn changed_vertices_in_another_segment_preserve_independent_static_pixels() {
         UiDamage::Rect(_)
     ));
 }
+
+/// Places compact model vertices at binary16 ties on a wide framebuffer.
+fn compact_quad(clip_w: f32) -> UiRenderInput {
+    let mut input = quad();
+    input.viewport_size = [5120; 2];
+    Arc::make_mut(&mut input.batches)[0].scissor = UiScissor::new(0, 0, 5120, 5120);
+    for (vertex, position) in Arc::make_mut(&mut input.vertices).iter_mut().zip([
+        [4098.0, 4098.0],
+        [4126.0, 4098.0],
+        [4126.0, 4126.0],
+        [4098.0, 4126.0],
+    ]) {
+        vertex.position = position.map(|coordinate| coordinate * clip_w);
+        vertex.clip_w = clip_w;
+        vertex.style_flags = render_api::UI_STYLE_HALF_FLOAT_XY;
+    }
+    input
+}
+
+#[test]
+fn compact_model_edits_damage_old_and_new_rounded_edges() {
+    for clip_w in [0.5, 1.0, 2.0] {
+        let previous = compact_quad(clip_w);
+        for change in 0..3 {
+            let mut current = previous.clone();
+            for vertex in Arc::make_mut(&mut current.vertices) {
+                match change {
+                    0 => vertex.color[0] = 128,
+                    1 => vertex.position = vertex.position.map(|value| value + 32.0 * clip_w),
+                    2 => vertex.style_flags = 0,
+                    _ => unreachable!(),
+                }
+            }
+            let UiDamage::Rect(rect) = plan_segment(&previous, &current, 0..1) else {
+                panic!("compact model edit must damage its rounded coverage");
+            };
+            let end = if change == 1 { 4160 } else { 4128 };
+            assert!(rect.x <= 4096 && rect.y <= 4096);
+            assert!(rect.x + rect.width >= end && rect.y + rect.height >= end);
+        }
+    }
+}
+
+#[test]
+fn compact_model_glint_damages_rounded_edges() {
+    for clip_w in [0.5, 1.0, 2.0] {
+        let mut input = compact_quad(clip_w);
+        for vertex in Arc::make_mut(&mut input.vertices) {
+            vertex.style_flags |= UI_STYLE_GLINT;
+        }
+        let [UiDamage::Rect(rect)] = animated_batches(&input)[..] else {
+            panic!("compact model glint must damage its rounded coverage");
+        };
+        assert!(rect.x <= 4096 && rect.y <= 4096);
+        assert!(rect.x + rect.width >= 4128 && rect.y + rect.height >= 4128);
+    }
+}
