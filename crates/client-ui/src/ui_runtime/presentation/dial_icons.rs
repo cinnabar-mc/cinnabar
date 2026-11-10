@@ -237,6 +237,7 @@ mod tests {
             ..protocol::NetworkItemStack::empty()
         };
         let item = client_world::CanonicalItemStack {
+            trim: None,
             use_animation: assets::item_use::ItemUseAnimation::None,
             grip: assets::item::grip::ItemGrip::Unresolved,
             glint: assets::item::glint::ItemGlint::Unresolved,

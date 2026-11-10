@@ -173,6 +173,7 @@ pub(super) fn mesh(key: Key) -> Option<UiMesh> {
     let vertex = |point: [f32; 2], inset: f32| {
         let [fill_area, border_area] = shape.coverage_at(point, inset);
         UiMeshVertex {
+            terrain_mips: false,
             position: [point[0] / width, point[1] / height],
             clip_z: 0.0,
             clip_w: 1.0,

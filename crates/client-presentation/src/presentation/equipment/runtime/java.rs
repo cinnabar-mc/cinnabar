@@ -127,6 +127,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            emitted_light: 0,
             java_camera: camera.is_finite().then_some(camera),
             java_normal_axis: bevy::math::Vec3::Z,
         })
@@ -155,6 +156,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, false),
+            emitted_light: 0,
             java_camera: camera.is_finite().then_some(camera),
             java_normal_axis: bevy::math::Vec3::Z,
         })

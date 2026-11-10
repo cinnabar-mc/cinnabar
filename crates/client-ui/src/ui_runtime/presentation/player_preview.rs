@@ -79,6 +79,7 @@ impl UiPresentationRuntime {
     /// Where worn armor textures come from; without it the model wears none.
     pub fn set_equipment_catalog(&mut self, catalog: Option<Arc<RuntimeEquipmentCatalog>>) {
         self.gui_models.clear_selected_hands();
+        self.gui_models.trim_icons.clear();
         self.equipment_catalog = catalog;
     }
 
@@ -161,6 +162,7 @@ impl UiPresentationRuntime {
                         &**id,
                         runtime.stack_facts(stack).custom_color,
                         item.enchanted,
+                        item.trim.as_ref(),
                     )
                 })
             }),
@@ -185,6 +187,7 @@ impl UiPresentationRuntime {
                 },
             );
         }
+        self.finish_trim_art();
     }
 
     /// Chooses between server-pack hand models and their ordinary item sprites in previews.
@@ -200,16 +203,16 @@ impl UiPresentationRuntime {
         held: Option<(&str, u32)>,
     ) {
         self.set_preview_gear(
-            armor.map(|item| item.map(|(id, dye)| (id, dye, false))),
+            armor.map(|item| item.map(|(id, dye)| (id, dye, false, None))),
             selection::standalone_hands(held),
             None,
         );
     }
 
     /// Shares owner selection, artwork fallback and atlas placement for every preview caller.
-    fn set_preview_gear(
+    pub(in crate::ui_runtime::presentation) fn set_preview_gear(
         &mut self,
-        armor: [Option<(&str, Option<u32>, bool)>; 4],
+        armor: [Option<PreviewArmor<'_>>; 4],
         hands: [Option<(PreviewHandItem, bool)>; 2],
         owner: Option<PreviewEquipmentOwner<'_>>,
     ) {
@@ -218,7 +221,7 @@ impl UiPresentationRuntime {
         let show_custom_item_models = self.player_preview_gear.show_custom_item_models;
         self.gui_models.wearing_elytra = false;
         let selected: [_; 4] = std::array::from_fn(|slot| {
-            let (identifier, _, enchanted) = armor[slot]?;
+            let (identifier, _, enchanted, _) = armor[slot]?;
             let mut budget = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK;
             self.preview_equipment_selection.binding(
                 base.as_deref(),
@@ -231,19 +234,21 @@ impl UiPresentationRuntime {
             )
         });
         let resolved: [_; 4] = std::array::from_fn(|slot| {
-            let (_, dye, _) = armor[slot]?;
+            let (_, dye, _, _) = armor[slot]?;
             let selection = selected[slot].as_ref()?;
-            worn_armor(selection.binding, pack.as_deref(), base.as_deref(), dye).or_else(|| {
-                selection
-                    .startup
-                    .and_then(|binding| worn_armor(binding, None, base.as_deref(), dye))
-            })
+            worn_armor(selection.binding, pack.as_deref(), base.as_deref(), dye)
+                .map(|(preview, path)| (selection.binding, preview, path))
+                .or_else(|| {
+                    let binding = selection.startup?;
+                    worn_armor(binding, None, base.as_deref(), dye)
+                        .map(|(preview, path)| (binding, preview, path))
+                })
         });
         self.prepare_preview_hands(
             &hands,
             owner,
             std::array::from_fn(|slot| {
-                let (_, texture) = resolved[slot].as_ref()?;
+                let (_, _, texture) = resolved[slot].as_ref()?;
                 pack.as_deref()?.texture(texture)?;
                 Some(*texture)
             }),
@@ -251,24 +256,32 @@ impl UiPresentationRuntime {
         let armor = std::array::from_fn(|slot| {
             let selection = selected[slot].as_ref()?;
             // A supplied image that could not fit the GUI atlas retains base artwork.
-            let (binding, preview) = if self.gui_models.enabled
-                && resolved[slot].as_ref().is_some_and(|(_, texture)| {
+            let (binding, preview, path) = if self.gui_models.enabled
+                && resolved[slot].as_ref().is_some_and(|(_, _, texture)| {
                     pack.as_deref()
                         .is_some_and(|pack| pack.texture(texture).is_some())
                 })
                 && self.gui_models.pack_equipment.region(slot).is_none()
             {
-                let (_, dye, _) = armor[slot]?;
+                let (_, dye, _, _) = armor[slot]?;
                 let binding = selection.startup?;
-                (binding, worn_armor(binding, None, base.as_deref(), dye)?.0)
+                let (preview, path) = worn_armor(binding, None, base.as_deref(), dye)?;
+                (binding, preview, path)
             } else {
-                (selection.binding, resolved[slot].as_ref()?.0.clone())
+                let (binding, preview, path) = resolved[slot].as_ref()?;
+                (*binding, preview.clone(), *path)
             };
             if slot == assets::ArmorSlot::Chestplate as usize {
                 self.gui_models.wearing_elytra =
                     binding.category == assets::EquipmentCategory::Elytra;
             }
-            Some(preview)
+            let (identifier, _, _, trim) = armor[slot]?;
+            Some(
+                trim.and_then(|trim| {
+                    self.trim_preview(&preview, path, Some(binding), trim, identifier)
+                })
+                .unwrap_or(preview),
+            )
         });
         let held = hands[0].as_ref().and_then(|(hand, _)| {
             if let Some(texture) = hand
@@ -317,6 +330,10 @@ impl UiPresentationRuntime {
 
 /// The selected worn texture, tinted only when the binding's
 /// material is a color mask, and that texture's identifier.
+/// One worn armor piece: item identifier, leather dye, enchantment glint and trim.
+pub(in crate::ui_runtime::presentation) type PreviewArmor<'a> =
+    (&'a str, Option<u32>, bool, Option<&'a protocol::ItemTrim>);
+
 fn worn_armor<'a>(
     binding: &assets::EquipmentBinding,
     artwork: Option<&'a RuntimeEquipmentCatalog>,

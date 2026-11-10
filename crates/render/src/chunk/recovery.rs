@@ -167,11 +167,11 @@ pub(in crate::chunk) fn begin_recovery(world: &mut World) {
 /// Prevents a partially prepared frame from drawing or witnessing terrain. Recovery retries
 /// the entire generation after backoff, regardless of which owner observed the failure.
 pub(in crate::chunk) fn finish_publication(world: &mut World) {
-    let pending = world.resource::<ChunkGpuUploadStats>().candidates_deferred != 0;
+    let complete = world.resource::<ChunkGpuUploadStats>().publication_complete;
     let release_revision = world.resource::<ChunkGpuArena>().release_revision;
     let budget = *world.resource::<render_scene::ChunkUploadBudget>();
     let mut recovery = world.resource_mut::<TerrainGpuRecovery>();
-    if !recovery.failures.failed() && (!recovery.recovering || !pending) {
+    if !recovery.failures.failed() && (!recovery.recovering || complete) {
         recovery.recovering = false;
         recovery.attempts = 0;
         return;
@@ -224,6 +224,37 @@ impl ChunkGpuArena {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn skipped_upload_preparation_keeps_recovery_pending() {
+        let mut app = crate::chunk::tests::gpu_publication::noop_gpu_publication_app(
+            render_scene::ChunkUploadAcknowledgements::default(),
+            ChunkGpuRemovalQueue::default(),
+        );
+        let mut recovery = TerrainGpuRecovery::new(app.world().resource::<RenderDevice>());
+        recovery.recovering = true;
+        app.insert_resource(recovery)
+            .init_resource::<ChunkGpuTextureAssets>();
+        app.world_mut()
+            .resource_mut::<ChunkGpuUploadStats>()
+            .publication_complete = true;
+
+        app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<ChunkGpuUploadStats>()
+                .candidates_deferred,
+            0
+        );
+        finish_publication(app.world_mut());
+        assert!(app.world().resource::<TerrainGpuRecovery>().recovering);
+
+        app.world_mut().remove_resource::<ChunkGpuTextureAssets>();
+        app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+        finish_publication(app.world_mut());
+        assert!(!app.world().resource::<TerrainGpuRecovery>().recovering);
+    }
 
     /// A release or budget change shortens one wait without erasing the next failure's backoff.
     #[test]

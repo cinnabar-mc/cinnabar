@@ -521,10 +521,11 @@ fn carried_actor_blocks_use_world_art_once_a_pack_retextures_them() {
         let mut cache = ModelCache::default();
         cache.begin_frame();
         cache.finish_demand();
-        let handle = DroppedItemPublisher::actor_carried_block_model(
+        let handle = special::carried_block_model(
             &mut cache,
             &icons,
             assets,
+            None,
             NetworkIdMode::Sequential,
             visual.0,
         )
@@ -617,10 +618,11 @@ fn retextured_carried_cubes_without_a_world_model_keep_their_startup_faces() {
     let mut cache = ModelCache::default();
     cache.begin_frame();
     cache.finish_demand();
-    let handle = DroppedItemPublisher::actor_carried_block_model(
+    let handle = special::carried_block_model(
         &mut cache,
         &icons,
         &pack,
+        None,
         NetworkIdMode::Sequential,
         visual.0,
     )

@@ -9,48 +9,10 @@ use {
 };
 
 #[test]
-fn marketplace_browsing_is_hidden_for_empty_and_populated_libraries() {
-    use launcher::menu::auth::AuthState;
-    for auth in [AuthState::SignedOut, AuthState::Authenticated] {
-        for populated in [false, true] {
-            for busy in [false, true] {
-                let mut view = MenuView::new(true, "Player".into());
-                view.auth_state = auth.clone();
-                let snapshot = Arc::make_mut(&mut view.mods);
-                snapshot.library.busy = busy;
-                if populated {
-                    snapshot.library.installed.push(installed(1, "zoom"));
-                    snapshot.library.active.push(ActiveMod {
-                        id: 1,
-                        status: Status::Running,
-                    });
-                }
-                let (hits, labels, _) = render_view(view, &HashMap::new(), 800.0);
-                assert!(!labels.concat().to_ascii_lowercase().contains("marketplace"));
-                assert!(hits.iter().all(|action| !matches!(action,
-                    MenuAction::Mods(action) if !matches!(action,
-                        Action::Import | Action::ReloadAll | Action::ToggleActive
-                        | Action::ToggleAvailable | Action::ReadMore(_)
-                    )
-                )));
-                assert_eq!(hits.contains(&command(Action::Import)), !busy);
-                assert_eq!(
-                    hits.contains(&command(Action::ReloadAll)),
-                    populated && !busy
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn empty_library_offers_sign_in_and_local_imports() {
+fn empty_library_offers_marketplace_and_sign_in_without_blocking_local_imports() {
     let (hits, labels) = render(Snapshot::default());
-    assert!(
-        labels
-            .iter()
-            .any(|label| label == "Import a .wasm file to add a mod.")
-    );
+    assert!(labels.iter().any(|label| label == "Browse marketplace"));
+    assert!(hits.contains(&command(Action::BrowseMarketplace)));
     assert!(hits.contains(&MenuAction::StartSignIn));
     assert!(hits.contains(&command(Action::Import)));
     assert!(
@@ -95,6 +57,7 @@ fn marketplace_guidance_uses_the_current_authentication_step() {
         view.auth_state = auth;
         let (hits, labels, _) = render_view(view, &HashMap::new(), 800.0);
         assert!(labels.iter().any(|label| label == title), "{title}");
+        assert!(hits.contains(&command(Action::BrowseMarketplace)));
         for candidate in [MenuAction::StartSignIn, MenuAction::OpenSignInLink] {
             assert_eq!(
                 hits.contains(&candidate),
@@ -107,11 +70,12 @@ fn marketplace_guidance_uses_the_current_authentication_step() {
 }
 
 #[test]
-fn busy_library_preserves_delivery_messages() {
+fn busy_library_preserves_delivery_messages_and_marketplace_browsing() {
     let mut snapshot = Snapshot::default();
     snapshot.library.busy = true;
     snapshot.library.message = "Preparing zoom from the marketplace…".into();
     let (hits, labels) = render(snapshot.clone());
+    assert!(hits.contains(&command(Action::BrowseMarketplace)));
     assert!(!hits.contains(&command(Action::Import)));
     assert!(
         labels
@@ -121,24 +85,24 @@ fn busy_library_preserves_delivery_messages() {
 }
 
 #[test]
-fn import_action_keeps_keyboard_focus_at_narrow_widths() {
-    let import = command(Action::Import);
+fn marketplace_action_keeps_keyboard_focus_at_narrow_widths() {
+    let browse = command(Action::BrowseMarketplace);
     for width in [220.0, 400.0, 800.0] {
         let (hits, labels, _) = render_at(
             Snapshot::default(),
             &HashMap::new(),
             width,
             None,
-            Some(import),
+            Some(browse),
         );
-        assert_eq!(hits.first(), Some(&import));
+        assert_eq!(hits.first(), Some(&browse));
         assert!(hits.contains(&MenuAction::StartSignIn));
         assert!(hits.contains(&command(Action::Import)));
         assert!(labels.iter().any(|label| {
             label
                 .chars()
                 .filter(|character| !character.is_whitespace())
-                .eq("Importmod…".chars())
+                .eq("Browsemarketplace".chars())
         }));
     }
 }
@@ -349,6 +313,65 @@ fn consent_offers_only_declared_requests_and_metadata_drives_warnings() {
 }
 
 #[test]
+fn a_request_left_waiting_after_earlier_consent_is_flagged_and_approved_in_one_step() {
+    let mut item = installed(1, "zoom");
+    item.permissions[0].enabled = true;
+    item.permissions[0].requested_allowed = true;
+    let mut added = item.permissions[0].clone();
+    added.name = "Render material".into();
+    added.enabled = false;
+    added.requested_allowed = false;
+    added.sensitive = false;
+    item.permissions.push(added);
+    let snapshot = Snapshot {
+        library: Library {
+            installed: vec![item],
+            active: vec![ActiveMod {
+                id: 1,
+                status: Status::Running,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (_, labels) = render(snapshot.clone());
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Running · Review permissions")
+    );
+    let expanded = Snapshot {
+        details_expanded: Some(1),
+        ..snapshot
+    };
+    let (hits, labels) = render(expanded.clone());
+    assert!(hits.contains(&command(Action::AllowRequested(1))));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Waiting for your approval:")
+    );
+    assert!(labels.iter().any(|label| label == "Render material"));
+    assert!(!labels.iter().any(|label| label == "⚠ camera"));
+    let mut approved = expanded;
+    approved.library.installed[0].permissions[1].enabled = true;
+    approved.library.installed[0].permissions[1].requested_allowed = true;
+    let (hits, labels) = render(approved);
+    assert!(!hits.contains(&command(Action::AllowRequested(1))));
+    assert!(labels.iter().any(|label| label == "Running"));
+    assert!(
+        !labels
+            .iter()
+            .any(|label| label.contains("Review permissions"))
+    );
+    assert!(
+        !labels
+            .iter()
+            .any(|label| label == "Waiting for your approval:")
+    );
+}
+
+#[test]
 fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
     let mut item = installed(1, "zoom");
     let mut extra = item.permissions[0].clone();
@@ -515,7 +538,7 @@ fn header_activation_discloses_the_whole_card_and_hides_every_action_on_collapse
         assert!(
             !hits.iter().any(|action| matches!(action,
                 MenuAction::Mods(action) if !matches!(action,
-                    Action::Import | Action::ReloadAll | Action::ToggleActive
+                    Action::BrowseMarketplace | Action::Import | Action::ReloadAll | Action::ToggleActive
                     | Action::ToggleAvailable | Action::ReadMore(_)
                 )
             )),
@@ -605,7 +628,7 @@ fn the_enabled_mod_is_the_active_card_with_its_status_and_controls() {
     for label in [
         "Active mods (1)",
         "My mods (1)",
-        "Running",
+        "Running · Review permissions",
         "Ready to enable",
     ] {
         assert!(labels.iter().any(|found| found == label), "{label}");
@@ -650,9 +673,8 @@ fn each_active_card_exposes_its_own_reload_permissions_and_reorder_direction() {
         assert!(labels.iter().any(|label| label == "Active mods (2)"));
         if id == 2 {
             assert!(
-                labels
-                    .iter()
-                    .any(|label| label == "Reload failed · previous instance running")
+                labels.iter().any(|label| label
+                    == "Reload failed · previous instance running · Review permissions")
             );
             assert!(labels.iter().any(|label| label == "invalid component"));
         }

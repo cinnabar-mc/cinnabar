@@ -479,6 +479,7 @@ world_packets! {
         WorldEvent::Inventory(event)
     },
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
+    TrimData(packet) => WorldEvent::Inventory(crate::InventoryEvent::Trims(crate::inventory::trims::normalize(packet))),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => match block_side::normalize_open_command_block(&packet, current_dimension) {
         Some(event) => WorldEvent::OpenCommandBlock(event),

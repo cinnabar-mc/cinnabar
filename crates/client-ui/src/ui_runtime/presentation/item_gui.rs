@@ -2,13 +2,20 @@
 
 use std::sync::Arc;
 
-use assets::gui_item::CUBE_FACES;
+use assets::gui_item::{CUBE_FACES, CubeLighting};
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use ui::IconRef;
 
 mod block_model;
 mod shield;
+
+/// Chooses how overlapping surfaces in a block preview are resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum BlockModelOrder {
+    Depth,
+    Paint,
+}
 
 pub(super) use block_model::mesh as block_model;
 
@@ -25,25 +32,27 @@ use assets::gui_item::GUI_ITEM_SIDE;
 
 /// Cubes with three visible faces. `faces` retains the carried texture in `BlockFace::ALL` order.
 /// Other block shapes (slabs, stairs, fences) draw through [`block_model`].
-pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
+pub(super) fn cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(CUBE_FACES.len() * 4);
     let mut indices = Vec::with_capacity(CUBE_FACES.len() * 6);
     let mut batches = Vec::with_capacity(CUBE_FACES.len());
     for (face, positions, uvs, brightness) in CUBE_FACES {
-        let shade = (brightness * f32::from(u8::MAX)) as u8;
+        let shade = shade(brightness, lighting);
         let texture = faces[face as usize];
         if texture.uv[2] <= texture.uv[0] || texture.uv[3] <= texture.uv[1] {
             return None;
         }
         let start = vertices.len() as u32;
         for (point, uv) in positions.into_iter().zip(uvs) {
-            vertices.push(vertex(
+            let mut vertex = vertex(
                 cube_project(point),
                 atlas_uv(texture, uv)?,
                 [shade, shade, shade, 255],
                 texture.glint,
                 false,
-            ));
+            );
+            vertex.terrain_mips = true;
+            vertices.push(vertex);
         }
         let begin = indices.len() as u32;
         indices.extend([0, 1, 2, 0, 2, 3].map(|i| start + i));
@@ -51,12 +60,13 @@ pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
     }
     UiMesh::new(vertices.into(), indices.into(), batches.into())
         .ok()
+        .map(UiMesh::with_compact_block_vertices)
         .map(Arc::new)
 }
 
 /// Draws the cube's camera-facing surfaces with alpha-tested texels.
 /// The caller normalizes non-blended texels and retains thumbnails for fractional blending.
-pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
+pub(super) fn cutout_cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option<Arc<UiMesh>> {
     let quads = CUBE_FACES.map(|(face, corners, uvs, _)| {
         (
             assets::gui_item::GuiBlockQuad {
@@ -68,7 +78,20 @@ pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
             faces[face as usize],
         )
     });
-    block_model(&quads, assets::gui_item::GuiShading::Inventory)
+    block_model(
+        &quads,
+        assets::gui_item::GuiShading::Inventory,
+        lighting,
+        BlockModelOrder::Depth,
+    )
+}
+
+/// Converts directional face lighting or uniform brightness to the shared byte-space tint.
+fn shade(brightness: f32, lighting: CubeLighting) -> u8 {
+    match lighting {
+        CubeLighting::Directional => (brightness * f32::from(u8::MAX)) as u8,
+        CubeLighting::Unshaded => u8::MAX,
+    }
 }
 
 fn cube_project(point: [f32; 3]) -> [f32; 2] {
@@ -84,6 +107,7 @@ fn vertex(
     alpha_test: bool,
 ) -> UiMeshVertex {
     UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.0,
         clip_w: 1.0,

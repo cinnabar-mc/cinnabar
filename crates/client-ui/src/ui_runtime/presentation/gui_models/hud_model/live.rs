@@ -228,16 +228,21 @@ impl UiPresentationRuntime {
             let Some(texture) = &self.player_preview_gear.armor[slot] else {
                 continue;
             };
-            let icon = self.gui_models.pack_equipment.region(slot).or_else(|| {
-                self.gui_models
-                    .sources
-                    .textures
-                    .get(&super::super::atlas::key(
-                        [texture.width, texture.height],
-                        &texture.rgba,
-                    ))
-                    .copied()
-            });
+            let icon = self
+                .gui_models
+                .trim_icons
+                .region(texture)
+                .or_else(|| self.gui_models.pack_equipment.region(slot))
+                .or_else(|| {
+                    self.gui_models
+                        .sources
+                        .textures
+                        .get(&super::super::atlas::key(
+                            [texture.width, texture.height],
+                            &texture.rgba,
+                        ))
+                        .copied()
+                });
             let Some(icon) = icon else { continue };
             let frames = [0, 1, 2, 3, 4, 5].map(|part| projection(&rig, part));
             cache.layer(

@@ -72,8 +72,11 @@ impl DecodedTexture {
             .pixels()
             .flat_map(|pixel| {
                 let [r, g, b, a] = pixel.0;
-                if a > 0.0 {
-                    [r / a, g / a, b / a, a].map(|value| (value * 255.0).round() as u8)
+                let alpha = (a * 255.0).round() as u8;
+                if alpha > 0 {
+                    let [r, g, b] =
+                        [r / a, g / a, b / a].map(|value| (value * 255.0).round() as u8);
+                    [r, g, b, alpha]
                 } else {
                     [0; 4]
                 }

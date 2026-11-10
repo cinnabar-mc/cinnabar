@@ -35,6 +35,8 @@ pub(in crate::chunk) struct ChunkGpuUploadStats {
     pub(in crate::chunk) model_streams_validated: usize,
     pub(in crate::chunk) range_plans: usize,
     pub(in crate::chunk) candidates_deferred: usize,
+    /// All selected updates were prepared and their writes completed this frame.
+    pub(in crate::chunk) publication_complete: bool,
     pub(in crate::chunk) time_limited: bool, // preparation stopped at its elapsed allowance
 }
 

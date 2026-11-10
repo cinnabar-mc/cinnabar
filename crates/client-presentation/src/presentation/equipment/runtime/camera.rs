@@ -128,7 +128,9 @@ impl EquipmentRuntime {
             return None;
         }
         let shape = if block {
-            FirstPersonShape::Block
+            FirstPersonShape::Block {
+                quarter_turn: self.first_person_block_quarter_turn(item),
+            }
         } else {
             FirstPersonShape::Sprite {
                 mirrored_art: item.grip.mirrored_art(),
@@ -178,6 +180,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            emitted_light: self.first_person_emitted_light(item, block),
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })
@@ -212,6 +215,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            emitted_light: self.first_person_emitted_light(item, block),
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })
@@ -238,6 +242,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, false),
+            emitted_light: 0,
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })

@@ -271,6 +271,9 @@ func upstreamTarget(kind, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	switch kind {
 	case control.TargetRakNet:
+		if proxy.IsNetherNetTarget(value) {
+			return value, nil
+		}
 		host, port, err := net.SplitHostPort(value)
 		number, portErr := strconv.ParseUint(port, 10, 16)
 		if err != nil || portErr != nil || number == 0 || host == "" || strings.ContainsAny(host, " \t/\\") {

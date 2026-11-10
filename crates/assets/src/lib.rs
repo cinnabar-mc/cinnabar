@@ -202,7 +202,8 @@ pub use icon::{
     IconBlockSheet, IconEntry, IconSprite, MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES,
     MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog,
     compose_block_item_sheet, encode_icon_catalog, encode_icon_catalog_with_block_sheets,
-    encode_icon_catalog_with_blocks, encode_icon_catalog_with_sources,
+    encode_icon_catalog_with_blocks, encode_icon_catalog_with_gui_cube_sheets,
+    encode_icon_catalog_with_sources,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
@@ -267,8 +268,8 @@ pub use provenance::{
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
-    pinned_block_identity, pinned_block_state_by_name, read_registry, read_registry_for_protocol,
-    registry_header_protocol,
+    pinned_block_identity, pinned_block_model_family, pinned_block_state_by_name, read_registry,
+    read_registry_for_protocol, registry_header_protocol,
 };
 pub use runtime::{
     BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,

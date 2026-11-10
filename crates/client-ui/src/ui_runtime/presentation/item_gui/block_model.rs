@@ -1,27 +1,31 @@
 //! Block items with overlapping faces as GUI geometry: the quads their baked thumbnail
-//! projects, drawn at the control's physical size with the item's own depth.
+//! projects, drawn at the control's physical size with depth or supplied paint order.
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GuiBlockQuad, GuiShading, project_cube};
-use ui::UiMesh;
+use assets::gui_item::{
+    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, GuiShading,
+    project_cube,
+};
+use ui::{UiMesh, UiMeshBatch};
 
 use {
-    super::{atlas_uv, batch, vertex},
+    super::{BlockModelOrder, atlas_uv, batch, shade, vertex},
     assets::gui_item::GUI_ITEM_SIDE,
     ui::IconRef,
 };
 
-/// Uses the same accepted alpha byte as the thumbnail baker.
-const ALPHA_CUTOFF: f32 = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD as f32 / u8::MAX as f32;
-
-/// Each quad with its tile's place in the atlas, lit by `shading`. `None` when a UV leaves its
-/// tile, which an atlas cannot wrap.
+/// Draws atlas quads with the requested shading, brightness and overlap order.
+/// Returns `None` when a UV leaves its tile, which an atlas cannot wrap.
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
     shading: GuiShading,
+    lighting: CubeLighting,
+    order: BlockModelOrder,
 ) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(quads.len() * 4);
+    let mut indices = Vec::with_capacity(quads.len() * 6);
+    let mut batches: Vec<UiMeshBatch> = Vec::new();
     let mut by_page: BTreeMap<u16, Vec<u32>> = BTreeMap::new();
     for (quad, texture) in quads {
         if !quad.visible_in_gui() {
@@ -35,7 +39,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         {
             return None;
         }
-        let shade = (shading.brightness(quad.corners) * f32::from(u8::MAX)) as u8;
+        let shade = shade(shading.brightness(quad.corners), lighting);
         let start = vertices.len() as u32;
         for (corner, uv) in quad.corners.into_iter().zip(quad.uvs) {
             let [x, y, z] = project_cube(corner);
@@ -46,16 +50,31 @@ pub(in crate::ui_runtime::presentation) fn mesh(
                 texture.glint,
                 true,
             );
-            vertex.clip_z = depth(z);
+            if order == BlockModelOrder::Depth {
+                vertex.clip_z = depth(z);
+            }
+            vertex.terrain_mips = true;
             vertices.push(vertex);
         }
-        by_page
-            .entry(texture.page)
-            .or_default()
-            .extend([0, 1, 2, 0, 2, 3].map(|index| start + index));
+        let quad_indices = [0, 1, 2, 0, 2, 3].map(|index| start + index);
+        if order == BlockModelOrder::Depth {
+            by_page
+                .entry(texture.page)
+                .or_default()
+                .extend(quad_indices);
+            continue;
+        }
+        let begin = indices.len() as u32;
+        indices.extend(quad_indices);
+        let end = indices.len() as u32;
+        if let Some(previous) = batches.last_mut()
+            && previous.texture_page == texture.page
+        {
+            previous.index_range.end = end;
+        } else {
+            batches.push(batch(texture.page, begin..end, Some(ALPHA_CUTOFF)));
+        }
     }
-    let mut indices = Vec::with_capacity(quads.len() * 6);
-    let mut batches = Vec::with_capacity(by_page.len());
     for (page, page_indices) in by_page {
         let begin = indices.len() as u32;
         indices.extend(page_indices);
@@ -66,10 +85,11 @@ pub(in crate::ui_runtime::presentation) fn mesh(
     }
     UiMesh::new(vertices.into(), indices.into(), batches.into())
         .ok()
+        .map(UiMesh::with_compact_block_vertices)
         .map(Arc::new)
 }
 
-/// The projection's view depth (smaller is nearer) as UI depth, where greater is nearer.
+/// Converts projected view depth to UI depth, where greater values are nearer.
 fn depth(z: f32) -> f32 {
     0.5 - z / 8.0
 }

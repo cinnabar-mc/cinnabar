@@ -130,8 +130,8 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         page: first + 1,
         ..required
     };
-    let required_mesh = item_gui::cube([required; 6]).unwrap();
-    let optional_mesh = item_gui::cube([optional; 6]).unwrap();
+    let required_mesh = item_gui::cube([required; 6], Default::default()).unwrap();
+    let optional_mesh = item_gui::cube([optional; 6], Default::default()).unwrap();
     presentation.gui_models = GuiModels {
         enabled: true,
         sources: PreparedGuiModels {
@@ -209,4 +209,59 @@ fn exhausted_required_pages_clear_previous_flame_frame_addresses() {
     presentation.gui_models.fire.pages_start = None;
     assert!(presentation.install_gui_fire().is_err());
     assert!(presentation.gui_models.fire.frames.is_empty());
+}
+
+// Local-only: installed item artwork fits without sprite fallbacks and leaves room for the
+// installed actor flame, as at startup.
+#[test]
+fn installed_item_models_leave_room_for_installed_actor_flames() {
+    use crate::test_support::fixture_hud;
+    use assets::{RuntimeEquipmentCatalog, RuntimeIconCatalog, carriers};
+    let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(carriers::COMPILED_DIR);
+    let read = |carrier: &carriers::Carrier| {
+        let path = compiled.join(carrier.output);
+        std::fs::read(&path).map_err(|_| {
+            eprintln!(
+                "skipping installed_item_models_leave_room_for_installed_actor_flames: missing {}; run make assets",
+                path.display()
+            );
+        })
+    };
+    let (Ok(world), Ok(entities), Ok(icons), Ok(equipment), Ok(particles)) = (
+        read(&carriers::WORLD),
+        read(&carriers::ENTITY),
+        read(&carriers::ICON),
+        read(&carriers::EQUIPMENT),
+        read(&carriers::PARTICLE),
+    ) else {
+        return;
+    };
+    let world = assets::RuntimeAssets::decode(&world).unwrap();
+    let entities = assets::RuntimeEntityAssets::decode(&entities).unwrap();
+    let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());
+    let particles = assets::RuntimeParticleAssets::decode(&particles).unwrap();
+    let flame = particles.texture(assets::ACTOR_FLAME_TEXTURE).unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        fixture_hud(),
+        icons,
+    )
+    .unwrap();
+    presentation.set_equipment_catalog(Some(Arc::new(
+        RuntimeEquipmentCatalog::decode(&equipment).unwrap(),
+    )));
+    presentation.set_gui_models(&world, &entities).unwrap();
+    assert_eq!(
+        presentation.gui_models.sources.held_texture_fallbacks, 0,
+        "installed held artwork must fit the model atlas"
+    );
+    presentation
+        .set_gui_fire_texture(Some(flame))
+        .expect("installed item models must leave room for the actor flame");
+    assert_eq!(
+        presentation.gui_models.fire.frames.len(),
+        (flame.height / flame.width) as usize
+    );
 }

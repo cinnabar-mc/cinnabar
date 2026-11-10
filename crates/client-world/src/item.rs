@@ -39,6 +39,8 @@ pub const MAX_EQUIPMENT_NOTICES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemStack {
+    /// Root trim identifiers retained independently of item metadata and stack identity.
+    pub trim: Option<protocol::ItemTrim>,
     /// Drawing role resolved for the current numeric item registry.
     pub use_animation: assets::item_use::ItemUseAnimation,
     /// Grip resolved for the current numeric item registry generation.
@@ -576,6 +578,7 @@ impl ItemStateStore {
         item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
         item.damage = protocol::item_stack_damage(stack);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
+        item.trim = protocol::item_trim(&stack.extra_data);
         item.map_id = protocol::item_map_id(&stack.extra_data);
         item.shield_pattern = item
             .identifier
@@ -612,6 +615,7 @@ impl ItemStateStore {
     fn resolve_identity(&self, identity: ItemStackIdentity) -> CanonicalItemStack {
         if identity.is_empty() {
             return CanonicalItemStack {
+                trim: None,
                 use_animation: assets::item_use::ItemUseAnimation::None,
                 charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                 grip: assets::item::grip::ItemGrip::Unresolved,
@@ -640,6 +644,7 @@ impl ItemStateStore {
             identity.block_runtime_id,
         );
         CanonicalItemStack {
+            trim: None,
             use_animation: self.item_use_profile(identity.network_id).animation,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: self
@@ -834,6 +839,30 @@ mod armor_tests {
                 .canonicalize(&stack(1, &dyed_extra()))
                 .unwrap()
                 .enchanted
+        );
+    }
+
+    #[test]
+    fn canonical_armor_retains_trim_through_registry_replacement() {
+        let expected = protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        };
+        let extra = protocol::apply_item_trim(&[], &expected).unwrap();
+        let mut store = ItemStateStore::diagnostic();
+        let actor = lifetime(7, 1);
+        store.insert_spawn(actor, 1, stack(1, &extra));
+        assert!(store.apply_armor(actor, 2, &event(7, stack(1, &extra))));
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from([])
+        }));
+        assert_eq!(
+            store.get(actor).unwrap().item.trim.as_ref(),
+            Some(&expected)
+        );
+        assert_eq!(
+            store.armor(7).unwrap().helmet.item.trim.as_ref(),
+            Some(&expected)
         );
     }
 

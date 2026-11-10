@@ -9,6 +9,22 @@ use {super::super::UiPresentationError, ui::IconRef};
 
 const SIDE: usize = render_model::UI_MODEL_ATLAS_SIDE as usize;
 const GUTTER: usize = 1;
+const MIP_ALIGNMENT: usize = 1 << (assets::texture::VANILLA_TERRAIN_MIP_COUNT - 1);
+
+/// Aligns terrain sources so every retained mip averages only texels within its source tile.
+fn padding(size: [usize; 2], cursor: [usize; 2]) -> ([usize; 2], [usize; 2]) {
+    let lead = [0, 1].map(|axis| {
+        if size[axis] == SIDE {
+            0
+        } else if size[axis] + MIP_ALIGNMENT + GUTTER <= SIDE {
+            (cursor[axis] + GUTTER).next_multiple_of(MIP_ALIGNMENT) - cursor[axis]
+        } else {
+            GUTTER
+        }
+    });
+    let padded = [0, 1].map(|axis| (lead[axis] + size[axis] + GUTTER).min(SIDE));
+    (lead, padded)
+}
 
 pub(super) type TextureKey = ([u16; 2], [u8; 32]);
 
@@ -38,6 +54,11 @@ impl Atlas {
         }
     }
 
+    /// Finds an existing source without allocating more atlas space.
+    pub(super) fn get(&self, size: [u16; 2], pixels: &[u8]) -> Option<IconRef> {
+        self.refs.get(&key(size, pixels)).copied()
+    }
+
     /// Places full-resolution texels. Each side keeps a one-texel edge gutter where the page has
     /// room; a side as long as the page fills it, its page border clamping instead.
     pub(super) fn insert(
@@ -58,11 +79,11 @@ impl Atlas {
         if let Some(icon) = self.refs.get(&key) {
             return Ok(*icon);
         }
-        let lead = [width, height].map(|side| if side + 2 * GUTTER <= SIDE { GUTTER } else { 0 });
-        let padded = [width, height].map(|side| (side + 2 * GUTTER).min(SIDE));
+        let (mut lead, mut padded) = padding([width, height], self.cursor);
         if self.cursor[0] + padded[0] > SIDE {
             self.cursor = [0, self.cursor[1] + self.row];
             self.row = 0;
+            (lead, padded) = padding([width, height], self.cursor);
         }
         if self.pages.is_empty() || self.cursor[1] + padded[1] > SIDE {
             if self.pages.len() == self.limit {
@@ -71,6 +92,7 @@ impl Atlas {
             self.pages.push(vec![0; SIDE * SIDE * 4]);
             self.cursor = [0; 2];
             self.row = 0;
+            (lead, padded) = padding([width, height], self.cursor);
         }
         let image = self
             .pages
@@ -183,6 +205,7 @@ impl Atlas {
             .into_iter()
             .map(|pixels| {
                 UiTexturePage::owned([SIDE as u32; 2], Arc::from(pixels))
+                    .and_then(UiTexturePage::with_terrain_mips)
                     .map_err(|_| UiPresentationError::InvalidFontTexture)
             })
             .collect::<Result<_, _>>()?;

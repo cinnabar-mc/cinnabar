@@ -211,11 +211,11 @@ impl UiPresentationRuntime {
                 .and_then(|pattern| self.shield_preview_sprite(pattern));
             let model = if !pack_model_suppressed
                 && sprite.is_none()
-                && let Some((source, vertices)) =
+                && let Some((source, vertices, alpha_mode)) =
                     self.session_icons.held_block(identifier, metadata)
             {
                 player_preview::PreviewHeldModel {
-                    alpha_mode: render_model::HandItemAlphaMode::Cutout,
+                    alpha_mode,
                     source,
                     vertices,
                     hand_pivots: self.gui_models.sources.hand_pivots?,
@@ -258,11 +258,11 @@ impl UiPresentationRuntime {
     ) -> Option<player_preview::PreviewHeldModel> {
         let head = self.player_preview_gear.head.as_ref()?;
         let (identifier, metadata) = (head.identifier.as_ref(), head.metadata);
-        let model = if let Some((source, vertices)) =
+        let model = if let Some((source, vertices, alpha_mode)) =
             self.session_icons.held_block(identifier, metadata)
         {
             player_preview::PreviewHeldModel {
-                alpha_mode: render_model::HandItemAlphaMode::Cutout,
+                alpha_mode,
                 source,
                 vertices,
                 hand_pivots: self.gui_models.sources.hand_pivots?,

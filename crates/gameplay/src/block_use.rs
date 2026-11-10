@@ -111,11 +111,18 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
-/// Empty vanilla buckets may pick liquid sources without making liquids selectable for mining.
+/// Empty vanilla buckets and glass bottles may pick liquid sources without making liquids
+/// selectable for mining.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
     !item.is_empty()
         && item.metadata() == 0
-        && identifier == Some(assets::facts::EMPTY_BUCKET_IDENTIFIER)
+        && identifier.is_some_and(|identifier| {
+            [
+                assets::facts::EMPTY_BUCKET_IDENTIFIER,
+                assets::facts::GLASS_BOTTLE_IDENTIFIER,
+            ]
+            .contains(&identifier)
+        })
 }
 
 /// World facts one local use depends on.
