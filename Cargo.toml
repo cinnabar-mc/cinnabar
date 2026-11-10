@@ -182,7 +182,8 @@ wit-parser = "=0.247.0"
 # missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction,
 # wrapping constant left shifts and standalone struct arrays with correct interface transfers.
 # Metal HDR colour-space globals are dereferenced before creating colour spaces,
-# and GLSL structs keep one identity across macro expansions.
+# GLSL structs keep one identity across macro expansions, and GLSL image atomics return
+# the texel's original value.
 # Metal runs a small compute pass after each pass that binds textures for atomics, so later
 # passes read the atomics' results.
 # Queue writes reuse staging buffers, and empty transit lists and submissions are skipped.
@@ -198,13 +199,13 @@ wit-parser = "=0.247.0"
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
 # Mobile input support; patches live on `cinnabar-v0.30`.
 winit = { git = "https://github.com/cinnabar-mc/winit", rev = "b1e59b0d5a63628cd4946575765a6c35d53d90df" }
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "86a7befdeaf60835aef17f5428dc1497235c428e" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "86a7befdeaf60835aef17f5428dc1497235c428e" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "86a7befdeaf60835aef17f5428dc1497235c428e" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "86a7befdeaf60835aef17f5428dc1497235c428e" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "86a7befdeaf60835aef17f5428dc1497235c428e" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "86a7befdeaf60835aef17f5428dc1497235c428e" }
 
 # Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
 bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "5f0dc3907cd7b7714c4298152efb6201684c02d5" }
