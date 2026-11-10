@@ -634,6 +634,7 @@ fn a_catalog_past_the_startup_counts_is_a_disk_hit_after_a_restart() {
         None,
         None,
         true,
+        true,
         &|| false,
     )
     .unwrap();
@@ -654,7 +655,7 @@ fn a_catalog_past_the_startup_counts_is_a_disk_hit_after_a_restart() {
                 &resource_pack::LayeredPackView::tracked(stack.clone()),
                 Some(&disk),
                 &|| false,
-                |_, _, _, _, _, _| {
+                |_, _, _, _, _, _, _| {
                     compiles.set(compiles.get() + 1);
                     Some((Some(Arc::clone(&expanded)), blob.clone()))
                 },
@@ -695,6 +696,7 @@ fn disk_entries_stream_large_equipment_rasters_without_staging_copies() {
         None,
         None,
         true,
+        true,
         &|| false,
     )
     .unwrap();
@@ -710,7 +712,7 @@ fn disk_entries_stream_large_equipment_rasters_without_staging_copies() {
             &resource_pack::LayeredPackView::tracked(stack.clone()),
             Some(&disk),
             &|| false,
-            |_, _, _, _, _, _| Some((Some(Arc::clone(&large)), blob.clone())),
+            |_, _, _, _, _, _, _| Some((Some(Arc::clone(&large)), blob.clone())),
         )
     });
     assert!(stored.flatten().is_some());
@@ -725,7 +727,7 @@ fn disk_entries_stream_large_equipment_rasters_without_staging_copies() {
             &resource_pack::LayeredPackView::tracked(stack.clone()),
             Some(&disk),
             &|| false,
-            |_, _, _, _, _, _| panic!("the stored entry is read back"),
+            |_, _, _, _, _, _, _| panic!("the stored entry is read back"),
         )
     });
     assert!(loaded.flatten().is_some());

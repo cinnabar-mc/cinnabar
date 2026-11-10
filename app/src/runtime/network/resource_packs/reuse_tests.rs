@@ -784,6 +784,7 @@ fn leaving_releases_all_decoded_outputs_but_keeps_the_archives() {
         terrain_identity: _,
         admission: _,
         inputs: _,
+        fancy_graphics: _,
         property_defaults: _,
         extension_marker,
         server_lang,

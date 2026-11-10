@@ -213,3 +213,48 @@ fn simple_graphics_loads_the_sad_material_list_and_fancy_the_fancy_one() {
         Some(json!([{"path": "materials/simple.material", "defines": []}]))
     );
 }
+
+/// Builds a pack archive containing one entity material document.
+fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_with(id, "materials/entity.material", material)
+}
+
+#[test]
+fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child() {
+    let lower = archive(
+        1,
+        json!({"materials":{
+            "version":"1.0.0",
+            "fixture:entity_alphatest":{"+states":["Blending"]},
+            "unchanged:entity_alphatest":{"-defines":["FANCY"]}
+        }}),
+    );
+    let upper = archive(
+        2,
+        json!({"materials":{
+            "version":"1.0.0",
+            "fixture:entity_alphatest_one_sided":{"+states":["DisableDepthWrite"]}
+        }}),
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::super::collect_files(&view, None, None);
+    let definitions = files
+        .iter()
+        .find_map(|(path, bytes)| {
+            path.starts_with("materials/").then(|| {
+                serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["materials"].clone()
+            })
+        })
+        .expect("authored material definitions must reach entity compilation");
+    assert_eq!(
+        definitions["fixture:entity_alphatest_one_sided"],
+        json!({"+states":["DisableDepthWrite"]})
+    );
+    assert_eq!(
+        definitions["unchanged:entity_alphatest"],
+        json!({"-defines":["FANCY"]})
+    );
+    assert!(definitions.get("fixture:entity_alphatest").is_none());
+}
