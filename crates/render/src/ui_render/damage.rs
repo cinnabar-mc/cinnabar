@@ -96,11 +96,7 @@ pub(super) fn plan_segment(
             for input in [previous, current] {
                 for &index in triangle {
                     let vertex = &input.vertices[index as usize];
-                    for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
-                        bounds[axis] = bounds[axis].min(pixel);
-                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
-                    }
+                    include_vertex(&mut bounds, vertex);
                 }
             }
             if let Some(rect) = clipped(bounds, batch.scissor, current.viewport_size) {
@@ -161,11 +157,7 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
                     f64::NEG_INFINITY,
                 ];
                 for vertex in vertices {
-                    for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
-                        bounds[axis] = bounds[axis].min(pixel);
-                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
-                    }
+                    include_vertex(&mut bounds, vertex);
                 }
                 if let Some(rect) = clipped(bounds, batch.scissor, input.viewport_size) {
                     damage = damage.union(UiDamage::Rect(rect));
@@ -174,6 +166,23 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
             damage
         })
         .collect()
+}
+
+/// Includes projected vertex coverage and compact-coordinate rounding in pixel bounds.
+fn include_vertex(bounds: &mut [f64; 4], vertex: &UiRenderVertex) {
+    for axis in 0..2 {
+        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
+        let margin = if vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0 {
+            f64::from(render_api::ui_half_float_margin(
+                vertex.position[axis] / vertex.clip_w,
+                vertex.clip_w,
+            ))
+        } else {
+            0.0
+        };
+        bounds[axis] = bounds[axis].min(pixel - margin);
+        bounds[axis + 2] = bounds[axis + 2].max(pixel + margin);
+    }
 }
 
 /// Rejects inputs whose shader coverage or ordered depth lifetimes cannot be bounded safely.

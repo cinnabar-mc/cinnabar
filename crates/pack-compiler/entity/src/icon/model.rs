@@ -1,11 +1,11 @@
-//! Depth-tested and alpha-tested block thumbnails from shared GUI geometry.
+//! Alpha-tested block thumbnails with the shared GUI geometry and overlap order.
 //! Includes slabs, stairs, walls, glass and server custom blocks.
 
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads, cube_face,
-    face_brightness, material_tile,
+    BlockModelOrder, GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, block_gui_quads,
+    cube_face, face_brightness, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
@@ -81,6 +81,7 @@ pub(super) struct Model<'a> {
     projection: fn([f32; 3]) -> [f32; 3],
     light: f32,
     face_lighting: bool,
+    order: BlockModelOrder,
 }
 
 impl<'a> Model<'a> {
@@ -109,6 +110,7 @@ impl<'a> Model<'a> {
             projection,
             light,
             face_lighting: true,
+            order: BlockModelOrder::Depth,
         }
     }
 
@@ -237,6 +239,9 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            order: BlockModelOrder::for_template(
+                template.and_then(|id| parts.templates.get(id as usize)),
+            ),
         })
     }
 
@@ -267,6 +272,7 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            order: BlockModelOrder::Depth,
         }
     }
 
@@ -274,7 +280,7 @@ impl<'a> Model<'a> {
         let mut pixels = vec![0u8; SIDE * SIDE * 4];
         let mut depth = vec![f32::INFINITY; SIDE * SIDE];
         let mut fragments = vec![Vec::new(); SIDE * SIDE];
-        for face in &self.faces {
+        for (index, face) in self.faces.iter().enumerate() {
             let brightness = if self.face_lighting && face.face_dimming {
                 face_brightness(face.corners)
             } else {
@@ -283,7 +289,13 @@ impl<'a> Model<'a> {
             let points = face.corners.map(|point| {
                 let [x, y, z] = (self.projection)(point);
                 let scale = SIDE as f32 / GUI_ITEM_SIDE;
-                [scale * x, scale * y, z]
+                // Ordered faces use successive depths so cutouts and blending retain paint order.
+                let depth = if self.order == BlockModelOrder::Paint {
+                    -(index as f32)
+                } else {
+                    z
+                };
+                [scale * x, scale * y, depth]
             });
             for indices in [[0, 1, 2], [0, 2, 3]] {
                 triangle(
@@ -458,6 +470,10 @@ fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f
         }
     }
 }
+
+#[cfg(test)]
+#[path = "model/paint_order_tests.rs"]
+mod paint_order_tests;
 
 #[cfg(test)]
 mod review_tests {

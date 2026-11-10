@@ -59,6 +59,28 @@ pub enum GuiBlockReject {
     Texture,
 }
 
+/// Chooses how overlapping surfaces in a block preview are resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockModelOrder {
+    Depth,
+    Paint,
+}
+
+impl BlockModelOrder {
+    /// Selects the overlap order shared by GUI meshes and baked thumbnails.
+    #[must_use]
+    pub fn for_template(template: Option<&ModelTemplate>) -> Self {
+        if template.is_some_and(|template| {
+            template.flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
+                != 0
+        }) {
+            Self::Paint
+        } else {
+            Self::Depth
+        }
+    }
+}
+
 /// Inventory geometry, independent of the placed block's connection shape.
 pub fn block_gui_quads(
     render_kind: crate::facts::BlockRenderKind,

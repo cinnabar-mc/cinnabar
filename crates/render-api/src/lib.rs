@@ -75,6 +75,13 @@ pub const UI_STYLE_TERRAIN_MIPS: u32 = 1 << 17;
 /// Rounds projected item XY to half precision before viewport conversion.
 pub const UI_STYLE_HALF_FLOAT_XY: u32 = 1 << 18;
 
+/// Bounds binary16 rounding for a coordinate already divided by positive `clip_w`.
+#[must_use]
+pub fn ui_half_float_margin(value: f32, clip_w: f32) -> f32 {
+    // Half precision has 11 significant bits and a 2^-24 subnormal step.
+    value.abs() / 2048.0 + (1.0 / 33_554_432.0) / clip_w
+}
+
 /// Stores block GUI texture coordinates as unsigned normalized 16-bit vertices.
 pub const UI_STYLE_UNORM16_UV: u32 = 1 << 19;
 

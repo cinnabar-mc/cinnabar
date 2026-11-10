@@ -3,12 +3,6 @@
 use super::{UiBlendMode, UiDrawList};
 use crate::{UiPoint, UiRect};
 
-/// Bounds the half-precision rounding error after homogeneous division.
-fn half_float_margin(value: f32, clip_w: f32) -> f32 {
-    // Half precision has 11 significant bits and a 2^-24 subnormal step.
-    value.abs() / 2048.0 + (1.0 / 33_554_432.0) / clip_w
-}
-
 impl UiDrawList {
     /// Conservative bounds of emitted triangles intersecting their scissors, without
     /// treating empty clip groups, unused vertices, or wholly clipped artwork as content.
@@ -36,7 +30,7 @@ impl UiDrawList {
                         }
                         let margin = if vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0
                         {
-                            half_float_margin(value, vertex.clip_w)
+                            render_api::ui_half_float_margin(value, vertex.clip_w)
                         } else {
                             0.0
                         };
