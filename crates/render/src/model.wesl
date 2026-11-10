@@ -521,7 +521,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
             let weight = patch_weight(quad, source, point);
             let sample = model_light_sample(quad, source);
             let source_ao = material_ambient_occlusion(light_ao_factor((sample >> 8u) & 7u), material.flags);
-            let source_shade = source_ao * material_face_shade(model_shade_normal(out.normal, sample), (sample & 2048u) != 0u, material.flags);
+            let source_shade = material_ao_shade(source_ao * material_face_shade(model_shade_normal(out.normal, sample), (sample & 2048u) != 0u, material.flags), material.flags);
             out.lighting += weight * light_colour(sample) * source_shade;
             @if(ENHANCED)
             out.sky_light += weight * sky_illumination(sample);

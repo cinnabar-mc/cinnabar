@@ -17,19 +17,19 @@ pub(super) fn first_texture_path(value: &Value) -> Option<String> {
     (!path.is_empty()).then(|| path.to_owned())
 }
 
-/// Finds the first indexed image candidate without reading or decoding image payloads.
+/// Finds a pack-qualified image identity without reading or decoding image payloads.
 /// Only admitted cached pixels may reuse it; uncached candidates still require normal decoding.
 pub fn indexed_image_candidate(view: &super::LayeredPackView, path: &str) -> Option<String> {
     let path = normalize_texture_path(path);
-    let Some((layer, source, definition)) = super::texture_set_definition(view, path) else {
+    let Some((index, layer, source, definition)) = super::texture_set_definition(view, path) else {
         return indexed_image(view, path);
     };
     let candidate = match definition.color {
-        TextureSetLayer::Uniform(_) => Some(source.to_ascii_lowercase()),
+        TextureSetLayer::Uniform(_) => Some(super::image_identity(index, &source)),
         TextureSetLayer::Image(name) => super::texture_set_image_paths(&source, &name)
             .into_iter()
             .find(|candidate| layer.file_size(candidate).is_some())
-            .map(|candidate| candidate.to_ascii_lowercase()),
+            .map(|candidate| super::image_identity(index, &candidate)),
     };
     // A set whose color image is missing is discarded, as decoding discards it.
     candidate.or_else(|| indexed_image(view, path))
@@ -39,6 +39,12 @@ pub fn indexed_image_candidate(view: &super::LayeredPackView, path: &str) -> Opt
 fn indexed_image(view: &super::LayeredPackView, path: &str) -> Option<String> {
     super::texture_image_paths(path)
         .into_iter()
-        .find(|path| view.layers().any(|layer| layer.file_size(path).is_some()))
-        .map(|path| path.to_ascii_lowercase())
+        .find_map(|path| {
+            let (index, _) = view
+                .layers()
+                .rev()
+                .enumerate()
+                .find(|(_, layer)| layer.file_size(&path).is_some())?;
+            Some(super::image_identity(index, &path))
+        })
 }

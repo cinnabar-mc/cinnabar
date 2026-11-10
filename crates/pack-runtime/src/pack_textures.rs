@@ -137,7 +137,7 @@ pub fn decode_pack_texture_with_policy(
         .map(|resolved| resolved.texture)
 }
 
-/// Decoded pixels and the canonical filename of their image or solid-color texture set.
+/// Decoded pixels and a pack-qualified cache identity within the supplied view.
 #[derive(Debug)]
 pub struct ResolvedPackTexture {
     pub texture: DecodedTexture,
@@ -168,10 +168,10 @@ fn decode_image_file(
         let (_, format) = IMAGE_EXTENSIONS
             .into_iter()
             .find(|(known, _)| extension.eq_ignore_ascii_case(known))?;
-        let bytes = view.read_capped(&path, MAX_TEXTURE_SOURCE_BYTES as u64)?;
+        let (index, bytes) = view.read_capped_with_layer(&path, MAX_TEXTURE_SOURCE_BYTES as u64)?;
         Some(ResolvedPackTexture {
             texture: decode_image_with_policy(&bytes, format, policy, allow_strip)?,
-            image_path: path.to_ascii_lowercase(),
+            image_path: image_identity(index, &path),
         })
     })
 }
@@ -204,10 +204,15 @@ pub fn texture_image_paths(path: &str) -> Vec<String> {
 pub(crate) fn texture_set_definition<'a>(
     view: &'a LayeredPackView,
     path: &str,
-) -> Option<(resource_pack::PackLayer<'a>, String, TextureSetDefinition)> {
+) -> Option<(
+    usize,
+    resource_pack::PackLayer<'a>,
+    String,
+    TextureSetDefinition,
+)> {
     let source = format!("{}.texture_set.json", path.trim().trim_start_matches("./"));
     let images = texture_image_paths(path);
-    let layer = view.layers().rev().find(|layer| {
+    let (index, layer) = view.layers().rev().enumerate().find(|(_, layer)| {
         layer.file_size(&source).is_some()
             || images.iter().any(|image| layer.file_size(image).is_some())
     })?;
@@ -216,7 +221,7 @@ pub(crate) fn texture_set_definition<'a>(
         .read_file_with_limit(&source, MAX_TEXTURE_SET_BYTES)
         .ok()??;
     let definition = parse_texture_set(&parse_pack_json(&bytes)?).ok()?;
-    Some((layer, source, definition))
+    Some((index, layer, source, definition))
 }
 
 /// Candidate files of an image a texture set names, relative to the set's own directory.
@@ -235,7 +240,7 @@ fn decode_texture_set(
     policy: TexturePolicy,
     allow_strip: bool,
 ) -> Option<ResolvedPackTexture> {
-    let (layer, source, definition) = texture_set_definition(view, path)?;
+    let (index, layer, source, definition) = texture_set_definition(view, path)?;
     match definition.color {
         TextureSetLayer::Uniform(pixel) => Some(ResolvedPackTexture {
             texture: DecodedTexture {
@@ -243,7 +248,7 @@ fn decode_texture_set(
                 height: 1,
                 rgba8: pixel.into(),
             },
-            image_path: source.to_ascii_lowercase(),
+            image_path: image_identity(index, &source),
         }),
         TextureSetLayer::Image(name) => texture_set_image_paths(&source, &name)
             .into_iter()
@@ -257,10 +262,15 @@ fn decode_texture_set(
                     .ok()??;
                 Some(ResolvedPackTexture {
                     texture: decode_image_with_policy(&bytes, format, policy, allow_strip)?,
-                    image_path: candidate.to_ascii_lowercase(),
+                    image_path: image_identity(index, &candidate),
                 })
             }),
     }
+}
+
+/// Qualifies a normalized filename by its owning layer in this immutable view.
+fn image_identity(layer: usize, path: &str) -> String {
+    format!("{layer}:{}", path.to_ascii_lowercase())
 }
 
 /// Parses pack JSON with comments, trailing commas and legacy text encoding.

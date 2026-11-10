@@ -56,12 +56,14 @@ fn material_position_random(position: vec3<i32>) -> u32 {
 // Current cube tessellation applies this only to faces
 // enabled by blocks.json's pack-authored isotropic mask.
 fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
-    if ((flags & MATERIAL_ISOTROPIC_FLAG) == 0u || (flags & 3u) != 0u) {
+    if ((flags & MATERIAL_ISOTROPIC_FLAG) == 0u) {
         return flags;
     }
     let native_code = (material_position_random(position) >> 24u) & 3u;
     // Native codes 2/3 are quarter-turn/half-turn; our packed codes swap them.
-    return flags | select(native_code, native_code ^ 1u, native_code >= 2u);
+    let rotation = select(native_code, native_code ^ 1u, native_code >= 2u);
+    // Add the positional turn to the material's existing UV correction.
+    return (flags & ~3u) | (((flags & 3u) + rotation) & 3u);
 }
 
 // Vanilla ambient occlusion raises the four-sample average * face coefficient to the source

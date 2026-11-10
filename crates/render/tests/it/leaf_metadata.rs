@@ -18,10 +18,10 @@ fn native_rotation(position: [i32; 3]) -> u32 {
 }
 
 #[test]
-fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags() {
-    let Some(gpu) = Gpu::for_fixture(
-        "gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_flags",
-    ) else {
+fn gpu_isotropic_rotation_composes_uv_turns_and_keeps_ao_exponents() {
+    let Some(gpu) =
+        Gpu::for_fixture("gpu_isotropic_rotation_composes_uv_turns_and_keeps_ao_exponents")
+    else {
         return;
     };
     let native = assets::MATERIAL_FLAG_NATIVE_LEAF_COLOUR;
@@ -37,14 +37,14 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
         rotations_seen[rotation as usize] = true;
         for flags in [
             native | isotropic | exponent,
-            isotropic,
+            isotropic | 1,
             native | exponent,
-            0,
-            native | isotropic | 1,
+            isotropic | 2,
+            native | isotropic | 3,
         ] {
             let ao_face = [0.2_f32, 0.4, 0.6, 0.9][cases.len() % 4];
-            let expected_rotation = if flags & isotropic != 0 && flags & 3 == 0 {
-                rotation
+            let expected_rotation = if flags & isotropic != 0 {
+                (rotation + (flags & 3)) & 3
             } else {
                 flags & 3
             };
