@@ -1336,8 +1336,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   emoticons. Vanilla reads its emoticon list from the game's own `font/emoticons` file and
   draws it from built-in glyph pages, neither of which the fetched pack has. Cinnabar lists
   only the 16 Xbox and 3 mouse emoticons and draws them with original art on page E0 beneath
-  pack glyph pages. Their code points follow community documentation and are unverified
-  against the game's list. Other vanilla emoticons, a pack's own `font/emoticons.json` (its
+  pack glyph pages. Named label faces draw private-use glyphs they lack from the default
+  font at its size; whether vanilla's named fonts do is unverified. The code points follow
+  community documentation and are unverified against the game's list. Other vanilla emoticons, a pack's own `font/emoticons.json` (its
   code-point key is unverified), left-stick direction tokens, the light-variant tokens, touch
   icons (touch still names the keyboard bindings with text) and the vanilla key-name table
   are not implemented. These remain incomplete.
