@@ -2623,6 +2623,9 @@ Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-
 spans, trace exports and developer-control state on supported desktop and Android
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
+Android packaging has an opt-in optimized profileable mode with Rust line tables and
+matching ELF build IDs in the diagnostic APK. Normal release settings stay unchanged;
+full APK and physical-device profiler acceptance remain incomplete.
 
 The scripted resident-render benchmark copies a frozen fixture and isolated user template,
 flies real-time camera paths and exports exact interval statistics with native stage spans.
