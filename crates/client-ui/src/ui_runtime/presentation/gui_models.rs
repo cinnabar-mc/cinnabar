@@ -168,16 +168,20 @@ pub struct PreparedGuiModels {
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: held::HeldModels,
-    /// Ordinary items that retained their sprite because a held texture could not fit.
-    pub(super) held_texture_fallbacks: usize,
+    pub(super) fallbacks: AtlasFallbacks,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
 }
 
-impl PreparedGuiModels {
-    /// Reports held items that used resident sprites after their model artwork could not fit.
-    pub const fn held_texture_fallbacks(&self) -> usize {
-        self.held_texture_fallbacks
-    }
+/// Sources left out of the full model atlas. Each keeps fallback artwork instead of failing
+/// startup.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct AtlasFallbacks {
+    /// Cube items that keep their resident thumbnail.
+    pub(super) cubes: usize,
+    /// Equipment textures without a GUI region; armor using one is not drawn on the doll.
+    pub(super) equipment: usize,
+    /// Held items that keep their resident sprite or ordinary model.
+    pub(super) held: usize,
 }
 
 impl GuiModels {
@@ -247,7 +251,8 @@ impl UiPresentationRuntime {
             entities,
             self.equipment_catalog.as_deref(),
         )?;
-        self.install_gui_model_sources(prepared)
+        self.install_gui_model_sources(prepared);
+        Ok(())
     }
 
     /// Enables the menu's live avatar without preparing inventory item geometry.
@@ -255,19 +260,24 @@ impl UiPresentationRuntime {
         self.gui_models.enabled = true;
     }
 
-    /// Installs item sources prepared on a worker without replacing the live menu avatar.
-    pub fn install_gui_model_sources(
-        &mut self,
-        sources: PreparedGuiModels,
-    ) -> Result<(), UiPresentationError> {
+    /// Installs item sources prepared on a worker without replacing the live menu avatar, and
+    /// warns when a full model atlas left some sources on fallback artwork.
+    pub fn install_gui_model_sources(&mut self, sources: PreparedGuiModels) {
+        let fallbacks = sources.fallbacks;
+        if fallbacks != AtlasFallbacks::default() {
+            tracing::warn!(
+                cubes = fallbacks.cubes,
+                equipment = fallbacks.equipment,
+                held = fallbacks.held,
+                "GUI model atlas is full; affected items keep their sprites"
+            );
+        }
         self.gui_models.sources = sources;
         self.gui_models.shield_icons = Default::default();
         self.gui_models.clear_selected_hands();
-        self.gui_models.fire.pages_start = None;
-        self.install_gui_fire()?;
+        self.install_gui_fire();
         self.gui_models.enabled = true;
         self.place_pack_armor();
-        Ok(())
     }
 
     /// Reuses the retained page's digest when its pixels have not changed.

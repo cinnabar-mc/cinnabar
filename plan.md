@@ -1305,9 +1305,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   HUD paper-doll controls retain independently evaluated player-controller layers, authored
   bone translations and camera-driven repeated UVs. Model coverage may extend outside a
   control while retaining its ancestor clip. Selected source artwork shares the UI catalog's
-  existing texture-layer and byte budgets. Declared pack-relative image paths and session
-  player skins retain independent controller layers. Other entity material modes and menu-controller
-  layer acceptance remain open.
+  existing texture-layer and byte budgets. Base item cubes, equipment textures, held artwork
+  and actor flames share a fixed reservation of GUI model-atlas pages. A pack that overflows it
+  still starts: equipment is placed first, cubes keep their thumbnails, held items their sprites,
+  and the HUD doll omits flames or an unplaced armor texture. Sizing the atlas from its content
+  within the device's texture-layer and byte limits remains incomplete. Declared pack-relative
+  image paths and session player skins retain independent controller layers. Other entity
+  material modes and menu-controller layer acceptance remain open.
   Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   Controller overlays and material face culling remain independent from repeated source bounds.
   Live player controls consume UI-context controller layers, part visibility and held-item

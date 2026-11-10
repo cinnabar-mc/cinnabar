@@ -153,6 +153,12 @@ impl Atlas {
         }
     }
 
+    /// Places one source, or returns None with the atlas unchanged when it is full, so the
+    /// caller can keep its fallback artwork.
+    pub(super) fn insert_or_fallback(&mut self, size: [u16; 2], pixels: &[u8]) -> Option<IconRef> {
+        self.try_insert([(size, pixels)], |icons| icons.first().copied())
+    }
+
     /// Inserts optional mesh textures, restoring atlas capacity when insertion or mesh building fails.
     pub(super) fn try_insert<'a, T>(
         &mut self,

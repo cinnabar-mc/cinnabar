@@ -364,3 +364,60 @@ fn gui_cube_pages_follow_gui_coverage_independently_of_held_sheets() {
     assert_eq!(nodes[0], thumbnail);
     assert!(matches!(nodes[1].visual(), UiVisual::Mesh(_)));
 }
+
+#[test]
+fn oversized_pack_keeps_fallback_artwork_instead_of_failing_gui_startup() {
+    // Pack equipment alone overflows every model page, as larger-resolution packs can.
+    let (entities, icons) = catalog(sheets_at_capacity(1));
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+        Arc::new(icons),
+    )
+    .unwrap();
+    let side = render_model::UI_MODEL_ATLAS_SIDE as u16;
+    presentation.set_equipment_catalog(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            entities.source_manifest_sha256(),
+            Vec::new(),
+            (0..=MODEL_PAGES)
+                .map(|page| assets::EquipmentTexture {
+                    identifier: format!("textures/fixture/oversized_{page:02}").into(),
+                    width: side,
+                    height: side,
+                    rgba8: [page as u8, 31, 47, 255]
+                        .repeat(usize::from(side) * usize::from(side))
+                        .into(),
+                })
+                .collect(),
+        )
+        .unwrap(),
+    )));
+    let cube = presentation.item_icon("fixture:cube_00001", 0).unwrap();
+    presentation
+        .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
+        .expect("a full model atlas must not fail GUI startup");
+    let fallbacks = presentation.gui_models.sources.fallbacks;
+    assert_eq!(
+        fallbacks.equipment, 1,
+        "equipment fills the atlas before cubes"
+    );
+    assert!(fallbacks.cubes > 0);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
+    let mut nodes = [node(cube)];
+    let thumbnail = nodes[0].clone();
+    presentation.apply_gui_models(&mut nodes);
+    assert_eq!(
+        nodes[0], thumbnail,
+        "cubes past the atlas keep their thumbnail"
+    );
+    let flame = assets::ParticleTexture {
+        path: assets::ACTOR_FLAME_TEXTURE.into(),
+        width: 16,
+        height: 32,
+        rgba8: vec![255; 16 * 32 * 4].into(),
+    };
+    presentation.set_gui_fire_texture(Some(&flame));
+    assert!(presentation.gui_models.fire.frames.is_empty());
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
+}
