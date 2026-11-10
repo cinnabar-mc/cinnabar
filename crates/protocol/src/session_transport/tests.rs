@@ -536,8 +536,9 @@ pub(crate) mod unix {
         .to_vec();
         // The last entry declares five bytes but carries one.
         frame.extend_from_slice(&[5, 1]);
-        write_frame(peer, &frame).await;
-        assert!(transport.recv().await.is_err());
+        // The frame exceeds small default socket buffers, so read while it is written.
+        let ((), received) = tokio::join!(write_frame(peer, &frame), transport.recv());
+        assert!(received.is_err());
         assert_eq!(tap.events(), [TapEvent::RejectBatch(frame.len() - 1)]);
     }
 }

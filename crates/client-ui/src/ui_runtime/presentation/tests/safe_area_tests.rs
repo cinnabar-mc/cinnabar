@@ -122,16 +122,40 @@ fn crosshair_stays_in_the_world_center_while_edge_hud_respects_insets() {
         let mut runtime = UiRuntime::new(1);
         runtime.set_server_ui(Some(std::sync::Arc::new(
             crate::ui_runtime::presentation::forms::ServerUiPack {
+                // Both screens keep vanilla's root flags: the world shows behind them, and
+                // neither takes gameplay input.
                 ui_layers: vec![vec![
-                    ("ui/hud_crosshair_fixture.json".into(), json!({
-                        "namespace":namespace, (screen):{"type":"screen", "controls":[{"cursor":cursor}]}
-                    }).to_string().into_bytes()),
-                    ("ui/hud_screen.json".into(), json!({
-                        "namespace":"hud", "hud_screen":{"type":"screen", "controls":[{
-                            "edge":{"type":"image", "texture":CROSSHAIR_TEXTURE,
-                                "size":[8,8], "anchor_from":"top_left", "anchor_to":"top_left"}
-                        }]}
-                    }).to_string().into_bytes()),
+                    (
+                        json_ui::UI_DEFS_PATH.into(),
+                        json!({
+                            "ui_defs":["ui/hud_crosshair_fixture.json", "ui/hud_screen.json"]
+                        })
+                        .to_string()
+                        .into_bytes(),
+                    ),
+                    (
+                        "ui/hud_crosshair_fixture.json".into(),
+                        json!({
+                            "namespace":namespace, (screen):{"type":"screen",
+                                "render_game_behind":true, "render_only_when_topmost":false,
+                                "absorbs_input":false, "is_showing_menu":false,
+                                "controls":[{"cursor":cursor}]}
+                        })
+                        .to_string()
+                        .into_bytes(),
+                    ),
+                    (
+                        "ui/hud_screen.json".into(),
+                        json!({
+                            "namespace":"hud", "hud_screen":{"type":"screen",
+                                "absorbs_input":false, "is_showing_menu":false, "controls":[{
+                                "edge":{"type":"image", "texture":CROSSHAIR_TEXTURE,
+                                    "size":[8,8], "anchor_from":"top_left", "anchor_to":"top_left"}
+                            }]}
+                        })
+                        .to_string()
+                        .into_bytes(),
+                    ),
                 ]],
                 textures: vec![(format!("{CROSSHAIR_TEXTURE}.png"), texture.clone())],
                 ..Default::default()
