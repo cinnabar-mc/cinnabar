@@ -171,7 +171,18 @@ func Realms(ctx context.Context, account *authcache.Account) ([]Realm, error) {
 	if err != nil {
 		return nil, err
 	}
-	return listRealms(ctx, client)
+	return listRealms(ctx, client, accountXUID(ctx, account))
+}
+
+// accountXUID returns the signed-in XUID from the account's cached Xbox Live token, or "" when it is
+// unavailable, so a Realm's ownership stays unknown rather than failing the list.
+func accountXUID(ctx context.Context, account *authcache.Account) string {
+	xbl, err := XboxClient(ctx, account)
+	if err != nil {
+		return ""
+	}
+	defer xbl.Close()
+	return xbl.UserInfo().XUID
 }
 
 // RealmsClient returns the account's Realms client on the discovered endpoint, built once so its
@@ -215,8 +226,14 @@ func (c *realmsClients) get(discovery *service.Discovery, account oauth2.TokenSo
 	return client, nil
 }
 
-// listRealms maps the client's Realms to catalog entries.
-func listRealms(ctx context.Context, client *realms.Client) ([]Realm, error) {
+// realmLister lists the Realms an account owns or has joined.
+type realmLister interface {
+	Realms(context.Context) ([]realms.Realm, error)
+}
+
+// listRealms maps the client's Realms to catalog entries. The service never reports membership
+// itself, so a Realm owned by another XUID is a joined one; an unknown XUID leaves every Realm owned.
+func listRealms(ctx context.Context, client realmLister, xuid string) ([]Realm, error) {
 	values, err := client.Realms(ctx)
 	if err != nil {
 		return nil, err
@@ -224,6 +241,8 @@ func listRealms(ctx context.Context, client *realms.Client) ([]Realm, error) {
 	result := make([]Realm, 0, len(values))
 	for _, realm := range values {
 		entry := realmCard(realm)
+		owner := strings.TrimSpace(realm.OwnerUUID)
+		entry.Member = xuid != "" && owner != "" && owner != xuid
 		result = append(result, entry)
 	}
 	return result, nil

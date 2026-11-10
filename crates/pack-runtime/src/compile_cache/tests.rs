@@ -1,18 +1,19 @@
 //! Persistent subscriber results must survive a new cache and dependency recorder.
 use super::*;
 
-/// Both physical and decoded sizes are cache admissions, even with an intact checksum.
+/// Only the entry's size on disk counts against the disk bound, even with an intact checksum.
 #[test]
-fn oversized_physical_and_decoded_entries_miss_and_recompile() {
+fn an_entry_oversized_on_disk_misses_and_recompiles() {
     let dir = tempfile::tempdir().unwrap();
     let mut cache = CompileCache::new(dir.path().into(), 1 << 20);
     let key = [9; 32];
     cache.store(&key, &[0; 8192]);
     assert!(fs::metadata(cache.entry(&key)).unwrap().len() < 1024);
     cache.max_bytes = 1024;
-    assert!(
-        cache.load(&key).is_none(),
-        "decoded length exceeds admission"
+    assert_eq!(
+        cache.load(&key).as_deref(),
+        Some(&[0; 8192][..]),
+        "a payload larger than the bound fits when compressed"
     );
     fs::File::create(cache.entry(&key))
         .unwrap()

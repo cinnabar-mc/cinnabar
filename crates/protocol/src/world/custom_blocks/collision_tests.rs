@@ -1,4 +1,5 @@
-use super::{CustomBox, Nbt, parse_definition};
+use super::{CustomBox, parse_definition};
+use crate::nbt_tree::test_tree::Nbt;
 
 fn component(boxes: Vec<Nbt>) -> Nbt {
     Nbt::Compound(vec![
@@ -18,10 +19,13 @@ fn native_box(min: [f64; 3], max: [f64; 3]) -> Nbt {
 }
 
 fn definition(collision: Nbt) -> super::Definition {
-    parse_definition(&Nbt::Compound(vec![(
-        "components".into(),
-        Nbt::Compound(vec![("minecraft:collision_box".into(), collision)]),
-    )]))
+    parse_definition(
+        Nbt::Compound(vec![(
+            "components".into(),
+            Nbt::Compound(vec![("minecraft:collision_box".into(), collision)]),
+        )])
+        .view(),
+    )
     .expect("definition")
 }
 
@@ -108,7 +112,7 @@ fn native_collision_boxes_skip_invalid_and_excess_entries_without_losing_valid_s
     let mut boxes = (0..super::MAX_COLLISION_BOXES + 9)
         .map(|_| native_box([0.0; 3], [16.0, 8.0, 16.0]))
         .collect::<Vec<_>>();
-    boxes[0] = Nbt::String("unexpected".into());
+    boxes[0] = native_box([f64::NEG_INFINITY, 0.0, 0.0], [16.0; 3]);
     boxes[1] = native_box([f64::NAN, 0.0, 0.0], [16.0; 3]);
     boxes[2] = native_box([0.0; 3], [1e100, 16.0, 16.0]);
     let parsed = definition(component(boxes));
@@ -203,7 +207,7 @@ fn custom_box_keeps_empty_and_reversed_bounds_instead_of_defaulting_to_a_cube() 
         ),
     ] {
         assert_eq!(
-            super::box_component(&pixel_box(origin, size)),
+            super::box_component(pixel_box(origin, size).view()),
             Some(expected)
         );
     }
@@ -227,7 +231,10 @@ fn custom_box_reflects_asymmetric_pixel_bounds_on_x() {
 #[test]
 fn custom_box_clamps_selection_to_one_block_and_collision_to_its_taller_limit() {
     let component = pixel_box([-20.0, -4.0, -20.0], [40.0, 40.0, 40.0]);
-    assert_eq!(super::box_component(&component), Some(CustomBox::FULL));
+    assert_eq!(
+        super::box_component(component.view()),
+        Some(CustomBox::FULL)
+    );
     assert_eq!(
         definition(component).collision_boxes.as_deref(),
         Some(
@@ -243,7 +250,7 @@ fn custom_box_clamps_selection_to_one_block_and_collision_to_its_taller_limit() 
 #[test]
 fn custom_box_defaults_and_disabled_components_are_independent() {
     use super::CustomSelection;
-    let absent = parse_definition(&Nbt::Compound(Vec::new())).unwrap();
+    let absent = parse_definition(Nbt::Compound(Vec::new()).view()).unwrap();
     assert!(absent.collides);
     assert!(absent.collision_boxes.is_none());
     assert_eq!(absent.selection, CustomSelection::Default);
@@ -255,25 +262,28 @@ fn custom_box_defaults_and_disabled_components_are_independent() {
         assert!(!parsed.collides);
         assert_eq!(parsed.selection, CustomSelection::Default);
     }
-    let parsed = parse_definition(&Nbt::Compound(vec![(
-        "components".into(),
-        Nbt::Compound(vec![
-            (
-                "minecraft:collision_box".into(),
-                pixel_box([-4.0, 0.0, -4.0], [8.0, 8.0, 8.0]),
-            ),
-            ("minecraft:selection_box".into(), Nbt::Byte(1)),
-            (
-                "minecraft:geometry".into(),
-                Nbt::String("geometry.small".into()),
-            ),
-        ]),
-    )]))
+    let parsed = parse_definition(
+        Nbt::Compound(vec![(
+            "components".into(),
+            Nbt::Compound(vec![
+                (
+                    "minecraft:collision_box".into(),
+                    pixel_box([-4.0, 0.0, -4.0], [8.0, 8.0, 8.0]),
+                ),
+                ("minecraft:selection_box".into(), Nbt::Byte(1)),
+                (
+                    "minecraft:geometry".into(),
+                    Nbt::String("geometry.small".into()),
+                ),
+            ]),
+        )])
+        .view(),
+    )
     .unwrap();
     assert_eq!(parsed.selection, CustomSelection::Box(CustomBox::FULL));
     assert_eq!(parsed.collision_boxes.as_deref().unwrap()[0].max[1], 0.5);
     assert_eq!(
-        super::physical::selection_component(Some(&Nbt::Byte(0))),
+        super::physical::selection_component(Some(Nbt::Byte(0).view())),
         CustomSelection::Disabled
     );
 }
@@ -286,10 +296,9 @@ fn friction_component_reads_the_network_value() {
         let components = component
             .map(|component| vec![("minecraft:friction".into(), component)])
             .unwrap_or_default();
-        let definition = parse_definition(&Nbt::Compound(vec![(
-            "components".into(),
-            Nbt::Compound(components),
-        )]))
+        let definition = parse_definition(
+            Nbt::Compound(vec![("components".into(), Nbt::Compound(components))]).view(),
+        )
         .expect("definition");
         (definition.friction, definition.skipped)
     };

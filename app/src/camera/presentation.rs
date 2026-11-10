@@ -165,6 +165,7 @@ pub(crate) fn apply_camera_presentation(
     instructions: Option<Res<ServerCameraInstructions>>,
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
+    clock: Option<Res<client_presentation::environment::WorldClock>>,
     client_world: Option<Res<ClientWorld>>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     server: ResMut<ServerCameraView>,
@@ -176,6 +177,7 @@ pub(crate) fn apply_camera_presentation(
         instructions,
         portal,
         view,
+        clock.map_or(0, |clock| clock.session_generation()),
         client_world.as_deref().map(
             |world| client_presentation::observations::WorldObservation {
                 stream: world.stream.as_ref(),

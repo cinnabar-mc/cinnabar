@@ -77,18 +77,10 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             launcher::download::file_size(progress.received_bytes, &tr),
             launcher::download::file_size(progress.total_bytes, &tr)
         );
-        content.label_text("", &text)?;
-        let [left, right] = content.inset();
-        let height = content.canvas.r(super::super::theme::PROGRESS_HEIGHT);
-        crate::progress::track(
-            content.canvas,
-            [left, content.y, right, content.y + height],
-            Some(
-                progress.received_bytes.min(progress.total_bytes) as f32
-                    / progress.total_bytes as f32,
-            ),
+        content.progress_row(
+            &text,
+            progress.received_bytes.min(progress.total_bytes) as f32 / progress.total_bytes as f32,
         )?;
-        content.y += height + content.canvas.r(0.8);
     }
     if !view.over_world {
         if ready_primary.is_none()

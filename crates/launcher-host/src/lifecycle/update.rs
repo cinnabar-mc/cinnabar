@@ -39,10 +39,24 @@ static LAYOUT: OnceLock<InstallLayout> = OnceLock::new();
 static STATE: Mutex<State> = Mutex::new(State::new());
 /// Held while the exit handoff runs and true once it has run; see [`apply_after_exit`].
 static EXIT_HANDOFF: Mutex<bool> = Mutex::new(false);
+/// Held while the worker unpacks an offer, which the exit handoff lets finish.
+static PREPARING: Mutex<()> = Mutex::new(());
+/// Longest the exit handoff waits for an unpacking the helper would otherwise repeat.
+const PREPARE_EXIT_WAIT: Duration = Duration::from_secs(60);
 #[cfg(target_os = "linux")]
 static MANUAL: OnceLock<manual::Running> = OnceLock::new();
 #[cfg(unix)]
 static STARTUP: OnceLock<update_installer::recovery::Startup> = OnceLock::new();
+static NEXT_RELEASE: OnceLock<NextRelease> = OnceLock::new();
+
+/// Receives each offered release's unpacked prep kit, or `None` once no release is staged;
+/// called on the update worker, so it must hand long work to its own thread.
+pub type NextRelease = fn(&InstallLayout, Option<&std::path::Path>);
+
+/// Lets carrier preparation start on an offered release while this client runs.
+pub fn on_next_release(hook: NextRelease) {
+    let _ = NEXT_RELEASE.set(hook);
+}
 
 #[derive(Clone)]
 struct Ready {
@@ -560,6 +574,17 @@ fn start_exit_handoff() {
         .ok()
         .filter(|state| state.updater.is_some())
         .and_then(|mut state| state.handoff_after_exit(OffsetDateTime::now_utc()));
+    if ready.is_some() {
+        // The window is already hidden, so finishing here is cheaper than the helper starting over.
+        let deadline = std::time::Instant::now() + PREPARE_EXIT_WAIT;
+        while matches!(
+            PREPARING.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ) && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
     if let (Some(layout), Some(ready)) = (LAYOUT.get(), ready)
         && let Err(error) = handoff::spawn_or_restart(
             || handoff::spawn(layout, &ready),

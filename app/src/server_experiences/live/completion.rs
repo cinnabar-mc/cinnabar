@@ -295,20 +295,21 @@ impl<H: Worker> Live<H> {
 }
 
 impl<H> Instance<H> {
-    /// Records the guest's bounded held references without waiting for scene publication.
+    /// Records held references within the helper's framed byte limits, independent of candidates.
     fn accept_references(
         &mut self,
         mut references: Vec<mod_render::retained::EntityKey>,
         valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<()> {
         ensure!(
-            references.len() <= mod_api::MAX_DRAW_ENTITIES
-                && references
-                    .iter()
-                    .all(|key| key.session == self.pending_drawing_context.connection
-                        && key.dimension == self.pending_drawing_context.dimension),
+            references
+                .iter()
+                .all(|key| key.session == self.pending_drawing_context.connection
+                    && key.dimension == self.pending_drawing_context.dimension),
             "unadmitted drawing references"
         );
+        references.sort_unstable();
+        references.dedup();
         let count = references.len();
         references.retain(|key| valid(*key));
         self.presentation.stale_references = self

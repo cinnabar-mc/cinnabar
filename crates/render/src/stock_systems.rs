@@ -122,7 +122,8 @@ fn remove_unused_render_systems(world: &mut World) {
     );
 }
 
-/// Removes each stock system from `label` while keeping the order between its neighbours.
+/// Removes each stock system from `label` while keeping the order between its neighbours,
+/// building the schedule once rather than once per system.
 ///
 /// Panics when Bevy no longer schedules an [`Scheduled::Always`] system there, so an entry
 /// cannot go stale silently.
@@ -132,13 +133,16 @@ fn remove(
     scheduled: Scheduled,
     systems: impl IntoIterator<Item = InternedSystemSet>,
 ) {
+    let sets: Vec<_> = systems.into_iter().collect();
     world.schedule_scope(label, |world, schedule| {
-        for set in systems {
-            let removed = schedule.remove_systems_in_set(
-                set,
+        let removed = schedule
+            .remove_systems_in_sets(
+                sets.iter().copied(),
                 world,
                 ScheduleCleanupPolicy::RemoveSystemsOnly,
-            );
+            )
+            .unwrap_or_else(|error| panic!("{:?} did not build: {error}", schedule.label()));
+        for (set, removed) in sets.iter().zip(removed) {
             assert!(
                 scheduled == Scheduled::WhereSupported
                     || removed.as_ref().is_ok_and(|&count| count != 0),

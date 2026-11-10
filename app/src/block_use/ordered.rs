@@ -11,7 +11,7 @@ pub(crate) fn press(
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
     mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
-    movement: Res<MovementTicker>,
+    mut movement: ResMut<MovementTicker>,
 ) -> bool {
     let pressed = input.edge.pressed;
     let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -83,6 +83,7 @@ pub(crate) fn press(
                 clock.now,
                 state.tick.saturating_add(1),
                 LocalUse::Nothing,
+                false,
                 clock,
             );
             return true;
@@ -101,7 +102,7 @@ pub(crate) fn press(
             &mut runtime,
             &mut item_use,
             &mut swings,
-            &movement,
+            &mut movement,
             &mut build,
         )
     })();

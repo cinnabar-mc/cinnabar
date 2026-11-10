@@ -26,6 +26,7 @@ protocol = { path = "../../crates/protocol" }
 render-api = { path = "../../crates/render-api" }
 render-model = { path = "../../crates/render-model" }
 resource-pack = { path = "../../crates/resource-pack" }
+semantic-input = { path = "../../crates/input" }
 shaderpack = { path = "../../crates/shaderpack" }
 serde_json = "1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }

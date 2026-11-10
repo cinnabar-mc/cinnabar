@@ -62,6 +62,7 @@ impl State {
             output: _,
             inventory,
             events: _,
+            clock: _,
             touch: _,
         } = self;
         environment.revoke();

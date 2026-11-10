@@ -101,6 +101,28 @@ fn overlay_shards_share_the_runtime_page_allocations() {
     assert_eq!(base.texture_shards().len(), 0);
 }
 
+/// The compiled overlay and its base stay retained beside the merged assets, so merging
+/// shares their texel storage instead of copying every page.
+#[test]
+fn merging_an_overlay_does_not_copy_texture_pixels() {
+    let base = RuntimeAssets::diagnostic();
+    let overlay = cube_overlay(page(1024));
+    let pixel_bytes: usize = overlay.textures[0]
+        .mips
+        .iter()
+        .map(|mip| mip.rgba8.len())
+        .sum();
+    let (runtime, allocated) =
+        test_alloc::measure(|| base.with_block_overlay(1, &overlay).unwrap());
+    assert!(
+        allocated.bytes < pixel_bytes / 2,
+        "merging allocated {} bytes beside {pixel_bytes} shard texel bytes",
+        allocated.bytes
+    );
+    assert_shared_shards(&overlay.textures, &runtime.texture_pages()[1..]);
+    assert_shared_shards([base.texture_array()], runtime.texture_pages());
+}
+
 #[test]
 fn overlay_source_dimensions_are_bounded_by_their_own_shard() {
     let mut overlay = cube_overlay(page(16));
@@ -156,6 +178,65 @@ fn material_overrides_repoint_base_materials() {
         variation: Some((0, 0)),
     }];
     assert!(base.with_block_overlay(1, &overlay).is_err());
+}
+
+/// A replaced shelf sheet is one overlay layer, so only its pose moves to the whole-sheet UVs.
+#[test]
+fn replacing_a_sheet_moves_only_its_models_to_their_whole_sheet_templates() {
+    let mut base = RuntimeAssets::diagnostic();
+    base.materials = vec![Material::unvaried(); 4].into();
+    base.light_properties = vec![LightProperties::OPAQUE_DARK; 3].into();
+    let diagnostic = base.visuals[0];
+    base.visuals = [0, 1, 2]
+        .map(|material| BlockVisual {
+            faces: [material; 6],
+            kind: VisualKind::Model,
+            model_template: 0,
+            ..diagnostic
+        })
+        .into();
+    base.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF | crate::MODEL_TEMPLATE_FLAG_SHEET_TILES,
+        },
+        ModelTemplate {
+            quad_start: 1,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF,
+        },
+    ]
+    .into();
+    base.model_quads = vec![
+        crate::ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 3,
+            flags: 0,
+        };
+        2
+    ]
+    .into();
+    let template = |assets: &RuntimeAssets, visual| {
+        assets
+            .resolve(NetworkIdMode::Sequential, visual)
+            .model_template()
+    };
+    let mut overlay = cube_overlay(page(64));
+    let untouched = base.with_block_overlay(3, &overlay).unwrap();
+    assert_eq!(template(&untouched, 1), Some(0));
+    overlay.material_overrides.push(MaterialOverride {
+        material: 1,
+        texture: TextureRef::new(1, 0).unwrap(),
+        animation: NO_ANIMATION,
+        variation: None,
+    });
+    let replaced = base.with_block_overlay(3, &overlay).unwrap();
+    assert_eq!(template(&replaced, 1), Some(1));
+    assert_eq!(template(&replaced, 2), Some(0));
+    assert!(replaced.is_retextured(crate::BlockVisualId(1)));
+    assert!(!replaced.is_retextured(crate::BlockVisualId(2)));
 }
 
 #[test]

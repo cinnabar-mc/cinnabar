@@ -134,7 +134,7 @@ fn edge_raster(gpu: &Gpu, enhanced: bool) -> Vec<u8> {
     let c = edge_cases[u32(position.x) / {CELL_SIDE}u];
     var input: VertexOutput;
     input.uv = vec2(0.5, bitcast<f32>(c.y));
-    input.current_texture = c.x;
+    input.textures.x = c.x;
     input.visibility.x = select(MODEL_VISIBLE | MODEL_UNIT_TILE, MODEL_VISIBLE, c.z != 0u);
     // Half a texel of footprint crosses the edge while the colour sample stays inside it.
     let dx = vec2(0.0);
