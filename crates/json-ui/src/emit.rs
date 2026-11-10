@@ -90,6 +90,9 @@ pub enum Draw {
     Sprite {
         texture: String,
         uv: UvRect,
+        /// Whole image bounds relative to this piece's origin, for a shared pixel grid.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        slice: Option<RectOut>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         repeat: Option<SpriteRepeat>,
         color: [u8; 4],
@@ -378,7 +381,9 @@ fn sprite_draws(
     {
         return Vec::new();
     }
-    crate::sprite::quads(control, rect, meta.as_ref(), clip_ratio)
+    let quads = crate::sprite::quads(control, rect, meta.as_ref(), clip_ratio);
+    let sliced = quads.len() > 1;
+    quads
         .into_iter()
         .map(|(dest, uv, repeat)| {
             (
@@ -386,6 +391,12 @@ fn sprite_draws(
                 Draw::Sprite {
                     texture: path.to_owned(),
                     uv,
+                    slice: sliced.then_some(RectOut {
+                        x: rect.x - dest.x,
+                        y: rect.y - dest.y,
+                        w: rect.w,
+                        h: rect.h,
+                    }),
                     repeat,
                     color,
                     filter,

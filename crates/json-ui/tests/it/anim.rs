@@ -91,6 +91,54 @@ fn close(value: f32, expected: f32) -> bool {
     (value - expected).abs() < 0.02
 }
 
+#[test]
+fn sliced_image_keeps_one_parent_grid_through_move_size_and_clip_animations() {
+    let nodes = draws(
+        r#"
+        "move":{"anim_type":"offset","from":[0,0],"to":[20.25,10.25],"duration":1},
+        "grow":{"anim_type":"size","from":[38.25,18.25],"to":[50.75,26.75],"duration":1},
+        "crop":{"anim_type":"clip","from":0,"to":0.5,"duration":1},
+        "image":{"type":"image","texture":"textures/ui/test","size":[38.25,18.25],
+            "nineslice_size":4,"anims":["@audit.move","@audit.grow","@audit.crop"]}
+    "#,
+        "image",
+    );
+    assert_eq!(nodes.len(), 9);
+    for now in [0.0, 0.5, 1.0] {
+        let parents: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                play(&mut Animator::new(), node, 0.0, now)
+                    .slice
+                    .expect("sliced image bounds")
+            })
+            .collect();
+        assert!(
+            parents.iter().all(|parent| *parent == parents[0]),
+            "slices disagreed at {now}: {parents:?}"
+        );
+        if now > 0.0 {
+            assert!(parents[0].w > 38.25 && parents[0].h > 18.25);
+        }
+    }
+    // Cached layouts translate draw origins without rewriting relative slice geometry.
+    let mut translated = nodes.clone();
+    for node in &mut translated {
+        node.dest.x += 7.25;
+        node.dest.y -= 3.5;
+        node.anim = None;
+    }
+    let parents: Vec<_> = translated
+        .iter()
+        .map(|node| {
+            node.animate(&mut Animator::new(), 0.0, None, None)
+                .slice
+                .unwrap()
+        })
+        .collect();
+    assert!(parents.iter().all(|parent| *parent == parents[0]));
+}
+
 // N1: an animation writes alpha over a static zero; a starting-alpha scale multiplies it.
 #[test]
 fn alpha_animation_writes_the_property() {

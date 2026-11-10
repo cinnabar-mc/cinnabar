@@ -1310,6 +1310,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Sliced image backgrounds share physical pixel edges so translucent joins do not
+  blend twice. [Slice-grid regressions](docs/reference/ui-sprite-seams.md) cover DPI,
+  animation and cached translation. An in-game Cinnabar comparison confirms the
+  HUD's dark slice seam is removed; broader matched native frames remain open.
   Oversized bitmap glyphs preserve label line boxes and text baselines while their ink
   overflows vertically. A matched single-line in-game comparison confirms unchanged icon
   size, aligned text baselines and a common background height; broader text acceptance remains open.
