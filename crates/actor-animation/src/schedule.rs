@@ -375,6 +375,13 @@ fn initially_admitted(
     catalog.is_some_and(|catalog| !culled(view, exempt, state, actor, catalog))
 }
 
+/// A box enclosing any view, for a controller model without authored visible bounds; finite so
+/// plane tests stay well defined.
+const UNBOUNDED_MODEL: assets::SkinGeometryBounds = assets::SkinGeometryBounds {
+    center: [0.0; 3],
+    half_extents: [1.0e6; 3],
+};
+
 /// Whether the rig sits outside the animation view on both of its last two positions.
 fn culled(
     view: Option<&ActorAnimationView>,
@@ -396,17 +403,19 @@ fn culled(
             .unwrap_or_default()
     };
     // A player's rig keeps its default model while its controllers draw other models beside it,
-    // so any of those reaching into view keeps it animating. Unbounded models fail open.
+    // so any of those reaching into view keeps it animating. A model without authored bounds
+    // passes the frustum test, but the player distance limit still applies.
     if player {
         for &geometry in state
             .layer_skeletons
             .keys()
             .filter(|&&geometry| base.is_none_or(|base| base.geometry != geometry))
         {
-            let Some(model) = assets.geometry_visible_bounds(geometry as usize) else {
-                return false;
-            };
-            bounds = bounds.union(model);
+            bounds = bounds.union(
+                assets
+                    .geometry_visible_bounds(geometry as usize)
+                    .unwrap_or(UNBOUNDED_MODEL),
+            );
         }
     }
     let bounds = crate::actor_culling_bounds(bounds, actor, scale);

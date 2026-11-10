@@ -6,6 +6,11 @@ use std::collections::HashMap;
 /// An original player pack: a hat controller picks its model from an array by
 /// `query.variant`, ahead of the plain body controller, as cosmetic server packs do.
 fn cosmetic_pack() -> Pack {
+    cosmetic_pack_with(Some(40))
+}
+
+/// The cosmetic pack, with a hat whose visible box is `hat_width` wide or left unauthored.
+fn cosmetic_pack_with(hat_width: Option<u32>) -> Pack {
     let entity = serde_json::json!({"format_version":"1.10.0","minecraft:client_entity":{
     "description":{
         "identifier":"minecraft:player",
@@ -20,7 +25,10 @@ fn cosmetic_pack() -> Pack {
         ]}}});
     let cube = |origin: [i32; 3], size: [i32; 3]| serde_json::json!([{"origin": origin, "size": size, "uv": [0, 0]}]);
     // A narrow body and a hat whose authored visible box reaches far to either side.
-    let bounded = |mut geometry: serde_json::Value, width: u32| {
+    let bounded = |mut geometry: serde_json::Value, width: Option<u32>| {
+        let Some(width) = width else {
+            return geometry;
+        };
         let description = &mut geometry["minecraft:geometry"][0]["description"];
         description["visible_bounds_width"] = width.into();
         description["visible_bounds_height"] = 2.into();
@@ -45,7 +53,7 @@ fn cosmetic_pack() -> Pack {
                             "cubes":cube([0, 0, -2], [4, 12, 4])}),
                         ],
                     ),
-                    1,
+                    Some(1),
                 ),
             ),
             (
@@ -60,7 +68,7 @@ fn cosmetic_pack() -> Pack {
                             "cubes":cube([-3, 32, -3], [6, 3, 6])}),
                         ],
                     ),
-                    40,
+                    hat_width,
                 ),
             ),
             (
@@ -184,5 +192,23 @@ fn a_player_whose_controller_model_reaches_into_view_still_animates() {
     assert!(
         store.get(5).unwrap().pose_evaluated,
         "the hat's visible box keeps the player animating"
+    );
+}
+
+#[test]
+fn a_distant_player_with_an_unbounded_controller_model_holds_its_pose() {
+    let pack = cosmetic_pack_with(None);
+    let view = |distance: f32| ActorAnimationView {
+        planes: [[0.0, 0.0, 0.0, 1.0]; 6],
+        camera: [0.0, 64.0, 30.0],
+        player_distance: distance,
+        entity_radius: 72.0,
+    };
+    let (near, _) = tick_player_in(&pack, Some(&view(100.0)));
+    assert!(near.get(5).unwrap().pose_evaluated);
+    let (far, _) = tick_player_in(&pack, Some(&view(10.0)));
+    assert!(
+        !far.get(5).unwrap().pose_evaluated,
+        "an unbounded model passes the frustum but not the player distance"
     );
 }

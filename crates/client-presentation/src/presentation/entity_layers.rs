@@ -435,18 +435,16 @@ pub fn apply_render_layers_cached<'a>(
         if resolved.is_empty() {
             continue;
         }
-        // A player whose passing controllers all draw other models keeps its body slot, whose
-        // skeleton and pose capes, hats and equipment read, but does not draw it.
-        let hidden_body = player_skin && resolved.iter().all(|layer| layer.model.is_some());
-        if hidden_body {
-            batch.submissions[index].route = render_model::ActorRigRoute::NoDraw;
-        }
+        // A player whose passing controllers all draw other models keeps its skin body in the
+        // body slot, whose skeleton and pose capes, hats, flames and equipment read, and draws
+        // the models beside it. Native draws no default body then; that remains incomplete.
+        let kept_body = player_skin && resolved.iter().all(|layer| layer.model.is_some());
         for (layer_index, layer) in resolved
             .iter()
-            .take(MAX_TEXTURE_LAYERS - usize::from(hidden_body))
+            .take(MAX_TEXTURE_LAYERS - usize::from(kept_body))
             .enumerate()
         {
-            let layer_index = layer_index + usize::from(hidden_body);
+            let layer_index = layer_index + usize::from(kept_body);
             let submission = layered(&pristine, layer, layer_index, cache);
             if let Some(location) = layer.location {
                 batch.artwork.insert(submission.input.identity, location);
@@ -818,10 +816,10 @@ mod tests {
         );
     }
 
-    /// A player whose passing controllers all draw other models draws only those, keeping its
-    /// undrawn body slot's skeleton and pose for the passes that attach to it.
+    /// A player whose passing controllers all draw other models keeps its skin body, with the
+    /// skeleton and pose the passes attaching to it read, and draws those models beside it.
     #[test]
-    fn runtime_skin_bodies_hide_when_only_other_controller_models_pass() {
+    fn runtime_skin_bodies_stay_when_only_other_controller_models_pass() {
         let presentation = super::super::actors::local_diagnostic_presentation(
             1,
             0,
@@ -886,7 +884,7 @@ mod tests {
         );
         assert_eq!(batch.submissions.len(), 2);
         let [body, model] = [&batch.submissions[0], &batch.submissions[1]];
-        assert_eq!(body.route, render_model::ActorRigRoute::NoDraw);
+        assert_eq!(body.route, original.route);
         assert_eq!(body.input.rig, original.input.rig);
         assert!(Arc::ptr_eq(
             &body.input.current_bones,
