@@ -243,7 +243,6 @@ impl PackReload {
                                 .map(|old| (&old.admission, old.dependencies.as_ref())),
                         )
                     };
-                    let biomes_changed = changes.blocks || previous_assets.is_none();
                     let stack = Arc::new(stack);
                     let view = resource_pack::LayeredPackView::new(stack.clone());
                     // Environment layers and the other subscribers read the stack independently.
@@ -277,6 +276,12 @@ impl PackReload {
                             .extend(environment.dependencies.clone());
                     }
                     application.item_components = items;
+                    // Material changes can replace the overlay without changing pack inputs.
+                    let biomes_changed = changes.blocks
+                        || previous_assets.is_none()
+                        || previous.as_ref().is_none_or(|old| {
+                            !same_optional(&old.block_overlay, &application.block_overlay)
+                        });
                     if biomes_changed {
                         let _zone = bevy::log::info_span!("pack_apply.biome_overlay").entered();
                         let mut biome_overlay = assets::BlockOverlay::default();
