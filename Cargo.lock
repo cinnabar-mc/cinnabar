@@ -5168,6 +5168,7 @@ dependencies = [
  "ctrlc",
  "futures-lite",
  "getrandom 0.3.4",
+ "http",
  "launcher",
  "libc",
  "memmap2",

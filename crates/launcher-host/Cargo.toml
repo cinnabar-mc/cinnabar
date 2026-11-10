@@ -76,6 +76,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+http = "1"
 test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }
 

@@ -214,6 +214,76 @@ fn unavailable_repositories_do_not_block_other_mods_and_network_work_is_bounded(
     assert!(updates.iter().all(|update| update.id != 1));
 }
 
+/// Builds an HTTP status error without making a network request.
+fn status_error(status: reqwest::StatusCode) -> anyhow::Error {
+    reqwest::Response::from(http::Response::builder().status(status).body("").unwrap())
+        .error_for_status()
+        .unwrap_err()
+        .into()
+}
+
+#[test]
+fn rate_limits_only_suppress_checks_for_the_failing_service() {
+    for status in [
+        reqwest::StatusCode::FORBIDDEN,
+        reqwest::StatusCode::TOO_MANY_REQUESTS,
+    ] {
+        for sources in [
+            [
+                "https://limited.example/first.json",
+                "https://limited.example/second.json",
+                "example/healthy",
+                "https://healthy.example/update.json",
+                "https://limited.example:8443/update.json",
+                "https://limited.example/third.json",
+            ],
+            [
+                "example/limited",
+                "example/skipped",
+                "https://mods.example/update.json",
+                "https://other.example/update.json",
+                "https://mods.example:8443/update.json",
+                "example/still-skipped",
+            ],
+        ] {
+            let (requests, incoming) = unbounded();
+            let (outgoing, responses) = unbounded();
+            requests
+                .send(Request {
+                    manual: None,
+                    generation: 1,
+                    permission: 0,
+                    candidates: sources
+                        .iter()
+                        .enumerate()
+                        .map(|(index, source)| Candidate {
+                            id: index as u64,
+                            source: (*source).into(),
+                            asset: None,
+                            version: "1.0.0".into(),
+                        })
+                        .collect(),
+                })
+                .unwrap();
+            drop(requests);
+            let mut checked = Vec::new();
+            run(incoming, outgoing, &AtomicU64::new(1), |source| {
+                checked.push(source.to_owned());
+                if source == sources[0] {
+                    return Err(status_error(status));
+                }
+                Ok(Some(release("2.0.0", false, false)))
+            });
+            assert_eq!(checked, [sources[0], sources[2], sources[3], sources[4]]);
+            let updates = responses.recv().unwrap().updates;
+            assert_eq!(
+                updates.iter().map(|update| update.id).collect::<Vec<_>>(),
+                [2, 3, 4]
+            );
+        }
+    }
+}
+
 /// Runs release-only fixtures while asserting no automatic download is selected.
 fn run(
     incoming: Receiver<Request>,

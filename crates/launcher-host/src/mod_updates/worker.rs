@@ -136,7 +136,7 @@ pub(super) fn run(
     let mut cache = HashMap::new();
     let mut attempted = HashSet::new();
     let mut downloads_started = 0;
-    let mut rate_limited = false;
+    let mut rate_limited_services = HashSet::new();
     while let Ok(request) = incoming.recv() {
         let request = incoming.try_iter().last().unwrap_or(request);
         let mut updates = Vec::new();
@@ -146,12 +146,17 @@ pub(super) fn run(
                 break;
             }
             if !cache.contains_key(&candidate.source) {
+                // Repository slugs share GitHub's API; manifest limits belong to their origin.
+                let service = match ui::mod_metadata::ModUpdateUrl::parse(&candidate.source) {
+                    Some(ui::mod_metadata::ModUpdateUrl::Manifest(url)) => Some(url.origin()),
+                    _ => None,
+                };
                 // Bound network work even if a directory contains hundreds of components.
-                if rate_limited || cache.len() >= MAX_REPOSITORIES {
+                if rate_limited_services.contains(&service) || cache.len() >= MAX_REPOSITORIES {
                     continue;
                 }
                 let release = fetch(&candidate.source).unwrap_or_else(|error| {
-                    rate_limited = error
+                    if error
                         .downcast_ref::<reqwest::Error>()
                         .and_then(|error| error.status())
                         .is_some_and(|status| {
@@ -160,7 +165,10 @@ pub(super) fn run(
                                 reqwest::StatusCode::FORBIDDEN
                                     | reqwest::StatusCode::TOO_MANY_REQUESTS
                             )
-                        });
+                        })
+                    {
+                        rate_limited_services.insert(service);
+                    }
                     tracing::debug!(source = candidate.source, "Mod update check: {error:#}");
                     None
                 });
