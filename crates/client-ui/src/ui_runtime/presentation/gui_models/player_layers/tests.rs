@@ -191,8 +191,15 @@ fn removing_the_pack_clears_controller_artwork_and_geometry() {
 }
 
 #[test]
-fn authored_material_culling_reaches_the_retained_controller_palette() {
-    for cull in [false, true] {
+fn authored_material_culling_and_depth_reach_the_retained_controller_draws() {
+    for (cull, depth_func, disable_depth_test, depth_test, depth_write) in [
+        (false, "LessEqual", false, true, true),
+        (true, "LessEqual", false, true, true),
+        (true, "Always", false, false, true),
+        (true, "LessEqual", true, false, true),
+        (true, "LessEqual", false, true, false),
+        (false, "Always", false, false, false),
+    ] {
         let mut source = files();
         let entity = source
             .iter_mut()
@@ -202,9 +209,26 @@ fn authored_material_culling_reaches_the_retained_controller_palette() {
         description["minecraft:client_entity"]["description"]["materials"]["default"] =
             serde_json::json!("fixture_preview");
         entity.1 = serde_json::to_vec(&description).unwrap();
-        source.push(("materials/preview.material".into(),serde_json::to_vec(&serde_json::json!({"materials":{
-            "fixture_preview:entity_alphablend": {"+states": if cull {vec![]} else {vec!["DisableCulling"]}}
-        }})).unwrap()));
+        let mut states = Vec::new();
+        if !cull {
+            states.push("DisableCulling");
+        }
+        if disable_depth_test {
+            states.push("DisableDepthTest");
+        }
+        if !depth_write {
+            states.push("DisableDepthWrite");
+        }
+        source.push((
+            "materials/preview.material".into(),
+            serde_json::to_vec(&serde_json::json!({"materials": {
+                "fixture_preview:entity_alphablend": {
+                    "+states": states,
+                    "depthFunc": depth_func,
+                }
+            }}))
+            .unwrap(),
+        ));
         let compiled = pack_entity_compiler::compile_actor_pack(source)
             .unwrap()
             .unwrap();
@@ -223,7 +247,13 @@ fn authored_material_culling_reaches_the_retained_controller_palette() {
         stream.advance_actor_interpolation_ticks(1);
         let local = stream.authority().local_player_ui();
         let layers = local.paper_doll_layers().unwrap();
-        assert_eq!(layers.render[0].material_state.unwrap().cull, cull);
+        let raster = layers.render[0].render_state.unwrap();
+        assert_eq!(
+            raster.cull == render_api::render_state::CullMode::Back,
+            cull
+        );
+        assert_eq!(!raster.ignores_stored_depth(), depth_test);
+        assert_eq!(raster.depth.write, depth_write);
         let mut ui = presentation(false);
         ui.set_preview_player_layers(Some(pack));
         frame(&mut ui, &stream);
@@ -236,6 +266,16 @@ fn authored_material_culling_reaches_the_retained_controller_palette() {
             .collect();
         assert!(!bones.is_empty());
         assert!(bones.iter().all(|bone| bone.backface_culling() == cull));
+        let page = u32::from(ui.gui_models.player_layers.layers[0].2.page);
+        let batches: Vec<_> = rendered
+            .batches
+            .iter()
+            .filter(|batch| batch.texture_page == page)
+            .collect();
+        assert!(!batches.is_empty());
+        assert!(batches.iter().all(|batch| {
+            batch.depth_test == u32::from(depth_test) && batch.depth_write == u32::from(depth_write)
+        }));
     }
 }
 
