@@ -30,14 +30,41 @@ pub(crate) fn compile_session_glyphs(view: &LayeredPackView) -> Option<Arc<Sessi
         bitmap(view, None, Some(DEFAULT_UNICODE_PREFIX)),
     );
     metadata::apply(view, &cells, &mut named);
-    let cells = named.remove("default").unwrap_or(cells);
-    // Without any pack sheet the UI draws the built-in emoticon page by itself.
     let builtin = builtin_emoticon_cells();
+    let cells = match named.remove("default") {
+        Some(resolved) => with_missing_emoticons(resolved, &cells, &builtin),
+        None => cells,
+    };
+    // Without any pack sheet the UI draws the built-in emoticon page by itself.
     cells
         .iter()
         .chain(named.values().flatten())
         .any(|cell| !builtin.contains(cell))
         .then(|| Arc::new(SessionGlyphSheets::with_named(cells, named)))
+}
+
+/// `resolved`, a default face that font metadata declared, plus the emoticon code points it
+/// lacks, as the bitmap default `bitmap` draws them: from a pack's own emoticon page when it
+/// has one, otherwise from the built-in page.
+fn with_missing_emoticons(
+    mut resolved: Vec<CellGlyph>,
+    bitmap: &[CellGlyph],
+    builtin: &[CellGlyph],
+) -> Vec<CellGlyph> {
+    let present: std::collections::HashSet<_> =
+        resolved.iter().map(|cell| cell.codepoint).collect();
+    resolved.extend(
+        bitmap
+            .iter()
+            .filter(|cell| {
+                !present.contains(&cell.codepoint)
+                    && builtin
+                        .iter()
+                        .any(|emoticon| emoticon.codepoint == cell.codepoint)
+            })
+            .cloned(),
+    );
+    resolved
 }
 
 /// Reads a named bitmap's default8 mapping and Unicode pages using one locale.
