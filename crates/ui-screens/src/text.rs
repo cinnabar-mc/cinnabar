@@ -62,7 +62,7 @@ pub fn highlight_mentions<'a>(
     let mut style = ui::TextStyle::default();
     let mut color = None;
     let mut last_end = 0;
-    let mut boundary = true;
+    let mut previous = ' ';
     while let Some((idx, ch)) = chars.next() {
         if ch == '§' {
             if let Some((_, code)) = chars.next() {
@@ -97,13 +97,12 @@ pub fn highlight_mentions<'a>(
                                 .is_some_and(u8::is_ascii_alphanumeric)
                         })
                     })
-            } else if boundary {
+            } else if !previous.is_alphanumeric() && !matches!(previous, '_' | '.' | '-' | '@') {
                 let name = &remaining[1..];
                 let len = if let Some(quoted) = name.strip_prefix('"') {
                     quoted.find('"').map_or(0, |end| end + 2)
                 } else {
-                    name.find(|ch: char| !ch.is_alphanumeric() && ch != '_')
-                        .unwrap_or(name.len())
+                    unquoted_mention_len(name, previous == '(')
                 };
                 (len > 0).then_some(&remaining[..len + 1])
             } else {
@@ -137,7 +136,7 @@ pub fn highlight_mentions<'a>(
                 last_end = end;
             }
         }
-        boundary = ch.is_whitespace() || ch == ':' || ch == '<';
+        previous = ch;
     }
     if last_end == 0 {
         Cow::Borrowed(text)
@@ -145,6 +144,23 @@ pub fn highlight_mentions<'a>(
         out.push_str(&text[last_end..]);
         Cow::Owned(out)
     }
+}
+
+/// Keeps completion name characters together, excluding an outer closing parenthesis.
+fn unquoted_mention_len(name: &str, parenthesized: bool) -> usize {
+    let mut parentheses = 0;
+    name.find(|ch: char| {
+        if parenthesized {
+            match ch {
+                '(' => parentheses += 1,
+                ')' if parentheses == 0 => return true,
+                ')' => parentheses -= 1,
+                _ => {}
+            }
+        }
+        !ch.is_alphanumeric() && !"()-.:?_".contains(ch)
+    })
+    .unwrap_or(name.len())
 }
 
 /// Applies the saved default color and then mention coloring to a decoded label.
@@ -227,6 +243,60 @@ mod tests {
             highlight_mentions("§c§l@\"Alex One\" @Steve tail", None, 'e'),
             "§c§l§e@\"Alex One\"§c §e@Steve§c tail"
         );
+    }
+
+    #[test]
+    fn everyone_mode_matches_the_completion_name_alphabet() {
+        for ch in (0u8..=127).map(char::from) {
+            for name in [
+                format!("{ch}Alex"),
+                format!("Alex{ch}One"),
+                format!("Alex{ch}"),
+            ] {
+                let target = format!("@{name}");
+                let whole_name = highlight_mentions(&target, None, 'e') == format!("§e{target}§r");
+                assert_eq!(
+                    whole_name,
+                    protocol::quote_chat_player_name(&name) == name,
+                    "name {name:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn everyone_mode_highlights_mentions_inside_punctuation_delimiters() {
+        for (text, expected) in [
+            ("(@Alex)", "(§e@Alex§r)"),
+            ("[@here]", "[§e@here§r]"),
+            ("{@Steve}", "{§e@Steve§r}"),
+            ("hi,@Alex!", "hi,§e@Alex§r!"),
+            ("((@Alex))", "((§e@Alex§r))"),
+            ("(@Alex(One))", "(§e@Alex(One)§r)"),
+            ("(§l@.Alex)", "(§l§e@.Alex§r§l)"),
+            ("[@Alex-One]", "[§e@Alex-One§r]"),
+            ("(@\"Alex One\")", "(§e@\"Alex One\"§r)"),
+        ] {
+            assert_eq!(highlight_mentions(text, None, 'e'), expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn everyone_mode_excludes_email_addresses_and_inner_ats() {
+        for text in [
+            "test@example.com",
+            "test.name@example.com",
+            "test-name@example.com",
+            "test_name@example.com",
+            "test+tag@example.com",
+            "word@Alex",
+            "@@Alex",
+        ] {
+            assert!(matches!(
+                highlight_mentions(text, None, 'e'),
+                Cow::Borrowed(_)
+            ));
+        }
     }
 
     #[test]
