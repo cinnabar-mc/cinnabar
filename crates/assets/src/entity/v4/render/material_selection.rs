@@ -50,6 +50,13 @@ impl EntityRenderMaterialSelection {
 }
 
 impl EntityRenderData {
+    /// Mask textures Cinnabar materials sample; their alpha weights the mask.
+    pub fn material_mask_sources(&self) -> impl Iterator<Item = u32> + '_ {
+        self.material_masks
+            .iter()
+            .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
+    }
+
     /// Walks reachable decisions once, tolerating unvalidated indices without looping.
     pub fn material_nodes(
         &self,

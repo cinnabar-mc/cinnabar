@@ -5,7 +5,7 @@ use assets::MATERIAL_FLAG_ALPHA_CUTOUT;
 use super::*;
 
 /// AO exponent bits of a material that names none.
-const DEFAULT_AO: u32 = assets::DEFAULT_AO_EXPONENT.to_bits();
+const DEFAULT_AO: u32 = assets::compiled::DEFAULT_AO_EXPONENT.to_bits();
 
 impl Builder<'_> {
     /// Replaces selectors only for new catalog entries; raster-only packs replace their leaves.

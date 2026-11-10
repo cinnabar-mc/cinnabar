@@ -206,7 +206,7 @@ fn every_finite_ambient_occlusion_reaches_the_exponent_unchanged() {
         (10.0, 10.0, 0),
         (0.333, 0.333, 0),
         (37.5, 37.5, 0),
-        (f32::NAN, assets::DEFAULT_AO_EXPONENT, 6),
+        (f32::NAN, assets::compiled::DEFAULT_AO_EXPONENT, 6),
     ] {
         let mut instances = materials("lucky").unwrap();
         instances[0].ambient_occlusion = exponent;

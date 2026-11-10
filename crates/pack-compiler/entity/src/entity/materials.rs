@@ -364,7 +364,8 @@ impl MaterialStates {
             .block_bindings
             .iter()
             .filter_map(|binding| {
-                let (shading, index, _) = states.resolve_extension(&binding.material, &mut table)?;
+                let (shading, index, _) =
+                    states.resolve_extension(&binding.material, &mut table)?;
                 Some(extension::ResolvedBlockBinding {
                     block: binding.block.clone(),
                     states: binding.states.clone(),

@@ -143,8 +143,7 @@ pub(super) fn push_group<T>(
 ) {
     let mut limit = u32::from(width.max(height));
     let chunks = loop {
-        let [fitted_width, fitted_height] =
-            crate::actor::fitted_dimensions(width, height, limit);
+        let [fitted_width, fitted_height] = crate::actor::fitted_dimensions(width, height, limit);
         // Three-sampler layers must share a page, so those keep the layer limit alone.
         let layers = if multitexture {
             MAX_ACTOR_PAGE_LAYERS

@@ -59,7 +59,7 @@ impl MaterialBindings {
             pack_entity_compiler::block_material_bindings(&material_documents(view), &document)
                 .into_iter()
                 .map(|binding| {
-                    let (method, exact) = assets::block_render_method_for(
+                    let (method, exact) = assets::compiled::block_render_method_for(
                         &binding.definition.render_state(),
                         binding.shading.alpha_test,
                     );

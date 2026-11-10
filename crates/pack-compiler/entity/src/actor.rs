@@ -242,7 +242,7 @@ fn build_artwork<B: AsRef<[u8]> + Send>(
         .layers
         .iter()
         .flat_map(|layer| layer_sources(render, layer))
-        .chain(assets::actor_material_mask_sources(render))
+        .chain(render.material_mask_sources())
         .filter(|&source| {
             lenient
                 || entities.sources[source as usize]

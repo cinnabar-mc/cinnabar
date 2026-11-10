@@ -48,16 +48,8 @@ pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
             .filter(|(_, (tests, reads))| *tests || *reads)
             .map(|(source, _)| source),
     );
-    keep.extend(actor_material_mask_sources(render));
+    keep.extend(render.material_mask_sources());
     keep
-}
-
-/// Mask textures Cinnabar materials sample; their alpha weights the mask.
-pub fn actor_material_mask_sources(render: &EntityRenderData) -> impl Iterator<Item = u32> + '_ {
-    render
-        .material_masks
-        .iter()
-        .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
 }
 
 /// Sources any possible `USE_MULTITEXTURE` or `MASKED_MULTITEXTURE` material of a layer samples,
@@ -196,7 +188,7 @@ pub fn actor_page_sharing(render: &EntityRenderData) -> ActorPageSharing {
     ActorPageSharing {
         multitexture,
         companions,
-        masks: actor_material_mask_sources(render).collect(),
+        masks: render.material_mask_sources().collect(),
     }
 }
 

@@ -38,7 +38,7 @@ impl Builder<'_> {
             // The shader cannot raise AO to a non-finite power; draw the default exponent.
             None => {
                 self.gaps.approximated_materials += 1;
-                assets::DEFAULT_AO_EXPONENT
+                assets::compiled::DEFAULT_AO_EXPONENT
             }
         };
         if ao_exponent == 0.0 {
