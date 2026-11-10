@@ -216,6 +216,30 @@ fn a_full_atlas_evicts_the_least_recently_drawn_page() {
 }
 
 #[test]
+fn server_ui_reservation_keeps_eight_images_resident_in_one_frame() {
+    let keys: Vec<_> = (0..8)
+        .map(|index| format!("textures/ui/t{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let mut bytes = Cursor::new(Vec::new());
+            image::RgbaImage::from_pixel(128, 128, image::Rgba([index as u8, 2, 3, 255]))
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .unwrap();
+            (format!("{key}.png"), bytes.into_inner())
+        })
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    for key in &keys {
+        assert!(atlas.placement(key).is_some(), "missing server image {key}");
+    }
+}
+
+#[test]
 fn large_local_images_publish_metadata_without_reading_on_the_requesting_thread() {
     let root = Arc::new(MemoryPack::default());
     let key = "textures/ui/large_local";

@@ -127,6 +127,97 @@ fn world_isotropy_preserves_general_cube_icons() {
 }
 
 #[test]
+fn identical_cube_thumbnails_keep_distinct_lighting_policies() {
+    let records = read_registry_for_protocol(
+        pinned_block_registry_bytes(),
+        active_content_registry_protocol(),
+    )
+    .unwrap();
+    let visuals = ["minecraft:stone", "minecraft:dirt", "minecraft:sea_lantern"].map(|name| {
+        BlockVisualId(
+            records
+                .iter()
+                .find(|record| record.name.as_ref() == name)
+                .unwrap()
+                .sequential_id,
+        )
+    });
+    let count = visuals
+        .iter()
+        .map(|visual| visual.0 as usize + 1)
+        .max()
+        .unwrap();
+    let mut source = cube_source(0);
+    let cube = source.visuals[1];
+    source.visuals = vec![source.visuals[0]; count].into();
+    source.light_properties = vec![LightProperties::default(); count].into();
+    for visual in visuals {
+        source.visuals[visual.0 as usize] = cube;
+    }
+    let world = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
+    let compiled = crate::compile_entity_pack(vec![(
+        "entity/fixture.json".into(),
+        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:cube"}}}"#.to_vec(),
+    )])
+    .unwrap()
+    .unwrap()
+    .assets;
+    for carried in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        if carried {
+            std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
+            std::fs::write(
+                root.path().join("blocks.json"),
+                r#"{"stone":{"textures":"shared"},"dirt":{"textures":"shared"},"sea_lantern":{"textures":"shared"}}"#,
+            )
+            .unwrap();
+            std::fs::write(
+                root.path().join("textures/terrain_texture.json"),
+                r#"{"texture_data":{"shared":{"textures":"textures/blocks/shared"}}}"#,
+            )
+            .unwrap();
+            std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
+            image::RgbaImage::from_pixel(16, 16, image::Rgba([40, 80, 120, 255]))
+                .save(root.path().join("textures/blocks/shared.png"))
+                .unwrap();
+        }
+        let blocks = blocks::IconBlocks::read(root.path()).unwrap();
+        let plan = visuals.map(|visual| (visual.0, cube::Cube::read(&world, visual)));
+        let mut sprites = Vec::new();
+        let baked = bake::run(
+            root.path(),
+            Some(&world),
+            Some(&blocks),
+            &BTreeMap::new(),
+            &BTreeMap::from(plan),
+            &compiled,
+            &mut sprites,
+        )
+        .unwrap();
+        let indices = visuals.map(|visual| {
+            *baked
+                .model_sprites
+                .get(&(visual.0, 0))
+                .or_else(|| baked.block_sprites.get(&visual.0))
+                .unwrap()
+        });
+        assert_eq!(sprites[indices[0] as usize], sprites[indices[2] as usize]);
+        assert_eq!(
+            indices[0], indices[1],
+            "equally lit cubes still share artwork"
+        );
+        assert_ne!(
+            indices[0], indices[2],
+            "different lighting needs distinct icon keys"
+        );
+        assert!(
+            baked.block_models.is_empty(),
+            "cube icons keep their carried geometry"
+        );
+    }
+}
+
+#[test]
 fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
     let mut source = cube_source(0);
     source.visuals[1].kind = VisualKind::Model;

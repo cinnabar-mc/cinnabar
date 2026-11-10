@@ -40,8 +40,9 @@ const fn model_atlas_texels() -> usize {
     }
     texels
 }
-/// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
-pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
+/// Dedicated local-font slot after session glyphs and sixteen UI image pages.
+pub const UI_LOCAL_FONT_PAGE_OFFSET: usize =
+    UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES + 16;
 /// Dedicated original-resolution atlas for particles in player previews.
 pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;

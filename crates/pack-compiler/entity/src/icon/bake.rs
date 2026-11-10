@@ -6,6 +6,7 @@ use std::{
     path::Path,
 };
 
+use assets::gui_item::CubeLighting;
 use assets::{
     AssetError, BlockVisualId, CompiledEntityAssets, EntityGeometry, IconBlockModel,
     IconBlockSheet, IconSprite, NetworkIdMode, RuntimeAssets, compose_block_item_sheet,
@@ -17,6 +18,13 @@ use super::{blocks::IconBlocks, cube, model};
 #[cfg(test)]
 #[path = "bake/pane_tests.rs"]
 mod pane_tests;
+
+/// Presentation policy that must remain distinct even when thumbnail pixels match.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum SpriteBinding {
+    Model(BlockVisualId),
+    Cube(CubeLighting),
+}
 
 pub(super) struct BakedBlocks {
     pub flat_sprites: BTreeMap<u32, u32>,
@@ -37,7 +45,7 @@ pub(super) fn run(
     compiled: &CompiledEntityAssets,
     sprites: &mut Vec<IconSprite>,
 ) -> Result<BakedBlocks, AssetError> {
-    let mut block_models = BTreeMap::new();
+    let mut bindings = BTreeMap::new();
     let mut held_sprites = BTreeMap::new();
     let mut flat_by_path: BTreeMap<Box<str>, Option<u32>> = BTreeMap::new();
     let mut flat_sprites = BTreeMap::new();
@@ -50,7 +58,7 @@ pub(super) fn run(
             blocks,
             path,
             sprites,
-            &block_models,
+            &mut bindings,
             &mut flat_by_path,
         )?;
         if let Some(sprite) = sprite {
@@ -105,10 +113,14 @@ pub(super) fn run(
             .collect();
         for (visual, metadata) in model_keys {
             let plan = &block_plan[&visual];
-            let raster = if let Some(tiles) = gui_tiles
+            let tiles = gui_tiles
                 .get(&visual)
-                .or_else(|| carried_tiles.get(&visual))
-            {
+                .or_else(|| carried_tiles.get(&visual));
+            let lighting = blocks
+                .and_then(|blocks| blocks.name(BlockVisualId(visual)))
+                .map(assets::gui_item::cube_lighting)
+                .unwrap_or_default();
+            let raster = if let Some(tiles) = tiles {
                 Some((
                     model::Model::cube(
                         tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
@@ -140,7 +152,7 @@ pub(super) fn run(
                             blocks,
                             &path,
                             sprites,
-                            &block_models,
+                            &mut bindings,
                             &mut flat_by_path,
                         )?,
                         None => None,
@@ -152,11 +164,16 @@ pub(super) fn run(
                     *model_sprites_by_state.entry(state.0).or_insert_with(|| {
                         let sprite = sprites.len() as u32;
                         sprites.push(raster);
-                        block_models.insert(sprite, state);
+                        bindings.insert(sprite, SpriteBinding::Model(state));
                         sprite
                     })
                 } else {
-                    insert_sprite(sprites, raster, &block_models)
+                    insert_sprite(
+                        sprites,
+                        raster,
+                        tiles.map(|_| SpriteBinding::Cube(lighting)),
+                        &mut bindings,
+                    )
                 };
                 if let Some(held) = held {
                     held_sprites.insert(sprite, held);
@@ -182,7 +199,7 @@ pub(super) fn run(
     let mut baked: BTreeMap<[u8; 32], Vec<(&cube::Cube<'_>, u32)>> = BTreeMap::new();
     let mut output_hashes: BTreeMap<[u8; 32], Vec<u32>> = BTreeMap::new();
     for (index, sprite) in sprites.iter().enumerate() {
-        if !block_models.contains_key(&(index as u32)) {
+        if !matches!(bindings.get(&(index as u32)), Some(SpriteBinding::Model(_))) {
             output_hashes
                 .entry(Sha256::digest(&sprite.rgba8).into())
                 .or_default()
@@ -197,12 +214,18 @@ pub(super) fn run(
         let Ok(plan) = plan else {
             continue;
         };
+        let lighting = blocks
+            .and_then(|blocks| blocks.name(BlockVisualId(visual)))
+            .map(assets::gui_item::cube_lighting)
+            .unwrap_or_default();
+        let binding = SpriteBinding::Cube(lighting);
         let sprite = if let Some((_, index)) = baked
             .get(&plan.digest())
             .into_iter()
             .flat_map(|bucket| bucket.iter())
-            .find(|(previous, _)| plan.same_source(previous))
-        {
+            .find(|(previous, index)| {
+                plan.same_source(previous) && bindings.get(index) == Some(&binding)
+            }) {
             *index
         } else {
             let raster = plan.raster();
@@ -212,11 +235,14 @@ pub(super) fn run(
                 .get(&output)
                 .into_iter()
                 .flat_map(|bucket| bucket.iter())
-                .find(|&&index| sprites[index as usize] == raster)
+                .find(|&&index| {
+                    sprites[index as usize] == raster && bindings.get(&index) == Some(&binding)
+                })
                 .copied()
                 .unwrap_or_else(|| {
                     let index = sprites.len() as u32;
                     sprites.push(raster);
+                    bindings.insert(index, binding);
                     output_hashes.entry(output).or_default().push(index);
                     index
                 });
@@ -231,7 +257,7 @@ pub(super) fn run(
             let sprite = compose_block_item_sheet(tiles)?;
             Some(IconBlockSheet {
                 visual: BlockVisualId(visual),
-                sprite: insert_sprite(sprites, sprite, &block_models),
+                sprite: insert_sprite(sprites, sprite, None, &mut bindings),
             })
         })
         .collect();
@@ -241,7 +267,7 @@ pub(super) fn run(
             let sprite = compose_block_item_sheet(tiles)?;
             Some(IconBlockSheet {
                 visual: BlockVisualId(visual),
-                sprite: insert_sprite(sprites, sprite, &block_models),
+                sprite: insert_sprite(sprites, sprite, None, &mut bindings),
             })
         })
         .collect();
@@ -251,12 +277,17 @@ pub(super) fn run(
         block_sprites,
         block_sheets,
         gui_block_sheets,
-        block_models: block_models
+        block_models: bindings
             .into_iter()
-            .map(|(sprite, visual)| IconBlockModel {
-                sprite,
-                visual,
-                held_sprite: held_sprites.get(&sprite).copied(),
+            .filter_map(|(sprite, binding)| {
+                let SpriteBinding::Model(visual) = binding else {
+                    return None;
+                };
+                Some(IconBlockModel {
+                    sprite,
+                    visual,
+                    held_sprite: held_sprites.get(&sprite).copied(),
+                })
             })
             .collect(),
     })
@@ -268,7 +299,7 @@ fn cached_flat_sprite(
     blocks: Option<&IconBlocks>,
     path: &str,
     sprites: &mut Vec<IconSprite>,
-    models: &BTreeMap<u32, BlockVisualId>,
+    bindings: &mut BTreeMap<u32, SpriteBinding>,
     cache: &mut BTreeMap<Box<str>, Option<u32>>,
 ) -> Result<Option<u32>, AssetError> {
     if let Some(sprite) = cache.get(path) {
@@ -278,25 +309,29 @@ fn cached_flat_sprite(
         .map(|blocks| blocks.flat_sprite(root, path))
         .transpose()?
         .flatten()
-        .map(|sprite| insert_sprite(sprites, sprite, models));
+        .map(|sprite| insert_sprite(sprites, sprite, None, bindings));
     cache.insert(path.into(), sprite);
     Ok(sprite)
 }
 
-/// Reuses thumbnail pixels only when the sprite is not bound to a native block model.
+/// Shares thumbnail pixels only when their runtime presentation policy also matches.
 fn insert_sprite(
     sprites: &mut Vec<IconSprite>,
     sprite: IconSprite,
-    block_models: &BTreeMap<u32, BlockVisualId>,
+    binding: Option<SpriteBinding>,
+    bindings: &mut BTreeMap<u32, SpriteBinding>,
 ) -> u32 {
     sprites
         .iter()
         .enumerate()
         .find_map(|(index, known)| {
-            (*known == sprite && !block_models.contains_key(&(index as u32))).then_some(index)
+            (*known == sprite && bindings.get(&(index as u32)).copied() == binding).then_some(index)
         })
         .unwrap_or_else(|| {
             sprites.push(sprite);
+            if let Some(binding) = binding {
+                bindings.insert((sprites.len() - 1) as u32, binding);
+            }
             sprites.len() - 1
         }) as u32
 }
