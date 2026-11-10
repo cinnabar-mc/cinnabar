@@ -2,134 +2,153 @@ package proxy
 
 import (
 	"bytes"
-	"net"
+	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
-	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-func TestVirtualContainerTranslation(t *testing.T) {
-	local, peer := net.Pipe()
-	session := newSessionConn(streamnet.NewFramedConn(local))
-	defer session.Close()
-	defer peer.Close()
-
-	// 1. Server sends ContainerOpen with ContainerType = 255 (virtual)
-	openPk := &packet.ContainerOpen{
-		WindowID:                9,
+func TestSessionPreservesPersonalInventoryOpen(t *testing.T) {
+	session := containerTestSession()
+	open := encodeTestPacket(&packet.ContainerOpen{
+		WindowID:                protocol.WindowIDInventory,
 		ContainerType:           255,
-		ContainerPosition:       protocol.BlockPos{0, 0, 0},
-		ContainerEntityUniqueID: 51003,
+		ContainerEntityUniqueID: 42,
+	})
+	if err := session.WritePacketRaw(open); err != nil {
+		t.Fatal(err)
 	}
-	buf := new(bytes.Buffer)
-	(&packet.Header{PacketID: openPk.ID()}).Write(buf)
-	openPk.Marshal(minecraft.DefaultProtocol.NewWriter(buf, 0))
-
-	if err := session.WritePacketRaw(buf.Bytes()); err != nil {
-		t.Fatalf("WritePacketRaw failed: %v", err)
+	if got := takeContainerTestPacket(t, session); !bytes.Equal(got, open) {
+		t.Fatalf("personal inventory open changed: %x, want %x", got, open)
 	}
-
-	session.virtualWindowsMu.Lock()
-	isVirtual := session.virtualWindows[9]
-	session.virtualWindowsMu.Unlock()
-	if !isVirtual {
-		t.Fatalf("expected window 9 to be tracked as virtual")
+	close := encodeTestPacket(&packet.ContainerClose{WindowID: protocol.WindowIDInventory, ContainerType: 255})
+	if err := session.WritePacketRaw(close); err != nil {
+		t.Fatal(err)
 	}
+	if got := takeContainerTestPacket(t, session); !bytes.Equal(got, close) {
+		t.Fatalf("personal inventory close changed: %x, want %x", got, close)
+	}
+}
 
-	// Verify that the packet written into pending has ContainerType = 0
-	session.writeMu.Lock()
-	pending := append([]byte(nil), session.pending...)
-	session.writeMu.Unlock()
+func TestVirtualContainerTranslation(t *testing.T) {
+	for _, serverSide := range []bool{false, true} {
+		for _, closeType := range []byte{255, 0} {
+			t.Run(fmt.Sprintf("server_side=%t/type=%d", serverSide, closeType), func(t *testing.T) {
+				session := containerTestSession()
+				open := &packet.ContainerOpen{
+					WindowID:                9,
+					ContainerType:           255,
+					ContainerPosition:       protocol.BlockPos{1, 2, 3},
+					ContainerEntityUniqueID: 51003,
+				}
+				if err := session.WritePacket(open); err != nil {
+					t.Fatal(err)
+				}
+				open.ContainerType = 0
+				if got, want := takeContainerTestPacket(t, session), encodeTestPacket(open); !bytes.Equal(got, want) {
+					t.Fatalf("translated open = %x, want %x", got, want)
+				}
 
-	packets, err := splitSessionBatch(pending[1:])
+				if !serverSide {
+					close := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
+					got := readContainerTestClose(t, session, close)
+					close.ContainerType = 255
+					if want := encodeTestPacket(close); !bytes.Equal(got, want) {
+						t.Fatalf("translated client close = %x, want %x", got, want)
+					}
+				}
+
+				close := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: closeType, ServerSide: serverSide}
+				if err := session.WritePacket(close); err != nil {
+					t.Fatal(err)
+				}
+				close.ContainerType = 0
+				if got, want := takeContainerTestPacket(t, session), encodeTestPacket(close); !bytes.Equal(got, want) {
+					t.Fatalf("translated server close = %x, want %x", got, want)
+				}
+
+				// A later close must not inherit the retired translation.
+				clientClose := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
+				if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(clientClose); !bytes.Equal(got, want) {
+					t.Fatalf("close after retirement = %x, want %x", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestInventoryDiagnosticsBoundContentWithoutDroppingRawPacket(t *testing.T) {
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	for _, test := range []struct {
+		name   string
+		slots  int
+		logged bool
+	}{
+		{name: "ordinary", slots: 36, logged: true},
+		{name: "oversized", slots: 8192},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			session := containerTestSession()
+			data := encodeTestPacket(&packet.InventoryContent{Content: make([]protocol.ItemInstance, test.slots)})
+			if err := session.WritePacketRaw(data); err != nil {
+				t.Fatal(err)
+			}
+			if got := takeContainerTestPacket(t, session); !bytes.Equal(got, data) {
+				t.Fatal("diagnostic decoding changed the raw inventory packet")
+			}
+			if logged := strings.Contains(logs.String(), "slots_count="); logged != test.logged {
+				t.Fatalf("decoded inventory diagnostic = %t, want %t", logged, test.logged)
+			}
+		})
+	}
+}
+
+// containerTestSession keeps both relay directions in memory without starting a transport reader.
+func containerTestSession() *sessionConn {
+	return &sessionConn{
+		frames:         make(chan sessionRead, 1),
+		clientPool:     minecraft.DefaultProtocol.Packets(true),
+		serverPool:     minecraft.DefaultProtocol.Packets(false),
+		virtualWindows: make(map[byte]bool),
+	}
+}
+
+// takeContainerTestPacket consumes exactly one packet queued for the client.
+func takeContainerTestPacket(t *testing.T, session *sessionConn) []byte {
+	t.Helper()
+	if len(session.pending) == 0 {
+		t.Fatal("no packet queued for the client")
+	}
+	packets, err := splitSessionBatch(session.pending[1:])
 	if err != nil {
-		t.Fatalf("splitSessionBatch failed: %v", err)
+		t.Fatal(err)
 	}
 	if len(packets) != 1 {
-		t.Fatalf("expected 1 packet in batch, got %d", len(packets))
+		t.Fatalf("queued %d packets, want one", len(packets))
 	}
-	decodedOpen, ok := decodeSessionPacket(session.clientPool, packets[0], 0, false).(*packet.ContainerOpen)
-	if !ok {
-		t.Fatalf("expected ContainerOpen packet, got %T", decodedOpen)
-	}
-	if decodedOpen.ContainerType != 0 {
-		t.Fatalf("expected ContainerType to be rewritten to 0, got %d", decodedOpen.ContainerType)
-	}
+	session.pending = nil
+	return packets[0]
+}
 
-	// 2. Client sends ContainerClose for window 9 with ContainerType = 0
-	closePk := &packet.ContainerClose{
-		WindowID:      9,
-		ContainerType: 0,
-		ServerSide:    false,
-	}
-	closeBuf := new(bytes.Buffer)
-	(&packet.Header{PacketID: closePk.ID()}).Write(closeBuf)
-	closePk.Marshal(minecraft.DefaultProtocol.NewWriter(closeBuf, 0))
-
-	// Format client frame
-	var frame []byte
-	frame = append(frame, bridgecontract.SessionKindBatch)
-	frame = appendSessionBatchPacket(frame, closeBuf.Bytes())
-
-	peerFramed := streamnet.NewFramedConn(peer)
-	go func() {
-		_, _ = peerFramed.Write(frame)
-	}()
-
-	rawBatch, err := session.ReadBatchRaw(func(id uint32) bool { return id == packet.IDContainerClose })
+// readContainerTestClose returns the server-bound bytes for a client close.
+func readContainerTestClose(t *testing.T, session *sessionConn, close *packet.ContainerClose) []byte {
+	t.Helper()
+	frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(close))
+	session.frames <- sessionRead{frame: frame}
+	packets, err := session.ReadBatchRaw(func(id uint32) bool { return id == packet.IDContainerClose })
 	if err != nil {
-		t.Fatalf("ReadBatchRaw failed: %v", err)
+		t.Fatal(err)
 	}
-	if len(rawBatch) != 1 {
-		t.Fatalf("expected 1 packet from ReadBatchRaw, got %d", len(rawBatch))
+	if len(packets) != 1 {
+		t.Fatalf("read %d packets, want one", len(packets))
 	}
-	decodedClose, ok := decodeSessionPacket(session.serverPool, rawBatch[0].Data, 0, false).(*packet.ContainerClose)
-	if !ok {
-		t.Fatalf("expected ContainerClose packet, got %T", decodedClose)
-	}
-	if decodedClose.ContainerType != 255 {
-		t.Fatalf("expected client ContainerClose ContainerType to be rewritten to 255, got %d", decodedClose.ContainerType)
-	}
-
-	session.virtualWindowsMu.Lock()
-	stillVirtual := session.virtualWindows[9]
-	session.virtualWindowsMu.Unlock()
-	if stillVirtual {
-		t.Fatalf("expected window 9 to no longer be tracked as virtual after close")
-	}
-
-	// 3. Server sends ContainerOpen then server sends ContainerClose
-	openPk2 := &packet.ContainerOpen{
-		WindowID:      10,
-		ContainerType: 255,
-	}
-	buf2 := new(bytes.Buffer)
-	(&packet.Header{PacketID: openPk2.ID()}).Write(buf2)
-	openPk2.Marshal(minecraft.DefaultProtocol.NewWriter(buf2, 0))
-	if err := session.WritePacketRaw(buf2.Bytes()); err != nil {
-		t.Fatalf("WritePacketRaw failed: %v", err)
-	}
-
-	serverClosePk := &packet.ContainerClose{
-		WindowID:      10,
-		ContainerType: 255,
-		ServerSide:    true,
-	}
-	closeBuf2 := new(bytes.Buffer)
-	(&packet.Header{PacketID: serverClosePk.ID()}).Write(closeBuf2)
-	serverClosePk.Marshal(minecraft.DefaultProtocol.NewWriter(closeBuf2, 0))
-	if err := session.WritePacketRaw(closeBuf2.Bytes()); err != nil {
-		t.Fatalf("WritePacketRaw failed: %v", err)
-	}
-
-	session.virtualWindowsMu.Lock()
-	stillVirtual2 := session.virtualWindows[10]
-	session.virtualWindowsMu.Unlock()
-	if stillVirtual2 {
-		t.Fatalf("expected window 10 to no longer be tracked as virtual after server close")
-	}
+	return packets[0].Data
 }

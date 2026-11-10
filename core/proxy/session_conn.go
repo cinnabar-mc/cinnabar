@@ -14,6 +14,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
@@ -141,9 +142,9 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 			case packet.IDContainerClose:
 				slog.Info("CLIENT sent ContainerClose")
 				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.ContainerClose); ok {
+					// The server's close acknowledgement still needs this translation.
 					session.virtualWindowsMu.Lock()
 					wasVirtual := session.virtualWindows[pk.WindowID]
-					delete(session.virtualWindows, pk.WindowID)
 					session.virtualWindowsMu.Unlock()
 
 					if wasVirtual {
@@ -193,7 +194,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					"pos", pk.ContainerPosition,
 					"entity_id", pk.ContainerEntityUniqueID,
 				)
-				if pk.ContainerType == 255 {
+				if pk.ContainerType == 255 && pk.WindowID != protocol.WindowIDInventory {
 					session.virtualWindowsMu.Lock()
 					session.virtualWindows[pk.WindowID] = true
 					session.virtualWindowsMu.Unlock()
@@ -215,9 +216,7 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 				)
 				session.virtualWindowsMu.Lock()
 				wasVirtual := session.virtualWindows[pk.WindowID]
-				if pk.ServerSide {
-					delete(session.virtualWindows, pk.WindowID)
-				}
+				delete(session.virtualWindows, pk.WindowID)
 				session.virtualWindowsMu.Unlock()
 
 				if wasVirtual && pk.ContainerType == 255 {
@@ -230,14 +229,14 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 				}
 			}
 		case packet.IDInventoryContent:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), false).(*packet.InventoryContent); ok {
+			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), true).(*packet.InventoryContent); ok {
 				slog.Info("INVENTORY CONTENT received from server",
 					"window_id", pk.WindowID,
 					"slots_count", len(pk.Content),
 				)
 			}
 		case packet.IDInventorySlot:
-			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), false).(*packet.InventorySlot); ok {
+			if pk, ok := decodeSessionPacket(session.serverPool, data, session.shieldID.Load(), true).(*packet.InventorySlot); ok {
 				slog.Info("INVENTORY SLOT received from server",
 					"window_id", pk.WindowID,
 					"slot", pk.Slot,

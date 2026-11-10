@@ -239,7 +239,6 @@ func (server *sessionServer) prepare(
 	if err != nil {
 		return plan, prepared, err
 	}
-	selected, packs = prependSavedPacks(selected, packs, server.logger)
 	stopWatch()
 	if err = context.Cause(ctx); err != nil {
 		return plan, prepared, err
