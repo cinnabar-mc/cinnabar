@@ -23,6 +23,9 @@ pub fn harness_color(identifier: &str) -> Option<&str> {
 /// Suffix shared by the retail actor-placer (spawn egg) item identities.
 pub const SPAWN_EGG_SUFFIX: &str = "_spawn_egg";
 
+/// Legacy generic spawn egg identity; metadata selects the actor.
+pub const SPAWN_EGG_IDENTIFIER: &str = "minecraft:spawn_egg";
+
 /// Legacy item names the client's vanilla item registration aliases to a retail identity.
 pub const LEGACY_ITEM_ALIASES: &[(&str, &str)] = &[(
     "minecraft:fireball",
