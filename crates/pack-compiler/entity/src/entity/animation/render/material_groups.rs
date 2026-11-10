@@ -166,7 +166,6 @@ pub(super) fn resolve(
         };
         rules.push((pattern.to_ascii_lowercase(), choice));
     }
-    drop(state);
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
         if let Some((state, definition, masks)) = materials.resolve_extension(material, true, table)
         {
