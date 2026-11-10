@@ -1,6 +1,7 @@
 //! Native ocelot movement state supplied to the pack's animation controller.
 
 use crate::{AnimatedActor, EngineSlots, evaluation::variables::MolangVariables, query};
+use assets::facts::entity::{EntityFacts, OCELOT_IDENTIFIER};
 use protocol_ids::ActorFlag;
 use std::sync::OnceLock;
 
@@ -14,11 +15,7 @@ pub(super) fn publish(
         return;
     };
     static CLASS: OnceLock<u16> = OnceLock::new();
-    let class = *CLASS.get_or_init(|| {
-        assets::facts::entity::EntityFacts::pinned()
-            .get("minecraft:ocelot")
-            .class_key
-    });
+    let class = *CLASS.get_or_init(|| EntityFacts::pinned().get(OCELOT_IDENTIFIER).class_key);
     if class == 0 || actor.entity_fact().class_key != class {
         return;
     }
@@ -40,14 +37,20 @@ mod tests {
         ActorTickContext, ActorTickInput, MotionState, VariableLayout,
         evaluation::variables::MolangVariables, test_actor::TestActor, tick,
     };
-    use assets::{MolangSymbol, MolangSymbolKind};
+    use assets::{
+        MolangSymbol, MolangSymbolKind,
+        facts::entity::{EntityFacts, OCELOT_IDENTIFIER},
+    };
     use protocol::{ActorKind, ActorMetadataValue};
     use protocol_ids::{ActorDataKey, ActorFlag};
 
+    /// Builds an actor with the supplied movement flags.
     fn actor(identifier: &str, flags: u64) -> TestActor {
-        let mut actor = TestActor::default();
-        actor.kind = ActorKind::Entity {
-            identifier: identifier.into(),
+        let mut actor = TestActor {
+            kind: ActorKind::Entity {
+                identifier: identifier.into(),
+            },
+            ..Default::default()
         };
         actor.metadata.insert(
             ActorDataKey::Flags.wire_value(),
@@ -56,6 +59,7 @@ mod tests {
         actor
     }
 
+    /// Refreshes the state slot through the engine-variable publication path.
     fn publish(actor: &TestActor, variables: &mut MolangVariables) {
         let layout = VariableLayout::from_symbols(&[MolangSymbol {
             kind: MolangSymbolKind::Variable,
@@ -87,7 +91,7 @@ mod tests {
             .fold(0, |flags, (set, flag)| {
                 flags | (u64::from(set) << flag.wire_value())
             });
-            publish(&actor("minecraft:ocelot", flags), &mut variables);
+            publish(&actor(OCELOT_IDENTIFIER, flags), &mut variables);
             let expected = if sneaking {
                 0.0
             } else if sprinting {
@@ -113,8 +117,7 @@ mod tests {
             assert_eq!(variables.number_at(0), Some(91.0));
         }
         let mut custom = actor("example:watch_cat", 1 << ActorFlag::Sitting.wire_value());
-        custom.entity_fact_override =
-            Some(assets::facts::entity::EntityFacts::pinned().get("minecraft:ocelot"));
+        custom.entity_fact_override = Some(EntityFacts::pinned().get(OCELOT_IDENTIFIER));
         publish(&custom, &mut variables);
         assert_eq!(variables.number_at(0), Some(2.0));
     }
