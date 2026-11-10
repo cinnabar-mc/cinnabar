@@ -34,11 +34,6 @@ pub(in crate::ui_runtime::presentation) fn style_scene(
     style: &ui::mod_presentation::NametagStyle,
     own_actor: Option<u64>,
 ) {
-    if style.hide {
-        scene.records.clear();
-        scene.labels.clear();
-        return;
-    }
     let original = std::mem::take(&mut scene.records);
     let mut labels = std::mem::take(&mut scene.labels);
     if labels.is_empty() && !original.is_empty() {
