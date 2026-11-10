@@ -125,6 +125,16 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
+        // First person samples only the hand's body pose, not its controller models, so roots
+        // bind to and follow the body alone there.
+        let owner_rig = &ActorRigSnapshot {
+            render: if input.first_person {
+                &[]
+            } else {
+                owner_rig.render
+            },
+            ..*owner_rig
+        };
         let (_, body_bones) = self.body_bones_for(body.input.rig)?;
         let pack::BindingSource {
             ref catalog,
