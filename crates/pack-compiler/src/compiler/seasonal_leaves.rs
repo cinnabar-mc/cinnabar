@@ -266,7 +266,7 @@ mod tests {
                 && serde_json::from_str::<serde_json::Value>(&record.canonical_state).unwrap()["height"]
                     ["value"]
                     == 0)
-            || include_str!("../../../assets/data/block-components-v2193.tsv")
+            || include_str!("../../../assets/data/block-components-v2225.tsv")
                 .lines()
                 .skip(1)
                 .any(|row| {

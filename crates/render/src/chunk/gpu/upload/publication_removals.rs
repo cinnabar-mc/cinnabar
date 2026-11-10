@@ -45,6 +45,7 @@ pub(super) fn prepare_publication_removals(
             retirement_pressure = true;
             continue;
         }
+        arena.record_transparent_model_change(entity, None);
         arena
             .allocations
             .remove(&entity)

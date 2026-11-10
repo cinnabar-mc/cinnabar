@@ -1,6 +1,6 @@
 #![expect(
     clippy::print_stderr,
-    reason = "the benchmark reports biome record sizes on stderr"
+    reason = "the benchmark reports fixture sizes and output fingerprints on stderr"
 )]
 
 use std::{hint::black_box, sync::Arc};
@@ -19,6 +19,9 @@ use meshing::{
 use world::{
     BiomeStorage, DecodedBiomeColumn, MeshNeighbourhood, RawBiomeIds, RawBlockIds, SubChunk,
 };
+
+#[path = "chunk_costs/liquids.rs"]
+mod liquids;
 
 #[cfg(feature = "benchmark-mimalloc")]
 #[global_allocator]
@@ -627,6 +630,7 @@ criterion_group!(
     meshing,
     meshing_hashed,
     meshing_overlays,
-    biome_records
+    biome_records,
+    liquids::meshing_liquids
 );
 criterion_main!(benches);

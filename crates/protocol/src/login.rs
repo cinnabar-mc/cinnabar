@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::blob_cache::ResolverReady;
@@ -24,6 +24,7 @@ mod cache_status_ingress_tests;
 mod client_data;
 mod game_data;
 mod latency_probe;
+mod ordinary_ingress;
 mod outbound;
 mod pack_handoff;
 mod packet_trace;
@@ -73,9 +74,10 @@ pub struct PlaySession<R = bridge::FramedReader> {
     pending_blob_cache_events: VecDeque<WorldEvent>,
     cache_status: cache_status::SharedCacheStatus,
     pending_blob_prefetch: Option<(Packet, usize)>,
+    pending_ordinary: Option<(WorldIngress, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
-    ingress_position: (u64, u32), // core frame and slot of the packet behind the last ingress
+    ingress_position: crate::packet_tap::PacketOrigin,
 }
 
 enum WorldIngress {
@@ -143,9 +145,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             pending_blob_cache_events: VecDeque::new(),
             cache_status: Default::default(),
             pending_blob_prefetch: None,
+            pending_ordinary: None,
             server_disconnect: None,
             server_transfer: None,
-            ingress_position: (0, 0),
+            ingress_position: Default::default(),
         }
     }
 
@@ -329,7 +332,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 let packets::Packet::LevelChunk(packet) = *packet.data else {
                     unreachable!("LevelChunk packet ID decoded to another variant")
                 };
-                match crate::world::normalize_level_chunk_payload(packet) {
+                match crate::world::normalize_level_chunk_payload(*packet) {
                     Ok((event, payload)) => return Ok(WorldIngress::LevelChunk(event, payload)),
                     Err(error) => {
                         self.skip_or_fail_current(error.into())?;
@@ -383,18 +386,31 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         self.packet_id_trace.drain()
     }
 
+    /// Returns capture-only world/packet correspondence for the active transport.
+    pub fn pick_trace(&self) -> Option<std::sync::Arc<crate::capture::PickTrace>> {
+        self.transport.pick_trace()
+    }
+
     /// The latency-trace connection, core batch frame and in-frame index of the packet received
     /// last; see [`bridge::latency_trace`].
     #[must_use]
     pub fn latency_trace_position(&self) -> (u64, u64, u32) {
         let (conn, _, _) = self.transport.trace_position();
-        (conn, self.ingress_position.0, self.ingress_position.1)
+        (
+            conn,
+            self.ingress_position.trace.0,
+            self.ingress_position.trace.1,
+        )
     }
 
     /// The core frame and slot of the packet the transport delivered last.
-    fn delivered_position(&self) -> (u64, u32) {
-        let (_, frame, index) = self.transport.trace_position();
-        (frame, index)
+    fn delivered_position(&self) -> crate::packet_tap::PacketOrigin {
+        self.transport.packet_origin()
+    }
+
+    /// The captured packet behind the last delivered world item, including delayed cache work.
+    pub fn ingress_capture_sequence(&self) -> u64 {
+        self.ingress_position.capture_sequence
     }
 
     /// Number of receive-side decode/decompression failures observed in play.
@@ -424,6 +440,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         }
         self.pending_blob_cache_events.clear();
         self.pending_blob_prefetch = None;
+        self.pending_ordinary = None;
         self.cache_status.lock().expect("cache status lock").reset();
     }
 
@@ -448,7 +465,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 .pop_recovery_ready()
             {
                 // Recovery is the client's own resync request; no core packet produced it.
-                self.ingress_position = (0, 0);
+                self.ingress_position = Default::default();
                 return Ok(WorldIngress::Event(WorldEvent::ChunkResync(recovery)));
             }
             if let Some(event) = self.pending_blob_cache_events.pop_front() {
@@ -473,7 +490,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         // the uncached lane does, rather than through an owned copy.
                         let normalized = match *packet.data {
                             packets::Packet::LevelChunk(level_chunk) => {
-                                match crate::world::normalize_level_chunk_payload(level_chunk) {
+                                match crate::world::normalize_level_chunk_payload(*level_chunk) {
                                     Ok((event, payload)) => {
                                         return Ok(WorldIngress::LevelChunk(event, payload));
                                     }
@@ -508,14 +525,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 return Ok(WorldIngress::Event(event));
             }
 
-            let resolver = self
-                .blob_cache
-                .as_mut()
-                .expect("enabled path owns a resolver");
-            // Retained ordinary work stops intake only while abandoning its blockers makes
-            // progress; a lane that cannot be unblocked keeps reading rather than spinning
-            // without ever awaiting the transport.
-            if resolver.ordinary_lane_needs_drain() && resolver.unblock_ordinary_lane()? {
+            let ordinary_blocked = self.pending_ordinary.is_some();
+            if ordinary_blocked && self.finish_ordinary_ingress(false)? {
                 continue;
             }
 
@@ -544,15 +555,35 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 continue;
             }
 
+            let transfer_armed = self
+                .blob_cache
+                .as_ref()
+                .expect("enabled cache")
+                .fast_transfer_reset_armed();
             let Some(inbound) =
-                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, self.transport.recv())
-                    .await
+                blob_recovery::BlobRecovery::until(&mut self.blob_recovery, async {
+                    if ordinary_blocked {
+                        self.transport
+                            .recv_blob_body(
+                                crate::session_transport::MAX_READ_AHEAD_BYTES,
+                                transfer_armed,
+                            )
+                            .await
+                    } else {
+                        self.transport.recv().await.map(Some)
+                    }
+                })
+                .await
             else {
                 continue;
             };
             let raw = match inbound {
-                Ok(Inbound::Packet(raw)) => raw,
-                Ok(Inbound::Terminal(terminal)) => {
+                Ok(None) => {
+                    self.finish_ordinary_ingress(true)?;
+                    continue;
+                }
+                Ok(Some(Inbound::Packet(raw))) => raw,
+                Ok(Some(Inbound::Terminal(terminal))) => {
                     if self.absorb_terminal(terminal)? {
                         return boundary_wakeup();
                     }
@@ -560,7 +591,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 }
                 Err(error) => return Err(self.fail_session(error)),
             };
-            if bridge::latency_trace::active().is_some() {
+            if !ordinary_blocked
+                && (bridge::latency_trace::active().is_some()
+                    || self.transport.pick_trace().is_some())
+            {
                 let origin = self.delivered_position();
                 self.blob_cache
                     .as_mut()
@@ -598,7 +632,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                     let packets::Packet::LevelChunk(view) = *packet.data else {
                         unreachable!("checked above")
                     };
-                    let (event, payload) = match crate::world::normalize_level_chunk_payload(view) {
+                    let (event, payload) = match crate::world::normalize_level_chunk_payload(*view)
+                    {
                         Ok(value) => value,
                         Err(error) => {
                             self.skip_or_fail_current(error.into())?;
@@ -613,7 +648,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         self.blob_recovery = None;
                         self.cache_status.lock().expect("cache status lock").reset();
                     }
-                    resolver.accept_level_chunk_bytes(event, payload, packet_bytes)?;
+                    self.pending_ordinary =
+                        Some((WorldIngress::LevelChunk(event, payload), packet_bytes));
                     continue;
                 }
                 if reset_blob_cache_for_decoded_candidate(
@@ -654,14 +690,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         continue;
                     }
                 };
-                if let Some(event) = event
-                    && let Err(error) = self
-                        .blob_cache
-                        .as_mut()
-                        .expect("enabled path owns a resolver")
-                        .accept_world_event(event, packet_bytes)
-                {
-                    return Err(error.into());
+                if let Some(event) = event {
+                    self.pending_ordinary = Some((WorldIngress::Event(event), packet_bytes));
                 }
                 continue;
             }
@@ -669,14 +699,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             let decoded = decode_world_raw_with(raw, current_dimension, RawPacket::decode_parts);
             match decoded {
                 Ok(Some(event)) => {
-                    if let Err(error) = self
-                        .blob_cache
-                        .as_mut()
-                        .expect("enabled path owns a resolver")
-                        .accept_world_event(event, packet_bytes)
-                    {
-                        return Err(error.into());
-                    }
+                    self.pending_ordinary = Some((WorldIngress::Event(event), packet_bytes));
                 }
                 Ok(None) => {}
                 Err(ProtocolError::Session(error)) => return Err(self.fail_session(error)),
@@ -788,7 +811,7 @@ fn decode_world_raw_with(
     decode: impl FnOnce(RawPacket) -> Result<(GameHeader, packets::Packet), SessionError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if raw.id == PacketId::ItemRegistry {
-        // Login has already initialized this session's registry. Vanilla 1.26.50
+        // Login has already initialized this session's registry. Vanilla 1.26.60
         // ignores a repeated item registry once initialized, including an
         // empty/custom-only repeat. Decode the wire first so malformed repeats remain fatal;
         // neither the inventory ledger nor actor item store may be rebound here.
@@ -855,7 +878,7 @@ fn level_event_generic(raw: &RawPacket) -> Option<(GameHeader, packets::Packet)>
     let event_id = reader.read_zigzag_i32().ok()?;
     let data = packets::LevelEventGeneric {
         event_id: wire::ZigZag32(event_id),
-        ctd: wire::NetworkNbt(raw.body().slice(reader.position()..)),
+        ctd: wire::NetworkCompoundNbt(raw.body().slice(reader.position()..)),
     };
     Some((raw.header, data.into()))
 }

@@ -785,7 +785,13 @@ fn actor_kernel_workgroup_sizes_match_host_dispatch() {
 
 #[test]
 fn actor_stream_failure_keeps_world_replacement_and_native_actors() {
-    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {

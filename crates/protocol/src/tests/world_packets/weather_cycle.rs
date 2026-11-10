@@ -4,10 +4,10 @@ use super::*;
 fn seasonal_weather_rule_defaults_true_and_admits_only_boolean_start_game_values() {
     let mut game = game_data();
     assert!(WorldEnvironmentBootstrap::from_start_game(&game.start_game).weather_cycle_enabled);
-    game.start_game.settings.rule_data.rules_list = vec![bool_rule("DoWeatherCycle", false)];
+    game.start_game.settings.rule_data.rules_list = vec![level_bool_rule("DoWeatherCycle", false)];
     assert!(!WorldEnvironmentBootstrap::from_start_game(&game.start_game).weather_cycle_enabled);
     game.start_game.settings.rule_data.rules_list[0].rule_value =
-        GameRuleValue::Int32(wire::I32LE(0));
+        LevelGameRuleValue::Variant2(wire::I32LE(0));
     assert!(WorldEnvironmentBootstrap::from_start_game(&game.start_game).weather_cycle_enabled);
 }
 

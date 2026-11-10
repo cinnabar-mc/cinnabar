@@ -62,7 +62,7 @@ fn open_packet(mount: Option<i64>, authority: Option<&WorldAuthority>) -> protoc
         .ledger_mut()
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
     player.facts.set_mount(mount);
-    runtime.toggle_inventory(&mut player, authority);
+    runtime.toggle_inventory(&mut player, authority.map(|world| world.inventory_ui()));
     let mut sent = None;
     super::super::interaction::flush_inventory_send(&mut player, &mut runtime, 0, |packet| {
         sent = Some(packet);
@@ -107,7 +107,7 @@ fn opening_mount() -> (UiRuntime, player_state::PlayerState, WorldAuthority) {
         .ledger_mut()
         .apply(&InventoryEvent::Authority(InventoryAuthority::Server));
     player.facts.set_mount(Some(-91));
-    runtime.toggle_inventory(&mut player, Some(&authority));
+    runtime.toggle_inventory(&mut player, Some(authority.inventory_ui()));
     assert!(player.inventory.ledger_mut().mark_transport_enqueued(0));
     (runtime, player, authority)
 }
@@ -146,7 +146,7 @@ fn mounted_reply_clears_the_open_deadline_and_allows_immediate_close_and_reopen(
     );
     assert!(player.inventory.ledger().pending_batch().unwrap().is_none());
 
-    runtime.toggle_inventory(&mut player, Some(&authority));
+    runtime.toggle_inventory(&mut player, Some(authority.inventory_ui()));
     assert!(!runtime.inventory_open());
     assert_eq!(
         player
@@ -169,7 +169,7 @@ fn mounted_reply_clears_the_open_deadline_and_allows_immediate_close_and_reopen(
             server_initiated: false,
         }),
     );
-    runtime.toggle_inventory(&mut player, Some(&authority));
+    runtime.toggle_inventory(&mut player, Some(authority.inventory_ui()));
     assert!(runtime.inventory_open());
     assert_eq!(
         player
@@ -187,10 +187,10 @@ fn mounted_reply_clears_the_open_deadline_and_allows_immediate_close_and_reopen(
 fn server_mounted_reply_reopens_after_cancellation() {
     for reopen in [false, true] {
         let (mut runtime, mut player, authority) = opening_mount();
-        runtime.toggle_inventory(&mut player, Some(&authority));
+        runtime.toggle_inventory(&mut player, Some(authority.inventory_ui()));
         assert!(!runtime.inventory_open());
         if reopen {
-            runtime.toggle_inventory(&mut player, Some(&authority));
+            runtime.toggle_inventory(&mut player, Some(authority.inventory_ui()));
         }
         deliver_inventory(&mut runtime, &mut player, 1, mount_open());
         assert!(runtime.inventory_open());

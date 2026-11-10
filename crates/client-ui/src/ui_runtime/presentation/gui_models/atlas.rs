@@ -54,6 +54,11 @@ impl Atlas {
         }
     }
 
+    /// Finds an existing source without allocating more atlas space.
+    pub(super) fn get(&self, size: [u16; 2], pixels: &[u8]) -> Option<IconRef> {
+        self.refs.get(&key(size, pixels)).copied()
+    }
+
     /// Places full-resolution texels. Each side keeps a one-texel edge gutter where the page has
     /// room; a side as long as the page fills it, its page border clamping instead.
     pub(super) fn insert(
@@ -182,6 +187,14 @@ impl Atlas {
     /// Returns the pages already occupied by required model textures.
     pub(super) fn page_count(&self) -> usize {
         self.pages.len()
+    }
+
+    /// Shares a new immutable page generation after a stack adds source or thumbnail texels.
+    pub(super) fn pages(&self) -> Option<Vec<UiTexturePage>> {
+        self.pages
+            .iter()
+            .map(|pixels| UiTexturePage::owned([SIDE as u32; 2], Arc::from(pixels.clone())).ok())
+            .collect()
     }
 
     pub(super) fn finish(

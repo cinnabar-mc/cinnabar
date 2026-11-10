@@ -16,21 +16,21 @@ fn cosmetic_texture_edge_uvs_sample_original_border_texels() {
         [255; 4],
     ];
     let mut cache = DecodeCache::default();
-    cache.decoded.insert(
+    cache.insert(
         Source::Item(item, false).key(),
-        Arc::new(Artwork {
+        Artwork {
             width: 2,
             height: 2,
             pixels: colors.into_iter().flatten().collect(),
-        }),
+        },
     );
-    cache.decoded.insert(
+    cache.insert(
         Source::File("neighbor".into(), 2).key(),
-        Arc::new(Artwork {
+        Artwork {
             width: 2,
             height: 2,
             pixels: [77, 88, 99, 255].repeat(4),
-        }),
+        },
     );
     let packed = pack(&set, &cache, 1, true);
     let icon = packed.refs[&item.texture_key()];

@@ -23,7 +23,7 @@ pub fn definitions() -> Value {
     });
     let condition = json!({
         "type": "object",
-        "description": "Exactly one of: {\"in_world\": null}, {\"chunks_loaded\": {\"radius\": 4}}, {\"screen\": {\"name\": \"Gameplay\"}}, {\"entity\": {\"matches\": \"cinnabar:hollow_warden\", \"radius\": 32}}, {\"camera_finished\": null}. Unit conditions may also be given as the bare strings \"in_world\" / \"camera_finished\"."
+        "description": "Exactly one of: {\"in_world\": null}, {\"chunks_loaded\": {\"radius\": 4}}, {\"screen\": {\"name\": \"Gameplay\"}}, {\"entity\": {\"matches\": \"cinnabar:hollow_warden\", \"radius\": 32}}, {\"camera_finished\": null}, {\"inventory_ready\": null} (an inventory screen is open and accepts clicks), {\"inventory_settled\": null} (no inventory request awaits the server). Unit conditions may also be given as the bare strings \"in_world\" / \"camera_finished\" / \"inventory_ready\" / \"inventory_settled\"."
     });
     // Built separately: one `json!` holding every tool exceeds the macro recursion limit.
     let log_filter_set = json!({

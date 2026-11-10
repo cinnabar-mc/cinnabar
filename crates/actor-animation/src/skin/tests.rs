@@ -340,3 +340,68 @@ fn appearance_binding_indices_follow_skin_install_replacement_and_removal() {
         }
     }
 }
+
+/// Vanilla animates the skin geometry itself, so a bone only the skin defines takes its own
+/// animation slot after the rig's, parented by name, instead of holding its rest pose.
+#[test]
+fn bones_only_the_skin_defines_take_their_own_animation_slots() {
+    let assets = crate::test_support::counting_random_assets();
+    let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    store.insert(1, 0, &actor);
+    let source = Arc::new(SkinGeometrySource {
+        resource_patch: r#"{"geometry":{"default":"geometry.skin_tail"}}"#.into(),
+        geometry_data: r#"{"format_version":"1.12.0","minecraft:geometry":[
+            {"description":{"identifier":"geometry.skin_tail","texture_width":64,"texture_height":64},"bones":[
+                {"name":"body","pivot":[0,10,0],"cubes":[{"origin":[-4,0,-2],"size":[8,10,4],"uv":[0,0]}]},
+                {"name":"tail","parent":"body","pivot":[0,12,2],"cubes":[{"origin":[-1,10,2],"size":[2,2,6],"uv":[0,0]}]},
+                {"name":"tip","parent":"tail","pivot":[0,12,8]}]}]}"#.into(),
+        animations: Arc::from([]),
+    });
+    warm_source(&mut store, &source);
+    let lifetime = store.runtime_to_lifetime[&actor.runtime_id];
+    let state = store.rigs.get_mut(&lifetime).unwrap();
+    state.bone_names = ["body", "head"].map(Into::into).into();
+    state.bones = vec![
+        RuntimeBone {
+            pivot: [0.0, 24.0, 0.0],
+            ..Default::default()
+        },
+        RuntimeBone {
+            parent: Some(0),
+            pivot: [0.0, 24.0, 0.0],
+            ..Default::default()
+        },
+    ];
+    state.channel_bindings = Arc::new(pose::ChannelBindings::new(&state.bone_names));
+    assert!(!sync_skin(state, Some(&source), &store.skin_preparation));
+
+    let (bones, names, _) = state.animated_skeleton();
+    assert_eq!(names, ["body", "head", "tail", "tip"].map(Box::<str>::from));
+    assert_eq!(
+        bones[2].parent,
+        Some(0),
+        "the skin's tail hangs off the rig's body"
+    );
+    assert_eq!(
+        bones[3].parent,
+        Some(2),
+        "the tip follows the tail's own slot"
+    );
+
+    let mut local = vec![LocalDelta::default(); bones.len()];
+    local[2].rotation = [0.0, 45.0, 0.0];
+    let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+    state.compose_into(&local, &mut pose).unwrap();
+    let prepared = &state.skin_skeleton().unwrap().prepared;
+    let rest = compose_pose(&prepared.bones, &[]).unwrap();
+    let index = |name: &str| {
+        prepared
+            .names
+            .iter()
+            .position(|n| n.as_ref() == name)
+            .unwrap()
+    };
+    assert_ne!(pose[index("tail")].rotation, rest[index("tail")].rotation);
+    assert_eq!(pose[index("body")], rest[index("body")]);
+}

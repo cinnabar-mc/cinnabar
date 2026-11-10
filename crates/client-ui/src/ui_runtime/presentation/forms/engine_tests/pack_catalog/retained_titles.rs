@@ -62,7 +62,7 @@ fn admitted_retained_title_panel_publishes_and_survives_other_titles() {
             )
             .unwrap();
     }
-    runtime.hud.set_title(Arc::from(payload), 1, 0);
+    runtime.session.hud.set_title(Arc::from(payload), 1, 0);
     for now in [100, 116, 132] {
         presentation
             .build(
@@ -109,7 +109,7 @@ fn admitted_retained_title_panel_publishes_and_survives_other_titles() {
         (200, "An unrelated title"),
         (300, "Another unrelated title"),
     ] {
-        runtime.hud.set_title(Arc::from(title), now, now);
+        runtime.session.hud.set_title(Arc::from(title), now, now);
         for now in [now, now + 16, now + 32] {
             presentation
                 .build(

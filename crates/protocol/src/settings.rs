@@ -1,8 +1,8 @@
 //! Client settings that need a live Bedrock request.
 
 use crate::Packet;
-use bedrock_protocol_1_26_51::packets::RequestChunkRadius;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::RequestChunkRadius;
+use bedrock_protocol_1_26_60::wire;
 
 // Vanilla advertises a supported chunk radius within these bounds.
 const MIN_ADVERTISED_CHUNK_RADIUS: u8 = 5;
@@ -22,7 +22,7 @@ pub fn request_chunk_radius_packet(chunks: u8, supported_chunks: u8) -> Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_1_26_60::packets;
 
     #[test]
     fn live_radius_requests_encode_both_requested_and_supported_distance() {

@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::{packets::ModalFormRequest, wire};
+use bedrock_protocol_1_26_60::{packets::ModalFormRequest, wire};
 use protocol::{FormKind, ServerFormModel, UiEvent, WorldEvent, into_world_event};
 
 /// Normalizes a server form without involving its presentation.

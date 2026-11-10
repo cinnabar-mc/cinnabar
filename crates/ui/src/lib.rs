@@ -8,6 +8,7 @@ mod icon;
 pub mod mod_hud;
 pub mod mod_metadata;
 pub mod mod_panel;
+pub mod mod_presentation;
 pub mod mod_touch;
 mod model;
 pub mod oreui_theme;

@@ -5,6 +5,20 @@ use super::*;
 pub(super) const STATES: &[State] = &[
     #[cfg(feature = "test-support")]
     State {
+        name: "form-answer-immediate",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::FormHandoff { retained: false },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "form-answer-handoff",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::FormHandoff { retained: true },
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "form-overlap",
         size: SIZE,
         gui_scale: GUI_SCALE,

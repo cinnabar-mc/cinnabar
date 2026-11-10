@@ -4,6 +4,7 @@
 // The tool list is one `json!` value; its nesting exceeds the default macro recursion limit.
 #![recursion_limit = "256"]
 
+mod benchmark;
 mod commands;
 mod definitions;
 mod processes;
@@ -13,10 +14,21 @@ mod tools;
 
 use std::path::PathBuf;
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the benchmark CLI reports failures on stderr without changing the stdio MCP protocol"
+)]
 fn main() {
     let repo = repo_argument()
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
+    if let Some(result) = benchmark::cli(&repo) {
+        if let Err(error) = result {
+            eprintln!("benchmark: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     mcp_stdio::serve(&mut tools::Server::new(repo));
 }
 
