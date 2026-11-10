@@ -1,4 +1,4 @@
-//! Labels of zero-scale text carriers stay clear of the labels below them.
+//! Label heights above actor boxes, and zero-scale text carriers clear of the labels below them.
 
 use super::*;
 
@@ -67,4 +67,18 @@ fn zero_scale_passenger_text_sits_clear_above_its_host_players_name() {
         stand_bottom > host_top,
         "passenger text bottom {stand_bottom} overlaps the name top {host_top}"
     );
+}
+
+#[test]
+fn labels_clear_the_box_by_vanilla_seven_tenths_of_a_block() {
+    let mut actor = actor();
+    assert!((tag_height(&actor) - 2.5).abs() < 1e-6);
+    // A server text carrier with an empty box still hangs its label 0.7 above its feet.
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:armor_stand".into(),
+    };
+    actor
+        .metadata
+        .insert(METADATA_HEIGHT, ActorMetadataValue::Float(0.0));
+    assert!((tag_height(&actor) - (client_world::MIN_COLLISION_DIMENSION + 0.7)).abs() < 1e-6);
 }

@@ -27,6 +27,7 @@ pub(super) struct Patterns {
 impl EquipmentRuntime {
     /// Starts a frame's visible shield set without throwing away unchanged compositions.
     pub(crate) fn begin_shield_frame(&mut self) {
+        self.trims.begin_frame();
         for image in self.shield_patterns.images.values_mut() {
             image.used = false;
         }
@@ -34,6 +35,7 @@ impl EquipmentRuntime {
 
     /// Releases compositions no longer used by a visible hand or actor.
     pub(crate) fn finish_shield_frame(&mut self) {
+        self.trims.finish_frame();
         self.shield_patterns.images.retain(|_, image| image.used);
     }
 

@@ -1,4 +1,4 @@
-//! Exact-asset downloads with GitHub's digest, bounded staging and cancellation fencing.
+//! Exact first-party assets with verified digests, bounded staging and cancellation fencing.
 
 use super::{Candidate, progress::Progress};
 use anyhow::{Context, Result, ensure};
@@ -17,7 +17,6 @@ use std::{
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Asset {
-    pub(super) id: u64,
     pub(super) name: String,
     pub(super) size: u64,
     pub(super) digest: Option<String>,
@@ -56,7 +55,12 @@ impl Downloaded {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(bytes).unwrap();
         Self {
-            revision_update: None,
+            revision_update: ui::mod_metadata::RevisionModUpdate::parse(serde_json::json!({
+                "source": format!("https://github.com/{repository}/releases/latest/download/{asset}"),
+                "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE,
+                "revision": format!("{:x}", Sha256::digest(version.trim_start_matches('v').as_bytes()))[..40],
+                "api_revision": "a".repeat(40),
+            }).to_string().as_bytes()).map(Box::new),
             id,
             version: version.into(),
             repository: repository.into(),
@@ -104,35 +108,12 @@ fn digest(asset: &Asset) -> Option<[u8; 32]> {
     Some(bytes)
 }
 
-/// Allows GitHub's asset redirect hosts, always over credential-free HTTPS.
-fn trusted(url: &url::Url) -> bool {
-    url.scheme() == "https"
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port_or_known_default() == Some(443)
-        && matches!(
-            url.host_str(),
-            Some(
-                "api.github.com"
-                    | "github.com"
-                    | "release-assets.githubusercontent.com"
-                    | "objects.githubusercontent.com"
-            )
-        )
-}
-
 /// Builds the asset client separately from the API client, which rejects all redirects.
 pub(super) fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .user_agent(launcher::PRODUCT_USER_AGENT)
         .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() > 4 || !trusted(attempt.url()) {
-                attempt.error("untrusted mod asset redirect")
-            } else {
-                attempt.follow()
-            }
-        }))
+        .redirect(reqwest::redirect::Policy::none())
         .build()?)
 }
 
@@ -145,7 +126,7 @@ pub(super) struct Fence {
     pub progress: Progress,
 }
 
-/// Fetches the selected immutable asset ID, never a moving `latest` URL, and verifies its digest.
+/// Fetches the compatible service's exact immutable URL and verifies its digest.
 pub(super) async fn fetch(
     client: &reqwest::Client,
     candidate: &Candidate,
@@ -163,12 +144,12 @@ pub(super) async fn fetch(
         asset.size,
     );
     let response = client
-        .get(asset.url.clone().unwrap_or_else(|| {
-            format!(
-                "https://api.github.com/repos/{}/releases/assets/{}",
-                candidate.repository, asset.id
-            )
-        }))
+        .get(
+            asset
+                .url
+                .as_ref()
+                .context("missing official download URL")?,
+        )
         .header(reqwest::header::ACCEPT, "application/octet-stream")
         .send()
         .await?

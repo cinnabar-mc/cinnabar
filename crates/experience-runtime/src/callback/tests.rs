@@ -4,6 +4,7 @@ mod client;
 mod content_rules;
 mod item_metadata;
 mod overlays;
+mod pose;
 mod redstone;
 
 use item_metadata::server_item;
@@ -22,8 +23,8 @@ use crate::limits::{
 use crate::load::{Catalog, axes};
 use crate::protocol::{
     BlockPos, BlockState, Call, Cell, Containers, Face, FailKind, GameMode, INVENTORY_SLOTS, Info,
-    Inventory, ItemStack, Network, NewStack, Op, Outcome, PlacementState, Request, Scalar,
-    StateDef, StateValue, StateValues,
+    Inventory, ItemStack, Network, NewStack, Op, Outcome, PlacementState, PlayerPose, Request,
+    Scalar, StateDef, StateValue, StateValues,
 };
 
 const ACTOR: &str = "3f2a7c1e-8b4d-4e6a-9c5f-1d2e3f4a5b6c";
@@ -59,6 +60,7 @@ struct Fixture {
     cells: Vec<Cell>,
     network: Option<Network>,
     inventory: Option<Inventory>,
+    pose: Option<PlayerPose>,
     containers: Option<Containers>,
 }
 
@@ -79,6 +81,15 @@ impl Fixture {
                 selected: 0,
                 slots: vec![None; INVENTORY_SLOTS],
                 game_mode: GameMode::Survival,
+            }),
+            pose: Some(PlayerPose {
+                yaw: 45.0,
+                pitch: -10.0,
+                on_ground: true,
+                sneaking: false,
+                sprinting: true,
+                swimming: false,
+                gliding: false,
             }),
             containers: None,
         }
@@ -117,8 +128,9 @@ impl Fixture {
             data_budget: self.budget,
             snapshot: self.cells,
             network: self.network,
-            // The adapter snapshots an inventory only for an actor.
+            // The adapter snapshots an inventory and a pose only for an actor.
             inventory: self.actor.and(self.inventory),
+            pose: self.actor.and(self.pose),
             containers: self.containers,
             call: Call::Interact {
                 player: ACTOR.to_owned(),
@@ -186,6 +198,7 @@ impl Fixture {
             snapshot: self.cells,
             network: self.network,
             inventory: self.inventory,
+            pose: self.pose,
             containers: self.containers,
             call: Call::Interact {
                 player: ACTOR.to_owned(),
@@ -991,7 +1004,7 @@ fn game_mode_reads_the_snapshot() {
     }
 }
 
-/// Without an actor there is no inventory to read or write, and no game mode.
+/// Without an actor there is no inventory to read or write, no game mode and no pose.
 #[test]
 fn inventory_needs_an_actor() {
     let mut res = Fixture {
@@ -1002,6 +1015,10 @@ fn inventory_needs_an_actor() {
     .res();
     assert_eq!(res.inventory().unwrap(), Err(WorldError::PlayerUnavailable));
     assert_eq!(res.game_mode().unwrap(), Err(WorldError::PlayerUnavailable));
+    assert_eq!(
+        res.pose().unwrap().err(),
+        Some(WorldError::PlayerUnavailable)
+    );
     assert_eq!(
         res.set_slot(0, None).unwrap(),
         Err(WorldError::PlayerUnavailable)

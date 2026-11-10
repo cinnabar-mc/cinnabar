@@ -1,5 +1,8 @@
 use {super::*, mod_api::MAX_LOADED_MODS};
 
+#[path = "scroll_tests.rs"]
+mod scroll;
+
 const EMPTY_COMPONENT: &str = r#"(component
     (core module $m (func (export "init")) (func (export "frame")))
     (core instance $i (instantiate $m))

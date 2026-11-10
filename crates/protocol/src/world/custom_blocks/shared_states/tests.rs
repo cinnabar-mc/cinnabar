@@ -1,5 +1,6 @@
-use super::super::{CustomSelection, CustomStateAxis, Nbt};
+use super::super::{CustomSelection, CustomStateAxis};
 use super::*;
+use crate::nbt_tree::test_tree::Nbt;
 
 /// Creates a two-state definition without network or pack fixtures.
 fn block() -> CustomBlock {
@@ -76,7 +77,7 @@ fn changing_an_immutable_definition_detaches_and_recompiles_its_identities() {
 
 #[test]
 fn aggregate_state_and_byte_budgets_reject_before_expansion_without_spending_credit() {
-    let mut definition = super::super::parse_definition(&Nbt::Compound(Vec::new())).unwrap();
+    let mut definition = super::super::parse_definition(Nbt::Compound(Vec::new()).view()).unwrap();
     let mut budget = AdmissionBudget::default();
     definition.state_count = MAX_AGGREGATE_STATES as u32;
     assert!(budget.admit("test:block", &definition.visual, definition.state_count));

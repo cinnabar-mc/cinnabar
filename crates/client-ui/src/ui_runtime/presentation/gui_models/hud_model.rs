@@ -75,6 +75,7 @@ impl HudModel {
                     },
                 );
                 UiMeshVertex {
+                    terrain_mips: false,
                     position: projected.position,
                     clip_z: projected.clip_z,
                     clip_w: projected.clip_w,
@@ -388,6 +389,7 @@ impl HudModel {
                 let start = vertices.len() as u32;
                 for vertex in source.vertices.iter() {
                     vertices.push(UiMeshVertex {
+                        terrain_mips: false,
                         position: [vertex.position[0], vertex.position[1]],
                         clip_z: vertex.position[2],
                         clip_w: (base + source.palette_indices[vertex.bone_index as usize] + 1)
@@ -441,6 +443,7 @@ impl HudModel {
             let start = vertices.len() as u32;
             vertices.extend(
                 [UiMeshVertex {
+                    terrain_mips: false,
                     position: [0.; 2],
                     clip_z: 0.5,
                     clip_w: 1.,

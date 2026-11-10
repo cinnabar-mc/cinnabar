@@ -278,12 +278,19 @@ impl ContainerScreen {
             pointer,
             &mut icons,
         );
+        // A selection in the search or anvil name box draws highlighted.
+        let edit = screen
+            .search_caret
+            .or(screen.anvil_caret)
+            .and_then(|caret| caret.selection)
+            .map(|selection| ui_engine::engine::host_edit::Feedback::new(Some(selection)));
         let art = ScreenArt {
             view: Some(&view),
             tooltip,
             pointer,
             clocks: Some(clocks),
             overlay: &overlay,
+            edit,
             ..ScreenArt::default()
         };
         let mut item_renderer = ItemRenderer {
@@ -872,12 +879,15 @@ fn station_cell<'a>(
             }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
-                // Anvil and grindstone results are the client's prediction until the server
-                // states one.
+                // Station predictions fill the result until the server states one.
                 (None, Some(output))
                     if matches!(
                         ledger.window_kind(),
-                        Some(protocol::WindowKind::Anvil | protocol::WindowKind::Grindstone)
+                        Some(
+                            protocol::WindowKind::Anvil
+                                | protocol::WindowKind::Grindstone
+                                | protocol::WindowKind::Smithing
+                        )
                     ) =>
                 {
                     (Some(&output.stack), output.icon, output.durability)

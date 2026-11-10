@@ -20,6 +20,18 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
     },
 ];
 
+/// Chooses whether mention colors apply to every name or only the local player.
+pub const MENTIONS_TARGETS: &[SettingChoice] = &[
+    SettingChoice {
+        name: "mentions_target_everyone",
+        label: "chat.settings.mentionsTarget.everyone",
+    },
+    SettingChoice {
+        name: "mentions_target_self",
+        label: "chat.settings.mentionsTarget.self",
+    },
+];
+
 /// Client presentation preference; Java's input line over the game remains the default.
 pub const CHAT_INPUT_OPTION: SettingDefinition = super::SettingId::CinnabarChatInput.definition();
 
@@ -107,6 +119,11 @@ impl SettingsOptions {
     pub fn mentions_color_code(&self) -> char {
         let val = self.value(SettingId::MentionsColor) as usize;
         CHAT_PALETTE.get(val).map_or('e', |c| c.code)
+    }
+
+    /// Restricts mention coloring to the local display name and all-player mentions.
+    pub fn mentions_only_self(&self) -> bool {
+        self.value(SettingId::MentionsTarget) == 1
     }
 
     /// Matches the three authored notification-duration radio choices.

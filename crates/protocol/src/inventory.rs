@@ -13,6 +13,9 @@ use thiserror::Error;
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 mod address;
+mod armor_damage;
+pub(crate) use armor_damage::normalize_armor_damage;
+pub use armor_damage::{ArmorDamage, ArmorDamageEvent};
 mod container_policy;
 mod creative;
 pub use container_policy::{
@@ -46,6 +49,8 @@ mod raw_scan;
 pub mod recipes;
 mod request;
 mod trade;
+pub(crate) mod trims;
+pub use trims::TrimRegistry;
 mod transaction;
 mod validation;
 mod windows;
@@ -246,6 +251,7 @@ pub const MAX_ENCHANT_OPTIONS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
+    Trims(TrimRegistry),
     Recipes(recipes::RecipeUpdate),
     RecipeUnlocks(recipes::RecipeUnlockUpdate),
     CraftingRules(CraftingRules),
@@ -265,6 +271,8 @@ pub enum InventoryEvent {
     FurnaceOptions(FurnaceOptionsEvent),
     Options(InventoryOptions),
     Creative(CreativeContentEvent),
+    /// New absolute damage for worn armor pieces, from `PlayerArmorDamage`.
+    ArmorDamage(ArmorDamageEvent),
 }
 
 impl InventoryEvent {
@@ -418,6 +426,31 @@ impl VerifiedNetworkItemStack {
             self.inner.stack_network_id = stack_network_id;
         }
         self
+    }
+
+    /// The stack after a use wore it to `damage`, carrying `legacy_request_id` as its net id.
+    /// Damage beyond `maximum` breaks one item, so a single tool becomes empty. `None` when the
+    /// user data cannot be edited.
+    #[must_use]
+    pub fn worn(&self, damage: i32, maximum: Option<i32>, legacy_request_id: i32) -> Option<Self> {
+        if maximum.is_some_and(|maximum| damage > maximum) {
+            return Some(self.less_one(legacy_request_id));
+        }
+        let extra_data = crate::edit_item_extra(
+            self.extra_data(),
+            &crate::ItemNbtEdit {
+                damage: Some(damage),
+                ..crate::ItemNbtEdit::default()
+            },
+        )?;
+        let nbt_digest: [u8; 32] = Sha256::digest(&extra_data).into();
+        let inner = NetworkItemStack {
+            extra_data,
+            nbt_digest,
+            stack_network_id: legacy_request_id,
+            ..self.inner.clone()
+        };
+        Self::try_new(inner, nbt_digest).ok()
     }
 
     /// The stack less one item, carrying `legacy_request_id` as its net id; empty when none

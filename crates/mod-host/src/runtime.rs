@@ -138,14 +138,6 @@ pub(crate) struct State {
 }
 
 impl State {
-    /// Derives camera ownership from current transient policy and the retained rig.
-    fn camera_output(&self) -> bool {
-        self.world.rig.is_some()
-            || self.camera_delta.is_some()
-            || self.camera_policy.committed_view_scale.is_some()
-            || self.camera_policy.committed_view_tilt.is_some()
-    }
-
     pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
@@ -345,6 +337,11 @@ pub(super) struct Instance {
 }
 
 impl Instance {
+    /// Borrows the last successfully committed terrain surface policy.
+    pub(super) fn terrain_surface_rules(&self) -> &[mod_api::terrain_surface::Rule] {
+        &self.store.data().environment.surface_rules
+    }
+
     /// Clears transient outputs even when no guest callback can execute this frame.
     pub(super) fn begin_frame(&mut self) {
         let state = self.store.data_mut();
@@ -368,6 +365,12 @@ impl Instance {
         state.controls.native_editing = false;
     }
 
+    /// Releases retained movement output the guest could not renew under this frame's controls,
+    /// including frames spent recovering from a fuel overrun.
+    pub(super) fn release_unrenewable_movement(&mut self, controls: &crate::ControlFrame) {
+        self.store.data_mut().world.release_unrenewable(controls);
+    }
+
     /// Validates client facts for the next frame callback only.
     pub(super) fn observe_gameplay(&mut self, facts: crate::GameplayFacts) -> Result<()> {
         gameplay::validate_facts(&facts)?;
@@ -386,6 +389,7 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.scroll = crate::empty_scroll();
         state.controls.native_editing = false;
         state.controls.native_editing_next = false;
         state.pressed = false;
@@ -404,7 +408,9 @@ impl Instance {
         // Deferred events may stage frame-only output; only this callback may publish it.
         self.begin_frame();
         if !self.is_active() {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Ok(());
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
@@ -413,7 +419,9 @@ impl Instance {
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
         if let Err(error) = validation {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Err(error);
         }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
@@ -538,7 +546,11 @@ impl Instance {
         let timing = self.callback_timing();
         self.store.data_mut().begin_callback();
         if fuel == FRAME_FUEL && !self.exports.requires_synchronous_frames() {
-            crate::execution::arm_resumable(&mut self.store, allowance)?;
+            let epoch_yields = self
+                .callback_budget
+                .as_ref()
+                .is_none_or(|budget| budget.time.epoch_yields());
+            crate::execution::arm_resumable(&mut self.store, allowance, epoch_yields)?;
         } else {
             crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         }
@@ -676,6 +688,20 @@ impl Instance {
     /// Reads the committed use pulse before output collection, without consuming it.
     pub(super) fn use_pulse_requested(&self) -> bool {
         self.is_active() && self.store.data().item_use_policy.pulse
+    }
+
+    /// Current-frame relative camera heading from a successful focused gameplay callback.
+    pub(super) fn camera_yaw_offset(&self) -> Option<f32> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_yaw_offset)
+            .flatten()
+    }
+
+    /// Only a successful, focused gameplay callback publishes a perspective override.
+    pub(super) fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_perspective)
+            .flatten()
     }
 
     /// Only a successful, focused gameplay callback publishes a view multiplier.
@@ -923,7 +949,7 @@ impl Instance {
         self.last_fuel
     }
 
-    /// Returns the current successful callback's granted complete movement input.
+    /// Returns the granted complete movement input from the last callback completed in its frame.
     pub(super) fn movement_input(&self) -> Option<crate::GameplayMovementInput> {
         self.store
             .data()
@@ -932,14 +958,22 @@ impl Instance {
             .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the movement intents committed by the current successful frame.
+    /// Returns the granted movement intents from the last callback completed in its frame.
     pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
-        self.store.data().world.movement_intents
+        self.store
+            .data()
+            .world
+            .movement_intents
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the control modes committed by the current successful frame.
+    /// Returns the granted control modes from the last callback completed in its frame.
     pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
-        self.store.data().world.control_modes
+        self.store
+            .data()
+            .world
+            .control_modes
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {

@@ -532,6 +532,40 @@ fn pose_updates_reuse_their_buffers() {
     assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
     assert!(gpu.atlases[1].as_ref().unwrap().pixels.ptr_eq(&off_pixels));
 
+    // Switching animation settings preserves the artwork but changes its sampling format.
+    let frame = scene.frame.as_mut().unwrap();
+    for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
+        let previous = gpu.atlases[0].as_ref().unwrap()._texture.id();
+        frame.light = light;
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        let atlas = gpu.atlases[0].as_ref().unwrap();
+        assert_ne!(atlas._texture.id(), previous);
+        assert_eq!(
+            atlas._texture.format(),
+            bindings::hand_artwork_format(&light)
+        );
+        let uploaded = atlas._texture.id();
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        assert_eq!(gpu.atlases[0].as_ref().unwrap()._texture.id(), uploaded);
+    }
+
+    // Switching animation settings preserves the artwork but changes its sampling format.
+    let frame = scene.frame.as_mut().unwrap();
+    for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
+        let previous = gpu.atlases[0].as_ref().unwrap()._texture.id();
+        frame.light = light;
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        let atlas = gpu.atlases[0].as_ref().unwrap();
+        assert_ne!(atlas._texture.id(), previous);
+        assert_eq!(
+            atlas._texture.format(),
+            bindings::hand_artwork_format(&light)
+        );
+        let uploaded = atlas._texture.id();
+        upload_atlas(&mut gpu, &device, &queue, frame);
+        assert_eq!(gpu.atlases[0].as_ref().unwrap()._texture.id(), uploaded);
+    }
+
     // The same pixel allocation with new dimensions is not the same texture.
     scene.set_item_atlases([
         Some(HandItemAtlas {
@@ -622,13 +656,31 @@ fn native_skin_hand_uploads_match_source_dimensions_and_reuse_textures() {
             1.2
         ));
     }
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let frame = scene.frame.as_mut().unwrap();
+    upload_skin(&mut gpu, &device, &queue, frame);
+    for light in [light().with_java_lighting(Mat4::IDENTITY), light()] {
+        let previous = gpu.skin.as_ref().unwrap()._texture.id();
+        frame.light = light;
+        upload_skin(&mut gpu, &device, &queue, frame);
+        let skin = gpu.skin.as_ref().unwrap();
+        assert_ne!(skin._texture.id(), previous);
+        assert_eq!(
+            skin._texture.format(),
+            bindings::hand_artwork_format(&light)
+        );
+        let uploaded = skin._texture.id();
+        upload_skin(&mut gpu, &device, &queue, frame);
+        assert_eq!(gpu.skin.as_ref().unwrap()._texture.id(), uploaded);
+    }
 }
 
 #[test]
 fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
     for samples in [1, 2, 4, 8] {
         for hdr in [false, true] {
-            let descriptor = specialized_pipeline(hand_rig_layout(), samples, hdr);
+            let descriptor = specialized_pipeline(hand_rig_layout(), samples, hdr, false);
             assert_eq!(descriptor.multisample.count, samples);
             assert_eq!(
                 descriptor.depth_stencil.unwrap().format,
@@ -649,7 +701,7 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
     }
 }
 
-/// Hand artwork allows the pack's raw view only while a pack draws; switching recreates it.
+/// Bedrock artwork is already raw; Java artwork and glint gain raw views for packs.
 #[test]
 fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
@@ -684,7 +736,50 @@ fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
             &gpu.glint.as_ref().unwrap()._texture,
         ];
         for texture in textures {
-            assert_eq!(permits_raw_view(device.wgpu_device(), texture), pack);
+            assert_eq!(
+                permits_raw_view(device.wgpu_device(), texture),
+                pack || texture.format() == TextureFormat::Rgba8Unorm
+            );
         }
     }
+}
+
+#[test]
+fn bedrock_sdr_hands_use_gamma_blending_independently_of_java_and_hdr() {
+    for java in [false, true] {
+        let light = if java {
+            light().with_java_lighting(Mat4::IDENTITY)
+        } else {
+            light()
+        };
+        for hdr in [false, true] {
+            assert_eq!(
+                bindings::hand_uses_encoded_color(&light, hdr),
+                !java && !hdr
+            );
+        }
+    }
+    let mut entries = std::array::from_fn(|_| None);
+    let mut created = 0;
+    for encoded in [false, true, false, true] {
+        let id = memoized_pipeline(&mut entries, 1, false, encoded, || {
+            created += 1;
+            created
+        })
+        .unwrap();
+        assert_eq!(id, if encoded { 2 } else { 1 });
+        let descriptor = specialized_pipeline(hand_rig_layout(), 1, false, encoded);
+        assert_eq!(
+            descriptor.fragment.unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .format,
+            if encoded {
+                TextureFormat::Rgba8Unorm
+            } else {
+                render_scene::SCENE_COLOR_FORMAT
+            }
+        );
+    }
+    assert_eq!(created, 2);
 }

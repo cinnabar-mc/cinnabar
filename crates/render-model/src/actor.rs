@@ -27,10 +27,10 @@ pub use biped::{
 };
 pub use geometry::{ONE_SIDED_BACK_UV, append_entity_cube_vertices};
 pub use ids::{
-    DIAGNOSTIC_RIG_ID, MAX_SKIN_RIGS, equipment_rig_id, is_equipment_rig_id,
-    is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id, is_skin_rig_id,
-    item_mesh_rig_id, layer_geometries, layer_geometry_rig_id, pack_equipment_rig_id, pack_rig_id,
-    skin_rig_id,
+    DIAGNOSTIC_RIG_ID, ITEM_MESH_RIG_ID_CAPACITY, MAX_SKIN_RIGS, cosmetic_rig_id, equipment_rig_id,
+    is_equipment_rig_id, is_layer_geometry_rig_id, is_pack_equipment_rig_id, is_pack_rig_id,
+    is_skin_rig_id, item_mesh_rig_id, layer_geometries, layer_geometry_rig_id,
+    pack_equipment_rig_id, pack_rig_id, skin_rig_id,
 };
 pub use rig::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, EntityRigId,

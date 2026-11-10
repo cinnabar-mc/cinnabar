@@ -407,7 +407,7 @@ func chooseSessionPacks(offers []sessionOffer, entries []sessionStackEntry, requ
 		seen[id] = true
 		selected = append(selected, sessionPack{
 			UUID: offer.info.UUID.String(), Version: offer.info.Version, SubPack: entry.subPack,
-			ContentKey: offer.info.ContentKey, Size: uint64(max(offer.pack.Size(), 0)),
+			ContentKey: sessionContentKey(offer.info.ContentKey), Size: uint64(max(offer.pack.Size(), 0)),
 		})
 		packs = append(packs, offer.pack)
 	}

@@ -1,5 +1,6 @@
 //! Pure UI rasterization, layout and publication after input enqueue.
 use super::*;
+use bevy::prelude::DetectChangesMut;
 use std::sync::Arc;
 
 /// Publishes the UI captured during preparation.
@@ -51,7 +52,14 @@ pub(crate) fn publish_ui_runtime(
             presentation.hud_frame().held_item_icon,
         );
     }
-    if let Err(error) = scene.publish(input, &stats) {
+    // Republishing the accepted frame leaves the resource unchanged, so render extraction skips
+    // its clone; any accepted or rejected publication changes the revision or input.
+    let published = (scene.revision, scene.input.as_ref().map(Arc::as_ptr));
+    let result = scene.bypass_change_detection().publish(input, &stats);
+    if published != (scene.revision, scene.input.as_ref().map(Arc::as_ptr)) {
+        scene.set_changed();
+    }
+    if let Err(error) = result {
         hand.clear();
         presentation.record_frame_failure(&UiPresentationError::Render(error));
     } else if let Some(item_glint) = item_glint.as_mut() {
@@ -71,7 +79,7 @@ pub(crate) fn publish_ui_runtime(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
-    use bevy::prelude::World;
+    use bevy::prelude::{DetectChanges, World};
 
     /// Supplies only CPU presentation owners, without a window or network connection.
     fn world() -> World {
@@ -118,6 +126,26 @@ mod tests {
     /// The session's recorded fatal error, if publication ended it.
     fn fatal_error(world: &World) -> &Option<String> {
         &world.resource::<crate::runtime::shutdown::FatalError>().0
+    }
+
+    /// A warm, unchanged frame republishes nothing, so render extraction does not clone the scene.
+    #[test]
+    fn unchanged_frame_leaves_the_published_scene_unchanged() {
+        let mut world = world();
+        let published = |world: &World| {
+            let scene = world.resource_ref::<render_scene::UiRenderSceneResource>();
+            (scene.last_changed(), scene.revision, scene.input.is_some())
+        };
+        publish(&mut world, [1280, 720]);
+        let first = published(&world);
+        assert!(first.2);
+        world.increment_change_tick();
+        publish(&mut world, [1280, 720]);
+        assert_eq!(published(&world), first);
+        world.increment_change_tick();
+        publish(&mut world, [1024, 600]);
+        let resized = published(&world);
+        assert!(resized.0 != first.0 && resized.1 > first.1);
     }
 
     #[test]

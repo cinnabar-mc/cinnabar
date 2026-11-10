@@ -401,8 +401,9 @@ fn render_fixture(cache_admission: bool) {
     let frames = gpu.words(&[0, 1], storage);
     let clock = gpu.words(&[1, 0.25_f32.to_bits(), 0, 0], uniform);
     let streams = gpu.words(&crate::solid_terrain_raster::lighting_words(CASES), storage);
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = [0.0; 40];
     atmosphere[16..19].copy_from_slice(&[0.13, 0.22, 0.31]);
+    atmosphere[36..39].copy_from_slice(&render_model::celestial::rgb_to_gamma([0.13, 0.22, 0.31]));
     atmosphere[20] = 64.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);
     let lightmap = gpu.lightmap(bytemuck::cast_slice(
@@ -548,7 +549,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         tint_gamma,
         in.native_ao_face,
         terrain_light_colour(in.native_light_levels),
-        atmosphere.fog_color_start.rgb,
+        atmosphere.fog_gamma.rgb,
         distance_fog_amount(in.world_position),
     );
     return native_colour;

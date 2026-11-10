@@ -5,6 +5,9 @@ use std::sync::Arc;
 /// Maximum bytes in a mod's displayed installed or available release version.
 pub const MAX_VERSION_BYTES: usize = 32;
 
+/// The only package authorized to use component-declared revision update metadata.
+pub const OFFICIAL_UPDATE_PACKAGE: &str = "cinnabar-client-mod";
+
 /// Bounded single-line text from the component's standard metadata, plus a validated icon.
 /// Absent fields fall back to the file name or a placeholder.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -15,11 +18,11 @@ pub struct ModMetadata {
     /// The standard section's freeform contact text.
     pub authors: Option<String>,
     pub licenses: Option<String>,
-    /// Author opt-in to launch-time checks of this public GitHub repository's releases.
+    /// Legacy declaration retained for metadata readers; never authorizes update checks.
     pub update_repository: Option<GitHubRepository>,
-    /// Author opt-in to automatic installation of a named latest-release WASM asset.
+    /// Legacy declaration retained for metadata readers; never authorizes installation.
     pub update_url: Option<GitHubModAsset>,
-    /// Revision-aware catalogue opt-in; older hosts ignore this separate declaration.
+    /// Official package identity for revision-checked updates through the client API.
     pub revision_update: Option<RevisionModUpdate>,
     /// Encoded PNG source that decoded within the icon section's limits.
     pub icon: Option<Arc<[u8]>>,
@@ -50,7 +53,8 @@ impl RevisionModUpdate {
         let declaration: Declaration = serde_json::from_slice(bytes).ok()?;
         let package = declaration.package;
         let revision = declaration.revision;
-        if package.is_empty()
+        if package != OFFICIAL_UPDATE_PACKAGE
+            || package.is_empty()
             || package.len() > 128
             || !package.as_bytes()[0].is_ascii_lowercase()
                 && !package.as_bytes()[0].is_ascii_digit()
@@ -124,6 +128,14 @@ impl GitHubRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_official_package_can_declare_revision_updates() {
+        let mut value = serde_json::json!({"source":"https://github.com/example/mod/releases/latest/download/mod.wasm", "package": OFFICIAL_UPDATE_PACKAGE, "revision":"a".repeat(40), "api_revision":"b".repeat(40)});
+        assert!(RevisionModUpdate::parse(value.to_string().as_bytes()).is_some());
+        value["package"] = serde_json::json!("third-party");
+        assert!(RevisionModUpdate::parse(value.to_string().as_bytes()).is_none());
+    }
 
     #[test]
     fn repository_urls_are_optional_and_restricted_to_github_repositories() {

@@ -162,11 +162,31 @@ impl UiPresentationRuntime {
                             nodes,
                             next,
                             metrics,
-                            content,
+                            if crosshair {
+                                [logical_width, logical_height]
+                            } else {
+                                content
+                            },
                             now_millis,
                             crosshair,
                         )?;
-                        if !crosshair {
+                        if crosshair {
+                            // The reticle follows the world viewport, outside safe-area layout.
+                            for node in &mut nodes[hud_start..] {
+                                if node.parent().is_none() {
+                                    *node = node
+                                        .clone()
+                                        .with_bounds(
+                                            node.bounds()
+                                                .translated([-safe_area.left(), -safe_area.top()])
+                                                .map_err(UiPresentationError::Geometry)?,
+                                        )
+                                        .with_viewport_clip(
+                                            node.viewport_clip().unwrap_or(viewport),
+                                        );
+                                }
+                            }
+                        } else {
                             hud_nodes = hud_start..nodes.len();
                             self.append_mod_hud(
                                 player_runtime,
@@ -391,7 +411,7 @@ impl UiPresentationRuntime {
                 content,
             );
             // Personal panels can admit host portraits while painting this frame.
-            self.sync_server_ui_pages();
+            self.end_ui_frame();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {

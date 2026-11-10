@@ -166,7 +166,7 @@ impl ActorAnimationStore {
             bone_names: state.posed_bone_names(),
         };
         let mut budget = EvalBudget {
-            actor_left: MAX_MOLANG_OPS_PER_ACTOR_FRAME,
+            actor_left: FRAME_PASSES_PER_ACTOR * molang_tick_budget(assets, state.rig_binding),
             world_left: remaining_ops,
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME,
             transitions_left: 0,

@@ -210,6 +210,29 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 }
 
 #[test]
+fn creative_hides_hud_durability_bars_until_the_mode_changes_back() {
+    let mut fixture = Fixture::default();
+    fixture.frame.hotbar_stacks[0] = Some(stack(1));
+    fixture.frame.hotbar_durability[0] = Some(0.6);
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.hotbar[0].durability, Some(f64::from(0.6f32)));
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    assert!(fixture.check(&mut cache).hotbar);
+    assert_eq!(cache.model.hotbar[0].durability, None);
+    assert_eq!(cache.model.hotbar[0].count, 1);
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    assert!(fixture.check(&mut cache).hotbar);
+    assert_eq!(cache.model.hotbar[0].durability, Some(f64::from(0.6f32)));
+}
+
+#[test]
 fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     let mut fixture = Fixture::default();
     fixture
@@ -768,6 +791,15 @@ fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
             .set_local_player_display_name(Arc::from(name));
         assert!(fixture.check(&mut cache).chat);
         assert_eq!(cache.model.chat_local_player.as_ref(), name);
+        assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
+        assert!(!fixture.check(&mut cache).chat);
+    }
+    for only_self in [true, false] {
+        fixture
+            .settings
+            .set(SettingId::MentionsTarget.index(), i32::from(only_self));
+        assert!(fixture.check(&mut cache).chat);
+        assert_eq!(cache.model.chat_mentions_only_self, only_self);
         assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
         assert!(!fixture.check(&mut cache).chat);
     }

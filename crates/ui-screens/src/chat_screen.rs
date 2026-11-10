@@ -179,7 +179,10 @@ impl ChatScreen {
                 text,
                 color,
                 Some(self.settings.options.mentions_color_code()),
-                input.local_player,
+                self.settings
+                    .options
+                    .mentions_only_self()
+                    .then_some(input.local_player),
             )
         };
         let art = ScreenArt {

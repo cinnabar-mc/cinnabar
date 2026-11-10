@@ -40,6 +40,14 @@ pub(super) enum Lane {
     Summary,
 }
 
+impl Lane {
+    /// Whether the lane's work may run below frame priority. Light and summaries trail the
+    /// frame; mesh and decode gate chunks appearing, so they keep normal priority on any worker.
+    const fn below_frame(self) -> bool {
+        matches!(self, Self::Light | Self::Summary)
+    }
+}
+
 /// Thread split for one machine; only background threads take light, so they cap its width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct PoolSize {
@@ -66,6 +74,16 @@ impl PoolSize {
 type Job = Box<dyn FnOnce(&mut WorkerScratch) + Send + 'static>;
 type Queue = VecDeque<(Moment, Job)>;
 
+/// A job a worker took, with whether its lane may run it below frame priority.
+struct Taken {
+    job: Job,
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        allow(dead_code, reason = "the browser driver has no thread priorities")
+    )]
+    below_frame: bool,
+}
+
 #[derive(Default)]
 struct Queues {
     /// Work for a block the local player just changed, with its lane. Every worker takes it
@@ -85,13 +103,17 @@ struct Queues {
 impl Queues {
     /// Adds one lane job with its monotonic submission observation.
     fn push(&mut self, lane: Lane, queued_at: Moment, job: Job) {
-        let queue = match lane {
+        self.queue(lane).push_back((queued_at, job));
+    }
+
+    /// The backlog that holds `lane`'s jobs.
+    fn queue(&mut self, lane: Lane) -> &mut Queue {
+        match lane {
             Lane::Mesh => &mut self.mesh,
             Lane::Decode => &mut self.decode,
             Lane::Light => &mut self.light,
             Lane::Summary => &mut self.summary,
-        };
-        queue.push_back((queued_at, job));
+        }
     }
 
     /// Alternates worker eligibility so overdue light cannot occupy every browser turn.
@@ -100,7 +122,8 @@ impl Queues {
         let background = !self.foreground_turn;
         let job = self
             .take(background, now)
-            .or_else(|| (!background).then(|| self.take(true, now)).flatten());
+            .or_else(|| (!background).then(|| self.take(true, now)).flatten())
+            .map(|taken| taken.job);
         if job.is_some() {
             self.foreground_turn = !self.foreground_turn;
         }
@@ -108,10 +131,13 @@ impl Queues {
     }
 
     /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
-    /// Urgent work comes first on any thread.
-    fn take(&mut self, background: bool, now: Moment) -> Option<Job> {
+    /// Urgent work comes first on any thread and never runs below frame priority.
+    fn take(&mut self, background: bool, now: Moment) -> Option<Taken> {
         if let Some((_, job)) = self.urgent.pop_front() {
-            return Some(job);
+            return Some(Taken {
+                job,
+                below_frame: false,
+            });
         }
         let overdue = |queue: &Queue, limit| {
             queue
@@ -119,19 +145,25 @@ impl Queues {
                 .is_some_and(|(queued, _)| now.saturating_duration_since(*queued) >= limit)
         };
         let lane = if background && overdue(&self.light, LIGHT_MAX_WAIT) {
-            &mut self.light
+            Lane::Light
         } else if overdue(&self.decode, DECODE_MAX_WAIT) || self.mesh.is_empty() {
             if self.decode.is_empty() && background {
-                &mut self.light
+                Lane::Light
             } else {
-                &mut self.decode
+                Lane::Decode
             }
         } else {
-            &mut self.mesh
+            Lane::Mesh
         };
-        lane.pop_front()
-            .or_else(|| background.then(|| self.summary.pop_front()).flatten())
-            .map(|(_, job)| job)
+        let lane = if self.queue(lane).is_empty() && background {
+            Lane::Summary
+        } else {
+            lane
+        };
+        self.queue(lane).pop_front().map(|(_, job)| Taken {
+            job,
+            below_frame: lane.below_frame(),
+        })
     }
 }
 

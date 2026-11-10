@@ -115,6 +115,7 @@ bitflags! {
         const BLOCK_ENTITY_BACKING = 1 << 60;
         const FARMLAND = 1 << 61;
         const CAN_CONTAIN_LIQUID_SOURCE = 1 << 62;
+        const INTERACTIVE = 1 << 63;
     }
 }
 

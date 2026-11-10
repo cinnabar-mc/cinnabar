@@ -89,6 +89,8 @@ pub(super) struct LivePlayer {
     pub(super) parts: [Option<Affine3A>; 6],
     /// Unmasked item bones from the UI evaluation, independent of arm visibility.
     pub(super) hands: [Option<RenderBoneTransform>; 2],
+    /// The posed head bone, which carries a block worn on the head.
+    pub(super) head_bone: Option<RenderBoneTransform>,
     pub(super) frame: Affine3A,
     part_bindings: [Option<(usize, Affine3A)>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
@@ -222,6 +224,7 @@ impl UiPresentationRuntime {
         live.head = None;
         live.parts = [None; 6];
         live.hands = [None; 2];
+        live.head_bone = None;
         live.frame = Affine3A::IDENTITY;
         live.fire_size = None;
         live.body.geometry = None;
@@ -337,6 +340,7 @@ impl UiPresentationRuntime {
         });
         live.body.capture(geometry, &live.bones, frame);
         let head_index = live.part_bindings[0].map(|(index, _)| index);
+        live.head_bone = head_index.and_then(|index| live.bones.get(index).copied());
         live.head = head_index.and_then(|index| {
             let bone = live.bones.get(index)?;
             let rotation = Vec4::from_array(bone.rotation)

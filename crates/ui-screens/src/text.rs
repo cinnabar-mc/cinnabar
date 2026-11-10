@@ -45,22 +45,24 @@ pub fn resolve_chat_line<'a>(
     }
 }
 
-/// Highlights the local display name and all-player mentions, preserving surrounding formatting.
+/// Colors all names, or the selected display name and all-player mentions, preserving styles.
 pub fn highlight_mentions<'a>(
     text: &'a str,
-    local_player: &str,
+    only_self: Option<&str>,
     mention_code: char,
 ) -> Cow<'a, str> {
     if !text.contains('@') {
         return Cow::Borrowed(text);
     }
-    let target = (!local_player.is_empty())
-        .then(|| format!("@{}", protocol::quote_chat_player_name(local_player)));
+    let target = only_self
+        .filter(|name| !name.is_empty())
+        .map(|local_player| format!("@{}", protocol::quote_chat_player_name(local_player)));
     let mut out = String::with_capacity(text.len() + 16);
     let mut chars = text.char_indices().peekable();
     let mut style = ui::TextStyle::default();
     let mut color = None;
     let mut last_end = 0;
+    let mut previous = ' ';
     while let Some((idx, ch)) = chars.next() {
         if ch == '§' {
             if let Some((_, code)) = chars.next() {
@@ -81,19 +83,29 @@ pub fn highlight_mentions<'a>(
             }
             continue;
         }
-        if ch == '@' {
+        if ch == '@' && !previous.is_alphanumeric() && !matches!(previous, '_' | '.' | '-' | '@') {
             let remaining = &text[idx..];
-            let matched = [Some(protocol::ALL_PLAYERS_MENTION), target.as_deref()]
-                .into_iter()
-                .flatten()
-                .find(|candidate| {
-                    remaining.strip_prefix(*candidate).is_some_and(|tail| {
-                        !tail
-                            .as_bytes()
-                            .first()
-                            .is_some_and(u8::is_ascii_alphanumeric)
+            let matched = if only_self.is_some() {
+                [Some(protocol::ALL_PLAYERS_MENTION), target.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .find(|candidate| {
+                        remaining.strip_prefix(*candidate).is_some_and(|tail| {
+                            !tail
+                                .as_bytes()
+                                .first()
+                                .is_some_and(u8::is_ascii_alphanumeric)
+                        })
                     })
-                });
+            } else {
+                let name = &remaining[1..];
+                let len = if let Some(quoted) = name.strip_prefix('"') {
+                    quoted.find('"').map_or(0, |end| end + 2)
+                } else {
+                    unquoted_mention_len(name, previous == '(')
+                };
+                (len > 0).then_some(&remaining[..len + 1])
+            };
             if let Some(matched) = matched {
                 let end = idx + matched.len();
                 while chars.peek().is_some_and(|(next, _)| *next < end) {
@@ -122,6 +134,7 @@ pub fn highlight_mentions<'a>(
                 last_end = end;
             }
         }
+        previous = ch;
     }
     if last_end == 0 {
         Cow::Borrowed(text)
@@ -131,12 +144,29 @@ pub fn highlight_mentions<'a>(
     }
 }
 
+/// Keeps completion name characters together, excluding an outer closing parenthesis.
+fn unquoted_mention_len(name: &str, parenthesized: bool) -> usize {
+    let mut parentheses = 0;
+    name.find(|ch: char| {
+        if parenthesized {
+            match ch {
+                '(' => parentheses += 1,
+                ')' if parentheses == 0 => return true,
+                ')' => parentheses -= 1,
+                _ => {}
+            }
+        }
+        !ch.is_alphanumeric() && !"()-.:?_".contains(ch)
+    })
+    .unwrap_or(name.len())
+}
+
 /// Applies the saved default color and then mention coloring to a decoded label.
 pub(crate) fn format_chat_label(
     text: &str,
     color: Option<char>,
     mention: Option<char>,
-    local_player: &str,
+    only_self: Option<&str>,
 ) -> String {
     let colored = color.map(|code| {
         let mut result = format!("§{code}");
@@ -157,8 +187,7 @@ pub(crate) fn format_chat_label(
     });
     match mention {
         Some(mention) => {
-            highlight_mentions(colored.as_deref().unwrap_or(text), local_player, mention)
-                .into_owned()
+            highlight_mentions(colored.as_deref().unwrap_or(text), only_self, mention).into_owned()
         }
         None => colored.unwrap_or_else(|| text.to_owned()),
     }
@@ -197,9 +226,75 @@ mod tests {
     #[test]
     fn unrelated_mentions_and_longer_names_keep_their_original_text() {
         let text = "§d@Steve @something @Alex123 @Alexander @alex";
-        let formatted = highlight_mentions(text, "Alex", 'e');
+        let formatted = highlight_mentions(text, Some("Alex"), 'e');
         assert!(matches!(formatted, Cow::Borrowed(_)));
         assert_eq!(formatted, text);
+    }
+
+    #[test]
+    fn everyone_mode_highlights_other_names_and_keeps_email_addresses_literal() {
+        assert_eq!(
+            highlight_mentions("@Alex @Steve @here test@example.com", None, 'b'),
+            "§b@Alex§r §b@Steve§r §b@here§r test@example.com"
+        );
+        assert_eq!(
+            highlight_mentions("§c§l@\"Alex One\" @Steve tail", None, 'e'),
+            "§c§l§e@\"Alex One\"§c §e@Steve§c tail"
+        );
+    }
+
+    #[test]
+    fn everyone_mode_matches_the_completion_name_alphabet() {
+        for ch in (0u8..=127).map(char::from) {
+            for name in [
+                format!("{ch}Alex"),
+                format!("Alex{ch}One"),
+                format!("Alex{ch}"),
+            ] {
+                let target = format!("@{name}");
+                let whole_name = highlight_mentions(&target, None, 'e') == format!("§e{target}§r");
+                assert_eq!(
+                    whole_name,
+                    protocol::quote_chat_player_name(&name) == name,
+                    "name {name:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn everyone_mode_highlights_mentions_inside_punctuation_delimiters() {
+        for (text, expected) in [
+            ("(@Alex)", "(§e@Alex§r)"),
+            ("[@here]", "[§e@here§r]"),
+            ("{@Steve}", "{§e@Steve§r}"),
+            ("hi,@Alex!", "hi,§e@Alex§r!"),
+            ("((@Alex))", "((§e@Alex§r))"),
+            ("(@Alex(One))", "(§e@Alex(One)§r)"),
+            ("(§l@.Alex)", "(§l§e@.Alex§r§l)"),
+            ("[@Alex-One]", "[§e@Alex-One§r]"),
+            ("(@\"Alex One\")", "(§e@\"Alex One\"§r)"),
+        ] {
+            assert_eq!(highlight_mentions(text, None, 'e'), expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn everyone_mode_excludes_email_addresses_and_inner_ats() {
+        for text in [
+            "test@example.com",
+            "test.name@example.com",
+            "test-name@example.com",
+            "test_name@example.com",
+            "test+tag@example.com",
+            "word@Alex",
+            "@@Alex",
+        ] {
+            assert!(matches!(
+                highlight_mentions(text, None, 'e'),
+                Cow::Borrowed(_)
+            ));
+        }
     }
 
     #[test]
@@ -210,12 +305,12 @@ mod tests {
             ("", "@Alex @Steve §e@here§r"),
         ] {
             assert_eq!(
-                highlight_mentions("@Alex @Steve @here", name, 'e'),
+                highlight_mentions("@Alex @Steve @here", Some(name), 'e'),
                 expected
             );
         }
         assert_eq!(
-            highlight_mentions("@hereafter @Here", "Alex", 'e'),
+            highlight_mentions("@hereafter @Here", Some("Alex"), 'e'),
             "@hereafter @Here"
         );
     }
@@ -226,7 +321,7 @@ mod tests {
             let target = format!("@{}", protocol::quote_chat_player_name(name));
             let text = format!("{target}! @{name} @{name}Extra");
             assert_eq!(
-                highlight_mentions(&text, name, 'e'),
+                highlight_mentions(&text, Some(name), 'e'),
                 format!("§e{target}§r! @{name} @{name}Extra")
             );
         }
@@ -235,21 +330,34 @@ mod tests {
     #[test]
     fn mentions_are_highlighted_with_selected_color() {
         let text = "Hello @PlayerName how are you?";
-        let formatted = highlight_mentions(text, "PlayerName", 'e');
+        let formatted = highlight_mentions(text, Some("PlayerName"), 'e');
         assert_eq!(formatted, "Hello §e@PlayerName§r how are you?");
     }
 
     #[test]
-    fn emails_or_inner_ats_are_not_mentions() {
-        let text = "Contact test@example.com for info";
-        let formatted = highlight_mentions(text, "Alex", 'e');
-        assert_eq!(formatted, "Contact test@example.com for info");
+    fn only_self_mode_excludes_email_addresses_and_inner_ats() {
+        for name in ["Alex", "Alex One", ""] {
+            for text in [
+                "test@Alex",
+                "test.name@Alex",
+                "test-name@Alex",
+                "test_name@Alex",
+                "@@Alex",
+                "test@here",
+                "@@here",
+                "test@\"Alex One\"",
+            ] {
+                let formatted = highlight_mentions(text, Some(name), 'e');
+                assert!(matches!(formatted, Cow::Borrowed(_)), "{name:?}: {text}");
+                assert_eq!(formatted, text);
+            }
+        }
     }
 
     #[test]
     fn mention_highlighting_preserves_surrounding_styles() {
         let text = "§c§l§oAlert @Alex still red";
-        let formatted = highlight_mentions(text, "Alex", 'e');
+        let formatted = highlight_mentions(text, Some("Alex"), 'e');
         let spans = ui::parse_bedrock_text(&formatted, usize::MAX).unwrap();
         assert_eq!(spans.plain_text(), "Alert @Alex still red");
         let after = spans.last().unwrap();
@@ -259,7 +367,12 @@ mod tests {
 
     #[test]
     fn white_mentions_and_explicit_white_survive_a_selected_chat_color() {
-        let text = format_chat_label("Hello @Alex§r tail §fwhite", Some('a'), Some('f'), "Alex");
+        let text = format_chat_label(
+            "Hello @Alex§r tail §fwhite",
+            Some('a'),
+            Some('f'),
+            Some("Alex"),
+        );
         let spans = ui::parse_bedrock_text(&text, usize::MAX).unwrap();
         assert_eq!(spans.plain_text(), "Hello @Alex tail white");
         assert_eq!(spans[0].style.color, ui::BedrockColor::Green);
@@ -271,7 +384,7 @@ mod tests {
     #[test]
     fn mentions_restore_default_styles_and_handle_formatting_at_boundaries() {
         for input in ["§l§o@Alex tail", "§l§oHello @Alex tail"] {
-            let text = highlight_mentions(input, "Alex", 'e');
+            let text = highlight_mentions(input, Some("Alex"), 'e');
             let spans = ui::parse_bedrock_text(&text, usize::MAX).unwrap();
             let after = spans.last().unwrap();
             assert_eq!(after.style.color, ui::BedrockColor::Base);

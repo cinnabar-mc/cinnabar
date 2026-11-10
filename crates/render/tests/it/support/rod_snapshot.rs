@@ -251,7 +251,7 @@ pub(crate) fn render_at(
         &render_model::LightmapInputs::default().build(),
     ));
     let query = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere = [0.0; 40];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, uniform);

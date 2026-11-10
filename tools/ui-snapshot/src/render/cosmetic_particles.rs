@@ -18,6 +18,16 @@ pub(super) fn png(
     emitting: bool,
 ) -> Result<Vec<u8>, Error> {
     let (mesh, sources) = cosmetic_particle_preview(view, seconds, emitting);
+    mesh_png(size, mesh, sources, &[])
+}
+
+/// Renders a production preview mesh and optional inventory icons through the offline painter.
+pub(super) fn mesh_png(
+    size: [u32; 2],
+    mesh: Arc<UiMesh>,
+    sources: Vec<(u16, render_model::UiTexturePage)>,
+    icons: &[ui::IconRef],
+) -> Result<Vec<u8>, Error> {
     let mut pages: HashMap<_, _> = sources
         .into_iter()
         .map(|(index, page)| {
@@ -44,6 +54,12 @@ pub(super) fn png(
     );
     let bounds = ui_engine::engine::rect(0.0, 0.0, size[0] as f32, size[1] as f32)
         .map_err(|e| e.to_string())?;
+    let model_bounds = if icons.is_empty() {
+        bounds
+    } else {
+        ui_engine::engine::rect(0.0, 0.0, size[0] as f32, size[1] as f32 - 96.0)
+            .map_err(|e| e.to_string())?
+    };
     let mut nodes =
         vec![
             UiNode::new(UiNodeId::new(1), None, bounds).with_visual(UiVisual::Solid {
@@ -84,8 +100,27 @@ pub(super) fn png(
             .map_err(|e| e.to_string())?;
         let id = u32::try_from(nodes.len() + 1).map_err(|e| e.to_string())?;
         nodes.push(
-            UiNode::new(UiNodeId::new(id), None, bounds)
+            UiNode::new(UiNodeId::new(id), None, model_bounds)
                 .with_visual(UiVisual::Mesh(Arc::new(triangle))),
+        );
+    }
+    for (index, icon) in icons.iter().enumerate() {
+        let left = 16.0 + index as f32 * 64.0;
+        let icon_bounds = ui_engine::engine::rect(
+            left,
+            size[1] as f32 - 64.0,
+            left + 48.0,
+            size[1] as f32 - 16.0,
+        )
+        .map_err(|e| e.to_string())?;
+        nodes.push(
+            UiNode::new(UiNodeId::new(nodes.len() as u32 + 1), None, icon_bounds).with_visual(
+                UiVisual::Sprite {
+                    texture_page: icon.page,
+                    uv: icon.uv,
+                    color: [255; 4],
+                },
+            ),
         );
     }
     let mut tree = UiTree::new(nodes).map_err(|e| e.to_string())?;

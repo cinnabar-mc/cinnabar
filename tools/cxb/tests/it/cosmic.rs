@@ -223,6 +223,7 @@ fn message_request(player: &str, channel: &str, schema: u16, payload: Vec<Scalar
         snapshot: Vec::new(),
         network: None,
         inventory: None,
+        pose: None,
         containers: None,
         call: Call::ClientMessage {
             player: player.to_owned(),

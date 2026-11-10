@@ -127,11 +127,14 @@ fn unrelated_server_ui_keeps_creative_search_virtualized() {
         .unwrap()
         .0
         .clone();
+    let rebuilt = presentation.engine_inventory_rebuilt();
+    let mut most_placed = 0;
     for now in 1000..1030 {
+        let placed = presentation.engine_container_placed();
         runtime
             .screen_state_mut()
             .container_scroll
-            .insert(scroll.clone(), if now % 2 == 0 { 0.0 } else { 90.0 });
+            .insert(scroll.clone(), if now % 2 == 0 { 0.0 } else { 15.0 });
         let input = presentation
             .build(
                 &player,
@@ -144,7 +147,13 @@ fn unrelated_server_ui_keeps_creative_search_virtualized() {
         if now == 1029 {
             snapshot::write(&input, "creative-search-server-ui");
         }
+        most_placed = most_placed.max(presentation.engine_container_placed() - placed);
     }
+    assert_eq!(presentation.engine_inventory_rebuilt(), rebuilt);
+    assert!(
+        most_placed <= 1500,
+        "one wheel step placed {most_placed} controls instead of retaining the unaffected screen"
+    );
     assert!(
         !presentation
             .engine_container_frame()

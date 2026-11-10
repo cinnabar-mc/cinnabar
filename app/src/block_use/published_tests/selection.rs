@@ -214,3 +214,48 @@ fn nametag_pick_reuses_eye_ray_reach_occlusion_and_mount_exclusion() {
         );
     }
 }
+
+/// A warm, unchanged pick republishes nothing, so render extraction does not clone the selection.
+#[test]
+fn unchanged_selection_leaves_its_published_resources_unchanged() {
+    let (mut world, _) = fixture();
+    let origin = frame_origin(&world, Vec3::new(4.5, 2.5, 8.5), Quat::IDENTITY);
+    world.insert_resource(origin);
+    world.init_resource::<client_state::RuntimeSettings>();
+    world.init_resource::<render_scene::BlockSelectionFrameResource>();
+    world.init_resource::<crate::block_selection::CrosshairActor>();
+    world
+        .run_system_cached(crate::block_selection::publish)
+        .unwrap();
+    let ticks = |world: &World| {
+        (
+            world
+                .resource_ref::<render_scene::BlockSelectionFrameResource>()
+                .last_changed(),
+            world
+                .resource_ref::<crate::block_selection::CrosshairActor>()
+                .last_changed(),
+        )
+    };
+    let published = ticks(&world);
+    let revision = world
+        .resource::<render_scene::BlockSelectionFrameResource>()
+        .revision;
+    assert!(
+        !world
+            .resource::<render_scene::BlockSelectionFrameResource>()
+            .outline
+            .is_empty()
+    );
+    world.increment_change_tick();
+    world
+        .run_system_cached(crate::block_selection::publish)
+        .unwrap();
+    assert_eq!(ticks(&world), published);
+    assert_eq!(
+        world
+            .resource::<render_scene::BlockSelectionFrameResource>()
+            .revision,
+        revision
+    );
+}

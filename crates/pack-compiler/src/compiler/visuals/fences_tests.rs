@@ -202,3 +202,29 @@ fn ordinary_fence_arms_keep_position_derived_uvs() {
         assert_eq!(uv, [position[0] as u16 * 16, position[2] as u16 * 16]);
     }
 }
+
+#[test]
+fn inventory_and_world_bamboo_posts_share_their_texture_regions() {
+    let (compiled, records) = compile_fences();
+    let world = template_quads(&compiled, &records, "minecraft:bamboo_fence", 0);
+    let templates = [assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 0,
+        flags: assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    }];
+    let gui = assets::gui_item::block_gui_quads(
+        assets::facts::BlockRenderKind::BambooFence,
+        VisualKind::Model,
+        [1; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    let gui_uvs: std::collections::BTreeSet<_> = gui
+        .iter()
+        .filter(|q| q.corners.iter().any(|p| p[1] == 1.0))
+        .flat_map(|q| q.uvs.map(|uv| uv.map(|v| (v * 4096.0).round() as u16)))
+        .collect();
+    assert_eq!(gui_uvs, uv_set(&world));
+}
