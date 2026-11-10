@@ -120,7 +120,7 @@ fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() 
         for limit in [Unlimited, fixed(240)] {
             assert_eq!(
                 frame_rate_target(intent, limit, timing, FrameRateContext::Menus),
-                timing.refresh
+                Some(hz(60))
             );
         }
         assert_eq!(
@@ -134,7 +134,7 @@ fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() 
                 DisplayTiming::default(),
                 FrameRateContext::Menus
             ),
-            None
+            Some(hz(60))
         );
     }
 }

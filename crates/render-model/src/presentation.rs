@@ -189,9 +189,14 @@ pub fn frame_rate_target(
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
     };
     let requested = if context == FrameRateContext::Menus {
+        let menu_cap = FrameRate::from_hz(60);
         match (requested, display.refresh) {
-            (Some(requested), Some(refresh)) => Some(requested.min(refresh)),
-            (requested, refresh) => requested.or(refresh),
+            (Some(requested), Some(refresh)) => {
+                Some(requested.min(refresh).min(menu_cap.unwrap_or(requested)))
+            }
+            (Some(requested), None) => Some(requested.min(menu_cap.unwrap_or(requested))),
+            (None, Some(refresh)) => Some(refresh.min(menu_cap.unwrap_or(refresh))),
+            (None, None) => menu_cap,
         }
     } else {
         requested
