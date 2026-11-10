@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::StartGame;
+use bedrock_protocol_1_26_60::packets::StartGame;
 
 use super::game_rules::{daylight_cycle_rule_update, weather_cycle_rule_update};
 

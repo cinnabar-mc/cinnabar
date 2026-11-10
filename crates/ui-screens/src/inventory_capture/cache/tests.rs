@@ -84,13 +84,18 @@ struct Calls {
 /// Captures with observable resolvers and checks every field against uncached output.
 fn capture(
     cache: &mut InventoryProjectionCache,
-    input: ProjectionInput<'_>,
+    mut input: ProjectionInput<'_>,
     source: u16,
 ) -> (ProjectionUpdate, Calls) {
     let calls = RefCell::new(Calls::default());
     let ledger = input.ledger;
     let open = input.inventory_open;
     let animation = input.animation;
+    cache.prepare(ledger, open, input.refresh, || {
+        calls.borrow_mut().recipes += 1;
+        inventory::CraftGridMatch::NoMatch
+    });
+    input.refresh = ProjectionRefresh::default();
     let update = cache.capture(
         input,
         || {
@@ -458,7 +463,7 @@ fn furnace_ghosts_are_artwork_only_and_expire_with_the_storage_generation() {
             aux: 0,
             count: 1,
             block_runtime_id: 0,
-            empty_envelope: true,
+            user_data: protocol::RecipeOutputData::Empty,
         }),
     };
     ledger.begin_furnace_recipe(&recipe).unwrap();

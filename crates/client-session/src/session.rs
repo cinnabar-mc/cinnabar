@@ -100,6 +100,9 @@ pub enum NetworkControlEvent<P = ()> {
         rewind_history_size: i32,
         /// StartGame's level base game version, resolved for version gates.
         base_game_version: protocol::BaseGameVersion,
+        /// The overworld range StartGame's generator selects; a server overworld
+        /// definition replaces it.
+        overworld_range: protocol::DimensionRange,
         hardcore: bool,
         hud_rules: protocol::HudRules,
         death_rules: protocol::DeathRules,
@@ -109,6 +112,8 @@ pub enum NetworkControlEvent<P = ()> {
         terrain_before_spawn: bool,
         /// StartGame's hashed world identity, absent when no level ID was supplied.
         level_identity: Option<u64>,
+        /// The level display name supplied at login.
+        level_name: Arc<str>,
     },
     SubChunkRequestSent {
         receipt: SubChunkRequestReceipt,

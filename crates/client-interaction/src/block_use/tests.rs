@@ -7,6 +7,28 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+#[test]
+fn recent_actor_use_is_session_bound_and_expires() {
+    let mut runtime = super::BlockUseRuntime::default();
+    runtime.record_actor_use(1, 42, std::time::Duration::from_secs(10));
+    assert_eq!(
+        runtime.recent_actor_use(1, std::time::Duration::from_secs(15)),
+        Some(42)
+    );
+    assert_eq!(
+        runtime.recent_actor_use(1, std::time::Duration::from_secs(16)),
+        None
+    );
+    assert_eq!(
+        runtime.recent_actor_use(2, std::time::Duration::from_secs(10)),
+        None
+    );
+    assert_eq!(
+        runtime.recent_actor_use(1, std::time::Duration::from_secs(9)),
+        None
+    );
+}
+
 /// Builds a retained network stack for the adapter fixtures.
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
     let extra_data: Arc<[u8]> = Arc::from([]);

@@ -104,6 +104,9 @@ impl ServerAtlas {
         };
         let found = found.filter(|source| source.bytes.len() as u64 <= self.source_read_limit());
         let mut extra = self.extra.borrow_mut();
+        if found.is_none() && extra.len() < MAX_EXTRA {
+            tracing::debug!(target: "server_form", key, "UI texture unresolved");
+        }
         if extra.len() >= MAX_EXTRA {
             extra.pop_first();
         }

@@ -6,6 +6,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         active: true,
         input_authority_released: false,
         resolved_movement: false,
+        movement_override: false,
         movement: [0.0, 1.0],
         raw_movement: [0.0, 1.0],
         analogue_movement: [0.0, 1.0],
@@ -24,7 +25,7 @@ fn speed_frame(sprint: semantic_input::ActionPhase) -> super::PhysicsFrameInput 
         always_sprint: false,
         toggle_sneak: false,
         facts: Default::default(),
-        movement_modifier: None,
+        item_use_modifier: None,
         hold: None,
     }
 }
@@ -492,7 +493,7 @@ fn item_use_slowdown_scales_the_wire_move_vector_by_its_square() {
     let mut speed = super::LocalMovementSpeedAuthority::default();
     let mut effects = super::LocalMovementEffectTimeline::default();
     let mut frame = speed_frame(Default::default());
-    frame.movement_modifier = Some(super::MovementModifier::ItemUse(0.35));
+    frame.item_use_modifier = Some(0.35);
     assert!(locals.advance(
         frame,
         &mut physics,
@@ -503,95 +504,6 @@ fn item_use_slowdown_scales_the_wire_move_vector_by_its_square() {
     ));
     let snapshot = *ticker.pending_snapshots().last().unwrap();
     assert_eq!(snapshot.move_vector, [0.0, 0.35_f32 * 0.35_f32]);
-}
-
-#[test]
-fn direct_input_scale_keeps_exact_wire_axes_and_raw_input() {
-    for axes in [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.5, 0.75]] {
-        for sprinting in [false, true] {
-            let mut snapshots = Vec::new();
-            for modifier in [
-                None,
-                Some(crate::movement::MovementModifier::InputScale(0.2)),
-            ] {
-                let (mut physics, mut ticker) = walked_physics(0);
-                let mut locals = super::LocomotionState::default();
-                let mut speed = super::LocalMovementSpeedAuthority::default();
-                let mut effects = super::LocalMovementEffectTimeline::default();
-                let mut frame = speed_frame(semantic_input::ActionPhase {
-                    pressed: sprinting,
-                    held: sprinting,
-                    released: false,
-                });
-                frame.movement = axes;
-                frame.raw_movement = axes;
-                frame.analogue_movement = axes;
-                frame.movement_modifier = modifier;
-                assert!(locals.advance(
-                    frame,
-                    &mut physics,
-                    &mut ticker,
-                    &mut effects,
-                    &mut speed,
-                    &VersionedFloor(1)
-                ));
-                snapshots.push(*ticker.pending_snapshots().last().unwrap());
-            }
-            let [plain, scaled] = snapshots.as_slice() else {
-                unreachable!()
-            };
-            let wire_axes = [-axes[0], axes[1]];
-            let slowed_axes = wire_axes.map(|axis| axis * 0.2_f32);
-            assert_eq!(scaled.move_vector, slowed_axes);
-            assert_eq!(scaled.raw_move_vector, wire_axes);
-            assert_eq!(scaled.analogue_move_vector, wire_axes);
-            assert_eq!(
-                scaled.flags, plain.flags,
-                "input scaling must not claim item use or change sprint controls"
-            );
-            assert_eq!(scaled.tick, plain.tick);
-            let packet = protocol::player_auth_input(*scaled).unwrap();
-            let sent = protocol::player_auth_input_trace_sample(&packet).unwrap();
-            assert_eq!(sent.move_vector, slowed_axes);
-            assert_eq!(sent.raw_move_vector, wire_axes);
-            assert_eq!(sent.analog_move_vector, wire_axes);
-            assert_eq!(sent.position, scaled.position);
-        }
-    }
-}
-
-#[test]
-fn direct_input_scale_keeps_sprint_and_wire_controls_during_correction_replay() {
-    let (mut physics, mut ticker) = walked_physics(0);
-    let mut locals = super::LocomotionState::default();
-    let mut speed = super::LocalMovementSpeedAuthority::default();
-    let mut effects = super::LocalMovementEffectTimeline::default();
-    for tick in 0..3 {
-        let mut frame = speed_frame(semantic_input::ActionPhase {
-            pressed: tick == 0,
-            held: true,
-            released: false,
-        });
-        frame.now += Duration::from_millis(50 * tick);
-        frame.movement_modifier = Some(super::MovementModifier::InputScale(0.2));
-        assert!(locals.advance(
-            frame,
-            &mut physics,
-            &mut ticker,
-            &mut effects,
-            &mut speed,
-            &VersionedFloor(1)
-        ));
-        assert!(physics.sample_at(101 + tick).unwrap().processed.sprinting);
-    }
-    let before: Vec<_> = ticker
-        .pending_snapshots()
-        .into_iter()
-        .filter(|snapshot| snapshot.tick > 101)
-        .collect();
-    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
-    assert_eq!(ticker.pending_snapshots(), before);
-    assert!(physics.sample_at(103).unwrap().processed.sprinting);
 }
 
 /// Holding sprint into a wall ends the sprint on the blocked tick. Render frames between
@@ -643,4 +555,54 @@ fn a_held_sprint_into_a_wall_keeps_walk_speed_between_ticks() {
         }
     }
     assert!(ended_at_wall, "the wall never ended the held sprint");
+}
+
+/// Opt-in sprint changes admission and speed while preserving the player's movement lanes.
+#[test]
+fn movement_override_preserves_direction_and_releases_with_the_override() {
+    for direction in [[1.0, 0.0], [-1.0, 0.0], [0.0, -1.0], [0.8, -0.8], [0.0, 0.0]] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::LocomotionState::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        speed.begin_session(7, 0);
+        let walk_speed = 0.12_f32;
+        assert!(speed.apply(7, 1, 0, attribute(f64::from(walk_speed), walk_speed, None)));
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        for enabled in [false, true, true, false] {
+            let mut frame = speed_frame(semantic_input::ActionPhase { held: true, ..Default::default() });
+            frame.resolved_movement = true;
+            frame.movement_override = enabled;
+            frame.movement = direction;
+            frame.raw_movement = direction;
+            frame.analogue_movement = direction;
+            assert!(locals.advance(frame, &mut physics, &mut ticker, &mut effects, &mut speed, &VersionedFloor(1)));
+            let sample = physics.sample_at(ticker.completed_tick()).unwrap();
+            assert_eq!(sample.processed.sprinting, enabled && direction != [0.0; 2], "{direction:?}, enabled={enabled}");
+            let expected_speed = if sample.processed.sprinting {
+                walk_speed * sim::SPRINT_SPEED_MULTIPLIER as f32
+            } else { walk_speed };
+            assert_eq!(speed.current(), Some(f64::from(expected_speed)));
+            assert_eq!(sample.move_vector[0].partial_cmp(&0.0), direction[0].partial_cmp(&0.0));
+            assert_eq!(sample.move_vector[1].partial_cmp(&0.0), direction[1].partial_cmp(&0.0));
+        }
+    }
+}
+
+/// Externally supplied controls retain hunger and item-use start restrictions.
+#[test]
+fn movement_override_keeps_ordinary_admission_restrictions() {
+    for item_use in [false, true] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::LocomotionState::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        let mut frame = speed_frame(semantic_input::ActionPhase { held: true, ..Default::default() });
+        frame.resolved_movement = true;
+        frame.movement_override = true;
+        frame.movement = [0.0, -1.0];
+        frame.facts.sprint_blocked = !item_use;
+        frame.facts.sprint_start_blocked = item_use;
+        assert!(locals.advance(frame, &mut physics, &mut ticker, &mut effects, &mut speed, &VersionedFloor(1)));
+        assert!(!physics.sample_at(ticker.completed_tick()).unwrap().processed.sprinting);
+    }
 }

@@ -562,3 +562,163 @@ fn disk_entries_stream_large_artwork_without_staging_copies() {
         load.bytes
     );
 }
+
+/// A server catalog of `bindings` entries over `textures`, each a distinct raster.
+fn server_catalog(
+    bindings: usize,
+    textures: Vec<assets::EquipmentTexture>,
+) -> std::sync::Arc<assets::RuntimeEquipmentCatalog> {
+    let reference = |identifier: &str| assets::EquipmentReference {
+        identifier: identifier.into(),
+        resolution: assets::EntityDependencyResolution::Catalog,
+    };
+    let bindings = (0..bindings)
+        .map(|index| assets::EquipmentBinding {
+            identifier: format!("fixture:item_{index:05}").into(),
+            attachable: None,
+            category: assets::EquipmentCategory::Held,
+            geometry: reference("geometry.fixture"),
+            texture: reference("textures/items/fixture"),
+            resources: Default::default(),
+            material: "entity_alphatest".into(),
+            color_mask: assets::EquipmentColorMask::NoMask,
+            render_controller: "controller.render.fixture".into(),
+            first_person: assets::EquipmentTransform::NeedsMeasurement,
+            third_person: assets::EquipmentTransform::NeedsMeasurement,
+            dropped: assets::EquipmentTransform::NeedsMeasurement,
+            poses: Box::new([]),
+        })
+        .collect();
+    std::sync::Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts([3; 32], bindings, textures).unwrap(),
+    )
+}
+
+/// `count` equipment rasters of `side` texels, keeping the noise of [`noisy_textures`].
+fn noisy_equipment(count: u32, side: u16) -> Vec<assets::EquipmentTexture> {
+    noisy_textures(count, side)
+        .into_iter()
+        .map(|texture| assets::EquipmentTexture {
+            identifier: format!("textures/items/{:05}", texture.source).into(),
+            width: texture.width,
+            height: texture.height,
+            rgba8: texture.rgba8,
+        })
+        .collect()
+}
+
+// A server pack can outgrow the startup carrier's counts; its compiled catalog still has to
+// reach disk, or every client restart recompiles the whole pack.
+#[test]
+fn a_catalog_past_the_startup_counts_is_a_disk_hit_after_a_restart() {
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 30);
+    let stack = entity_stack();
+    let (compiled, blob) = super::super::compile_encoded(
+        &resource_pack::LayeredPackView::tracked(stack.clone()),
+        None,
+        None,
+        None,
+        true,
+        &|| false,
+    )
+    .unwrap();
+    let catalog = server_catalog(
+        assets::MAX_EQUIPMENT_BINDINGS + 1,
+        noisy_equipment(assets::MAX_EQUIPMENT_TEXTURES as u32 + 1, 2),
+    );
+    let expanded = Arc::new(assets::SessionEntityPack {
+        equipment: Some(Arc::clone(&catalog)),
+        ..(*compiled.unwrap()).clone()
+    });
+    let compiles = std::cell::Cell::new(0);
+    let launch = || {
+        // A new cache per launch: only the disk entry survives a restart.
+        super::EntityCache::default()
+            .get_or_compile(
+                inputs(None),
+                &resource_pack::LayeredPackView::tracked(stack.clone()),
+                Some(&disk),
+                &|| false,
+                |_, _, _, _, _, _| {
+                    compiles.set(compiles.get() + 1);
+                    Some((Some(Arc::clone(&expanded)), blob.clone()))
+                },
+            )
+            .flatten()
+            .expect("the expanded pack")
+    };
+    launch();
+    let restored = launch();
+    assert_eq!(compiles.get(), 1, "the second launch is a disk hit");
+    let restored = restored.equipment.as_ref().expect("the catalog survives");
+    assert_eq!(restored.bindings(), catalog.bindings());
+    assert_eq!(restored.textures().len(), catalog.textures().len());
+    assert!(
+        restored
+            .textures()
+            .iter()
+            .zip(catalog.textures().iter())
+            .all(
+                |(restored, stored)| restored.identifier == stored.identifier
+                    && (restored.width, restored.height) == (stored.width, stored.height)
+                    && restored.rgba8 == stored.rgba8
+            ),
+        "every texture reads back"
+    );
+}
+
+// Equipment rasters can outweigh a pack's other artwork, so they stream like it does.
+#[test]
+fn disk_entries_stream_large_equipment_rasters_without_staging_copies() {
+    use std::sync::Arc;
+    let dir = tempfile::tempdir().unwrap();
+    let disk = crate::compile_cache::CompileCache::new(dir.path().into(), 1 << 30);
+    let stack = entity_stack();
+    let (compiled, blob) = super::super::compile_encoded(
+        &resource_pack::LayeredPackView::tracked(stack.clone()),
+        None,
+        None,
+        None,
+        true,
+        &|| false,
+    )
+    .unwrap();
+    let catalog = server_catalog(1, noisy_equipment(8, 512));
+    let pixels: usize = catalog.textures().iter().map(|t| t.rgba8.len()).sum();
+    let large = Arc::new(assets::SessionEntityPack {
+        equipment: Some(Arc::clone(&catalog)),
+        ..(*compiled.unwrap()).clone()
+    });
+    let (stored, store) = test_alloc::measure(|| {
+        super::EntityCache::default().get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack.clone()),
+            Some(&disk),
+            &|| false,
+            |_, _, _, _, _, _| Some((Some(Arc::clone(&large)), blob.clone())),
+        )
+    });
+    assert!(stored.flatten().is_some());
+    assert!(
+        store.bytes < pixels / 4,
+        "storing {pixels} pixel bytes allocated {} bytes",
+        store.bytes
+    );
+    let (loaded, load) = test_alloc::measure(|| {
+        super::EntityCache::default().get_or_compile(
+            inputs(None),
+            &resource_pack::LayeredPackView::tracked(stack.clone()),
+            Some(&disk),
+            &|| false,
+            |_, _, _, _, _, _| panic!("the stored entry is read back"),
+        )
+    });
+    assert!(loaded.flatten().is_some());
+    assert!(
+        load.bytes < pixels + pixels / 4,
+        "loading {pixels} pixel bytes allocated {} bytes",
+        load.bytes
+    );
+}

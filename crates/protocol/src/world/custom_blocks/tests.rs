@@ -1,10 +1,11 @@
 use super::{
     CustomBlock, CustomBlockVisuals, CustomSelection, CustomStateAxis, CustomStateValue,
-    Definition, Nbt, block_name_sort_key,
+    Definition, block_name_sort_key,
 };
+use crate::nbt_tree::test_tree::Nbt;
 
 fn parse_definition(bytes: &[u8]) -> Option<Definition> {
-    super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
+    super::parse_definition(crate::nbt_tree::read_root(bytes)?.root())
 }
 
 mod mining;
@@ -80,6 +81,30 @@ fn named(tag: u8, name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn definition_decoding_allocates_a_small_multiple_of_the_wire_size() {
+    let measure = |unused: &[u8]| {
+        let mut nbt = named(10, "");
+        nbt.extend(named(10, "components"));
+        nbt.extend(unused);
+        nbt.extend([0, 0]);
+        let (blocks, allocations) = test_alloc::measure(|| {
+            super::CustomBlocks::from_definitions([("test:block", nbt.as_slice())])
+        });
+        assert_eq!(blocks.blocks.len(), 1);
+        allocations.bytes
+    };
+    let baseline = measure(&[]);
+    for (shape, field) in crate::nbt_tree::test_tree::amplifying_fields("test:unused", 1 << 20) {
+        let decoded = measure(&field).saturating_sub(baseline);
+        assert!(
+            decoded <= 3 * field.len(),
+            "{shape}: {decoded} bytes allocated for {} wire bytes",
+            field.len()
+        );
+    }
+}
+
+#[test]
 fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
     let mut nbt = named(10, "");
     nbt.extend(named(9, "blockTags"));
@@ -118,10 +143,10 @@ fn custom_tag_completeness_tracks_dropped_entries() {
         (tags((0..257).map(|_| text("test:tag")).collect()), false, 1),
         (tags(vec![text(&"x".repeat(256))]), true, 1),
         (tags(vec![text(&"x".repeat(257))]), false, 0),
-        (tags(vec![text("test:tag"), Nbt::Int(1)]), false, 1),
+        (tags(vec![Nbt::Int(1)]), false, 0),
         (compound(vec![("blockTags", text("not a list"))]), false, 0),
     ] {
-        let definition = super::parse_definition(&root).unwrap();
+        let definition = super::parse_definition(root.view()).unwrap();
         assert_eq!(definition.tags_complete, complete);
         assert_eq!(definition.tags.len(), retained);
     }
@@ -233,7 +258,7 @@ fn placement_traits(direction_first: bool) -> Vec<Nbt> {
 }
 
 fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
-    let definition = super::parse_definition(root).expect("definition");
+    let definition = super::parse_definition(root.view()).expect("definition");
     CustomBlock {
         mining: definition.mining,
         sound: definition.sound,
@@ -386,14 +411,14 @@ fn sound_component_material_is_retained_from_the_base_definition() {
             compound(vec![("sound", text("wood"))]),
         )]),
     )]);
-    let definition = super::parse_definition(&root).expect("definition");
+    let definition = super::parse_definition(root.view()).expect("definition");
     assert_eq!(definition.sound.as_deref(), Some("wood"));
 
     let scalar = compound(vec![(
         "components",
         compound(vec![("minecraft:sound", text("metal"))]),
     )]);
-    let definition = super::parse_definition(&scalar).expect("scalar definition");
+    let definition = super::parse_definition(scalar.view()).expect("scalar definition");
     assert_eq!(definition.sound.as_deref(), Some("metal"));
 }
 
@@ -448,7 +473,9 @@ fn geometry_bone_visibility_is_retained_per_component_set() {
             ])]),
         ),
     ]);
-    let visual = super::parse_definition(&root).expect("definition").visual;
+    let visual = super::parse_definition(root.view())
+        .expect("definition")
+        .visual;
     let bones = |components: &super::CustomVisualComponents| {
         components
             .bone_visibility
@@ -551,7 +578,7 @@ fn scalar_light_components_remain_lenient_for_odd_values() {
         (Nbt::Float(f64::NAN), None),
         (Nbt::String("unknown".into()), None),
     ] {
-        let visual = super::visual_components(Some(&components(value)));
+        let visual = super::visual_components(Some(components(value).view()));
         assert_eq!(visual.light_dampening, expected);
     }
 }
@@ -611,11 +638,11 @@ fn collision_box_maps_sixteenths_to_block_units() {
             ("size".to_owned(), list(size)),
         ])
     };
-    let full = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0])).unwrap();
+    let full = super::box_component(boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0]).view()).unwrap();
     assert_eq!((full.min, full.max), ([0.0; 3], [1.0; 3]));
-    let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
+    let slab = super::box_component(boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0]).view()).unwrap();
     assert_eq!(slab.max, [1.0, 0.5, 1.0]);
-    let empty = super::box_component(&boxed([0.0; 3], [0.0; 3])).unwrap();
+    let empty = super::box_component(boxed([0.0; 3], [0.0; 3]).view()).unwrap();
     assert_eq!(empty.min, empty.max);
 }
 
@@ -628,8 +655,8 @@ fn review_custom_box_rejects_nonfinite_narrowed_and_computed_coordinates() {
             ("size".into(), Nbt::List(size.map(Nbt::Float).into())),
         ])
     };
-    assert!(box_component(&boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0])).is_none());
-    assert!(box_component(&boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0])).is_none());
+    assert!(box_component(boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0]).view()).is_none());
+    assert!(box_component(boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0]).view()).is_none());
 }
 
 // A disabled selection box makes the block untargetable; a box overrides the default.
@@ -817,7 +844,7 @@ fn connection_trait_group_expands_to_sixteen_states() {
             &[("minecraft:cardinal_connections", 1)],
         )]),
     )]);
-    let definition = super::parse_definition(&root).expect("definition");
+    let definition = super::parse_definition(root.view()).expect("definition");
     assert_eq!(definition.state_count, 16);
     assert!(!definition.visual.state_identity_incomplete);
     let block = custom_block("test:fence", &root);
@@ -879,7 +906,7 @@ fn integer_connection_flags_materialize_cardinal_states() {
                     ("update_flags", Nbt::Int(0)),
                 ])]),
             )]);
-            let definition = super::parse_definition(&root).unwrap();
+            let definition = super::parse_definition(root.view()).unwrap();
             assert_eq!(
                 definition.state_count, expected,
                 "mask {flags}, type {kind}"
@@ -927,7 +954,7 @@ fn integer_connection_flags_require_the_connection_trait_identity() {
             ("enabled_states", Nbt::Int(1)),
         ])]),
     )]);
-    let definition = super::parse_definition(&root).unwrap();
+    let definition = super::parse_definition(root.view()).unwrap();
     assert!(
         definition
             .visual
@@ -952,7 +979,7 @@ fn individually_enabled_connection_directions_expand_to_axes() {
             ],
         )]),
     )]);
-    let definition = super::parse_definition(&root).expect("definition");
+    let definition = super::parse_definition(root.view()).expect("definition");
     assert_eq!(definition.state_count, 16);
     assert!(!definition.visual.state_identity_incomplete);
 }
@@ -979,7 +1006,7 @@ fn connection_axes_follow_placement_traits_and_precede_properties() {
             ])]),
         ),
     ]);
-    let definition = super::parse_definition(&root).expect("definition");
+    let definition = super::parse_definition(root.view()).expect("definition");
     assert_eq!(definition.state_count, 4 * 16 * 2);
     assert!(!definition.visual.state_identity_incomplete);
     let names: Vec<_> = definition
@@ -1011,7 +1038,11 @@ fn custom_components_declare_a_player_interact_handler() {
             compound(vec![("hasPlayerInteract", Nbt::Byte(value))]),
         )]
     };
-    let parsed = |root: Nbt| super::parse_definition(&root).unwrap().player_interact;
+    let parsed = |root: Nbt| {
+        super::parse_definition(root.view())
+            .unwrap()
+            .player_interact
+    };
     assert!(parsed(root(flag(1))));
     assert!(!parsed(root(flag(0))));
     assert!(!parsed(root(Vec::new())));

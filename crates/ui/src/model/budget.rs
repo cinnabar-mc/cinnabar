@@ -29,6 +29,7 @@ impl DrawCounts {
             }
             UiVisual::Solid { .. }
             | UiVisual::Sprite { .. }
+            | UiVisual::RgbCoverageSprite { .. }
             | UiVisual::ColorMaskSprite { .. }
             | UiVisual::GlintSprite { .. }
             | UiVisual::StyledSprite { .. }

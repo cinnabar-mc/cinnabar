@@ -8,7 +8,7 @@ pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
 pub mod graphics_api;
-pub mod java_animations;
+mod input_placeholders;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
@@ -18,9 +18,10 @@ pub mod render_distance;
 pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
+pub mod touch_control_mode;
 pub mod touch_layout;
 pub mod video_presets;
-pub use chat::CHAT_POSITION_OPTION;
+pub use chat::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 pub use reset::SettingsGroup;
 #[cfg(test)]
 mod registry_tests;
@@ -48,6 +49,7 @@ pub use definitions::{
     VIEW_BOBBING_CHOICES, VRR_CHOICES, VRR_OPTION, VSYNC_CHOICES,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
+pub use input_placeholders::ExpandedTextTooLarge;
 pub use keybindings::{
     DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
 };
@@ -218,16 +220,6 @@ impl SettingsOptions {
     /// ```
     pub fn value(&self, id: SettingId) -> i32 {
         self.get(id.index())
-    }
-
-    /// Whether the saved animation family enables Java-specific controls.
-    pub fn java_animations_selected(&self) -> bool {
-        self.value(SettingId::Animations) == 0
-    }
-
-    /// Whether a settings control can currently apply an edit; saved inactive values remain intact.
-    pub fn option_enabled(&self, id: SettingId) -> bool {
-        !java_animations::requires_java_animations(id) || self.java_animations_selected()
     }
 
     /// Validates and snaps a UI or persisted value to its declared range.

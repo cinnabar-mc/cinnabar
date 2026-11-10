@@ -1,6 +1,9 @@
 use super::*;
 use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
 
+mod carried_fences;
+mod carried_walls;
+
 #[test]
 fn azalea_inventory_has_a_separate_stem_and_open_bottom_canopy() {
     let source: Vec<_> = BlockFace::ALL
@@ -22,8 +25,15 @@ fn azalea_inventory_has_a_separate_stem_and_open_bottom_canopy() {
     }];
     let faces = BlockFace::ALL.map(|face| face as u32);
     let held = block_item_quads(VisualKind::Model, faces, Some(0), &templates, &source).unwrap();
-    let inventory =
-        block_gui_quads(VisualKind::Model, faces, Some(0), &templates, &source).unwrap();
+    let inventory = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        faces,
+        Some(0),
+        &templates,
+        &source,
+    )
+    .unwrap();
     for face in BlockFace::ALL
         .into_iter()
         .filter(|face| *face != BlockFace::Down)
@@ -109,8 +119,15 @@ fn heavy_core_inventory_preview_is_enlarged_and_repositioned() {
         flags: crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE,
     }];
     let held = block_item_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
-    let inventory =
-        block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+    let inventory = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [1; 6],
+        Some(0),
+        &templates,
+        &source,
+    )
+    .unwrap();
     assert_eq!(inventory.len(), held.len());
     let (scale, offset) = HEAVY_CORE_GUI_TRANSFORM;
     for (held, inventory) in held.iter().zip(&inventory) {
@@ -163,8 +180,15 @@ fn shelf_inventory_preview_is_enlarged_and_repositioned() {
         flags: crate::MODEL_TEMPLATE_FLAG_SHELF,
     }];
     let held = block_item_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
-    let inventory =
-        block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+    let inventory = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [1; 6],
+        Some(0),
+        &templates,
+        &source,
+    )
+    .unwrap();
     assert_eq!(inventory.len(), held.len());
     let (scale, offset) = SHELF_GUI_TRANSFORM;
     for (held, inventory) in held.iter().zip(&inventory) {
@@ -210,8 +234,15 @@ fn chorus_inventory_geometry_has_three_outward_protrusions() {
         quad_count: source.len() as u32,
         flags: crate::MODEL_TEMPLATE_FLAG_CHORUS,
     }];
-    let inventory =
-        block_gui_quads(VisualKind::Model, [1; 6], Some(0), &templates, &source).unwrap();
+    let inventory = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [1; 6],
+        Some(0),
+        &templates,
+        &source,
+    )
+    .unwrap();
     let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
     for point in inventory.iter().flat_map(|quad| quad.corners) {
         for axis in 0..3 {
@@ -245,7 +276,7 @@ fn chorus_inventory_geometry_has_three_outward_protrusions() {
 }
 
 #[test]
-fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
+fn carried_panes_show_a_full_plate_with_body_and_edge_materials() {
     let materials = BlockFace::ALL.map(|face| face as u32 + 1);
     let templates = [ModelTemplate {
         quad_start: 0,
@@ -263,8 +294,15 @@ fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
         material: materials[BlockFace::West as usize],
         flags: 0,
     }];
-    let inventory =
-        block_gui_quads(VisualKind::Model, materials, Some(0), &templates, &source).unwrap();
+    let inventory = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        materials,
+        Some(0),
+        &templates,
+        &source,
+    )
+    .unwrap();
     let mut bounds = [[f32::INFINITY; 3], [f32::NEG_INFINITY; 3]];
     for point in inventory.iter().flat_map(|quad| quad.corners) {
         for axis in 0..3 {
@@ -307,11 +345,14 @@ fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
     );
     let held =
         block_item_quads(VisualKind::Model, materials, Some(0), &templates, &source).unwrap();
-    assert_eq!(
-        held.len(),
-        source.len(),
-        "held geometry keeps the placed template"
-    );
+    assert_eq!(held.len(), BlockFace::ALL.len());
+    for (held, shown) in held.iter().zip(&inventory) {
+        assert_eq!(held.material, shown.material);
+        assert_eq!(held.uvs, shown.uvs);
+        for (held, shown) in held.corners.iter().zip(shown.corners) {
+            assert_eq!([held[0] - 0.2, held[1], held[2]], shown);
+        }
+    }
 }
 
 #[test]
@@ -407,9 +448,9 @@ fn vanilla_gates_use_the_custom_carried_inventory_axis() {
 }
 
 #[test]
-fn carried_walls_preserve_directional_materials() {
+fn inventory_walls_preserve_directional_materials() {
     let materials = BlockFace::ALL.map(|face| face as u32 + 1);
-    for quad in carried_wall_quads(materials) {
+    for quad in walls::inventory_quads(materials) {
         let [a, b, c, _] = quad.corners;
         let u = std::array::from_fn::<_, 3, _>(|i| b[i] - a[i]);
         let v = std::array::from_fn::<_, 3, _>(|i| c[i] - a[i]);
@@ -563,5 +604,194 @@ fn lighting_flags_preserve_material_tiles_without_admitting_unresolved_tint() {
     assert_eq!(
         material_tile(&materials, 1, |_| Some(&array)),
         Err(GuiBlockReject::Material)
+    );
+}
+
+/// Each visible rail half samples ten texture columns from its own start.
+#[test]
+fn gui_fence_rail_halves_restart_their_texture_without_changing_held_meshes() {
+    for flags in [
+        MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        crate::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    ] {
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags,
+        }];
+        let gui = block_gui_quads(
+            Default::default(),
+            VisualKind::Model,
+            [7; 6],
+            Some(0),
+            &templates,
+            &[],
+        )
+        .unwrap();
+        for height in [5.0 / 16.0, 13.0 / 16.0] {
+            let front = gui
+                .iter()
+                .find(|q| {
+                    q.corners.iter().all(|p| p[0] == 7.0 / 16.0)
+                        && q.corners.iter().any(|p| p[1] == height)
+                        && q.corners.iter().any(|p| p[2] == 18.0 / 16.0)
+                })
+                .unwrap();
+            let end = front
+                .corners
+                .iter()
+                .map(|p| p[2])
+                .fold(f32::INFINITY, f32::min);
+            assert_eq!(
+                end, 0.5,
+                "the front rail runs from its midpoint to the overhang"
+            );
+            for (corner, uv) in front.corners.iter().zip(front.uvs) {
+                assert_eq!(uv, [corner[2] - 0.5, 1.0 - corner[1]]);
+            }
+            let back = gui
+                .iter()
+                .find(|q| {
+                    q.corners.iter().all(|p| p[0] == 7.0 / 16.0)
+                        && q.corners.iter().any(|p| p[1] == height)
+                        && q.corners.iter().any(|p| p[2] == -2.0 / 16.0)
+                })
+                .unwrap();
+            for (corner, uv) in back.corners.iter().zip(back.uvs) {
+                assert_eq!(uv, [corner[2] + 2.0 / 16.0, 1.0 - corner[1]]);
+            }
+        }
+        let held = block_item_quads(VisualKind::Model, [7; 6], Some(0), &templates, &[]).unwrap();
+        assert_eq!(
+            held.len(),
+            INVENTORY_FENCE_BOXES.len() * BlockFace::ALL.len()
+        );
+        assert!(
+            held.iter()
+                .all(|q| q.uvs.iter().flatten().all(|uv| (0.0..=1.0).contains(uv)))
+        );
+    }
+}
+
+#[test]
+fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
+    let templates = [ModelTemplate {
+        quad_start: 0,
+        quad_count: 0,
+        flags: MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    }];
+    assert_eq!(
+        BlockModelOrder::for_template(Some(&templates[0])),
+        BlockModelOrder::Paint
+    );
+    let gui = block_gui_quads(
+        crate::facts::BlockRenderKind::BambooFence,
+        VisualKind::Model,
+        [7; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    let held = block_item_quads(VisualKind::Model, [7; 6], Some(0), &templates, &[]).unwrap();
+    assert_ne!(gui, held);
+    let ordinary = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [7; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    assert_ne!(gui, ordinary);
+    let post = gui
+        .iter()
+        .find(|q| q.corners.iter().all(|p| p[2] == 0.25) && q.corners.iter().any(|p| p[1] == 1.0))
+        .unwrap();
+    let min_u = post
+        .uvs
+        .iter()
+        .map(|uv| uv[0])
+        .fold(f32::INFINITY, f32::min);
+    let max_u = post
+        .uvs
+        .iter()
+        .map(|uv| uv[0])
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert_eq!([min_u, max_u], [0.0, 255.0 / 1024.0]);
+    let rear_slat = gui
+        .iter()
+        .find(|q| {
+            q.corners.iter().all(|p| p[0] == 7.0 / 16.0)
+                && q.corners.iter().any(|p| p[2] == -2.0 / 16.0)
+                && q.corners.iter().any(|p| p[1] == 15.0 / 16.0)
+        })
+        .unwrap();
+    assert_eq!(
+        rear_slat
+            .corners
+            .iter()
+            .map(|p| p[1])
+            .fold(f32::INFINITY, f32::min),
+        12.0 / 16.0
+    );
+    for (point, uv) in rear_slat.corners.iter().zip(rear_slat.uvs) {
+        assert_eq!(uv, [0.5 + point[2] + 2.0 / 16.0, 15.0 / 16.0 - point[1]]);
+    }
+}
+
+#[test]
+fn fence_side_diagonal_keeps_the_projected_lower_texel_row() {
+    use glam::Vec2;
+    let templates = [ModelTemplate {
+        quad_start: 0,
+        quad_count: 0,
+        flags: MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+    }];
+    let quads = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [7; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    let face = quads
+        .iter()
+        .find(|q| q.corners.iter().all(|p| p[2] == 0.25) && q.corners.iter().any(|p| p[1] == 1.0))
+        .unwrap();
+    // At this physical placement, half-precision XY has quarter-pixel spacing.
+    let positions = face.corners.map(|corner| {
+        let [x, y, _] = super::super::project_cube(corner);
+        Vec2::new(
+            ((419.0 + x) * 4.0).round() / 4.0 - 419.0,
+            ((440.0 + y) * 4.0).round() / 4.0 - 440.0,
+        )
+    });
+    let pixel = Vec2::new(6.5, 10.5);
+    let uv = [[0, 1, 2], [0, 2, 3]]
+        .into_iter()
+        .find_map(|ids| {
+            let [a, b, c] = ids.map(|i| positions[i]);
+            let area = (b - a).perp_dot(c - a);
+            let wb = (pixel - a).perp_dot(c - a) / area;
+            let wc = (b - a).perp_dot(pixel - a) / area;
+            let weights = [1.0 - wb - wc, wb, wc];
+            if weights.iter().any(|w| *w < 0.0) {
+                return None;
+            }
+            Some(
+                ids.into_iter()
+                    .zip(weights)
+                    .fold(Vec2::ZERO, |uv, (i, w)| uv + Vec2::from(face.uvs[i]) * w),
+            )
+        })
+        .unwrap();
+    assert_eq!(
+        (uv.y * 16.0).floor(),
+        13.0,
+        "the opposite diagonal samples the next texture row"
     );
 }

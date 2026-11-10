@@ -644,36 +644,6 @@ fn animations_default_to_bedrock_and_persist_both_choices() {
     assert!(!settings.user_settings().video.java_animations);
 }
 
-#[test]
-fn java_blocking_preferences_are_independent_and_persisted() {
-    let mut settings = SettingsOptions::default();
-    let ids = [
-        (
-            SettingId::ItemBlockingAnimation,
-            ui::AnimationSettings::DEFAULT_ITEM_BLOCKING,
-        ),
-        (
-            SettingId::BlockingSlowdown,
-            ui::AnimationSettings::DEFAULT_BLOCKING_SLOWDOWN,
-        ),
-        (
-            SettingId::KeepSprintWhileBlocking,
-            ui::AnimationSettings::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING,
-        ),
-    ];
-    for (id, default) in ids {
-        assert_eq!(settings.value(id), if default { 1 } else { 0 });
-    }
-    assert!(settings.set(SettingId::ItemBlockingAnimation.index(), 0));
-    assert!(settings.set(SettingId::BlockingSlowdown.index(), 1));
-    assert!(settings.set(SettingId::KeepSprintWhileBlocking.index(), 0));
-    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    let animation = loaded.user_settings().animation;
-    assert!(!animation.item_blocking);
-    assert!(animation.blocking_slowdown);
-    assert!(!animation.keep_sprint_while_blocking);
-}
-
 /// Old toggle values retain their meaning, Minimal persists and Video reset restores Full.
 #[test]
 fn view_bobbing_preserves_toggle_values_and_persists_minimal() {

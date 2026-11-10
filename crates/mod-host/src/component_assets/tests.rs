@@ -25,7 +25,7 @@ fn section(bytes: &mut Vec<u8>, name: &str, data: &[u8]) {
 
 /// A valid existing bundle with no product layout or assets.
 fn bundle(title: &str) -> String {
-    serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+    serde_json::json!({"panel":{"controls":[],
         "surface":crate::tests::panel_surface(title)},"surfaces":{}})
     .to_string()
 }

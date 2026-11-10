@@ -11,6 +11,7 @@ use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
+use ui_engine::engine::layout_task::LayoutResources;
 use ui_engine::engine::{
     FormEngine, ScreenArt,
     item_renderer::ItemRenderer,
@@ -28,11 +29,13 @@ use inventory::inventory_ledger::InventoryTarget;
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.
 const PERSONAL_CRAFT_SLOT: u8 = 28;
 const WORKBENCH_CRAFT_SLOT: u8 = 32;
+mod cells;
 mod held_stack;
 #[cfg(test)]
 mod held_stack_tests;
 mod preparation;
 pub mod presses;
+mod storage_radio;
 use held_stack::held_stack;
 
 /// Which screen the engine drew, for mapping its cells back to ledger targets.
@@ -88,6 +91,13 @@ impl ScreenLayout {
         if matches!(self, ScreenLayout::Book) {
             return widget();
         }
+        if let ScreenLayout::Station(kind) = self
+            && furnace_book::hit(kind.screen, region).is_none()
+            && container_data::widget_hit(kind.screen, region).is_none()
+            && let Some(radio) = storage_radio::hit(region)
+        {
+            return Some(InventoryCellHit::Widget(radio));
+        }
         let (Some(index), Some(collection)) =
             (region.collection_index, region.collection.as_deref())
         else {
@@ -137,6 +147,11 @@ pub struct ContainerScreen {
     inventory: Option<ScreenCache>,
     /// Sources observed by the last closed-inventory preparation.
     prewarmed: Option<preparation::InventoryPreparation>,
+    /// At most one closed-screen layout runs in the background.
+    preparing: Option<preparation::PendingInventory>,
+    preparation_revision: u64,
+    /// A readiness update requires another texture request over the retained layout.
+    refresh_artwork: bool,
     /// Screens resolved from the catalog, for cache tests.
     resolves: usize,
     /// Immutable creative rows reused across hover and scroll frames.
@@ -172,19 +187,10 @@ impl ContainerScreen {
         input: ContainerInput<'_>,
         frame: &mut PaintFrame<'_>,
     ) -> Option<EngineFrame> {
-        self.render(engine, source, items, input, frame, false)
-    }
-
-    /// Prepares layout and textures without starting live bindings or painting the closed screen.
-    pub fn prepare(
-        &mut self,
-        engine: &FormEngine,
-        source: &dyn ContainerSource,
-        items: &ContainerFrame<'_>,
-        input: ContainerInput<'_>,
-        frame: &mut PaintFrame<'_>,
-    ) {
-        let _ = self.render(engine, source, items, input, frame, true);
+        if matches!(input.layout, ScreenLayout::Personal { .. }) {
+            let _ = self.collect_preparation(engine, true);
+        }
+        self.render(engine, source, items, input, frame, None)
     }
 
     /// Shares container data and layout preparation between prewarming and visible painting.
@@ -195,7 +201,7 @@ impl ContainerScreen {
         items: &ContainerFrame<'_>,
         input: ContainerInput<'_>,
         frame: &mut PaintFrame<'_>,
-        prepare: bool,
+        prepare: Option<LayoutResources>,
     ) -> Option<EngineFrame> {
         let ContainerInput {
             layout,
@@ -225,7 +231,7 @@ impl ContainerScreen {
             _ => context = recipe_book::context(context),
         }
         let mut icons = Vec::new();
-        let data = screen_data(
+        let mut data = screen_data(
             source,
             items,
             layout,
@@ -234,6 +240,9 @@ impl ContainerScreen {
             (&mut self.book, &mut self.furnace),
         );
         let screen = source.screen();
+        if let Some(frame) = previous {
+            storage_radio::select(&mut data, &frame.hits, screen.storage_radios);
+        }
         let view = ViewState {
             hovered: previous
                 .zip(pointer)
@@ -258,6 +267,10 @@ impl ContainerScreen {
             scroll: screen.container_scroll.clone(),
             ..ViewState::default()
         };
+        if let Some(resources) = prepare {
+            self.start_preparing(engine, context, data, view, frame, resources);
+            return None;
+        }
         let overlay = held_stack(
             source.player().inventory.ledger().cursor_stack(),
             items.cursor_icon,
@@ -265,12 +278,19 @@ impl ContainerScreen {
             pointer,
             &mut icons,
         );
+        // A selection in the search or anvil name box draws highlighted.
+        let edit = screen
+            .search_caret
+            .or(screen.anvil_caret)
+            .and_then(|caret| caret.selection)
+            .map(|selection| ui_engine::engine::host_edit::Feedback::new(Some(selection)));
         let art = ScreenArt {
             view: Some(&view),
             tooltip,
             pointer,
             clocks: Some(clocks),
             overlay: &overlay,
+            edit,
             ..ScreenArt::default()
         };
         let mut item_renderer = ItemRenderer {
@@ -303,12 +323,7 @@ impl ContainerScreen {
                     cache, catalog, baseline, reference, &context, &data, &view, root, env, text,
                 )
             };
-            if prepare {
-                let _ = engine.prepare(art, &mut paint_frame, draw);
-                Ok(None)
-            } else {
-                engine.draw(art, &mut paint_frame, draw)
-            }
+            engine.draw(art, &mut paint_frame, draw)
         };
         frame.renderers = caller;
         if resolved(cache) != before {
@@ -327,14 +342,6 @@ impl ContainerScreen {
                 *frame.next = rollback.1;
                 None
             }
-        }
-    }
-
-    /// Releases texture-dependent measurements and layout while retaining the bound screen.
-    pub fn invalidate_textures(&mut self) {
-        self.prewarmed = None;
-        for cache in [&mut self.cache, &mut self.inventory].into_iter().flatten() {
-            cache.invalidate_textures();
         }
     }
 
@@ -368,40 +375,6 @@ impl ContainerScreen {
         self.inventory
             .as_ref()
             .map_or(0, |cache| cache.binding.rebuilt_total())
-    }
-
-    /// Whether the personal inventory needs preparation for these sources. An inventory already
-    /// painted retains its live bindings and needs no prewarm when it closes.
-    pub fn prewarm_inventory(
-        &mut self,
-        engine: &FormEngine,
-        source: &dyn ContainerSource,
-        artwork: u64,
-    ) -> bool {
-        if !self.needs_inventory_preparation(engine, source, artwork) {
-            return false;
-        }
-        self.prewarmed = Some(preparation::InventoryPreparation::capture(
-            engine, source, artwork,
-        ));
-        true
-    }
-
-    /// Checks whether closed-screen inputs need artwork and layout preparation.
-    pub fn needs_inventory_preparation(
-        &self,
-        engine: &FormEngine,
-        source: &dyn ContainerSource,
-        artwork: u64,
-    ) -> bool {
-        !self
-            .inventory
-            .as_ref()
-            .is_some_and(|cached| cached.live && Arc::ptr_eq(&cached.catalog, engine.catalog()))
-            && !self
-                .prewarmed
-                .as_ref()
-                .is_some_and(|prewarmed| prewarmed.matches(engine, source, artwork))
     }
 }
 
@@ -621,6 +594,16 @@ impl ScreenCache {
     }
 }
 
+/// A stack's hover text: its name, then each lore line after `\n§5§o`, as
+/// `ItemStackBase::getFormattedHovertext` appends them. Server packs read lore out of this text.
+fn hover_text(mut name: String, extra_data: &[u8]) -> String {
+    for line in protocol::item_display(extra_data).lore {
+        name.push_str("\n§5§o");
+        name.push_str(&line);
+    }
+    name
+}
+
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
 struct Cells<'a> {
     names: &'a std::collections::HashMap<(i32, u32), Arc<str>>,
@@ -655,6 +638,7 @@ impl Cells<'_> {
                     .or_else(|| self.names.get(&(stack.network_id, stack.metadata)).cloned())
             })
             .map_or_else(String::new, |name| name.to_string());
+        let hover = stack.map_or_else(String::new, |stack| hover_text(name, &stack.extra_data));
         item.with(
             "#inventory_stack_count",
             Scalar::Text(if count > 1 {
@@ -663,7 +647,7 @@ impl Cells<'_> {
                 String::new()
             }),
         )
-        .with("#hover_text", Scalar::Text(name))
+        .with("#hover_text", Scalar::Text(hover))
         .with(
             "#item_id_aux",
             Scalar::Int(i64::from(
@@ -857,6 +841,8 @@ mod empty_cells_tests;
 mod press_drop_tests;
 #[cfg(test)]
 mod station_output_tests;
+#[cfg(test)]
+mod storage_radio_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(
@@ -893,12 +879,15 @@ fn station_cell<'a>(
             }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
-                // Anvil and grindstone results are the client's prediction until the server
-                // states one.
+                // Station predictions fill the result until the server states one.
                 (None, Some(output))
                     if matches!(
                         ledger.window_kind(),
-                        Some(protocol::WindowKind::Anvil | protocol::WindowKind::Grindstone)
+                        Some(
+                            protocol::WindowKind::Anvil
+                                | protocol::WindowKind::Grindstone
+                                | protocol::WindowKind::Smithing
+                        )
                     ) =>
                 {
                     (Some(&output.stack), output.icon, output.durability)

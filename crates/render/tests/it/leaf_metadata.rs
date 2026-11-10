@@ -37,9 +37,14 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
         rotations_seen[rotation as usize] = true;
         for flags in [
             native | isotropic | exponent,
-            isotropic,
+            isotropic | exponent,
             native | exponent,
-            0,
+            assets::redstone_wire::material_flags(if x % 2 == 0 {
+                0
+            } else {
+                assets::redstone_wire::MAX_SIGNAL
+            })
+            .unwrap(),
             native | isotropic | 1,
         ] {
             let ao_face = [0.2_f32, 0.4, 0.6, 0.9][cases.len() % 4];
@@ -48,7 +53,9 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
             } else {
                 flags & 3
             };
-            let expected_shade = if flags & native != 0 && flags & exponent != 0 {
+            let expected_shade = if flags & assets::stem::MATERIAL_FLAG == 0
+                && flags & assets::MATERIAL_LEAF_AO_EXPONENT_MASK != 0
+            {
                 ao_face.powf(0.8)
             } else {
                 ao_face

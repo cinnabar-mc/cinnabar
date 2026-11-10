@@ -1,28 +1,6 @@
 use super::{Vec3, apply_relative_movement};
 
 #[test]
-fn local_input_scale_preserves_float_precision_and_rejects_invalid_values() {
-    let mut input = super::MovementInput {
-        forward: 0.75,
-        strafe: -0.5,
-        move_vector_is_raw: true,
-        local_input_scale: Some(0.2),
-        ..Default::default()
-    };
-    assert_eq!(
-        input.processed_controls().move_vector,
-        [f64::from(-0.5_f32 * 0.2), f64::from(0.75_f32 * 0.2)]
-    );
-    for scale in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
-        input.local_input_scale = Some(scale);
-        assert_eq!(
-            super::input::validate(input),
-            Err(super::SimulationError::InvalidLocalInputScale)
-        );
-    }
-}
-
-#[test]
 fn processed_controls_round_the_item_and_pose_product_before_clamping() {
     let input = super::MovementInput {
         forward: 1.0,

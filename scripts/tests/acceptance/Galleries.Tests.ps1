@@ -512,7 +512,22 @@
     $trackedStates = @(Get-TestRegistryEntries -RegistryPath $BlockRegistry)
     $crossStates = @($trackedStates | Where-Object family -EQ $crossFamily)
     $cropStates = @($trackedStates | Where-Object family -EQ $cropFamily)
-    Assert-Equal ($crossStates.Count + $cropStates.Count) ([int]$crossCropPlan.Manifest.gallery_state_count) 'cross/crop plan did not enumerate the exact tracked Cross/Crop state set'
+    $crossCropPages = @(0..([int]$crossCropPlan.Manifest.gallery_page.count - 1) | ForEach-Object {
+        New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets -Page $_
+    })
+    $pageCapacity = [int]$crossCropPlan.Manifest.gallery_page.capacity
+    Assert-Equal ([int][Math]::Ceiling(($crossStates.Count + $cropStates.Count) / $pageCapacity)) $crossCropPages.Count 'cross/crop gallery is not split into the fewest bounded pages'
+    $pagedStates = @($crossCropPages | ForEach-Object { $_.Manifest.gallery_states })
+    $trackedCrossCropStates = @($trackedStates | Where-Object { $_.family -eq $crossFamily -or $_.family -eq $cropFamily } | ForEach-Object { "$($_.name)|$($_.canonical_state)" })
+    Assert-Equal ($trackedCrossCropStates -join "`n") ($pagedStates -join "`n") 'cross/crop pages did not enumerate the exact tracked Cross/Crop state set once each'
+    foreach ($page in $crossCropPages) {
+        Assert-True ([int]$page.Manifest.gallery_state_count -le $pageCapacity) "cross/crop page $($page.Manifest.gallery_page.index) overflows the supported grid"
+        Assert-Equal ([int]$page.Manifest.gallery_state_count) @($page.GalleryCommands | Where-Object { $_ -match '^setblock ' }).Count "cross/crop page $($page.Manifest.gallery_page.index) did not place one block per paged state"
+    }
+    Assert-Equal $crossCropPages.Count @($crossCropPages | ForEach-Object { $_.Manifest.fixture_layout_hash } | Sort-Object -Unique).Count 'cross/crop pages share a fixture layout identity'
+    Assert-ThrowsLike {
+        New-CrossCropGalleryPlan -MutationCoordinate @(100, 64, 200) -Pose CrossCropGalleryFront -RegistryPath $BlockRegistry -AssetsPath $CrossCropAssets -Page $crossCropPages.Count
+    } '*outside*' 'cross/crop gallery accepted a page past its state set'
     Assert-Equal $crossStates.Count ([int]$crossCropPlan.Manifest.coverage_evidence.cross_state_count) 'cross/crop plan lost Cross state coverage'
     Assert-Equal $cropStates.Count ([int]$crossCropPlan.Manifest.coverage_evidence.crop_state_count) 'cross/crop plan changed Crop state coverage'
     # The pinned registry adds two poplar sapling states and one red shrub state.
@@ -521,12 +536,11 @@
         'minecraft:poplar_sapling|{"age_bit":{"type":"byte","value":1}}'
         'minecraft:red_shrub|{}'
     )
-    $actualNewCrossStates = @($crossCropPlan.Manifest.gallery_states | Where-Object { $_ -match '^minecraft:(poplar_sapling|red_shrub)\|' } | Sort-Object)
+    $actualNewCrossStates = @($pagedStates | Where-Object { $_ -match '^minecraft:(poplar_sapling|red_shrub)\|' } | Sort-Object)
     Assert-Equal ($newCrossStates -join "`n") ($actualNewCrossStates -join "`n") 'cross/crop plan lost the pinned poplar sapling or red shrub states'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.cross) 'cross family diagnostic contract changed'
     Assert-Equal 0 ([int]$crossCropPlan.Manifest.family_diagnostics.crop) 'crop family diagnostic contract changed'
     Assert-Equal $assetIdentity ([string]$crossCropPlan.Manifest.artifact_identity.assets_sha256) 'cross/crop plan lost asset identity'
-    Assert-Equal ($crossStates.Count + $cropStates.Count) @($crossCropPlan.GalleryCommands | Where-Object { $_ -match '^setblock ' }).Count 'cross/crop gallery did not place one block per tracked state'
     Assert-Equal 2 @($crossCropPlan.GalleryCommands | Where-Object { $_ -match '^fill ' }).Count 'cross/crop gallery lost its clear and support setup'
     Assert-True (-not (($crossCropPlan.GalleryCommands -join "`n") -match 'seagrass|kelp')) 'Task 9 gallery included Task 10 aquatic plants'
     $firstPlan = $crossCropPlan.Manifest | ConvertTo-Json -Compress -Depth 12

@@ -1,6 +1,6 @@
 //! Startup item fixtures pass through the same wire and login projection as a real join.
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     enums::ItemVersion,
     packets::{ItemRegistry, StartGame},
     types::ItemData,
@@ -44,7 +44,7 @@ pub fn component_item_registry_payload(
             item_name: identifier.into(),
             item_id: wire::I16LE(network_id),
             is_component_based: true,
-            item_version: ItemVersion::Datadriven,
+            item_version: ItemVersion::DataDriven,
             item_component_data: wire::NetworkNbt(bytes.into()),
         }],
     };

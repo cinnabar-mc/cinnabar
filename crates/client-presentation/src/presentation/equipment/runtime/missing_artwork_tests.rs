@@ -92,6 +92,7 @@ fn secondary_only_pack_keeps_startup_armour_visible() {
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: ITEM.into(),
                 kind: HeldKind::Other,
                 ..item

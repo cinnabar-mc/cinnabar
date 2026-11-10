@@ -1,6 +1,13 @@
 use super::*;
 use assets::{ContributorRole, NO_MODEL_TEMPLATE, TextureMip, TextureRef};
 
+mod carpets;
+mod fences;
+mod gates;
+mod pressure_plates;
+mod slabs;
+mod walls;
+
 fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
     let mut mips = Vec::new();
     let mut side = size;
@@ -138,6 +145,32 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
                 .all(|pixel| *pixel == [40, 80, 120, 128])
         );
     }
+}
+
+/// Full cubes declared through the versioned geometry turn their bottom face's UVs, and that
+/// must reach a held cube's tile rather than cost the block its sheet.
+#[test]
+fn a_rotated_face_material_turns_its_held_tile() {
+    const MARK: [u8; 4] = [250, 10, 10, 255];
+    let side = usize::from(BLOCK_ITEM_FACE_SIDE);
+    let mut source = overlay(
+        BlockFlags::CUBE_GEOMETRY,
+        assets::MATERIAL_FLAG_UV_ROTATE_180,
+        16,
+    );
+    let mip = &mut source.textures[0].mips[0];
+    let mut pixels = mip.rgba8.to_vec();
+    let layer_one = 16 * 16 * 4;
+    pixels[layer_one..layer_one + 4].copy_from_slice(&MARK);
+    mip.rgba8 = pixels.into();
+    let sheet = overlay_sheet(&source, 0, None).expect("a rotated face keeps its held sheet");
+    let width = usize::from(sheet.width);
+    let pixel = |x: usize, y: usize| {
+        let start = (y * width + x) * 4;
+        <[u8; 4]>::try_from(&sheet.rgba8[start..start + 4]).unwrap()
+    };
+    assert_eq!(pixel(side - 1, side - 1), MARK);
+    assert_ne!(pixel(0, 0), MARK);
 }
 
 #[test]
@@ -610,10 +643,10 @@ fn pinned_non_cube_items_hold_their_inventory_model_and_flat_items_stay_sprites(
         };
         block_visual.0
     };
-    for name in [
-        "minecraft:oak_stairs",
-        "minecraft:oak_slab",
-        "minecraft:oak_fence",
+    for (name, bounds) in [
+        ("minecraft:oak_stairs", [0.5; 3]),
+        ("minecraft:oak_slab", [0.5; 3]),
+        ("minecraft:oak_fence", [0.125, 0.5, 0.625]),
     ] {
         let vertices = held
             .models
@@ -624,8 +657,9 @@ fn pinned_non_cube_items_hold_their_inventory_model_and_flat_items_stay_sprites(
             vertices.iter().all(|vertex| vertex
                 .position
                 .iter()
-                .all(|axis| (-0.5..=0.5).contains(axis))),
-            "{name} stays within its block"
+                .zip(bounds)
+                .all(|(axis, bound)| (-bound..=bound).contains(axis))),
+            "{name} stays within its carried bounds"
         );
         assert!(
             !slots.models.contains_key(&visual(name)),
@@ -874,4 +908,179 @@ fn custom_content_carried_tints_are_baked_without_changing_alpha() {
             .iter()
             .all(|pixel| *pixel == [40, 40, 0, 128])
     );
+}
+
+#[test]
+fn pinned_glass_panes_keep_a_plate_instead_of_flat_artwork() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    for definition in entities.item_visuals() {
+        let name = definition.key.identifier.as_ref();
+        let glass = name == assets::facts::pack::PackBlock::GlassPane.identifier()
+            || assets::facts::block_render_fact(name).kind
+                == assets::facts::BlockRenderKind::StainedPane;
+        if !glass {
+            continue;
+        }
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            panic!("{name} has no block route");
+        };
+        let vertices = held
+            .models
+            .get(&block_visual.0)
+            .unwrap_or_else(|| panic!("{name} must hold a three-dimensional glass plate"));
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| vertex.back_uv == crate::ONE_SIDED_BACK_UV),
+            "{name} culls the far face through transparent holes"
+        );
+        assert_eq!(vertices.len(), 36, "{name} has six plate faces");
+        for axis in 0..3 {
+            let bound = if axis == 0 { 0.07501221 } else { 0.60009766 };
+            let min = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let max = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!([min, max], [-bound, bound], "{name} axis {axis}");
+        }
+    }
+    let bars = entities
+        .item_visuals()
+        .iter()
+        .find(|definition| definition.key.identifier.as_ref() == "minecraft:iron_bars")
+        .unwrap();
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } = bars.route else {
+        panic!("iron bars have no block route")
+    };
+    assert!(
+        !held.models.contains_key(&block_visual.0),
+        "iron bars keep their extruded sprite"
+    );
+}
+
+/// One whole-tile quad per listed material.
+fn quads_of(materials: impl IntoIterator<Item = u32>) -> Vec<assets::gui_item::GuiBlockQuad> {
+    materials
+        .into_iter()
+        .map(|material| assets::gui_item::GuiBlockQuad {
+            corners: [[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]],
+            uvs: [[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+            material,
+            two_sided: false,
+        })
+        .collect()
+}
+
+#[test]
+fn a_seventh_material_keeps_a_retained_shape_on_the_first_tile() {
+    let quads = quads_of(1..=7);
+    assert!(
+        super::template_quads(&quads, false).is_none(),
+        "other models keep their sprite"
+    );
+
+    let (slots, vertices) = super::template_quads(&quads, true).unwrap();
+    assert_eq!(slots, [1, 2, 3, 4, 5, 6]);
+    assert_eq!(vertices.len(), 7 * 6, "every quad stays in the model");
+    let first_tile = &vertices[..6];
+    let extra = &vertices[6 * 6..];
+    for (a, b) in first_tile.iter().zip(extra) {
+        assert_eq!(a.uv, b.uv, "the extra material draws with the first tile");
+    }
+}
+
+#[test]
+fn carried_buttons_use_their_unpressed_ceiling_panel() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    let mut checked = 0;
+    for definition in entities.item_visuals() {
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            continue;
+        };
+        if assets::registry::pinned_block_model_family(block_visual.0)
+            != Some(assets::ModelFamily::Button)
+            || !assets::registry::pinned_block_identity(block_visual.0)
+                .is_some_and(|(name, _)| name == definition.key.identifier.as_ref())
+        {
+            continue;
+        }
+        let name = definition.key.identifier.as_ref();
+        let vertices = held
+            .models
+            .get(&block_visual.0)
+            .unwrap_or_else(|| panic!("{name} holds its button panel"));
+        assert_eq!(vertices.len(), 36, "{name}");
+        for (axis, expected) in [[-0.1875, 0.1875], [0.375, 0.5], [-0.125, 0.125]]
+            .into_iter()
+            .enumerate()
+        {
+            let min = vertices
+                .iter()
+                .map(|v| v.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let max = vertices
+                .iter()
+                .map(|v| v.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!([min, max], expected, "{name} axis {axis}");
+        }
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
+
+#[test]
+fn pinned_trapdoors_hold_a_centered_thin_panel() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    let mut checked = 0;
+    for definition in entities.item_visuals() {
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            continue;
+        };
+        if assets::registry::pinned_block_model_family(block_visual.0)
+            != Some(assets::ModelFamily::Trapdoor)
+            || !assets::registry::pinned_block_identity(block_visual.0)
+                .is_some_and(|(name, _)| name == definition.key.identifier.as_ref())
+        {
+            continue;
+        }
+        let name = definition.key.identifier.as_ref();
+        let vertices = held
+            .models
+            .get(&block_visual.0)
+            .unwrap_or_else(|| panic!("{name} must hold a three-dimensional panel"));
+        assert_eq!(vertices.len(), 36, "{name} has six panel faces");
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| vertex.back_uv == crate::ONE_SIDED_BACK_UV),
+            "{name} culls far faces through its cutouts"
+        );
+        for (axis, bound) in [0.5, 0.09124756, 0.5].into_iter().enumerate() {
+            let min = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let max = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!([min, max], [-bound, bound], "{name} axis {axis}");
+        }
+        checked += 1;
+    }
+    assert!(checked > 0, "the available carriers contain trapdoor items");
 }

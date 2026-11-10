@@ -5,8 +5,8 @@
 //! names come from the encoder's own [`super::INPUT_FLAG_ITEMS`] table rather
 //! than a second spelling.
 
-use bedrock_protocol_1_26_51::enums::{InputData, InputMode};
-use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_1_26_60::enums::{InputData, InputMode};
+use bedrock_protocol_1_26_60::packets;
 
 use super::INPUT_FLAG_ITEMS;
 use crate::Packet;
@@ -80,8 +80,8 @@ fn input_mode_name(mode: InputMode) -> &'static str {
         InputMode::Undefined => "Undefined",
         InputMode::Mouse => "Mouse",
         InputMode::Touch => "Touch",
-        InputMode::Gamepad => "GamePad",
-        InputMode::Motioncontroller => "MotionController",
+        InputMode::GamePad => "GamePad",
+        InputMode::MotionController => "MotionController",
         InputMode::Count => "Count",
         InputMode::Unknown(_) => "Unknown",
     }
@@ -90,7 +90,8 @@ fn input_mode_name(mode: InputMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input,
+        PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+        player_auth_input,
     };
     use super::{PlayerAuthInputTraceSample, player_auth_input_trace_sample};
 
@@ -109,6 +110,7 @@ mod tests {
             interact_rotation: [-12.5, 179.5],
             flags: PlayerInputFlags::UP | PlayerInputFlags::SPRINTING,
             input_mode: PlayerInputMode::GamePad,
+            interaction_model: PlayerInteractionModel::Crosshair,
             vehicle: None,
         }
     }

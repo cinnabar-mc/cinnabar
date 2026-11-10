@@ -20,6 +20,7 @@ fn bone(
         name: name.into(),
         binding: None,
         texture_meshes: Box::new([]),
+        poly_mesh: None,
         parent: parent.map(Into::into),
         pivot: turn.map(|(pivot, _)| pivot.map(scalar)),
         rotation: turn.map(|(_, rotation)| rotation.map(scalar)),
@@ -218,7 +219,7 @@ fn lectern_inventory_board_slopes_toward_the_viewer() {
     let parts = lectern();
     let reading_surface = parts
         .iter()
-        .find(|part| part.texture == geometry::LECTERN_TEXTURES[2])
+        .find(|part| part.texture == geometry::LECTERN_TEXTURES[3])
         .unwrap();
     assert_eq!(reading_surface.faces.len(), 1);
     let corners = reading_surface.faces[0].0;

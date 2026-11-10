@@ -21,13 +21,16 @@ pub struct CameraSettingsAuthority {
     smaa_mode: ui::SmaaMode,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
+    mod_perspective: Option<PerspectiveMode>,
+    view_yaw_offset: f32,
     pub(super) freelook: bool,
     presented_view: Option<PresentedView>,
     death_rotation: Option<Quat>,
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
-    preserve_teleport_rotation: bool,
+    /// A developer-scripted camera is rendering the scene from outside the body.
+    scripted_view: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
 }
@@ -91,8 +94,6 @@ pub struct CameraFeelSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations, hand motion and view bob.
     pub java_animations: bool,
-    /// Whether Java 1.7 sword blocking is shown in the player pose and held item.
-    pub java_item_blocking: bool,
     /// Whether server-pack custom held-item models are drawn.
     pub show_custom_item_models: bool,
     /// Whether other players' catalog cosmetics and their effects are drawn.
@@ -119,8 +120,6 @@ impl CameraFeelSettings {
             camera_shake: settings.video.camera_shake,
             damage_bob: unit(settings.video.damage_bob),
             java_animations: settings.video.java_animations,
-            // Java blocking details are inert in Bedrock mode, even when their saved values are on.
-            java_item_blocking: settings.video.java_animations && settings.animation.item_blocking,
             show_custom_item_models: settings.video.show_custom_item_models,
             show_other_player_cosmetics: settings.video.show_other_player_cosmetics,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
@@ -140,13 +139,15 @@ impl Default for CameraSettingsAuthority {
             smaa_mode: settings.video.smaa_mode,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
+            mod_perspective: None,
+            view_yaw_offset: 0.0,
             freelook: false,
             presented_view: None,
             death_rotation: None,
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
-            preserve_teleport_rotation: false,
+            scripted_view: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
         }
@@ -238,15 +239,30 @@ impl CameraSettingsAuthority {
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
+        let perspective = match self.mod_perspective {
+            Some(view) => view,
+            None => self.perspective,
+        };
         if self.presented_view.is_some()
             || self.rig.is_some()
             || self.freelook
             || (self.death_rotation.is_some()
-                && matches!(self.perspective, PerspectiveMode::FirstPerson))
+                && matches!(perspective, PerspectiveMode::FirstPerson))
         {
             PerspectiveMode::ThirdPersonBack
         } else {
-            self.perspective
+            perspective
+        }
+    }
+
+    /// The perspective the local body is drawn for: `perspective`, except that a scripted camera filming
+    /// from outside the body draws it as third-person-back. Only drawing reads this; anything a server
+    /// can observe, such as aim-assist activation, keeps reading `perspective`.
+    #[must_use]
+    pub fn rendered_perspective(&self) -> PerspectiveMode {
+        match self.perspective() {
+            PerspectiveMode::FirstPerson if self.scripted_view => PerspectiveMode::ThirdPersonBack,
+            perspective => perspective,
         }
     }
 
@@ -301,16 +317,6 @@ impl CameraSettingsAuthority {
             .is_some_and(|view| view.capture_movement)
     }
 
-    /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
-    pub const fn preserves_teleport_rotation(&self) -> bool {
-        self.preserve_teleport_rotation
-    }
-
-    /// Position reconciliation and teleport acknowledgment remain server-owned.
-    pub fn set_preserve_teleport_rotation(&mut self, enabled: bool) {
-        self.preserve_teleport_rotation = enabled;
-    }
-
     /// Applies ephemeral view multipliers without changing saved FOV, sensitivity or perspective.
     /// Invalid native values restore the neutral view.
     pub fn set_view_scale(&mut self, fov_scale: f32, look_scale: f32) {
@@ -363,6 +369,12 @@ impl CameraSettingsAuthority {
         }
     }
 
+    /// Marks a developer-scripted camera as active, so the local body is drawn in its shots without
+    /// changing the player's perspective; clearing stops drawing it.
+    pub fn set_scripted_view(&mut self, active: bool) {
+        self.scripted_view = active;
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -384,6 +396,28 @@ impl CameraSettingsAuthority {
         self.game_sensitivity.value()
     }
 
+    /// Sets a frame-local presented heading offset without mutating player look.
+    pub fn set_view_yaw_offset(&mut self, degrees: Option<f32>) {
+        self.view_yaw_offset = degrees
+            .filter(|v| v.is_finite() && (-180.0..=180.0).contains(v))
+            .unwrap_or(0.0);
+    }
+
+    /// Whether a body-aligned first-person viewmodel belongs in the presented view.
+    pub fn view_aligned(&self) -> bool {
+        self.view_yaw_offset == 0.0
+    }
+
+    /// Turns only the presented orientation around world up, leaving the camera position intact.
+    pub fn offset_view_rotation(&self, rotation: Quat) -> Quat {
+        Quat::from_rotation_y(self.view_yaw_offset.to_radians()) * rotation
+    }
+
+    /// Selects a temporary ordinary view without changing the player's perspective cycle.
+    pub fn set_mod_perspective(&mut self, view: Option<PerspectiveMode>) {
+        self.mod_perspective = view;
+    }
+
     /// Advances the configured first-person and third-person camera cycle.
     pub fn cycle_perspective(&mut self) {
         self.perspective = next_perspective(self.perspective);
@@ -395,7 +429,8 @@ impl CameraSettingsAuthority {
         self.freelook = false;
         self.presented_view = None;
         self.death_rotation = None;
-        self.preserve_teleport_rotation = false;
+        self.mod_perspective = None;
+        self.view_yaw_offset = 0.0;
         self.view_scale = [1.0, 1.0];
         self.view_tilt = None;
     }
@@ -448,20 +483,21 @@ mod tests {
         camera.replace(2, &settings).unwrap();
         assert!(camera.feel().show_other_player_cosmetics);
     }
+}
 
+#[cfg(test)]
+mod perspective_tests {
+    use super::*;
+
+    /// Clearing the override reveals even a perspective cycled while it was held.
     #[test]
-    fn camera_authority_applies_java_blocking_preferences_only_in_java_mode() {
-        let mut settings = UserSettings::default();
-        settings.animation.item_blocking = true;
+    fn temporary_perspective_preserves_player_choice() {
         let mut camera = CameraSettingsAuthority::default();
-
-        camera.replace(1, &settings).unwrap();
-        assert!(!camera.feel().java_animations);
-        assert!(!camera.feel().java_item_blocking);
-
-        settings.video.java_animations = true;
-        camera.replace(2, &settings).unwrap();
-        assert!(camera.feel().java_animations);
-        assert!(camera.feel().java_item_blocking);
+        camera.set_mod_perspective(Some(PerspectiveMode::ThirdPersonFront));
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
+        camera.cycle_perspective();
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
+        camera.set_mod_perspective(None);
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonBack);
     }
 }

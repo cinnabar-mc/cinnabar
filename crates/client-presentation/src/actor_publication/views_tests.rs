@@ -51,3 +51,27 @@ fn a_camera_inside_authored_bounds_keeps_the_actor_animating_and_drawing() {
         }
     }
 }
+
+/// A close item's initial orientation follows the temporary view and stays captured after release.
+#[test]
+fn close_item_capture_uses_presented_heading_and_keeps_it_after_release() {
+    use bevy::math::Quat;
+    let view = crate::local_player::LocalViewPose::default();
+    let aim = view.rotation();
+    let mut settings = crate::camera::CameraSettingsAuthority::default();
+    let capture = |settings: &crate::camera::CameraSettingsAuthority| {
+        render_model::DroppedItemSpawnPose::new(
+            [0.1, 0., 0.],
+            Some(super::dropped_item_camera([0.; 3], &view, settings)),
+        )
+    };
+    let forward = capture(&settings);
+    settings.set_view_yaw_offset(Some(90.));
+    let turned = capture(&settings);
+    let expected = Quat::from_rotation_y(forward.yaw(0.) + std::f32::consts::FRAC_PI_2);
+    assert!(Quat::from_rotation_y(turned.yaw(0.)).abs_diff_eq(expected, 1e-5));
+    settings.set_view_yaw_offset(None);
+    assert_eq!(capture(&settings), forward);
+    assert!(Quat::from_rotation_y(turned.yaw(0.)).abs_diff_eq(expected, 1e-5));
+    assert_eq!(view.rotation(), aim);
+}

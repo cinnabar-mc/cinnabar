@@ -443,7 +443,7 @@ pub(crate) fn chunk_bind_group_layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: Some(AtmosphereFrame::min_size()),
+                    min_binding_size: Some(crate::atmosphere_render::AtmosphereUniform::min_size()),
                 },
                 count: None,
             },
