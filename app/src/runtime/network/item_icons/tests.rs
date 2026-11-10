@@ -466,8 +466,58 @@ fn array_variants_keep_metadata_and_pack_item_declarations_override_registry_key
             .iter()
             .map(|icon| (icon.identifier.as_ref(), icon.metadata, icon.width))
             .collect::<Vec<_>>(),
-        [("test:variant", 0, 8), ("test:variant", 2, 16)]
+        [
+            ("test:variant", 0, 8),
+            ("test:variant", 2, 16),
+            ("variant", 0, 8),
+            ("variant", 2, 16)
+        ]
     );
+}
+
+#[test]
+fn pack_item_short_aliases_follow_the_winning_declaration() {
+    let view = stack(&[
+        &[
+            ("items/a.json", br#"{"minecraft:item":{"description":{"identifier":"t:a"},"components":{"minecraft:icon":"lower_a"}}}"#.to_vec()),
+            ("attachables/a.json", br#"{"minecraft:attachable":{"description":{"identifier":"t:a"}}}"#.to_vec()),
+            ("textures/item_texture.json", br#"{"texture_data":{"lower_a":{"textures":"textures/items/lower"},"upper_a":{"textures":"textures/items/upper"}}}"#.to_vec()),
+            ("textures/items/lower.png", png(8, 8)),
+            ("textures/items/upper.png", png(16, 16)),
+        ],
+        &[("items/a.json", br#"{"minecraft:item":{"description":{"identifier":"t:a"},"components":{"minecraft:icon":"upper_a"}}}"#.to_vec())],
+    ]);
+    let registry = [(Arc::from("t:a"), Arc::from("registry_a"))];
+    let keys = super::catalog::icon_keys(&view, &registry)
+        .into_iter()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(keys["t:a"].as_ref(), "upper_a");
+    assert_eq!(keys["a"].as_ref(), "upper_a");
+    let icons = compile_session_icons(&view, &registry, BlockIcons::default()).unwrap();
+    for identifier in ["t:a", "a"] {
+        let icon = icons
+            .icons
+            .iter()
+            .find(|icon| icon.identifier.as_ref() == identifier)
+            .unwrap();
+        assert_eq!([icon.width, icon.height], [16, 16]);
+    }
+}
+
+#[test]
+fn generated_short_aliases_preserve_explicit_pack_and_registry_identifiers() {
+    let view = stack(&[&[
+        ("items/custom_a.json", br#"{"minecraft:item":{"description":{"identifier":"t:a"},"components":{"minecraft:icon":"custom_a"}}}"#.to_vec()),
+        ("items/custom_b.json", br#"{"minecraft:item":{"description":{"identifier":"t:b"},"components":{"minecraft:icon":"custom_b"}}}"#.to_vec()),
+        ("items/a.json", br#"{"minecraft:item":{"description":{"identifier":"a"},"components":{"minecraft:icon":"explicit_a"}}}"#.to_vec()),
+    ]]);
+    let keys = super::catalog::icon_keys(&view, &[(Arc::from("b"), Arc::from("registry_b"))])
+        .into_iter()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(keys["t:a"].as_ref(), "custom_a");
+    assert_eq!(keys["t:b"].as_ref(), "custom_b");
+    assert_eq!(keys["a"].as_ref(), "explicit_a");
+    assert_eq!(keys["b"].as_ref(), "registry_b");
 }
 
 #[test]
@@ -533,11 +583,17 @@ fn review_item_declaration_priority_survives_moves_between_files() {
         ],
     ]);
     let keys = super::catalog::icon_keys(&view, &[]);
+    // Short-name aliases follow the same winning declaration.
     assert_eq!(
         keys.iter()
             .map(|(id, key)| (id.as_ref(), key.as_ref()))
             .collect::<Vec<_>>(),
-        [("t:a", "upper_a"), ("t:b", "upper_b")]
+        [
+            ("a", "upper_a"),
+            ("b", "upper_b"),
+            ("t:a", "upper_a"),
+            ("t:b", "upper_b")
+        ]
     );
 }
 

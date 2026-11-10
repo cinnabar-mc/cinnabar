@@ -149,25 +149,25 @@ pub use entity::{
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
     EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     LEGACY_ENTITY_GEOMETRY_PATH, MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_ASSET_PATH_BYTES,
-    MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CATALOG_BYTES,
-    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_DEPENDENCIES,
-    MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES, MAX_ENTITY_GEOMETRY_NAME_BYTES,
-    MAX_ENTITY_GEOMETRY_SCALAR, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES, MAX_ENTITY_IDENTIFIER_BYTES,
-    MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES,
-    MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY, MAX_ENTITY_RIG_BINDINGS,
-    MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES, MAX_ENTITY_SOURCE_BYTES,
-    MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES, MAX_GEOMETRY_LOCATORS,
-    MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS,
-    MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
-    MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH,
-    MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS, MolangBranch, MolangCall,
-    MolangCollection, MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction,
-    MolangOp, MolangProgram, MolangQuery, MolangQueryHandler, MolangQueryOutput,
-    MolangQuerySampling, MolangQuerySupport, MolangSymbol, MolangSymbolKind,
-    PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE, RuntimeEntityAssets, encode_entity_blob,
-    entity_render_pattern_matches, interactions, item_use, molang_call, molang_program_stack,
-    placement, seats as entity_seats, validate_entity_geometry_inheritance,
+    MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CARRIER_BYTES,
+    MAX_ENTITY_CATALOG_BYTES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING,
+    MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
+    MAX_ENTITY_DEPENDENCIES, MAX_ENTITY_GEOMETRY_BONES, MAX_ENTITY_GEOMETRY_CUBES,
+    MAX_ENTITY_GEOMETRY_NAME_BYTES, MAX_ENTITY_GEOMETRY_SCALAR, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES,
+    MAX_ENTITY_IDENTIFIER_BYTES, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
+    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
+    MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES,
+    MAX_ENTITY_SOURCE_BYTES, MAX_ENTITY_TEXTURE_DIMENSION, MAX_ENTITY_TOTAL_SOURCE_BYTES,
+    MAX_GEOMETRY_LOCATORS, MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_COLLECTION_ITEMS_TOTAL,
+    MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS, MAX_MOLANG_LOOP_DEPTH,
+    MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS, MAX_MOLANG_OPS_PER_EXPRESSION,
+    MAX_MOLANG_QUERY_ARGUMENTS, MAX_MOLANG_STACK_DEPTH, MAX_MOLANG_STRING_BYTES, MOLANG_QUERIES,
+    MOLANG_QUERY_DESCRIPTORS, MolangBranch, MolangCall, MolangCollection, MolangCollectionItem,
+    MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangProgram, MolangQuery,
+    MolangQueryHandler, MolangQueryOutput, MolangQuerySampling, MolangQuerySupport, MolangSymbol,
+    MolangSymbolKind, PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE, RuntimeEntityAssets,
+    encode_entity_blob, entity_render_pattern_matches, interactions, item_use, molang_call,
+    molang_program_stack, placement, seats as entity_seats, validate_entity_geometry_inheritance,
 };
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
@@ -198,12 +198,12 @@ pub use hud::{
     RuntimeHudCatalog, encode_hud_catalog, hud_source_manifest_sha256,
 };
 pub use icon::{
-    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
-    ICON_CARRIER_VERSION, IconBlockModel, IconBlockSheet, IconEntry, IconSprite,
-    MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES,
-    MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog, compose_block_item_sheet,
-    encode_icon_catalog, encode_icon_catalog_with_block_sheets, encode_icon_catalog_with_blocks,
-    encode_icon_catalog_with_gui_cube_sheets, encode_icon_catalog_with_sources,
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, IconBlockModel,
+    IconBlockSheet, IconEntry, IconSprite, MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES,
+    MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog,
+    compose_block_item_sheet, encode_icon_catalog, encode_icon_catalog_with_block_sheets,
+    encode_icon_catalog_with_blocks, encode_icon_catalog_with_gui_cube_sheets,
+    encode_icon_catalog_with_sources,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
@@ -268,8 +268,8 @@ pub use provenance::{
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
-    pinned_block_identity, pinned_block_state_by_name, read_registry, read_registry_for_protocol,
-    registry_header_protocol,
+    pinned_block_identity, pinned_block_model_family, pinned_block_state_by_name, read_registry,
+    read_registry_for_protocol, registry_header_protocol,
 };
 pub use runtime::{
     BlockOverlay, MaterialOverride, NetworkIdMode, ResolvedBlock, ResolvedFace, RuntimeAssets,
@@ -285,8 +285,9 @@ pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};
 pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TERRAIN_QUAD_SHIFT_MASK, TILE_SIZE, TextureArray, TextureMip,
-    VANILLA_TERRAIN_MIP_COUNT, build_legacy_terrain_mip_chain, build_texture_mip_chain,
-    downsample_linear_premultiplied, legacy_terrain_mip, rebuild_legacy_terrain_mips,
+    TextureMips, VANILLA_TERRAIN_MIP_COUNT, build_legacy_terrain_mip_chain,
+    build_texture_mip_chain, downsample_linear_premultiplied, legacy_terrain_mip,
+    rebuild_legacy_terrain_mips,
 };
 pub use ui::{
     MAX_UI_ATLAS_PAGES, MAX_UI_CARRIER_BYTES, MAX_UI_FILE_BYTES, RuntimeUiAssets,

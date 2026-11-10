@@ -111,11 +111,18 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
-/// Empty vanilla buckets may pick liquid sources without making liquids selectable for mining.
+/// Empty vanilla buckets and glass bottles may pick liquid sources without making liquids
+/// selectable for mining.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
     !item.is_empty()
         && item.metadata() == 0
-        && identifier == Some(assets::facts::EMPTY_BUCKET_IDENTIFIER)
+        && identifier.is_some_and(|identifier| {
+            [
+                assets::facts::EMPTY_BUCKET_IDENTIFIER,
+                assets::facts::GLASS_BOTTLE_IDENTIFIER,
+            ]
+            .contains(&identifier)
+        })
 }
 
 /// World facts one local use depends on.
@@ -193,6 +200,9 @@ pub(crate) fn placed_collision_boxes(
 pub enum LocalUse {
     Interact,
     Place,
+    /// The held item's own use on the block succeeded without placing anything, as
+    /// vanilla's brush does; it starts a held use and does not swing.
+    UseItem,
     Nothing,
 }
 
@@ -256,11 +266,30 @@ impl LocalUse {
         }
     }
 
+    /// A held brush's use succeeds on any block that neither the block's own use nor a
+    /// placement took, as vanilla's `BrushItem::_useOn` does for every non-air block; a
+    /// clicked cell that is now air fails. Like other item use on a block, it needs the
+    /// build ability.
+    pub fn or_brush(
+        self,
+        brush: bool,
+        clicked_air: bool,
+        item: &VerifiedNetworkItemStack,
+        caps: &GameModeCapabilities,
+    ) -> Self {
+        if self == Self::Nothing && brush && !clicked_air && caps.can_build && item.count() > 0 {
+            Self::UseItem
+        } else {
+            self
+        }
+    }
+
     const fn swing(self) -> Option<SwingSource> {
         match self {
             Self::Interact => Some(SwingSource::Interact),
             Self::Place => Some(SwingSource::Build),
-            Self::Nothing => None,
+            // Vanilla swings only for a use result carrying its swing bit; the brush's has none.
+            Self::UseItem | Self::Nothing => None,
         }
     }
 }
@@ -512,8 +541,8 @@ impl BlockUseRuntime {
 }
 
 /// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
-/// uses need a predicted interaction or seed planting until their successful-use timing
-/// is modeled. Buckets refuse repeats.
+/// uses need a predicted interaction, seed planting or item use on the block, such as a
+/// brush's, until their successful-use timing is modeled. Buckets refuse repeats.
 pub fn repeats_while_held(
     item: &VerifiedNetworkItemStack,
     bucket: bool,

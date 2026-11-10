@@ -82,7 +82,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/207/0"
+          "pointer": "/215/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:ice_bomb"
@@ -93,7 +93,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/207/2"
+          "pointer": "/215/2"
         },
         "domain": "item_texture",
         "identifier": "ice_bomb"
@@ -104,7 +104,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/297/0"
+          "pointer": "/305/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:lodestone_compass"
@@ -115,7 +115,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/308/2"
+          "pointer": "/316/2"
         },
         "domain": "item_texture",
         "identifier": "mangrove_propagule"
@@ -126,7 +126,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/310/0"
+          "pointer": "/318/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:medicine"
@@ -137,7 +137,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/310/2"
+          "pointer": "/318/2"
         },
         "domain": "item_texture",
         "identifier": "medicine"
@@ -170,7 +170,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/376/0"
+          "pointer": "/384/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:photo_item"
@@ -181,7 +181,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/376/2"
+          "pointer": "/384/2"
         },
         "domain": "item_texture",
         "identifier": "photo"
@@ -192,7 +192,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/388/0"
+          "pointer": "/396/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:portfolio"
@@ -214,7 +214,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/449/0"
+          "pointer": "/457/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:rapid_fertilizer"
@@ -225,7 +225,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/449/2"
+          "pointer": "/457/2"
         },
         "domain": "item_texture",
         "identifier": "rapid_fertilizer"
@@ -236,7 +236,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/453/2"
+          "pointer": "/461/2"
         },
         "domain": "item_texture",
         "identifier": "recovery_compass_item"
@@ -247,7 +247,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/478/0"
+          "pointer": "/486/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:sparkler"
@@ -258,7 +258,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/478/2"
+          "pointer": "/486/2"
         },
         "domain": "item_texture",
         "identifier": "sparkler"
@@ -269,7 +269,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/581/0"
+          "pointer": "/589/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:written_book"
@@ -280,7 +280,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/86/0"
+          "pointer": "/94/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:compound"
@@ -291,7 +291,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/86/2"
+          "pointer": "/94/2"
         },
         "domain": "item_texture",
         "identifier": "compound"
@@ -302,7 +302,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/83/0"
+          "pointer": "/91/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:command_block_minecart"
@@ -313,7 +313,7 @@
       "reference": {
         "file": "legacy-icon-routes-26.30.tsv",
         "location": {
-          "pointer": "/151/0"
+          "pointer": "/159/0"
         },
         "domain": "retail_item",
         "identifier": "minecraft:filled_map"

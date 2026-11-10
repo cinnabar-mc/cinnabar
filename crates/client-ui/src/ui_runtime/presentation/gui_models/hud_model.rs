@@ -75,6 +75,7 @@ impl HudModel {
                     },
                 );
                 UiMeshVertex {
+                    terrain_mips: false,
                     position: projected.position,
                     clip_z: projected.clip_z,
                     clip_w: projected.clip_w,

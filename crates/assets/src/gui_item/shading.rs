@@ -14,13 +14,12 @@ pub const WORLD_SHADE_Z: f32 = 0.8;
 pub const WORLD_SHADE_X: f32 = 0.6;
 
 /// How a block item's GUI faces are lit.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GuiShading {
-    /// The inventory cube's Up, South and West brightness, chosen by each face's axis.
-    #[default]
-    Inventory,
-    /// Full texture brightness on every face.
+    /// Full texture brightness for inventory artwork without directional face dimming.
     Unshaded,
+    /// The inventory cube's Up, South and West brightness, chosen by each face's axis.
+    Inventory,
     /// Flat world shading by outward direction, for shapes whose item GUI draws through
     /// their world tessellator.
     World,
@@ -43,8 +42,8 @@ impl GuiShading {
     #[must_use]
     pub fn brightness(self, corners: [[f32; 3]; 4]) -> f32 {
         match self {
-            Self::Inventory => face_brightness(corners),
             Self::Unshaded => 1.0,
+            Self::Inventory => face_brightness(corners),
             Self::World => {
                 let [a, b, c] = [corners[0], corners[1], corners[2]];
                 let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];

@@ -11,6 +11,7 @@ use super::{
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
+mod brush;
 mod classification;
 mod edible_planting;
 mod held_placement;

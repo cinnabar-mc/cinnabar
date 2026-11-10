@@ -26,6 +26,7 @@ mod digger;
 mod display;
 mod equipment;
 mod facts;
+mod fireworks;
 mod render_offsets;
 mod seed;
 mod shield;
@@ -49,11 +50,12 @@ pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
     item_enchantment_mask, item_has_enchantment_list, item_id_aux,
 };
+pub use fireworks::{FireworkExplosion, ItemFireworks, item_firework_star, item_fireworks};
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
-    ItemAnvilData, ItemNbtEdit, apply_banner_to_shield, book_init_extra, book_needs_init,
-    edit_item_extra, item_anvil_data, item_custom_name, item_filtered_custom_name, item_has_trim,
-    item_repair_cost,
+    ItemAnvilData, ItemNbtEdit, ItemTrim, apply_banner_to_shield, apply_item_trim, book_init_extra,
+    book_needs_init, edit_item_extra, item_anvil_data, item_custom_name, item_filtered_custom_name,
+    item_has_trim, item_repair_cost, item_trim,
 };
 pub use registry::{
     ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, vanilla_item_registry,

@@ -155,7 +155,7 @@ impl Page {
                     rgba8: data.into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         }
     }
 }

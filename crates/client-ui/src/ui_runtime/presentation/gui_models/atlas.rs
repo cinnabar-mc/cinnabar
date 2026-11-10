@@ -54,6 +54,11 @@ impl Atlas {
         }
     }
 
+    /// Finds an existing source without allocating more atlas space.
+    pub(super) fn get(&self, size: [u16; 2], pixels: &[u8]) -> Option<IconRef> {
+        self.refs.get(&key(size, pixels)).copied()
+    }
+
     /// Places full-resolution texels. Each side keeps a one-texel edge gutter where the page has
     /// room; a side as long as the page fills it, its page border clamping instead.
     pub(super) fn insert(
@@ -146,6 +151,12 @@ impl Atlas {
             }
             limit = longest / 2;
         }
+    }
+
+    /// Places one source, or returns None with the atlas unchanged when it is full, so the
+    /// caller can keep its fallback artwork.
+    pub(super) fn insert_or_fallback(&mut self, size: [u16; 2], pixels: &[u8]) -> Option<IconRef> {
+        self.try_insert([(size, pixels)], |icons| icons.first().copied())
     }
 
     /// Inserts optional mesh textures, restoring atlas capacity when insertion or mesh building fails.

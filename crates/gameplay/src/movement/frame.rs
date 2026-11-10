@@ -339,6 +339,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        physics.publish_replayed_movement_speed(movement_speed);
         movement_ticker.settle_riptide_input(physics);
         movement_effects.begin_frame();
         self.observe_dismount(&frame, movement_ticker.session_generation);
@@ -370,15 +371,22 @@ impl LocomotionState {
         let head_yaw = wire_head_yaw(yaw);
         let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
+        let has_speed_history = physics.latest_movement_speed().is_some();
+        let movement_speed_attribute = if has_speed_history {
+            None
+        } else {
+            movement_speed.attribute()
+        };
         let requested_speed;
         let frame = if let Some(hold) = frame.hold {
             self.reset();
-            movement_speed.set_sprinting(false);
+            movement_speed.stop_for_loading();
             requested_speed = movement_speed.prediction_speed();
             physics.advance_dimension_wait(
                 delta,
                 yaw,
                 PhysicsSampleContext {
+                    movement_speed_attribute,
                     pitch: frame.pitch,
                     head_yaw,
                     camera_orientation: frame.camera_orientation,
@@ -395,6 +403,11 @@ impl LocomotionState {
             let server = physics.take_server_control_flags();
             if let Some(server) = server {
                 movement_speed.adopt_server_sprinting(server.sprinting);
+                if let Some(sprinting) = server.sprinting
+                    && physics.unrecorded_live_sprinting().is_some()
+                {
+                    movement_speed.record_live_sprinting(sprinting);
+                }
                 self.controls
                     .adopt_server_flags(server.sprinting, server.sneaking);
             }
@@ -450,10 +463,11 @@ impl LocomotionState {
             input.underwater_movement_speed = liquid.underwater;
             input.lava_movement_speed = liquid.lava;
             requested_speed = input.movement_speed;
-            physics.advance_with_context_and_effects(
+            physics.advance_with_speed_updates(
                 delta,
                 input,
                 PhysicsSampleContext {
+                    movement_speed_attribute,
                     pitch: frame.pitch,
                     head_yaw,
                     camera_orientation: frame.camera_orientation,
@@ -501,12 +515,17 @@ impl LocomotionState {
                         sneak_toggle_down: (frame.toggle_sneak
                             || input_mode == protocol::PlayerInputMode::GamePad)
                             && processed_sneak.held,
-                        server_sprinting: server.and_then(|flags| flags.sprinting),
+                        server_sprinting: physics.unrecorded_live_sprinting(),
                         server_sneaking: server.and_then(|flags| flags.sneaking),
                         server_mode: None,
                         server_pose_flags: None,
                         server_spinning: None,
                     },
+                },
+                if has_speed_history {
+                    movement_speed.pending_updates()
+                } else {
+                    &[]
                 },
                 world,
                 movement_effects,
@@ -515,7 +534,11 @@ impl LocomotionState {
         if let Some(sample) = frame.samples.last() {
             self.controls
                 .adopt_tick_sprinting(sample.processed.sprinting);
-            movement_speed.set_sprinting(sample.processed.sprinting);
+            if let Some(speed) = physics.latest_movement_speed() {
+                movement_speed.adopt_recorded_speed(speed);
+            } else {
+                movement_speed.set_sprinting(sample.processed.sprinting);
+            }
         }
         super::control_trace::trace_physics_frame(
             movement_ticker.session_generation,

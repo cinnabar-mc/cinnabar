@@ -84,7 +84,7 @@ fn routing_pack(
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
         let mut description = json["minecraft:attachable"]["description"].clone();
-        let cost = assets::MAX_MOLANG_OPS_PER_EXPRESSION;
+        let cost = crate::selection_test_support::REJECTED_PREDICATE_OPS;
         let count = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK / cost;
         for index in 0..count {
             description["identifier"] = serde_json::json!(format!("fixture:rejected_{index}"));

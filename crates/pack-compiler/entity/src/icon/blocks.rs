@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
+use assets::facts::pack::PackTexture;
 use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
@@ -131,6 +132,21 @@ impl IconBlocks {
                 .find(|candidate| {
                     candidate.name == record.name
                         && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if assets::facts::pack::face_slots(&record.name)
+            == Some(assets::facts::pack::FaceSlots::Pumpkin)
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && matches!(
+                            candidate.property(assets::facts::BlockProperty::MinecraftCardinalDirection),
+                            Some(assets::facts::StateValue::String(direction)) if direction.as_ref() == "south"
+                        )
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -462,12 +478,9 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Retains flat carried artwork for bars independently of their GUI plate.
+    /// Retains flat pane artwork as a fallback for carried models.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let record = self.records.get(visual.0 as usize)?;
-        if record.model_family != ModelFamily::Pane
-            || assets::gui_item::has_carried_glass_plate(&record.name)
-        {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
             return None;
         }
         self.texture_path(visual)
@@ -523,7 +536,16 @@ impl IconBlocks {
                     })?
                     .into()
             }
-            None => resolve_carried_down_key(&pack.blocks, record)?,
+            None => resolve_carried_down_key(&pack.blocks, record).or_else(|| {
+                resolve_texture_key(&pack.blocks, record, icon_face)
+                    .key
+                    .map(|key| Cow::Owned(key.into_string()))
+            })?,
+        };
+        let key = if pack.terrain.get(&key).is_some() {
+            key
+        } else {
+            PackTexture::Missing.key().into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
@@ -741,13 +763,13 @@ mod lightning_rod_tests;
 mod button_tests;
 
 #[cfg(test)]
+#[path = "blocks/lectern_tests.rs"]
+mod lectern_tests;
+
+#[cfg(test)]
 #[path = "blocks/pumpkin_tests.rs"]
 mod pumpkin_tests;
 
 #[cfg(test)]
 #[path = "blocks/bookshelf_tests.rs"]
 mod bookshelf_tests;
-
-#[cfg(test)]
-#[path = "blocks/lectern_tests.rs"]
-mod lectern_tests;

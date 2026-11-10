@@ -11,6 +11,7 @@ pub mod classify;
 mod crossbow;
 mod progress;
 mod server_flag;
+mod use_on;
 pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
