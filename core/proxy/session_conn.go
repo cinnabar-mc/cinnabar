@@ -40,7 +40,6 @@ type sessionConn struct {
 
 	virtualWindowsMu    sync.Mutex
 	virtualWindows      map[byte]bool
-	retiringWindowOpens map[byte][]bool // replaced opens awaiting their client close, oldest first
 	pendingWindowCloses map[byte][]bool // virtual translations for client closes, in send order
 
 	trace       *latencytrace.Trace // nil unless tracing; the rest are guarded by writeMu
@@ -51,8 +50,8 @@ type sessionConn struct {
 }
 
 type sessionRead struct {
-	frame []byte
-	err   error
+	packets [][]byte
+	err     error
 }
 
 func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
@@ -64,7 +63,6 @@ func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 		clientPool:          minecraft.DefaultProtocol.Packets(true),
 		serverPool:          minecraft.DefaultProtocol.Packets(false),
 		virtualWindows:      make(map[byte]bool),
-		retiringWindowOpens: make(map[byte][]bool),
 		pendingWindowCloses: make(map[byte][]bool),
 	}
 	if trace := latencytrace.Active(); trace != nil {
@@ -78,8 +76,12 @@ func (session *sessionConn) read() {
 	defer close(session.readDone)
 	for {
 		frame, err := session.conn.ReadPacket()
+		read := sessionRead{err: err}
+		if err == nil {
+			read.packets, read.err = session.readClientBatch(frame)
+		}
 		select {
-		case session.frames <- sessionRead{frame: frame, err: err}:
+		case session.frames <- read:
 		case <-session.done:
 			if err == nil && session.terminalDelivered.Load() {
 				// The session has ended; consume in-flight client bytes until its close.
@@ -87,7 +89,7 @@ func (session *sessionConn) read() {
 			}
 			return
 		}
-		if err != nil {
+		if read.err != nil {
 			return
 		}
 	}
@@ -131,10 +133,15 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 	if read.err != nil {
 		return nil, read.err
 	}
-	if len(read.frame) == 0 || read.frame[0] != bridgecontract.SessionKindBatch {
+	return rawSessionPackets(read.packets, decode, session.clientPool, session.shieldID.Load())
+}
+
+// readClientBatch captures close translations before a received batch waits for the relay.
+func (session *sessionConn) readClientBatch(frame []byte) ([][]byte, error) {
+	if len(frame) == 0 || frame[0] != bridgecontract.SessionKindBatch {
 		return nil, fmt.Errorf("%w: expected batch", errMalformedSession)
 	}
-	packets, err := splitSessionBatch(read.frame[1:])
+	packets, err := splitSessionBatch(frame[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -149,16 +156,7 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 					// Keep the acknowledgement separate from any replacement window.
 					session.virtualWindowsMu.Lock()
 					wasVirtual := session.virtualWindows[pk.WindowID]
-					if retiring := session.retiringWindowOpens[pk.WindowID]; len(retiring) != 0 {
-						wasVirtual = retiring[0]
-						if len(retiring) == 1 {
-							delete(session.retiringWindowOpens, pk.WindowID)
-						} else {
-							session.retiringWindowOpens[pk.WindowID] = retiring[1:]
-						}
-					} else {
-						delete(session.virtualWindows, pk.WindowID)
-					}
+					delete(session.virtualWindows, pk.WindowID)
 					session.pendingWindowCloses[pk.WindowID] = append(session.pendingWindowCloses[pk.WindowID], wasVirtual)
 					session.virtualWindowsMu.Unlock()
 
@@ -178,7 +176,7 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 			}
 		}
 	}
-	return rawSessionPackets(packets, decode, session.clientPool, session.shieldID.Load())
+	return packets, nil
 }
 
 // WritePacketRaw adds an upstream packet to the forming batch. A usable Transfer instead flushes
@@ -211,9 +209,6 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 				)
 				isVirtual := pk.ContainerType == 255 && pk.WindowID != protocol.WindowIDInventory
 				session.virtualWindowsMu.Lock()
-				if previous, ok := session.virtualWindows[pk.WindowID]; ok {
-					session.retiringWindowOpens[pk.WindowID] = append(session.retiringWindowOpens[pk.WindowID], previous)
-				}
 				session.virtualWindows[pk.WindowID] = isVirtual
 				session.virtualWindowsMu.Unlock()
 

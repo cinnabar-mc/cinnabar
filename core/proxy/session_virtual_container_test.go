@@ -143,6 +143,45 @@ func TestVirtualContainerCloseAckOrder(t *testing.T) {
 	writeContainerTestPacket(t, session, close, close)
 }
 
+func TestVirtualContainerReplacementWithoutClientClose(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		windowTypes []byte
+	}{
+		{name: "ordinary_to_virtual", windowTypes: []byte{0, 255}},
+		{name: "virtual_to_ordinary", windowTypes: []byte{255, 0}},
+		{name: "repeated_virtual", windowTypes: []byte{255, 255}},
+		{name: "repeated_ordinary_then_virtual", windowTypes: []byte{0, 0, 255}},
+		{name: "multiple_replacements", windowTypes: []byte{255, 0, 255}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := containerTestSession()
+			for _, windowType := range test.windowTypes {
+				open := &packet.ContainerOpen{WindowID: 9, ContainerType: windowType, ContainerEntityUniqueID: 51003}
+				translated := *open
+				translated.ContainerType = 0
+				writeContainerTestPacket(t, session, open, &translated)
+			}
+
+			clientClose := &packet.ContainerClose{WindowID: 9, ContainerType: 0}
+			serverClose := *clientClose
+			serverClose.ContainerType = test.windowTypes[len(test.windowTypes)-1]
+			if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(&serverClose); !bytes.Equal(got, want) {
+				t.Fatalf("replacement client close = %x, want %x", got, want)
+			}
+			writeContainerTestPacket(t, session, &serverClose, clientClose)
+
+			// Repeated opens must not leave another window waiting to close.
+			if got, want := readContainerTestClose(t, session, clientClose), encodeTestPacket(clientClose); !bytes.Equal(got, want) {
+				t.Fatalf("close after replacement = %x, want %x", got, want)
+			}
+			writeContainerTestPacket(t, session, &serverClose, &serverClose)
+			forced := &packet.ContainerClose{WindowID: clientClose.WindowID, ContainerType: 255, ServerSide: true}
+			writeContainerTestPacket(t, session, forced, forced)
+		})
+	}
+}
+
 func TestVirtualContainerReplacementBeforeClientCloseRead(t *testing.T) {
 	for _, oldType := range []byte{255, 0} {
 		for _, replacementType := range []byte{255, 0} {
@@ -155,8 +194,7 @@ func TestVirtualContainerReplacementBeforeClientCloseRead(t *testing.T) {
 					writeContainerTestPacket(t, session, open, &translatedOpen)
 
 					clientClose := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
-					frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(clientClose))
-					session.frames <- sessionRead{frame: frame}
+					queueContainerTestClose(t, session, clientClose)
 					open.ContainerType = replacementType
 					writeContainerTestPacket(t, session, open, &translatedOpen)
 
@@ -220,7 +258,6 @@ func containerTestSession() *sessionConn {
 		clientPool:          minecraft.DefaultProtocol.Packets(true),
 		serverPool:          minecraft.DefaultProtocol.Packets(false),
 		virtualWindows:      make(map[byte]bool),
-		retiringWindowOpens: make(map[byte][]bool),
 		pendingWindowCloses: make(map[byte][]bool),
 	}
 }
@@ -256,9 +293,19 @@ func takeContainerTestPacket(t *testing.T, session *sessionConn) []byte {
 // readContainerTestClose returns the server-bound bytes for a client close.
 func readContainerTestClose(t *testing.T, session *sessionConn, close *packet.ContainerClose) []byte {
 	t.Helper()
-	frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(close))
-	session.frames <- sessionRead{frame: frame}
+	queueContainerTestClose(t, session, close)
 	return readQueuedContainerTestClose(t, session)
+}
+
+// queueContainerTestClose receives a close without letting the relay consume it yet.
+func queueContainerTestClose(t *testing.T, session *sessionConn, close *packet.ContainerClose) {
+	t.Helper()
+	frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(close))
+	packets, err := session.readClientBatch(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.frames <- sessionRead{packets: packets}
 }
 
 // readQueuedContainerTestClose consumes one server-bound close from a queued client batch.
