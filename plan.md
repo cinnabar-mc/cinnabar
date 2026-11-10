@@ -1890,6 +1890,10 @@ native switch timing and live Bluetooth/platform acceptance remain incomplete.
 World sounds use the native distance curves: inverse from one block by default, linear
 with only a maximum, inverse from the definition's minimum otherwise, and start within
 16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
+Overlapping sound starts keep independent playback cursors and pitches while sharing
+decoded samples, including cold starts. The unverified six-voice per-definition cap
+is removed; [overall audio admission budgets](docs/reference/audio-polyphony.md),
+native voice stealing and matched server-melody listening remain incomplete.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
