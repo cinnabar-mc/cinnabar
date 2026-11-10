@@ -579,14 +579,9 @@ fn the_lockdown_denies_file_attribute_changes() {
         "setxattr",
         "removexattr",
         "truncate",
+        "file-setattr",
+        "file-getattr",
     ] {
-        assert_eq!(
-            probe(&format!("{op}={path}")),
-            format!("denied {}", libc::EPERM),
-            "{op}"
-        );
-    }
-    for op in ["file-setattr", "file-getattr"] {
         assert_eq!(
             probe(&format!("{op}={path}")),
             format!("denied {}", libc::EPERM),
@@ -702,18 +697,18 @@ fn the_cgroup_bounds_cpu_where_delegated() {
     assert!(throttled.is_some_and(|count| count > 0), "{stat}");
 }
 
-/// Launches like [`contain`], descriptors and limits included, but leaves the child in this
-/// process's cgroup, as when the helper's cgroup could not be joined.
-fn contain_outside_cgroup(command: &mut Command) {
+/// Launches like [`contain`], limits included, but leaves the child in this process's cgroup
+/// and, unless `close` is set, marks no descriptor close-on-exec.
+fn contain_partly(command: &mut Command, close: bool) {
     command.env_clear();
     // SAFETY: the closure makes only raw system calls on fully initialized structs.
     unsafe {
-        command.pre_exec(|| {
+        command.pre_exec(move || {
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
             // `CLOSE_RANGE_CLOEXEC`.
-            if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 1u32 << 2) != 0 {
+            if close && libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 1u32 << 2) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
             for (resource, value) in LIMITS {
@@ -738,7 +733,8 @@ fn a_helper_outside_a_limited_cgroup_fails_its_audit() {
         eprintln!("skipping: this test's own cgroup already holds it to a helper's limits");
         return;
     }
-    let report = probe_with("read-file", contain_outside_cgroup);
+    // As when the helper's cgroup could not be joined.
+    let report = probe_with("read-file", |command| contain_partly(command, true));
     assert!(report.starts_with("lockdown-failed"), "{report}");
     assert!(report.contains("memory and task limits"), "{report}");
 }
@@ -794,30 +790,6 @@ fn an_uncontained_launch_fails_its_audit() {
     assert!(inherited_descriptors().unwrap().contains(&leaked));
 }
 
-/// Launches like [`contain`] but closes no descriptor, as when `close_range` is refused and the
-/// fallback closure misses one: the limits still drop below the descriptors left open.
-fn contain_without_closing(command: &mut Command) {
-    command.env_clear();
-    // SAFETY: the closure makes only raw system calls on fully initialized structs.
-    unsafe {
-        command.pre_exec(|| {
-            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            for (resource, value) in LIMITS {
-                let limit = libc::rlimit {
-                    rlim_cur: value as libc::rlim_t,
-                    rlim_max: value as libc::rlim_t,
-                };
-                if libc::setrlimit(resource, &limit) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-            }
-            Ok(())
-        })
-    };
-}
-
 /// A descriptor numbered above the helper's descriptor limit still fails the audit, so a
 /// launch whose closure before `exec` missed it never serves.
 #[test]
@@ -827,7 +799,8 @@ fn a_descriptor_above_the_limit_fails_the_audit() {
     // SAFETY: duplicating a descriptor this test owns; F_DUPFD leaves close-on-exec clear.
     let high = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, floor) };
     assert!(high >= floor, "{}", std::io::Error::last_os_error());
-    let report = probe_with("read-file", contain_without_closing);
+    // As when `close_range` is refused and the fallback misses a descriptor.
+    let report = probe_with("read-file", |command| contain_partly(command, false));
     // SAFETY: closing the duplicate this test made.
     unsafe { libc::close(high) };
     assert!(report.starts_with("lockdown-failed"), "{report}");

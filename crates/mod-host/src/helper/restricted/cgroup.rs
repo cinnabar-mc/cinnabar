@@ -1,12 +1,7 @@
-//! The cgroup v2 limits of a restricted helper. The client creates one cgroup per helper below
-//! the nearest ancestor of its own cgroup that it may manage and that enables the memory and pids
-//! controllers for its children, as a systemd user session delegates, and the helper joins it
-//! between `fork` and `exec`. The memory limit covers every page the helper is charged for,
-//! shared memory files included, which `RLIMIT_DATA` does not count; swap is closed so the limit
-//! cannot spill there. The task limit bounds its threads, which `RLIMIT_NPROC` would count
-//! against every process of the user. Where the ancestor also delegates the cpu controller, the
-//! helper gets one core; otherwise its CPU time is unbounded. Without memory and pids the
-//! restricted launch fails closed.
+//! A restricted helper's cgroup v2, made below the nearest delegated ancestor and joined between
+//! `fork` and `exec`. `memory.max` also charges the shared memory files `RLIMIT_DATA` misses, and
+//! `pids.max` bounds threads without `RLIMIT_NPROC`'s per-user count. CPU is capped at one core
+//! only where the cpu controller is delegated.
 
 use super::{MEMORY_LIMIT_BYTES, TASK_LIMIT};
 use anyhow::{Context, Result, bail, ensure};
@@ -35,7 +30,8 @@ const CPU_MAX: &str = "100000 100000";
 /// the helper's process.
 #[derive(Debug)]
 pub struct Cgroup {
-    path: PathBuf,
+    /// Declared first so the directory is removed before the descriptors below close.
+    dir: Removal,
     /// The cgroup's `cgroup.procs`, open for writing, through which the child joins it.
     procs: File,
     /// The cgroup's directory, locked for as long as the client uses it.
@@ -46,9 +42,7 @@ impl Cgroup {
     /// Creates a cgroup for one helper below the nearest ancestor of this process's cgroup that
     /// this user may manage and whose children carry the memory and pids controllers.
     pub fn create() -> Result<Self> {
-        let membership = std::fs::read_to_string(MEMBERSHIP)
-            .with_context(|| format!("cannot read {MEMBERSHIP}"))?;
-        Self::create_in(Path::new(ROOT), &membership)
+        Self::create_in(Path::new(ROOT), &membership()?)
     }
 
     /// [`Self::create`] against the hierarchy mounted at `root`, for a process whose
@@ -76,9 +70,8 @@ impl Cgroup {
             .write(true)
             .open(path.join("cgroup.procs"))
             .with_context(|| format!("cannot open {}/cgroup.procs", path.display()))?;
-        let path = created.keep();
         Ok(Self {
-            path,
+            dir: created,
             procs,
             _lock: lock,
         })
@@ -86,7 +79,7 @@ impl Cgroup {
 
     /// The cgroup's directory.
     pub fn path(&self) -> &Path {
-        &self.path
+        &self.dir.0
     }
 
     /// A new descriptor of the cgroup's `cgroup.procs`; writing `0` to it moves the writer in.
@@ -101,29 +94,21 @@ impl Cgroup {
     /// Releases the cgroup's lock and descriptors but leaves the cgroup, as a client that dies
     /// does, and returns its directory.
     fn abandon(self) -> PathBuf {
-        let this = std::mem::ManuallyDrop::new(self);
-        // SAFETY: each field is moved out once and `this` is never dropped or used again.
-        let (path, procs, lock) = unsafe {
-            (
-                std::ptr::read(&this.path),
-                std::ptr::read(&this.procs),
-                std::ptr::read(&this._lock),
-            )
-        };
+        let Self {
+            dir,
+            procs,
+            _lock: lock,
+        } = self;
         drop((procs, lock));
-        path
-    }
-}
-
-impl Drop for Cgroup {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir(&self.path);
+        dir.keep()
     }
 }
 
 /// Removes a cgroup directory when dropped unless kept.
+#[derive(Debug)]
 struct Removal(PathBuf);
 
+#[cfg(test)]
 impl Removal {
     /// Keeps the directory and returns its path.
     fn keep(self) -> PathBuf {
@@ -188,8 +173,7 @@ pub struct Limits {
 impl Limits {
     /// Reads the calling process's own cgroup's limits.
     pub fn own() -> Result<Self> {
-        let membership = std::fs::read_to_string(MEMBERSHIP)
-            .with_context(|| format!("cannot read {MEMBERSHIP}"))?;
+        let membership = membership()?;
         let cgroup = Path::new(ROOT).join(own_path(&membership)?);
         let read = |name: &str| -> Result<u64> {
             let path = cgroup.join(name);
@@ -213,6 +197,11 @@ impl Limits {
     pub fn hold_a_helper(self) -> bool {
         self.memory <= MEMORY_LIMIT_BYTES && self.swap == 0 && self.tasks <= TASK_LIMIT
     }
+}
+
+/// This process's `/proc/self/cgroup`.
+fn membership() -> Result<String> {
+    std::fs::read_to_string(MEMBERSHIP).with_context(|| format!("cannot read {MEMBERSHIP}"))
 }
 
 /// The cgroup v2 path, relative to the hierarchy's root, that `membership` names.

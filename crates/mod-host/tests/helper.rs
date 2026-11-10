@@ -54,29 +54,23 @@ fn capabilities() -> Capabilities {
 /// Starts the test component with the supplied signed capability declarations.
 fn spawn(component: Vec<u8>, capabilities: Capabilities) -> Helper {
     developer();
-    let owner = Principal {
-        session: "session".into(),
-        bundle: "terminal".into(),
-        generation: 1,
-    };
     Helper::spawn_developer(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),
         component,
-        owner,
+        owner(),
         capabilities,
         context(),
     )
     .unwrap()
 }
 
-/// The terminal bundle's owner and its modal-UI capabilities.
-fn principal() -> (Principal, Capabilities) {
-    let owner = Principal {
+/// The terminal bundle's owner.
+fn owner() -> Principal {
+    Principal {
         session: "session".into(),
         bundle: "terminal".into(),
         generation: 1,
-    };
-    (owner, capabilities())
+    }
 }
 
 /// The drawing context a helper starts under: connection 1, epoch 1.
@@ -208,12 +202,11 @@ fn a_restricted_helper_compiles_and_runs_its_component_contained() {
         eprintln!("skipping: missing {missing}");
         return;
     }
-    let (owner, capabilities) = principal();
     let mut helper = Helper::spawn_restricted(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),
         &terminal_component(),
-        owner,
-        capabilities,
+        owner(),
+        capabilities(),
         context(),
     )
     .unwrap();
@@ -230,12 +223,11 @@ fn a_restricted_helper_compiles_and_runs_its_component_contained() {
 #[cfg(not(target_os = "linux"))]
 #[test]
 fn restricted_helpers_are_refused_off_linux() {
-    let (owner, capabilities) = principal();
     let error = Helper::spawn_restricted(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),
         &[],
-        owner,
-        capabilities,
+        owner(),
+        capabilities(),
         context(),
     )
     .err()

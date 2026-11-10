@@ -1,10 +1,7 @@
-//! The restricted helper launch, on Linux. The parent clears the environment, creates a
-//! memory- and task-limited cgroup for the helper and, between `fork` and `exec`, moves the child into it,
-//! has `exec` close every descriptor but the three stdio pipes, sets resource limits and forbids
-//! privilege gain; the helper then makes itself undumpable, audits what it inherited and, before it reads the component, denies itself the filesystem and the network
-//! with Landlock and process creation, executables, sockets and kernel attack surface with a
-//! seccomp filter. Compilation of the component happens after this, so the compiler runs
-//! contained too. Other platforms have no restricted launch and refuse it.
+//! The restricted helper launch, on Linux. The parent contains the child before `exec` (its own
+//! cgroup, resource limits, stdio only, no environment, no privilege gain); the helper audits
+//! that, then applies Landlock and seccomp before it reads, and so compiles, the component.
+//! Other platforms refuse.
 
 use anyhow::Result;
 #[cfg(target_os = "linux")]
@@ -34,18 +31,6 @@ pub const TASK_LIMIT: u64 = 8;
 /// Descriptors the helper may hold (`RLIMIT_NOFILE`): stdio and the runtime's own.
 pub const DESCRIPTOR_LIMIT: u64 = 64;
 
-/// What [`lock_down`] applied.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Lockdown {
-    /// The Landlock ABI the filesystem and network denial used.
-    pub landlock_abi: u32,
-    /// Whether Landlock also denied TCP bind and connect (ABI 4 and later).
-    pub network_denied: bool,
-    /// Whether Landlock also scoped signals and abstract sockets to the helper (ABI 6 and
-    /// later).
-    pub scoped: bool,
-}
-
 /// What a contained launch holds until its helper has exited: on Linux, the helper's cgroup,
 /// which dropping removes.
 #[derive(Debug)]
@@ -62,14 +47,9 @@ impl Containment {
     }
 }
 
-/// Makes `command` launch contained: no environment, the root as working directory, its own
-/// cgroup limited to [`MEMORY_LIMIT_BYTES`] without swap, [`TASK_LIMIT`] tasks and, where
-/// delegated, one core, only the stdio descriptors, the
-/// helper's resource limits, no privilege gain, and death with the parent. The kernel sends
-/// the death signal when the thread that spawns the command exits, so that thread must outlive
-/// the helper's use; the supervisor spawns from the thread that owns the helper's pipes. The
-/// returned containment must outlive the helper's process. Fails, so the launch fails closed,
-/// when no delegated cgroup can limit the helper's memory and tasks.
+/// Makes `command` launch contained, in a fresh cgroup with the helper's limits. The death
+/// signal fires when the spawning thread exits, so that thread and the returned containment
+/// must outlive the helper. Fails closed without a delegated memory and pids cgroup.
 #[cfg(target_os = "linux")]
 pub fn contain(command: &mut Command) -> Result<Containment> {
     let cgroup = cgroup::Cgroup::create().context("the helper's cgroup limits")?;
@@ -207,8 +187,8 @@ pub fn inherited_descriptors() -> Result<Vec<i32>> {
         .collect())
 }
 
-/// The kernel feature or delegation that restricted helpers need and this system lacks, named with the
-/// reason, or none. A lockdown fails without it; tests that lock a helper down skip with it.
+/// The kernel feature or delegation restricted helpers need and this system lacks, with the
+/// reason, or none.
 #[cfg(target_os = "linux")]
 pub fn missing_feature() -> Option<String> {
     if let Err(error) = landlock::abi() {
@@ -230,7 +210,7 @@ pub fn cgroup_limits_hold() -> bool {
 /// the main thread before any other thread starts, because Landlock restricts the calling
 /// thread and the threads it then creates; [`ensure_single_threaded`] checks that.
 #[cfg(target_os = "linux")]
-pub fn lock_down() -> Result<Lockdown> {
+pub fn lock_down() -> Result<()> {
     // SAFETY: plain prctl calls on constant arguments.
     ensure!(
         unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } == 0
@@ -263,14 +243,11 @@ pub fn lock_down() -> Result<Lockdown> {
         "the helper may gain privileges"
     );
     cgroup::audit()?;
-    let lockdown = landlock::restrict().context("Landlock")?;
-    seccomp::install().context("seccomp")?;
-    Ok(lockdown)
+    landlock::restrict().context("Landlock")?;
+    seccomp::install().context("seccomp")
 }
 
-/// Fails unless the calling process runs one thread, as listed in `/proc/self/task`, or when
-/// that listing is unavailable. Landlock restricts only the calling thread and the threads it
-/// creates afterwards, so the helper checks this before [`lock_down`].
+/// Fails unless the calling process runs one thread, or when `/proc/self/task` is unlisted.
 #[cfg(target_os = "linux")]
 pub fn ensure_single_threaded() -> Result<()> {
     const LISTING: &str = "/proc/self/task";
@@ -292,7 +269,7 @@ pub fn ensure_single_threaded() -> Result<()> {
 
 /// Restricted helpers are Linux-only.
 #[cfg(not(target_os = "linux"))]
-pub fn lock_down() -> Result<Lockdown> {
+pub fn lock_down() -> Result<()> {
     anyhow::bail!("restricted server helpers are not implemented on this platform")
 }
 
