@@ -170,7 +170,6 @@ mod tests {
             pitch: 0.,
             attack_held: false,
             frame_seconds: 0.016,
-            players: vec![],
         });
         value.player_state.world = Some(crate::WorldObservation {
             session: 1,

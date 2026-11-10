@@ -72,13 +72,13 @@ fn player_state_crosses_the_component_boundary_without_gameplay_and_clears_betwe
         call(false, false),
     );
     let (_dir, mut host) = load(&call(false, false), &frame, true);
-    host.frame_with_player_state(false, None, Vec::new(), Some(snapshot()), empty_controls())
+    host.frame_with_player_state(false, None, Some(snapshot()), empty_controls())
         .unwrap();
     host.frame(false).unwrap();
     assert!(host.is_active());
     let (_dir, mut denied) = load(&call(true, false), &call(true, false), false);
     denied
-        .frame_with_player_state(false, None, Vec::new(), Some(snapshot()), empty_controls())
+        .frame_with_player_state(false, None, Some(snapshot()), empty_controls())
         .unwrap();
     assert!(denied.is_active());
 }
@@ -90,7 +90,7 @@ fn player_state_read_budget_traps_and_reload_starts_without_previous_facts() {
         .join(" ");
     let (dir, mut host) = load("", &frame, true);
     assert!(
-        host.frame_with_player_state(false, None, Vec::new(), Some(snapshot()), empty_controls())
+        host.frame_with_player_state(false, None, Some(snapshot()), empty_controls())
             .is_err()
     );
     assert!(!host.is_active());

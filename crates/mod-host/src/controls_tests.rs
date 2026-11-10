@@ -229,13 +229,13 @@ fn native_text_input_survives_callback_deferral() {
     let budget = crate::CallbackBudget::new(0);
     instance.callback_budget = Some(budget.clone());
     instance
-        .observe_frame(false, None, Vec::new(), None, None, empty_controls())
+        .observe_frame(false, None, None, None, empty_controls())
         .unwrap();
     instance.frame(crate::CallbackOutcome::Executed).unwrap();
     assert_eq!(instance.store.data().controls.text_events[0].value, "PvP");
     budget.reset(FRAME_FUEL);
     instance
-        .observe_frame(false, None, Vec::new(), None, None, empty_controls())
+        .observe_frame(false, None, None, None, empty_controls())
         .unwrap();
     instance.frame(crate::CallbackOutcome::Executed).unwrap();
     assert!(instance.store.data().controls.text_events.is_empty());
@@ -275,7 +275,7 @@ fn pointer_and_wheel_reach_only_an_open_panel() {
             ..control_frame()
         };
         instance
-            .observe_frame(false, None, Vec::new(), None, None, controls)
+            .observe_frame(false, None, None, None, controls)
             .unwrap();
         let read = instance.store.data_mut().read_controls().unwrap().unwrap();
         let expected = if panel_open {
@@ -293,7 +293,7 @@ fn pointer_and_wheel_reach_only_an_open_panel() {
         };
         assert!(
             instance
-                .observe_frame(false, None, Vec::new(), None, None, controls)
+                .observe_frame(false, None, None, None, controls)
                 .is_err()
         );
     }
@@ -340,7 +340,6 @@ fn snapshot() -> GameplaySnapshot {
         pitch: 0.0,
         frame_seconds: 0.01,
         attack_held: true,
-        players: Vec::new(),
     }
 }
 

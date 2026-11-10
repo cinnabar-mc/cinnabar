@@ -119,7 +119,7 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
                 chat_events: &[],
                 gameplay_facts: Default::default(),
             },
-            |_| (None, Vec::new(), None),
+            |_| (None, None),
             |index, error| panic!("mod {index} failed: {error}"),
         );
     };
@@ -447,7 +447,6 @@ fn snapshot() -> GameplaySnapshot {
         pitch: 0.0,
         attack_held: false,
         frame_seconds: 0.016,
-        players: Vec::new(),
     }
 }
 
@@ -484,7 +483,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
             },
             |_| {
                 captures += 1;
-                (Some(snapshot()), Vec::new(), None)
+                (Some(snapshot()), None)
             },
             |index, _| failures.push(index),
         );
@@ -579,7 +578,7 @@ fn grants_stay_per_mod() {
             chat_events: &[],
             gameplay_facts: Default::default(),
         },
-        |_| (Some(snapshot()), Vec::new(), None),
+        |_| (Some(snapshot()), None),
         |_, error| panic!("{error}"),
     );
     // The ungranted first mod cannot claim time, rig or commands ahead of the granted one.
@@ -709,7 +708,7 @@ fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods(
             chat_events: &[],
             gameplay_facts: Default::default(),
         },
-        |_| (None, Vec::new(), None),
+        |_| (None, None),
         |index, _| failures.push(index),
     );
     assert_eq!(failures, [0, 1]);
@@ -998,7 +997,7 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
                 chat_events: &[],
                 gameplay_facts: Default::default(),
             },
-            |_| (Some(snapshot()), Vec::new(), None),
+            |_| (Some(snapshot()), None),
             |index, _| failures.push(index),
         )
     };
@@ -1080,7 +1079,7 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
         |grants| {
             assert!(grants.inventory);
             assert!(grants.needs_gameplay());
-            (Some(snapshot()), Vec::new(), None)
+            (Some(snapshot()), None)
         },
         |index, error| panic!("mod {index} failed: {error}"),
     );

@@ -306,6 +306,22 @@ to newest. Adding capabilities appends their stable revision while retaining old
 supported entries. Breaking changes remove revisions that can no longer run.
 Local installation still admits binaries through the native compatibility checks.
 
+## Removed observation reads
+
+Three reads that duplicated other imports were removed, retiring earlier revisions.
+Components importing them no longer link; rebuild against the current WIT:
+
+| Removed | Use instead |
+| --- | --- |
+| `gameplay.read-mobs` | `player-state.read-actors-limited` under `entities`: non-player rows carry runtime and unique IDs, identifier, position, health and maximum health |
+| `players` in `gameplay.read-frame` | Player rows from `player-state.read-actors` under `players`, at the pose drawn in the same frame |
+| `player-state.read-equipment-matches` | `player-state.read-equipment`, re-read only when `read-revisions` reports a new equipment token |
+
+`read-actors` returns the nearest `MAX_READ_ACTORS` (16) actors within 128 blocks of the
+local feet, and `read-actors-limited` the nearest 1 to `MAX_OBSERVED_ACTORS` (64), nearest
+first among the kinds the mod's grants admit. The client observes the 64 nearest actors of
+each kind, so an entities-only mod reads at least as many mobs as `read-mobs` gave.
+
 ## Trusted packet mods
 
 `CINNABAR_PACKET_MOD` selects a packet mod on its own; the `packets` grant exposes
