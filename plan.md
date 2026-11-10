@@ -996,6 +996,10 @@ and version-matched in-game acceptance remain incomplete.
   Redstone-torch icons select lit artwork independently of their placement power state.
   Twisting and weeping vine icons select their stem face independently of the growing tip;
   pointed dripstone and sulfur spike icons select their hanging tip face.
+  Pumpkin GUI cubes keep their class-specific front artwork independently of held face
+  sheets; jack o’lantern GUI cubes retain uniform texture brightness. GUI-only cube textures
+  follow required equipment and held artwork, retaining thumbnails when they cannot fit.
+  Shared cube silhouette and texture-coordinate acceptance remains incomplete.
   Missing lit block or carried texture entries select pack diagnostic artwork; rendered
   acceptance of these fallbacks remains incomplete.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
@@ -1010,7 +1014,7 @@ and version-matched in-game acceptance remain incomplete.
   pinned catalog.
   The hotbar catalog comparison still has open shape, artwork and item-variant differences;
   animated dials and glint also require phase-matched acceptance.
-  Glowstone, sea lanterns, shroomlight and froglight GUI cubes retain uniform texture
+  Glowstone, sea lanterns, shroomlight, froglight and jack o’lantern GUI cubes retain uniform texture
   brightness. The emissive-cube census rejects missing classifications after registry
   changes; partial emissive faces and entries marked incomplete still need acceptance.
   Glass-pane previews use thin plates with separate edges and retain their held sprites.
