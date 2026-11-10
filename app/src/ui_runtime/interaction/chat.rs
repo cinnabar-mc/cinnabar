@@ -151,7 +151,7 @@ pub(crate) fn drive_chat_ui_actions(
             _ if presentation.chat_link_confirmation_open() => {}
             Some(ChatHit::SettingsOpen) => {
                 if let Some(menu) = menu.as_deref_mut() {
-                    runtime.close_chat();
+                    // The menu covers chat, retaining its draft and completions for the return.
                     menu.open_pause();
                     menu.activate(launcher::menu::MenuAction::PauseSettings);
                     menu.activate(launcher::menu::MenuAction::SettingsSection(
