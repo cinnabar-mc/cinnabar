@@ -17,6 +17,9 @@ use crate::{
 
 use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
 
+/// Native vanilla Overworld dimension identifier.
+pub const OVERWORLD_DIMENSION_ID: i32 = 0;
+
 /// Native vanilla Nether dimension identifier.
 pub const NETHER_DIMENSION_ID: i32 = 1;
 
@@ -31,10 +34,7 @@ pub struct DimensionRange {
 #[must_use]
 pub const fn vanilla_dimension_range(dimension: i32) -> Option<DimensionRange> {
     match dimension {
-        0 => Some(DimensionRange {
-            base_sub_chunk_y: -4,
-            sub_chunk_count: 24,
-        }),
+        OVERWORLD_DIMENSION_ID => Some(MODERN_OVERWORLD_RANGE),
         NETHER_DIMENSION_ID => Some(DimensionRange {
             base_sub_chunk_y: 0,
             sub_chunk_count: 8,
@@ -46,6 +46,24 @@ pub const fn vanilla_dimension_range(dimension: i32) -> Option<DimensionRange> {
         _ => None,
     }
 }
+
+/// The modern overworld: Y -64 up to (excluding) 320.
+pub const MODERN_OVERWORLD_RANGE: DimensionRange = DimensionRange {
+    base_sub_chunk_y: -4,
+    sub_chunk_count: 24,
+};
+
+/// The pre-1.18 overworld: Y 0 up to (excluding) 256.
+pub const CLASSIC_OVERWORLD_RANGE: DimensionRange = DimensionRange {
+    base_sub_chunk_y: 0,
+    sub_chunk_count: 16,
+};
+
+/// The Legacy ("Old") generator's Pocket Edition overworld: Y 0 up to (excluding) 128.
+pub const LEGACY_OVERWORLD_RANGE: DimensionRange = DimensionRange {
+    base_sub_chunk_y: 0,
+    sub_chunk_count: 8,
+};
 
 /// Returns the raw network value that represents air for this StartGame mode.
 #[must_use]

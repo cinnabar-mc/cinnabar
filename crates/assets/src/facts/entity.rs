@@ -194,6 +194,16 @@ pub struct EntityFactRecord {
     pub fact: EntityFact,
 }
 
+impl EntityFactRecord {
+    /// Derives a minecart constructor's default block identity; bare carts have none.
+    pub fn minecart_display_block(&self) -> Option<&str> {
+        if self.fact.native_class != NativeEntityClass::Minecart {
+            return None;
+        }
+        self.identifier.strip_suffix("_minecart")
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityFacts {

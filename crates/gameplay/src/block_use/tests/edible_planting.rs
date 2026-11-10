@@ -39,6 +39,7 @@ fn planting_edible_crops_does_not_start_eating_or_arm_a_held_repeat() {
                 Duration::from_millis(5_000),
                 100,
                 LocalUse::Place,
+                false,
                 clock(5_000, 0.0),
             );
             let mut item = ItemUseRuntime::default();
@@ -57,6 +58,7 @@ fn planting_edible_crops_does_not_start_eating_or_arm_a_held_repeat() {
                     Duration::from_millis(tick * 50),
                     tick,
                     LocalUse::Nothing,
+                    false,
                     clock(tick * 50, 0.0),
                 );
             }
@@ -70,6 +72,7 @@ fn planting_edible_crops_does_not_start_eating_or_arm_a_held_repeat() {
                 Duration::from_millis(7_050),
                 141,
                 LocalUse::Nothing,
+                false,
                 clock(7_050, 0.0),
             );
             item.observe_press(true);
@@ -90,9 +93,34 @@ fn refused_planting_does_not_consume_the_press() {
         Duration::from_millis(5_000),
         100,
         LocalUse::Place,
+        false,
         clock(5_000, 0.0),
         false,
     ));
     assert!(block.press_pending());
     assert!(!block.press_consumed());
+}
+
+/// Vanilla gives an interactive block the press even when its own use fails, so eating never
+/// starts from a press on a jukebox. The same press on stone still eats.
+#[test]
+fn a_press_on_an_interactive_block_never_starts_eating() {
+    for (clicked, eats) in [("minecraft:jukebox", false), ("minecraft:stone", true)] {
+        let mut block = BlockUseRuntime::default();
+        block.observe_use(true, true, false, true);
+        assert!(block.admit(
+            ItemUseTrigger::PlayerInput,
+            Duration::from_millis(5_000),
+            100,
+            LocalUse::Nothing,
+            super::super::block_takes_use_press(block_fact(clicked), false),
+            clock(5_000, 0.0),
+            true,
+        ));
+        let mut item = ItemUseRuntime::default();
+        item.observe_press(true);
+        let frame = food_frame(100, "minecraft:carrot", true, block.press_consumed());
+        let outcome = item.step(&frame);
+        assert_eq!(outcome.started, eats, "{clicked}");
+    }
 }

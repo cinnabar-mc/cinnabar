@@ -48,7 +48,21 @@ const SCREEN: &str = r#"{
         "anchor_from": "top_left", "anchor_to": "top_left", "offset": [50, 50],
         "button_mappings": [{"from_button_id": "button.menu_select",
           "to_button_id": "button.destroy_selection", "mapping_type": "pressed"}],
-        "controls": [{"view": {"type": "scroll_view", "size": ["100%", "100%"]}}]}},
+        "controls": [{"view": {"type": "scroll_view", "size": ["100%", "100%"],
+          "scrollbar_touch_button": "button.catalog_pan",
+          "button_mappings": [{"from_button_id": "button.menu_select",
+            "to_button_id": "button.catalog_pan", "mapping_type": "pressed",
+            "button_up_right_of_first_refusal": true}],
+          "scroll_content": "content", "scroll_view_port": "viewport",
+          "scrollbar_track": "track", "scrollbar_box": "box",
+          "controls": [
+            {"viewport": {"type": "panel", "size": ["100%", "100%"],
+              "controls": [{"content": {"type": "panel", "size": ["100%", "100%"]}}]}},
+            {"track": {"type": "scroll_track", "size": [4, "100%"],
+              "anchor_from": "top_right", "anchor_to": "top_right"}},
+            {"box": {"type": "scrollbar_box", "size": [4, 4],
+              "anchor_from": "top_right", "anchor_to": "top_right", "draggable": "vertical"}}
+          ]}}]}},
       {"disabled_item_panel": {"type": "input_panel", "size": [40, 40], "enabled": false,
         "anchor_from": "top_left", "anchor_to": "top_left", "offset": [100, 50],
         "button_mappings": [{"from_button_id": "button.menu_select",
@@ -145,6 +159,36 @@ fn presses_on_an_item_scroll_panel_destroy_the_held_stack() {
     assert_eq!(
         engine_held_stack_press(&frame(), [60.0, 60.0]),
         Some(HeldStackPress::Destroy)
+    );
+}
+
+/// Touch-mode and disabled scroll views keep ownership of their drag mapping.
+#[test]
+fn touch_and_disabled_catalog_views_keep_the_held_stack() {
+    for property in ["\"touch_mode\": true,", "\"enabled\": false,"] {
+        let screen = SCREEN.replacen(
+            "\"scrollbar_touch_button\":",
+            &format!("{property} \"scrollbar_touch_button\":"),
+            1,
+        );
+        assert_eq!(
+            engine_held_stack_press(&frame_from(&screen, None), [60.0, 60.0]),
+            None,
+            "{property}"
+        );
+    }
+}
+
+/// A pack's explicit press mapping still overrides the panel below its viewport.
+#[test]
+fn catalog_views_keep_custom_press_mappings() {
+    let screen = SCREEN.replace(
+        "\"to_button_id\": \"button.catalog_pan\"",
+        "\"to_button_id\": \"button.cursor_drop_all\"",
+    );
+    assert_eq!(
+        engine_held_stack_press(&frame_from(&screen, None), [60.0, 60.0]),
+        Some(HeldStackPress::Drop)
     );
 }
 
@@ -259,5 +303,58 @@ fn mapped_cursor_buttons_keep_their_press() {
     assert_eq!(
         engine_held_stack_press(&frame_from(&screen, Some(point)), point.map(|v| v as f32)),
         Some(HeldStackPress::Destroy)
+    );
+}
+
+/// The installed catalog's empty viewport must retain its destruction mapping.
+#[test]
+fn installed_creative_catalog_background_destroys_the_held_stack() {
+    let Some(carrier) = ui_engine::test_support::carrier() else {
+        return;
+    };
+    let catalog = Catalog::from_files(
+        carrier
+            .ui_files()
+            .iter()
+            .map(|file| (file.path.as_ref(), file.bytes.as_ref())),
+    )
+    .unwrap();
+    let context = crate::recipe_book::context(Context::desktop());
+    let screen = json_ui::resolve(&catalog, "crafting.recipe_book_scroll_panel", &context)
+        .control
+        .unwrap();
+    let mut data = json_ui::DataSource::new();
+    data.set_strict(true);
+    let bound = json_ui::bind(
+        &screen,
+        &data,
+        &json_ui::CatalogLibrary {
+            catalog: &catalog,
+            context: &context,
+        },
+    );
+    let (laid, report) = json_ui::layout_with(
+        &bound,
+        [200.0, 100.0],
+        &LayoutEnv {
+            text: &NoArt,
+            textures: &NoArt,
+        },
+        &ViewState::default(),
+    );
+    let frame = EngineFrame {
+        hits: json_ui::hit_regions(&laid).into(),
+        report,
+        cancel_target: None,
+        origin: [0.0; 2],
+        scale: 1.0,
+        panel: None,
+        edit_texts: Vec::new(),
+        top: Vec::new(),
+    };
+    assert_eq!(
+        engine_held_stack_press(&frame, [10.0, 50.0]),
+        Some(HeldStackPress::Destroy),
+        "empty installed catalog viewport"
     );
 }

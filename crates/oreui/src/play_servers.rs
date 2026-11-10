@@ -24,7 +24,7 @@ use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, side_menu};
-use launcher::menu::play_featured;
+use launcher::menu::play::play_featured;
 use launcher::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
 use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
@@ -45,6 +45,13 @@ pub(super) fn draw(
     let [menu_left, menu_right] = grid.span(menu_span.0, menu_span.1);
     let row_right = menu_right - canvas.r(1.6);
     side_menu(canvas, [menu_left, body[1], row_right, body[3]])?;
+    // The list and the details are focus regions: left and right move between them.
+    let region = canvas.begin_focus_region(
+        super::focus::SIDEBAR,
+        [menu_left, body[1], menu_right, body[3]],
+        None,
+        true,
+    )?;
     let pad = canvas.r(1.6);
     let list = canvas.begin_scroll(
         "servers.side_menu",
@@ -76,8 +83,10 @@ pub(super) fn draw(
         images,
     )?;
     canvas.end_scroll(list, y + space(canvas, 2) - top)?;
+    canvas.end_focus_region(region);
     let [left, right] = grid.span(details_span.0, details_span.1);
     let panel = [left, body[1], right, body[3]];
+    let region = canvas.begin_focus_region(super::focus::DETAIL, panel, None, true)?;
     let entrance = selected
         .map(|selection| match selection {
             Selection::Featured(index) => super::motion::Surface::ServerDetails(index, false),
@@ -94,6 +103,7 @@ pub(super) fn draw(
     if let Some(entrance) = entrance {
         canvas.end_entrance(entrance, [body[2], body[3]])?;
     }
+    canvas.end_focus_region(region);
     Ok(())
 }
 

@@ -4,6 +4,17 @@ use launcher::{
     shader_options::{Action, Input},
 };
 
+/// The action a press on the thumb of slider `row` (by
+/// [`MenuAction::settings_slider_row`]) starts, at the slider's current value.
+pub(super) fn slider_thumb_action(menu: &MenuRuntime, row: u16) -> MenuAction {
+    let gui_scale = MenuAction::SettingsScale(menu.gui_scale_display_offset);
+    if gui_scale.settings_slider_row() == Some(row) {
+        gui_scale
+    } else {
+        MenuAction::SettingsOption(row, menu.settings_options.get(usize::from(row)))
+    }
+}
+
 /// Updates native slider capture and applies movement until the pointer releases.
 pub(super) fn update_slider(
     menu: &mut MenuRuntime,

@@ -557,9 +557,9 @@ fn fragment(
     if (!front_facing && in.visibility.y == 0u) { discard; }
     let dx = dpdx(in.uv);
     let dy = dpdy(in.uv);
-    var sampled = sample_model_ref(in, in.current_texture, dx, dy);
+    var sampled = sample_model_ref(in, in.textures.x, dx, dy);
     if (in.frame_blend > 0.0) {
-        sampled = mix(sampled, sample_model_ref(in, in.next_texture, dx, dy), in.frame_blend);
+        sampled = mix(sampled, sample_model_ref(in, in.textures.y, dx, dy), in.frame_blend);
     }
     if (sampled.a < 0.5) { discard; }
     return ordinary_world_model_colour(in, sampled);

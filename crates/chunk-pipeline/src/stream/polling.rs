@@ -530,6 +530,11 @@ impl WorldStream {
         self.authority.dimension_range(dimension)
     }
 
+    /// Sets the overworld range StartGame's generator selects; call before terrain arrives.
+    pub fn set_start_game_overworld_range(&mut self, range: DimensionRange) {
+        self.authority.set_start_game_overworld_range(range);
+    }
+
     pub fn dimension_transfer_area_ready(&self, position: [f32; 3]) -> bool {
         self.authority.dimension_transfer_area_ready(position)
     }

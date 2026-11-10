@@ -116,6 +116,7 @@ pub struct HudScreens {
     chat_color: Option<char>,
     chat_mention_color: Option<char>,
     chat_local_player: Arc<str>,
+    chat_mentions_only_self: bool,
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
@@ -211,10 +212,13 @@ impl HudScreens {
             Some((model, changes, opacity)) => {
                 self.chat_color = model.chat_color;
                 self.chat_mention_color = model.chat_mention_color;
-                if self.chat_local_player != model.chat_local_player {
+                if self.chat_local_player != model.chat_local_player
+                    || self.chat_mentions_only_self != model.chat_mentions_only_self
+                {
                     self.hud_paint.drawn = None;
                     self.crosshair_paint.drawn = None;
                     self.chat_local_player = Arc::clone(&model.chat_local_player);
+                    self.chat_mentions_only_self = model.chat_mentions_only_self;
                 }
                 if changes.text {
                     self.model_clocks = hud_clocks(model);
@@ -285,7 +289,8 @@ impl HudScreens {
                 text,
                 color,
                 mention,
-                &self.chat_local_player,
+                self.chat_mentions_only_self
+                    .then_some(self.chat_local_player.as_ref()),
             )
         };
         let art = ScreenArt {

@@ -132,6 +132,11 @@ fn bubble_columns_use_bubble_sides_and_leave_the_water_layer_independent() {
         let quads = &runtime.model_quads()
             [template.quad_start as usize..(template.quad_start + template.quad_count) as usize];
         for quad in quads {
+            assert_ne!(
+                quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED,
+                0,
+                "a player inside the column sees its bubbles"
+            );
             let material = &runtime.materials()[quad.material as usize];
             assert_ne!(material.flags & assets::MATERIAL_FLAG_WATER_TINT, 0);
             assert_ne!(material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND, 0);

@@ -1,34 +1,104 @@
-//! Saved touch-control positions, expressed as fractions of available safe-screen travel.
+//! Saved touch-control placements: positions as fractions of available safe-screen travel, plus
+//! optional uniform size multipliers.
 use super::SettingsOptions;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use ui::mod_touch::TOUCH_CONTROL_SCALE;
 
 /// Fixed-point resolution of persisted normalized positions.
 const UNITS: f32 = 10_000.;
+/// Fixed-point resolution of persisted scales.
+const SCALE_UNITS: f32 = 1_000.;
 /// Mod button placements kept for mods that are not loaded, beyond which later names drop.
 const MAX_MOD_PLACEMENTS: usize = 64;
 
 /// Only explicit placements are stored; an empty map retains the authored touch layout.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct TouchLayout(BTreeMap<String, [u16; 2]>);
+pub struct TouchLayout(BTreeMap<String, Placement>);
+
+/// One control's fixed-point position and, when resized, its fixed-point scale.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(from = "Stored", into = "Stored")]
+struct Placement {
+    position: [u16; 2],
+    scale: Option<u16>,
+}
+
+/// Persisted form: `[x, y]` keeps the authored size and `[x, y, scale]` resizes the control.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum Stored {
+    Scaled([u16; 3]),
+    Placed([u16; 2]),
+}
+
+impl From<Stored> for Placement {
+    fn from(stored: Stored) -> Self {
+        match stored {
+            Stored::Scaled([x, y, scale]) => Self {
+                position: [x, y],
+                scale: Some(scale),
+            },
+            Stored::Placed(position) => Self {
+                position,
+                scale: None,
+            },
+        }
+    }
+}
+
+impl From<Placement> for Stored {
+    fn from(placement: Placement) -> Self {
+        let [x, y] = placement.position;
+        match placement.scale {
+            Some(scale) => Self::Scaled([x, y, scale]),
+            None => Self::Placed([x, y]),
+        }
+    }
+}
+
+/// Whether a fixed-point scale lies within the player-selectable touch control range.
+fn valid_scale(scale: u16) -> bool {
+    let [lo, hi] = TOUCH_CONTROL_SCALE.map(|bound| (bound * SCALE_UNITS).round() as u16);
+    (lo..=hi).contains(&scale)
+}
 
 impl TouchLayout {
     /// Reads a validated position as a fraction of travel after subtracting control size.
     pub fn position(&self, name: &str) -> Option<[f32; 2]> {
         self.0
             .get(name)
-            .map(|position| position.map(|v| f32::from(v) / UNITS))
+            .map(|placement| placement.position.map(|v| f32::from(v) / UNITS))
     }
-    /// Stores a finite, bounded position. Control identities are checked when loading settings.
+    /// The control's uniform size multiplier; unplaced and unresized controls keep `1`.
+    pub fn scale(&self, name: &str) -> f32 {
+        self.0
+            .get(name)
+            .and_then(|placement| placement.scale)
+            .map_or(1., |scale| f32::from(scale) / SCALE_UNITS)
+    }
+    /// Stores a finite, bounded position at the authored size.
     pub fn set(&mut self, name: &str, position: [f32; 2]) {
+        self.set_scaled(name, position, 1.);
+    }
+    /// Stores a finite, bounded position and a scale within [`TOUCH_CONTROL_SCALE`]; the
+    /// scale's travel fraction subtracts the scaled control size. Control identities are
+    /// checked when loading settings.
+    pub fn set_scaled(&mut self, name: &str, position: [f32; 2], scale: f32) {
+        let scale = (scale * SCALE_UNITS).round();
+        let scale = (scale != SCALE_UNITS).then_some(scale as u16);
         if position
             .into_iter()
             .all(|v| v.is_finite() && (0.0..=1.0).contains(&v))
+            && scale.is_none_or(valid_scale)
         {
             self.0.insert(
                 name.to_owned(),
-                position.map(|v| (v * UNITS).round() as u16),
+                Placement {
+                    position: position.map(|v| (v * UNITS).round() as u16),
+                    scale,
+                },
             );
         }
     }
@@ -36,8 +106,9 @@ impl TouchLayout {
     pub fn retain(&mut self, mut keep: impl FnMut(&str) -> bool) {
         self.0.retain(|name, _| keep(name));
     }
-    /// Removes obsolete control identities and malformed fixed-point coordinates. Mod button
-    /// placements are kept by name, bounded, whether or not their mod is loaded.
+    /// Removes obsolete control identities and malformed fixed-point coordinates, and resets
+    /// out-of-range scales to the authored size. Mod button placements are kept by name,
+    /// bounded, whether or not their mod is loaded.
     pub(super) fn validate(&mut self) {
         if let Some(position) = self.0.remove("emote") {
             self.0.entry("utilities".into()).or_insert(position);
@@ -47,14 +118,17 @@ impl TouchLayout {
         let mut names = std::collections::BTreeSet::new();
         control_names(&document, &mut names);
         let mut mods = 0;
-        self.0.retain(|name, at| {
+        self.0.retain(|name, placement| {
             let known = if ui::mod_touch::is_placement_name(name) {
                 mods += 1;
                 mods <= MAX_MOD_PLACEMENTS
             } else {
                 name != "look" && names.contains(name.as_str())
             };
-            known && at.iter().all(|v| f32::from(*v) <= UNITS)
+            placement.scale = placement
+                .scale
+                .filter(|&scale| valid_scale(scale) && f32::from(scale) != SCALE_UNITS);
+            known && placement.position.iter().all(|v| f32::from(*v) <= UNITS)
         });
     }
 }
@@ -137,6 +211,46 @@ mod tests {
         assert_eq!(old.touch_layout(), &TouchLayout::default());
         let corrupt = SettingsOptions::decode(br#"{"touch_layout":{"jump":[65535,4]}}"#).unwrap();
         assert_eq!(corrupt.touch_layout().position("jump"), None);
+    }
+
+    /// Resized controls round-trip their scale, while older two-value placements, unit scales
+    /// and out-of-range scales keep the authored size.
+    #[test]
+    fn scales_round_trip_beside_legacy_positions() {
+        let mut layout = TouchLayout::default();
+        layout.set_scaled("jump", [0.25, 0.5], 1.75);
+        layout.set_scaled("sneak", [0.25, 0.5], 1.);
+        layout.set_scaled("sprint", [0.25, 0.5], 100.);
+        let mut options = SettingsOptions::default();
+        options.set_touch_layout(layout);
+        let encoded = serde_json::to_value(&options).unwrap();
+        assert_eq!(
+            encoded["touch_layout"]["jump"],
+            serde_json::json!([2500, 5000, 1750])
+        );
+        assert_eq!(
+            encoded["touch_layout"]["sneak"],
+            serde_json::json!([2500, 5000])
+        );
+        let decoded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        let layout = decoded.touch_layout();
+        assert_eq!(layout.position("jump"), Some([0.25, 0.5]));
+        assert_eq!(layout.scale("jump"), 1.75);
+        assert_eq!(layout.scale("sneak"), 1.);
+        assert_eq!(layout.position("sprint"), None);
+        let stored = SettingsOptions::decode(
+            br#"{"touch_layout":{"jump":[2500,5000],"chat":[1,2,9000],"menu":[1,2,1000]}}"#,
+        )
+        .unwrap();
+        let layout = stored.touch_layout();
+        assert_eq!(layout.scale("jump"), 1.);
+        assert_eq!(layout.position("chat"), Some([0.0001, 0.0002]));
+        assert_eq!(layout.scale("chat"), 1.);
+        assert_eq!(layout.scale("menu"), 1.);
+        assert_eq!(
+            serde_json::to_value(layout).unwrap()["menu"],
+            serde_json::json!([1, 2])
+        );
     }
 
     /// Mod button placements persist by id while their mod is unloaded, within a bound.

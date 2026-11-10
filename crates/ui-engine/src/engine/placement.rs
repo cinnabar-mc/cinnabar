@@ -74,7 +74,7 @@ impl ControlShift {
         (node.key == self.key
             || node
                 .key
-                .strip_prefix(&self.key)
+                .strip_prefix(self.key.as_str())
                 .is_some_and(|tail| tail.starts_with('/')))
         .then_some(self.offset)
     }

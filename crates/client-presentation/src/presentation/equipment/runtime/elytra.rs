@@ -8,6 +8,7 @@ const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRen
     cull: false,
     blend: false,
     depth_write: true,
+    masked_multitexture: false,
     emissive: false,
     only_emissive: false,
     additive: false,

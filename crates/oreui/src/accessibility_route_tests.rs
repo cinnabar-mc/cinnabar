@@ -3,6 +3,114 @@
 use super::*;
 
 #[test]
+fn realm_focus_reveals_overflowing_rows_in_both_directions() {
+    for size in [[1280.0, 720.0], [640.0, 320.0]] {
+        for enlarged in [0, 1] {
+            let mut view = MenuView::new(true, "Fixture".into());
+            view.screen = MenuScreen::Social;
+            view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+            view.navigation_focus_visible = true;
+            view.realms = (0..40)
+                .map(|index| launcher::menu::MenuRealmCard {
+                    name: format!("Realm {index}"),
+                    state: "OPEN".into(),
+                    target: format!("{}{index}", launcher::menu::REALM_ADDRESS_PREFIX),
+                    address: String::new(),
+                    owner: "Fixture".into(),
+                    online_players: 0,
+                    max_players: 10,
+                    days_left: 1,
+                    expired: false,
+                    member: index % 2 == 1,
+                })
+                .collect();
+            Arc::make_mut(&mut view.settings_options).set(option_index(EXTRA_LARGE_UI), enlarged);
+            let metrics = TextMetrics::for_viewport(
+                size.map(|value| value as u32),
+                DpiScale::new(1.0).unwrap(),
+                Some(2),
+            );
+            let mut screen = OreUiScreen::default();
+            let mut scrolls = MenuScrolls::default();
+            let initial = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+            assert!(
+                !initial.hits.iter().any(|(action, _)| {
+                    *action == MenuAction::SelectRealm(view.realms.len() - 1)
+                }),
+                "the fixture must overflow the Realm list"
+            );
+            let order: Vec<_> = [false, true]
+                .into_iter()
+                .flat_map(|member| {
+                    view.realms
+                        .iter()
+                        .enumerate()
+                        .filter(move |(_, realm)| realm.member == member)
+                        .map(|(index, _)| MenuAction::SelectRealm(index))
+                })
+                .collect();
+            let last = MenuAction::SelectRealm(view.realms.len() - 1);
+            for action in
+                std::iter::once(last).chain(order.iter().chain(order.iter().rev()).copied())
+            {
+                view.focused_action = Some(action);
+                let frame = paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+                let paint = screen.take_paint().unwrap();
+                let viewport = paint
+                    .scrolls
+                    .iter()
+                    .find(|area| area.key == "realms_list")
+                    .unwrap()
+                    .viewport;
+                let row = frame
+                    .hits
+                    .iter()
+                    .find(|(at, _)| *at == action)
+                    .unwrap_or_else(|| {
+                        panic!("{action:?} must be visible at {size:?}, enlarged={enlarged}")
+                    })
+                    .1;
+                let full = paint
+                    .geometry
+                    .focus_targets
+                    .iter()
+                    .find(|target| target.action == action)
+                    .unwrap()
+                    .bounds;
+                assert!(full.min().y() >= viewport.min().y() - 0.01);
+                assert!(full.max().y() <= viewport.max().y() + 0.01);
+                assert!(
+                    (row.height() - full.height()).abs() < 0.01,
+                    "the whole focused row must be visible"
+                );
+                scrolls.set_areas(paint.scrolls);
+            }
+            paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+            let paint = screen.take_paint().unwrap();
+            let viewport = paint
+                .scrolls
+                .iter()
+                .find(|area| area.key == "realms_list")
+                .unwrap()
+                .viewport;
+            scrolls.set_areas(paint.scrolls);
+            assert!(scrolls.wheel(
+                crate::test_support::centre(viewport),
+                -viewport.height(),
+                true
+            ));
+            let offsets = scrolls.offsets().clone();
+            paint_with_scrolls(&mut screen, &view, metrics, size, &mut scrolls);
+            assert_eq!(
+                scrolls.offsets(),
+                &offsets,
+                "unchanged focus must preserve later wheel input"
+            );
+        }
+    }
+}
+
+#[test]
 fn extra_large_servers_keeps_scrolled_group_drag_inside_small_windows() {
     use launcher::menu::server_list::{ServerGroup, ServerListAction};
     for size in [ui::MIN_WINDOW_LOGICAL_SIZE, [400.0, 250.0], [752.0, 500.0]] {

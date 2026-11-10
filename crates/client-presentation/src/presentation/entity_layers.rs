@@ -204,7 +204,17 @@ fn resolve_layer(
         } else {
             Some(match layer.multitexture {
                 Some([second, third]) => artwork
-                    .multitexture_location(submission.input.rig, [layer.source, second, third])?,
+                    .multitexture_location(submission.input.rig, [layer.source, second, third])
+                    .or_else(|| {
+                        if layer
+                            .material_state
+                            .is_some_and(|state| state.masked_multitexture)
+                        {
+                            artwork.variant_location(submission.input.rig, layer.source)
+                        } else {
+                            None
+                        }
+                    })?,
                 None => artwork.variant_location(submission.input.rig, layer.source)?,
             })
         },

@@ -48,6 +48,24 @@ impl ResourceMeshSnapshot {
 }
 
 impl WorldStream {
+    /// Replaces visual face rules and invalidates every earlier mesh generation.
+    pub fn set_surface_rules(
+        &mut self,
+        rules: Arc<[::meshing::surface::SurfaceRule]>,
+        now: Instant,
+    ) -> bool {
+        if Arc::ptr_eq(&self.surface_rules, &rules)
+            || self.surface_rules == rules
+            || rules.iter().any(|rule| !rule.validate())
+        {
+            return false;
+        }
+        self.mesh_memory.surface_rules = rules.clone();
+        self.surface_rules = rules;
+        self.mesh_policy_changed(now);
+        true
+    }
+
     /// The render choices captured by new mesh jobs and resource-pack snapshots.
     pub fn mesh_render_settings(&self) -> ::meshing::MeshRenderSettings {
         self.mesh_render_settings

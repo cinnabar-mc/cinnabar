@@ -110,6 +110,45 @@ fn inventory_access_tracks_the_painted_hotbar_and_touch_enablement() {
     }
 }
 
+/// The classic pad follows Bedrock's default centre and height share, fitted to the screen.
+#[test]
+fn classic_pad_uses_the_default_centre_and_height_share() {
+    let Some(mut p) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::menu_runtime();
+    let player = player_state::PlayerState::new(1);
+    p.enable_touch_controls(true);
+    p.set_touch_control_mode(TouchControlMode::Classic);
+    for size in [[854, 460], [1280, 700], [1920, 1080]] {
+        paint(&mut p, &player, &runtime, size);
+        let frame = p.screens.touch.frame.as_ref().unwrap();
+        let window = size.map(f64::from);
+        let hit = frame
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(touch::DPAD))
+            .unwrap();
+        let scale = f64::from(frame.scale);
+        let centre = [
+            f64::from(frame.origin[0]) + (hit.rect.x + hit.rect.w / 2.) * scale,
+            f64::from(frame.origin[1]) + (hit.rect.y + hit.rect.h / 2.) * scale,
+        ];
+        let half = 0.4968 * window[1] / 2.;
+        // The default centre, moved in just far enough to keep the whole pad on screen.
+        assert!(
+            (centre[0] - (0.12 * window[0]).max(half)).abs() < 0.1,
+            "{centre:?}"
+        );
+        assert!(
+            (centre[1] - (0.75 * window[1]).min(window[1] - half)).abs() < 0.1,
+            "{centre:?}"
+        );
+        assert!((hit.rect.h * scale - 0.4968 * window[1]).abs() < 0.1);
+        assert!((hit.rect.w - hit.rect.h).abs() < 0.001);
+    }
+}
+
 /// Default movement/action centers and dimensions scale with the viewport, independently of GUI size.
 #[test]
 fn crosshair_factory_layout_uses_proportional_centers_and_height_based_sizes() {
@@ -119,6 +158,7 @@ fn crosshair_factory_layout_uses_proportional_centers_and_height_based_sizes() {
     let runtime = pack_harness::menu_runtime();
     let player = player_state::PlayerState::new(1);
     p.enable_touch_controls(true);
+    p.set_touch_control_mode(TouchControlMode::Crosshair);
     for size in [[854, 460], [1280, 700], [1920, 1080]] {
         paint(&mut p, &player, &runtime, size);
         let frame = p.screens.touch.frame.as_ref().unwrap();

@@ -90,6 +90,43 @@ fn resolves_actor_spawn_egg_alias_and_index_at_stack_metadata_zero() {
 }
 
 #[test]
+fn npc_egg_uses_its_actor_icon_for_server_named_and_legacy_items() {
+    let pack = egg_pack();
+    actor(
+        pack.path(),
+        "npc",
+        "minecraft:npc",
+        "1.0.0",
+        serde_json::json!({"texture":"unrelated_alias", "texture_index":1}),
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let egg = visual(&compiled.item_visuals, "minecraft:spawn_egg", 51);
+    assert_eq!(
+        compiled.sources[egg.source as usize].path.as_ref(),
+        "entity/npc.entity.json"
+    );
+    assert_eq!(
+        visual(&compiled.item_visuals, "minecraft:npc_spawn_egg", 0).route,
+        egg.route
+    );
+    let icons = compile_icon_assets(pack.path(), MANIFEST).unwrap();
+    let catalog = RuntimeIconCatalog::decode(&icons.bytes).unwrap();
+    assert_eq!(
+        catalog
+            .lookup("minecraft:spawn_egg", 51)
+            .unwrap()
+            .rgba8
+            .as_ref(),
+        &[17, 31, 63, 255]
+    );
+    assert_eq!(
+        catalog.lookup("minecraft:npc_spawn_egg", 0),
+        catalog.lookup("minecraft:spawn_egg", 51),
+        "the server's named NPC egg and legacy selector must draw the same actor icon"
+    );
+}
+
+#[test]
 fn selects_newest_compatible_actor_definition_not_lexical_filename() {
     let pack = egg_pack();
     for (file, version, texture) in [
@@ -279,6 +316,60 @@ fn exact_pinned_pack_renders_every_retail_spawn_egg() {
     let compiled = compile_entity_assets(&pack, MANIFEST).unwrap();
     let icons = compile_icon_assets(&pack, MANIFEST).unwrap();
     let catalog = RuntimeIconCatalog::decode(&icons.bytes).unwrap();
+    let selector_facts: serde_json::Value =
+        serde_json::from_str(include_str!("../../../data/spawn-egg-selectors-v2225.json")).unwrap();
+    let selectors: Vec<(u32, String)> =
+        serde_json::from_value(selector_facts["selectors"].clone()).unwrap();
+    for (auxiliary, actor) in &selectors {
+        let selected = assets::facts::pack::rules()
+            .superseding_egg(actor)
+            .unwrap_or(actor);
+        let named = assets::facts::pack::rules().egg_identifier(selected);
+        let expected = catalog.lookup(&named, 0);
+        assert!(expected.is_some(), "missing named actor icon {named}");
+        assert!(
+            catalog.lookup("minecraft:spawn_egg", *auxiliary) == expected,
+            "generic egg auxiliary {auxiliary} must match {named}"
+        );
+    }
+    eprintln!(
+        "Verified {} legacy spawn egg selectors through compiled icon lookup",
+        selectors.len()
+    );
+    for (name, auxiliary) in [("villager", 15), ("zombie_villager", 44)] {
+        let legacy = visual(&compiled.item_visuals, "minecraft:spawn_egg", auxiliary);
+        assert_eq!(
+            compiled.sources[legacy.source as usize].path.as_ref(),
+            format!("entity/{name}_v2.entity.json")
+        );
+        assert_eq!(
+            texture_path(&compiled, &format!("minecraft:{name}_spawn_egg")),
+            format!("textures/items/spawn_eggs/spawn_egg_{name}.png")
+        );
+    }
+    let npc = visual(&compiled.item_visuals, "minecraft:spawn_egg", 51);
+    assert_eq!(
+        compiled.sources[npc.source as usize].path.as_ref(),
+        "entity/npc.entity.json"
+    );
+    assert!(matches!(
+        npc.route,
+        ItemVisualDefinitionRoute::Sprite { .. }
+    ));
+    assert!(
+        catalog
+            .lookup("minecraft:spawn_egg", 51)
+            .unwrap()
+            .rgba8
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] != 0)
+    );
+    assert_eq!(
+        catalog.lookup("minecraft:npc_spawn_egg", 0),
+        catalog.lookup("minecraft:spawn_egg", 51)
+    );
     let retail = include_str!("../../../../../protocol/data/retail_items_1_26_60.tsv");
     let mut egg_count = 0;
     for identifier in retail

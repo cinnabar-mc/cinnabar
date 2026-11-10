@@ -14,6 +14,11 @@ use ui_screens::container_actions::{InventoryCellHit, SEARCH_TAB};
 const MAX_SEARCH_CHARS: usize = 32;
 /// Longest item name an anvil accepts.
 const MAX_ANVIL_NAME_CHARS: usize = 50;
+/// Bytes the field editor holds: the longest field in four-byte characters.
+const FIELD_EDITOR_BYTES: usize = 4 * MAX_ANVIL_NAME_CHARS;
+const _: () = assert!(
+    MAX_SEARCH_CHARS <= MAX_ANVIL_NAME_CHARS && FIELD_EDITOR_BYTES <= ui::MAX_CHAT_INPUT_BYTES
+);
 
 #[derive(Clone, Debug, Default)]
 pub struct ScreenState {
@@ -59,6 +64,8 @@ pub struct ScreenState {
     pub container_scroll_drag: Option<(String, f64)>,
     /// Selected radio tabs of a server pack's storage screen, by group key.
     pub storage_radios: std::collections::BTreeMap<u64, u16>,
+    /// Caret and selection of the focused search or anvil field.
+    field_editor: FieldEditor,
     window: Option<u64>,
     creative_filter: std::sync::Arc<std::sync::Mutex<Option<CreativeFilterCache>>>,
 }
@@ -73,6 +80,44 @@ pub struct CrafterView {
     /// Toggles not yet echoed: the local mask and when it was set, stamped on
     /// the next observation.
     pub pending: Option<(u16, Option<u64>)>,
+}
+
+/// The focused search or anvil field's caret and selection. The field's string stays the
+/// source of truth: an editor that no longer mirrors it reloads with the caret at the end.
+#[derive(Clone, Debug)]
+struct FieldEditor {
+    editor: ui::ChatEditor,
+    /// Changes with every edit and caret move, restarting the caret blink.
+    revision: u64,
+    /// The field whose text the editor last took up.
+    owner: Option<FieldOwner>,
+}
+
+/// One search or anvil name field in one container window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FieldOwner {
+    anvil: bool,
+    window: Option<u64>,
+}
+
+impl Default for FieldEditor {
+    fn default() -> Self {
+        Self {
+            editor: ui::ChatEditor::new(FIELD_EDITOR_BYTES)
+                .expect("the field editor's size is checked at compile time"),
+            revision: 0,
+            owner: None,
+        }
+    }
+}
+
+/// Where the focused field's caret and selection sit, as byte offsets into its text.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FieldCaret {
+    pub byte: usize,
+    pub selection: Option<[usize; 2]>,
+    /// Changes with every edit and caret move, restarting the caret blink.
+    pub revision: u64,
 }
 
 /// How long vanilla's local crafter toggles override the block entity.
@@ -171,38 +216,178 @@ impl ScreenState {
             || self.book.as_ref().is_some_and(|book| book.editable)
     }
 
-    /// Appends typed text to the focused field, dropping control characters.
+    /// Inserts typed text at the focused field's caret, replacing any selection and dropping
+    /// control characters and whatever exceeds the field's length.
     pub fn type_text(&mut self, text: &str) {
         if let Some(book) = self.book.as_mut().filter(|book| book.editable) {
             book.type_text(text);
             return;
         }
-        let (field, limit) = if self.anvil_focused {
-            (&mut self.anvil_name, MAX_ANVIL_NAME_CHARS)
-        } else {
-            (&mut self.search, MAX_SEARCH_CHARS)
-        };
-        for ch in text.chars().filter(|ch| !ch.is_control()) {
-            if field.chars().count() < limit {
-                field.push(ch);
+        self.edit_field(|editor, limit| {
+            let text_chars = editor.as_str().chars().count();
+            let selected_chars = editor
+                .selected_text()
+                .map_or(0, |text| text.chars().count());
+            let room = limit.saturating_sub(text_chars - selected_chars);
+            let insertion: String = text
+                .chars()
+                .filter(|ch| !ch.is_control())
+                .take(room)
+                .collect();
+            // Within the field's length, so within the editor's bytes too.
+            if !insertion.is_empty() {
+                let _ = editor.insert(&insertion);
             }
-        }
-        self.creative_row = 0;
-        self.container_scroll.clear();
-        self.container_scroll_drag = None;
+        });
     }
 
     pub fn backspace_text(&mut self) {
         if let Some(book) = self.book.as_mut().filter(|book| book.editable) {
             book.backspace();
-        } else if self.anvil_focused {
-            self.anvil_name.pop();
         } else {
-            self.search.pop();
+            self.edit_field(|editor, _| editor.backspace());
+        }
+    }
+
+    /// Applies a caret or deletion key to the focused search or anvil field; see
+    /// [`ui::ChatEditor::edit_key`]. `false` when no such field is focused or the key is not
+    /// an editing key.
+    pub fn edit_text_key(
+        &mut self,
+        key: semantic_input::KeyboardKey,
+        selecting: bool,
+        by_word: bool,
+    ) -> bool {
+        let mut handled = false;
+        self.edit_field(|editor, _| handled = editor.edit_key(key, selecting, by_word));
+        handled
+    }
+
+    /// Selects the focused search or anvil field's whole text; `false` when none is focused.
+    pub fn select_all_text(&mut self) -> bool {
+        self.edit_field(|editor, _| editor.select_all())
+    }
+
+    /// The focused search or anvil field's selected text.
+    pub fn selected_text(&self) -> Option<&str> {
+        self.mirrored_editor()?.selected_text()
+    }
+
+    /// Removes and returns the focused search or anvil field's selected text.
+    pub fn cut_text(&mut self) -> Option<String> {
+        let mut cut = None;
+        self.edit_field(|editor, _| cut = editor.cut_selection());
+        cut
+    }
+
+    /// Pastes the clipboard's text at the focused search or anvil field's caret, as typing it
+    /// would; a clipboard longer than the paste bound pastes nothing. `false` when no such
+    /// field is focused.
+    pub fn paste_text<C: ui::ChatClipboard>(&mut self, clipboard: &mut C) -> bool {
+        if self.focused_field().is_none() {
+            return false;
+        }
+        let bound = super::forms::engine_input::MAX_PASTE_BYTES;
+        if let Ok(Some(text)) = clipboard.read_text_bounded(bound)
+            && text.len() <= bound
+        {
+            self.type_text(&text);
+        }
+        true
+    }
+
+    /// The focused search or anvil field's caret, once editing has placed one; a field the
+    /// editor does not mirror shows its caret at the end.
+    pub fn field_caret(&self) -> Option<FieldCaret> {
+        let (field, ..) = self.focused_field()?;
+        let revision = self.field_editor.revision;
+        Some(match self.mirrored_editor() {
+            Some(editor) => FieldCaret {
+                byte: editor.cursor_byte(),
+                selection: editor.selection().map(|range| [range.start, range.end]),
+                revision,
+            },
+            None => FieldCaret {
+                byte: field.len(),
+                selection: None,
+                revision,
+            },
+        })
+    }
+
+    /// The field editor while it holds the focused field's caret: it took up that field in
+    /// this window and the field still has the editor's text.
+    fn mirrored_editor(&self) -> Option<&ui::ChatEditor> {
+        let (field, _, owner) = self.focused_field()?;
+        let FieldEditor {
+            editor,
+            owner: mirrored,
+            ..
+        } = &self.field_editor;
+        (*mirrored == Some(owner) && editor.as_str() == field).then_some(editor)
+    }
+
+    /// The focused search or anvil field, its length in characters and its owner; an editable
+    /// book takes typing instead.
+    fn focused_field(&self) -> Option<(&str, usize, FieldOwner)> {
+        let owner = |anvil| FieldOwner {
+            anvil,
+            window: self.window,
+        };
+        if self.book.as_ref().is_some_and(|book| book.editable) {
+            None
+        } else if self.anvil_focused {
+            Some((&self.anvil_name, MAX_ANVIL_NAME_CHARS, owner(true)))
+        } else if self.search_focused {
+            Some((&self.search, MAX_SEARCH_CHARS, owner(false)))
+        } else {
+            None
+        }
+    }
+
+    /// Runs `edit` with the focused field's editor and length, then writes the result back to
+    /// the field. A changed search returns the result lists to their top. `false` when no
+    /// search or anvil field is focused.
+    fn edit_field(&mut self, edit: impl FnOnce(&mut ui::ChatEditor, usize)) -> bool {
+        if self.book.as_ref().is_some_and(|book| book.editable) {
+            return false;
+        }
+        let (field, limit, search) = if self.anvil_focused {
+            (&mut self.anvil_name, MAX_ANVIL_NAME_CHARS, false)
+        } else if self.search_focused {
+            (&mut self.search, MAX_SEARCH_CHARS, true)
+        } else {
+            return false;
+        };
+        let owner = FieldOwner {
+            anvil: !search,
+            window: self.window,
+        };
+        let FieldEditor {
+            editor,
+            revision,
+            owner: mirrored,
+        } = &mut self.field_editor;
+        if *mirrored != Some(owner) || editor.as_str() != field.as_str() {
+            editor.set_text(field);
+            *mirrored = Some(owner);
+        }
+        let before = (editor.cursor_byte(), editor.selection());
+        edit(editor, limit);
+        let changed = editor.as_str() != field.as_str();
+        if changed {
+            field.clear();
+            field.push_str(editor.as_str());
+        }
+        if changed || before != (editor.cursor_byte(), editor.selection()) {
+            *revision = revision.wrapping_add(1);
+        }
+        if changed && search {
             self.creative_row = 0;
             self.container_scroll.clear();
             self.container_scroll_drag = None;
         }
+        true
     }
 
     /// Scrolls the loom pattern grid by whole rows.
@@ -318,5 +503,77 @@ mod tests {
         assert_eq!(state.creative_row, 100_usize.div_ceil(9) - 5);
         state.scroll_creative(-50, 100);
         assert_eq!(state.creative_row, 0);
+    }
+
+    // Typing goes to the caret, replaces a selection and stops at the field's length; a field
+    // rewritten outside editing puts the caret back at its end.
+    #[test]
+    fn focused_fields_edit_at_the_caret_within_their_length() {
+        use semantic_input::KeyboardKey;
+
+        let mut state = ScreenState {
+            search_focused: true,
+            ..ScreenState::default()
+        };
+        state.type_text("ingot");
+        state.edit_text_key(KeyboardKey::Home, false, false);
+        state.creative_row = 3;
+        state.type_text("iron ");
+        assert_eq!(state.search, "iron ingot");
+        assert_eq!(state.creative_row, 0, "a changed search returns to the top");
+        assert_eq!(state.field_caret().map(|caret| caret.byte), Some(5));
+        state.creative_row = 3;
+        state.edit_text_key(KeyboardKey::End, false, false);
+        assert_eq!(state.creative_row, 3, "a caret move keeps the results");
+
+        state.type_text(&"x".repeat(MAX_SEARCH_CHARS));
+        assert_eq!(state.search.chars().count(), MAX_SEARCH_CHARS);
+        assert!(state.select_all_text());
+        assert_eq!(state.selected_text(), Some(state.search.as_str()));
+        state.type_text("ü");
+        assert_eq!(state.search, "ü");
+
+        state.search = "gold".into();
+        assert_eq!(state.selected_text(), None);
+        assert_eq!(state.field_caret().map(|caret| caret.byte), Some(4));
+        state.type_text("en");
+        assert_eq!(state.search, "golden");
+        state.edit_text_key(KeyboardKey::ArrowLeft, true, true);
+        assert_eq!(state.cut_text().as_deref(), Some("golden"));
+        assert_eq!(state.search, "");
+
+        state.search_focused = false;
+        state.anvil_focused = true;
+        state.type_text(&"a".repeat(MAX_ANVIL_NAME_CHARS + 1));
+        assert_eq!(state.anvil_name.chars().count(), MAX_ANVIL_NAME_CHARS);
+        state.anvil_focused = false;
+        assert!(!state.edit_text_key(KeyboardKey::Home, false, false));
+        assert_eq!(state.field_caret(), None);
+    }
+
+    #[test]
+    fn another_field_with_the_same_text_starts_with_its_caret_at_the_end() {
+        let mut state = ScreenState {
+            search_focused: true,
+            ..ScreenState::default()
+        };
+        state.type_text("iron");
+        assert!(state.select_all_text());
+
+        state.observe_window(Some(2));
+        state.anvil_name = "iron".into();
+        state.anvil_focused = true;
+        assert_eq!(state.selected_text(), None);
+        assert_eq!(state.field_caret().map(|caret| caret.byte), Some(4));
+        state.type_text("y");
+        assert_eq!(state.anvil_name, "irony");
+
+        assert!(state.select_all_text());
+        state.anvil_focused = false;
+        state.search_focused = true;
+        state.search = "irony".into();
+        assert_eq!(state.selected_text(), None);
+        state.backspace_text();
+        assert_eq!(state.search, "iron");
     }
 }
