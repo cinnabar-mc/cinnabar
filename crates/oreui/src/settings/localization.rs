@@ -436,6 +436,10 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.mentionsTarget.description" => "Choose which player mentions to highlight",
         "chat.settings.mentionsTarget.everyone" => "Everyone",
         "chat.settings.mentionsTarget.self" => "Only Me",
+        "options.nametagBackgroundOpacity" => "Nametag Background Opacity",
+        "options.nametagBackgroundOpacity.description" => {
+            "Adjust the opacity of nametag backgrounds. 0% hides the background."
+        }
         "options.chatBackgroundOpacity" => "Chat Background Opacity",
         "options.chatBackgroundOpacity.description" => {
             "Adjust the opacity of the chat background box"
