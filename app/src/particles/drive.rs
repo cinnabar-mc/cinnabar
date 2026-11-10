@@ -40,7 +40,6 @@ use {
     client_presentation::camera::FlyCamera,
 };
 
-#[path = "drive/brush_dust.rs"]
 mod brush_dust;
 pub(crate) use brush_dust::LocalBrushDust;
 
