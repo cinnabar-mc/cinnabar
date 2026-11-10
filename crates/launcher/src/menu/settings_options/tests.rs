@@ -334,13 +334,13 @@ fn reset_restores_a_shared_default_without_changing_other_actions() {
 #[test]
 fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     let mut settings = SettingsOptions::default();
-    assert!(!settings.mentions_only_self());
+    assert!(settings.mentions_only_self());
     for (name, value) in [
         ("chat_font_size", 15),
         ("chat_line_spacing", 25),
         ("chat_color", 3),
         ("mentions_color", 2),
-        ("mentions_target", 1),
+        ("mentions_target", 0),
         ("chat_message_duration", 2),
     ] {
         settings.set(index(name), value);
@@ -350,7 +350,7 @@ fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     assert_eq!(restored.chat_line_padding(), 2.501);
     assert_eq!(restored.chat_color_code(), 'c');
     assert_eq!(restored.mentions_color_code(), 'b');
-    assert!(restored.mentions_only_self());
+    assert!(!restored.mentions_only_self());
     assert_eq!(restored.chat_lifetime(), 30.0);
 }
 

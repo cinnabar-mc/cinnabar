@@ -777,6 +777,8 @@ mod tests {
         let layer = |runtime_skin: bool, source: u32, geometry: Option<u32>| RenderTextureLayer {
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
+            render_state: None,
+            masks: None,
             source,
             texture_slot: 0,
             multitexture: None,
@@ -808,8 +810,11 @@ mod tests {
             pixel_sha256: [source as u8; 32],
             rgba8: vec![255; 16].into(),
         };
-        let artwork =
-            ActorArtworkPages::default().with_pack_artwork(&[texture(23), texture(24)], &[]);
+        let artwork = ActorArtworkPages::default().with_pack_artwork(
+            &[texture(23), texture(24)],
+            &[],
+            &Default::default(),
+        );
         // The cosmetic samples a second catalog texture, as a two-texture material does.
         let mut hat = layer(false, 23, Some(7));
         hat.multitexture = Some([24, 24]);
@@ -874,6 +879,8 @@ mod tests {
         let morph = RenderTextureLayer {
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
+            render_state: None,
+            masks: None,
             source: 23,
             texture_slot: 0,
             multitexture: None,
@@ -899,6 +906,7 @@ mod tests {
                 rgba8: vec![255; 16].into(),
             }],
             &[],
+            &Default::default(),
         );
         let layers = [morph];
         apply_render_layers_cached(

@@ -258,12 +258,13 @@ pub(super) fn texture_from_set(
     })
 }
 
-/// Decodes size-bounded image bytes with one of the required channel counts.
-pub(super) fn image_bytes(bytes: &[u8], channels: &[u8]) -> Result<RgbaImage, String> {
+/// Decodes bounded bytes using their resolved filename and required channel counts.
+pub(super) fn image_bytes(bytes: &[u8], path: &Path, channels: &[u8]) -> Result<RgbaImage, String> {
     if bytes.len() as u64 > IMAGE_BYTES_LIMIT {
         return Err("image exceeds authored texture byte limit".to_owned());
     }
-    let image = image::ImageReader::new(std::io::Cursor::new(bytes))
+    let format = image::ImageFormat::from_path(path).map_err(|error| error.to_string())?;
+    let image = image::ImageReader::with_format(std::io::Cursor::new(bytes), format)
         .with_guessed_format()
         .map_err(|error| error.to_string())?
         .decode()

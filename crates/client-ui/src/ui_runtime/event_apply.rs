@@ -370,9 +370,10 @@ impl UiRuntime {
         Ok(())
     }
 
-    /// Names the player's bound controls in `:_input_<binding>:` placeholders, as vanilla does
-    /// for titles, subtitles, the action bar and chat other than raw text when they arrive.
-    /// Tips and popups keep their text unchanged. A result that would exceed the largest chat
+    /// Names the player's bound controls in `:_input_<binding>:` and `:_gamepad_<button>:`
+    /// placeholders and draws `:name:` emoticons as glyphs, as vanilla does for titles,
+    /// subtitles, the action bar and chat other than raw text when they arrive. Tips and
+    /// popups keep their text unchanged. A result that would exceed the largest chat
     /// row the client retains is refused.
     fn expand_input_placeholders(
         &self,
@@ -383,9 +384,10 @@ impl UiRuntime {
             return Ok(None);
         }
         let unassigned = self.translation(UNASSIGNED);
-        self.control_settings.expand_input_placeholders(
+        self.control_settings.emoticonify_text(
             text,
             self.input_mode,
+            assets::emoticons::EmoticonList::builtin(),
             unassigned.as_deref().unwrap_or(UNASSIGNED),
             ui::MAX_CHAT_RETAINED_BYTES,
         )

@@ -400,7 +400,10 @@ impl Builder<'_> {
         geometries: &HashMap<String, Geometry>,
     ) -> BlockVisual {
         let components = &state.components;
-        let key = format!("{components:?}{:?}", state.hidden_bones);
+        let key = format!(
+            "{components:?}{:?}{:?}",
+            state.hidden_bones, self.state_masks
+        );
         if let Some(visual) = self.visuals.get(&key) {
             return *visual;
         }

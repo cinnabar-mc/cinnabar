@@ -165,12 +165,19 @@ pub(super) fn append(
             "nested raster-size alternatives are unsupported",
         ));
     }
-    for glyph in alias.glyphs.iter_mut() {
-        glyph.page = glyph
-            .page
-            .checked_add(offset)
-            .ok_or_else(|| invalid_catalog("named font page offset exceeds bounds"))?;
-    }
+    alias.glyphs = alias
+        .glyphs
+        .iter()
+        .map(|glyph| {
+            Ok(GlyphMetrics {
+                page: glyph
+                    .page
+                    .checked_add(offset)
+                    .ok_or_else(|| invalid_catalog("named font page offset exceeds bounds"))?,
+                ..*glyph
+            })
+        })
+        .collect::<Result<_, FontCatalogError>>()?;
     let mut identity = Sha256::new();
     identity.update(font.identity.carrier_sha256);
     identity.update(offset.to_le_bytes());

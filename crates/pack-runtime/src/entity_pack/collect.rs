@@ -1,6 +1,6 @@
 //! Gathers a pack stack's entity sources: unique definitions, geometry, and referenced rasters.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -8,6 +8,7 @@ use assets::VanillaEntityRefs;
 use rayon::prelude::*;
 use resource_pack::LayeredPackView;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::pack_textures::parse_pack_json;
 
@@ -165,6 +166,21 @@ pub fn collect_files_for_graphics(
     vanilla_pack_dir: Option<&Path>,
     fancy_graphics: bool,
 ) -> (CollectedFiles, assets::EntityMaterialDiagnostics) {
+    collect_files_for_graphics_unless(view, vanilla, vanilla_pack_dir, fancy_graphics, &|| false)
+        .expect("an uncancellable collection completes")
+}
+
+/// Collects entity files, stopping before collection or between rasters when cancelled.
+pub(super) fn collect_files_for_graphics_unless(
+    view: &LayeredPackView,
+    vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
+    fancy_graphics: bool,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<(CollectedFiles, assets::EntityMaterialDiagnostics)> {
+    if cancelled() {
+        return None;
+    }
     let mut report = assets::EntityMaterialDiagnostics::default();
     let mut files = Vec::new();
     let CollectedEntities {
@@ -172,6 +188,7 @@ pub fn collect_files_for_graphics(
         mut references,
     } = unique_entities(view);
     complete_inert_overrides(&mut entities, &mut references, vanilla_pack_dir);
+    collect_material_binding_entities(view, &mut entities, &mut references, vanilla_pack_dir);
     let mut geometry = unshadowed_geometry(view);
     let mut pack_geometry = BTreeSet::new();
     for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
@@ -277,7 +294,7 @@ pub fn collect_files_for_graphics(
             .into_iter()
             .map(|(path, bytes)| (path.into(), bytes)),
     );
-    let (bindings, invalid) = material_bindings(view);
+    let (bindings, invalid) = bindings::collect(view);
     report.invalid_extension_documents = u32::from(invalid);
     files.extend(bindings);
     files.extend(attachables);
@@ -290,29 +307,37 @@ pub fn collect_files_for_graphics(
         .filter(|stem| !textures.contains(stem))
         .collect::<BTreeSet<_>>();
     textures.extend(paintings.iter().cloned());
+    let mut colours = TextureSetColours::default();
     for stem in textures {
+        if cancelled() {
+            return None;
+        }
         let fallback = if paintings.contains(&stem) {
             None
         } else {
             vanilla_pack_dir
         };
-        if let Some(texture) = texture_file(view, fallback, &stem) {
+        if let Some(texture) = texture_file(view, fallback, &stem, &mut colours) {
             files.push(texture);
         }
     }
-    (files, report)
+    Some((files, report))
 }
+
+/// Validated source images or converted PNGs, including failures, shared across texture sets.
+type TextureSetColours = HashMap<(image::ImageFormat, [u8; 32]), Option<Vec<u8>>>;
 
 /// All server formats have precedence over the installed vanilla layer.
 fn texture_file(
     view: &LayeredPackView,
     vanilla_pack_dir: Option<&Path>,
     stem: &str,
+    colours: &mut TextureSetColours,
 ) -> Option<(Box<str>, Vec<u8>)> {
     // A valid texture set whose colour resolves wins over the plain image, as for terrain;
     // outside Vibrant Visuals an entity draws only its colour layer.
     if let Some(set) = crate::pack_textures::PackTextureSet::find(view, stem)
-        && let Some(file) = texture_set_colour(&set, stem)
+        && let Some(file) = texture_set_colour(&set, stem, colours)
     {
         return Some(file);
     }
@@ -373,57 +398,57 @@ fn declared_texture_stem(path: &str) -> Option<String> {
 fn texture_set_colour(
     set: &crate::pack_textures::PackTextureSet<'_>,
     stem: &str,
+    colours: &mut TextureSetColours,
 ) -> Option<(Box<str>, Vec<u8>)> {
     use pack_compile_input::texture_set::TextureSetLayer;
     let png = |image: image::RgbaImage| {
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).ok()?;
-        Some((format!("{stem}.png").into(), bytes.into_inner()))
+        Some(bytes.into_inner())
     };
-    match &set.definition.color {
-        TextureSetLayer::Uniform(pixel) => {
-            png(image::RgbaImage::from_pixel(1, 1, image::Rgba(*pixel)))
-        }
+    let (extension, bytes) = match &set.definition.color {
+        TextureSetLayer::Uniform(pixel) => (
+            "png",
+            png(image::RgbaImage::from_pixel(1, 1, image::Rgba(*pixel)))?,
+        ),
         TextureSetLayer::Image(name) => {
             let (path, bytes) = set.image_file(name)?;
-            let extension = path.rsplit_once('.')?.1.to_ascii_lowercase();
-            if matches!(extension.as_str(), "png" | "tga") {
-                return Some((format!("{stem}.{extension}").into(), bytes));
-            }
-            png(image::load_from_memory(&bytes).ok()?.into_rgba8())
+            let format = image::ImageFormat::from_path(&path).ok()?;
+            let key = (format, Sha256::digest(&bytes).into());
+            let encoded = colours
+                .entry(key)
+                .or_insert_with(|| {
+                    let mut reader = image::ImageReader::with_format(
+                        std::io::Cursor::new(bytes.as_slice()),
+                        format,
+                    );
+                    let mut limits = image::Limits::default();
+                    limits.max_image_width = Some(assets::MAX_ACTOR_TEXTURE_SIDE.into());
+                    limits.max_image_height = Some(assets::MAX_ACTOR_TEXTURE_SIDE.into());
+                    limits.max_alloc = Some(assets::MAX_ACTOR_PIXEL_BYTES as u64);
+                    reader.limits(limits);
+                    let decoded = reader.decode().ok()?;
+                    if matches!(format, image::ImageFormat::Png | image::ImageFormat::Tga) {
+                        Some(bytes)
+                    } else {
+                        png(decoded.into_rgba8())
+                    }
+                })
+                .as_ref()?;
+            let extension = if format == image::ImageFormat::Tga {
+                "tga"
+            } else {
+                "png"
+            };
+            (extension, encoded.clone())
         }
-    }
+    };
+    Some((format!("{stem}.{extension}").into(), bytes))
 }
 
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
-}
-
-/// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
-/// when invalid; the compiler then ignores it and the reason is logged here.
-/// Also says whether the winning copy is invalid: not JSON, or rejected by the extension's
-/// validation, in which case the client ignores it whole.
-fn material_bindings(view: &LayeredPackView) -> (Option<CollectedFile>, bool) {
-    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
-    let Some(bytes) = view.read(path) else {
-        return (None, false);
-    };
-    let Some(document) = parse_pack_json(&bytes) else {
-        tracing::warn!("ignoring the pack's material bindings: not JSON");
-        return (None, true);
-    };
-    let invalid = match pack_entity_compiler::validate_material_bindings(&document) {
-        Ok(()) => false,
-        Err(reason) => {
-            tracing::warn!(%reason, "ignoring the pack's material bindings");
-            true
-        }
-    };
-    let file = serde_json::to_vec(&document)
-        .ok()
-        .map(|bytes| (path.into(), bytes));
-    (file, invalid)
 }
 
 /// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
@@ -487,6 +512,11 @@ fn material_files(
     let mut listed = Vec::new();
     let mut listed_paths = BTreeSet::new();
     for mut entry in entries {
+        // Pack reads resolve casing aliases to the same file.
+        if !listed_paths.insert(entry.path.to_ascii_lowercase()) {
+            report.repeated_paths += 1;
+            continue;
+        }
         let Some(document) = merged_layers(view.read_layers(&entry.path)) else {
             continue;
         };
@@ -497,7 +527,7 @@ fn material_files(
         } else {
             format!("{LISTED_MATERIAL_PREFIX}{}.material", listed.len())
         };
-        listed_paths.insert(std::mem::replace(&mut entry.path, key.as_str().into()));
+        entry.path = key.as_str().into();
         files.insert(key, document);
         listed.push(entry);
     }
@@ -507,7 +537,7 @@ fn material_files(
             .into_iter()
             .filter(|path| is_material_file(path))
         {
-            if listed_paths.contains(path) {
+            if listed_paths.contains(&path.to_ascii_lowercase()) {
                 continue;
             }
             let Ok(Some(bytes)) = layer.read_file(path) else {
@@ -775,6 +805,60 @@ fn complete_inert_overrides(
     });
 }
 
+/// Loads installed definitions and their references for binding targets the pack does not define.
+fn collect_material_binding_entities(
+    view: &LayeredPackView,
+    entities: &mut Vec<(Box<str>, Vec<u8>)>,
+    references: &mut References,
+    vanilla_pack_dir: Option<&Path>,
+) {
+    let Some(document) = material_bindings_document(view) else {
+        return;
+    };
+    let mut targets = pack_entity_compiler::entity_material_binding_targets(&document)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    for (_, bytes) in entities.iter() {
+        if let Some(document) = parse_pack_json(bytes)
+            && let Some(identifier) = document
+                .pointer("/minecraft:client_entity/description/identifier")
+                .and_then(Value::as_str)
+        {
+            targets.remove(identifier);
+        }
+    }
+    if targets.is_empty() {
+        return;
+    }
+    let Some(installed) = vanilla_pack_dir
+        .and_then(|root| pack_entity_compiler::load_vanilla_entity_definitions(root).ok())
+    else {
+        return;
+    };
+    let mut paths = entities
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<BTreeSet<_>>();
+    let mut index = 0;
+    for target in targets {
+        let Some(document) = installed.get(&target) else {
+            continue;
+        };
+        let Ok(bytes) = serde_json::to_vec(document) else {
+            continue;
+        };
+        let path = loop {
+            let path: Box<str> = format!("entity/_cinnabar_material_bindings/{index}.json").into();
+            index += 1;
+            if paths.insert(path.clone()) {
+                break path;
+            }
+        };
+        references.read(document);
+        entities.push((path, bytes));
+    }
+}
+
 /// Lays `overlay` over `base`: objects merge key by key, any other value replaces.
 fn overlay_json(base: &mut Value, overlay: Value) {
     match (base, overlay) {
@@ -896,8 +980,13 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
 }
 
 mod attachables;
+mod bindings;
 
 #[cfg(test)]
 mod harness_tests;
 #[cfg(test)]
+mod material_bindings_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod texture_tests;

@@ -92,7 +92,7 @@ pub fn update_actor_rig_scene(
 }
 
 /// Checks camera overlap, distance and frustum bounds before building a rig's presentation.
-/// Always-depth layers survive terrain occlusion, using the draw frame's cached layers when available.
+/// Layers that can pass behind terrain survive occlusion, using cached draw layers when available.
 /// Controllers and persona meshes that can extend the base defer its bounds proof.
 pub fn rig_may_be_visible(
     rig: &ActorRigSnapshot<'_>,
@@ -151,10 +151,10 @@ pub fn rig_may_be_visible(
                 rig.render.iter().any(|layer| {
                     layer
                         .render_state
-                        .is_some_and(|raster| raster.ignores_stored_depth())
+                        .is_some_and(|raster| raster.may_pass_behind_terrain())
                 })
             },
-            |frame| frame.has_always_depth_material(rig.actor.runtime_id),
+            |frame| frame.has_occlusion_bypass_material(rig.actor.runtime_id),
         )
 }
 

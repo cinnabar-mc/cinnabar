@@ -119,38 +119,73 @@ pub(crate) fn local_player_point_light_position(
     position.is_finite().then_some(position.to_array())
 }
 
-/// Keeps the GPU point light anchored to the published local-player feet position.
-pub(crate) fn sync_world_point_light_from_local_player(
-    carrier: Res<LocalPlayerFrameCarrier>,
-    world: Res<ClientWorld>,
-    player: Option<Res<client_state::PlayerRuntime>>,
-    ui: Option<Res<client_shell::ui_resources::UiRuntimeResource>>,
-    menu: Option<Res<client_shell::menu::MenuRuntime>>,
+/// The local player, world and actor clock the dynamic point lights follow.
+#[derive(SystemParam)]
+pub(crate) struct PointLightSources<'w> {
+    carrier: Res<'w, LocalPlayerFrameCarrier>,
+    world: Res<'w, ClientWorld>,
+    partial_tick: Res<'w, ActorFramePartialTick>,
+    player: Option<Res<'w, client_state::PlayerRuntime>>,
+    ui: Option<Res<'w, client_shell::ui_resources::UiRuntimeResource>>,
+}
+
+/// Publishes the Dynamic Lights setting, the local held-item light and the nearest remote
+/// player and dropped-item lights once actors have advanced for the frame. Fields are written
+/// only when they change, so render extraction skips unchanged frames.
+pub(crate) fn publish_world_point_lights(
+    sources: PointLightSources,
+    #[cfg(not(target_arch = "wasm32"))] menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")] options: Res<crate::browser_input::BrowserOptions>,
+    mut scratch: Local<ItemLightScratch>,
     light: Option<ResMut<render_scene::WorldPointLight>>,
 ) {
     let Some(mut light) = light else {
         return;
     };
+    #[cfg(not(target_arch = "wasm32"))]
     let enabled = menu.as_deref().is_some_and(|menu| {
         menu.settings_snapshot()
             .0
             .value(launcher::menu::settings_options::SettingId::DynamicLights)
             != 0
     });
+    #[cfg(target_arch = "wasm32")]
+    let enabled = options
+        .0
+        .value(launcher::menu::settings_options::SettingId::DynamicLights)
+        != 0;
     if light.enabled != enabled {
         light.enabled = enabled;
     }
-    let Some(position) = local_player_point_light_position(&carrier) else {
-        light.local = render_scene::WorldPointLightSource::default();
-        return;
+    let local = local_point_light(&sources);
+    if light.local != local {
+        light.local = local;
+    }
+    let additional = if enabled {
+        additional_item_point_lights(&sources, &mut scratch)
+    } else {
+        [render_scene::WorldPointLightSource::default(); MAX_ADDITIONAL_ITEM_POINT_LIGHTS]
     };
-    let profile = world.stream.as_ref().and_then(|stream| {
+    if light.additional != additional {
+        light.additional = additional;
+    }
+}
+
+/// The light anchored to the published local-player body, brightened by the brighter
+/// emissive held item; empty until a local position is published.
+fn local_point_light(sources: &PointLightSources) -> render_scene::WorldPointLightSource {
+    let Some(position) = local_player_point_light_position(&sources.carrier) else {
+        return render_scene::WorldPointLightSource::default();
+    };
+    let player = sources.player.as_deref();
+    let profile = sources.world.stream.as_ref().and_then(|stream| {
         let main_hand = player
-            .as_deref()
             .and_then(|player| player.selected_stack())
             .and_then(|item| item_light_profile(stream, item.block_runtime_id));
-        let off_hand = player.as_deref().and_then(|player| {
-            ui.as_deref()
+        let off_hand = player.and_then(|player| {
+            sources
+                .ui
+                .as_deref()
                 .and_then(|ui| ui.local_offhand_stack(player))
                 .and_then(|item| item_light_profile(stream, item.block_runtime_id))
         });
@@ -159,7 +194,7 @@ pub(crate) fn sync_world_point_light_from_local_player(
             .flatten()
             .max_by(|left, right| left.intensity.total_cmp(&right.intensity))
     });
-    let local = profile.map_or_else(
+    profile.map_or_else(
         || render_scene::WorldPointLightSource {
             position,
             ..Default::default()
@@ -169,10 +204,7 @@ pub(crate) fn sync_world_point_light_from_local_player(
             intensity: profile.intensity,
             radius: profile.radius,
         },
-    );
-    if light.local != local {
-        light.local = local;
-    }
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -205,42 +237,33 @@ fn item_light_profile_from_emission(emission: u8) -> Option<ItemLightProfile> {
     })
 }
 
-/// Publishes nearest remote-player and dropped-item lights for the vanilla shader.
-pub(crate) fn sync_remote_item_point_lights(
-    carrier: Res<LocalPlayerFrameCarrier>,
-    world: Res<ClientWorld>,
-    partial_tick: Res<ActorFramePartialTick>,
-    mut scratch: Local<ItemLightScratch>,
-    point_light: Option<ResMut<render_scene::WorldPointLight>>,
-) {
-    let Some(mut point_light) = point_light else {
-        return;
+/// The nearest remote-player and dropped-item lights within the render distance, faded
+/// toward its edge; empty until a local position is published.
+fn additional_item_point_lights(
+    sources: &PointLightSources,
+    scratch: &mut ItemLightScratch,
+) -> [render_scene::WorldPointLightSource; MAX_ADDITIONAL_ITEM_POINT_LIGHTS] {
+    let mut additional =
+        [render_scene::WorldPointLightSource::default(); MAX_ADDITIONAL_ITEM_POINT_LIGHTS];
+    let Some(origin) = local_player_point_light_position(&sources.carrier).map(Vec3::from_array)
+    else {
+        return additional;
     };
-    if !point_light.enabled {
-        point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
-        return;
-    }
-    let Some(origin) = local_player_point_light_position(&carrier).map(Vec3::from_array) else {
-        point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
-        return;
-    };
-    let Some(stream) = world.stream.as_ref() else {
-        point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
-        return;
+    let Some(stream) = sources.world.stream.as_ref() else {
+        return additional;
     };
     let ItemLightScratch {
         candidates,
         dropped_items,
-    } = &mut *scratch;
+    } = scratch;
 
     let render_distance = stream.render_distance_blocks();
     if !render_distance.is_finite() || render_distance <= 0.0 {
-        point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
-        return;
+        return additional;
     }
     let render_distance_squared = render_distance * render_distance;
-    let alpha = if partial_tick.0.is_finite() {
-        partial_tick.0.clamp(0.0, 1.0)
+    let alpha = if sources.partial_tick.0.is_finite() {
+        sources.partial_tick.0.clamp(0.0, 1.0)
     } else {
         0.0
     };
@@ -324,13 +347,10 @@ pub(crate) fn sync_remote_item_point_lights(
             },
         );
     }
-    let mut additional = [render_scene::WorldPointLightSource::default(); 7];
     for (slot, (_, _, source)) in candidates.iter().enumerate() {
         additional[slot] = *source;
     }
-    if point_light.additional != additional {
-        point_light.additional = additional;
-    }
+    additional
 }
 
 fn point_light_render_fade(distance: f32, render_distance: f32, radius: f32) -> f32 {

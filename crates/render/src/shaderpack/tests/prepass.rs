@@ -8,12 +8,13 @@ use crate::shaderpack::geometry::{
     GeometryCategory, TerrainLayout,
 };
 
-/// Generates a full-screen triangle at a fixed OpenGL clip depth.
+/// Generates a full-screen triangle at a fixed OpenGL clip depth. The explicit `int` cast
+/// keeps the vertex index signed, since the GLSL front end types it as `uint`.
 fn triangle_vertex(depth: f32) -> String {
     format!(
         "#version 130
 void main() {{
-    int corner = gl_VertexID % 3;
+    int corner = int(gl_VertexID) % 3;
     gl_Position = vec4(corner == 1 ? 3.0 : -1.0,
                        corner == 2 ? 3.0 : -1.0, {depth}, 1.0);
 }}"

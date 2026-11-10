@@ -261,6 +261,8 @@ mod tests {
         RenderTextureLayer {
             material: Default::default(),
             material_state: None,
+            render_state: None,
+            masks: None,
             source: 0,
             texture_slot: 0,
             multitexture: None,
