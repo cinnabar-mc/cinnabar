@@ -361,3 +361,115 @@ fn unchanged_pack_reloads_request_nothing_and_pack_changes_retire_old_session_pi
     assert_eq!(requested(world), changed);
     assert_eq!(session(world), first_session);
 }
+
+#[test]
+fn one_changed_material_requests_exactly_its_own_pipeline() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_api::render_state::{BlendComponent, BlendFactor, BlendOperation, BlendState};
+
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let blended = |source| {
+        let component = BlendComponent {
+            source,
+            destination: BlendFactor::OneMinusSourceAlpha,
+            operation: BlendOperation::Add,
+        };
+        let mut raster = assets::entity::material::UNAUTHORED_RENDER_STATE;
+        raster.blend = Some(BlendState {
+            color: component,
+            alpha: component,
+        });
+        (assets::EntityRenderMaterialState::AUTHORED, raster)
+    };
+    let publish = |world: &mut World,
+                   rasters: Vec<(u32, render_api::render_state::RenderState)>| {
+        world.insert_resource(render_scene::ActorRenderFrame {
+            authored_rasters: std::sync::Arc::from(rasters),
+            ..Default::default()
+        });
+        world.run_system_once(prepare_actor_pipelines).unwrap();
+        let pipeline = world.resource::<ActorPipeline>();
+        (
+            pipeline.draw_variants.len(),
+            world.resource::<PipelineCache>().pipelines().count(),
+        )
+    };
+    let kept = blended(BlendFactor::DestinationAlpha);
+    // The cost of one new contract, across every sample mode the view prepares.
+    let alone = publish(world, vec![kept]);
+    let added = publish(
+        world,
+        vec![kept, blended(BlendFactor::OneMinusDestinationAlpha)],
+    );
+    let one = (added.0 - alone.0, added.1 - alone.1);
+    assert!(one.0 > 0);
+    let changed = publish(world, vec![kept, blended(BlendFactor::DestinationColor)]);
+    assert_eq!(
+        (changed.0 - added.0, changed.1 - added.1),
+        one,
+        "changing one material requests only that material's pipelines, once"
+    );
+    let again = publish(world, vec![kept, blended(BlendFactor::DestinationColor)]);
+    assert_eq!(again, changed, "republishing it requests nothing");
+}
+
+#[test]
+fn back_to_back_packs_leave_only_the_latest_session_gating_readiness() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_api::render_state::{BlendComponent, BlendFactor, BlendOperation, BlendState};
+
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.init_resource::<render_scene::ActorPipelineReadiness>();
+    let session = |world: &mut World, source| {
+        let component = BlendComponent {
+            source,
+            destination: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+        let mut raster = assets::entity::material::UNAUTHORED_RENDER_STATE;
+        raster.blend = Some(BlendState {
+            color: component,
+            alpha: component,
+        });
+        world.insert_resource(render_scene::ActorRenderFrame {
+            authored_rasters: std::sync::Arc::from([(
+                assets::EntityRenderMaterialState::AUTHORED,
+                raster,
+            )]),
+            ..Default::default()
+        });
+        world.run_system_once(prepare_actor_pipelines).unwrap();
+        world
+            .resource::<ActorPipeline>()
+            .session_prewarmed
+            .values()
+            .flatten()
+            .copied()
+            .collect::<HashSet<_>>()
+    };
+    let generations = [
+        BlendFactor::DestinationColor,
+        BlendFactor::OneMinusDestinationColor,
+        BlendFactor::DestinationAlpha,
+        BlendFactor::OneMinusDestinationAlpha,
+    ]
+    .map(|source| session(world, source));
+    let latest = generations.last().unwrap();
+    for earlier in &generations[..generations.len() - 1] {
+        assert!(
+            earlier.is_disjoint(latest),
+            "an earlier pack still gates readiness"
+        );
+    }
+    let pipeline = world.resource::<ActorPipeline>();
+    assert_eq!(
+        pipeline.session_prewarmed.values().flatten().count(),
+        latest.len(),
+        "nothing accumulates across generations"
+    );
+}

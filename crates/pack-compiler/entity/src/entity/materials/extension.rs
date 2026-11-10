@@ -27,6 +27,9 @@ pub(crate) struct Extension {
     pub(crate) materials: BTreeMap<Box<str>, Material>,
     pub(crate) entity_bindings: Vec<EntityBinding>,
     pub(crate) block_bindings: Vec<BlockBinding>,
+    /// Entity bindings that named a `condition`, which entity bindings do not take; the
+    /// binding applies unconditionally.
+    pub(crate) ignored_entity_conditions: u32,
 }
 
 /// One extension material.
@@ -73,6 +76,9 @@ pub struct ResolvedBlockBinding {
     pub states: Map<String, Value>,
     /// Material-instance name pattern; `None` matches every instance.
     pub material_instance: Option<Box<str>>,
+    /// Molang over the block's named states, read as [`crate::BlockMolang`]; the binding
+    /// applies where it holds, as permutation conditions do. `None` always holds.
+    pub condition: Option<Box<str>>,
     /// The resolved Bedrock material; [`EntityMaterialDefinition::render_state`] lowers it.
     ///
     /// [`EntityMaterialDefinition::render_state`]: assets::entity::material::EntityMaterialDefinition::render_state
@@ -106,6 +112,7 @@ pub(crate) struct BlockBinding {
     pub(crate) block: Box<str>,
     pub(crate) states: Map<String, Value>,
     pub(crate) material_instance: Option<Box<str>>,
+    pub(crate) condition: Option<Box<str>>,
     pub(crate) material: Box<str>,
 }
 
@@ -142,6 +149,7 @@ struct BindingDocument {
     block: Option<String>,
     states: Option<Map<String, Value>>,
     material_instance: Option<String>,
+    condition: Option<String>,
 }
 
 /// Checks a document, or says why the client ignores it.
@@ -219,6 +227,9 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
             (Some(entity), None)
                 if binding.states.is_none() && binding.material_instance.is_none() =>
             {
+                // Entity bindings take no condition; one that names one still binds, and the
+                // condition is counted and ignored.
+                extension.ignored_entity_conditions += u32::from(binding.condition.is_some());
                 extension.entity_bindings.push(EntityBinding {
                     entity: entity.into(),
                     render_controller: binding.render_controller.map(Into::into),
@@ -229,6 +240,13 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
             (None, Some(block))
                 if binding.render_controller.is_none() && binding.bone.is_none() =>
             {
+                if binding
+                    .condition
+                    .as_deref()
+                    .is_some_and(|condition| crate::BlockMolang::parse(condition).is_none())
+                {
+                    return Err("binding condition is not a block-state Molang expression".into());
+                }
                 let states = binding.states.unwrap_or_default();
                 if states.values().any(|value| {
                     !matches!(value, Value::Bool(_) | Value::Number(_) | Value::String(_))
@@ -239,6 +257,7 @@ pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
                     block: block.into(),
                     states,
                     material_instance: binding.material_instance.map(Into::into),
+                    condition: binding.condition.map(Into::into),
                     material: binding.material.into(),
                 });
             }
@@ -264,6 +283,13 @@ impl Material {
                 _ => 1.0,
             },
         }
+    }
+
+    /// The resource paths of the mask textures this material names.
+    pub(crate) fn mask_textures(&self) -> impl Iterator<Item = &str> {
+        [GLOW_MASK, EMISSIVE_MASK]
+            .into_iter()
+            .filter_map(|name| self.textures.get(name).map(AsRef::as_ref))
     }
 
     /// The masks this material draws, with `source` mapping a resource path to its entity
@@ -334,6 +360,10 @@ fn is_finite(value: &Parameter) -> bool {
         Parameter::Boolean(_) => true,
     }
 }
+
+#[cfg(test)]
+#[path = "extension_schema_tests.rs"]
+mod schema_tests;
 
 #[cfg(test)]
 mod tests {

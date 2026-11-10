@@ -17,7 +17,9 @@ use super::{
     selection::{Selector, selection_condition},
 };
 
-const MAX_SLOTS_PER_LAYER: usize = 16;
+/// Texture expressions a controller draws with: the native render controller evaluates
+/// only the first three, the samplers a material can bind.
+const MAX_SLOTS_PER_LAYER: usize = 3;
 
 mod material_groups;
 use super::super::materials;
@@ -106,13 +108,20 @@ fn compile_uv_anim(molang: &mut MolangCompiler, value: Option<&Value>) -> Option
     Some(components)
 }
 
-/// Compiles the render layers of every rig, returning the render payload, the number of
-/// material declarations and definitions left unresolved past their bounds, and the pack's
-/// entity material counts.
+/// A compilation's render layers with its entity material counts and provenance.
+pub(super) struct RenderOutput {
+    pub(super) render: EntityRenderData,
+    /// Material declarations and definitions left unresolved past their bounds.
+    pub(super) unresolved: u32,
+    pub(super) diagnostics: EntityMaterialDiagnostics,
+    pub(super) provenance: Box<[assets::entity::material_report::EntityMaterialProvenance]>,
+}
+
+/// Compiles the render layers of every rig, with the pack's entity material counts.
 pub(super) fn compile_render(
     input: RenderSources<'_>,
     molang: &mut MolangCompiler,
-) -> Result<(EntityRenderData, u32, EntityMaterialDiagnostics), AssetError> {
+) -> Result<RenderOutput, AssetError> {
     let RenderSources {
         root,
         payloads,
@@ -140,6 +149,8 @@ pub(super) fn compile_render(
     let mut layer_geometries = Vec::new();
     let mut material_selections = Vec::new();
     let mut skipped_draws = 0;
+    let mut controllers_drawn = Vec::new();
+    let mut provenance = materials::provenance::MaterialProvenance::default();
     let mut geometry_parents = None;
     let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
@@ -177,9 +188,9 @@ pub(super) fn compile_render(
             let Some(definition) = definition.as_object() else {
                 continue;
             };
-            let condition = match activation {
+            let condition = match &activation {
                 None => None,
-                Some(text) => match compile_condition(molang, &text) {
+                Some(text) => match compile_condition(molang, text) {
                     Some(index) => Some(index),
                     None => continue,
                 },
@@ -282,12 +293,13 @@ pub(super) fn compile_render(
                 &mut layer_geometries,
             );
             let rig_first = rig.first_geometry as usize;
+            controllers_drawn.push((entity.identifier.as_ref(), name));
             let groups = material_groups::resolve(
                 (&entity.identifier, name),
                 description,
                 definition,
                 &materials,
-                &mut material_table,
+                (&mut material_table, &mut provenance),
                 geometries,
                 rig_geometries[rig_first..rig_first + usize::from(rig.geometry_count)]
                     .iter()
@@ -316,6 +328,7 @@ pub(super) fn compile_render(
                     visibility.push(EntityRenderVisibility {
                         pattern: pattern.to_ascii_lowercase().into(),
                         condition: index,
+                        hide_only: false,
                     });
                 }
             }
@@ -375,11 +388,11 @@ pub(super) fn compile_render(
     let unresolved = materials.unadmitted() + material_table.unresolved();
     let diagnostics = EntityMaterialDiagnostics {
         skipped_draws,
-        ..materials.diagnostics()
+        ..materials.diagnostics(&controllers_drawn)
     };
     let (materials, material_masks) = material_table.into_parts();
-    Ok((
-        EntityRenderData {
+    Ok(RenderOutput {
+        render: EntityRenderData {
             material_selections: material_selections.into_boxed_slice(),
             layers: layers.into_boxed_slice(),
             slots: slots.into_boxed_slice(),
@@ -391,7 +404,8 @@ pub(super) fn compile_render(
         },
         unresolved,
         diagnostics,
-    ))
+        provenance: provenance.finish(),
+    })
 }
 
 /// Appends the geometries a controller's `geometry` expression selects, each with the condition

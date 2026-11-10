@@ -273,6 +273,49 @@ impl PackTextureSet<'_> {
     }
 }
 
+/// The winning texture set for a texture path, able to read the images it names from its own
+/// pack.
+pub struct PackTextureSet<'a> {
+    pub definition: TextureSetDefinition,
+    layer: resource_pack::PackLayer<'a>,
+    source: String,
+}
+
+impl PackTextureSet<'_> {
+    /// The highest-precedence valid set for `path`, if any.
+    #[must_use]
+    pub fn find<'a>(view: &'a LayeredPackView, path: &str) -> Option<PackTextureSet<'a>> {
+        let (layer, source, definition) =
+            texture_set_definition(view, normalize_texture_path(path))?;
+        Some(PackTextureSet {
+            definition,
+            layer,
+            source,
+        })
+    }
+
+    /// The bytes of the image the set names `name`, read from the set's own pack, trying the
+    /// supported extensions in order.
+    #[must_use]
+    pub fn image(&self, name: &str) -> Option<Vec<u8>> {
+        self.image_file(name).map(|(_, bytes)| bytes)
+    }
+
+    /// The path and bytes of the image the set names `name`, as [`Self::image`] finds it.
+    #[must_use]
+    pub fn image_file(&self, name: &str) -> Option<(String, Vec<u8>)> {
+        texture_set_image_paths(&self.source, name)
+            .into_iter()
+            .find_map(|candidate| {
+                let bytes = self
+                    .layer
+                    .read_file_with_limit(&candidate, MAX_TEXTURE_SOURCE_BYTES as u64)
+                    .ok()??;
+                Some((candidate, Vec::from(bytes)))
+            })
+    }
+}
+
 /// Candidate files of an image a texture set names, relative to the set's own directory.
 pub(crate) fn texture_set_image_paths(source: &str, name: &str) -> Vec<String> {
     let name = normalize_texture_path(name);

@@ -58,7 +58,8 @@ Confirmed gaps against the current client:
   parents and variants, into the carrier's material table. Actor draws use a material's
   `skinning` variant, as Bedrock does, with its culling, depth function, depth writes, blend
   factors, colour and alpha writes and alpha to coverage. Stencil state is carried but not
-  rendered because scene depth has no stencil aspect. Depth bias, MSAA support and sampler states
+  rendered because scene depth has no stencil aspect; its rows stay partial until scene depth
+  gains one. Depth bias, MSAA support and sampler states
   are carried but not applied: no actor-path consumer of the first two was found, and the backend
   meaning of the sampler bits is unknown. Primitive mode does not affect actors on
   Bedrock either; their topology comes from the mesh.
@@ -84,15 +85,23 @@ Confirmed gaps against the current client:
   built-in bases declare them; packs cannot derive from `entity_change_color` or
   `entity_multitexture`, which the vanilla pack never names. A material
   whose `GLINT`, `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE` defines need more textures than its
-  controller supplies is not drawn; whether the native check applies to every material is
-  unresolved.
+  controller supplies is not drawn. Bedrock runs that check from a material's second draw on; the
+  client also checks the first.
+- Render-controller material rules apply per bone pattern, the last match winning. Each material
+  a Molang material expression can select draws as its own layer, and a bone the expression
+  decides draws in that layer only while the choice selecting it holds, evaluated each tick like
+  controller activation. Layers grow with the number of choices rather than their combinations,
+  so every combination draws; all selectable materials compile and prewarm with the pack.
 
 Each server pack's entity compilation counts, and logs once, the material behaviour the client
 does not draw exactly: unknown state names (Bedrock asserts), define names without an actor flag
 (ignored silently, as Bedrock does), sampler entries at index 8 or above (skipped, as Bedrock
 does), materials that fail to resolve, programs without an actor type, stencil, polygon-offset or
 depth-bias state, carried-but-undrawn actor defines, draws dropped for missing textures, unlisted
-material files and partly read list entries.
+material files, partly read list entries, an invalid `cinnabar/material-bindings.json`, extension
+bindings that match nothing and extension masks that resolve to no texture. The developer-control
+snapshot and the assetc entity report list each material's source, inheritance chain, variant,
+defines and fallback reason.
 
 Actor pipelines are keyed by the lowered raster contract, a finite set; block and block-entity
 pipelines use a fixed key per view. An unchanged pack reload requests no pipelines, and a pack change
@@ -103,7 +112,9 @@ not blend there, or a sample count the format does not support), or whose pipeli
 draws with its view's unauthored pipeline; each such material is logged and counted once, and
 readiness does not wait on it.
 
-Texture variations have no client version gate, only the network bit.
+Texture variations have no client version gate, only the network bit. Neither texture-set schema
+version accepts separate `metalness`, `emissive` and `roughness` keys in a file, so an authored
+split set is discarded like any other invalid set (row `texture.split_mer`).
 
 These questions remain unresolved:
 
@@ -114,5 +125,4 @@ These questions remain unresolved:
 - the backend addressing and filtering a material's sampler states select;
 - the order in which packs' copies of the entity material list are processed, and which files the
   vanilla lists name;
-- the separate `metalness`/`emissive`/`roughness` texture-set form;
 - whether a flipbook texture resolves through a texture set and how its surface layers animate.

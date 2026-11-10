@@ -232,3 +232,18 @@ fn entity_textures_resolve_through_a_same_pack_texture_set_to_its_colour() {
         assert_eq!(decoded.get_pixel(0, 0).0, expected);
     }
 }
+
+#[test]
+fn an_invalid_material_bindings_document_is_counted() {
+    for (document, invalid) in [
+        (json!({"format_version": "1.0.0"}), 0),
+        (json!({"format_version": "9.9.9"}), 1),
+    ] {
+        let pack = archive_with(1, pack_entity_compiler::MATERIAL_BINDINGS_PATH, document);
+        let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(vec![pack]),
+        ));
+        let (_, report) = super::super::collect_files_reporting(&view, None, None);
+        assert_eq!(report.invalid_extension_documents, invalid);
+    }
+}

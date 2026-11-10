@@ -3,11 +3,13 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io/fs"
 	"strings"
 
 	"github.com/df-mc/dragonfly/server"
@@ -27,15 +29,24 @@ const (
 	materialShowcaseFirstID  = 9300000
 	materialShowcaseAdditive = "cinnabar:material_additive"
 	materialShowcaseGlow     = "cinnabar:material_glow"
-	materialShowcaseTexture  = "textures/entity/material_showcase"
-	materialShowcaseMask     = "textures/entity/material_showcase_glow"
-	materialShowcaseControl  = "controller.render.cinnabar_material_showcase"
+	materialShowcaseTexture  = "textures/entity/material_showcase.png"
+	materialShowcaseMask     = "textures/entity/material_showcase_glow.png"
 )
 
 // materialShowcaseActors are spawned left to right, in this order.
 var materialShowcaseActors = []string{
 	"minecraft:sheep", "minecraft:wolf", "minecraft:llama", materialShowcaseAdditive, materialShowcaseGlow,
 }
+
+// materialShowcaseFiles holds the showcase pack's text files. Client tests compile these exact
+// bytes, so the fixture and its regression tests cannot drift apart; its images are generated
+// by materialShowcaseImages and pinned by fixtures/material_showcase.pixels.json.
+//
+//go:embed fixtures/material_showcase
+var materialShowcaseFiles embed.FS
+
+// materialShowcaseRoot is the embedded directory that holds the pack's root.
+const materialShowcaseRoot = "fixtures/material_showcase"
 
 // materialShowcasePack offers the showcase entities, their materials and their bindings.
 func materialShowcasePack() (*resource.Pack, error) {
@@ -67,47 +78,30 @@ func materialShowcasePack() (*resource.Pack, error) {
 	if err != nil {
 		return nil, err
 	}
-	controller := fmt.Sprintf(`{"format_version":"1.8.0","render_controllers":{%q:{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}`, materialShowcaseControl)
-	entity := func(identifier, material string) []byte {
-		return fmt.Appendf(nil, `{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":%q,"materials":{"default":%q},"textures":{"default":%q},"geometry":{"default":%q},"render_controllers":[%q]}}}`,
-			identifier, material, materialShowcaseTexture, actorBurstGeometryName, materialShowcaseControl)
-	}
-	materials := `{"materials":{"version":"1.0.0","cinnabar_additive:entity_alphatest":{"+states":["Blending"],"blendSrc":"One","blendDst":"One"}}}`
-	bindings := fmt.Sprintf(`{"format_version":"1.0.0","materials":{"cinnabar:glow":{"base":"entity_alphatest","textures":{"glow_mask":%q},"parameters":{"strength":{"scalar":1.5}}}},"bindings":[{"entity":%q,"material":"cinnabar:glow"}]}`,
-		materialShowcaseMask, materialShowcaseGlow)
-	body, err := materialShowcaseImage(func(x, y int) color.NRGBA {
-		return color.NRGBA{R: byte(40 + x), G: byte(60 + y), B: 140, A: 255}
-	})
-	if err != nil {
+	if err := add("manifest.json", manifest); err != nil {
 		return nil, err
 	}
-	// Bright bands every eight texels glow; the rest of the mask is transparent.
-	mask, err := materialShowcaseImage(func(x, y int) color.NRGBA {
-		if (x/4+y/4)%4 == 0 {
-			return color.NRGBA{R: 255, G: 170, B: 40, A: 255}
-		}
-		return color.NRGBA{}
-	})
-	if err != nil {
-		return nil, err
-	}
-	for _, file := range []struct {
-		name string
-		data []byte
-	}{
-		{"manifest.json", manifest},
-		{"models/entity/actor_burst.geo.json", actorBurstGeometry(0)},
-		{"render_controllers/material_showcase.json", []byte(controller)},
-		{"materials/entity.material", []byte(materials)},
-		{"entity/material_additive.entity.json", entity(materialShowcaseAdditive, "cinnabar_additive")},
-		{"entity/material_glow.entity.json", entity(materialShowcaseGlow, "entity_alphatest")},
-		{"cinnabar/material-bindings.json", []byte(bindings)},
-		{materialShowcaseTexture + ".png", body},
-		{materialShowcaseMask + ".png", mask},
-	} {
-		if err := add(file.name, file.data); err != nil {
+	for _, image := range materialShowcaseImages() {
+		encoded, err := image.encode()
+		if err != nil {
 			return nil, err
 		}
+		if err := add(image.name, encoded); err != nil {
+			return nil, err
+		}
+	}
+	err = fs.WalkDir(materialShowcaseFiles, materialShowcaseRoot, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := materialShowcaseFiles.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return add(strings.TrimPrefix(path, materialShowcaseRoot+"/"), data)
+	})
+	if err != nil {
+		return nil, err
 	}
 	if err := writer.Close(); err != nil {
 		return nil, err
@@ -115,16 +109,43 @@ func materialShowcasePack() (*resource.Pack, error) {
 	return resource.ReadBytes(archive.Bytes())
 }
 
-// materialShowcaseImage encodes one skin-sized PNG from `pixel`.
-func materialShowcaseImage(pixel func(x, y int) color.NRGBA) ([]byte, error) {
+// materialShowcaseImage is one generated pack texture.
+type materialShowcaseImage struct {
+	name  string
+	pixel func(x, y int) color.NRGBA
+}
+
+// materialShowcaseImages are the pack's textures: a gradient body, so lighting and fog read
+// against varying texels, and a glow mask whose bright bands glow while the rest is transparent.
+func materialShowcaseImages() []materialShowcaseImage {
+	return []materialShowcaseImage{
+		{materialShowcaseTexture, func(x, y int) color.NRGBA {
+			return color.NRGBA{R: byte(40 + x), G: byte(60 + y), B: 140, A: 255}
+		}},
+		{materialShowcaseMask, func(x, y int) color.NRGBA {
+			if (x/4+y/4)%4 == 0 {
+				return color.NRGBA{R: 255, G: 170, B: 40, A: 255}
+			}
+			return color.NRGBA{}
+		}},
+	}
+}
+
+// rgba is the image's skin-sized pixels, row by row.
+func (i materialShowcaseImage) rgba() *image.NRGBA {
 	pixels := image.NewNRGBA(image.Rect(0, 0, actorBurstSkinSide, actorBurstSkinSide))
 	for y := range actorBurstSkinSide {
 		for x := range actorBurstSkinSide {
-			pixels.SetNRGBA(x, y, pixel(x, y))
+			pixels.SetNRGBA(x, y, i.pixel(x, y))
 		}
 	}
+	return pixels
+}
+
+// encode is the image as a PNG.
+func (i materialShowcaseImage) encode() ([]byte, error) {
 	var encoded bytes.Buffer
-	err := png.Encode(&encoded, pixels)
+	err := png.Encode(&encoded, i.rgba())
 	return encoded.Bytes(), err
 }
 

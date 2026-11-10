@@ -1,0 +1,18 @@
+{
+  "format_version": "1.0.0",
+  "materials": {
+    "sample:glow": {
+      "base": "entity_alphatest",
+      "textures": { "glow_mask": "textures/sample/pig_glow" },
+      "parameters": { "strength": { "scalar": 1.5 } }
+    },
+    "sample:lamp_glow": {
+      "base": "entity_alphatest",
+      "textures": { "glow_mask": "sample_lamp_glow" }
+    }
+  },
+  "bindings": [
+    { "entity": "minecraft:pig", "bone": "head", "material": "sample:glow" },
+    { "block": "sample:lamp", "states": { "sample:lit": true }, "material": "sample:lamp_glow" }
+  ]
+}

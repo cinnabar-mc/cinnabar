@@ -1,0 +1,7 @@
+{
+  "resource_pack_name": "cinnabar_material_sample",
+  "texture_name": "atlas.terrain",
+  "texture_data": {
+    "sample_lamp_glow": { "textures": "textures/sample/lamp_glow" }
+  }
+}

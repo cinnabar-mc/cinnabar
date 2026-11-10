@@ -29,7 +29,7 @@ pub use geometry::{
 };
 pub use locator::{EntityGeometryLocator, EntityGeometryLocatorBinding, MAX_GEOMETRY_LOCATORS};
 #[path = "entity_material_report.rs"]
-mod material_report;
+pub mod material_report;
 #[path = "entity/poly_mesh.rs"]
 mod poly_mesh;
 mod source_paths;

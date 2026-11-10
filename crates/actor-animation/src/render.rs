@@ -271,20 +271,6 @@ pub(super) fn carry_layer_poses(
     }
 }
 
-/// Controller texture slots a material samples beside its base, as Bedrock binds them:
-/// `MatTexture1` for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and
-/// `MASKED_MULTITEXTURE`, and `MatTexture2` for `USE_MULTITEXTURE`. Glint draws with the
-/// client's own glint raster, so a glint material's tint or mask texture is the slot after its
-/// glint texture (provisional: the controller-to-sampler order is unknown).
-fn extra_samplers(state: Option<assets::EntityRenderMaterialState>) -> &'static [usize] {
-    match state {
-        Some(state) if state.multitexture => &[1, 2],
-        Some(state) if (state.texture_tint || state.texture_mask) && state.glint => &[2],
-        Some(state) if state.texture_tint || state.texture_mask => &[1],
-        _ => &[],
-    }
-}
-
 /// The `uv_anim` value of a controller without one.
 const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
@@ -535,7 +521,10 @@ fn evaluate_layer_into(
         definition: material_definition,
         masks: material_masks,
     } = selected_material(evaluator, variables, layer, budget)?;
-    let mut samplers = extra_samplers(material_state);
+    let mut samplers = material_state.map_or(
+        &[] as &[usize],
+        assets::EntityRenderMaterialState::extra_texture_slots,
+    );
     // A masked material with one texture has no second sampler to mask; it draws plainly.
     if layer.slot_count < 2 && material_state.is_some_and(|state| state.texture_mask) {
         samplers = &[];
@@ -585,7 +574,11 @@ fn evaluate_layer_into(
             .truthy();
         for (index, name) in bone_names.iter().enumerate() {
             if pattern_matches(&rule.pattern, name) {
-                hidden[index] = !visible;
+                if rule.hide_only {
+                    hidden[index] |= !visible;
+                } else {
+                    hidden[index] = !visible;
+                }
             }
         }
     }
@@ -600,7 +593,16 @@ fn evaluate_layer_into(
         .filter(|(_, hidden)| **hidden)
         .map(|(index, _)| index as u32)
         .collect();
-    let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
+    // Only colour-mask materials and multitextures dyeing their third texture read the actor's
+    // change colour; other layers start white.
+    let default_tint = if material_state
+        .is_some_and(|state| state.color_mask || (state.multitexture && state.color_second_texture))
+    {
+        actor_color
+    } else {
+        [1.0; 4]
+    };
+    let tint = color(evaluator, variables, layer.color, default_tint, budget)?;
     let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
     let overlay = if evaluator.actor.shows_damage() {
         color(evaluator, variables, layer.hurt_color, overlay, budget)?

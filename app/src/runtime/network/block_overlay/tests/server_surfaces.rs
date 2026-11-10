@@ -205,3 +205,93 @@ fn surfaces_that_exceed_the_terrain_budget_keep_only_their_colour() {
     );
     assert_eq!(exhausted.overlay.materials, unlimited.overlay.materials);
 }
+
+#[test]
+fn one_material_change_recompiles_only_the_part_that_reads_it() {
+    use pack_runtime::reload_diff::{Changes, Dependencies, Subscriber, compile};
+    use resource_pack::PackAdmission;
+    let set = json!({"format_version": "1.16.100", "minecraft:texture_set": {
+        "color": "gen_color", "normal": "gen_normal"
+    }})
+    .to_string();
+    let terrain = json!({"texture_data":{"gen":{"textures":"textures/blocks/gen"}}}).to_string();
+    let entity = json!({"format_version":"1.10.0","minecraft:client_entity":{"description":{
+        "identifier":"example:moth","materials":{"default":"example:glow"},
+        "textures":{"default":"textures/entity/moth"},"geometry":{"default":"geometry.moth"},
+        "render_controllers":["controller.render.moth"]}}})
+    .to_string();
+    let geometry = json!({"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.moth","texture_width":16,"texture_height":16},
+        "bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[4,4,4],"uv":[0,0]}]}]}]})
+    .to_string();
+    let controller =
+        json!({"format_version":"1.8.0","render_controllers":{"controller.render.moth":{
+        "geometry":"Geometry.default","materials":[{"*":"Material.default"}],
+        "textures":["Texture.default"]}}})
+        .to_string();
+    let material = |defines: &str| {
+        json!({"materials":{"version":"1.0.0",
+            "example:glow:entity_alphatest":{"+defines":[defines]}}})
+        .to_string()
+    };
+    let normal = png(16, 16, |_, y| [128, 128 + y as u8, 255, 255]);
+    let edited_normal = png(16, 16, |x, _| [128 + x as u8, 128, 255, 255]);
+    let files = |material: &str, normal: &[u8]| -> Vec<(&'static str, Vec<u8>)> {
+        vec![
+            (
+                "textures/terrain_texture.json",
+                terrain.clone().into_bytes(),
+            ),
+            ("models/blocks/gen.geo.json", GEOMETRY.as_bytes().to_vec()),
+            (
+                "textures/blocks/gen.texture_set.json",
+                set.clone().into_bytes(),
+            ),
+            ("textures/blocks/gen_color.png", color()),
+            ("textures/blocks/gen_normal.png", normal.to_vec()),
+            ("entity/moth.entity.json", entity.clone().into_bytes()),
+            ("models/entity/moth.geo.json", geometry.clone().into_bytes()),
+            (
+                "render_controllers/moth.json",
+                controller.clone().into_bytes(),
+            ),
+            ("materials/entity.material", material.as_bytes().to_vec()),
+            ("textures/entity/moth.png", color()),
+        ]
+    };
+    let stack = |files: Vec<(&'static str, Vec<u8>)>| {
+        let borrowed = files
+            .iter()
+            .map(|(path, bytes)| (*path, bytes.as_slice()))
+            .collect::<Vec<_>>();
+        crate::runtime::network::pack_reload_tests::stack(&borrowed)
+    };
+    let before = stack(files(&material("USE_EMISSIVE"), &normal));
+    let mut dependencies = Dependencies::default();
+    let blocks = compile(Subscriber::Blocks, &before, &mut dependencies, compiled);
+    assert!(blocks.overlay.enhanced.is_some());
+    let entities = compile(Subscriber::Entities, &before, &mut dependencies, |view| {
+        pack_runtime::entity_pack::compile(view, None, None, None)
+    });
+    assert!(entities.is_some());
+    let previous = (PackAdmission::Validated(before.clone()), dependencies);
+    let changes = |next: std::sync::Arc<resource_pack::ValidatedPackStack>| {
+        let changes = Changes::between(&next, Some((&previous.0, &previous.1)));
+        (changes.blocks, changes.entities)
+    };
+    assert_eq!(
+        changes(before.clone()),
+        (false, false),
+        "an unchanged reload compiles nothing"
+    );
+    assert_eq!(
+        changes(stack(files(&material("USE_OVERLAY"), &normal))),
+        (false, true),
+        "an entity material change recompiles only entities"
+    );
+    assert_eq!(
+        changes(stack(files(&material("USE_EMISSIVE"), &edited_normal))),
+        (true, false),
+        "a block surface change recompiles only blocks"
+    );
+}

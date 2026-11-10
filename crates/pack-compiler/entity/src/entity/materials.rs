@@ -52,6 +52,8 @@ pub(super) struct MaterialStates {
     unadmitted: u32,
     /// The defines each admitted file's root material holds, by file index.
     file_defines: Vec<BTreeSet<Box<str>>>,
+    /// Each admitted file's pack path, by file index; empty when unknown.
+    file_paths: Vec<Box<str>>,
     /// Names and entries noticed while admitting declarations, for [`Self::diagnostics`].
     notes: diagnostics::DeclarationNotes,
 }
@@ -232,13 +234,13 @@ impl MaterialStates {
         for entry in entries {
             if let Some(document) = documents.get(entry.path.as_ref()) {
                 listed.insert(entry.path.clone());
-                states.read_with(document, &entry.defines);
+                states.read_with(document, &entry.defines, &entry.path);
             }
         }
         for (path, document) in documents {
             if is_material_file(path) && !listed.contains(path) {
                 states.notes.unlisted_files += 1;
-                states.read(document);
+                states.read_with(document, &BTreeSet::new(), path);
             }
         }
         states
@@ -246,15 +248,16 @@ impl MaterialStates {
 
     /// Admits one file with no list defines.
     pub(super) fn read(&mut self, value: &Value) {
-        self.read_with(value, &BTreeSet::new());
+        self.read_with(value, &BTreeSet::new(), "");
     }
 
     /// Admits one file whose root material holds `defines`. Without a `+` prefix the first
     /// declaration of a name wins.
-    fn read_with(&mut self, value: &Value, defines: &BTreeSet<Box<str>>) {
+    fn read_with(&mut self, value: &Value, defines: &BTreeSet<Box<str>>, path: &str) {
         let file = self.files;
         self.files += 1;
         self.file_defines.push(defines.clone());
+        self.file_paths.push(path.into());
         self.notes.defines(defines.iter().map(AsRef::as_ref));
         let (entries, version) = match file_entries(value) {
             Some(entries) => entries,
@@ -323,6 +326,7 @@ impl MaterialStates {
         self.files += upper.files;
         self.unadmitted += upper.unadmitted;
         self.file_defines.extend(upper.file_defines);
+        self.file_paths.extend(upper.file_paths);
         self.notes.extend(upper.notes);
         names
     }
@@ -453,6 +457,7 @@ impl MaterialStates {
                     block: binding.block.clone(),
                     states: binding.states.clone(),
                     material_instance: binding.material_instance.clone(),
+                    condition: binding.condition.clone(),
                     definition: table.definitions[index as usize].clone(),
                     shading,
                     masks: extension.materials[&binding.material].mask_paths(),
@@ -812,3 +817,6 @@ use shading::{
 
 #[path = "materials/diagnostics.rs"]
 pub(crate) mod diagnostics;
+
+#[path = "materials/provenance.rs"]
+pub(crate) mod provenance;

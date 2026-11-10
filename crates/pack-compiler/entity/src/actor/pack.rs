@@ -15,6 +15,8 @@ pub struct ActorPackCompilation {
     pub equipment_raster_drops: crate::entity::EquipmentRasterDrops,
     /// Counted entity material behaviour the client skips, ignores or approximates.
     pub material_diagnostics: assets::EntityMaterialDiagnostics,
+    /// How each material actors draw was declared and draws.
+    pub material_provenance: Box<[assets::entity::material_report::EntityMaterialProvenance]>,
     /// Rigs left without artwork, with the reason each was rejected.
     pub fallbacks: Vec<ActorFallback>,
     /// Attachable bindings of the pack's held and worn items, and their decoded rasters.
@@ -120,6 +122,7 @@ fn compile_stages(
         bindings: build.bindings,
         skipped: pack.skipped,
         material_diagnostics: pack.material_diagnostics,
+        material_provenance: pack.material_provenance,
         fallbacks: build.fallbacks,
     }))
 }

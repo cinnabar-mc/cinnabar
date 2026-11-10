@@ -147,6 +147,55 @@ fn block_bindings_give_matching_faces_their_glow_mask() {
     );
 }
 
+#[test]
+fn a_block_binding_condition_selects_states_like_a_permutation_condition() {
+    let bound = |condition: &str| {
+        generator_coverage(glass(json!({
+            "block": "test:generator",
+            "condition": condition,
+            "material": "example:glass"
+        })))
+    };
+    assert_eq!(
+        bound("q.block_state('minecraft:cardinal_direction') == 'west'"),
+        [0, assets::MATERIAL_FLAG_ALPHA_BLEND]
+    );
+    assert_eq!(bound("1.0"), [assets::MATERIAL_FLAG_ALPHA_BLEND]);
+    assert_eq!(bound("0.0"), [0]);
+    assert_eq!(
+        bound("q.block_state('unknown:state') == 1"),
+        [0],
+        "a condition that cannot evaluate does not apply"
+    );
+}
+
+#[test]
+fn bindings_matching_nothing_and_unresolved_masks_are_counted_once() {
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {
+            "example:lamp": {"textures": {"glow_mask": "missing_key"}},
+            "example:glass": {"material": {"states": ["Blending"]}}
+        },
+        "bindings": [
+            {"block": "test:generator", "material": "example:lamp"},
+            {"block": "test:generator", "material_instance": "*", "material": "example:lamp"},
+            {"block": "test:other", "material": "example:glass"}
+        ]
+    });
+    let blocks = CustomBlocks {
+        blocks: vec![generator()].into(),
+        vanilla_blocks: Default::default(),
+        skipped: 0,
+    };
+    let compiled = compile_block_overlay(&bound_view(document), &blocks, false, None).unwrap();
+    assert_eq!(compiled.gaps.unmatched_material_bindings, 1);
+    assert_eq!(
+        compiled.gaps.unresolved_binding_masks, 1,
+        "one key, however many faces name it"
+    );
+}
+
 /// The generator compiled with `bindings` as its Cinnabar material bindings.
 fn compiled_generator(bindings: Value) -> super::super::CompiledBlockOverlay {
     let blocks = CustomBlocks {
@@ -183,4 +232,32 @@ fn the_last_matching_binding_decides_both_method_and_masks() {
         assert_eq!(material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND, 0);
         assert_ne!(material.glow_mask, assets::NO_MASK);
     }
+}
+
+#[test]
+fn many_bindings_for_other_blocks_leave_a_blocks_own_binding_intact() {
+    const OTHERS: usize = 20_000;
+    let mut bindings: Vec<_> = (0..OTHERS)
+        .map(|index| json!({"block": format!("test:other_{index}"), "material": "example:glass"}))
+        .collect();
+    bindings.push(json!({
+        "block": "test:generator",
+        "states": {"minecraft:cardinal_direction": "west"},
+        "material": "example:glass"
+    }));
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"example:glass": {"material": {"states": ["Blending", "DisableCulling"]}}},
+        "bindings": bindings
+    });
+    assert_eq!(
+        generator_coverage(document.clone()),
+        [0, assets::MATERIAL_FLAG_ALPHA_BLEND]
+    );
+    assert_eq!(
+        compiled_generator(document)
+            .gaps
+            .unmatched_material_bindings,
+        OTHERS as u32
+    );
 }

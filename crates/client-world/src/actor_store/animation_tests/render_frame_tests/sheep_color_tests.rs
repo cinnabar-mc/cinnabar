@@ -12,12 +12,19 @@ use actor_animation::test_support;
 const COLOR_KEY: u32 = protocol_ids::ActorDataKey::ColorIndex.wire_value();
 const NAME_KEY: u32 = protocol_ids::ActorDataKey::Name.wire_value();
 const RED: [f32; 4] = [176.0 / 255.0, 46.0 / 255.0, 38.0 / 255.0, 0.0];
+/// Bedrock's palette white, 0xF0F0F0, the colour of index 0.
+const WHITE: [f32; 4] = [240.0 / 255.0, 240.0 / 255.0, 240.0 / 255.0, 0.0];
 
-/// Spawns a sheep with a controller that inherits the actor's color, as vanilla's does.
+/// Spawns a sheep with a colour-mask controller that inherits the actor's color, as vanilla's
+/// does.
 fn sheep(metadata: Vec<ActorMetadata>) -> ActorStore {
     let identifier = NativeEntityClass::Sheep.identifier().unwrap();
     let mut compiled = test_support::counting_random_compiled(identifier);
     compiled.render.layers[0].color = None;
+    compiled.render.layers[0].material_state = Some(assets::EntityRenderMaterialState {
+        color_mask: true,
+        ..Default::default()
+    });
     let assets = Arc::new(
         RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     );
@@ -76,11 +83,8 @@ fn update(store: &mut ActorStore, metadata: Vec<ActorMetadata>) {
 #[test]
 fn sheep_wool_follows_its_byte_dye_from_spawn_and_updates() {
     let mut store = sheep(vec![color(0)]);
-    assert_eq!(store.actor_rig(1).unwrap().render[0].color, [1.0; 4]);
-    assert_eq!(
-        store.render_frame(0.5).layers(1).unwrap()[0].color,
-        [1.0; 4]
-    );
+    assert_eq!(store.actor_rig(1).unwrap().render[0].color, WHITE);
+    assert_eq!(store.render_frame(0.5).layers(1).unwrap()[0].color, WHITE);
     // `wololo` turns a sheep red by updating its colour index.
     update(&mut store, vec![color(14)]);
     assert_eq!(store.actor_rig(1).unwrap().render[0].color, RED);

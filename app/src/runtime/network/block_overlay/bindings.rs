@@ -16,14 +16,35 @@ use super::{Builder, DIAGNOSTIC_MATERIAL, OverlayGaps};
 #[derive(Default)]
 pub(super) struct MaterialBindings {
     bindings: Vec<Binding>,
+    /// Whether each binding matched some block state.
+    matched: Vec<std::cell::Cell<bool>>,
+    /// Binding indices by block identifier, in document order.
+    by_block: HashMap<Box<str>, Vec<usize>>,
 }
 
 struct Binding {
     block: Box<str>,
     states: serde_json::Map<String, Value>,
     instance: Option<Box<str>>,
+    /// Evaluated once per block state, as permutation conditions are.
+    condition: Option<pack_entity_compiler::BlockMolang>,
     method: BlockRenderMethod,
     masks: pack_entity_compiler::BlockMaskPaths,
+}
+
+impl Binding {
+    /// Whether the binding's condition holds where `block_state` reads the state's values; one
+    /// that cannot evaluate does not apply.
+    fn holds<'a>(
+        &self,
+        block_state: &dyn Fn(&str) -> Option<pack_entity_compiler::BlockStateValue<'a>>,
+    ) -> bool {
+        self.condition.as_ref().is_none_or(|condition| {
+            condition
+                .evaluate(block_state)
+                .is_some_and(pack_entity_compiler::BlockMolang::holds)
+        })
+    }
 }
 
 /// Mask textures matching bindings assign to one block state's material instances.
@@ -77,52 +98,101 @@ impl MaterialBindings {
                 block: binding.block,
                 states: binding.states,
                 instance: binding.material_instance,
+                condition: binding
+                    .condition
+                    .as_deref()
+                    .and_then(pack_entity_compiler::BlockMolang::parse),
                 method,
                 masks: binding.masks,
             }
         })
-        .collect();
-        Self { bindings }
+        .collect::<Vec<_>>();
+        let matched = bindings.iter().map(|_| Default::default()).collect();
+        let mut by_block = HashMap::<Box<str>, Vec<usize>>::new();
+        for (index, binding) in bindings.iter().enumerate() {
+            by_block
+                .entry(binding.block.clone())
+                .or_default()
+                .push(index);
+        }
+        Self {
+            bindings,
+            matched,
+            by_block,
+        }
     }
 
-    /// The masks of every binding matching `block` in the state with `values`, so the last
-    /// match decides an instance's masks as it decides its render method.
-    pub(super) fn state_masks(
-        &self,
-        block: &CustomBlock,
-        values: Option<&[CustomStateValue]>,
-    ) -> StateMasks {
-        StateMasks(
-            self.bindings
-                .iter()
-                .filter(|binding| {
-                    binding.block.as_ref() == block.name.as_ref()
-                        && states_match(binding, block, values)
-                })
-                .map(|binding| (binding.instance.clone(), binding.masks.clone()))
-                .collect(),
-        )
+    /// The indices of the bindings naming block `name`, in document order.
+    fn for_block(&self, name: &str) -> &[usize] {
+        self.by_block.get(name).map_or(&[], Vec::as_slice)
     }
 
-    /// Applies the bindings matching `block` in the state with `values`, in document order.
+    /// Bindings that matched no block state.
+    pub(super) fn unmatched(&self) -> u32 {
+        self.matched.iter().filter(|matched| !matched.get()).count() as u32
+    }
+
+    /// The bindings matching `block` in the state with `values`, recording that they matched.
+    fn matching<'a>(
+        &'a self,
+        block: &'a CustomBlock,
+        values: Option<&'a [CustomStateValue]>,
+    ) -> impl Iterator<Item = &'a Binding> + 'a {
+        self.for_block(&block.name)
+            .iter()
+            .filter(move |&&index| states_match(&self.bindings[index], block, values))
+            .map(|&index| {
+                self.matched[index].set(true);
+                &self.bindings[index]
+            })
+    }
+
+    /// Applies the bindings matching `block` in the state with `values`, in document order, and
+    /// returns their masks.
     pub(super) fn apply(
         &self,
         block: &CustomBlock,
         values: Option<&[CustomStateValue]>,
         components: &mut CustomVisualComponents,
-    ) {
-        let Some(materials) = components.materials.as_mut() else {
-            return;
+    ) -> StateMasks {
+        let matching: Vec<_> = self.matching(block, values).collect();
+        if let Some(materials) = components.materials.as_mut() {
+            for binding in &matching {
+                for instance in materials.iter_mut().filter(|instance| {
+                    binding.instance.as_deref().is_none_or(|pattern| {
+                        assets::entity_render_pattern_matches(pattern, &instance.name)
+                    })
+                }) {
+                    instance.render_method = binding.method;
+                }
+            }
+        }
+        StateMasks(
+            matching
+                .into_iter()
+                .map(|binding| (binding.instance.clone(), binding.masks.clone()))
+                .collect(),
+        )
+    }
+}
+
+impl Builder<'_> {
+    /// The raw texture reference of binding mask `key`, or no mask; a key no terrain texture
+    /// resolves is counted once.
+    pub(super) fn mask_reference(&mut self, key: Option<&str>) -> u32 {
+        let Some(key) = key else {
+            return assets::NO_MASK;
         };
-        for binding in self.bindings.iter().filter(|binding| {
-            binding.block.as_ref() == block.name.as_ref() && states_match(binding, block, values)
-        }) {
-            for instance in materials.iter_mut().filter(|instance| {
-                binding.instance.as_deref().is_none_or(|pattern| {
-                    assets::entity_render_pattern_matches(pattern, &instance.name)
-                })
-            }) {
-                instance.render_method = binding.method;
+        match self
+            .texture_slot(key)
+            .and_then(|slot| assets::TextureRef::new(slot.page, slot.layer).ok())
+        {
+            Some(reference) => reference.raw(),
+            None => {
+                if !self.unresolved_masks.contains(key) {
+                    self.unresolved_masks.insert(key.into());
+                }
+                assets::NO_MASK
             }
         }
     }
@@ -164,27 +234,28 @@ impl Builder<'_> {
             let Some(record) = records.get(source.visual as usize) else {
                 continue;
             };
-            let Some((index, binding)) =
-                bindings.bindings.iter().enumerate().rfind(|(_, binding)| {
-                    binding.block.as_ref() == record.name.as_ref()
-                        && binding
-                            .instance
-                            .as_deref()
-                            .is_none_or(|pattern| pattern == "*")
-                        && vanilla_states_match(binding, record)
-                })
-            else {
+            // Every matching binding counts as matched; the last one draws.
+            let mut selected = None;
+            for &index in bindings.for_block(&record.name) {
+                let binding = &bindings.bindings[index];
+                if binding
+                    .instance
+                    .as_deref()
+                    .is_none_or(|pattern| pattern == "*")
+                    && vanilla_states_match(binding, record)
+                {
+                    bindings.matched[index].set(true);
+                    selected = Some((index, binding));
+                }
+            }
+            let Some((index, binding)) = selected else {
                 continue;
             };
             let masks = [
                 binding.masks.glow.as_deref(),
                 binding.masks.emissive.as_deref(),
             ]
-            .map(|key| {
-                key.and_then(|key| self.texture_slot(key))
-                    .and_then(|slot| assets::TextureRef::new(slot.page, slot.layer).ok())
-                    .map_or(assets::NO_MASK, assets::TextureRef::raw)
-            });
+            .map(|key| self.mask_reference(key));
             let bound = VanillaBinding {
                 method: binding.method,
                 masks,
@@ -414,51 +485,87 @@ impl Builder<'_> {
     }
 }
 
-/// Whether a vanilla block state has every value the binding names.
+/// Whether a vanilla block state has every value the binding names and its condition holds.
 fn vanilla_states_match(binding: &Binding, record: &assets::RegistryRecord) -> bool {
-    binding.states.iter().all(|(name, expected)| {
-        let Some(value) = assets::facts::BlockProperty::from_name(name)
-            .and_then(|property| record.property(property))
-        else {
-            return false;
-        };
-        match (value, expected) {
-            (assets::facts::StateValue::String(value), Value::String(expected)) => {
-                value.as_ref() == expected
+    let block_state = |name: &str| {
+        let value = assets::facts::BlockProperty::from_name(name)
+            .and_then(|property| record.property(property))?;
+        Some(match value {
+            assets::facts::StateValue::String(value) => {
+                pack_entity_compiler::BlockStateValue::String(value)
             }
-            (assets::facts::StateValue::Int(value), Value::Number(expected)) => {
-                expected.as_i64() == Some(i64::from(*value))
+            assets::facts::StateValue::Int(value) => {
+                pack_entity_compiler::BlockStateValue::Number(*value as f32)
             }
-            (assets::facts::StateValue::Bool(value), Value::Bool(expected)) => value == expected,
-            _ => false,
-        }
-    })
+            assets::facts::StateValue::Bool(value) => {
+                pack_entity_compiler::BlockStateValue::Number(f32::from(u8::from(*value)))
+            }
+        })
+    };
+    binding.holds(&block_state)
+        && binding.states.iter().all(|(name, expected)| {
+            let Some(value) = assets::facts::BlockProperty::from_name(name)
+                .and_then(|property| record.property(property))
+            else {
+                return false;
+            };
+            match (value, expected) {
+                (assets::facts::StateValue::String(value), Value::String(expected)) => {
+                    value.as_ref() == expected
+                }
+                (assets::facts::StateValue::Int(value), Value::Number(expected)) => {
+                    expected.as_i64() == Some(i64::from(*value))
+                }
+                (assets::facts::StateValue::Bool(value), Value::Bool(expected)) => {
+                    value == expected
+                }
+                _ => false,
+            }
+        })
 }
 
-/// Whether the state has every value the binding names; unknown state names never match.
+/// Whether the state has every value the binding names and its condition holds; unknown
+/// state names never match.
 fn states_match(
     binding: &Binding,
     block: &CustomBlock,
     values: Option<&[CustomStateValue]>,
 ) -> bool {
-    binding.states.iter().all(|(name, expected)| {
-        let Some(axis) = block
+    let block_state = |name: &str| {
+        let axis = block
             .visual
             .state_axes
             .iter()
-            .position(|axis| axis.name.as_ref() == name)
-        else {
-            return false;
-        };
-        match (values.and_then(|values| values.get(axis)), expected) {
-            (Some(CustomStateValue::String(value)), Value::String(expected)) => {
-                value.as_ref() == expected
+            .position(|axis| axis.name.as_ref() == name)?;
+        Some(match values?.get(axis)? {
+            CustomStateValue::String(value) => pack_entity_compiler::BlockStateValue::String(value),
+            CustomStateValue::Int(value) => {
+                pack_entity_compiler::BlockStateValue::Number(*value as f32)
             }
-            (Some(CustomStateValue::Int(value)), Value::Number(expected)) => {
-                expected.as_i64() == Some(*value)
+            CustomStateValue::Bool(value) => {
+                pack_entity_compiler::BlockStateValue::Number(f32::from(u8::from(*value)))
             }
-            (Some(CustomStateValue::Bool(value)), Value::Bool(expected)) => value == expected,
-            _ => false,
-        }
-    })
+        })
+    };
+    binding.holds(&block_state)
+        && binding.states.iter().all(|(name, expected)| {
+            let Some(axis) = block
+                .visual
+                .state_axes
+                .iter()
+                .position(|axis| axis.name.as_ref() == name)
+            else {
+                return false;
+            };
+            match (values.and_then(|values| values.get(axis)), expected) {
+                (Some(CustomStateValue::String(value)), Value::String(expected)) => {
+                    value.as_ref() == expected
+                }
+                (Some(CustomStateValue::Int(value)), Value::Number(expected)) => {
+                    expected.as_i64() == Some(*value)
+                }
+                (Some(CustomStateValue::Bool(value)), Value::Bool(expected)) => value == expected,
+                _ => false,
+            }
+        })
 }

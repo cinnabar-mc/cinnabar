@@ -36,6 +36,6 @@ pub(super) fn reuse(
         textures: textures.into(),
         bindings: Arc::clone(&next.bindings),
         equipment: next.equipment.clone(),
-        material_diagnostics: next.material_diagnostics,
+        material_report: next.material_report.clone(),
     })
 }
