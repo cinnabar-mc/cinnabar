@@ -81,11 +81,11 @@ impl PlacementCache {
             && Arc::ptr_eq(&entry.assets, assets)
             && entry.bones == *bones
             && entry.owner_names == owner_names
-            && entry.owner_layers.len() == owner_models(owner_layers).count()
+            && entry.owner_layers.len() == owner_draws(owner_layers).count()
             && entry
                 .owner_layers
                 .iter()
-                .zip(owner_models(owner_layers))
+                .zip(owner_draws(owner_layers))
                 .all(|(a, b)| a.same(b))
             && entry.geometry == geometry
             && entry.hidden == *hidden
@@ -129,7 +129,7 @@ impl PlacementCache {
                 assets: Arc::clone(assets),
                 bones: bones.clone(),
                 owner_names: owner_names.to_vec(),
-                owner_layers: owner_models(owner_layers).map(OwnerLayer::new).collect(),
+                owner_layers: owner_draws(owner_layers).map(OwnerLayer::new).collect(),
                 geometry,
                 local: local.to_vec(),
                 hidden: Arc::clone(hidden),
@@ -145,9 +145,10 @@ impl PlacementCache {
     }
 }
 
-/// An owner controller model and the pose allocations an attachment root may follow.
+/// One drawing owner controller layer: the body (`None`), whose poses the owner endpoints
+/// already key, or another model and the pose allocations a root may follow.
 struct OwnerLayer {
-    geometry: u32,
+    geometry: Option<u32>,
     previous: Arc<[BoneTransform]>,
     current: Arc<[BoneTransform]>,
 }
@@ -155,27 +156,34 @@ struct OwnerLayer {
 impl OwnerLayer {
     fn new(layer: &actor_animation::RenderTextureLayer) -> Self {
         Self {
-            geometry: layer.geometry.unwrap_or_default(),
+            geometry: layer.geometry,
             previous: Arc::clone(&layer.previous_pose),
             current: Arc::clone(&layer.pose),
         }
     }
 
-    /// Whether `layer` draws the same model from the same pose allocations.
+    /// Whether `layer` draws the same model, and another model from the same pose allocations.
     fn same(&self, layer: &actor_animation::RenderTextureLayer) -> bool {
-        layer.geometry == Some(self.geometry)
-            && Arc::ptr_eq(&self.previous, &layer.previous_pose)
-            && Arc::ptr_eq(&self.current, &layer.pose)
+        layer.geometry == self.geometry
+            && (self.geometry.is_none()
+                || Arc::ptr_eq(&self.previous, &layer.previous_pose)
+                    && Arc::ptr_eq(&self.current, &layer.pose))
     }
+}
+
+/// Owner layers that draw, in controller order. A root takes the first that has its bone, so
+/// the body's position among the other models matters as well as their poses.
+fn owner_draws(
+    layers: &[actor_animation::RenderTextureLayer],
+) -> impl Iterator<Item = &actor_animation::RenderTextureLayer> {
+    layers.iter().filter(|layer| layer.texture_slot == 0)
 }
 
 /// Owner layers drawing their own models, in controller order; only these add root bones.
 fn owner_models(
     layers: &[actor_animation::RenderTextureLayer],
 ) -> impl Iterator<Item = &actor_animation::RenderTextureLayer> {
-    layers
-        .iter()
-        .filter(|layer| layer.texture_slot == 0 && layer.geometry.is_some())
+    owner_draws(layers).filter(|layer| layer.geometry.is_some())
 }
 
 /// Floating-point bits retain signed-zero and NaN identity in pose inputs.

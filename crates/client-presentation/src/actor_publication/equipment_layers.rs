@@ -39,6 +39,10 @@ pub(super) fn attach(
                 input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
             }
             let local_rig = local_coverage && runtime_id == poses.local_runtime_id;
+            // The covered local body draws its UI layers.
+            let ui_layers = local_rig
+                .then(|| stream.authority().actor_ui_layers(runtime_id))
+                .flatten();
             // Roots follow the controller models this frame draws, not the completed tick's.
             // Only owners that may draw other models copy the frame's layers.
             let frame_layers = render_frame
@@ -57,10 +61,8 @@ pub(super) fn attach(
                     if let Some(layers) = frame_layers.as_deref() {
                         rig.render = layers;
                     }
-                    if local_coverage
-                        && runtime_id == poses.local_runtime_id
-                        && let Some(layers) = stream.authority().actor_ui_layers(runtime_id)
-                    {
+                    if let Some(layers) = ui_layers.as_ref() {
+                        rig.render = &layers.render;
                         rig.visibility = layers.visibility;
                         rig.held_item_scale = layers.held_item_scale;
                     }

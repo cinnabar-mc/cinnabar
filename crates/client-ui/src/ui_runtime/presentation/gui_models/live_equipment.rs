@@ -50,7 +50,11 @@ impl UiPresentationRuntime {
             let item = hands[hand].as_ref()?;
             let local = local?;
             let actor = local.actor()?;
-            let rig = local.ui_rig()?;
+            // The preview draws only the body, so roots bind to and follow its bones alone.
+            let rig = actor_animation::ActorRigSnapshot {
+                render: &[],
+                ..local.ui_rig()?
+            };
             let enchantment = [(
                 assets::entity::EngineVariable::IsEnchanted.name(),
                 f32::from(item.glint.unwrap_or(false)),
@@ -152,7 +156,6 @@ impl UiPresentationRuntime {
                     .enumerate()
                     .map(|(index, bone)| {
                         compose_parent(
-                            // The preview draws only the body, so roots follow its bones.
                             parent_for_root(
                                 OwnerSkeleton::body(&live.bones, &live.bones, rig.bone_names),
                                 input,
