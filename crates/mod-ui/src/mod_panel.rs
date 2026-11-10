@@ -678,7 +678,7 @@ impl ModPanel {
         if let Some(frame) = &self.frame {
             changed |= self
                 .motion
-                .fade_scrollbars(&mut self.view, &frame.report, now);
+                .fade_scrollbars(&mut self.view, &frame.report, now, animate);
         }
         changed
     }

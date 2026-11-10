@@ -564,3 +564,50 @@ fn an_auto_hidden_scrollbar_shows_while_scrolled_and_fades_out() {
     build_at(&mut presentation, 10_600);
     assert_eq!(thumb_centre(&presentation), None);
 }
+
+/// The auto-hide fade animates only under panel motion without reduced motion; otherwise the
+/// box stays fully shown for the fade's second and then hides at once.
+#[test]
+fn an_auto_hidden_scrollbar_fades_only_when_motion_is_allowed() {
+    for (motion, reduced) in [(true, false), (false, false), (true, true)] {
+        let mut presentation = mini_engine_presentation();
+        presentation.mod_ui_mut().configure_motion(!reduced);
+        let mut panel = styled_panel(json!({"cinnabar_scrollbar_auto_hide":true}));
+        panel.motion = motion;
+        presentation
+            .mod_ui_mut()
+            .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+            .unwrap();
+        presentation.mod_ui_mut().set_mod_panel_open(true);
+        build_at(&mut presentation, 1_000);
+        let inside = at(&presentation, [65., 45.]);
+        assert!(
+            presentation
+                .mod_ui_mut()
+                .scroll_mod_panel(inside, -2., false)
+        );
+        build_at(&mut presentation, 1_000);
+        build_at(&mut presentation, 1_200);
+        let fading = build_at(&mut presentation, 1_500);
+        let centre = thumb_centre(&presentation).expect("shown during the fade's second");
+        let drawn = colour(&presentation, &fading, centre);
+        let case = format!("motion {motion}, reduced {reduced}");
+        if motion && !reduced {
+            assert!(
+                drawn.iter().zip(IDLE).any(|(a, e)| a.abs_diff(e) > 3),
+                "{case}: half faded, not {drawn:?}"
+            );
+        } else {
+            assert_colour(drawn, IDLE, &case);
+        }
+        assert!(presentation.mod_ui().mod_panel_motion_active(), "{case}");
+        build_at(&mut presentation, 2_100);
+        build_at(&mut presentation, 2_100);
+        assert_eq!(
+            thumb_centre(&presentation),
+            None,
+            "{case}: hidden after the second"
+        );
+        assert!(!presentation.mod_ui().mod_panel_motion_active(), "{case}");
+    }
+}

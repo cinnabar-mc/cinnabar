@@ -147,7 +147,9 @@ JSON-UI never see:
 - `cinnabar_scroll_seconds` on the `scroll_view` sets how long a wheel notch eases under
   panel `motion`, from 0 to 1 second (default 0.14); 0 scrolls at once.
 - `cinnabar_scrollbar_auto_hide: true` on the `scroll_view` hides the box until the view
-  scrolls or the pointer is on its box or track, then fades it out over a second.
+  scrolls or the pointer is on its box or track, then fades it out over a second. With
+  panel `motion` off or reduced motion set, the box shows and hides at once instead,
+  staying shown for that second.
 
 Panel and HUD surfaces reject values outside these bounds; values a binding supplies
 are clamped.

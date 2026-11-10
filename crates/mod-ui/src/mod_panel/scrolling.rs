@@ -41,7 +41,9 @@ impl ModUi {
         } else {
             current.offset_for_wheel_local(delta)
         };
-        panel.view.reveal_scrollbar(&region.key, metrics);
+        panel
+            .motion
+            .reveal_scrollbar(&mut panel.view, &region.key, metrics);
         let seconds = metrics.wheel_seconds.unwrap_or(motion::SCROLL_SECONDS);
         if panel.panel.motion && !pixels && seconds > 0.0 {
             let target = panel.motion.scroll_target(&region.key, current.offset);
@@ -95,7 +97,7 @@ impl ModPanel {
                 self.view
                     .scroll
                     .insert(key.clone(), current.thumb_drag_target(at - last));
-                self.view.reveal_scrollbar(&key, metrics);
+                self.motion.reveal_scrollbar(&mut self.view, &key, metrics);
                 self.scroll_drag = held.then_some((key, at));
             } else {
                 self.scroll_drag = None;
@@ -137,7 +139,8 @@ impl ModPanel {
             self.motion.cancel_scroll(&view.key);
             self.scroll_drag = Some((view.key.clone(), along(metrics, local(&view.key))));
             self.view.pressed = Some(region.key.clone());
-            self.view.reveal_scrollbar(&view.key, metrics);
+            self.motion
+                .reveal_scrollbar(&mut self.view, &view.key, metrics);
             return true;
         }
         if region.kind == HitKind::ScrollTrack
@@ -150,7 +153,8 @@ impl ModPanel {
                 .insert(view.key.clone(), metrics.offset_for_track(local(&view.key)));
             // Ordinary pointer routing keeps the track pressed while the button is held.
             self.view.pressed = Some(region.key.clone());
-            self.view.reveal_scrollbar(&view.key, metrics);
+            self.motion
+                .reveal_scrollbar(&mut self.view, &view.key, metrics);
             return true;
         }
         false
