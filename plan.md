@@ -999,6 +999,8 @@ and version-matched in-game acceptance remain incomplete.
   Pumpkin GUI cubes keep their class-specific front artwork independently of held face
   sheets; jack o’lantern GUI cubes retain uniform texture brightness. GUI-only cube textures
   follow required equipment and held artwork, retaining thumbnails when they cannot fit.
+  Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
+  placed book counts and the held world model.
   Shared cube silhouette and texture-coordinate acceptance remains incomplete.
   Missing lit block or carried texture entries select pack diagnostic artwork; rendered
   acceptance of these fallbacks remains incomplete.
