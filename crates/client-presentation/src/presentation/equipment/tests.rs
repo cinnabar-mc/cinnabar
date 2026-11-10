@@ -568,7 +568,8 @@ fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     ]
 }
 
-// A custom attachable whose name and geometry say nothing is worn where `minecraft:wearable` puts it.
+// A custom attachable whose name and geometry say nothing draws in the armor slot that holds it,
+// unless `minecraft:wearable` names another slot.
 #[test]
 fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
@@ -594,16 +595,22 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
         armor: [Some(crown), None, None, None],
         ..ActorEquipmentInput::default()
     };
-    assert!(runtime.layers_for(&body, &worn, None).is_empty());
-    let components = protocol::ItemComponents {
-        wearable_slot: Some("slot.armor.head".into()),
-        ..Default::default()
-    };
-    let items = session_items(vec![("test:crown", components)], vec![]);
-    runtime.set_session_items(Some(&items), None, Vec::new());
     assert_eq!(runtime.layers_for(&body, &worn, None).len(), 1);
+    for (slot, drawn) in [("slot.armor.chest", 0), ("slot.armor.head", 1)] {
+        let components = protocol::ItemComponents {
+            wearable_slot: Some(slot.into()),
+            ..Default::default()
+        };
+        let items = session_items(vec![("test:crown", components)], vec![]);
+        runtime.set_session_items(Some(&items), None, Vec::new());
+        assert_eq!(
+            runtime.layers_for(&body, &worn, None).len(),
+            drawn,
+            "{slot}"
+        );
+    }
     runtime.set_session_items(None, None, Vec::new());
-    assert!(runtime.layers_for(&body, &worn, None).is_empty());
+    assert_eq!(runtime.layers_for(&body, &worn, None).len(), 1);
 }
 
 #[test]

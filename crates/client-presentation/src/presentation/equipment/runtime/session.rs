@@ -190,6 +190,25 @@ impl EquipmentRuntime {
         }
     }
 
+    /// Whether a binding worn in armor `slot` draws its own model there. Armor that names
+    /// another slot stays hidden; an attachable that names no worn slot, such as a server
+    /// cosmetic placed in a helmet or chestplate slot, is worn wherever the server put it.
+    pub(super) fn draws_worn(
+        &self,
+        identifier: &str,
+        category: EquipmentCategory,
+        slot: ArmorSlot,
+    ) -> bool {
+        match self.effective_category(identifier, category) {
+            EquipmentCategory::Armor { slot: admitted }
+            | EquipmentCategory::ArmorAndHeld { slot: admitted } => admitted == slot,
+            EquipmentCategory::Held => true,
+            EquipmentCategory::Shield | EquipmentCategory::Elytra | EquipmentCategory::Body => {
+                false
+            }
+        }
+    }
+
     /// Returns the session block sheet only while its artwork placement is admitted.
     pub(super) fn session_held_block(
         &self,

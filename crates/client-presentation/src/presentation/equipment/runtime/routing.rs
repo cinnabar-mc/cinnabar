@@ -66,20 +66,15 @@ impl EquipmentRuntime {
                 EquipmentRoute::Hidden
             };
         };
-        match self.effective_category(
-            &item.identifier,
-            source.catalog.bindings()[source.index].category,
-        ) {
-            EquipmentCategory::Elytra if slot == ArmorSlot::Chestplate => {
-                EquipmentRoute::Elytra(source)
-            }
-            EquipmentCategory::Armor { slot: admitted }
-            | EquipmentCategory::ArmorAndHeld { slot: admitted }
-                if slot == admitted =>
-            {
-                EquipmentRoute::Armor(source)
-            }
-            _ => EquipmentRoute::Hidden,
+        let category = source.catalog.bindings()[source.index].category;
+        if slot == ArmorSlot::Chestplate
+            && self.effective_category(&item.identifier, category) == EquipmentCategory::Elytra
+        {
+            EquipmentRoute::Elytra(source)
+        } else if self.draws_worn(&item.identifier, category, slot) {
+            EquipmentRoute::Armor(source)
+        } else {
+            EquipmentRoute::Hidden
         }
     }
 }

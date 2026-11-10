@@ -83,3 +83,31 @@ fn custom_wearable_model_draws_only_in_its_effective_armor_slot() {
         "the model must not draw in another armor slot"
     );
 }
+
+#[test]
+fn an_attachable_without_a_worn_slot_draws_in_the_armor_slot_it_occupies() {
+    // Servers dress players in cosmetics by placing an ordinary item with an attachable in an
+    // armor slot. Native draws that attachable there, so the slot must not hide it.
+    let (mut runtime, _) = pack_runtime(held_pack());
+    let body = player_body(&mut runtime);
+    let owner = owner();
+    let names = ["rightItem".into()];
+    let rig = owner_rig(&owner, &names);
+    let animation = EquipmentAnimation {
+        owner: &owner,
+        rig: &rig,
+        frame_alpha: 0.5,
+        delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
+    };
+    let mut input = held("test:held");
+    let item = input.main.take();
+    for slot in 0..input.armor.len() {
+        input.armor = Default::default();
+        input.armor[slot] = item.clone();
+        assert_eq!(
+            runtime.layers_for(&body, &input, Some(animation)).len(),
+            1,
+            "the attachable must draw in armor slot {slot}"
+        );
+    }
+}

@@ -427,14 +427,7 @@ impl EquipmentRuntime {
             ..
         } = source;
         let binding = &catalog.bindings()[index];
-        // A custom item's `minecraft:wearable` slot names where its attachable is worn.
-        let category = self.effective_category(&item.identifier, binding.category);
-        if !matches!(
-            category,
-            EquipmentCategory::Armor { slot: admitted }
-                | EquipmentCategory::ArmorAndHeld { slot: admitted }
-                if admitted == slot
-        ) {
+        if !self.draws_worn(&item.identifier, binding.category, slot) {
             return;
         }
         let selected = match animation.map(|animation| {
