@@ -120,7 +120,11 @@ fn repeated_inserts_build_once_and_keep_actor_variables_roots_and_poses_private(
         let first = store.rigs.get_mut(&lifetime).unwrap();
         first.variables.set(slot, 99.0);
         first.current[0].translation_scale[0] = 99.0;
-        crate::attachable::bind_roots(&mut first.bones, &first.bone_names, &["rightitem".into()]);
+        crate::attachable::bind_roots(
+            &mut first.bones,
+            &first.bone_names,
+            crate::attachment::OwnerSkeleton::body(&[], &[], &["rightitem".into()]),
+        );
         store.insert(
             1,
             0,
@@ -193,7 +197,11 @@ fn selected_candidate_and_preview_restore_do_not_mutate_shared_templates() {
         budget.used, 2,
         "condition evaluation still runs on a cache hit"
     );
-    crate::attachable::bind_roots(&mut state.bones, &state.bone_names, &["rightitem".into()]);
+    crate::attachable::bind_roots(
+        &mut state.bones,
+        &state.bone_names,
+        crate::attachment::OwnerSkeleton::body(&[], &[], &["rightitem".into()]),
+    );
     assert!(matches!(
         state.bones[0].attachable_root,
         AttachableRootFrame::MatchingOwnerName

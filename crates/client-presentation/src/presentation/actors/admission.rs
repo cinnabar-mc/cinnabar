@@ -80,8 +80,10 @@ pub(crate) fn admit_frame_bounds(
         bounds = bounds.union(selected);
     }
     presentation.submission.culling_bounds = bounds;
-    // The layer resolver ignores catalog geometry choices for a runtime player skin.
-    if presentation.artwork.is_none() || !rig_may_replace_geometry(rig, frame.as_deref()) {
+    // A runtime player skin also draws its controllers' own models beside the body.
+    if (presentation.artwork.is_none() && presentation.skin_rgba8.is_none())
+        || !rig_may_replace_geometry(rig, frame.as_deref())
+    {
         return visible;
     }
     let Some((assets, _)) = rig.geometry_source() else {

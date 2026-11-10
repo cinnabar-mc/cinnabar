@@ -165,7 +165,7 @@ fn resolve_layer(
     cache: &mut LayerPoseCache,
     player_skin: bool,
 ) -> Option<ResolvedLayer> {
-    if player_skin && (layer.geometry.is_some() || layer.texture_slot != 0) {
+    if player_skin && layer.texture_slot != 0 {
         return None;
     }
     let model = match layer.geometry {
@@ -176,8 +176,17 @@ fn resolve_layer(
             previous: cache.convert(&layer.previous_pose)?,
             current: cache.convert(&layer.pose)?,
         }),
+        // A player's body may draw its skin's model, whose rig id names no catalog, so its
+        // controllers' own models, such as a pack's cosmetics, come from the layer's catalog.
         Some(geometry) => Some(LayerModel {
-            rig: layer_geometry_rig_id(submission.input.rig, geometry),
+            rig: layer_geometry_rig_id(
+                match (player_skin, layer.pack) {
+                    (false, _) => submission.input.rig,
+                    (true, true) => render_model::pack_rig_id(0),
+                    (true, false) => EntityRigId(0),
+                },
+                geometry,
+            ),
             previous: cache.convert(&layer.previous_pose)?,
             current: cache.convert(&layer.pose)?,
         }),
@@ -200,30 +209,47 @@ fn resolve_layer(
         // texture the catalog did not build; a built controller texture is drawn as authored.
         location: if player_skin && layer.runtime_skin {
             None
+        } else if player_skin && layer.geometry.is_some() {
+            // Another model never falls back to the skin, which is laid out for the body.
+            Some(catalog_location(
+                layer,
+                |source| artwork.source_location(layer.pack, source),
+                |sources| artwork.source_multitexture_location(layer.pack, sources),
+            )?)
         } else if player_skin {
             artwork.source_location(layer.pack, layer.source)
         } else {
-            Some(match layer.multitexture {
-                Some([second, third]) => artwork
-                    .multitexture_location(submission.input.rig, [layer.source, second, third])
-                    .or_else(|| {
-                        if layer
-                            .material_state
-                            .is_some_and(|state| state.masked_multitexture)
-                        {
-                            artwork.variant_location(submission.input.rig, layer.source)
-                        } else {
-                            None
-                        }
-                    })?,
-                None => artwork.variant_location(submission.input.rig, layer.source)?,
-            })
+            let rig = submission.input.rig;
+            Some(catalog_location(
+                layer,
+                |source| artwork.variant_location(rig, source),
+                |sources| artwork.multitexture_location(rig, sources),
+            )?)
         },
         tint: pack_layer_tint(layer.color),
         overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
         hidden_bones: Arc::clone(&layer.hidden_bones),
         uv_anim: layer.uv_anim,
     })
+}
+
+/// The catalog texture and extra samplers a layer draws with. A masked multitexture whose
+/// samplers cannot share a page still draws its base texture.
+fn catalog_location(
+    layer: &RenderTextureLayer,
+    single: impl Fn(u32) -> Option<ActorArtworkLocation>,
+    multitexture: impl Fn([u32; 3]) -> Option<ActorArtworkLocation>,
+) -> Option<ActorArtworkLocation> {
+    match layer.multitexture {
+        Some([second, third]) => multitexture([layer.source, second, third]).or_else(|| {
+            layer
+                .material_state
+                .is_some_and(|state| state.masked_multitexture)
+                .then(|| single(layer.source))
+                .flatten()
+        }),
+        None => single(layer.source),
+    }
 }
 
 /// Refills the bounded body layers using the same admission as inherited equipment styling.
@@ -243,9 +269,17 @@ fn resolve(
             .take(MAX_TEXTURE_LAYERS),
     );
     // A player's body keeps its runtime skin, so player passes such as capes still admit it;
-    // catalog textures apply to its further controller layers.
-    if player_skin && let Some(body) = resolved.first_mut() {
-        body.location = None;
+    // catalog textures apply to its further controller layers. The first layer drawing the
+    // body takes the body slot, which capes, equipment and admission read and which draws
+    // before every other layer. Native draws controllers in list order, so a blended model
+    // listed ahead of the body composites differently where they overlap.
+    if player_skin {
+        if let Some(body) = resolved.iter().position(|layer| layer.model.is_none()) {
+            resolved[..=body].rotate_right(1);
+        }
+        if let Some(body) = resolved.first_mut().filter(|layer| layer.model.is_none()) {
+            body.location = None;
+        }
     }
 }
 
@@ -263,8 +297,10 @@ pub(crate) fn controller_style(
     cache: &mut LayerPoseCache,
     player_skin: bool,
 ) -> ControllerStyle {
+    // A player's style comes from a controller drawing its body, not from another model.
     layers
         .iter()
+        .filter(|layer| !player_skin || layer.geometry.is_none())
         .find_map(|layer| resolve_layer(body, layer, artwork, cache, player_skin))
         .map_or(
             ControllerStyle {
@@ -400,7 +436,16 @@ pub fn apply_render_layers_cached<'a>(
         if resolved.is_empty() {
             continue;
         }
-        for (layer_index, layer) in resolved.iter().enumerate() {
+        // A player whose passing controllers all draw other models keeps its skin body in the
+        // body slot, whose skeleton and pose capes, hats, flames and equipment read, and draws
+        // the models beside it. Native draws no default body then; that remains incomplete.
+        let kept_body = player_skin && resolved.iter().all(|layer| layer.model.is_some());
+        for (layer_index, layer) in resolved
+            .iter()
+            .take(MAX_TEXTURE_LAYERS - usize::from(kept_body))
+            .enumerate()
+        {
+            let layer_index = layer_index + usize::from(kept_body);
             let submission = layered(&pristine, layer, layer_index, cache);
             if let Some(location) = layer.location {
                 batch.artwork.insert(submission.input.identity, location);
@@ -677,6 +722,186 @@ mod tests {
                 pack_overlay_rgba8(layers[2].overlay)
             );
         }
+    }
+
+    /// A pack's cosmetic controller listed ahead of the body draws its own model with its own
+    /// texture, while the player's body keeps the runtime skin.
+    #[test]
+    fn runtime_skin_bodies_draw_other_controller_models_beside_the_body() {
+        let presentation = super::super::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        let mut batch =
+            super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+        let original_rig = batch.submissions[0].input.rig;
+        let pose: Arc<[BoneTransform]> = Arc::from([BoneTransform {
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            translation_scale: [0.0, 0.0, 0.0, 1.0],
+            axis_scale: [1.0; 3],
+        }]);
+        let layer = |runtime_skin: bool, source: u32, geometry: Option<u32>| RenderTextureLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_state: None,
+            source,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry,
+            previous_pose: if geometry.is_some() {
+                Arc::clone(&pose)
+            } else {
+                Arc::from([])
+            },
+            pose: if geometry.is_some() {
+                Arc::clone(&pose)
+            } else {
+                Arc::from([])
+            },
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin,
+            pack: true,
+        };
+        let texture = |source| assets::ActorTexture {
+            source,
+            width: 2,
+            height: 2,
+            pixel_sha256: [source as u8; 32],
+            rgba8: vec![255; 16].into(),
+        };
+        let artwork =
+            ActorArtworkPages::default().with_pack_artwork(&[texture(23), texture(24)], &[]);
+        // The cosmetic samples a second catalog texture, as a two-texture material does.
+        let mut hat = layer(false, 23, Some(7));
+        hat.multitexture = Some([24, 24]);
+        let layers = [hat, layer(true, 0, None)];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert_eq!(batch.submissions.len(), 2, "the hat model is drawn");
+        let [body, hat] = [&batch.submissions[0], &batch.submissions[1]];
+        assert_eq!(body.input.rig, original_rig);
+        assert!(!batch.artwork.contains_key(&body.input.identity));
+        assert_eq!(
+            hat.input.rig,
+            layer_geometry_rig_id(render_model::pack_rig_id(0), 7)
+        );
+        let location = batch.artwork.get(&hat.input.identity).copied().unwrap();
+        assert_eq!(
+            location,
+            artwork
+                .source_multitexture_location(true, [23, 24, 24])
+                .unwrap()
+        );
+        assert!(
+            location.multitexture.is_some(),
+            "the second sampler is kept"
+        );
+    }
+
+    /// A player whose passing controllers all draw other models keeps its skin body, with the
+    /// skeleton and pose the passes attaching to it read, and draws those models beside it.
+    #[test]
+    fn runtime_skin_bodies_stay_when_only_other_controller_models_pass() {
+        let presentation = super::super::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        let mut batch =
+            super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+        let original = batch.submissions[0].clone();
+        let pose: Arc<[BoneTransform]> = Arc::from([BoneTransform {
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            translation_scale: [0.0, 0.0, 0.0, 1.0],
+            axis_scale: [1.0; 3],
+        }]);
+        let morph = RenderTextureLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_state: None,
+            source: 23,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry: Some(7),
+            previous_pose: Arc::clone(&pose),
+            pose,
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin: false,
+            pack: true,
+        };
+        let artwork = ActorArtworkPages::default().with_pack_artwork(
+            &[assets::ActorTexture {
+                source: 23,
+                width: 2,
+                height: 2,
+                pixel_sha256: [1; 32],
+                rgba8: vec![255; 16].into(),
+            }],
+            &[],
+        );
+        let layers = [morph];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert_eq!(batch.submissions.len(), 2);
+        let [body, model] = [&batch.submissions[0], &batch.submissions[1]];
+        assert_eq!(body.route, original.route);
+        assert_eq!(body.input.rig, original.input.rig);
+        assert!(Arc::ptr_eq(
+            &body.input.current_bones,
+            &original.input.current_bones
+        ));
+        assert!(!batch.artwork.contains_key(&body.input.identity));
+        assert_eq!(model.route, original.route);
+        assert_eq!(
+            model.input.rig,
+            layer_geometry_rig_id(render_model::pack_rig_id(0), 7)
+        );
+        assert_eq!(model.input.identity.layer, ACTOR_LAYER_TEXTURE_BASE);
     }
 
     #[test]

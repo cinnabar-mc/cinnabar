@@ -97,7 +97,12 @@ pub(super) fn resolve_binding(
     };
     let random_seed = actor.runtime_id() ^ actor.spawn_revision().rotate_left(32);
     let mut variables = layout.fresh(random_seed);
-    for (offset, candidate) in candidates.iter().enumerate().skip(1) {
+    let selectable = if keeps_default_geometry(assets, rig_binding, actor) {
+        0
+    } else {
+        candidates.len()
+    };
+    for (offset, candidate) in candidates.iter().enumerate().take(selectable).skip(1) {
         let selected = evaluator
             .run(
                 candidate.condition? as usize,
@@ -201,6 +206,23 @@ pub(super) fn resolve_binding(
     })
 }
 
+/// Whether a rig stays on its description's default geometry instead of following the geometry
+/// one render controller selects. A player's skin replaces that default model, so the player's
+/// own rig keeps it; every controller that selects another model draws it as its own layer,
+/// posed by bone name, as vanilla draws each passing controller's geometry.
+fn keeps_default_geometry(
+    assets: &RuntimeEntityAssets,
+    rig_binding: usize,
+    actor: &dyn AnimatedActor,
+) -> bool {
+    matches!(actor.kind(), ActorKind::Player { .. })
+        && assets
+            .rig_bindings()
+            .get(rig_binding)
+            .and_then(|rig| assets.symbols().get(rig.entity_symbol as usize))
+            .is_some_and(|symbol| symbol.kind == EntityAssetKind::Entity)
+}
+
 /// Adds one runtime state per controller reachable from a rig root, each once.
 pub(super) fn collect_controllers(
     assets: &RuntimeEntityAssets,
@@ -284,6 +306,53 @@ pub(super) fn resolve_bones(
         }
     }
     skeleton(&merged)
+}
+
+/// Position of bone `name` in the skeleton [`resolve_bones`] builds for `geometry`: ancestors'
+/// bones first, each name once, ignoring ASCII case. Reads the catalog in place, so per-frame
+/// lookups allocate nothing.
+pub(crate) fn merged_bone_index(
+    assets: &RuntimeEntityAssets,
+    geometry: usize,
+    name: &str,
+) -> Option<usize> {
+    let parents = assets.geometry_parents();
+    let ancestor = |steps: usize| {
+        (0..steps).try_fold(geometry, |index, _| parents.get(index).copied().flatten())
+    };
+    let mut depth = 0;
+    while ancestor(depth + 1).is_some() {
+        depth += 1;
+        if depth > parents.len() {
+            return None;
+        }
+    }
+    let bones = |level: usize| {
+        ancestor(depth - level)
+            .and_then(|index| assets.geometries().get(index))
+            .map(|geometry| geometry.bones.as_ref())
+            .unwrap_or_default()
+    };
+    let mut next = 0;
+    for level in 0..=depth {
+        let current = bones(level);
+        for (position, bone) in current.iter().enumerate() {
+            let same = |other: &EntityGeometryBone| other.name.eq_ignore_ascii_case(&bone.name);
+            if (0..level).any(|earlier| bones(earlier).iter().any(same))
+                || current[..position].iter().any(same)
+            {
+                continue;
+            }
+            if next >= MAX_RUNTIME_BONES_PER_RIG {
+                return None;
+            }
+            if bone.name.eq_ignore_ascii_case(name) {
+                return Some(next);
+            }
+            next += 1;
+        }
+    }
+    None
 }
 
 /// Runtime bones and lowercase names of a merged bone list; parents must resolve by name.
@@ -459,7 +528,7 @@ fn reselect_geometry_with_checkpoint(
     mode: GeometrySelectionMode,
 ) -> Option<GeometryCheckpoint> {
     let rig = assets.rig_bindings().get(state.rig_binding)?;
-    if rig.geometry_count < 2 {
+    if rig.geometry_count < 2 || keeps_default_geometry(assets, state.rig_binding, actor) {
         return None;
     }
     let first = rig.first_geometry as usize;

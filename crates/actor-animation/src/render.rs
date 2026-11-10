@@ -92,11 +92,14 @@ pub(super) struct LayerSkeleton {
     pub(super) channels: Arc<pose::ChannelBindings>,
 }
 
-pub(super) fn bind_attachable_roots(state: &mut ActorRigState, owner_names: &[Box<str>]) {
-    attachable::bind_roots(&mut state.bones, &state.bone_names, owner_names);
+pub(super) fn bind_attachable_roots(
+    state: &mut ActorRigState,
+    owner: crate::attachment::OwnerSkeleton<'_>,
+) {
+    attachable::bind_roots(&mut state.bones, &state.bone_names, owner);
     for skeleton in state.layer_skeletons.values_mut().flatten() {
         let skeleton = Arc::make_mut(skeleton);
-        attachable::bind_roots(&mut skeleton.bones, &skeleton.names, owner_names);
+        attachable::bind_roots(&mut skeleton.bones, &skeleton.names, owner);
     }
 }
 

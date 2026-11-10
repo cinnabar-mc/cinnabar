@@ -2,7 +2,7 @@
 use super::{super::UiPresentationRuntime, live_player::ModelGeometry};
 use actor_animation::{
     AttachableAnimationInput,
-    attachment::{compose_parent, parent_for_root},
+    attachment::{OwnerSkeleton, compose_parent, parent_for_root},
 };
 use render_model::{ActorRigGeometry, EntityRigId, UiTexturePage};
 use std::sync::Arc;
@@ -50,7 +50,11 @@ impl UiPresentationRuntime {
             let item = hands[hand].as_ref()?;
             let local = local?;
             let actor = local.actor()?;
-            let rig = local.ui_rig()?;
+            // The preview draws only the body, so roots bind to and follow its bones alone.
+            let rig = actor_animation::ActorRigSnapshot {
+                render: &[],
+                ..local.ui_rig()?
+            };
             let enchantment = [(
                 assets::entity::EngineVariable::IsEnchanted.name(),
                 f32::from(item.glint.unwrap_or(false)),
@@ -153,9 +157,7 @@ impl UiPresentationRuntime {
                     .map(|(index, bone)| {
                         compose_parent(
                             parent_for_root(
-                                &live.bones,
-                                &live.bones,
-                                rig.bone_names,
+                                OwnerSkeleton::body(&live.bones, &live.bones, rig.bone_names),
                                 input,
                                 evaluated.bone_parent(geometry, index)?,
                                 scale,
