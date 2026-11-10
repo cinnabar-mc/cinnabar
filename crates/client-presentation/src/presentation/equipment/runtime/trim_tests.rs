@@ -6,7 +6,7 @@ fn trim_fixture() -> (EquipmentRuntime, ActorArtworkPages, WornItem) {
     let (fixture, _, mut item) = block_fixture();
     item.identifier = "minecraft:diamond_chestplate".into();
     item.kind = HeldKind::Sprite;
-    item.trim = Some(protocol::ItemTrim {
+    item.trim = Some(render_api::ItemTrim {
         material: "gold".into(),
         pattern: "sentry".into(),
     });

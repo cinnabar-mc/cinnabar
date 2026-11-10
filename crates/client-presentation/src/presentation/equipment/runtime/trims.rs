@@ -4,7 +4,7 @@ use assets::item::trim::{Dye, DyeAlpha};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
-    trim: protocol::ItemTrim,
+    trim: render_api::ItemTrim,
     item: Arc<str>,
     binding: usize,
     texture: usize,

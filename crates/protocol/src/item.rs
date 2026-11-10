@@ -53,7 +53,7 @@ pub use display::{
 pub use fireworks::{FireworkExplosion, ItemFireworks, item_firework_star, item_fireworks};
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
-    ItemAnvilData, ItemNbtEdit, ItemTrim, apply_banner_to_shield, apply_item_trim, book_init_extra,
+    ItemAnvilData, ItemNbtEdit, apply_banner_to_shield, apply_item_trim, book_init_extra,
     book_needs_init, edit_item_extra, item_anvil_data, item_custom_name, item_filtered_custom_name,
     item_has_trim, item_repair_cost, item_trim,
 };

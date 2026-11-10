@@ -54,7 +54,7 @@ pub(super) fn push_group<'a, T>(
 ) {
     let mut limit = u32::from(width.max(height));
     let [fitted_width, fitted_height] = loop {
-        let fitted = crate::actor::texel_fit::fitted_dimensions(width, height, limit);
+        let fitted = crate::actor::fitted_dimensions(width, height, limit);
         let bytes = usize::from(fitted[0]) * usize::from(fitted[1]) * 4 * members.len();
         if gpu_bytes.saturating_add(bytes) <= MAX_ACTOR_GPU_PIXEL_BYTES || limit <= 1 {
             break fitted;

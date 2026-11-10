@@ -511,7 +511,7 @@ fn worn_trim_preserves_authored_color_and_opacity() {
         let body = player_body(&mut runtime);
         let mut equipment = worn_armour(item, 1);
         let stack = equipment.armor[1].as_mut().unwrap();
-        stack.trim = Some(protocol::ItemTrim {
+        stack.trim = Some(render_api::ItemTrim {
             material: "gold".into(),
             pattern: "sentry".into(),
         });
@@ -617,7 +617,7 @@ fn worn_trim_uses_the_owner_admitted_palette() {
     let body = player_body(&mut runtime);
     let mut equipment = worn_armour(item, 1);
     let stack = equipment.armor[1].as_mut().unwrap();
-    stack.trim = Some(protocol::ItemTrim {
+    stack.trim = Some(render_api::ItemTrim {
         material: "gold".into(),
         pattern: "sentry".into(),
     });

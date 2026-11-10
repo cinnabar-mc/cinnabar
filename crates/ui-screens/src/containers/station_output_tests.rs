@@ -93,7 +93,7 @@ fn smithing_result_cell_shows_prediction_until_the_server_states_an_output() {
     with_output_frame(|frame| {
         let mut station = player(protocol::WINDOW_TYPE_SMITHING_TABLE);
         let mut output = frame.recipe_output.unwrap().clone();
-        let trim = protocol::ItemTrim {
+        let trim = render_api::ItemTrim {
             material: "gold".into(),
             pattern: "sentry".into(),
         };

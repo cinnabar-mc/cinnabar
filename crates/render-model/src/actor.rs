@@ -45,7 +45,7 @@ pub use skin::{
     prepare_actor_skin_cached,
 };
 pub use surface::ActorRigSurface;
-pub use texel_fit::fit_rgba_within;
+pub use texel_fit::{fit_rgba_within, fitted_channel, fitted_dimensions};
 pub use texture_mesh::{attachable_geometry, attachable_raster_frame};
 
 mod slot_recency;

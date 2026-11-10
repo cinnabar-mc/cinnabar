@@ -28,6 +28,8 @@ pub(super) struct HeldItem {
     pub(super) identifier: Arc<str>,
     pub(super) metadata: u32,
     pub(super) shield_pattern: Option<Arc<render_api::ShieldPattern>>,
+    /// The stack's armor trim, which selects its trimmed icon wherever it is drawn.
+    pub(super) trim: Option<render_api::ItemTrim>,
 }
 
 /// A retained plant block with all typed state selectors used to resolve its world identity.

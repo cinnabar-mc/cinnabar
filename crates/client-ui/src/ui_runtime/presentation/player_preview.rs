@@ -332,7 +332,7 @@ impl UiPresentationRuntime {
 /// material is a color mask, and that texture's identifier.
 /// One worn armor piece: item identifier, leather dye, enchantment glint and trim.
 pub(in crate::ui_runtime::presentation) type PreviewArmor<'a> =
-    (&'a str, Option<u32>, bool, Option<&'a protocol::ItemTrim>);
+    (&'a str, Option<u32>, bool, Option<&'a render_api::ItemTrim>);
 
 fn worn_armor<'a>(
     binding: &assets::EquipmentBinding,

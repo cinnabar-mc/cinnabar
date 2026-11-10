@@ -663,7 +663,7 @@ fn trimmed_preview_uses_the_owner_admitted_palette() {
     let mut presentation = material_tests::presentation(base.equipment.as_ref().unwrap());
     presentation.set_preview_equipment_assets(Some(base.assets), Some(pack.assets));
     presentation.set_preview_pack_equipment(pack.equipment);
-    let trim = protocol::ItemTrim {
+    let trim = render_api::ItemTrim {
         material: "gold".into(),
         pattern: "sentry".into(),
     };

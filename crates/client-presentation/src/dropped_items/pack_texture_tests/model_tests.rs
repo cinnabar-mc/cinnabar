@@ -330,6 +330,7 @@ fn framed_cubes_take_the_frame_block_pose_while_framed_sprites_keep_theirs() {
     world.insert_resource(render_scene::StaticItemPlacementsResource(
         render_model::StaticItemPlacements(vec![render_model::StaticItemPlacement {
             shield_pattern: None,
+            trim: None,
             allow_block_models: true,
             identifier: ITEM.into(),
             metadata: 0,

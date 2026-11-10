@@ -804,8 +804,10 @@ player previews and worn armor compose the active pack's trim masks and palettes
 their selected artwork, preserving dye and enchantment state. Authored pattern and palette
 aliases override the native paths. Worn and preview compositions retain their admitted
 owner definition; held session icons retain their selected sprite placement. Worn composition
-preserves authored controller color and opacity. Full native trim visual qualification remains
-incomplete.
+preserves authored controller color and opacity. Dropped items and item frames draw a trimmed
+armor stack's trimmed icon, as native icon lookup does for every item drawer. Custom armor
+tagged `minecraft:trimmable_armors` is not decorated yet, and full native trim visual
+qualification remains incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 Inventory and HUD player models draw prepared block headgear on the captured head pose,
 using the world renderer's shared placement. Headgear scale, vertical placement and held

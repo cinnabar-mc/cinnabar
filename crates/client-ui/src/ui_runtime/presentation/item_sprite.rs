@@ -235,9 +235,9 @@ fn crop_icon(
 }
 
 /// Borrows the exact atlas samples used for reduced icon construction and cost measurement.
-struct IconPixels<'a> {
-    width: u32,
-    height: u32,
+pub(in crate::ui_runtime::presentation) struct IconPixels<'a> {
+    pub(in crate::ui_runtime::presentation) width: u32,
+    pub(in crate::ui_runtime::presentation) height: u32,
     factor: u32,
     origin: [u32; 2],
     stride: u32,
@@ -246,7 +246,11 @@ struct IconPixels<'a> {
 
 impl<'a> IconPixels<'a> {
     /// Validates the rectangle and reduction once before either reader visits its pixels.
-    fn new(runtime: &'a UiPresentationRuntime, icon: IconRef, max_side: u32) -> Option<Self> {
+    pub(in crate::ui_runtime::presentation) fn new(
+        runtime: &'a UiPresentationRuntime,
+        icon: IconRef,
+        max_side: u32,
+    ) -> Option<Self> {
         let width = u32::from(icon.uv[2].checked_sub(icon.uv[0])?);
         let height = u32::from(icon.uv[3].checked_sub(icon.uv[1])?);
         let page = runtime.textures.pages().get(usize::from(icon.page))?;
@@ -274,7 +278,7 @@ impl<'a> IconPixels<'a> {
     }
 
     /// Samples the middle of the same reduced source block as the cropped icon.
-    fn pixel(&self, x: u32, y: u32) -> &[u8] {
+    pub(in crate::ui_runtime::presentation) fn pixel(&self, x: u32, y: u32) -> &[u8] {
         let x = self.origin[0] + x * self.factor + self.factor / 2;
         let y = self.origin[1] + y * self.factor + self.factor / 2;
         let offset = ((y * self.stride + x) * 4) as usize;

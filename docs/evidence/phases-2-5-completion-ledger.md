@@ -416,7 +416,9 @@ Trim stack identifiers feed inventory icons, player previews and worn armor comp
 from pack masks and palettes. Startup collection retains unreferenced trim artwork;
 authored pattern and palette aliases retain precedence. Worn and preview compositions
 retain their admitted definition; regression cases cover owner-specific palettes, held
-session sprites and authored controller color and opacity. Native trim visual qualification remains open.
+session sprites and authored controller color and opacity. Dropped and framed armor draw the
+stack's trimmed icon; regression cases cover both drawers and pack catalog release. Custom
+trimmable armor and native trim visual qualification remain open.
 Shield decoration tests cover metadata, ordered texture composition, stack-specific icons,
 selected artwork and pack replacement. Inventory, preview and held routes retain banner layers;
 dropped/frame models retain their authored geometry and decoration. Custom model-part trees,
