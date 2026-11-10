@@ -12,6 +12,8 @@ use std::{
 use wgpu::util::DeviceExt;
 
 pub const SNAPSHOT_SIDE: u32 = 256;
+const POINT_LIGHT_GROUP: u32 = 1;
+const POINT_LIGHT_BINDING: u32 = 2;
 /// Color retained by pixels where a fixture fragment is discarded.
 pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     r: 0.12,
@@ -114,7 +116,60 @@ fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) 
     }
 }
 
+/// Finds the point-light buffer size when the selected draw or explicit layout needs it.
+fn point_light_size(source: &str, vertex: &str, fragment: &str, explicit: bool) -> Option<u32> {
+    let module = naga::front::wgsl::parse_str(source).expect("fixture shader parses");
+    let (handle, global) = module.global_variables.iter().find(|(_, global)| {
+        global.name.as_deref() == Some("world_point_light")
+            && global.binding.as_ref().is_some_and(|binding| {
+                binding.group == POINT_LIGHT_GROUP && binding.binding == POINT_LIGHT_BINDING
+            })
+    })?;
+    if !explicit {
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("fixture shader validates");
+        let used = module
+            .entry_points
+            .iter()
+            .enumerate()
+            .any(|(index, entry)| {
+                ((entry.stage == naga::ShaderStage::Vertex && entry.name == vertex)
+                    || (entry.stage == naga::ShaderStage::Fragment && entry.name == fragment))
+                    && !info.get_entry_point(index)[handle].is_empty()
+            });
+        if !used {
+            return None;
+        }
+    }
+    let naga::TypeInner::Struct { span, .. } = module.types[global.ty].inner else {
+        panic!("point-light uniform must be a struct");
+    };
+    Some(span)
+}
+
 impl Gpu {
+    /// Keeps explicit fixture layouts compatible with the shared world point-light group.
+    pub fn point_light_layout(&self) -> wgpu::BindGroupLayout {
+        self.device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("disabled fixture point light"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: POINT_LIGHT_BINDING,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            })
+    }
+
     /// Uploads both the raw and byte-truncated tables using the production lightmap layout.
     pub fn lightmap(&self, values: &[f32]) -> wgpu::Buffer {
         let raw: &[[f32; 4]; 256] = bytemuck::cast_slice(values)
@@ -537,6 +592,28 @@ impl Gpu {
                     multiview_mask: None,
                     cache: None,
                 });
+            let point_light = point_light_size(
+                sources.get(index).copied().unwrap_or(source),
+                entry.map_or(vertex, |entry| entry.vertex),
+                draw.fragment,
+                state.layout.is_some(),
+            )
+            .map(|size| {
+                let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("disabled fixture point light"),
+                    size: u64::from(size),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                    mapped_at_creation: false,
+                });
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("disabled fixture point light"),
+                    layout: &pipeline.get_bind_group_layout(POINT_LIGHT_GROUP),
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: POINT_LIGHT_BINDING,
+                        resource: buffer.as_entire_binding(),
+                    }],
+                })
+            });
             let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &pipeline.get_bind_group_layout(0),
@@ -575,6 +652,9 @@ impl Gpu {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
+            if let Some(point_light) = &point_light {
+                pass.set_bind_group(POINT_LIGHT_GROUP, point_light, &[]);
+            }
             pass.draw(
                 draw.vertices.clone(),
                 state.instance_ranges.get(index).cloned().unwrap_or(0..1),
@@ -657,6 +737,73 @@ pub fn view(matrix: bevy::math::Mat4, eye: bevy::math::Vec3) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_point_lights_preserve_actor_and_terrain_lightmap_pixels() {
+        let Some(gpu) = Gpu::for_fixture("disabled point-light raster bindings") else {
+            return;
+        };
+        let mut source =
+            crate::shader_source::standalone(include_str!("../../../src/lighting.wesl"), &[])
+                .replace("@group(1) @binding(0)", "@group(0) @binding(0)");
+        source.push_str(
+            r#"
+@vertex fn light_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let corners = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    return vec4(corners[index], 0.5, 1.0);
+}
+@fragment fn actor_light_fragment() -> @location(0) vec4<f32> {
+    return vec4(point_lit_actor_light_colour(0u, vec3(0.0)), 1.0);
+}
+@fragment fn terrain_light_fragment() -> @location(0) vec4<f32> {
+    return vec4(point_lit_terrain_light_colour(vec2(0.0), vec3(0.0)), 1.0);
+}
+@fragment fn static_light_fragment() -> @location(0) vec4<f32> {
+    return vec4(light_colour(0u), 1.0);
+}
+"#,
+        );
+        let lightmap = gpu.lightmap(&[0.25; 256 * 4]);
+        let bindings = [wgpu::BindGroupEntry {
+            binding: 0,
+            resource: lightmap.as_entire_binding(),
+        }];
+        for fragment in [
+            "actor_light_fragment",
+            "terrain_light_fragment",
+            "static_light_fragment",
+        ] {
+            let draws = [Draw {
+                fragment,
+                vertices: 0..3,
+                bindings: &bindings,
+                blend: None,
+                write_depth: true,
+            }];
+            let pixels = gpu.render(&source, "light_vertex", &draws);
+            let expected = if fragment == "static_light_fragment" {
+                64
+            } else {
+                63
+            };
+            let offset = ((SNAPSHOT_SIDE / 2 * SNAPSHOT_SIDE + SNAPSHOT_SIDE / 2) * 4) as usize;
+            assert_eq!(
+                &pixels[offset..offset + 4],
+                &[expected, expected, expected, 255],
+                "{fragment} keeps its original lightmap response",
+            );
+            let mixed = gpu.render_sources(
+                &[&source],
+                &[DrawPipeline {
+                    vertex: "light_vertex",
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                }],
+                &draws,
+                RasterState::default(),
+            );
+            assert_eq!(pixels, mixed, "shared and per-draw shader bindings agree");
+        }
+    }
 
     #[test]
     fn fixture_admission_skips_only_a_missing_adapter() {

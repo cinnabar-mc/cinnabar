@@ -245,12 +245,11 @@ pub(crate) fn sync_remote_item_point_lights(
             protocol::ActorHandedness::Left,
         ]
         .into_iter()
-        .map(|hand| {
+        .filter_map(|hand| {
             authority
                 .actor_equipment_in_hand(actor.runtime_id, hand)
                 .and_then(|item| item_light_profile(stream, item.item.identity.block_runtime_id))
         })
-        .flatten()
         .max_by(|left, right| left.intensity.total_cmp(&right.intensity));
         let Some(profile) = profile else {
             continue;
