@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 )
@@ -38,6 +39,40 @@ func TestPoseAnglesStayInRange(t *testing.T) {
 		if _, _, ok := poseAngles(rot); ok {
 			t.Errorf("poseAngles(%v) accepted a rotation that is not finite", rot)
 		}
+	}
+}
+
+// TestPoseAfterMovePreservesVerticalPitch covers movement to either vertical endpoint and turns there.
+func TestPoseAfterMovePreservesVerticalPitch(t *testing.T) {
+	w := world.Config{Synchronous: true}.New()
+	t.Cleanup(func() { _ = w.Close() })
+	handle := world.EntitySpawnOpts{Position: mgl64.Vec3{0, 100, 0}}.
+		New(player.Type, player.Config{Name: "Actor"})
+	if err := w.Do(func(tx *world.Tx) { tx.AddEntity(handle) }).Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name       string
+		yaw, pitch float64
+	}{
+		{"straight down", 0, 90},
+		{"turn while looking down", 45, 90},
+		{"straight up", 45, -90},
+		{"turn while looking up", -45, -90},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := handle.Do(func(_ *world.Tx, e world.Entity) {
+				p := e.(*player.Player)
+				rot := p.Rotation()
+				p.Move(mgl64.Vec3{}, tc.yaw-rot.Yaw(), tc.pitch-rot.Pitch())
+				pose := poseOf(p)
+				if pose == nil || pose.Yaw != tc.yaw || pose.Pitch != tc.pitch {
+					t.Errorf("pose after Move = %+v; want yaw %v, pitch %v", pose, tc.yaw, tc.pitch)
+				}
+			}).Err(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
