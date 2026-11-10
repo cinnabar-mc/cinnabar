@@ -381,11 +381,13 @@ fn texture_set_colour(
         }
         TextureSetLayer::Image(name) => {
             let (path, bytes) = set.image_file(name)?;
+            let format = image::ImageFormat::from_path(&path).ok()?;
+            let decoded = image::load_from_memory_with_format(&bytes, format).ok()?;
             let extension = path.rsplit_once('.')?.1.to_ascii_lowercase();
             if matches!(extension.as_str(), "png" | "tga") {
                 return Some((format!("{stem}.{extension}").into(), bytes));
             }
-            png(image::load_from_memory(&bytes).ok()?.into_rgba8())
+            png(decoded.into_rgba8())
         }
     }
 }

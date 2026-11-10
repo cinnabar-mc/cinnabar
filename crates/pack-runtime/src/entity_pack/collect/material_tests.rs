@@ -164,6 +164,55 @@ fn simple_graphics_loads_the_sad_material_list_and_fancy_the_fancy_one() {
 }
 
 #[test]
+fn entity_texture_sets_validate_colour_images_before_replacing_plain_rasters() {
+    let mut plain = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([200, 0, 0, 255]))
+        .write_to(&mut plain, image::ImageFormat::Png)
+        .unwrap();
+    let set = json!({"format_version": "1.16.100", "minecraft:texture_set": {
+        "color": "moth_color"
+    }})
+    .to_string();
+    for (extension, format) in [
+        ("png", image::ImageFormat::Png),
+        ("tga", image::ImageFormat::Tga),
+    ] {
+        let mut valid = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]))
+            .write_to(&mut valid, format)
+            .unwrap();
+        let color_path = format!("textures/entity/moth_color.{extension}");
+        for (color, corrupt) in [
+            (valid.get_ref().as_slice(), false),
+            (b"corrupt image".as_slice(), true),
+        ] {
+            let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[
+                ("textures/entity/moth.texture_set.json", set.as_bytes()),
+                (&color_path, color),
+                ("textures/entity/moth.png", plain.get_ref()),
+            ]));
+            let (path, bytes) = super::super::texture_file(&view, None, "textures/entity/moth")
+                .expect("the entity keeps a usable raster");
+            assert_eq!(
+                path.as_ref(),
+                format!(
+                    "textures/entity/moth.{}",
+                    if corrupt { "png" } else { extension }
+                )
+            );
+            assert_eq!(
+                bytes.as_slice(),
+                if corrupt {
+                    plain.get_ref().as_slice()
+                } else {
+                    color
+                }
+            );
+        }
+    }
+}
+
+#[test]
 fn entity_textures_resolve_through_a_same_pack_texture_set_to_its_colour() {
     let pixel = |rgba: [u8; 4]| {
         let image = image::RgbaImage::from_pixel(2, 2, image::Rgba(rgba));

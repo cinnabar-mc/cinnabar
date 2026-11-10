@@ -350,22 +350,25 @@ impl PbrTexture {
 }
 
 /// Builds an authored texture from a validated Bedrock texture set whose images `image` reads
-/// by the name the set gives them, already resolved within the set's own pack. Uniform layers
-/// need no image. Normals are read in the DirectX convention, as Bedrock authors them.
+/// by the name the set gives them, returning their resolved filenames and bytes within the
+/// set's own pack. Uniform layers need no image. Normals use the DirectX convention.
 pub fn pbr_texture_from_texture_set(
     set: &pack_compile_input::texture_set::TextureSetDefinition,
-    image: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+    image: &mut dyn FnMut(&str) -> Option<(String, Vec<u8>)>,
 ) -> Result<PbrTexture, String> {
     use pack_compile_input::texture_set::TextureSetLayer;
     sources::texture_from_set(
         set,
         PbrColorStyle::Unspecified,
         PbrNormalFormat::DirectX,
-        &mut |layer, channels, _| match layer {
+        &mut |layer, channels, source| match layer {
             TextureSetLayer::Uniform(pixel) => Ok(sources::uniform(*pixel)),
             TextureSetLayer::Image(name) => {
-                let bytes = image(name).ok_or_else(|| format!("texture set cannot find {name}"))?;
-                sources::image_bytes(&bytes, channels)
+                let (path, bytes) =
+                    image(name).ok_or_else(|| format!("texture set cannot find {name}"))?;
+                let decoded = sources::image_bytes(&bytes, Path::new(&path), channels)?;
+                *source = Some(path.into());
+                Ok(decoded)
             }
         },
     )

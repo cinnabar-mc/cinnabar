@@ -78,7 +78,7 @@ impl Builder<'_> {
                 continue;
             }
             let decoded =
-                pbr_texture_from_texture_set(&set.definition, &mut |name| set.image(name));
+                pbr_texture_from_texture_set(&set.definition, &mut |name| set.image_file(name));
             let page = match &decoded {
                 Ok(texture) => PbrPages::page_for(texture.native_frame_size()),
                 Err(_) => 0,
