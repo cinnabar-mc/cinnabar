@@ -394,12 +394,6 @@ pub(super) fn fallback(key: &str) -> &str {
         "options.estheticTab.description" => {
             "Display an aesthetic Lunar-style player list overlay with server MOTD and latency indicators."
         }
-        "chat.settings.mentionsTarget" => "Mentions Target",
-        "chat.settings.mentionsTarget.description" => {
-            "Choose whether colored @mentions highlight everyone or only your username"
-        }
-        "chat.settings.mentionsTarget.everyone" => "Everyone",
-        "chat.settings.mentionsTarget.self" => "Only Me",
         "options.renderClouds" => "Render Clouds",
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {

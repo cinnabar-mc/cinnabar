@@ -138,6 +138,26 @@ fn settings_text_preserves_catalog_and_fallback_resolution() {
     }
 }
 
+/// Missing catalog entries use the current mention target labels and help text.
+#[test]
+fn mention_target_fallbacks_use_current_chat_labels() {
+    for (key, expected) in [
+        ("chat.settings.mentionsTarget", "Highlight Mentions"),
+        (
+            "chat.settings.mentionsTarget.description",
+            "Choose which player mentions to highlight",
+        ),
+        ("chat.settings.mentionsTarget.everyone", "Everyone"),
+        ("chat.settings.mentionsTarget.self", "Only Me"),
+    ] {
+        assert_eq!(
+            localization::word(key, Some("en_US"), &|_| None),
+            expected,
+            "{key}"
+        );
+    }
+}
+
 /// Cloud rows display localized titles, help and distance values without a catalog.
 #[test]
 fn cloud_distance_labels_use_the_selected_language() {
