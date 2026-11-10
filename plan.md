@@ -1903,8 +1903,13 @@ acceptance, including device-loss recovery on affected hardware, remains incompl
   r51p0 offline compiler faults on the model and transparent terrain vertex programs because
   bool struct members merge across returns. Those flags are now `u32`, and a test keeps
   terrain structs free of bools. Mali phones have not confirmed the fix, so these vendor
-  workarounds and target-device visual acceptance stay incomplete. Terrain has a
-  four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  workarounds and target-device visual acceptance stay incomplete.
+  Qualcomm's proprietary Adreno driver (not Mesa Turnip) also takes the device lock: Snapdragon
+  tombstones from v0.1.29 to v0.1.31 show two pipeline-creation threads in its compiler, in half of
+  them both faulting at the same instruction, with the failing program changing between launches. No
+  Adreno phone has confirmed that serializing avoids the crash; if it persists, the single
+  compiling thread identifies the failing program.
+  Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
