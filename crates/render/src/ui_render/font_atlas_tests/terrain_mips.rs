@@ -85,6 +85,62 @@ fn opaque_terrain_tints_round_in_gamma_space() {
 }
 
 #[test]
+fn partial_terrain_texels_weight_tint_without_losing_coverage() {
+    let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture("partial inventory tint coverage") else {
+        return;
+    };
+    let tint = [83, 137, 197, 128];
+    let mut quad = vertices(16.);
+    for vertex in &mut quad {
+        vertex.color = tint;
+    }
+    let pixels: Vec<u8> = (0..=255).flat_map(|alpha| [120, 180, 240, alpha]).collect();
+    for terrain in [false, true] {
+        let actual = raster(
+            &gpu,
+            &quad,
+            None,
+            &[0, 1, 2, 0, 2, 3],
+            Page {
+                pixels: &pixels,
+                size: [16; 2],
+                coverage: false,
+                mips: None,
+            },
+            if terrain {
+                render_api::UI_STYLE_TERRAIN_MIPS
+            } else {
+                0
+            },
+        );
+        for alpha in 0..=255usize {
+            let pixel = ((20 + alpha / 16) * 256 + 20 + alpha % 16) * 4;
+            let source_alpha = alpha as f64 / 255.;
+            let coverage = source_alpha * f64::from(tint[3]) / 255.;
+            for (channel, source) in [120., 180., 240.].into_iter().enumerate() {
+                let tint = f64::from(tint[channel]) / 255.;
+                let shade = if terrain {
+                    1. + (tint - 1.) * source_alpha
+                } else {
+                    tint
+                };
+                let expected = (source * shade * coverage
+                    + f64::from(actual[channel]) * (1. - coverage))
+                    .round() as u8;
+                assert!(
+                    actual[pixel + channel].abs_diff(expected) <= 1,
+                    "terrain {terrain}, alpha {alpha}, channel {channel}: {} != {expected}",
+                    actual[pixel + channel],
+                );
+            }
+            let expected_alpha =
+                (coverage * 255. + f64::from(actual[3]) * (1. - coverage)).round() as u8;
+            assert!(actual[pixel + 3].abs_diff(expected_alpha) <= 1);
+        }
+    }
+}
+
+#[test]
 fn half_precision_coordinates_keep_even_ties_subnormals_and_signs() {
     let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture("half precision UI coordinates") else {
         return;
