@@ -377,16 +377,14 @@ impl Builder<'_> {
                 || transform.scale.iter().any(|&axis| axis <= 0.0)
         });
         let visual = match components.geometry.as_deref() {
+            // Blending cubes take the model path: each face keeps its own render layer, and
+            // blended faces stay drawn against identical neighbours.
             None | Some(FULL_BLOCK | FULL_BLOCK_V1)
-                if components.random_offset.is_none() && cube_transform =>
+                if components.random_offset.is_none()
+                    && cube_transform
+                    && !cube_blends(components) =>
             {
-                if cube_blends(components) {
-                    // Each face keeps its own render layer, and blended faces stay drawn against
-                    // identical neighbours, so blending cubes use the full-block model path.
-                    self.model(components, &geometry::Geometry::full_block(), &[])
-                } else {
-                    self.cube(components)
-                }
+                self.cube(components)
             }
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
                 self.model(components, &geometry::Geometry::full_block(), &[])
@@ -406,8 +404,7 @@ impl Builder<'_> {
         visual
     }
 
-    /// Resolves the six world-face materials of a cube, returning whether every face is opaque.
-    fn cube_faces(&mut self, components: &CustomVisualComponents) -> ([u32; 6], bool) {
+    fn cube(&mut self, components: &CustomVisualComponents) -> BlockVisual {
         let rotation = components
             .transformation
             .map_or([0; 3], |transform| transform.rotation);
@@ -429,11 +426,6 @@ impl Builder<'_> {
             opaque &= flags == 0;
             *slot = material;
         }
-        (faces, opaque)
-    }
-
-    fn cube(&mut self, components: &CustomVisualComponents) -> BlockVisual {
-        let (faces, opaque) = self.cube_faces(components);
         // Failed faces keep the diagnostic material so the cube still
         // renders; one missing texture never sinks the other five faces.
         if faces.contains(&DIAGNOSTIC_MATERIAL) {

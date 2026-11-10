@@ -12,9 +12,8 @@ use protocol::CustomVisualComponents;
 use super::{Builder, DIAGNOSTIC_MATERIAL};
 
 impl Builder<'_> {
-    /// Resolves a face's material instance: an explicit geometry name, then the
-    /// face, then `side` for horizontal faces, then `*`.
-    /// Diagnostic fallback keeps the selected instance's sidedness.
+    /// Returns the face's material id, coverage flags and sidedness; diagnostic fallback keeps
+    /// the selected instance's sidedness.
     pub(super) fn face_material(
         &mut self,
         components: &CustomVisualComponents,
@@ -81,7 +80,7 @@ fn ao_exponent_flags(exponent: f32) -> Option<u32> {
 
 /// Resolves a face's material instance: an explicit geometry name, then the face, then `side`
 /// for horizontal faces, then `*`.
-pub(super) fn material_instance<'c>(
+fn material_instance<'c>(
     components: &'c CustomVisualComponents,
     face: &str,
     instance: Option<&str>,

@@ -1,6 +1,6 @@
 //! Material instances of a custom block's visual components.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use protocol_ids::BlockRenderMethod;
 
@@ -60,9 +60,7 @@ fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Optio
     // The first instance of a repeated name is the one a lookup finds.
     let mut index = HashMap::with_capacity(instances.len());
     for (position, instance) in instances.iter().enumerate() {
-        index
-            .entry(std::sync::Arc::clone(&instance.name))
-            .or_insert(position);
+        index.entry(Arc::clone(&instance.name)).or_insert(position);
     }
     for (alias, mapping) in mappings.iter() {
         let Some(target) = mapping.field("value").and_then(Nbt::as_str) else {
@@ -78,7 +76,7 @@ fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Optio
         match index.get(alias) {
             Some(&existing) => instances[existing] = aliased,
             None => {
-                index.insert(std::sync::Arc::clone(&aliased.name), instances.len());
+                index.insert(Arc::clone(&aliased.name), instances.len());
                 instances.push(aliased);
             }
         }
