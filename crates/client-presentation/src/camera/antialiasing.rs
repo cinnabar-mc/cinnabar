@@ -15,6 +15,41 @@ use bevy::{
         renderer::{RenderAdapter, RenderDevice},
     },
 };
+use std::time::Duration;
+
+/// How long a drawing camera's new sample count must stay selected before its pipelines are
+/// requested.
+///
+/// Queued pipeline compiles cannot be cancelled, so without this pause a slider dragged across
+/// several stops would compile every count it passes and delay the one the player settles on.
+pub const SAMPLE_COUNT_SETTLE: Duration = Duration::from_millis(400);
+
+/// The sample count a drawing camera is waiting for and when it was first selected.
+#[derive(Default)]
+pub struct SampleCountSettling(Option<(render_scene::SampleCountRequest, Duration)>);
+
+impl SampleCountSettling {
+    /// Returns `waiting` once it has stayed selected for [`SAMPLE_COUNT_SETTLE`] up to `now`,
+    /// restarting the wait whenever the selection changes.
+    fn settled(
+        &mut self,
+        waiting: Option<render_scene::SampleCountRequest>,
+        now: Duration,
+    ) -> Option<render_scene::SampleCountRequest> {
+        let Some(waiting) = waiting else {
+            self.0 = None;
+            return None;
+        };
+        let since = match self.0 {
+            Some((request, since)) if request == waiting => since,
+            _ => {
+                self.0 = Some((waiting, now));
+                now
+            }
+        };
+        (now.saturating_sub(since) >= SAMPLE_COUNT_SETTLE).then_some(waiting)
+    }
+}
 
 /// Sample counts supported by every color and depth attachment in either graphics mode.
 #[derive(Resource, Clone, Copy, Debug, Default)]
@@ -114,12 +149,16 @@ type AntiAliasedCamera<'a> = (
 /// shader-pack cameras draw single-sampled.
 ///
 /// A drawing camera keeps its old sample count until the renderer reports every pipeline
-/// variant for the new one compiled, so a settings change never skips world draws.
+/// variant for the new one compiled, so a settings change never skips world draws. The new
+/// count is only requested once it has stayed selected for [`SAMPLE_COUNT_SETTLE`] of real time;
+/// without a real clock it is requested at once.
 pub fn apply_camera_antialiasing(
     mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
     support: Res<CameraAntiAliasingSupport>,
     preflight: Option<ResMut<render_scene::SampleCountPreflight>>,
+    time: Option<Res<Time<Real>>>,
+    mut settling: Local<SampleCountSettling>,
     mut cameras: Query<AntiAliasedCamera, With<FlyCamera>>,
 ) {
     let vanilla = support.msaa(settings.anti_aliasing_samples());
@@ -153,10 +192,14 @@ pub fn apply_camera_antialiasing(
             _ => {}
         }
     }
+    let request = match time {
+        Some(time) => settling.settled(waiting, time.elapsed()),
+        None => waiting,
+    };
     if let Some(mut preflight) = preflight
-        && preflight.requested() != waiting
+        && preflight.requested() != request
     {
-        preflight.request(waiting);
+        preflight.request(request);
     }
 }
 
@@ -304,6 +347,57 @@ mod tests {
         assert_eq!(*app.world().get::<Msaa>(drawing).unwrap(), Msaa::Sample8);
         let preflight = app.world().resource::<render_scene::SampleCountPreflight>();
         assert_eq!(preflight.requested(), None);
+    }
+
+    /// Dragging the slider across several stops compiles only the count it comes to rest on,
+    /// and returning to the drawn count compiles nothing.
+    #[test]
+    fn a_slider_sweep_requests_only_the_count_it_settles_on() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .init_resource::<render_scene::SampleCountPreflight>()
+            .init_resource::<Time<Real>>()
+            .insert_resource(CameraAntiAliasingSupport(
+                ui::AntiAliasingSupport::from_counts([1, 2, 4, 8]),
+            ))
+            .add_systems(Update, apply_camera_antialiasing);
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Camera::default(), Msaa::Off))
+            .id();
+        let mut generation = 0;
+        let mut requested = Vec::new();
+        let mut select = |app: &mut App, samples: u32, hold: Duration| {
+            let mut settings = ui::UserSettings::default();
+            settings.video.anti_aliasing_samples = samples;
+            generation += 1;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(generation, &settings)
+                .unwrap();
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .advance_by(hold);
+            app.update();
+            requested.extend(
+                app.world()
+                    .resource::<render_scene::SampleCountPreflight>()
+                    .requested()
+                    .map(|request| request.samples),
+            );
+        };
+        let step = Duration::from_millis(50);
+        for samples in [2, 4, 8, 4, 2, 1] {
+            select(&mut app, samples, step);
+        }
+        for samples in [2, 4, 8] {
+            select(&mut app, samples, step);
+        }
+        select(&mut app, 8, SAMPLE_COUNT_SETTLE);
+        select(&mut app, 8, step);
+        requested.dedup();
+        assert_eq!(requested, [Msaa::Sample8]);
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
     }
 
     /// A pipeline acknowledgement for SDR cannot authorize the new HDR camera configuration.

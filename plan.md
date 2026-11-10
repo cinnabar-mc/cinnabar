@@ -2107,6 +2107,8 @@ Flathub submission remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
   An Anti-Aliasing change keeps the world camera at its old sample count until every warm-up
   and actor variant for the new count and rendering configuration has compiled in the background.
+  The new count's pipelines are requested only after it stays selected for a short settle time, so dragging
+  the slider across stops does not queue compiles for the counts it passes.
   Readiness follows the current views and request, so cancelled sample counts cannot hold it;
   an acknowledgement from another HDR or rendering mode cannot authorize a switch. Pipelines
   outside warm-up still compile on first use, and hardware timing of the switch is unmeasured.
