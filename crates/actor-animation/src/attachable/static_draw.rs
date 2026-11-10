@@ -81,6 +81,19 @@ impl Inputs {
 pub(super) struct StaticDraw {
     pub(super) input: Inputs,
     pub(super) owner_names: Vec<Box<str>>,
+    /// Models of the owner's controller layers, whose bones roots may also follow.
+    pub(super) owner_layers: Vec<u32>,
+}
+
+/// The models the owner's controller layers draw beside its body, in controller order.
+pub(super) fn owner_layer_models<'a>(
+    owner: &'a crate::ActorRigSnapshot<'_>,
+) -> impl Iterator<Item = u32> + 'a {
+    owner
+        .render
+        .iter()
+        .filter(|layer| layer.texture_slot == 0)
+        .filter_map(|layer| layer.geometry)
 }
 
 /// Allows only expressions whose external reads are represented by `Inputs`.
