@@ -14,6 +14,8 @@ use std::{
 use wgpu::util::DeviceExt;
 
 pub const SNAPSHOT_SIDE: u32 = 256;
+const POINT_LIGHT_GROUP: u32 = 1;
+const POINT_LIGHT_BINDING: u32 = 2;
 /// Color retained by pixels where a fixture fragment is discarded.
 pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     r: 0.12,
@@ -120,7 +122,60 @@ fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) 
     }
 }
 
+/// Finds the point-light buffer size when the selected draw or explicit layout needs it.
+fn point_light_size(source: &str, vertex: &str, fragment: &str, explicit: bool) -> Option<u32> {
+    let module = naga::front::wgsl::parse_str(source).expect("fixture shader parses");
+    let (handle, global) = module.global_variables.iter().find(|(_, global)| {
+        global.name.as_deref() == Some("world_point_light")
+            && global.binding.as_ref().is_some_and(|binding| {
+                binding.group == POINT_LIGHT_GROUP && binding.binding == POINT_LIGHT_BINDING
+            })
+    })?;
+    if !explicit {
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("fixture shader validates");
+        let used = module
+            .entry_points
+            .iter()
+            .enumerate()
+            .any(|(index, entry)| {
+                ((entry.stage == naga::ShaderStage::Vertex && entry.name == vertex)
+                    || (entry.stage == naga::ShaderStage::Fragment && entry.name == fragment))
+                    && !info.get_entry_point(index)[handle].is_empty()
+            });
+        if !used {
+            return None;
+        }
+    }
+    let naga::TypeInner::Struct { span, .. } = module.types[global.ty].inner else {
+        panic!("point-light uniform must be a struct");
+    };
+    Some(span)
+}
+
 impl Gpu {
+    /// Keeps explicit fixture layouts compatible with the shared world point-light group.
+    pub fn point_light_layout(&self) -> wgpu::BindGroupLayout {
+        self.device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("disabled fixture point light"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: POINT_LIGHT_BINDING,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            })
+    }
+
     /// Uploads both the raw and byte-truncated tables using the production lightmap layout.
     pub fn lightmap(&self, values: &[f32]) -> wgpu::Buffer {
         let raw: &[[f32; 4]; 256] = bytemuck::cast_slice(values)
@@ -575,6 +630,25 @@ impl Gpu {
                     .or_insert_with(create)
                     .clone()
             };
+            let point_light =
+                point_light_size(source, vertex, draw.fragment, state.layout.is_some()).map(
+                    |size| {
+                        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("disabled fixture point light"),
+                            size: u64::from(size),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                            mapped_at_creation: false,
+                        });
+                        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("disabled fixture point light"),
+                            layout: &pipeline.get_bind_group_layout(POINT_LIGHT_GROUP),
+                            entries: &[wgpu::BindGroupEntry {
+                                binding: POINT_LIGHT_BINDING,
+                                resource: buffer.as_entire_binding(),
+                            }],
+                        })
+                    },
+                );
             let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &pipeline.get_bind_group_layout(0),
@@ -613,6 +687,9 @@ impl Gpu {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
+            if let Some(point_light) = &point_light {
+                pass.set_bind_group(POINT_LIGHT_GROUP, point_light, &[]);
+            }
             pass.draw(
                 draw.vertices.clone(),
                 state.instance_ranges.get(index).cloned().unwrap_or(0..1),
