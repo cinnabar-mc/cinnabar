@@ -230,7 +230,7 @@ impl MarkerBatch {
 fn marker_instances(
     sections: &TerrainMarkerSections,
     layers: u8,
-    mut art: impl FnMut(u32) -> Option<u32>,
+    mut art: impl FnMut(u32, [i32; 3]) -> Option<u32>,
     sprites: &mut Vec<MarkerInstance>,
     boxes: &mut Vec<MarkerInstance>,
 ) {
@@ -243,13 +243,14 @@ fn marker_instances(
             if layers & class.layer() == 0 {
                 continue;
             }
-            let Some(animation) = art(marker.block()) else {
+            let local = marker.local();
+            let block = std::array::from_fn(|axis| origin[axis] + i32::from(local[axis]));
+            let Some(animation) = art(marker.block(), block) else {
                 continue;
             };
-            let local = marker.local();
             let boxed = !class.is_camera_facing();
             let instance = MarkerInstance {
-                block: std::array::from_fn(|axis| origin[axis] + i32::from(local[axis])),
+                block,
                 packed: if boxed { BOX_FLAG } else { 0 }
                     | (u32::from(marker.light()) << LIGHT_SHIFT),
                 animation,
@@ -263,36 +264,70 @@ fn marker_instances(
     }
 }
 
-/// Appends the art a marker block draws with in `assets` and returns its index: the up face's
-/// art for a sprite, or all six faces' for a box. A pack without the art draws nothing.
-fn marker_art(assets: &RuntimeAssets, block: u32, tables: &mut MarkerTables) -> Option<u32> {
-    let resolved = assets.resolve_known(NetworkIdMode::Sequential, block)?;
-    let marker = TerrainMarker::from_variant(resolved.kind(), resolved.variant())?;
-    let material = |face| {
-        let material = resolved.face(face).material_id();
-        (material != DIAGNOSTIC_MATERIAL)
-            .then(|| assets.materials().get(material as usize))
-            .flatten()
-    };
-    let faces = if marker.is_camera_facing() {
-        &[BlockFace::Up][..]
-    } else {
-        &BlockFace::ALL[..]
-    };
-    let materials = faces.iter().map(|&face| material(face)).collect::<Vec<_>>();
-    if materials.iter().all(Option::is_none) {
-        return None;
+/// The base materials a marker block draws with per art face, in [`BlockFace::ALL`] order: the
+/// up face for a sprite, all six for a box. A face without art holds [`DIAGNOSTIC_MATERIAL`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct MarkerFaces {
+    materials: [u32; 6],
+    count: usize,
+}
+
+impl MarkerFaces {
+    /// The faces of a marker block in `assets`, if that pack gives it any art.
+    fn of(assets: &RuntimeAssets, block: u32) -> Option<Self> {
+        let resolved = assets.resolve_known(NetworkIdMode::Sequential, block)?;
+        let marker = TerrainMarker::from_variant(resolved.kind(), resolved.variant())?;
+        let faces = if marker.is_camera_facing() {
+            &[BlockFace::Up][..]
+        } else {
+            &BlockFace::ALL[..]
+        };
+        let mut materials = [DIAGNOSTIC_MATERIAL; 6];
+        for (slot, &face) in materials.iter_mut().zip(faces) {
+            *slot = resolved.face(face).material_id();
+        }
+        let faces = Self {
+            materials,
+            count: faces.len(),
+        };
+        faces
+            .drawn()
+            .iter()
+            .any(|&material| material != DIAGNOSTIC_MATERIAL)
+            .then_some(faces)
     }
-    let first = tables.animations.len() as u32;
-    for material in materials {
-        tables.push(
-            material,
-            assets.animations(),
-            assets.animation_frames(),
-            |texture| marker_texture(assets, texture),
-        );
+
+    fn drawn(&self) -> &[u32] {
+        &self.materials[..self.count]
     }
-    Some(first)
+
+    /// The weighted texture alternative each face draws at the world cell `position`, chosen
+    /// as terrain chooses it.
+    fn at(mut self, materials: &[Material], position: [i32; 3]) -> Self {
+        for material in &mut self.materials[..self.count] {
+            if *material != DIAGNOSTIC_MATERIAL {
+                *material = assets::positional_material_id(materials, *material, position);
+            }
+        }
+        self
+    }
+
+    /// Appends each face's art and returns the first face's index.
+    fn push(self, assets: &RuntimeAssets, tables: &mut MarkerTables) -> u32 {
+        let first = tables.animations.len() as u32;
+        for &material in self.drawn() {
+            let material = (material != DIAGNOSTIC_MATERIAL)
+                .then(|| assets.materials().get(material as usize))
+                .flatten();
+            tables.push(
+                material,
+                assets.animations(),
+                assets.animation_frames(),
+                |texture| marker_texture(assets, texture),
+            );
+        }
+        first
+    }
 }
 
 fn marker_texture(assets: &RuntimeAssets, texture: TextureRef) -> MarkerTexture {
@@ -334,14 +369,21 @@ fn extract_markers(
     let assets = &*textures.assets;
     batch.tables.clear();
     let mut by_block = HashMap::new();
+    let mut by_faces = HashMap::new();
     let mut boxes = Vec::new();
     marker_instances(
         &sections,
         layers,
-        |block| {
-            *by_block
+        |block, position| {
+            let faces = (*by_block
                 .entry(block)
-                .or_insert_with(|| marker_art(assets, block, &mut batch.tables))
+                .or_insert_with(|| MarkerFaces::of(assets, block)))?
+            .at(assets.materials(), position);
+            Some(
+                *by_faces
+                    .entry(faces)
+                    .or_insert_with(|| faces.push(assets, &mut batch.tables)),
+            )
         },
         &mut batch.instances,
         &mut boxes,

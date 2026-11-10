@@ -32,7 +32,7 @@ fn instances(
     marker_instances(
         sections,
         layers,
-        |block| (block == ART_BLOCK).then_some(ART),
+        |block, _| (block == ART_BLOCK).then_some(ART),
         &mut sprites,
         &mut boxes,
     );
@@ -186,4 +186,38 @@ fn flipbook_art_keeps_its_frames_and_timing() {
             .collect::<Vec<_>>(),
         [4, 10, 11]
     );
+}
+
+/// Marker art with weighted alternatives picks the one terrain would draw at each world cell,
+/// face by face, while faces without art stay empty.
+#[test]
+fn weighted_marker_art_picks_each_cells_alternative() {
+    let leaf = |weight: f32| Material {
+        variation_weight: weight.to_bits(),
+        ..Material::unvaried()
+    };
+    let materials = [
+        Material::unvaried(),
+        Material {
+            variation_start: 2,
+            variation_count: 2,
+            ..Material::unvaried()
+        },
+        leaf(0.25),
+        leaf(0.75),
+    ];
+    let mut faces = [DIAGNOSTIC_MATERIAL; 6];
+    faces[3] = 1;
+    let faces = MarkerFaces {
+        materials: faces,
+        count: 6,
+    };
+    let at = |position| faces.at(&materials, position).materials;
+    let expected = |pick| {
+        let mut faces = [DIAGNOSTIC_MATERIAL; 6];
+        faces[3] = pick;
+        faces
+    };
+    assert_eq!(at([0, 0, 0]), expected(2));
+    assert_eq!(at([-1, 0, -1]), expected(3));
 }
