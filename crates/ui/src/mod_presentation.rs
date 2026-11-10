@@ -501,7 +501,6 @@ mod tests {
                 text: "Help".into(),
                 action: "help".into(),
             }],
-            ..Default::default()
         };
         let both = ActorGrants {
             players: true,
