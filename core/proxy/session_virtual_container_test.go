@@ -143,6 +143,47 @@ func TestVirtualContainerCloseAckOrder(t *testing.T) {
 	writeContainerTestPacket(t, session, close, close)
 }
 
+func TestVirtualContainerReplacementBeforeClientCloseRead(t *testing.T) {
+	for _, oldType := range []byte{255, 0} {
+		for _, replacementType := range []byte{255, 0} {
+			for _, ackFirst := range []bool{false, true} {
+				t.Run(fmt.Sprintf("old_type=%d/replacement_type=%d/ack_first=%t", oldType, replacementType, ackFirst), func(t *testing.T) {
+					session := containerTestSession()
+					open := &packet.ContainerOpen{WindowID: 9, ContainerType: oldType, ContainerEntityUniqueID: 51003}
+					translatedOpen := *open
+					translatedOpen.ContainerType = 0
+					writeContainerTestPacket(t, session, open, &translatedOpen)
+
+					clientClose := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: 0}
+					frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(clientClose))
+					session.frames <- sessionRead{frame: frame}
+					open.ContainerType = replacementType
+					writeContainerTestPacket(t, session, open, &translatedOpen)
+
+					serverClose := *clientClose
+					serverClose.ContainerType = oldType
+					if got, want := readQueuedContainerTestClose(t, session), encodeTestPacket(&serverClose); !bytes.Equal(got, want) {
+						t.Fatalf("delayed client close = %x, want %x", got, want)
+					}
+
+					forced := &packet.ContainerClose{WindowID: open.WindowID, ContainerType: replacementType, ServerSide: true}
+					closes := []*packet.ContainerClose{forced, &serverClose}
+					if ackFirst {
+						closes[0], closes[1] = closes[1], closes[0]
+					}
+					for _, close := range closes {
+						translated := *close
+						translated.ContainerType = 0
+						writeContainerTestPacket(t, session, close, &translated)
+					}
+					forced.ContainerType = 255
+					writeContainerTestPacket(t, session, forced, forced)
+				})
+			}
+		}
+	}
+}
+
 func TestInventoryDiagnosticsBoundContentWithoutDroppingRawPacket(t *testing.T) {
 	previous := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(previous) })
@@ -179,6 +220,7 @@ func containerTestSession() *sessionConn {
 		clientPool:          minecraft.DefaultProtocol.Packets(true),
 		serverPool:          minecraft.DefaultProtocol.Packets(false),
 		virtualWindows:      make(map[byte]bool),
+		retiringWindowOpens: make(map[byte][]bool),
 		pendingWindowCloses: make(map[byte][]bool),
 	}
 }
@@ -216,6 +258,12 @@ func readContainerTestClose(t *testing.T, session *sessionConn, close *packet.Co
 	t.Helper()
 	frame := appendSessionBatchPacket([]byte{bridgecontract.SessionKindBatch}, encodeTestPacket(close))
 	session.frames <- sessionRead{frame: frame}
+	return readQueuedContainerTestClose(t, session)
+}
+
+// readQueuedContainerTestClose consumes one server-bound close from a queued client batch.
+func readQueuedContainerTestClose(t *testing.T, session *sessionConn) []byte {
+	t.Helper()
 	packets, err := session.ReadBatchRaw(func(id uint32) bool { return id == packet.IDContainerClose })
 	if err != nil {
 		t.Fatal(err)

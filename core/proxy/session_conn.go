@@ -40,6 +40,7 @@ type sessionConn struct {
 
 	virtualWindowsMu    sync.Mutex
 	virtualWindows      map[byte]bool
+	retiringWindowOpens map[byte][]bool // replaced opens awaiting their client close, oldest first
 	pendingWindowCloses map[byte][]bool // virtual translations for client closes, in send order
 
 	trace       *latencytrace.Trace // nil unless tracing; the rest are guarded by writeMu
@@ -63,6 +64,7 @@ func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 		clientPool:          minecraft.DefaultProtocol.Packets(true),
 		serverPool:          minecraft.DefaultProtocol.Packets(false),
 		virtualWindows:      make(map[byte]bool),
+		retiringWindowOpens: make(map[byte][]bool),
 		pendingWindowCloses: make(map[byte][]bool),
 	}
 	if trace := latencytrace.Active(); trace != nil {
@@ -147,7 +149,16 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 					// Keep the acknowledgement separate from any replacement window.
 					session.virtualWindowsMu.Lock()
 					wasVirtual := session.virtualWindows[pk.WindowID]
-					delete(session.virtualWindows, pk.WindowID)
+					if retiring := session.retiringWindowOpens[pk.WindowID]; len(retiring) != 0 {
+						wasVirtual = retiring[0]
+						if len(retiring) == 1 {
+							delete(session.retiringWindowOpens, pk.WindowID)
+						} else {
+							session.retiringWindowOpens[pk.WindowID] = retiring[1:]
+						}
+					} else {
+						delete(session.virtualWindows, pk.WindowID)
+					}
 					session.pendingWindowCloses[pk.WindowID] = append(session.pendingWindowCloses[pk.WindowID], wasVirtual)
 					session.virtualWindowsMu.Unlock()
 
@@ -200,6 +211,9 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 				)
 				isVirtual := pk.ContainerType == 255 && pk.WindowID != protocol.WindowIDInventory
 				session.virtualWindowsMu.Lock()
+				if previous, ok := session.virtualWindows[pk.WindowID]; ok {
+					session.retiringWindowOpens[pk.WindowID] = append(session.retiringWindowOpens[pk.WindowID], previous)
+				}
 				session.virtualWindows[pk.WindowID] = isVirtual
 				session.virtualWindowsMu.Unlock()
 
