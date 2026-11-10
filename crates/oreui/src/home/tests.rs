@@ -31,20 +31,41 @@ fn screen_origin(nodes: &[ui::UiNode], node: &ui::UiNode) -> [f32; 2] {
 }
 
 #[test]
-fn marketplace_browsing_is_reachable_without_an_account_or_idle_library() {
+fn marketplace_browsing_is_hidden_with_or_without_an_account() {
     for auth in [
         launcher::menu::auth::AuthState::SignedOut,
         launcher::menu::auth::AuthState::Authenticated,
     ] {
         let mut view = view();
         view.auth_state = auth;
-        std::sync::Arc::make_mut(&mut view.mods).library.busy = true;
-        let (_, hits, _) = paint(HashMap::new(), |canvas| {
-            draw(canvas, &view, [1280.0, 720.0], None, &|_| None).unwrap();
-        });
-        assert!(hits.iter().any(|(action, _)| {
-            *action == MenuAction::Mods(launcher::mods::Action::BrowseMarketplace)
-        }));
+        for size in [[1280.0, 720.0], [480.0, 340.0]] {
+            let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+                draw(canvas, &view, size, None, &|_| None).unwrap();
+            });
+            assert!(
+                !hits
+                    .iter()
+                    .any(|(action, _)| matches!(action, MenuAction::Mods(_)))
+            );
+            let text = nodes
+                .iter()
+                .filter_map(|node| match node.visual() {
+                    UiVisual::Text { layout, .. } => Some(
+                        layout
+                            .glyphs()
+                            .iter()
+                            .map(|glyph| glyph.codepoint)
+                            .collect::<String>(),
+                    ),
+                    _ => None,
+                })
+                .collect::<String>();
+            assert!(!text.to_ascii_lowercase().contains("marketplace"));
+            assert!(
+                hits.iter()
+                    .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Settings))
+            );
+        }
     }
 }
 
@@ -145,7 +166,6 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             MenuAction::Navigate(MenuScreen::Play),
             MenuAction::Navigate(MenuScreen::Servers),
             MenuAction::Navigate(MenuScreen::Settings),
-            MenuAction::Mods(launcher::mods::Action::BrowseMarketplace),
             MenuAction::Navigate(MenuScreen::Social),
             MenuAction::Navigate(MenuScreen::DressingRoom),
             MenuAction::OpenAccounts,
@@ -269,7 +289,7 @@ fn update_ready_notice_leaves_quit_and_play_reachable() {
 }
 
 #[test]
-fn idle_secondary_actions_paint_the_same_button_face_as_servers() {
+fn idle_realms_action_paints_the_same_button_face_as_servers() {
     let view = view();
     let (_, hits, nodes) = paint(HashMap::new(), |c| {
         draw(c, &view, [1280.0, 720.0], None, &|_| None).unwrap();
@@ -296,10 +316,8 @@ fn idle_secondary_actions_paint_the_same_button_face_as_servers() {
     };
     let servers = visible_fills(MenuAction::Navigate(MenuScreen::Servers));
     assert!(!servers.is_empty());
-    for action in [
-        MenuAction::Navigate(MenuScreen::Social),
-        MenuAction::Mods(launcher::mods::Action::BrowseMarketplace),
-    ] {
-        assert_eq!(visible_fills(action), servers, "{action:?}");
-    }
+    assert_eq!(
+        visible_fills(MenuAction::Navigate(MenuScreen::Social)),
+        servers
+    );
 }

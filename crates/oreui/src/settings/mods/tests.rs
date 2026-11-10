@@ -9,10 +9,48 @@ use {
 };
 
 #[test]
-fn empty_library_offers_marketplace_and_sign_in_without_blocking_local_imports() {
+fn marketplace_browsing_is_hidden_for_empty_and_populated_libraries() {
+    use launcher::menu::auth::AuthState;
+    for auth in [AuthState::SignedOut, AuthState::Authenticated] {
+        for populated in [false, true] {
+            for busy in [false, true] {
+                let mut view = MenuView::new(true, "Player".into());
+                view.auth_state = auth.clone();
+                let snapshot = Arc::make_mut(&mut view.mods);
+                snapshot.library.busy = busy;
+                if populated {
+                    snapshot.library.installed.push(installed(1, "zoom"));
+                    snapshot.library.active.push(ActiveMod {
+                        id: 1,
+                        status: Status::Running,
+                    });
+                }
+                let (hits, labels, _) = render_view(view, &HashMap::new(), 800.0);
+                assert!(!labels.concat().to_ascii_lowercase().contains("marketplace"));
+                assert!(hits.iter().all(|action| !matches!(action,
+                    MenuAction::Mods(action) if !matches!(action,
+                        Action::Import | Action::ReloadAll | Action::ToggleActive
+                        | Action::ToggleAvailable | Action::ReadMore(_)
+                    )
+                )));
+                assert_eq!(hits.contains(&command(Action::Import)), !busy);
+                assert_eq!(
+                    hits.contains(&command(Action::ReloadAll)),
+                    populated && !busy
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn empty_library_offers_sign_in_and_local_imports() {
     let (hits, labels) = render(Snapshot::default());
-    assert!(labels.iter().any(|label| label == "Browse marketplace"));
-    assert!(hits.contains(&command(Action::BrowseMarketplace)));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Import a .wasm file to add a mod.")
+    );
     assert!(hits.contains(&MenuAction::StartSignIn));
     assert!(hits.contains(&command(Action::Import)));
     assert!(
@@ -57,7 +95,6 @@ fn marketplace_guidance_uses_the_current_authentication_step() {
         view.auth_state = auth;
         let (hits, labels, _) = render_view(view, &HashMap::new(), 800.0);
         assert!(labels.iter().any(|label| label == title), "{title}");
-        assert!(hits.contains(&command(Action::BrowseMarketplace)));
         for candidate in [MenuAction::StartSignIn, MenuAction::OpenSignInLink] {
             assert_eq!(
                 hits.contains(&candidate),
@@ -70,12 +107,11 @@ fn marketplace_guidance_uses_the_current_authentication_step() {
 }
 
 #[test]
-fn busy_library_preserves_delivery_messages_and_marketplace_browsing() {
+fn busy_library_preserves_delivery_messages() {
     let mut snapshot = Snapshot::default();
     snapshot.library.busy = true;
     snapshot.library.message = "Preparing zoom from the marketplace…".into();
     let (hits, labels) = render(snapshot.clone());
-    assert!(hits.contains(&command(Action::BrowseMarketplace)));
     assert!(!hits.contains(&command(Action::Import)));
     assert!(
         labels
@@ -85,24 +121,24 @@ fn busy_library_preserves_delivery_messages_and_marketplace_browsing() {
 }
 
 #[test]
-fn marketplace_action_keeps_keyboard_focus_at_narrow_widths() {
-    let browse = command(Action::BrowseMarketplace);
+fn import_action_keeps_keyboard_focus_at_narrow_widths() {
+    let import = command(Action::Import);
     for width in [220.0, 400.0, 800.0] {
         let (hits, labels, _) = render_at(
             Snapshot::default(),
             &HashMap::new(),
             width,
             None,
-            Some(browse),
+            Some(import),
         );
-        assert_eq!(hits.first(), Some(&browse));
+        assert_eq!(hits.first(), Some(&import));
         assert!(hits.contains(&MenuAction::StartSignIn));
         assert!(hits.contains(&command(Action::Import)));
         assert!(labels.iter().any(|label| {
             label
                 .chars()
                 .filter(|character| !character.is_whitespace())
-                .eq("Browsemarketplace".chars())
+                .eq("Importmod…".chars())
         }));
     }
 }
@@ -538,7 +574,7 @@ fn header_activation_discloses_the_whole_card_and_hides_every_action_on_collapse
         assert!(
             !hits.iter().any(|action| matches!(action,
                 MenuAction::Mods(action) if !matches!(action,
-                    Action::BrowseMarketplace | Action::Import | Action::ReloadAll | Action::ToggleActive
+                    Action::Import | Action::ReloadAll | Action::ToggleActive
                     | Action::ToggleAvailable | Action::ReadMore(_)
                 )
             )),

@@ -1,8 +1,9 @@
 # Marketplace installation
 
-Choose **Mod marketplace** on Home, or **Browse marketplace** in Settings → Mods,
-to open the official catalogue. Sign in with the same Xbox account in the client and on the website,
-then choose **Add to Cinnabar** on a mod page. New downloads appear under
+The in-game marketplace entry points are hidden until the marketplace launches
+publicly. Signed installs, library sync, revocation checks and updates remain available.
+Sign in with the same Xbox account in the client and on the website, then choose
+**Add to Cinnabar** on a mod page. New downloads appear under
 **My mods** and stay disabled until you choose **Enable** and review permissions.
 Account guidance explains sign-in; delivery messages report preparation and
 download failures separately. Local imports remain available without sign-in.

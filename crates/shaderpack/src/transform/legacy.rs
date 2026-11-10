@@ -462,7 +462,7 @@ pub(super) fn rewrite(
     let src = &sized;
     let struct_names: HashSet<_> = src
         .windows(3)
-        .filter(|tokens| tokens[0].is("struct") && tokens[2].is("{"))
+        .filter(|tokens| tokens[0].ident() == Some("struct") && tokens[2].is("{"))
         .filter_map(|tokens| tokens[1].ident())
         .collect();
     let mut out = Legacy {
