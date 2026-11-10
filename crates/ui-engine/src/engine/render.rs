@@ -249,19 +249,12 @@ fn paint_nodes(
     ];
     let placed = art
         .placement
-        .and_then(|placement| placement.shift(render, root, f64::from(canvas.px)));
+        .and_then(|placement| placement.shift(render, root, canvas.metrics.gui_scale));
     for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
-        let moved = placed
-            .filter(|(control, _)| index < overlay_start && super::under_control(node, control))
-            .map(|(_, shift)| {
-                let mut moved = node.clone();
-                moved.dest.x += shift[0];
-                moved.dest.y += shift[1];
-                moved.clip.x += shift[0];
-                moved.clip.y += shift[1];
-                moved
-            });
-        let node = moved.as_ref().unwrap_or(node);
+        let shift = placed
+            .as_ref()
+            .filter(|_| index < overlay_start)
+            .and_then(|placed| placed.for_node(node));
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             canvas.enter_filter(node)?;
             let start = canvas.nodes.len();
@@ -270,13 +263,13 @@ fn paint_nodes(
                 .filter(|observer| node.paint_region == Some(observer.region))
             {
                 let (painted, bounds) =
-                    canvas.capture_paint_bounds(|canvas| canvas.paint(node, renderers));
+                    canvas.capture_paint_bounds(|canvas| canvas.paint(node, shift, renderers));
                 if let Some(bounds) = bounds {
                     observer.bounds.include(bounds);
                 }
                 painted?;
             } else {
-                canvas.paint(node, renderers)?;
+                canvas.paint(node, shift, renderers)?;
             }
             let lifted = index >= overlay_start
                 || matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);

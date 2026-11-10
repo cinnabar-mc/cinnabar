@@ -40,6 +40,8 @@ pub use paint_bounds::{PaintBounds, PaintObserver};
 pub mod layout_task;
 mod paint_transform;
 pub mod pixel_snap;
+mod placement;
+pub use placement::ControlPlacement;
 mod render;
 mod retained_paint;
 pub use retained_paint::RetainedPaint;
@@ -554,67 +556,6 @@ pub struct ScreenArt<'a> {
     pub placement: Option<ControlPlacement<'a>>,
 }
 
-/// Where a control paints instead of where it is laid out: the point of its drawn box at the
-/// fractions `anchor` lies on the same fractions of the screen, moved by `offset` GUI units and
-/// kept on screen.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ControlPlacement<'a> {
-    /// The namespace and name of the definition the control instantiates. Screens and packs
-    /// name the instance as they like, as vanilla's `sidebar@scoreboard.scoreboard_sidebar`.
-    pub definition: [&'a str; 2],
-    pub anchor: [f64; 2],
-    pub offset: [f64; 2],
-}
-
-impl ControlPlacement<'_> {
-    /// The control's instance name, and the GUI units that move its drawn box in `render` to
-    /// this placement on a `root` sized screen, in whole physical pixels so its text snaps as it
-    /// did where laid out. None while the screen has no such control or it draws nothing.
-    fn shift<'r>(
-        &self,
-        render: &'r json_ui::FormRender,
-        root: [f64; 2],
-        px: f64,
-    ) -> Option<(&'r str, [f64; 2])> {
-        let [namespace, name] = self.definition;
-        let control = render.bound.find(&|control| {
-            control
-                .base
-                .as_ref()
-                .is_some_and(|base| base.namespace == namespace && base.name == name)
-        })?;
-        let mut edges: Option<[f64; 4]> = None;
-        for node in render
-            .nodes
-            .iter()
-            .filter(|node| under_control(node, &control.name))
-        {
-            let rect = node.dest;
-            edges = Some(edges.map_or(
-                [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h],
-                |edges| {
-                    [
-                        edges[0].min(rect.x),
-                        edges[1].min(rect.y),
-                        edges[2].max(rect.x + rect.w),
-                        edges[3].max(rect.y + rect.h),
-                    ]
-                },
-            ));
-        }
-        let [left, top, right, bottom] = edges?;
-        let shift = |axis: usize, start: f64, end: f64| {
-            let room = (root[axis] - (end - start)).max(0.);
-            let origin = (room * self.anchor[axis] + self.offset[axis]).clamp(0., room);
-            ((origin - start) * px).round() / px
-        };
-        Some((
-            &control.name,
-            [shift(0, left, right), shift(1, top, bottom)],
-        ))
-    }
-}
-
 /// Whether `node` lies under a control named `control`.
 fn under_control(node: &DrawNode, control: &str) -> bool {
     node.key
@@ -849,10 +790,11 @@ impl Canvas<'_> {
     fn paint(
         &mut self,
         node: &DrawNode,
+        shift: Option<[f64; 2]>,
         renderers: &mut [&mut dyn CustomRenderer],
     ) -> Result<(), PaintError> {
         let start = self.nodes.len();
-        let painted = self.paint_draw(node, renderers);
+        let painted = self.paint_draw(node, shift, renderers);
         self.transform_painted(start);
         self.tag_filtered(start);
         self.length_scale = 1.0;
@@ -862,6 +804,7 @@ impl Canvas<'_> {
     fn paint_draw(
         &mut self,
         node: &DrawNode,
+        shift: Option<[f64; 2]>,
         renderers: &mut [&mut dyn CustomRenderer],
     ) -> Result<(), PaintError> {
         if let Draw::Sprite { texture, .. } = &node.draw
@@ -881,12 +824,15 @@ impl Canvas<'_> {
         {
             return Ok(());
         }
-        let drawn = node.animate(
+        let mut drawn = node.animate(
             &mut self.animator,
             self.now,
             self.art.clocks,
             Some(&self.textures),
         );
+        if let Some(shift) = shift {
+            placement::translate(&mut drawn, shift);
+        }
         let floats =
             matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
         let clip = if floats {
