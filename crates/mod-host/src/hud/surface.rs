@@ -134,23 +134,18 @@ pub(in super::super) fn set_hidden(
     if let Err(error) = admit(state)? {
         return Ok(Err(error));
     }
-    let position = state.hud.staged_hidden().hides_position();
-    state.hud.pending_hidden = Some(
-        HiddenElements::from_elements(elements.into_iter().map(element)).with_position(position),
-    );
+    state.hud.pending_hidden = Some(HiddenElements::from_elements(
+        elements.into_iter().map(element),
+    ));
     Ok(Ok(()))
 }
 
-/// Stages whether the vanilla position line is hidden, keeping the staged hidden elements.
-pub(in super::super) fn set_position_hidden(
-    state: &mut State,
-    hidden: bool,
-) -> Result<Result<(), String>> {
-    if let Err(error) = admit(state)? {
-        return Ok(Err(error));
+/// Whether the player had hidden the HUD in the last laid-out frame.
+pub(in super::super) fn hud_hidden(state: &State) -> Result<bool, String> {
+    if !state.grants.hud {
+        return Err("HUD capability denied".into());
     }
-    state.hud.pending_hidden = Some(state.hud.staged_hidden().with_position(hidden));
-    Ok(Ok(()))
+    Ok(state.hud.hud_hidden)
 }
 
 /// Every vanilla element's last observed state, in enum order.
@@ -183,6 +178,7 @@ fn element(element: wit::VanillaElement) -> VanillaElement {
         wit::VanillaElement::StatusEffects => VanillaElement::StatusEffects,
         wit::VanillaElement::Sidebar => VanillaElement::Sidebar,
         wit::VanillaElement::Hunger => VanillaElement::Hunger,
+        wit::VanillaElement::Position => VanillaElement::Position,
     }
 }
 
@@ -193,5 +189,6 @@ fn wire(element: VanillaElement) -> wit::VanillaElement {
         VanillaElement::StatusEffects => wit::VanillaElement::StatusEffects,
         VanillaElement::Sidebar => wit::VanillaElement::Sidebar,
         VanillaElement::Hunger => wit::VanillaElement::Hunger,
+        VanillaElement::Position => wit::VanillaElement::Position,
     }
 }

@@ -408,6 +408,7 @@ fn presentation_reads_share_grants_budget_and_revocation() {
         position: (1., 2., 3.),
         alive: true,
         runtime_id: 1,
+        vehicle: None,
     });
     assert!(state.read_fps().unwrap().is_err());
     assert!(state.read_world().unwrap().is_err());
@@ -573,6 +574,7 @@ fn observed_actor(runtime_id: u64, player: bool) -> crate::ObservedActor {
             sneaking: false,
             hurt: false,
             health: Some(10.),
+            vehicle: None,
         },
         max_health: Some(40.),
     }

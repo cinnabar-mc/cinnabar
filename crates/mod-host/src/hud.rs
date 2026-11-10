@@ -37,6 +37,8 @@ pub(super) struct HudState {
     pub viewport: Option<HudViewport>,
     /// Vanilla element states of the last laid-out frame.
     pub elements: ElementStates,
+    /// Whether the player had hidden the HUD in the last laid-out frame.
+    pub hud_hidden: bool,
     pub text: Option<Arc<dyn HudTextMeasure>>,
 }
 
@@ -55,6 +57,7 @@ impl HudState {
             measures: 0,
             viewport: self.viewport,
             elements: self.elements,
+            hud_hidden: self.hud_hidden,
             text: self.text.clone(),
         }
     }
@@ -105,6 +108,7 @@ impl HudState {
             measures,
             viewport: _,
             elements: _,
+            hud_hidden: _,
             text: _,
         } = self;
         *pending_surface = None;
@@ -130,14 +134,10 @@ impl HudState {
         *self = Self {
             viewport: self.viewport,
             elements: self.elements,
+            hud_hidden: self.hud_hidden,
             text: self.text.take(),
             ..Self::default()
         };
-    }
-
-    /// The hidden set this callback has staged, or the committed one.
-    pub(super) fn staged_hidden(&self) -> HiddenElements {
-        self.pending_hidden.unwrap_or(self.hidden)
     }
 
     /// Resets per-callback read budgets.

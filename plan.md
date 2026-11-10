@@ -2353,8 +2353,9 @@ Flathub submission remain incomplete.
   in the remaining patches. Selection, collision and destruction overlays are unchanged.
   World changes and rule removal restore ordinary meshing. Headless module captures verify
   activation, restoration, breaking and outlines; pack-reload and performance qualification remain open.
-- The mod `presentation` capability sets native nametag parameters, per-actor nametag and
-  player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
+- The mod `presentation` capability sets native nametag parameters, nametag visibility by
+  actor kind and per actor, per-actor nametag and player-list annotation spans, overlay tints
+  for every actor or one actor while hurt or not hurt, item tooltip
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
   item, potion and effect tables and the installation's food; `player-state` reports the server
   world clock, totem activations as combat events and each admitted actor's life, which changes

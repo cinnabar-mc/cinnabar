@@ -61,7 +61,7 @@ impl BoundsCache {
             self.font = Some(font.identity());
             self.style = style.cloned();
         }
-        if style.is_some_and(|style| style.hide) || anchor.lines.is_empty() {
+        if anchor.lines.is_empty() {
             return false;
         }
         let cached = self.entries.get_mut(&anchor.runtime_id).filter(|cached| {

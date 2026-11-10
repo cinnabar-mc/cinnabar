@@ -99,10 +99,20 @@ fn loading_gap_clears_actor_presentation_before_deferred_destination_callbacks()
                     a: 1.,
                 };
                 state
-                    .set_actor_tints(vec![wit::ActorTint {
-                        runtime_id: 42,
-                        color: white,
-                    }])?
+                    .set_actor_tints(vec![
+                        wit::ActorTint {
+                            target: wit::TintTarget::Actor(42),
+                            state: wit::TintState::NotHurt,
+                            body: Some(white),
+                            armor: Some(white),
+                        },
+                        wit::ActorTint {
+                            target: wit::TintTarget::EveryActor,
+                            state: wit::TintState::Hurt,
+                            body: Some(white),
+                            armor: None,
+                        },
+                    ])?
                     .unwrap();
                 state
                     .set_annotations(vec![wit::Annotation {
@@ -116,7 +126,6 @@ fn loading_gap_clears_actor_presentation_before_deferred_destination_callbacks()
                         roster_position: wit::AnnotationPosition::Before,
                     }])?
                     .unwrap();
-                state.set_hurt_overlay(Some(white), None)?.unwrap();
                 Ok(())
             })
             .unwrap();
@@ -226,13 +235,15 @@ fn stage_world_output(state: &mut State) -> Result<()> {
     state.emit("fixture".into(), vec![1.])?.unwrap();
     state
         .set_actor_tints(vec![presentation::ActorTint {
-            runtime_id: 42,
-            color: Rgba {
+            target: presentation::TintTarget::Actor(42),
+            state: presentation::TintState::NotHurt,
+            body: Some(Rgba {
                 r: 1.,
                 g: 1.,
                 b: 1.,
                 a: 1.,
-            },
+            }),
+            armor: None,
         }])?
         .unwrap();
     Ok(())

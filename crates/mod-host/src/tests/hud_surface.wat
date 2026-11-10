@@ -1,7 +1,7 @@
 (component
   (type $viewport (record (field "width" f32) (field "height" f32) (field "scale" f32)))
   (type $font (enum "native" "sans"))
-  (type $element (enum "crosshair" "status-effects" "sidebar" "hunger"))
+  (type $element (enum "crosshair" "status-effects" "sidebar" "hunger" "position"))
   (import "$HUD" (instance $hud
     (export "viewport" (type $v (eq $viewport)))
     (export "font" (type $f (eq $font)))
@@ -11,13 +11,13 @@
     (export "read-viewport" (func (result (option $v))))
     (export "measure-text" (func (param "text" string) (param "font" $f) (result (result f32 (error string)))))
     (export "set-hidden-elements" (func (param "elements" (list $e)) (result (result (error string)))))
-    (export "set-position-hidden" (func (param "hidden" bool) (result (result (error string)))))))
+    (export "read-hud-hidden" (func (result (result bool (error string)))))))
   (alias export $hud "set-surface" (func $set))
   (alias export $hud "update-surface" (func $update))
   (alias export $hud "read-viewport" (func $viewport))
   (alias export $hud "measure-text" (func $measure))
   (alias export $hud "set-hidden-elements" (func $hide))
-  (alias export $hud "set-position-hidden" (func $position))
+  (alias export $hud "read-hud-hidden" (func $hud-hidden))
   (core module $memory-module
     (memory (export "memory") 4)
     (func (export "realloc") (param i32 i32 i32 i32) (result i32) i32.const 131072))
@@ -29,19 +29,20 @@
   (core func $lower-viewport (canon lower (func $viewport) (memory $memory) (realloc $realloc)))
   (core func $lower-measure (canon lower (func $measure) (memory $memory) (realloc $realloc)))
   (core func $lower-hide (canon lower (func $hide) (memory $memory) (realloc $realloc)))
-  (core func $lower-position (canon lower (func $position) (memory $memory) (realloc $realloc)))
+  (core func $lower-hud-hidden (canon lower (func $hud-hidden) (memory $memory) (realloc $realloc)))
   (core module $code
     (import "host" "set" (func $set (param i32 i32 i32)))
     (import "host" "update" (func $update (param i32 i32 i32)))
     (import "host" "viewport" (func $viewport (param i32)))
     (import "host" "measure" (func $measure (param i32 i32 i32 i32)))
     (import "host" "hide" (func $hide (param i32 i32 i32)))
-    (import "host" "position" (func $position (param i32 i32)))
+    (import "host" "hud-hidden" (func $hud-hidden (param i32)))
     (import "host" "memory" (memory 4))
     (data (i32.const 0) "$SURFACE")
     (data (i32.const 65536) "$PATCH")
     (data (i32.const 98304) "$TEXT")
     (data (i32.const 98400) "\00\03")
+    (data (i32.const 98410) "\04")
     ;; Results land at 98560; viewport reads at 98600; measured widths are stored at 98700.
     (func $surface
       i32.const 0 i32.const $SURFACE_LENGTH i32.const 98560 call $set
@@ -57,11 +58,20 @@
     (func $show-all
       i32.const 98400 i32.const 0 i32.const 98560 call $hide)
     (func $hide-position
-      i32.const 1 i32.const 98560 call $position
+      i32.const 98410 i32.const 1 i32.const 98560 call $hide
       i32.const 98560 i32.load8_u i32.const $ERROR i32.ne if unreachable end)
-    (func $show-position
-      i32.const 0 i32.const 98560 call $position
-      i32.const 98560 i32.load8_u i32.const $ERROR i32.ne if unreachable end)
+    ;; The bool payload of result<bool, string> sits after the discriminant, at offset 4.
+    (func $require-hud-hidden
+      i32.const 98560 call $hud-hidden
+      i32.const 98560 i32.load8_u if unreachable end
+      i32.const 98564 i32.load8_u i32.eqz if unreachable end)
+    (func $require-hud-shown
+      i32.const 98560 call $hud-hidden
+      i32.const 98560 i32.load8_u if unreachable end
+      i32.const 98564 i32.load8_u if unreachable end)
+    (func $require-hud-denied
+      i32.const 98560 call $hud-hidden
+      i32.const 98560 i32.load8_u i32.eqz if unreachable end)
     (func $require-viewport
       i32.const 98600 call $viewport
       i32.const 98600 i32.load8_u i32.eqz if unreachable end
@@ -82,7 +92,7 @@
     (export "viewport" (func $lower-viewport))
     (export "measure" (func $lower-measure))
     (export "hide" (func $lower-hide))
-    (export "position" (func $lower-position))
+    (export "hud-hidden" (func $lower-hud-hidden))
     (export "memory" (memory $memory)))
   (core instance $run (instantiate $code (with "host" (instance $host))))
   (func (export "init") (canon lift (core func $run "init")))

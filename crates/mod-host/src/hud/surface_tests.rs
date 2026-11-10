@@ -284,6 +284,8 @@ fn hud_imports_are_denied_without_hud_authority() {
     });
     assert!(surface::viewport(&state).is_none());
     assert!(surface::elements(&state).is_err());
+    state.hud.hud_hidden = true;
+    assert!(surface::hud_hidden(&state).is_err());
     assert!(surface::measure(&mut state, "x", wit::Font::Native).is_err());
 }
 
@@ -336,7 +338,8 @@ fn element_reads_follow_enum_order_and_hiding_replaces_the_set() {
             wit::VanillaElement::Crosshair,
             wit::VanillaElement::StatusEffects,
             wit::VanillaElement::Sidebar,
-            wit::VanillaElement::Hunger
+            wit::VanillaElement::Hunger,
+            wit::VanillaElement::Position
         ]
     );
     assert!(elements[3].visible);

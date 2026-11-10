@@ -99,6 +99,7 @@ fn three_light_mods_all_run_at_every_priority_with_and_without_world_entry() {
         position: (0., 64., 0.),
         alive: true,
         runtime_id: 1,
+        vehicle: None,
     };
     for observation in [None, Some(&world)] {
         for _ in 0..runtime.host_count() {

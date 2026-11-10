@@ -16,9 +16,26 @@ use protocol::identity::FifoSequence;
 use protocol_ids::ActorFlag;
 use semantic_input::PerspectiveMode;
 use simulation_clock::{PhysicsTick, identity::SessionGeneration};
+use ui::mod_presentation::NametagVisibility;
 
 const OWN_COLOR: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
 const REMOTE_COLOR: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+
+/// Players' tags shown, the local player's own included, with distinguishable colours.
+fn shown_players() -> ui::mod_presentation::Presentation {
+    ui::mod_presentation::Presentation {
+        nametag_style: Some(ui::mod_presentation::NametagStyle {
+            own_text_color: Some(OWN_COLOR),
+            text_color: Some(REMOTE_COLOR),
+            ..Default::default()
+        }),
+        nametag_defaults: ui::mod_presentation::NametagDefaults {
+            players: NametagVisibility::Shown,
+            others: NametagVisibility::Native,
+        },
+        ..Default::default()
+    }
+}
 
 /// Enables distinguishable own and remote labels in a current gameplay session.
 fn fixture_world(perspective: PerspectiveMode) -> World {
@@ -33,15 +50,7 @@ fn fixture_world(perspective: PerspectiveMode) -> World {
     }
     world
         .resource_mut::<UiPresentationResource>()
-        .set_mod_presentation(std::sync::Arc::new(ui::mod_presentation::Presentation {
-            nametag_style: Some(ui::mod_presentation::NametagStyle {
-                show_self: true,
-                own_text_color: Some(OWN_COLOR),
-                text_color: Some(REMOTE_COLOR),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }));
+        .set_mod_presentation(std::sync::Arc::new(shown_players()));
     assert_own_policy(&world);
     world
 }
@@ -53,7 +62,13 @@ fn assert_own_policy(world: &World) {
         .mod_ui()
         .mod_nametag_style()
         .expect("self-tag cosmetic policy must remain published");
-    assert!(style.show_self && !style.hide && !style.hide_players);
+    assert_eq!(
+        presentation
+            .mod_ui()
+            .mod_presentation()
+            .nametag_visibility(1, true),
+        NametagVisibility::Shown
+    );
     assert_eq!(style.own_text_color, Some(OWN_COLOR));
     assert_eq!(style.text_color, Some(REMOTE_COLOR));
     assert_ne!(
@@ -68,7 +83,6 @@ fn assert_own_policy(world: &World) {
             .value(SettingId::IngamePlayerNames),
         0
     );
-    assert_eq!(menu.settings_snapshot().0.value(SettingId::HideHud), 0);
 }
 
 /// Feeds completed local simulation positions through the actor authority's normal input.
@@ -630,4 +644,88 @@ fn own_tag_setting_does_not_override_server_visibility() {
     );
     world.run_system_cached(prepare_ui_runtime).unwrap();
     assert!(glyph_anchors(&mut world, OWN_COLOR).is_empty());
+}
+
+/// Publishes a frame with Hide HUD set as given and the given mod presentation.
+fn publish_with(
+    world: &mut World,
+    hide_hud: bool,
+    presentation: ui::mod_presentation::Presentation,
+) {
+    world
+        .resource_mut::<MenuRuntime>()
+        .set_session_option(SettingId::HideHud, Some(i32::from(hide_hud)));
+    world
+        .resource_mut::<UiPresentationResource>()
+        .set_mod_presentation(std::sync::Arc::new(presentation));
+    world.run_system_cached(prepare_ui_runtime).unwrap();
+}
+
+#[test]
+fn mod_nametag_visibility_selects_tags_by_kind_override_and_hidden_hud() {
+    let perspective = PerspectiveMode::ThirdPersonBack;
+    let mut world = fixture_world(perspective);
+    prepare_actor_motion(&mut world);
+    let feet = Vec3::new(0.0, 64.0, 0.0);
+    prepare_local_frame(&mut world, perspective, feet, 1);
+    publish_visibility(&mut world, perspective, feet, 1, 1);
+    let tags = |world: &mut World| {
+        let records = world
+            .resource_mut::<UiPresentationResource>()
+            .nametag_scene()
+            .records;
+        let has = |color: [f32; 4]| {
+            records
+                .iter()
+                .any(|record| record.text != 0 && record.color[..3] == color[..3])
+        };
+        (has(OWN_COLOR), has(REMOTE_COLOR))
+    };
+    publish_with(&mut world, false, shown_players());
+    assert_eq!(
+        tags(&mut world),
+        (true, true),
+        "shown players include the own tag"
+    );
+    let native = ui::mod_presentation::Presentation {
+        nametag_defaults: Default::default(),
+        ..shown_players()
+    };
+    publish_with(&mut world, false, native.clone());
+    assert_eq!(tags(&mut world), (false, true), "native has no own tag");
+    let mut hide_remote = shown_players();
+    hide_remote.nametag_overrides.insert(
+        2,
+        ui::mod_presentation::ByKind {
+            player: Some(NametagVisibility::Hidden),
+            other: None,
+        },
+    );
+    publish_with(&mut world, false, hide_remote);
+    assert_eq!(
+        tags(&mut world),
+        (true, false),
+        "an override replaces its kind's default"
+    );
+    let hidden = ui::mod_presentation::Presentation {
+        nametag_defaults: ui::mod_presentation::NametagDefaults {
+            players: NametagVisibility::Hidden,
+            others: NametagVisibility::Native,
+        },
+        ..shown_players()
+    };
+    publish_with(&mut world, false, hidden);
+    assert_eq!(tags(&mut world), (false, false));
+    publish_with(&mut world, true, native);
+    assert_eq!(
+        tags(&mut world),
+        (false, false),
+        "native tags follow Hide HUD"
+    );
+    publish_with(&mut world, true, shown_players());
+    assert_eq!(
+        tags(&mut world),
+        (true, true),
+        "shown tags draw with the HUD hidden"
+    );
 }

@@ -130,6 +130,14 @@ pub(super) fn current_target(
     )
 }
 
+/// The runtime ID of the actor the one with `unique_id` rides, when the client knows both.
+pub(super) fn vehicle(authority: &client_world::WorldAuthority, unique_id: i64) -> Option<u64> {
+    authority
+        .ridden_unique_id(unique_id)
+        .and_then(|vehicle| authority.actor_by_unique_id(vehicle))
+        .map(|vehicle| vehicle.runtime_id)
+}
+
 /// Player origin comes from retained wire pose; other actors use their authored head pivot.
 fn look_origin(
     authority: &client_world::WorldAuthority,
@@ -511,6 +519,7 @@ impl ModuleObserver {
                         health: authority
                             .actor_health_by_unique(actor.unique_id)
                             .map(|(current, _)| current),
+                        vehicle: vehicle(authority, actor.unique_id),
                     },
                     max_health: authority
                         .actor_health_by_unique(actor.unique_id)

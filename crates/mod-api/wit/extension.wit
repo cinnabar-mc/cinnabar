@@ -30,22 +30,23 @@ interface hud {
     enum font { native, sans }
     /// Width of one line of text in GUI units at text scale 1, as a surface label lays it out.
     measure-text: func(text: string, font: font) -> result<f32, string>;
-    /// Vanilla HUD elements a mod may read and hide.
-    enum vanilla-element { crosshair, status-effects, sidebar, hunger }
+    /// Vanilla HUD elements a mod may read and hide. `position` is the position line the
+    /// `showcoordinates` rule or a held filled map shows.
+    enum vanilla-element { crosshair, status-effects, sidebar, hunger, position }
     /// A rectangle in GUI units from the top left of the HUD root.
     record rect { x: f32, y: f32, width: f32, height: f32 }
     /// Whether vanilla draws the element this frame, ignoring hiding, and where. `bounds`
     /// covers what vanilla draws: the drawn row of shanks for `hunger`, not its renderer
     /// node; the effect icons for `status-effects`; the cursor for `crosshair`; the sidebar's
-    /// rows for `sidebar`. None while vanilla lays the element out nowhere.
+    /// rows for `sidebar`; the line and its background for `position`. None while vanilla
+    /// lays the element out nowhere, which includes a hidden `sidebar` or `position`.
     record element-state { element: vanilla-element, visible: bool, bounds: option<rect> }
     /// Retained; the listed elements are not drawn. An empty list restores them all.
     set-hidden-elements: func(elements: list<vanilla-element>) -> result<_, string>;
-    /// Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
-    /// a held filled map) is not drawn. Independent of `set-hidden-elements`.
-    set-position-hidden: func(hidden: bool) -> result<_, string>;
     /// The current state of every vanilla element, in enum order.
     read-elements: func() -> result<list<element-state>, string>;
+    /// Whether the player has hidden the HUD with the Hide HUD setting.
+    read-hud-hidden: func() -> result<bool, string>;
 }
 
 /// Native item and effect facts from the pinned tables and the installation's food definitions.
@@ -96,30 +97,45 @@ interface clock {
     read-local-time: func() -> result<local-time, string>;
 }
 
-/// Mod-supplied parameters of native world presentation; requires hud authority, and nonempty
-/// per-actor lists also players or entities. Each call replaces this mod's retained value once
+/// Mod-supplied parameters of native world presentation; requires hud authority, and lists with
+/// per-actor rows also players or entities. Each call replaces this mod's retained value once
 /// the callback succeeds; a callback may make 8 presentation calls, and one more traps it.
 /// Limits are the constants in `mod_api::presentation`.
 ///
-/// The client merges loaded mods in load order. The earliest mod that sets a nametag style, a
-/// hurt overlay or chat actions owns that policy. For each runtime ID and surface, the earliest
-/// mod whose grants admit the actor's kind owns the row: players need the players grant, other
-/// actors the entities grant, and rows a mod's grants do not admit never apply. Tooltip lines
-/// append in load order.
+/// The client merges loaded mods in load order. The earliest mod that sets a nametag style or
+/// chat actions owns that policy; for each actor kind, the earliest mod with a visibility other
+/// than `native` owns that kind's default nametag visibility; for each tint state, the earliest
+/// mod with an every-actor tint owns it. For each runtime ID and surface, the earliest mod whose
+/// grants admit the actor's kind owns the row: players need the players grant, other actors the
+/// entities grant, and rows a mod's grants do not admit never apply. Tooltip lines append in
+/// load order.
 /// Grants: `hud`; actor rows additionally require `players` or `entities` for their kind.
 interface presentation {
     use render.{rgba};
     /// Parameters of the native nametag renderer: opacity 0–1, scale 0.5–3, border width 0–8.
     /// Text colours replace the native ones when present; annotation spans keep their own.
     record nametag-style {
-        hide: bool, hide-players: bool, hide-passengers: bool,
-        show-self: bool, show-when-hud-hidden: bool,
         opacity: f32, scale: f32, shadow: bool, border-width: f32,
         text-color: option<rgba>, own-text-color: option<rgba>,
         border-color: option<rgba>, background-color: option<rgba>,
     }
     /// Retained; none restores native nametags.
     set-nametag-style: func(style: option<nametag-style>) -> result<_, string>;
+    /// Whether an actor's nametag draws. `native` follows the client: the local player's own
+    /// tag only when the player's settings or an annotation show it, and no tag while the HUD
+    /// is hidden. `shown` also draws the local player's own tag outside first person, and every
+    /// such tag while the HUD is hidden and no menu is open. `hidden` never draws the tag.
+    /// Neither draws a tag the actor lacks or the player's own name settings remove.
+    enum nametag-visibility { native, shown, hidden }
+    /// One actor's visibility, replacing the default for its kind.
+    record nametag-override { runtime-id: u64, visibility: nametag-visibility }
+    /// Retained; the default visibility of players' tags, the local player's included, and of
+    /// other actors' tags, and per-actor overrides, at most `MAX_NAMETAG_OVERRIDES` distinct
+    /// nonzero runtime IDs.
+    set-nametag-visibility: func(
+        players: nametag-visibility, others: nametag-visibility,
+        overrides: list<nametag-override>,
+    ) -> result<_, string>;
     /// Plain single-line text of at most `MAX_ANNOTATION_SPAN_BYTES`, without style codes.
     record text-span { text: string, color: rgba }
     /// Where annotation spans go relative to the native name. Spans draw end to end in list
@@ -142,13 +158,17 @@ interface presentation {
     }
     /// Retained; replaces every annotation from this mod, at most `MAX_ANNOTATIONS`.
     set-annotations: func(annotations: list<annotation>) -> result<_, string>;
-    /// Native damage overlay colours for actor bodies and their armour, while an actor is hurt;
-    /// none keeps native. One policy: the earliest mod setting either colour owns both.
-    set-hurt-overlay: func(body: option<rgba>, armor: option<rgba>) -> result<_, string>;
-    /// An overlay tint drawn while the actor is not hurt.
-    record actor-tint { runtime-id: u64, color: rgba }
-    /// Retained; replaces every tint from this mod, at most `MAX_ACTOR_TINTS` distinct nonzero
-    /// runtime IDs.
+    /// The actors a tint covers: every actor, which needs no actor grant, or one actor.
+    variant tint-target { every-actor, actor(u64) }
+    /// The actor state a tint applies in. `hurt` lasts as long as the native damage flash.
+    enum tint-state { hurt, not-hurt }
+    /// Overlay colours for an actor's body and its armour; none keeps that part native. While
+    /// hurt, the body colour replaces the native damage overlay only where that overlay draws.
+    /// At least one colour is set.
+    record actor-tint { target: tint-target, state: tint-state, body: option<rgba>, armor: option<rgba> }
+    /// Retained; replaces every tint from this mod, at most one per target and state and at
+    /// most `MAX_ACTOR_TINTS` distinct nonzero runtime IDs. In each state, an actor's own tint
+    /// replaces the every-actor tint, both colours together.
     set-actor-tints: func(tints: list<actor-tint>) -> result<_, string>;
     /// One extra item tooltip line of plain text, at most `MAX_TOOLTIP_LINE_BYTES`; metadata
     /// none matches every variant. One item's tooltip shows at most `MAX_ITEM_TOOLTIP_LINES`.
@@ -222,6 +242,9 @@ interface player-state {
         alive: bool,
         /// The local player's actor runtime ID, as actor observations and annotations use it.
         runtime-id: u64,
+        /// The runtime ID of the actor the local player rides; none when it rides nothing the
+        /// client knows.
+        vehicle: option<u64>,
     }
     /// Presented local motion, readable without owning gameplay input.
     record motion {
@@ -249,6 +272,8 @@ interface player-state {
         /// Retained native look origin and direction, not a guessed bounding-box eye height.
         look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
         invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
+        /// The runtime ID of the actor this one rides; none when it rides nothing the client knows.
+        vehicle: option<u64>,
     }
     /// An actor observation with its independently replicated health maximum.
     record observed-actor {

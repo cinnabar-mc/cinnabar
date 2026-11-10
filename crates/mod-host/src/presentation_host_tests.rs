@@ -24,6 +24,16 @@ const WHITE: Rgba = Rgba {
     a: 1.,
 };
 
+/// A tint drawing `body` on bodies only.
+fn tint(target: wit::TintTarget, state: wit::TintState, body: Rgba) -> wit::ActorTint {
+    wit::ActorTint {
+        target,
+        state,
+        body: Some(body),
+        armor: None,
+    }
+}
+
 /// One annotation with a nametag span after the name and a roster span before it.
 fn annotation(runtime_id: u64, text: &str) -> wit::Annotation {
     wit::Annotation {
@@ -50,7 +60,26 @@ fn presentation_requires_hud_and_actor_grants() {
         ..Default::default()
     });
     assert!(denied.set_nametag_style(None).unwrap().is_err());
-    assert!(denied.set_hurt_overlay(Some(WHITE), None).unwrap().is_err());
+    assert!(
+        denied
+            .set_actor_tints(vec![tint(
+                wit::TintTarget::EveryActor,
+                wit::TintState::Hurt,
+                WHITE
+            )])
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        denied
+            .set_nametag_visibility(
+                wit::NametagVisibility::Hidden,
+                wit::NametagVisibility::Native,
+                Vec::new()
+            )
+            .unwrap()
+            .is_err()
+    );
     assert!(denied.set_tooltip_lines(Vec::new()).unwrap().is_err());
     assert!(denied.set_chat_actions(Vec::new()).unwrap().is_err());
     assert!(
@@ -68,20 +97,69 @@ fn presentation_requires_hud_and_actor_grants() {
     );
     assert!(
         hud_only
-            .set_actor_tints(vec![wit::ActorTint {
-                runtime_id: 5,
-                color: WHITE,
-            }])
+            .set_actor_tints(vec![tint(
+                wit::TintTarget::Actor(5),
+                wit::TintState::NotHurt,
+                WHITE
+            )])
+            .unwrap()
+            .is_err()
+    );
+    let hide_five = || {
+        vec![wit::NametagOverride {
+            runtime_id: 5,
+            visibility: wit::NametagVisibility::Hidden,
+        }]
+    };
+    assert!(
+        hud_only
+            .set_nametag_visibility(
+                wit::NametagVisibility::Native,
+                wit::NametagVisibility::Native,
+                hide_five()
+            )
             .unwrap()
             .is_err()
     );
     assert!(hud_only.set_annotations(Vec::new()).unwrap().is_ok());
     assert!(hud_only.set_actor_tints(Vec::new()).unwrap().is_ok());
+    assert!(
+        hud_only
+            .set_actor_tints(vec![tint(
+                wit::TintTarget::EveryActor,
+                wit::TintState::Hurt,
+                WHITE
+            )])
+            .unwrap()
+            .is_ok(),
+        "every-actor tints need no actor grant"
+    );
+    assert!(
+        hud_only
+            .set_nametag_visibility(
+                wit::NametagVisibility::Shown,
+                wit::NametagVisibility::Hidden,
+                Vec::new()
+            )
+            .unwrap()
+            .is_ok(),
+        "kind defaults need no actor grant"
+    );
     for (players, entities) in [(true, false), (false, true)] {
         let mut granted = hud(players, entities);
         assert!(
             granted
                 .set_annotations(vec![annotation(5, "x")])
+                .unwrap()
+                .is_ok()
+        );
+        assert!(
+            granted
+                .set_nametag_visibility(
+                    wit::NametagVisibility::Native,
+                    wit::NametagVisibility::Native,
+                    hide_five()
+                )
                 .unwrap()
                 .is_ok()
         );
@@ -93,7 +171,25 @@ fn presentation_requires_hud_and_actor_grants() {
 fn presentation_commits_transactionally_with_fresh_revisions() {
     let mut state = hud(true, false);
     state.presentation.begin();
-    state.set_hurt_overlay(Some(WHITE), None).unwrap().unwrap();
+    let hurt = || {
+        vec![tint(
+            wit::TintTarget::EveryActor,
+            wit::TintState::Hurt,
+            WHITE,
+        )]
+    };
+    state.set_actor_tints(hurt()).unwrap().unwrap();
+    state
+        .set_nametag_visibility(
+            wit::NametagVisibility::Shown,
+            wit::NametagVisibility::Native,
+            vec![wit::NametagOverride {
+                runtime_id: 9,
+                visibility: wit::NametagVisibility::Hidden,
+            }],
+        )
+        .unwrap()
+        .unwrap();
     state
         .set_annotations(vec![annotation(9, "3")])
         .unwrap()
@@ -101,7 +197,12 @@ fn presentation_commits_transactionally_with_fresh_revisions() {
     assert!(state.presentation.output().0.is_empty());
     state.presentation.commit();
     let (output, revision) = state.presentation.output();
-    assert_eq!(output.hurt_overlay.body, Some([1.; 4]));
+    assert_eq!(
+        output.tints[&(TintTarget::EveryActor, TintState::Hurt)].body,
+        Some([1.; 4])
+    );
+    assert_eq!(output.nametag_defaults.players, NametagVisibility::Shown);
+    assert_eq!(output.nametag_overrides[&9], NametagVisibility::Hidden);
     let nametag = output.annotations[&9].nametag.as_ref().unwrap();
     assert_eq!(&*nametag.spans[0].text, "3");
     assert_eq!(nametag.position, SpanPosition::After);
@@ -111,7 +212,7 @@ fn presentation_commits_transactionally_with_fresh_revisions() {
     );
     assert_ne!(revision, 0);
     state.presentation.begin();
-    state.set_hurt_overlay(Some(WHITE), None).unwrap().unwrap();
+    state.set_actor_tints(hurt()).unwrap().unwrap();
     state.presentation.commit();
     assert_eq!(state.presentation.output().1, revision, "unchanged output");
     state.presentation.begin();
@@ -176,24 +277,62 @@ fn presentation_rejects_unbounded_or_malformed_rows() {
     row.nametag = many;
     assert!(state.set_annotations(vec![row]).unwrap().is_err());
     let bad = Rgba { r: 2., ..WHITE };
-    assert!(state.set_hurt_overlay(None, Some(bad)).unwrap().is_err());
+    let every = wit::TintTarget::EveryActor;
+    let invalid_tints = [
+        vec![tint(every, wit::TintState::Hurt, bad)],
+        vec![tint(wit::TintTarget::Actor(0), wit::TintState::Hurt, WHITE)],
+        vec![
+            tint(every, wit::TintState::Hurt, WHITE),
+            tint(every, wit::TintState::Hurt, WHITE),
+        ],
+        vec![wit::ActorTint {
+            body: None,
+            ..tint(every, wit::TintState::NotHurt, WHITE)
+        }],
+        (1..=MAX_ACTOR_TINTS as u64 + 1)
+            .map(|id| tint(wit::TintTarget::Actor(id), wit::TintState::Hurt, WHITE))
+            .collect(),
+    ];
+    for rows in invalid_tints {
+        state.presentation.begin();
+        assert!(state.set_actor_tints(rows).unwrap().is_err());
+    }
+    state.presentation.begin();
+    let both_states = (1..=MAX_ACTOR_TINTS as u64)
+        .flat_map(|id| {
+            [wit::TintState::Hurt, wit::TintState::NotHurt]
+                .map(|state| tint(wit::TintTarget::Actor(id), state, WHITE))
+        })
+        .chain([tint(every, wit::TintState::Hurt, WHITE)])
+        .collect();
     assert!(
-        state
-            .set_actor_tints(vec![wit::ActorTint {
-                runtime_id: 1,
-                color: bad,
-            }])
-            .unwrap()
-            .is_err()
+        state.set_actor_tints(both_states).unwrap().is_ok(),
+        "the actor bound counts distinct actors, not their states"
     );
     state.presentation.begin();
-    let tints = (1..=MAX_ACTOR_TINTS as u64 + 1)
-        .map(|runtime_id| wit::ActorTint {
+    let overrides = |ids: std::ops::RangeInclusive<u64>| {
+        ids.map(|runtime_id| wit::NametagOverride {
             runtime_id,
-            color: WHITE,
+            visibility: wit::NametagVisibility::Hidden,
         })
-        .collect();
-    assert!(state.set_actor_tints(tints).unwrap().is_err());
+        .collect::<Vec<_>>()
+    };
+    let native = wit::NametagVisibility::Native;
+    for rows in [
+        overrides(0..=0),
+        overrides(2..=2)
+            .into_iter()
+            .chain(overrides(2..=2))
+            .collect(),
+        overrides(1..=MAX_NAMETAG_OVERRIDES as u64 + 1),
+    ] {
+        assert!(
+            state
+                .set_nametag_visibility(native, native, rows)
+                .unwrap()
+                .is_err()
+        );
+    }
     let line = wit::TooltipLine {
         identifier: "minecraft:apple".into(),
         metadata: None,
@@ -237,11 +376,6 @@ fn presentation_rejects_unbounded_or_malformed_rows() {
     );
     state.presentation.begin();
     let style = wit::NametagStyle {
-        hide: false,
-        hide_players: false,
-        hide_passengers: false,
-        show_self: true,
-        show_when_hud_hidden: false,
         opacity: 1.5,
         scale: 1.,
         shadow: false,

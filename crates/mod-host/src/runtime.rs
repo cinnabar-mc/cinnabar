@@ -226,14 +226,14 @@ impl cinnabar::extension::hud::Host for State {
         hud::surface::set_hidden(self, elements)
     }
 
-    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
-        hud::surface::set_position_hidden(self, hidden)
-    }
-
     fn read_elements(
         &mut self,
     ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
         Ok(hud::surface::elements(self))
+    }
+
+    fn read_hud_hidden(&mut self) -> Result<Result<bool, String>> {
+        Ok(hud::surface::hud_hidden(self))
     }
 
     /// Stages bounded plain text; nothing is published until the guest returns.
@@ -814,15 +814,18 @@ impl Instance {
         self.store.data().hud.hidden
     }
 
-    /// Records the last laid-out HUD root and vanilla element states for later reads.
+    /// Records the last laid-out HUD root, vanilla element states and whether the player hid
+    /// the HUD, for later reads.
     pub(super) fn observe_hud(
         &mut self,
         viewport: Option<ui::mod_hud::HudViewport>,
         elements: ui::mod_hud::ElementStates,
+        hud_hidden: bool,
     ) {
         let hud = &mut self.store.data_mut().hud;
         hud.viewport = viewport.filter(|viewport| viewport.valid());
         hud.elements = elements.map(ui::mod_hud::ElementState::sanitized);
+        hud.hud_hidden = hud_hidden;
     }
 
     /// Records where the host last laid out this mod's open panel, for `panel.read-layout`.

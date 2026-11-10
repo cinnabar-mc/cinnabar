@@ -412,6 +412,7 @@ fn dimension_rebind_invalidates_old_drawing_and_observations_before_callbacks() 
         position: (0., 0., 0.),
         alive: true,
         runtime_id: 1,
+        vehicle: None,
     });
     assert!(!host.render().0.retained.is_empty());
     let identity = host.instance.filter_identity;

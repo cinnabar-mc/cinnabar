@@ -98,14 +98,16 @@ impl ModHost {
         }
     }
 
-    /// Records the last laid-out HUD root and vanilla element states that `read-viewport` and
-    /// `read-elements` report to later callbacks.
+    /// Records the last laid-out HUD root, vanilla element states and whether the player hid
+    /// the HUD, which `read-viewport`, `read-elements` and `read-hud-hidden` report to later
+    /// callbacks.
     pub fn observe_hud(
         &mut self,
         viewport: Option<ui::mod_hud::HudViewport>,
         elements: ui::mod_hud::ElementStates,
+        hud_hidden: bool,
     ) {
-        self.instance.observe_hud(viewport, elements);
+        self.instance.observe_hud(viewport, elements, hud_hidden);
     }
 
     /// Records where the host last laid out this mod's panel, which `panel.read-layout`

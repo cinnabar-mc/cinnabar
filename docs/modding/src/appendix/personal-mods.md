@@ -61,7 +61,7 @@ other grants with the [development switches](https://github.com/cinnabar-mc/cinn
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |
-| Nametag style, actor annotations and tints, hurt overlay, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
+| Nametag style and visibility, actor annotations and tints, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
 | Item, food, potion and effect facts, and every installed food | WIT `facts`; `player-state`, with its own per-callback read budget |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
 | World primitives and post passes | WIT `render`; [render example](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/render-sample) |
@@ -186,9 +186,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
-line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
-hiding, and its bounds in GUI units when laid out.
+status effects, sidebar, hunger row or position line; `hud.read-elements` reports whether
+vanilla draws each element this frame, ignoring hiding, and its bounds in GUI units when
+laid out. `hud.read-hud-hidden` reports whether the player hid the HUD.
 
 ## Gameplay wheel input
 

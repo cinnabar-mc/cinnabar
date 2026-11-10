@@ -1,6 +1,6 @@
 # Presentation
 
-The `presentation` interface restyles native presentation: how nametags read, what clings to actors, how items describe themselves, and which chat text is clickable. It needs the `hud` grant, and per-actor rows need more: a row for a player needs the `players` grant, a row for any other actor needs `entities`. Rows your grants do not admit never apply.
+The `presentation` interface restyles native presentation: how nametags read, what clings to actors, how items describe themselves, and which chat text is clickable. It needs the `hud` grant, and per-actor rows need more: a row for a player needs the `players` grant, a row for any other actor needs `entities`. Policies for every actor, such as a kind's default nametag visibility or an every-actor tint, need only `hud`. Rows your grants do not admit never apply.
 
 Every successful call is retained: it replaces your mod's previous value of that kind once the callback succeeds, and stays until you replace it, clear it, or the mod is unloaded or quarantined. A dimension transfer also clears these world-scoped policies. A callback may make at most 8 presentation calls; one more traps it.
 
@@ -14,7 +14,17 @@ Types below are the generated Rust names for the WIT records in the [presentatio
 
 ## Nametag style
 
-`set_nametag_style` takes an optional `nametag-style`; none releases your mod's style so the next mod's style, or native nametags, can apply. The style covers the whole tag: `hide` (and `hide_players`, `hide_passengers`), `show_self`, `show_when_hud_hidden`, `opacity` from 0 to 1, `scale` from 0.5 to 3, `border_width` from 0 to 8, `shadow`, and optional `rgba` colours for text, your own text, border and background. Present text colours replace the native ones; annotation spans keep their own colours.
+`set_nametag_style` takes an optional `nametag-style`; none releases your mod's style so the next mod's style, or native nametags, can apply. The style covers how every tag looks: `opacity` from 0 to 1, `scale` from 0.5 to 3, `border_width` from 0 to 8, `shadow`, and optional `rgba` colours for text, your own text, border and background. Present text colours replace the native ones; annotation spans keep their own colours.
+
+## Nametag visibility
+
+`set_nametag_visibility` decides which tags draw. It takes a default `nametag-visibility` for players' tags, the local player's own included, another for every other actor's tags, and a list of per-actor overrides by runtime id that replace their kind's default. Each visibility is one of:
+
+- `native`: as the client draws it. The local player's own tag shows only when the player's settings or an annotation show it, and no tag draws while the player hides the HUD.
+- `shown`: also the local player's own tag outside first person, and the tag while the HUD is hidden and no menu is open.
+- `hidden`: never drawn.
+
+No visibility draws a tag the actor lacks or the player's own name settings remove. The defaults need only `hud`; overrides follow the per-actor grant rules. Build features from these and the observations: hide every player's tag with a `hidden` players default; show your own tag with a `shown` players default; hide passengers' tags by reading `player_state::read_actors` and overriding each actor whose `vehicle` is set, and your own through `read_world`'s `vehicle`; show tags with the HUD hidden by switching to `shown` while `hud::read_hud_hidden` reports it. Overrides can only name actors you observe — the nearest 16 within 128 blocks at a time — so an override reaches farther actors only while you retain it.
 
 ## Annotations
 
@@ -27,7 +37,8 @@ A span is plain single-line text with an `rgba` colour — no style codes. Spans
 | Annotated actors per mod | 128 | `MAX_ANNOTATIONS` |
 | Spans per surface | 4 | `MAX_ANNOTATION_SPANS` |
 | Bytes per span | 32 | `MAX_ANNOTATION_SPAN_BYTES` |
-| Tinted actors per mod | 64 | `MAX_ACTOR_TINTS` |
+| Actors with a nametag visibility override per mod | 128 | `MAX_NAMETAG_OVERRIDES` |
+| Actors with their own tints per mod | 64 | `MAX_ACTOR_TINTS` |
 | Tooltip lines per mod | 256 | `MAX_TOOLTIP_LINES` |
 | Mod lines on one item's tooltip | 8 | `MAX_ITEM_TOOLTIP_LINES` |
 | Bytes per tooltip line | 96 | `MAX_TOOLTIP_LINE_BYTES` |
@@ -37,11 +48,9 @@ A span is plain single-line text with an `rgba` colour — no style codes. Spans
 
 All in `mod_api::presentation`. An empty span list leaves that surface native, so clearing one actor's annotation means republishing the set without it — every call replaces every annotation from your mod.
 
-## Tints and the hurt overlay
+## Tints
 
-`set_actor_tints` replaces your retained tints: a list of `runtime_id` and `rgba` colour pairs, drawn as an overlay while the actor is not hurt.
-
-`set_hurt_overlay` sets the native damage overlay colours for actor bodies and their armour — `body` and `armor`, each optional, none keeping native. It is one policy: the earliest mod that sets either colour owns both.
+`set_actor_tints` replaces your retained tints. Each `actor-tint` names a `target` — `every-actor`, or one `actor` by runtime id — a `state`, `hurt` or `not-hurt`, and optional `body` and `armor` colours, at least one set; an absent colour keeps that part native. The `hurt` state lasts exactly as long as the native damage flash, whose timing the client keeps. While hurt, the body colour replaces the native damage overlay only where that overlay draws, so items the flash skips stay untinted. In each state an actor's own tint replaces the every-actor tint, both colours together. Recolouring the damage flash for every actor is one `every-actor` `hurt` tint; a per-actor overlay is a `not-hurt` tint for that actor with the same body and armour colour.
 
 ## Tooltip lines
 
@@ -55,8 +64,8 @@ All in `mod_api::presentation`. An empty span list leaves that surface native, s
 
 The client merges loaded mods in load order:
 
-- The earliest mod with a nonempty nametag style, a hurt overlay with either colour set, or a nonempty chat-action list owns that policy outright. Later mods' values for the same policy are ignored while the owner's stand; clearing it lets a later mod take over.
-- For each runtime id and surface, the earliest mod whose grants admit the actor's kind owns the annotation and tint rows for that actor.
+- The earliest mod with a nonempty nametag style or a nonempty chat-action list owns that policy outright. For each actor kind, the earliest mod whose default visibility is not `native` owns that default; for each tint state, the earliest mod with an every-actor tint owns it. Later mods' values for the same policy are ignored while the owner's stand; clearing it lets a later mod take over.
+- For each runtime id and surface, the earliest mod whose grants admit the actor's kind owns the annotation, visibility override and tint rows for that actor; tint rows are owned per state.
 - Tooltip lines append in load order, up to the per-item cap.
 
 So a mod loaded later cannot restyle what an earlier mod owns, but its tooltip lines still show. Design for coexistence: set only the policies your feature needs, because claiming the nametag style to change one colour also blocks every later mod's style.

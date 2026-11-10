@@ -163,6 +163,7 @@ mod tests {
                     sneaking: false,
                     hurt: false,
                     health: Some(20.),
+                    vehicle: None,
                 },
                 max_health: Some(20.),
             }],

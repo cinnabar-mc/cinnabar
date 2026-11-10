@@ -259,22 +259,18 @@ pub(super) fn apply_style_and_visibility(
         };
         if !submission.material.allows_overlay() {
             submission.overlay_rgba8 = 0;
-        } else if let Some(style) = style {
+        } else if let Some((style, actor)) = style.zip(actor) {
             let armor = (3..=6).contains(&identity.layer);
-            let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
-            let tint = actor.and_then(|actor| {
-                style.presentation.tint(
+            let state = ui::mod_presentation::TintState::of(actor.hurt_overlay_active());
+            if let Some(color) = style
+                .presentation
+                .tint(
                     identity.runtime_id,
                     matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                    state,
                 )
-            });
-            if let Some(color) = cosmetic_overlay(
-                &style.presentation.hurt_overlay,
-                hurt,
-                armor,
-                submission.overlay_rgba8 != 0,
-                tint,
-            ) {
+                .and_then(|tint| tint.overlay(state, armor, submission.overlay_rgba8 != 0))
+            {
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
         }
@@ -288,26 +284,5 @@ pub(super) fn apply_style_and_visibility(
         {
             submission.route = render_model::ActorRigRoute::NoDraw;
         }
-    }
-}
-
-/// Selects the mod overlay colour: its damage colours while the actor is hurt, else its tint.
-pub(super) fn cosmetic_overlay(
-    hurt_overlay: &ui::mod_presentation::HurtOverlay,
-    hurt: bool,
-    armor: bool,
-    native_overlay: bool,
-    tint: Option<[f32; 4]>,
-) -> Option<[f32; 4]> {
-    if hurt {
-        if armor {
-            hurt_overlay.armor
-        } else if native_overlay {
-            hurt_overlay.body
-        } else {
-            None
-        }
-    } else {
-        tint
     }
 }

@@ -124,36 +124,45 @@ fn hidden_elements_are_retained_until_replaced() {
 }
 
 #[test]
-fn the_position_line_is_hidden_independently_of_elements() {
-    let (_dir, mut host) = load("call $hide-position call $hide-two", "call $show-all", true);
-    let hidden = host.hidden_hud_elements();
-    assert!(hidden.hides_position() && hidden.contains(VanillaElement::Hunger));
-    assert_eq!(hidden.iter().count(), 2);
-    host.frame(false).unwrap();
-    let hidden = host.hidden_hud_elements();
-    assert!(hidden.hides_position() && hidden.iter().next().is_none());
-    let (_dir, mut host) = load(
-        "call $hide-two call $hide-position",
-        "call $show-position",
-        true,
+fn the_position_line_is_a_hidden_element_like_the_others() {
+    let (_dir, mut host) = load("call $hide-two call $hide-position", "call $show-all", true);
+    assert_eq!(
+        host.hidden_hud_elements().iter().collect::<Vec<_>>(),
+        [VanillaElement::Position],
+        "each list replaces the retained set"
     );
-    assert!(host.hidden_hud_elements().hides_position());
     host.frame(false).unwrap();
-    let hidden = host.hidden_hud_elements();
-    assert!(!hidden.hides_position() && hidden.contains(VanillaElement::Crosshair));
+    assert!(host.hidden_hud_elements().is_empty());
     let (_dir, mut host) = load("", "call $hide-position", false);
     host.frame(false).unwrap();
     assert!(host.hidden_hud_elements().is_empty());
 }
 
 #[test]
+fn hud_hidden_reads_report_the_last_observation() {
+    let none = [ElementState::default(); VanillaElement::ALL.len()];
+    let (_dir, mut host) = load("call $require-hud-shown", "call $require-hud-hidden", true);
+    host.observe_hud(Some(VIEWPORT), none, true);
+    host.frame(false).unwrap();
+    assert!(
+        host.is_active(),
+        "the guest read the observed Hide HUD state"
+    );
+    let (_dir, mut host) = load("", "call $require-hud-denied", false);
+    host.observe_hud(Some(VIEWPORT), none, true);
+    host.frame(false).unwrap();
+    assert!(host.is_active(), "denied mods read no Hide HUD state");
+}
+
+#[test]
 fn viewport_reads_report_the_last_observed_root() {
     let (_dir, mut host) = load("call $require-no-viewport", "call $require-viewport", true);
-    host.observe_hud(Some(VIEWPORT), [ElementState::default(); 4]);
+    let none = [ElementState::default(); VanillaElement::ALL.len()];
+    host.observe_hud(Some(VIEWPORT), none, false);
     host.frame(false).unwrap();
     assert!(host.is_active(), "the guest read the observed root");
     let (_dir, mut host) = load("", "call $require-no-viewport", false);
-    host.observe_hud(Some(VIEWPORT), [ElementState::default(); 4]);
+    host.observe_hud(Some(VIEWPORT), none, false);
     host.frame(false).unwrap();
     assert!(host.is_active(), "denied mods read no root");
 }
