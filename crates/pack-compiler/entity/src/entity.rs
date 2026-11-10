@@ -15,6 +15,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 mod animation;
+pub use animation::roots::has_entity_animation_roots;
 mod attachable;
 pub(crate) mod collect;
 mod geometry;
@@ -44,6 +45,7 @@ mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
 pub use sample_omissions::missing_equipment_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
+pub use versions::load_vanilla_entity_definitions;
 
 pub(crate) use pack::compile_entity_pack_unless;
 pub use pack::{
@@ -189,6 +191,12 @@ fn compile_with_behavior(
         &mut selected,
     )?;
     collect_optional_family(root, "attachables", &["json"], &mut selected)?;
+    collect_optional_family(
+        root,
+        assets::item::trim::TEXTURE_DIRECTORY.trim_end_matches('/'),
+        &["png", "tga"],
+        &mut selected,
+    )?;
     collect_optional_family(
         root,
         "textures/models/armor",
@@ -618,7 +626,7 @@ fn parse_source(
         )?;
         return Ok(());
     }
-    if relative_path.starts_with("attachables/") {
+    if relative_path.starts_with("attachables/") && relative_path.ends_with(".json") {
         let value = parse_unique_json(absolute_path, bytes)?;
         attachable::validate_source(&value)?;
         return parse_entity(
@@ -637,20 +645,20 @@ fn parse_source(
             .map(|_| ())
             .ok_or_else(|| invalid("entity material definitions must be an object"));
     }
+    if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
+        let identifier = relative_path
+            .strip_suffix(".png")
+            .or_else(|| relative_path.strip_suffix(".tga"))
+            .ok_or_else(|| invalid("texture source lacks a canonical raster extension"))?;
+        return insert_symbol(
+            symbols,
+            EntityAssetKind::Texture,
+            identifier,
+            relative_path,
+            Box::new([]),
+        );
+    }
     if relative_path.starts_with("textures/") {
-        if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
-            let identifier = relative_path
-                .strip_suffix(".png")
-                .or_else(|| relative_path.strip_suffix(".tga"))
-                .ok_or_else(|| invalid("texture source lacks a canonical raster extension"))?;
-            return insert_symbol(
-                symbols,
-                EntityAssetKind::Texture,
-                identifier,
-                relative_path,
-                Box::new([]),
-            );
-        }
         let value = parse_unique_json(absolute_path, bytes)?;
         validate_root_fields(
             &value,

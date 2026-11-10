@@ -153,6 +153,7 @@ impl<'a> LabelMetrics<'a> {
         let mut request = self.metrics.request(text, width_64(width), self.font);
         request.wrap = TextWrap {
             effect_scale_1024: self.effect_scale_1024(),
+            allow_vertical_overflow: true,
             line_padding_64: (shape.line_padding * f64::from(px) * 64.0).round() as i32,
             chop: if shape.hide_hyphen {
                 WordChop::Bare

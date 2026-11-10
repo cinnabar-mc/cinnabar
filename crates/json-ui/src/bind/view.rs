@@ -520,6 +520,9 @@ impl Binder<'_> {
                 &mut node.native,
             );
         }
+        if wrote || first {
+            self.radio_after_view(node);
+        }
         wrote
     }
 }

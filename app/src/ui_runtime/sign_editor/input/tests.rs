@@ -76,3 +76,41 @@ fn a_data_driven_form_keeps_typing_from_the_sign_beneath_it() {
         "the form's typing left the sign alone"
     );
 }
+
+#[test]
+fn a_server_form_keeps_typing_from_the_sign_beneath_it() {
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime =
+        client_ui::test_support::pack_harness::action_form(&mut player, "Shop", &["A"]);
+    runtime
+        .sign_editor_mut()
+        .open(SignEdit::new([0, 64, 0], true, Default::default()));
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .init_resource::<crate::runtime::world::ClientWorld>()
+        .insert_resource(player)
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(UiPresentationResource(
+            UiPresentationRuntime::new(fixture_font()).unwrap(),
+        ))
+        .add_systems(Update, drive_sign_editor);
+    let window = app
+        .world_mut()
+        .spawn((Window::default(), CursorOptions::default(), PrimaryWindow))
+        .id();
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::KeyA,
+        logical_key: Key::Character("a".into()),
+        state: ButtonState::Pressed,
+        text: Some("a".into()),
+        repeat: false,
+        window,
+    });
+    app.update();
+    let runtime = app.world().resource::<UiRuntimeResource>();
+    let sign = runtime.sign_editor().active().expect("the sign stays open");
+    assert!(sign.text().is_empty());
+}

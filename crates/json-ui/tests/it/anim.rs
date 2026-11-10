@@ -204,6 +204,11 @@ fn wait_destroys_the_named_ancestor() {
         ]
     );
     assert!(animator.is_destroyed(&node(&nodes, "title").key));
+    assert!(
+        node(&nodes, "title")
+            .animate(&mut animator, 1.2, None, None)
+            .hidden
+    );
 }
 
 // N8/N30/N32: a flip-book in `anims` steps texture-width/count frames and turns

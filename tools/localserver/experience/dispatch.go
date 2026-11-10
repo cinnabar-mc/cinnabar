@@ -124,9 +124,10 @@ type event struct {
 	call  Call
 	// interaction is an interaction's click, which a result that passes it on replays.
 	interaction *interaction
-	// inventory and slots retain live player observations from their owning transaction.
+	// inventory, slots and pose retain live player observations from their owning transaction.
 	inventory *Inventory
 	slots     []item.Stack
+	pose      *PlayerPose
 	// entities retain owned actors from the same transaction as a player observation.
 	entities []EntitySnapshot
 	// ridingElsewhere retains occupancy outside this mod's actor snapshot.
@@ -693,6 +694,7 @@ func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		if e, ok := ev.actor.Entity(tx); ok {
 			if p, ok := e.(*player.Player); ok {
 				snap.req.Inventory, snap.slots = inventoryOf(d.id, p)
+				snap.req.Pose = poseOf(p)
 			}
 		}
 	}

@@ -19,6 +19,12 @@ impl Content<'_, '_> {
                 "options.invertYAxis.Mouse.description".to_owned()
             }
             SettingId::ControllerInvertYAxis => "options.invertYAxis.description".to_owned(),
+            SettingId::TouchControlMode => {
+                launcher::menu::settings_options::touch_control_mode::description_key(
+                    self.view.settings_options.touch_control_mode(),
+                )
+                .to_owned()
+            }
             _ => format!("{base_key}.description"),
         };
         let description = super::localization::locale_text(
@@ -30,6 +36,8 @@ impl Content<'_, '_> {
         .unwrap_or_default();
         let description = if id == SettingId::ChunkOcclusionCulling {
             "Skip terrain hidden behind other blocks. Visible terrain stays available.".to_owned()
+        } else if id == SettingId::DynamicLights {
+            launcher::menu::settings_options::DYNAMIC_LIGHTS_DESCRIPTION.to_owned()
         } else if id == SettingId::RenderScaleSharpen {
             "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening.".to_owned()
         } else if id == SettingId::RenderResolution {

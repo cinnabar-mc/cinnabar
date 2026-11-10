@@ -118,12 +118,15 @@ pub(super) struct EngineSlots {
     /// The native brandish pose and the charge it raises the held spear by.
     pub(super) is_brandishing_spear: Option<usize>,
     pub(super) charge_amount: Option<usize>,
+    /// The native brushing pose of an actor using a brush.
+    pub(super) is_using_brush: Option<usize>,
     pub(super) damage_nearby_mobs: Option<usize>,
     /// The eat/drink arm raise and bob the pack's `use_item_progress` pose reads.
     pub(super) use_item_startup_progress: Option<usize>,
     pub(super) use_item_interval_progress: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
     pub(super) is_first_person: Option<usize>,
+    pub(super) is_paperdoll: Option<usize>,
     pub(super) context_first_person: Option<usize>,
     pub(super) context_paperdoll: Option<usize>,
     pub(super) context_item_slot: Option<usize>,
@@ -246,10 +249,12 @@ impl VariableLayout {
                 is_blocking: slot(V::IsBlocking.name()),
                 is_brandishing_spear: slot(V::IsBrandishingSpear.name()),
                 charge_amount: slot(V::ChargeAmount.name()),
+                is_using_brush: slot(V::IsUsingBrush.name()),
                 damage_nearby_mobs: slot(V::DamageNearbyMobs.name()),
                 use_item_startup_progress: slot(V::UseItemStartupProgress.name()),
                 use_item_interval_progress: slot(V::UseItemIntervalProgress.name()),
                 is_first_person: slot(V::IsFirstPerson.name()),
+                is_paperdoll: slot(V::IsPaperdoll.name()),
                 context_first_person: slot("context.is_first_person"),
                 context_paperdoll: slot("context.is_paperdoll"),
                 context_item_slot: slot("context.item_slot"),

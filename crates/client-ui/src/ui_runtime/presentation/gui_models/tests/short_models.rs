@@ -4,9 +4,48 @@ use super::*;
 
 /// Encodes an exact six-face model with original fractional-alpha textures and shared provenance.
 pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets {
+    world_with_width(manifest, height, alpha, 256)
+}
+
+/// Encodes an original centered model with the requested width in fixed-point block units.
+pub(super) fn world_with_width(
+    manifest: [u8; 32],
+    height: u16,
+    alpha: u8,
+    width: u16,
+) -> RuntimeAssets {
+    world_with_material(
+        manifest,
+        height,
+        alpha,
+        width,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    )
+}
+
+/// Encodes the same original model with a selected material alpha policy.
+pub(super) fn world_with_material(
+    manifest: [u8; 32],
+    height: u16,
+    alpha: u8,
+    width: u16,
+    flags: u32,
+) -> RuntimeAssets {
+    world_with_model_flags(manifest, height, alpha, width, flags, 0)
+}
+
+/// Encodes a centered model, including all connection masks for pane templates.
+pub(super) fn world_with_model_flags(
+    manifest: [u8; 32],
+    height: u16,
+    alpha: u8,
+    width: u16,
+    flags: u32,
+    model_flags: u32,
+) -> RuntimeAssets {
     use assets::*;
     let mut visual = BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary);
-    if height == 256 {
+    if height == 256 && width == 256 {
         visual.flags = BlockFlags::OCCLUDES_FULL_FACE;
     }
     visual.kind = VisualKind::Model;
@@ -20,7 +59,7 @@ pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets
             ModelQuad {
                 positions: corners.map(|[x, y, z]| {
                     [
-                        (x * 256.0) as i16,
+                        (x * f32::from(width) + (256.0 - f32::from(width)) * 0.5) as i16,
                         (y * f32::from(height)) as i16,
                         (z * 256.0) as i16,
                     ]
@@ -31,6 +70,11 @@ pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets
             }
         })
         .collect();
+    let template_count = if model_flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
+        16
+    } else {
+        1
+    };
     let compiled = CompiledAssets {
         visuals: vec![
             BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary),
@@ -43,18 +87,19 @@ pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets
             Material::unvaried(),
             Material {
                 texture: TextureRef::new(0, 1).unwrap(),
-                flags: MATERIAL_FLAG_ALPHA_CUTOUT,
+                flags,
                 ..Material::unvaried()
             },
         ]
         .into(),
-        model_templates: vec![ModelTemplate {
-            quad_start: 0,
-            quad_count: quads.len() as u32,
-            flags: 0,
-        }]
-        .into(),
-        model_quads: quads.into(),
+        model_templates: (0..template_count)
+            .map(|index| ModelTemplate {
+                quad_start: (index * quads.len()) as u32,
+                quad_count: quads.len() as u32,
+                flags: model_flags,
+            })
+            .collect(),
+        model_quads: quads.repeat(template_count).into(),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray {
@@ -85,6 +130,27 @@ pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets
         },
     };
     RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
+}
+
+#[test]
+fn pane_fixture_round_trips_every_connection_mask() {
+    let world = world_with_model_flags(
+        [0; 32],
+        256,
+        128,
+        32,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+    );
+    let block = world.resolve(assets::NetworkIdMode::Sequential, 1);
+    let base = block.model_template().unwrap() as usize;
+    for mask in 0..16 {
+        let template = world.model_templates()[base + mask];
+        let start = template.quad_start as usize;
+        let quads = &world.model_quads()[start..start + template.quad_count as usize];
+        assert_eq!(quads.len(), assets::BlockFace::ALL.len());
+        assert!(quads.iter().all(|quad| quad.material == 1));
+    }
 }
 
 /// Replaces the carried face source while keeping real item and shaped-thumbnail bindings.
@@ -149,6 +215,7 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
             &source_world,
             assets::BlockVisualId(1),
             &mut atlas::Atlas::new(first, MODEL_PAGES),
+            Default::default(),
         )
         .unwrap();
         assert_eq!(actual.indices(), expected.indices());
@@ -169,6 +236,7 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
             &full,
             assets::BlockVisualId(1),
             &mut atlas::Atlas::new(first, MODEL_PAGES),
+            Default::default(),
         )
         .unwrap();
         assert_ne!(

@@ -34,6 +34,9 @@ pub struct EntityRenderMaterialState {
     pub cull: bool,
     pub blend: bool,
     pub depth_write: bool,
+    /// A second sampler replaces texels except for its colored transparent keep mask.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub masked_multitexture: bool,
     /// Texture alpha weights world lighting; colored alpha-zero texels remain emissive.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub emissive: bool,
@@ -63,6 +66,9 @@ pub struct EntityRenderMaterialState {
     /// Preserves target RGB and alpha while updating depth.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub disable_color_write: bool,
+    /// `USE_COLOR_MASK`: texture alpha weights the colour multiplier instead of the whole texel.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub color_mask: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -72,6 +78,7 @@ impl Default for EntityRenderMaterialState {
             cull: true,
             blend: false,
             depth_write: true,
+            masked_multitexture: false,
             emissive: false,
             only_emissive: false,
             additive: false,
@@ -81,6 +88,7 @@ impl Default for EntityRenderMaterialState {
             depth_equal: false,
             disable_alpha_write: false,
             disable_color_write: false,
+            color_mask: false,
         }
     }
 }
@@ -101,6 +109,8 @@ impl EntityRenderMaterialState {
     pub const DEPTH_EQUAL: u32 = 1 << 19;
     pub const DISABLE_ALPHA_WRITE: u32 = 1 << 20;
     pub const DISABLE_COLOR_WRITE: u32 = 1 << 21;
+    pub const COLOR_MASK: u32 = 1 << 22;
+    pub const MASKED_MULTITEXTURE: u32 = Self::COLOR_MASK << 1;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -108,6 +118,7 @@ impl EntityRenderMaterialState {
             cull: word & Self::CULL != 0,
             blend: word & Self::BLEND != 0,
             depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
+            masked_multitexture: word & Self::MASKED_MULTITEXTURE != 0,
             emissive: word & Self::EMISSIVE != 0,
             only_emissive: word & Self::ONLY_EMISSIVE != 0,
             additive: word & Self::ADDITIVE != 0,
@@ -117,6 +128,7 @@ impl EntityRenderMaterialState {
             depth_equal: word & Self::DEPTH_EQUAL != 0,
             disable_alpha_write: word & Self::DISABLE_ALPHA_WRITE != 0,
             disable_color_write: word & Self::DISABLE_COLOR_WRITE != 0,
+            color_mask: word & Self::COLOR_MASK != 0,
         })
     }
 }
@@ -129,6 +141,11 @@ impl EntityRenderMaterial {
             None => kind,
             Some(state) => {
                 kind | EntityRenderMaterialState::AUTHORED
+                    | if state.masked_multitexture {
+                        EntityRenderMaterialState::MASKED_MULTITEXTURE
+                    } else {
+                        0
+                    }
                     | if state.alpha_test {
                         EntityRenderMaterialState::ALPHA_TEST
                     } else {
@@ -191,6 +208,11 @@ impl EntityRenderMaterial {
                     }
                     | if state.depth_always {
                         EntityRenderMaterialState::DEPTH_ALWAYS
+                    } else {
+                        0
+                    }
+                    | if state.color_mask {
+                        EntityRenderMaterialState::COLOR_MASK
                     } else {
                         0
                     }
@@ -400,10 +422,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         let raster = compiled
             .sources
             .get(candidate.source as usize)
-            .is_some_and(|source| {
-                source.path.starts_with("textures/")
-                    && (source.path.ends_with(".png") || source.path.ends_with(".tga"))
-            });
+            .is_some_and(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
         if !raster || candidate.condition.is_some_and(|index| !expression(index)) {
             return Err(invalid("entity render texture candidate is invalid"));
         }

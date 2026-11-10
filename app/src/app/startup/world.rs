@@ -230,15 +230,8 @@ fn prepare(input: WorldInput, ui: WorldUi) -> Result<CommandQueue> {
         let flame = particles
             .as_deref()
             .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE));
-        if let Err(error) = presentation
-            .install_gui_model_sources(gui)
-            .and_then(|()| presentation.set_gui_fire_texture(flame))
-        {
-            world
-                .resource_mut::<crate::runtime::shutdown::FatalError>()
-                .0 = Some(format!("GUI startup failed: {error}"));
-            return;
-        }
+        presentation.install_gui_model_sources(gui);
+        presentation.set_gui_fire_texture(flame);
         let mut ui_runtime = world.resource_mut::<UiRuntimeResource>();
         ui_runtime.set_item_fuel_catalog(Arc::clone(&entities));
         ui_runtime.set_food_catalog(equipment);

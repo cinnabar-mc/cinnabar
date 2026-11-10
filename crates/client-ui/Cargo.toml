@@ -11,6 +11,7 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "crates/mod-api/wit/extension.wit",
     "crates/protocol/fixtures/*",
+    "tools/localserver/testdata/player-preview-layers",
 ]
 
 [features]

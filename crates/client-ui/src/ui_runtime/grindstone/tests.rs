@@ -111,7 +111,7 @@ fn takes_name_the_source_stack_and_penalty() {
         let request_id = ledger.pending_request_id().unwrap();
         let output = StackRequestSlot {
             container: Container::CreatedOutput,
-            slot: protocol::CREATED_OUTPUT_SLOT,
+            slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
             stack_network_id: request_id,
         };
         let take = if shift {

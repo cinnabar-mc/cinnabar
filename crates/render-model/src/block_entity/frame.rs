@@ -1,5 +1,6 @@
 //! Item and glow item frames: a wooden rim around a recessed backing; the item is drawn by
-//! the dropped-item renderer at the pose from [`item_frame_item_transform`].
+//! the dropped-item renderer at the pose from [`item_frame_item_transform`], or
+//! [`item_frame_block_transform`] for a block model.
 //!
 //! A frame whose block state carries the map or photo bit widens its rim to the whole block
 //! face, and a filled map covers that face so neighbouring framed maps join edge to edge.
@@ -27,6 +28,7 @@ const MAP_PANEL_HALF: f32 = 8.0;
 const MAP_RIM_DEPTH: f32 = 0.9;
 /// Depth of a framed map image in front of the supporting wall, in pixels.
 const MAP_DEPTH: f32 = 1.0;
+/// Scale of a framed item sprite, in blocks per unit item.
 const ITEM_SCALE: f32 = 0.5;
 /// Degrees per legacy item-frame rotation turn.
 pub const ITEM_FRAME_ROTATION_STEP_DEGREES: f32 = 45.0;
@@ -137,7 +139,8 @@ pub(super) fn emit(
     if model.glow {
         builder.light = 1.0;
     }
-    let (half, rim_front) = if model.full_face {
+    // Legacy servers can send a filled map without updating the block's map bit.
+    let (half, rim_front) = if model.full_face || model.map.is_some() {
         (MAP_PANEL_HALF, PANEL_BACK - MAP_RIM_DEPTH)
     } else {
         (PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS)
@@ -210,12 +213,34 @@ pub fn item_frame_item_transform(
     outward: u8,
     rotation_degrees: f32,
 ) -> [[f32; 4]; 3] {
-    // The sprite faces +Z, so a half turn points it at the viewer in front of the panel.
+    framed_pose(block, outward, rotation_degrees, ITEM_SCALE)
+}
+
+/// Pose of a framed cube or block model, centred where [`item_frame_item_transform`] centres a
+/// sprite. Vanilla poses a framed block at unit scale and its item renderer then applies the
+/// ordinary cube scale, so the block is half a framed sprite's size.
+#[must_use]
+pub fn item_frame_block_transform(
+    block: [i32; 3],
+    outward: u8,
+    rotation_degrees: f32,
+) -> [[f32; 4]; 3] {
+    framed_pose(
+        block,
+        outward,
+        rotation_degrees,
+        crate::dropped_item::native::CUBE_SCALE,
+    )
+}
+
+/// A unit item centred on the panel front, facing out and scaled by `scale`.
+fn framed_pose(block: [i32; 3], outward: u8, rotation_degrees: f32, scale: f32) -> [[f32; 4]; 3] {
+    // The unit item faces +Z, so a half turn points it at the viewer in front of the panel.
     let matrix = frame_matrix(block, outward)
         * Mat4::from_translation(Vec3::new(0.0, 0.0, ITEM_FRAME_PANEL_FRONT_PIXELS / 16.0))
         * Mat4::from_rotation_y(std::f32::consts::PI)
         * Mat4::from_rotation_z(-rotation_degrees.to_radians())
-        * Mat4::from_scale(Vec3::splat(ITEM_SCALE));
+        * Mat4::from_scale(Vec3::splat(scale));
     matrix_rows(matrix)
 }
 
@@ -425,6 +450,32 @@ mod tests {
     }
 
     #[test]
+    fn legacy_framed_maps_hide_the_rim_from_oblique_views_without_the_map_bit() {
+        let atlas = test_atlas();
+        for outward in 0..6 {
+            for block in [[0; 3], [1024, 80, -1024]] {
+                let mut builder = MeshBuilder::new(atlas.size());
+                let mut model = map_frame(outward, false, Some(0.0));
+                model.full_face = false;
+                emit(&mut builder, &atlas, block, &model);
+                let pose = frame_matrix(block, outward);
+                for [x, y] in [[5.5, 0.0], [-5.5, 0.0], [0.0, 5.5], [0.0, -5.5]] {
+                    let target =
+                        pose.transform_point3(Vec3::new(x, y, PANEL_BACK - MAP_DEPTH) / 16.0);
+                    for tangent in [Vec3::ZERO, Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y] {
+                        let direction = pose.transform_vector3((Vec3::Z + tangent).normalize());
+                        let (uv_depth, _) = sample(&builder, target - direction * 2.0, direction);
+                        assert!(
+                            uv_depth.x * atlas.size()[0] as f32 >= MAP_IMAGE.x,
+                            "facing {outward}, block {block:?}, tangent {tangent}: map must cover the rim"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn neighbouring_framed_maps_meet_without_a_gap() {
         let atlas = test_atlas();
         let mut builder = MeshBuilder::new(atlas.size());
@@ -554,6 +605,30 @@ mod tests {
                         .abs_diff_eq(normal, 1.0e-5)
                 );
                 assert!((apply(rows, Vec3::X, false).length() - ITEM_SCALE).abs() < 1.0e-5);
+            }
+        }
+    }
+
+    #[test]
+    fn framed_blocks_are_a_quarter_block_centred_where_sprites_are() {
+        for outward in 0..6 {
+            for step in 0..8_u8 {
+                let degrees = f32::from(step) * ITEM_FRAME_ROTATION_STEP_DEGREES;
+                let sprite = item_frame_item_transform([3, -2, 9], outward, degrees);
+                let block = item_frame_block_transform([3, -2, 9], outward, degrees);
+                assert!(
+                    apply(block, Vec3::ZERO, true)
+                        .abs_diff_eq(apply(sprite, Vec3::ZERO, true), 1.0e-5),
+                    "facing {outward}, rotation {step}: a framed block centres on the panel front"
+                );
+                for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+                    assert!(
+                        apply(block, axis, false)
+                            .abs_diff_eq(apply(sprite, axis, false) * 0.5, 1.0e-5),
+                        "facing {outward}, rotation {step}: a unit block spans a quarter block, \
+                         turned like the sprite"
+                    );
+                }
             }
         }
     }

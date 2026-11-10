@@ -51,6 +51,7 @@ engine_variables! {
     IsHorizontalSplitscreen => "variable.is_horizontal_splitscreen",
     IsPaperdoll => "variable.is_paperdoll",
     IsSneaking => "variable.is_sneaking",
+    IsUsingBrush => "variable.is_using_brush",
     IsUsingVr => "variable.is_using_vr",
     IsVerticalSplitscreen => "variable.is_vertical_splitscreen",
     LeftArmSwimAmount => "variable.left_arm_swim_amount",

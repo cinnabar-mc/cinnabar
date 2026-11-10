@@ -29,8 +29,8 @@ pub(super) struct Payload {
 
 impl Payload {
     /// Validates cached references before exposing the decoded pages.
-    pub(super) fn into_assets(self) -> Option<render_scene::EnhancedTextureAssets> {
-        render_scene::EnhancedTextureAssets::new(
+    pub(super) fn into_assets(self) -> Option<assets::texture::EnhancedTextureAssets> {
+        assets::texture::EnhancedTextureAssets::new(
             self.color,
             self.normal,
             self.material,
@@ -203,7 +203,7 @@ fn array(input: &mut impl Read, remaining: &mut u64) -> Option<TextureArray> {
     }
     Some(TextureArray {
         layers,
-        mips: mips.into_boxed_slice(),
+        mips: mips.into(),
     })
 }
 
@@ -416,13 +416,13 @@ mod tests {
                     }
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         };
         Payload {
             color: std::array::from_fn(|page| array(16 + page as u8)),
             normal: std::array::from_fn(|page| array(64 + page as u8)),
             material: std::array::from_fn(|page| array(128 + page as u8)),
-            references: render_scene::EnhancedTextureAssets::material_references(
+            references: assets::texture::EnhancedTextureAssets::material_references(
                 std::collections::BTreeMap::from([((1, 0), assets::texture::PBR_REF_COLOR)]),
             ),
         }
@@ -491,16 +491,17 @@ mod tests {
     fn cached_material_references_keep_shared_carrier_surfaces_distinct() {
         let array = TextureArray {
             layers: 2,
-            mips: Box::new([TextureMip {
+            mips: [TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let payload = Payload {
             color: [array.clone(), array.clone()],
             normal: [array.clone(), array.clone()],
             material: [array.clone(), array],
-            references: render_scene::EnhancedTextureAssets::material_references(
+            references: assets::texture::EnhancedTextureAssets::material_references(
                 std::collections::BTreeMap::from([
                     ((1, 0), assets::texture::PBR_REF_COLOR),
                     ((2, 0), assets::texture::PBR_REF_COLOR | 1),

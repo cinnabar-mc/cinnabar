@@ -271,6 +271,16 @@ impl<F: PartialEq> MenuScrolls<F> {
         }
     }
 
+    /// The offset the view under `point` is heading to and its largest offset.
+    pub fn extent_at(&self, point: UiPoint) -> Option<(f32, f32)> {
+        let area = self.at(point)?;
+        let offset = self
+            .motion
+            .get(&area.key)
+            .map_or(area.offset, |motion| motion.target);
+        Some((offset, area.max))
+    }
+
     /// Scrolls the view under `point` by `notches` (lines) or window pixels.
     pub fn wheel(&mut self, point: UiPoint, notches: f32, pixels: bool) -> bool {
         if !notches.is_finite() {

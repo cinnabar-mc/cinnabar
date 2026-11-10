@@ -255,7 +255,10 @@ fn liquid_shader_preserves_straight_alpha_animation_tint_and_light() {
     assert!(SHADER.contains("mix(current_sample, next_sample, in.frame_blend)"));
     assert!(SHADER.contains("out.water_tint = blended_biome_tint("));
     assert!(SHADER.contains("native_liquid_colour(sampled.rgb, in.water_tint.rgb, in)"));
-    assert!(SHADER.contains("terrain_light_colour(in.native_light_levels)"));
+    assert!(
+        SHADER
+            .contains("point_lit_terrain_light_colour(in.native_light_levels, in.world_position)")
+    );
     assert!(SHADER.contains("sampled.a * in.water_tint.a"));
     assert!(!SHADER.contains("sampled.rgb * sampled.a"));
     assert!(!SHADER.contains("sampled.a <"));
