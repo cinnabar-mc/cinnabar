@@ -73,6 +73,8 @@ fn value_editor_dismisses_on_an_outside_press_without_changing_value() {
     presentation
         .mod_ui_mut()
         .mod_panel_key("Digit4", Some("42"));
+    // The editor's dismissing layer is hit-tested once a frame has laid it out.
+    frame(&mut presentation, [1280, 720]);
     assert!(
         presentation
             .mod_ui_mut()
