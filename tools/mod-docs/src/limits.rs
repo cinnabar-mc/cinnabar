@@ -41,7 +41,7 @@ pub(super) fn render() -> String {
     section!("Controls and presentation",
         mod_api::MAX_SELECTED_SLOT_READS => "Selected-slot reads per callback, apart from the player-state read allowance.",
         mod_api::MAX_INPUT_BINDINGS_PER_READ => "Physical binding entries copied per read.",
-        mod_api::MAX_INPUT_BINDING_WRITES => "Actions whose player binding one callback may change.",
+        mod_api::MAX_INPUT_BINDING_WRITES => "Actions whose player binding changes may await application at once.",
         mod_api::MAX_INPUT_BINDINGS => "Physical binding entries per settings snapshot.",
         mod_api::MAX_INPUT_ACTION_BYTES => "Bytes per stable binding action name.",
         mod_api::MAX_CONTROL_KEYS => "Physical keys per held/admitted/pressed list, selection or reservation. Held and admitted lists truncate independently in physical-name order; above the cap, chord resolution can differ from the host gate.",

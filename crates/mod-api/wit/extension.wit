@@ -540,8 +540,9 @@ interface input {
     /// Requests a saved change to the player's own binding for one remappable action, named
     /// as in action-binding. Requires controls authority and shares the controls write budget.
     /// Staged until the callback succeeds, then applied and saved exactly like the player's own
-    /// Controls edit; a later write to the same action in one callback replaces an earlier one,
-    /// and at most MAX_INPUT_BINDING_WRITES actions change per callback. The host rejects
+    /// Controls edit; a later write to the same action replaces one not yet applied. At most
+    /// MAX_INPUT_BINDING_WRITES actions await application; writing another fails until the
+    /// host applies them, normally right after the frame callback. The host rejects
     /// changes Controls would reject, such as an action with no keyboard row or a resulting
     /// binding set that is invalid; read-bindings reports the outcome in a later revision.
     write-binding: func(action: string, change: binding-change) -> result<_, string>;

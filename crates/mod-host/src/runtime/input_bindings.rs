@@ -14,7 +14,8 @@ pub struct InputBindingWrite {
 }
 
 /// Transactional player binding changes: staged by a callback, published on its success and
-/// consumed once by the embedder.
+/// consumed once by the embedder. At most MAX_INPUT_BINDING_WRITES actions await application
+/// at once, so every accepted write is kept until the embedder consumes it.
 #[derive(Default)]
 pub(crate) struct BindingWrites {
     pending: Vec<InputBindingWrite>,
@@ -22,9 +23,13 @@ pub(crate) struct BindingWrites {
 }
 
 impl BindingWrites {
-    /// Starts a callback with no staged writes, leaving committed ones with the instance.
+    /// Starts a callback with no staged writes. It sees the committed writes only to count
+    /// their actions against the cap; the instance keeps ownership of them.
     pub(crate) fn transaction(&self) -> Self {
-        Self::default()
+        Self {
+            pending: Vec::new(),
+            committed: self.committed.clone(),
+        }
     }
 
     /// Takes a finished callback's staged writes.
@@ -42,14 +47,34 @@ impl BindingWrites {
         {
             return Err("invalid physical key name".into());
         }
-        merge(&mut self.pending, InputBindingWrite { action, change })
+        let waiting = |name: &str| {
+            self.pending
+                .iter()
+                .chain(&self.committed)
+                .any(|write| write.action == name)
+        };
+        if !waiting(&action) {
+            let mut actions: Vec<&str> = self
+                .pending
+                .iter()
+                .chain(&self.committed)
+                .map(|write| write.action.as_str())
+                .collect();
+            actions.sort_unstable();
+            actions.dedup();
+            if actions.len() >= mod_api::MAX_INPUT_BINDING_WRITES {
+                return Err("too many input binding writes awaiting application".into());
+            }
+        }
+        merge(&mut self.pending, InputBindingWrite { action, change });
+        Ok(())
     }
 
     /// Publishes a successful callback's writes, replacing unconsumed ones for the same action.
+    /// Staging already bounded the actions, so nothing accepted is dropped.
     pub(crate) fn commit(&mut self) {
         for write in std::mem::take(&mut self.pending) {
-            // Pending holds at most the cap, so a full committed list only drops new actions.
-            let _ = merge(&mut self.committed, write);
+            merge(&mut self.committed, write);
         }
     }
 
@@ -64,16 +89,13 @@ impl BindingWrites {
     }
 }
 
-/// Replaces the write for the same action, or appends one below MAX_INPUT_BINDING_WRITES.
-fn merge(writes: &mut Vec<InputBindingWrite>, write: InputBindingWrite) -> Result<(), String> {
+/// Replaces the write for the same action, or appends it.
+fn merge(writes: &mut Vec<InputBindingWrite>, write: InputBindingWrite) {
     if let Some(existing) = writes.iter_mut().find(|old| old.action == write.action) {
         *existing = write;
-    } else if writes.len() < mod_api::MAX_INPUT_BINDING_WRITES {
-        writes.push(write);
     } else {
-        return Err("too many input binding writes".into());
+        writes.push(write);
     }
-    Ok(())
 }
 
 /// Whether an action name fits the stable kebab-case binding name contract.
@@ -363,8 +385,8 @@ mod tests {
         assert!(state.controls.binding_writes.take().is_empty());
     }
 
-    /// One callback changes at most MAX_INPUT_BINDING_WRITES actions, and revocation drops
-    /// unconsumed writes.
+    /// At most MAX_INPUT_BINDING_WRITES actions await application, across callbacks that
+    /// commit before the embedder consumes them, and revocation drops unconsumed writes.
     #[test]
     fn binding_writes_are_bounded_and_revoked() {
         let mut writes = BindingWrites::default();
@@ -383,6 +405,23 @@ mod tests {
             .unwrap();
         writes.commit();
         assert_eq!(writes.committed.len(), mod_api::MAX_INPUT_BINDING_WRITES);
+        // A later callback sees the unconsumed writes: it may replace one, not add another.
+        let mut later = writes.transaction();
+        assert!(
+            later
+                .stage("freelook".into(), InputBindingChange::Unbind)
+                .is_err()
+        );
+        later
+            .stage("hotbar-1".into(), InputBindingChange::Reset)
+            .unwrap();
+        writes.accept(later);
+        writes.commit();
+        assert_eq!(writes.committed.len(), mod_api::MAX_INPUT_BINDING_WRITES);
+        assert_eq!(writes.take().len(), mod_api::MAX_INPUT_BINDING_WRITES);
+        writes
+            .stage("freelook".into(), InputBindingChange::Unbind)
+            .unwrap();
         let mut state = State::new(
             ModGrants {
                 controls: true,
