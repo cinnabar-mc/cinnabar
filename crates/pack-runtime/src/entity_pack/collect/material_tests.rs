@@ -191,8 +191,13 @@ fn entity_texture_sets_validate_colour_images_before_replacing_plain_rasters() {
                 (&color_path, color),
                 ("textures/entity/moth.png", plain.get_ref()),
             ]));
-            let (path, bytes) = super::super::texture_file(&view, None, "textures/entity/moth")
-                .expect("the entity keeps a usable raster");
+            let (path, bytes) = super::super::texture_file(
+                &view,
+                None,
+                "textures/entity/moth",
+                &mut super::super::TextureSetColours::default(),
+            )
+            .expect("the entity keeps a usable raster");
             assert_eq!(
                 path.as_ref(),
                 format!(

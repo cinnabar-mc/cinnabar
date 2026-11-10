@@ -1,6 +1,6 @@
 //! Gathers a pack stack's entity sources: unique definitions, geometry, and referenced rasters.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Read;
 use std::path::{Component, Path};
 
@@ -8,6 +8,7 @@ use assets::VanillaEntityRefs;
 use rayon::prelude::*;
 use resource_pack::LayeredPackView;
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 use crate::pack_textures::parse_pack_json;
 
@@ -162,6 +163,21 @@ pub fn collect_files_for_graphics(
     vanilla_pack_dir: Option<&Path>,
     fancy_graphics: bool,
 ) -> (CollectedFiles, assets::EntityMaterialDiagnostics) {
+    collect_files_for_graphics_unless(view, vanilla, vanilla_pack_dir, fancy_graphics, &|| false)
+        .expect("an uncancellable collection completes")
+}
+
+/// Collects entity files, stopping before collection or between rasters when cancelled.
+pub(super) fn collect_files_for_graphics_unless(
+    view: &LayeredPackView,
+    vanilla: Option<&VanillaEntityRefs>,
+    vanilla_pack_dir: Option<&Path>,
+    fancy_graphics: bool,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<(CollectedFiles, assets::EntityMaterialDiagnostics)> {
+    if cancelled() {
+        return None;
+    }
     let mut report = assets::EntityMaterialDiagnostics::default();
     let mut files = Vec::new();
     let CollectedEntities {
@@ -285,29 +301,37 @@ pub fn collect_files_for_graphics(
         .filter(|stem| !textures.contains(stem))
         .collect::<BTreeSet<_>>();
     textures.extend(paintings.iter().cloned());
+    let mut colours = TextureSetColours::default();
     for stem in textures {
+        if cancelled() {
+            return None;
+        }
         let fallback = if paintings.contains(&stem) {
             None
         } else {
             vanilla_pack_dir
         };
-        if let Some(texture) = texture_file(view, fallback, &stem) {
+        if let Some(texture) = texture_file(view, fallback, &stem, &mut colours) {
             files.push(texture);
         }
     }
-    (files, report)
+    Some((files, report))
 }
+
+/// Validated source images or converted PNGs, including failures, shared across texture sets.
+type TextureSetColours = HashMap<(image::ImageFormat, [u8; 32]), Option<Vec<u8>>>;
 
 /// All server formats have precedence over the installed vanilla layer.
 fn texture_file(
     view: &LayeredPackView,
     vanilla_pack_dir: Option<&Path>,
     stem: &str,
+    colours: &mut TextureSetColours,
 ) -> Option<(Box<str>, Vec<u8>)> {
     // A valid texture set whose colour resolves wins over the plain image, as for terrain;
     // outside Vibrant Visuals an entity draws only its colour layer.
     if let Some(set) = crate::pack_textures::PackTextureSet::find(view, stem)
-        && let Some(file) = texture_set_colour(&set, stem)
+        && let Some(file) = texture_set_colour(&set, stem, colours)
     {
         return Some(file);
     }
@@ -368,28 +392,52 @@ fn declared_texture_stem(path: &str) -> Option<String> {
 fn texture_set_colour(
     set: &crate::pack_textures::PackTextureSet<'_>,
     stem: &str,
+    colours: &mut TextureSetColours,
 ) -> Option<(Box<str>, Vec<u8>)> {
     use pack_compile_input::texture_set::TextureSetLayer;
     let png = |image: image::RgbaImage| {
         let mut bytes = std::io::Cursor::new(Vec::new());
         image.write_to(&mut bytes, image::ImageFormat::Png).ok()?;
-        Some((format!("{stem}.png").into(), bytes.into_inner()))
+        Some(bytes.into_inner())
     };
-    match &set.definition.color {
-        TextureSetLayer::Uniform(pixel) => {
-            png(image::RgbaImage::from_pixel(1, 1, image::Rgba(*pixel)))
-        }
+    let (extension, bytes) = match &set.definition.color {
+        TextureSetLayer::Uniform(pixel) => (
+            "png",
+            png(image::RgbaImage::from_pixel(1, 1, image::Rgba(*pixel)))?,
+        ),
         TextureSetLayer::Image(name) => {
             let (path, bytes) = set.image_file(name)?;
             let format = image::ImageFormat::from_path(&path).ok()?;
-            let decoded = image::load_from_memory_with_format(&bytes, format).ok()?;
-            let extension = path.rsplit_once('.')?.1.to_ascii_lowercase();
-            if matches!(extension.as_str(), "png" | "tga") {
-                return Some((format!("{stem}.{extension}").into(), bytes));
-            }
-            png(decoded.into_rgba8())
+            let key = (format, Sha256::digest(&bytes).into());
+            let encoded = colours
+                .entry(key)
+                .or_insert_with(|| {
+                    let mut reader = image::ImageReader::with_format(
+                        std::io::Cursor::new(bytes.as_slice()),
+                        format,
+                    );
+                    let mut limits = image::Limits::default();
+                    limits.max_image_width = Some(assets::MAX_ACTOR_TEXTURE_SIDE.into());
+                    limits.max_image_height = Some(assets::MAX_ACTOR_TEXTURE_SIDE.into());
+                    limits.max_alloc = Some(assets::MAX_ACTOR_PIXEL_BYTES as u64);
+                    reader.limits(limits);
+                    let decoded = reader.decode().ok()?;
+                    if matches!(format, image::ImageFormat::Png | image::ImageFormat::Tga) {
+                        Some(bytes)
+                    } else {
+                        png(decoded.into_rgba8())
+                    }
+                })
+                .as_ref()?;
+            let extension = if format == image::ImageFormat::Tga {
+                "tga"
+            } else {
+                "png"
+            };
+            (extension, encoded.clone())
         }
-    }
+    };
+    Some((format!("{stem}.{extension}").into(), bytes))
 }
 
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
@@ -885,3 +933,5 @@ mod attachables;
 mod harness_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod texture_tests;

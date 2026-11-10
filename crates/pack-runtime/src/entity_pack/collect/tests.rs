@@ -450,7 +450,15 @@ fn vanilla_texture_lookup_does_not_leave_the_pack_root() {
     std::fs::create_dir_all(base.join("textures")).unwrap();
     std::fs::write(parent.path().join("outside.png"), b"outside").unwrap();
     let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
-    assert!(super::texture_file(&view, Some(&base), "textures/../../outside").is_none());
+    assert!(
+        super::texture_file(
+            &view,
+            Some(&base),
+            "textures/../../outside",
+            &mut super::TextureSetColours::default(),
+        )
+        .is_none()
+    );
 }
 
 #[test]

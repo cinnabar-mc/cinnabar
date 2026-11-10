@@ -120,8 +120,13 @@ fn compile_encoded(
     encode: bool,
     cancelled: &dyn Fn() -> bool,
 ) -> Option<Compiled> {
-    let (mut files, collected) =
-        collect::collect_files_for_graphics(view, vanilla, vanilla_pack_dir, fancy_graphics);
+    let (mut files, collected) = collect::collect_files_for_graphics_unless(
+        view,
+        vanilla,
+        vanilla_pack_dir,
+        fancy_graphics,
+        cancelled,
+    )?;
     let artwork_sources = equipment_artwork::collect(view, base_equipment, &mut files);
     let equipment_priorities = artwork_sources
         .iter()
