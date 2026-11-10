@@ -1009,8 +1009,6 @@ and version-matched in-game acceptance remain incomplete.
   facing. Their first-person block pose retains the item-space quarter turn.
   Held stairs select that turn from their pinned model family or active stair topology,
   independently of inventory GUI orientation. Rendered stair acceptance remains open.
-  Glass panes retain their carried plate, body and edge artwork instead of a flat sprite.
-  Rendered glass-pane acceptance remains open.
   Held trapdoors use a centered thin panel with cap artwork and narrow edge UVs,
   independently of placement state. Rendered trapdoor acceptance remains open.
   Bedrock hand rigs shade posed normals in world space and interpolate their combined
@@ -1043,8 +1041,11 @@ and version-matched in-game acceptance remain incomplete.
   Glowstone, sea lanterns, shroomlight, froglight and jack o’lantern GUI cubes retain uniform texture
   brightness. The emissive-cube census rejects missing classifications after registry
   changes; partial emissive faces and entries marked incomplete still need acceptance.
-  Glass-pane previews use thin plates with separate edges and retain their held sprites.
-  Glass panes use thin plates with separate edges in slots and both hands; player previews share the ordinary held model, sprite resolver and material alpha policy. Preview face sheets reuse resident artwork, with a counted sprite fallback when new held artwork cannot fit. Metal bars keep their flat carried sprites.
+  Glass panes use thin plates with separate body and edge artwork in slots and both hands.
+  Player previews share the ordinary held model, sprite resolver and material alpha policy.
+  Preview face sheets reuse resident artwork, with a counted sprite fallback when new held
+  artwork cannot fit. Flat pane artwork remains available as a fallback; metal bars keep
+  their flat carried sprites. Rendered glass-pane acceptance remains open.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
   Heavy-core inventory previews use their carried scale and screen offset.
@@ -1309,9 +1310,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   HUD paper-doll controls retain independently evaluated player-controller layers, authored
   bone translations and camera-driven repeated UVs. Model coverage may extend outside a
   control while retaining its ancestor clip. Selected source artwork shares the UI catalog's
-  existing texture-layer and byte budgets. Declared pack-relative image paths and session
-  player skins retain independent controller layers. Other entity material modes and menu-controller
-  layer acceptance remain open.
+  existing texture-layer and byte budgets. Base item cubes, equipment textures, held artwork
+  and actor flames share a fixed reservation of GUI model-atlas pages. A pack that overflows it
+  still starts: equipment is placed first, cubes keep their thumbnails, held items their sprites,
+  and the HUD doll omits flames or an unplaced armor texture. Sizing the atlas from its content
+  within the device's texture-layer and byte limits remains incomplete. Declared pack-relative
+  image paths and session player skins retain independent controller layers. Other entity
+  material modes and menu-controller layer acceptance remain open.
   Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   Controller overlays and material face culling remain independent from repeated source bounds.
   Live player controls consume UI-context controller layers, part visibility and held-item

@@ -903,6 +903,61 @@ fn custom_content_carried_tints_are_baked_without_changing_alpha() {
     );
 }
 
+#[test]
+fn pinned_glass_panes_keep_a_plate_instead_of_flat_artwork() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    for definition in entities.item_visuals() {
+        let name = definition.key.identifier.as_ref();
+        let glass = name == assets::facts::pack::PackBlock::GlassPane.identifier()
+            || assets::facts::block_render_fact(name).kind
+                == assets::facts::BlockRenderKind::StainedPane;
+        if !glass {
+            continue;
+        }
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            panic!("{name} has no block route");
+        };
+        let vertices = held
+            .models
+            .get(&block_visual.0)
+            .unwrap_or_else(|| panic!("{name} must hold a three-dimensional glass plate"));
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| vertex.back_uv == crate::ONE_SIDED_BACK_UV),
+            "{name} culls the far face through transparent holes"
+        );
+        assert_eq!(vertices.len(), 36, "{name} has six plate faces");
+        for axis in 0..3 {
+            let bound = if axis == 0 { 0.07501221 } else { 0.60009766 };
+            let min = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let max = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!([min, max], [-bound, bound], "{name} axis {axis}");
+        }
+    }
+    let bars = entities
+        .item_visuals()
+        .iter()
+        .find(|definition| definition.key.identifier.as_ref() == "minecraft:iron_bars")
+        .unwrap();
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } = bars.route else {
+        panic!("iron bars have no block route")
+    };
+    assert!(
+        !held.models.contains_key(&block_visual.0),
+        "iron bars keep their extruded sprite"
+    );
+}
+
 /// One whole-tile quad per listed material.
 fn quads_of(materials: impl IntoIterator<Item = u32>) -> Vec<assets::gui_item::GuiBlockQuad> {
     materials
@@ -978,59 +1033,4 @@ fn pinned_trapdoors_hold_a_centered_thin_panel() {
         checked += 1;
     }
     assert!(checked > 0, "the available carriers contain trapdoor items");
-}
-
-#[test]
-fn pinned_glass_panes_keep_a_plate_instead_of_flat_artwork() {
-    let Some((world, entities, icons)) = pinned_carriers() else {
-        return;
-    };
-    let held = collect_held(&world, &entities, &icons);
-    for definition in entities.item_visuals() {
-        let name = definition.key.identifier.as_ref();
-        let glass = name == assets::facts::block::GLASS_PANE_IDENTIFIER
-            || assets::facts::block_render_fact(name).kind
-                == assets::facts::BlockRenderKind::StainedPane;
-        if !glass {
-            continue;
-        }
-        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
-            panic!("{name} has no block route");
-        };
-        let vertices = held
-            .models
-            .get(&block_visual.0)
-            .unwrap_or_else(|| panic!("{name} must hold a three-dimensional glass plate"));
-        assert!(
-            vertices
-                .iter()
-                .all(|vertex| vertex.back_uv == crate::ONE_SIDED_BACK_UV),
-            "{name} culls the far face through transparent holes"
-        );
-        assert_eq!(vertices.len(), 36, "{name} has six plate faces");
-        for axis in 0..3 {
-            let bound = if axis == 0 { 0.07501221 } else { 0.60009766 };
-            let min = vertices
-                .iter()
-                .map(|vertex| vertex.position[axis])
-                .fold(f32::INFINITY, f32::min);
-            let max = vertices
-                .iter()
-                .map(|vertex| vertex.position[axis])
-                .fold(f32::NEG_INFINITY, f32::max);
-            assert_eq!([min, max], [-bound, bound], "{name} axis {axis}");
-        }
-    }
-    let bars = entities
-        .item_visuals()
-        .iter()
-        .find(|definition| definition.key.identifier.as_ref() == "minecraft:iron_bars")
-        .unwrap();
-    let ItemVisualDefinitionRoute::BlockItem { block_visual } = bars.route else {
-        panic!("iron bars have no block route")
-    };
-    assert!(
-        !held.models.contains_key(&block_visual.0),
-        "iron bars keep their extruded sprite"
-    );
 }

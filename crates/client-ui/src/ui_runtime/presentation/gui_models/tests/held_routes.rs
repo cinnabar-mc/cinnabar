@@ -1,7 +1,7 @@
 //! Ordinary held models use the same routes and geometry in previews and world hands.
 
 use super::*;
-use assets::facts::block::GLASS_PANE_IDENTIFIER;
+use assets::facts::pack::PackBlock;
 use assets::{ItemVisualDefinitionRoute, ItemVisualKey, RuntimeIconCatalog};
 use player_preview::PreviewHeldPlacement;
 
@@ -15,7 +15,7 @@ fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog
     compiled.block_visual_count = 2;
     compiled.item_visuals = vec![assets::ItemVisualDefinition {
         key: ItemVisualKey {
-            identifier: GLASS_PANE_IDENTIFIER.into(),
+            identifier: PackBlock::GlassPane.identifier().into(),
             metadata: 0,
         },
         source: 0,
@@ -50,7 +50,7 @@ fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog
                 rgba8: [50, 90, 130, 200].repeat(256).into(),
             }],
             &[assets::IconEntry {
-                identifier: GLASS_PANE_IDENTIFIER.into(),
+                identifier: PackBlock::GlassPane.identifier().into(),
                 metadata: 0,
                 sprite: 0,
             }],
@@ -359,7 +359,7 @@ fn full_model_atlas_keeps_the_unadmitted_held_model_on_its_sprite_route() {
         .set_gui_models(&world, &entities)
         .expect("one optional held texture must not abort the player catalog");
     assert!(held_model(&preview, &entities.item_visuals()[0].key).is_sprite());
-    assert_eq!(preview.gui_models.sources.held_texture_fallbacks(), 1);
+    assert_eq!(preview.gui_models.sources.fallbacks.held, 1);
 }
 
 #[test]
@@ -415,5 +415,5 @@ fn full_model_atlas_reuses_resident_held_face_sheets() {
             .source,
         resident
     );
-    assert_eq!(preview.gui_models.sources.held_texture_fallbacks(), 0);
+    assert_eq!(preview.gui_models.sources.fallbacks.held, 0);
 }

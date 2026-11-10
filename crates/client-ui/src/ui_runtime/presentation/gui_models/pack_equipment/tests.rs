@@ -191,7 +191,7 @@ fn actor_flame_reclamation_leaves_session_armor_in_place() {
             .collect::<Vec<_>>()
             .into(),
     };
-    presentation.set_gui_fire_texture(Some(&fire)).unwrap();
+    presentation.set_gui_fire_texture(Some(&fire));
     let icon = presentation.gui_models.pack_equipment.region(1).unwrap();
     assert_eq!(icon.page, previous);
     let page = &presentation.textures.pages()[usize::from(icon.page)];
@@ -236,7 +236,7 @@ fn session_armor_leaves_optional_models_and_flames_installed() {
             .repeat((flame_side * flame_side * 2) as usize)
             .into(),
     };
-    presentation.set_gui_fire_texture(Some(&fire)).unwrap();
+    presentation.set_gui_fire_texture(Some(&fire));
     assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     let color = [77, 88, 99, 255];
     presentation.set_preview_pack_equipment(Some(catalog(color)));

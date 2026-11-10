@@ -4,13 +4,13 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::gui_item::{
-    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, GuiShading,
-    project_cube,
+    BlockModelOrder, CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad,
+    GuiShading, project_cube,
 };
 use ui::{UiMesh, UiMeshBatch};
 
 use {
-    super::{BlockModelOrder, atlas_uv, batch, shade, vertex},
+    super::{atlas_uv, batch, shade, vertex},
     assets::gui_item::GUI_ITEM_SIDE,
     ui::IconRef,
 };

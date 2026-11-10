@@ -19,7 +19,7 @@ fn flame_frames_retain_original_texels_and_animate_without_texture_rebuilds() {
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;
     let source = texture();
-    presentation.set_gui_fire_texture(Some(&source)).unwrap();
+    presentation.set_gui_fire_texture(Some(&source));
     let textures = Arc::clone(&presentation.textures);
     let frames = presentation.gui_models.fire.frames.clone();
     assert_eq!(frames.len(), 2);
@@ -80,17 +80,17 @@ fn optional_flame_texture_can_be_replaced_removed_or_rejected_without_accumulati
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let mut texture = texture();
-    presentation.set_gui_fire_texture(Some(&texture)).unwrap();
+    presentation.set_gui_fire_texture(Some(&texture));
     let pages = presentation.gui_models.sources.pages.len();
     texture.rgba8 = vec![255; texture.rgba8.len()].into();
-    presentation.set_gui_fire_texture(Some(&texture)).unwrap();
+    presentation.set_gui_fire_texture(Some(&texture));
     assert_eq!(presentation.gui_models.sources.pages.len(), pages);
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
     texture.height = 17;
-    presentation.set_gui_fire_texture(Some(&texture)).unwrap();
+    presentation.set_gui_fire_texture(Some(&texture));
     assert!(presentation.gui_models.sources.pages.is_empty());
     assert!(presentation.gui_models.fire.frames.is_empty());
-    presentation.set_gui_fire_texture(None).unwrap();
+    presentation.set_gui_fire_texture(None);
     assert!(presentation.gui_models.sources.pages.is_empty());
 }
 
@@ -153,9 +153,7 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         ..Default::default()
     };
     let source = texture();
-    presentation
-        .set_gui_fire_texture(Some(&source))
-        .expect("optional block meshes must leave room for actor flames");
+    presentation.set_gui_fire_texture(Some(&source));
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
     assert_eq!(presentation.gui_models.sources.pages.len(), 2);
     assert!(Arc::ptr_eq(
@@ -191,10 +189,10 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
             .collect::<Vec<_>>()
             .into(),
     };
-    presentation.set_gui_fire_texture(Some(&large)).unwrap();
+    presentation.set_gui_fire_texture(Some(&large));
     assert_eq!(presentation.gui_models.fire.frames.len(), 4);
     assert_eq!(presentation.gui_models.sources.pages.len(), 5);
-    presentation.set_gui_fire_texture(None).unwrap();
+    presentation.set_gui_fire_texture(None);
     assert_eq!(presentation.gui_models.sources.pages.len(), 1);
 }
 
@@ -202,12 +200,12 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
 fn exhausted_required_pages_clear_previous_flame_frame_addresses() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-    presentation.set_gui_fire_texture(Some(&texture())).unwrap();
+    presentation.set_gui_fire_texture(Some(&texture()));
     assert!(!presentation.gui_models.fire.frames.is_empty());
     let page = presentation.gui_models.sources.pages[0].clone();
     presentation.gui_models.sources.pages = vec![page; MODEL_PAGES];
     presentation.gui_models.fire.pages_start = None;
-    assert!(presentation.install_gui_fire().is_err());
+    presentation.install_gui_fire();
     assert!(presentation.gui_models.fire.frames.is_empty());
 }
 
@@ -254,12 +252,11 @@ fn installed_item_models_leave_room_for_installed_actor_flames() {
     )));
     presentation.set_gui_models(&world, &entities).unwrap();
     assert_eq!(
-        presentation.gui_models.sources.held_texture_fallbacks, 0,
-        "installed held artwork must fit the model atlas"
+        presentation.gui_models.sources.fallbacks,
+        Default::default(),
+        "installed item artwork must fit the model atlas"
     );
-    presentation
-        .set_gui_fire_texture(Some(flame))
-        .expect("installed item models must leave room for the actor flame");
+    presentation.set_gui_fire_texture(Some(flame));
     assert_eq!(
         presentation.gui_models.fire.frames.len(),
         (flame.height / flame.width) as usize

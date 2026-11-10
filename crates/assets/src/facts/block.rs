@@ -13,8 +13,6 @@ pub enum BlockStateIdentity<'a> {
 }
 /// Canonical empty-block identity checked against the pinned air trait.
 pub const AIR_IDENTIFIER: &str = "minecraft:air";
-/// Plain glass pane identity shared by carried-model consumers.
-pub const GLASS_PANE_IDENTIFIER: &str = "minecraft:glass_pane";
 /// The piston whose head wears the sticky art when its actor data does not say.
 pub const STICKY_PISTON_IDENTIFIER: &str = "minecraft:sticky_piston";
 

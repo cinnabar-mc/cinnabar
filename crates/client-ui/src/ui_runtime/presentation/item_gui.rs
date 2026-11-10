@@ -2,20 +2,13 @@
 
 use std::sync::Arc;
 
-use assets::gui_item::{CUBE_FACES, CubeLighting};
+use assets::gui_item::{BlockModelOrder, CUBE_FACES, CubeLighting};
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use ui::IconRef;
 
 mod block_model;
 mod shield;
-
-/// Chooses how overlapping surfaces in a block preview are resolved.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BlockModelOrder {
-    Depth,
-    Paint,
-}
 
 pub(super) use block_model::mesh as block_model;
 

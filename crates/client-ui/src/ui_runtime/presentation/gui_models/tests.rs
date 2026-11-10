@@ -314,7 +314,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
             &quads,
             assets::gui_item::GuiShading::Inventory,
             Default::default(),
-            item_gui::BlockModelOrder::Depth,
+            assets::gui_item::BlockModelOrder::Depth,
         )
         .unwrap(),
     );
@@ -374,9 +374,7 @@ fn menu_avatar_is_available_before_item_geometry_and_survives_its_publication() 
         .expect("menu avatar does not need item geometry");
     assert!(presentation.gui_models.sources.models.is_empty());
     let page = presentation.gui_models.skin.as_ref().unwrap().clone();
-    presentation
-        .install_gui_model_sources(PreparedGuiModels::default())
-        .unwrap();
+    presentation.install_gui_model_sources(PreparedGuiModels::default());
     assert_eq!(
         presentation.gui_models.skin.as_ref().unwrap().identity(),
         identity

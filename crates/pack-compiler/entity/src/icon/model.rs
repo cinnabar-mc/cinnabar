@@ -1,11 +1,11 @@
-//! Alpha-tested block thumbnails from shared GUI geometry and surface ordering.
+//! Alpha-tested block thumbnails with the shared GUI geometry and overlap order.
 //! Includes slabs, stairs, walls, glass and server custom blocks.
 
 use std::sync::Arc;
 
 use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, GuiShading, block_gui_quads,
-    block_gui_uses_paint_order, cube_face, material_tile,
+    BlockModelOrder, GUI_BLOCK_ALPHA_THRESHOLD, GUI_ITEM_SIDE, GuiBlockReject, GuiShading,
+    block_gui_quads, cube_face, material_tile,
 };
 use assets::{
     BlockFace, BlockOverlay, BlockVisualId, IconSprite, Material, ModelQuad, ModelTemplate,
@@ -85,7 +85,7 @@ pub(super) struct Model<'a> {
     light: f32,
     face_lighting: bool,
     shading: GuiShading,
-    paint_order: bool,
+    order: BlockModelOrder,
 }
 
 impl<'a> Model<'a> {
@@ -116,7 +116,7 @@ impl<'a> Model<'a> {
             light,
             face_lighting: true,
             shading: GuiShading::Inventory,
-            paint_order: false,
+            order: BlockModelOrder::Depth,
         }
     }
 
@@ -263,7 +263,7 @@ impl<'a> Model<'a> {
             light: 1.0,
             face_lighting: true,
             shading: GuiShading::of(kind, template, parts.templates),
-            paint_order: block_gui_uses_paint_order(
+            order: BlockModelOrder::for_template(
                 template.and_then(|id| parts.templates.get(id as usize)),
             ),
         }
@@ -299,7 +299,7 @@ impl<'a> Model<'a> {
             light: 1.0,
             face_lighting: true,
             shading: GuiShading::Inventory,
-            paint_order: false,
+            order: BlockModelOrder::Depth,
         }
     }
 
@@ -316,9 +316,13 @@ impl<'a> Model<'a> {
             let points = face.corners.map(|point| {
                 let [x, y, z] = (self.projection)(point);
                 let scale = SIDE as f32 / GUI_ITEM_SIDE;
-                // Later faces cover earlier ones when the GUI uses paint order.
-                let z = if self.paint_order { -(index as f32) } else { z };
-                [scale * x, scale * y, z]
+                // Ordered faces use successive depths so cutouts and blending retain paint order.
+                let depth = if self.order == BlockModelOrder::Paint {
+                    -(index as f32)
+                } else {
+                    z
+                };
+                [scale * x, scale * y, depth]
             });
             for indices in [[0, 1, 2], [0, 2, 3]] {
                 triangle(
@@ -517,6 +521,10 @@ fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f
         }
     }
 }
+
+#[cfg(test)]
+#[path = "model/paint_order_tests.rs"]
+mod paint_order_tests;
 
 #[cfg(test)]
 mod review_tests {

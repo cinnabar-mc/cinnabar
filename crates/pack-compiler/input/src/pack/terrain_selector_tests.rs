@@ -90,7 +90,7 @@ fn capture(root: &Path, unknown: Option<(&str, u32)>, wheat: Option<(&str, u32)>
 }
 
 #[test]
-fn carried_class_arrays_clamp_without_resetting_the_world_class_index() {
+fn carried_class_arrays_use_the_model_missing_variant_fallback() {
     let root = fixture();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
     let mut state = record("{}");
@@ -101,7 +101,7 @@ fn carried_class_arrays_clamp_without_resetting_the_world_class_index() {
     );
     assert_eq!(
         terrain.get_carried_for_record("test:array", &state),
-        Some(("textures/second", None))
+        Some(("textures/first", None))
     );
     state.name = "minecraft:lit_pumpkin".into();
     assert_eq!(
@@ -112,6 +112,14 @@ fn carried_class_arrays_clamp_without_resetting_the_world_class_index() {
     assert_eq!(
         terrain.get_carried_for_record("test:array", &state),
         Some(("textures/first", None))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &record("{}")),
+        Some(("textures/first", None))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("wheat", &record(r#"{"growth":{"type":"int","value":7}}"#)),
+        Some(("textures/stage_7", None))
     );
 }
 
