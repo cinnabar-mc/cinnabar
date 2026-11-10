@@ -43,6 +43,9 @@ fn text<'a>(nodes: &'a [DrawNode], wanted: &str) -> Option<&'a DrawNode> {
         .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == wanted))
 }
 
+/// The desktop hotbar paints every slot frame from one control.
+const HOTBAR_SLOTS: &str = json_ui::vanilla::Renderer::HotbarSlotsRenderer.as_str();
+
 fn customs<'a>(nodes: &'a [DrawNode], renderer: &str) -> Vec<&'a DrawNode> {
     nodes
         .iter()
@@ -295,8 +298,8 @@ fn game_mode_matrix_gates_each_surface_exactly() {
         build(&player_runtime, &mut presentation, &runtime, 0);
         let nodes = presentation.hud_draw_nodes();
         assert_eq!(
-            customs(nodes, "hotbar_renderer").len(),
-            if hotbar { 9 } else { 0 },
+            customs(nodes, HOTBAR_SLOTS).len(),
+            usize::from(hotbar),
             "{mode:?}"
         );
         assert_eq!(
@@ -341,8 +344,8 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
     player_runtime.inventory.set_local_selected_slot(2);
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert_eq!(
-        customs(presentation.hud_draw_nodes(), "hotbar_renderer").len(),
-        9
+        customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS).len(),
+        1
     );
     runtime
         .apply(
@@ -364,7 +367,7 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
         "slot retained"
     );
     build(&player_runtime, &mut presentation, &runtime, 0);
-    assert!(customs(presentation.hud_draw_nodes(), "hotbar_renderer").is_empty());
+    assert!(customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS).is_empty());
 }
 
 // The hotbar keeps 182 GUI px at every auto scale, centred.
