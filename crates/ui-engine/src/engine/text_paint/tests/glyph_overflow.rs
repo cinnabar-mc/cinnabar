@@ -84,7 +84,9 @@ fn oversized_bitmap_icons_keep_label_boxes_and_text_baselines() {
                 let draw = tree.build_draw_list().unwrap();
                 let tallest = draw
                     .vertices
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .map(|quad| {
                         let top = quad
                             .iter()
