@@ -7,13 +7,15 @@ use super::{
 };
 use assets::entity_render_pattern_matches as pattern_matches;
 
-/// Controller activation is independent of whether selected artwork can be drawn.
+/// Controller activation distinguishes intentional no-draw from unavailable artwork.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ControllerActivity {
     #[default]
     NotEvaluated,
     NoControllers,
     Active,
+    /// Active controllers selected no draw, with no unavailable artwork needing fallback.
+    ActiveNoDraw,
     Inactive,
 }
 
@@ -26,9 +28,12 @@ pub struct RenderVisibility {
 }
 
 impl RenderVisibility {
-    /// Only a completed all-false controller evaluation suppresses the base body.
+    /// Completed inactive or intentional no-draw controllers suppress the base body.
     pub fn hides_body(self) -> bool {
-        self.controllers == ControllerActivity::Inactive
+        matches!(
+            self.controllers,
+            ControllerActivity::Inactive | ControllerActivity::ActiveNoDraw
+        )
     }
 
     /// Held equipment follows its own description property, independently of the body.
@@ -347,6 +352,7 @@ pub(super) fn evaluate_render_cached(
     output.clear();
     let mut unresolved_artwork = false;
     let mut active = false;
+    let mut no_draw = false;
     let symbol = assets
         .rig_bindings()
         .get(rig.binding)
@@ -357,14 +363,13 @@ pub(super) fn evaluate_render_cached(
             super::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
         });
     for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
-        if let Some(cache) = cache.as_deref_mut() {
+        let status = if let Some(cache) = cache.as_deref_mut() {
             let evaluated =
                 cache.sample(index, evaluator, variables, rig, layer, actor_color, budget)?;
-            active |= evaluated.status != LayerStatus::Inactive;
-            unresolved_artwork |= evaluated.status == LayerStatus::UnresolvedArtwork;
             output.extend_from_slice(&evaluated.layers);
+            evaluated.status
         } else {
-            let status = evaluate_layer_into(
+            evaluate_layer_into(
                 evaluator,
                 variables,
                 rig,
@@ -372,10 +377,11 @@ pub(super) fn evaluate_render_cached(
                 actor_color,
                 &mut output,
                 budget,
-            )?;
-            active |= status != LayerStatus::Inactive;
-            unresolved_artwork |= status == LayerStatus::UnresolvedArtwork;
-        }
+            )?
+        };
+        active |= status != LayerStatus::Inactive;
+        unresolved_artwork |= status == LayerStatus::UnresolvedArtwork;
+        no_draw |= status == LayerStatus::NoDraw;
     }
     let hide_held_items = assets
         .rig_bindings()
@@ -391,6 +397,8 @@ pub(super) fn evaluate_render_cached(
     let visibility = RenderVisibility {
         controllers: if assets.render_layers(rig.binding).is_empty() {
             ControllerActivity::NoControllers
+        } else if output.is_empty() && no_draw && !unresolved_artwork {
+            ControllerActivity::ActiveNoDraw
         } else if active {
             ControllerActivity::Active
         } else {
@@ -455,11 +463,12 @@ pub(crate) struct LayerOutput {
     status: LayerStatus,
 }
 
-/// Inactive controllers never become missing-artwork fallbacks.
+/// Intentional empty selections and inactive controllers never become artwork fallbacks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LayerStatus {
     Inactive,
     Active,
+    NoDraw,
     UnresolvedArtwork,
 }
 
@@ -526,7 +535,7 @@ fn evaluate_layer_into(
         uv_anim: material_uv_anim,
     }) = selected_material(evaluator, variables, layer, budget)?
     else {
-        return Ok(LayerStatus::Active);
+        return Ok(LayerStatus::NoDraw);
     };
     let mut samplers = material_state.map_or(
         &[] as &[usize],

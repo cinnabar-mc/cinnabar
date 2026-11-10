@@ -1268,7 +1268,8 @@ Whole-model selectors retain one controller layer and evaluate each decision onc
 after activation and before authored part visibility. Render-controller expressions
 share frame dependency analysis, keeping camera-driven choices live between ticks.
 Unresolved selector members and choices lacking required controller textures draw nothing;
-valid sibling choices retain their own material and bone ownership.
+actor presentation preserves that outcome without substituting the base body, while unavailable
+artwork retains its fallback. Valid sibling choices retain their own material and bone ownership.
 Per-bone selector admission and in-world qualification remain incomplete. The samples
 omit the iron golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.

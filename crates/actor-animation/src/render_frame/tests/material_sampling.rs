@@ -121,23 +121,98 @@ fn empty_material_choices_skip_draws_at_ticks_and_between_frames() {
         });
         let completed = store.get(1).unwrap().render.to_vec();
         assert_eq!(completed.is_empty(), distance >= 8.0);
+        let visibility = store.get(1).unwrap().visibility;
+        assert_eq!(visibility.hides_body(), distance >= 8.0);
+        assert_eq!(
+            visibility.controllers,
+            if distance >= 8.0 {
+                ControllerActivity::ActiveNoDraw
+            } else {
+                ControllerActivity::Active
+            }
+        );
         let authored = authored_state(&store);
-        for sample_distance in [5.0, 9.0, 5.0] {
+        for visibility_only in [false, true] {
+            let mut storage = Vec::new();
+            for sample_distance in [5.0, 9.0, 9.0, 5.0] {
+                let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+                let sampled = store
+                    .render_layers_reusing(
+                        &actor,
+                        0.5,
+                        [0.0; 2],
+                        [0.0, 0.0, sample_distance],
+                        &mut budget,
+                        false,
+                        visibility_only,
+                        &mut storage,
+                    )
+                    .unwrap();
+                assert_eq!(sampled.render.is_empty(), sample_distance >= 8.0);
+                assert_eq!(sampled.visibility.hides_body(), sample_distance >= 8.0);
+            }
+        }
+        assert_eq!(store.get(1).unwrap().render, completed);
+        assert_eq!(store.get(1).unwrap().visibility, visibility);
+        assert_eq!(authored_state(&store), authored);
+    }
+}
+
+#[test]
+fn empty_material_choices_preserve_other_draws_and_missing_artwork_fallbacks() {
+    for missing_artwork in [false, true] {
+        let mut compiled = compiled_material_assets(MolangQuery::DistanceFromCamera, 8.0, false);
+        compiled.render.material_selections[2] = EntityRenderMaterialSelection::Empty;
+        let mut other = compiled.render.layers[0];
+        other.material_selection = None;
+        other.unresolved_textures = missing_artwork;
+        other.first_slot = compiled.render.slots.len() as u32;
+        if missing_artwork {
+            other.slot_count = 0;
+        } else {
+            let mut slot = compiled.render.slots[0];
+            slot.first_candidate = compiled.render.candidates.len() as u32;
+            compiled.render.slots = vec![compiled.render.slots[0], slot].into();
+            compiled.render.candidates =
+                vec![compiled.render.candidates[0], compiled.render.candidates[0]].into();
+        }
+        let mut layers = compiled.render.layers.into_vec();
+        layers.push(other);
+        compiled.render.layers = layers.into();
+        let assets = Arc::new(
+            RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+        );
+        let actor = crate::tests::actor_with_metadata(HashMap::new());
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut store = ActorAnimationStore::with_assets(assets);
+        store.insert(1, 0, &actor);
+        store.advance_tick(&actors, None, None, true, true, |_| ActorTickContext {
+            camera_position: [0.0, 0.0, 9.0],
+            ..Default::default()
+        });
+        let completed = store.get(1).unwrap();
+        assert_eq!(completed.render.is_empty(), missing_artwork);
+        assert_eq!(completed.visibility.controllers, ControllerActivity::Active);
+        assert!(!completed.visibility.hides_body());
+        for visibility_only in [false, true] {
+            let mut storage = Vec::new();
             let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
             let sampled = store
-                .render_layers(
+                .render_layers_reusing(
                     &actor,
                     0.5,
                     [0.0; 2],
-                    [0.0, 0.0, sample_distance],
+                    [0.0, 0.0, 9.0],
                     &mut budget,
                     false,
+                    visibility_only,
+                    &mut storage,
                 )
                 .unwrap();
-            assert_eq!(sampled.render.is_empty(), sample_distance >= 8.0);
+            assert_eq!(sampled.render.is_empty(), missing_artwork);
+            assert_eq!(sampled.visibility.controllers, ControllerActivity::Active);
+            assert!(!sampled.visibility.hides_body());
         }
-        assert_eq!(store.get(1).unwrap().render, completed);
-        assert_eq!(authored_state(&store), authored);
     }
 }
 
