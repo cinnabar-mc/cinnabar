@@ -615,10 +615,8 @@ interface environment {
 }
 
 /// Explicit local gameplay capabilities; no raw packet access.
-/// Grants: Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `gameplay_input`, `entities`, `commands` or `packet_delay`; see each function.
+/// Grants: Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `entities`, `commands` or `packet_delay`; see each function.
 interface gameplay {
-    /// One-frame semantic gameplay button tap; never a retained hold or desktop key injection.
-    enum button { attack, %use, jump }
     /// Three coordinates; the containing record or function specifies their units and frame.
     record vector3 { x: f32, y: f32, z: f32 }
     /// Integer world coordinates of one block.
@@ -690,13 +688,6 @@ interface gameplay {
     /// One attack-press edge, only while the physical attack control is held.
     /// An active action filter receives it as a repeat.
     pulse-attack: func() -> result<_, string>;
-    /// Requests one tap on a gameplay button while focused gameplay owns input.
-    /// Requires gameplay-input authority; accepted taps use the ordinary ordered input pipeline.
-    pulse-button: func(button: button) -> result<_, string>;
-    /// Selects one local hotbar slot from 0 through 8 through ordinary inventory selection.
-    /// Requires gameplay-input authority and a current focused gameplay frame. The latest
-    /// request from one mod wins; across mods, the earliest loaded mod wins.
-    select-hotbar-slot: func(slot: u8) -> result<_, string>;
     /// Holds ordinary mining on the crosshair block for one successful gameplay frame.
     /// Requires interaction authority and a current gameplay frame when true; false releases
     /// only this mod's request. Renew every frame. Omission, focus loss, unload and failed

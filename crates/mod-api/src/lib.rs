@@ -51,11 +51,6 @@ pub const MAX_SELECTED_SLOT_READS: u32 = 8;
 /// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
 pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 
-/// Maximum gameplay button taps one component can request in one callback.
-pub const MAX_GAMEPLAY_INPUT_PULSES: usize = 8;
-/// Number of selectable local hotbar slots.
-pub const HOTBAR_SLOT_COUNT: u8 = 9;
-
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
 /// Maximum remote players exposed by one local gameplay snapshot.

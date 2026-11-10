@@ -2124,9 +2124,7 @@ Flathub submission remain incomplete.
   rebind quarantine, UI ownership and device changes; live input qualification remains open.
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules, and
-  attack and use pulses reach it as repeats. Gameplay button taps preserve physical
-  edges and their requesting filter owner; jump taps use the tick-sampled pulse queue.
-  Local weather overrides retain
+  attack and use pulses reach it as repeats. Local weather overrides retain
   transactional host APIs. Granted actor reach requests set the local pick and attack
   distance within the API bound, preserving attack eligibility, obstruction checks and
   ordinary block reach. Frame-scoped crosshair mining holds use that same interaction grant

@@ -97,19 +97,6 @@ impl ActionFilterState {
         owner: Option<u64>,
         time_us: u64,
         repeat: [bool; 2],
-        decide: impl FnMut(&ActionFilterFrame) -> Option<ActionVerdict>,
-    ) -> [bool; 2] {
-        self.filter_with_taps(input, owner, time_us, repeat, &[], decide)
-    }
-
-    /// Filters physical transitions and owned taps together, withdrawing failed-owner taps.
-    pub(crate) fn filter_with_taps(
-        &mut self,
-        input: &mut ActionSnapshot,
-        owner: Option<u64>,
-        time_us: u64,
-        repeat: [bool; 2],
-        taps: &[crate::finalized::ModTap],
         mut decide: impl FnMut(&ActionFilterFrame) -> Option<ActionVerdict>,
     ) -> [bool; 2] {
         let physical_lost = self.physical_lost
@@ -188,35 +175,9 @@ impl ActionFilterState {
         if invalid {
             events.retain(|e| FilterAction::from_action(e.action).is_none());
         }
-        let mut events: Vec<_> = events.into_iter().map(|event| (event, None)).collect();
-        if !invalid {
-            let held = input.phases.map(|phase| phase.held);
-            for tap in taps {
-                let mut pressed = held;
-                pressed[tap.action as usize] = true;
-                events.push((
-                    ActionEvent {
-                        action: tap.action,
-                        pressed: true,
-                        buttons: ActionButtons::new(pressed),
-                    },
-                    tap.owner,
-                ));
-                if !held[tap.action as usize] {
-                    events.push((
-                        ActionEvent {
-                            action: tap.action,
-                            pressed: false,
-                            buttons: ActionButtons::new(held),
-                        },
-                        tap.owner,
-                    ));
-                }
-            }
-        }
         let mut transitions: Vec<_> = events
             .iter()
-            .filter_map(|(e, _)| {
+            .filter_map(|e| {
                 Some(ActionTransition {
                     action: FilterAction::from_action(e.action)?,
                     held_after: e.buttons.held(e.action),
@@ -231,11 +192,7 @@ impl ActionFilterState {
         // Repeat authority is independent of filtering and never extends beyond physical release.
         let repeat = FilterAction::ALL.map(|a| {
             let phase = input.phases[a.action() as usize];
-            repeat[a.index()]
-                && !invalid
-                && phase.held
-                && !phase.pressed
-                && !taps.iter().any(|tap| tap.action == a.action())
+            repeat[a.index()] && !invalid && phase.held && !phase.pressed
         });
         for a in FilterAction::ALL.into_iter().filter(|a| repeat[a.index()]) {
             transitions.push(ActionTransition {
@@ -295,14 +252,11 @@ impl ActionFilterState {
         let mut physical = physical;
         let mut owned = held;
         let mut decision = 0;
-        for (event, tap_owner) in events {
+        for event in events {
             if let Some(a) = FilterAction::from_action(event.action) {
                 let i = a.index();
                 let accepted = verdict.accepted[decision];
                 decision += 1;
-                if failed && tap_owner.is_some() && tap_owner == owner {
-                    continue;
-                }
                 if accepted {
                     if event.pressed && (!physical[i] || held[i]) {
                         if held[i] && !physical[i] {
@@ -363,10 +317,7 @@ impl ActionFilterState {
                 emit(&mut output, &mut edges, &mut held, a, true, true, buttons);
             }
         }
-        if input.ordered.is_some() || !invalid && !taps.is_empty() {
-            let ordered = input
-                .ordered
-                .get_or_insert_with(crate::OrderedActions::default);
+        if let Some(ordered) = &mut input.ordered {
             ordered.initial_buttons = project(initial, logical);
             ordered.events = output;
         }
@@ -413,20 +364,14 @@ fn project(raw: ActionButtons, held: [bool; 2]) -> ActionButtons {
             .map_or_else(|| raw.held(Action::ALL[i]), |a| held[a.index()])
     }))
 }
-
 /// Defines stable ordering for phase-only devices: coalesced edges alternate from the
 /// gesture's starting hold to its final hold, except that a hold kept throughout never
 /// reports an unheld interval. These samples cannot recover sub-frame order.
 fn aggregate_events(input: &ActionSnapshot, initial: ActionButtons) -> Vec<ActionEvent> {
     let mut events = Vec::new();
     let mut buttons = initial;
-    for action in Action::ALL {
-        // Hotbar phases were already sampled before mod taps added an ordered stream.
-        if crate::HOTBAR_DIGIT_ACTIONS.contains(&action)
-            || matches!(action, Action::HotbarNext | Action::HotbarPrevious)
-        {
-            continue;
-        }
+    for a in FilterAction::ALL {
+        let action = a.action();
         let p = input.phases[action as usize];
         let order: &[bool] = match (p.pressed, p.released, initial.held(action), p.held) {
             (true, true, false, false) => &[true, false],

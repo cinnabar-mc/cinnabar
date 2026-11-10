@@ -96,8 +96,6 @@ Separate grants let a mod request actions instead of only observing input. Each 
 | `gameplay::set_movement_intents` | `movement` | Holds sprint or sneak as if bound; renew every focused gameplay frame, omission releases both |
 | `gameplay::set_control_modes` | `movement` | Turns on toggle sprint/sneak and always-sprint while renewed every focused gameplay frame; it cannot turn off a mode the player enabled |
 | `gameplay::pulse_attack` | `interaction` | One attack-press edge, only while the physical attack control is held |
-| `gameplay::pulse_button` | `gameplay_input` | One semantic Attack, Use or Jump tap without changing physical controls |
-| `gameplay::select_hotbar_slot` | `gameplay_input` | Selects a local hotbar slot through ordinary inventory selection |
 | `gameplay::set_block_mining` | `interaction` | Holds ordinary mining on the crosshair block for this successful frame; renew while needed |
 | `gameplay::read_block_target` | `terrain` | Reads the center of the current crosshair block while gameplay owns input |
 | `gameplay::set_block_mining_target` | `interaction`, `terrain` | Directs physically held mining toward a point without moving the view; renew each frame |
@@ -108,16 +106,6 @@ Separate grants let a mod request actions instead of only observing input. Each 
 The reach override can shorten or extend the local range, within the [current cap](../reference/limits.md). It does not enable attacks forbidden by the game mode, and block obstructions still apply.
 
 Server movement, hunger and item-use restrictions still apply to all of these. The host stages local requests; it does not grant server permission to carry them out.
-
-The sensitive `gameplay_input` grant (`CINNABAR_MOD_GAMEPLAY_INPUT=1`, or
-`"gameplay_input": true` in a component registration) allows at most
-`MAX_GAMEPLAY_INPUT_PULSES` taps per callback. Taps use ordered gameplay input;
-they never inject desktop events or retain a button hold. Attack and Use taps
-pass through the action filter. Requests commit after a successful callback in
-the same focused gameplay frame and are discarded when focus or panel ownership
-changes. Hotbar selections accept slots 0 through 8 and are deferred to the next
-hotbar sampling frame. User selection takes precedence. Across mods, the earliest
-loaded mod wins; repeated requests from one mod use its last slot.
 
 ## Filtering attack and use actions
 
