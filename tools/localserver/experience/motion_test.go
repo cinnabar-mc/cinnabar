@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 )
@@ -87,4 +88,41 @@ func TestCallbackKnocksTheActorBack(t *testing.T) {
 	if got, want := f.actorVelocityAfter("knock back ok"), (mgl64.Vec3{0.4, 0.375, 0}); !got.ApproxEqual(want) {
 		t.Errorf("velocity = %v, want %v", got, want)
 	}
+}
+
+func TestCallbackKnockBackFollowsVehicleMoveAndDismount(t *testing.T) {
+	f := newEntityFixture(t)
+	handle := f.spawnEntity()
+	f.do(f.source, func(tx *world.Tx) {
+		actor, _ := f.actor.Entity(tx)
+		vehicle, ok := f.h.findEntity(tx, "probe", handle)
+		if !ok || !tx.Mount(actor, vehicle, 0) {
+			t.Fatal("vehicle mount failed")
+		}
+	})
+	f.d.seq++
+	ev, snap := f.request()
+	state := snap.req.Info.Context.Entities[0].State
+	state.Position.X = 2
+	f.do(ev.w, func(tx *world.Tx) {
+		ops := []Op{
+			{Entity: &EntityCommand{Action: EntityOp{Type: "update", State: &state, Teleport: true}}},
+			{Entity: &EntityCommand{Action: EntityOp{Type: "dismount"}}},
+			{KnockBack: &KnockBackOp{Player: f.actor.UUID().String(), Source: Position{X: 1, Y: 70}, Force: 0.4, Height: 0.375}},
+		}
+		if _, err := f.h.apply(tx, "probe", ev, snap, ops); err != nil {
+			t.Fatal(err)
+		}
+		actor, _ := f.actor.Entity(tx)
+		p := actor.(*player.Player)
+		if _, _, riding := world.Riding(p); riding {
+			t.Error("actor is still mounted")
+		}
+		if got := p.Position().X(); got != state.Position.X {
+			t.Errorf("actor x = %v, want %v", got, state.Position.X)
+		}
+		if got, want := p.Velocity(), (mgl64.Vec3{0.4, 0.375, 0}); !got.ApproxEqual(want) {
+			t.Errorf("velocity = %v, want knockback away from the source at the new position: %v", got, want)
+		}
+	})
 }

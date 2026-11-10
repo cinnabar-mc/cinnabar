@@ -190,9 +190,6 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	for _, w := range plan.powers {
 		h.applyPower(tx, exp, ev.instance, w)
 	}
-	if plan.motion != nil {
-		plan.motion.apply(actor)
-	}
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
@@ -207,6 +204,10 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
 	h.applyEntities(tx, exp, ev, actor, ops)
+	// Entity operations may move the actor and reset rider velocity.
+	if plan.motion != nil {
+		plan.motion.apply(actor)
+	}
 	if plan.pass {
 		passInteraction(actor, ev)
 	}
