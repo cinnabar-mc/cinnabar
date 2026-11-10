@@ -1179,8 +1179,10 @@ See [actor animation clocks](docs/reference/actor-animation-clocks.md),
 ## Phase 5 — Interaction, inventory and UI
 
 Entity-backed storage stays open when hurt and closes beyond the user-selected
-11.5-block distance from the recently interacted actor, falling back to the window's
-actor when unavailable. Live testing confirmed the Hive shop behavior on Windows.
+11.5-block distance from the window's actor, falling back to the recently interacted
+actor for unresolved or local-player owners. Admitted attacks retain this association
+for desktop, controller and touch input. Live testing confirmed the Hive shop
+behavior on Windows.
 The interaction association, native distance, tick timing and missing-entity behavior
 remain unverified and do not close the inventory parity gate.
 

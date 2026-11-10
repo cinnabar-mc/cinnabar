@@ -258,12 +258,13 @@ fn maintain_attacks(
         ResMut<client_interaction::survival_mining::SurvivalMiningRuntime>,
         ResMut<SwingTracker>,
         Res<client_interaction::item_use::ItemUseRuntime>,
+        Option<ResMut<client_interaction::block_use::BlockUseRuntime>>,
     ),
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     mut cues: LocalCues,
 ) {
-    let (mut runtime, mut mining, mut swings, item_use) = state;
+    let (mut runtime, mut mining, mut swings, item_use, mut block_use) = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let mut attack = (|| {
         if context
@@ -476,6 +477,13 @@ fn maintain_attacks(
         .mining
         .settle_inventory(player.inventory.ledger_mut());
     if let Some(hit) = admitted.actor_attack {
+        if let Some(block_use) = block_use.as_deref_mut() {
+            block_use.record_actor_use(
+                context.ui.session_id(),
+                hit.runtime_id,
+                context.time.elapsed(),
+            );
+        }
         cues.attack.write(attack_cue(&context, hit.runtime_id));
     }
     requested_breaks::apply(&player, &mut context, &mut movement, active);

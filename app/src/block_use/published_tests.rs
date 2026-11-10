@@ -67,6 +67,8 @@ mod attack_progress_tests;
 
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
+#[path = "published_tests/entity_storage.rs"]
+mod entity_storage_tests;
 #[path = "published_tests/freeform_pick.rs"]
 mod freeform_pick_tests;
 

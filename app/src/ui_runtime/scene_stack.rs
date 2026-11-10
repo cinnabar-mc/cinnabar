@@ -20,29 +20,42 @@ pub(crate) fn close_scenes_on_player_hurt(
 ) {
     let session = runtime.session_id();
     let generation = player_runtime.inventory.ledger().storage_generation();
+    let stream = world.as_deref().and_then(|world| world.stream.as_ref());
+    let window_actor = stream.and_then(|stream| {
+        stream
+            .authority()
+            .inventory_ui()
+            .container_actor(player_runtime.inventory.ledger().window_actor()?)
+            .filter(|actor| actor.runtime_id != stream.local_player_runtime_id())
+    });
     if let (Some(generation), Some(block_use), Some(time)) =
         (generation, block_use.as_deref(), time.as_deref())
     {
-        if anchor.is_none_or(|(saved_session, saved_generation, _)| {
-            saved_session != session || saved_generation != generation
-        }) {
-            *anchor = block_use
-                .recent_actor_use(session, time.elapsed())
+        if window_actor.is_some()
+            || anchor.is_none_or(|(saved_session, saved_generation, _)| {
+                saved_session != session || saved_generation != generation
+            })
+        {
+            *anchor = window_actor
+                .map(|actor| actor.runtime_id)
+                .or_else(|| block_use.recent_actor_use(session, time.elapsed()))
                 .map(|actor| (session, generation, actor));
         }
     } else if generation.is_none() {
         *anchor = None;
     }
-    if let (Some(stream), Some(state), Some(actor_id)) = (
-        world.as_deref().and_then(|world| world.stream.as_ref()),
+    if let (Some(stream), Some(state), Some(_)) = (
+        stream,
         physics.as_deref().and_then(|physics| physics.state()),
         player_runtime.inventory.ledger().window_actor(),
     ) {
         let authority = stream.authority();
-        let actor_position = anchor
-            .as_ref()
-            .and_then(|(_, _, actor)| authority.actor(*actor))
-            .or_else(|| authority.inventory_ui().container_actor(actor_id))
+        let actor_position = window_actor
+            .or_else(|| {
+                anchor
+                    .as_ref()
+                    .and_then(|(_, _, actor)| authority.actor(*actor))
+            })
             .map(|actor| actor.position);
         runtime.close_distant_entity_storage(
             &mut player_runtime,
