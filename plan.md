@@ -1265,13 +1265,15 @@ held build schedule, and starts the brush's local held use, which button-up rele
 Actors using a main-hand item with the brush use animation publish the native
 `variable.is_using_brush`, so the pack's third-person `brushing` pose sweeps the brush.
 The brush's 200-tick use duration is observed on BDS 1.26.61.1; its native registration
-is unverified. The native first-person brush sweep
-(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants are
-unverified), the brush dust the native client spawns every 8 ticks
-(particle type 86, drawn through the level's block-particle effect with unread
-parameters), a server-flag start of a brush taking its use duration, and the native
-`variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain
-incomplete.
+is unverified. A local brush stroke on a block sweeps vanilla's brush dust (particle
+type 86) off it once its 8-tick effects cooldown has passed: the block destruction
+effect at the stroke's hit, textured and tinted from the brushed block, with the
+terrain effect's top-face or side-face intensity, speed and radius. The native
+first-person brush sweep (`ItemInHandRenderer::renderFirstPerson` use animation 12,
+whose translations, tilt, time divisor and angle offset are unread), a server-flag
+start of a brush taking its use duration, and the native `variable.is_holding_spyglass`
+and `variable.is_tooting_goat_horn` flags (their items' use-animation registration is
+unread) remain incomplete.
 
 Feeding a baby animal arrives from vanilla BDS as actor event 57 followed by event 60 with
 zero data; event 60 now draws the vanilla crop-growth (bone meal) effect at the baby's
