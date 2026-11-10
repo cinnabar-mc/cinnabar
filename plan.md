@@ -883,6 +883,9 @@ and version-matched in-game acceptance remain incomplete.
   The slim left leg drops the fetched copy's mirror to match in-game output and the newest
   identified public copy of that skin pack; public copies disagree on this flag, and the target
   version's own `skin_packs/vanilla/geometry.json` is unverified.
+  Received classic and slim skins retain transparent body regions, including legacy
+  limb expansion. Body-coverage protection stays at local import; matched post-change
+  in-game qualification of received transparency remains open.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified. Snow golems wear a carved pumpkin
