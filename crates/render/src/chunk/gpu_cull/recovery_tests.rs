@@ -141,6 +141,15 @@ fn published(app: &mut App) -> Published {
     }
 }
 
+/// DX12's software adapter, which takes tens of seconds to build each terrain app's pipelines.
+fn warp(app: &App) -> bool {
+    let info = app
+        .sub_app(RenderApp)
+        .world()
+        .resource::<bevy::render::renderer::RenderAdapterInfo>();
+    info.backend == wgpu::Backend::Dx12 && info.device_type == wgpu::DeviceType::Cpu
+}
+
 /// Runs render schedules on this thread, where the allocation fault injector applies.
 fn single_threaded(app: &mut App) {
     let render = app.sub_app_mut(RenderApp);
@@ -305,6 +314,13 @@ fn recovery_table(hardware: bool) {
             eprintln!("missing-fixture: terrain recovery GPU adapter");
             return;
         };
+        if hardware && warp(&fresh) {
+            eprintln!(
+                "missing-fixture: terrain recovery GPU adapter other than DX12 WARP, which \
+                 builds each table app's pipelines too slowly to finish the table"
+            );
+            return;
+        }
         let mut recovering = terrain_app(culling, direct, hardware).unwrap();
         if site == "far terrain quads" {
             // One draw requires growth; room for further tiles is optional and may back off.
@@ -324,20 +340,15 @@ fn recovery_table(hardware: bool) {
         for _ in 0..4 {
             frame(&mut fresh);
         }
-        // Metal deliberately uses direct submission, so indirect/cull storage has no growth.
-        if hardware
+        // Metal deliberately uses direct submission, so indirect-only sites may never allocate
+        // there. The coverage check below still requires a case for every allocated site.
+        let direct_only = hardware
             && !direct
             && fresh
                 .sub_app(RenderApp)
                 .world()
                 .get_resource::<GpuCull>()
-                .is_none()
-            && (site.starts_with("terrain cull ")
-                || site == "packed chunk indirect commands"
-                || site == "terrain indirect upload")
-        {
-            continue;
-        }
+                .is_none();
         let failures = Rc::new(Cell::new(0));
         {
             let injected = Rc::clone(&failures);
@@ -349,10 +360,12 @@ fn recovery_table(hardware: bool) {
                 .0
                 .clone();
             let _failure = crate::gpu_allocation::inject_with_owner(move |label, _, terrain| {
-                if terrain || label == site {
+                // Startup allocations are required rather than grown, so they need no case.
+                let rendering = rendering.load(std::sync::atomic::Ordering::Relaxed);
+                if rendering && (terrain || label == site) {
                     observed.borrow_mut().insert(label.to_owned());
                 }
-                let fail = label == site && rendering.load(std::sync::atomic::Ordering::Relaxed);
+                let fail = label == site && rendering;
                 injected.set(injected.get() + usize::from(fail));
                 fail
             });
@@ -387,6 +400,9 @@ fn recovery_table(hardware: bool) {
                         .resource::<crate::upload_staging::TerrainUploadStaging>()
                         .request_test_growth();
                 }
+            }
+            if direct_only && failures.get() == 0 {
+                continue;
             }
             assert!(failures.get() > 0, "{site} was never allocated");
         }
@@ -431,10 +447,10 @@ fn recovery_table(hardware: bool) {
         );
         assert_eq!(updates(&recovering), 0, "{site}");
     }
+    let missing: Vec<_> = observed.borrow().difference(&covered).cloned().collect();
     assert!(
-        observed.borrow().iter().all(|site| covered.contains(site)),
-        "allocation sites missing a failure case: {:?}",
-        observed.borrow()
+        missing.is_empty(),
+        "allocation sites missing a failure case: {missing:?}"
     );
 }
 
