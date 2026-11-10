@@ -311,11 +311,15 @@ fn standard_keybind_displays_assigned_key_and_capture_state_without_rebuilding()
 
 /// Maps a window pointer into the pressed control's box, as a mod does with the
 /// `read-controls` pointer, `read-layout` and `read-press`: 0 at its left edge, 1 at its right.
-fn press_fraction(presentation: &UiPresentationRuntime, pointer: [f32; 2]) -> Option<f32> {
+pub(super) fn press_fraction(
+    presentation: &UiPresentationRuntime,
+    pointer: [f32; 2],
+) -> Option<f32> {
     let frame = presentation.mod_ui().mod_panel_state()?.frame?;
     let (_, press) = presentation.mod_ui().mod_panel_press()?;
-    let x = (pointer[0] - frame.origin[0]) / frame.scale;
-    Some((x - press.rect[0]) / press.rect[2])
+    let [x, y] = [0, 1].map(|axis| (pointer[axis] - frame.origin[axis]) / frame.scale);
+    let [a, _, c, _, e, _] = press.to_local;
+    Some((a * x + c * y + e - press.rect[0]) / press.rect[2])
 }
 
 /// A mod-drawn slider built on a plain button follows a press, a drag that leaves the control

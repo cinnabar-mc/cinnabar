@@ -136,14 +136,18 @@ pub struct PanelLayout {
 }
 
 /// The panel control the pointer last pressed and where it was laid out at that press, so a mod
-/// can follow a press, drag and release relative to its own control: a panel point `p` lies at
-/// `(p - [x, y]) / [width, height]` of the control's box.
+/// can follow a press, drag and release relative to its own control: a panel point `p` maps
+/// through `to_local` to `l`, which lies at `(l - [x, y]) / [width, height]` of the box.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PanelPress {
     /// The pressed control's declared identifier.
     pub id: String,
-    /// The pressed control's laid-out box in panel units: `[x, y, width, height]`.
+    /// The pressed control's laid-out box in its own layout coordinates: `[x, y, width, height]`.
     pub rect: [f32; 4],
+    /// The affine map `[a, b, c, d, e, f]` from drawn panel units to the box's layout
+    /// coordinates, undoing the control's paint transform: `x' = a x + c y + e` and
+    /// `y' = b x + d y + f`. The identity for an untransformed control.
+    pub to_local: [f32; 6],
     /// Whether the press is still held; false from its release until the next press.
     pub held: bool,
 }

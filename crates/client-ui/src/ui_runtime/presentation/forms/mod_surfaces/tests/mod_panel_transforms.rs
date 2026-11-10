@@ -11,7 +11,7 @@ use ui::{
 };
 
 use super::super::super::snapshot;
-use super::mod_panel::frame;
+use super::mod_panel::{frame, press_fraction};
 use crate::test_support::mini_engine_presentation;
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use mod_ui::test_support::sample_panel as panel;
@@ -245,6 +245,32 @@ fn transitions_animate_a_bound_scale_from_its_opening_value() {
     );
     assert!(!presentation.mod_ui().mod_panel_motion_active());
     assert!(presses(&mut presentation, edge));
+}
+
+/// A mod reading `read-press` maps the pointer through the pressed control's paint transform,
+/// so a press visibly inside a scaled control lands inside its box at the drawn fraction.
+#[test]
+fn panel_presses_map_the_pointer_through_the_control_transform() {
+    // Doubled from its left edge, the button is drawn across x 100..180.
+    let mut presentation = opened(&transformed_panel(
+        "mod.control:3",
+        [0.0, 0.5],
+        [2.0, 0.0],
+        None,
+    ));
+    frame(&mut presentation, [1280, 720]);
+    let point = screen(&presentation, [160.0, 90.0]);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(point, true, true);
+    let (_, press) = presentation.mod_ui().mod_panel_press().unwrap();
+    assert_eq!(press.rect, [100.0, 80.0, 40.0, 20.0]);
+    assert_ne!(press.to_local, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+    let fraction = press_fraction(&presentation, point).unwrap();
+    assert!((fraction - 0.75).abs() < 1e-3, "{fraction}");
+    // The drawn right edge, outside the layout box, is the box's right edge.
+    let edge = screen(&presentation, [180.0, 90.0]);
+    assert!((press_fraction(&presentation, edge).unwrap() - 1.0).abs() < 1e-3);
 }
 
 /// Adds a declared transform whose `target` field reads `binding` to `control`.

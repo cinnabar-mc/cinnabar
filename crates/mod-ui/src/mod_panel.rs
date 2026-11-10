@@ -303,6 +303,7 @@ impl ModUi {
             ui::mod_hud::PanelPress {
                 id: panel.panel.controls.get(press.control)?.id().to_owned(),
                 rect: press.rect,
+                to_local: press.to_local,
                 held: press.held,
             },
         ))

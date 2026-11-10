@@ -698,6 +698,10 @@ impl cinnabar::extension::panel::Host for State {
                 width: press.rect[2],
                 height: press.rect[3],
                 held: press.held,
+                to_local: {
+                    let [a, b, c, d, e, f] = press.to_local;
+                    cinnabar::extension::panel::LocalMap { a, b, c, d, e, f }
+                },
             }))
     }
 }

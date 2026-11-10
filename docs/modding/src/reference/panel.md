@@ -54,16 +54,45 @@ record panel-layout {
 | `scale` | `f32` |  |
 | `offset` | `tuple<f32, f32>` |  |
 
+<a id="type-local-map"></a>
+
+### `local-map`
+
+An affine map of panel units: `(x, y)` goes to `(a x + c y + e, b x + d y + f)`.
+
+```wit
+record local-map {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `a` | `f32` |  |
+| `b` | `f32` |  |
+| `c` | `f32` |  |
+| `d` | `f32` |  |
+| `e` | `f32` |  |
+| `f` | `f32` |  |
+
 <a id="type-panel-press"></a>
 
 ### `panel-press`
 
 The last pointer press on one of this panel's declared controls: its control `id` and
-the box, in panel units, where that control was laid out when pressed (scrolling
-included). `held` stays true while the button is held, wherever the pointer moves, even
-outside the control or the panel, and is false from the release until the next press;
-a press elsewhere clears it. With `input.read-controls` pointer and `read-layout`, a mod
-follows a press, drag and release relative to its own control.
+the box where that control was laid out when pressed (scrolling included), in the
+control's own layout coordinates. `to-local` maps a panel point, such as the
+`input.read-controls` pointer through `read-layout`, into those coordinates, undoing a
+scale or rotation the surface paints the control with; it is the identity otherwise.
+`held` stays true while the button is held, wherever the pointer moves, even outside
+the control or the panel, and is false from the release until the next press; a press
+elsewhere clears it. A mod thus follows a press, drag and release relative to its own
+control.
 
 ```wit
 record panel-press {
@@ -73,6 +102,7 @@ record panel-press {
     width: f32,
     height: f32,
     held: bool,
+    to-local: local-map,
 }
 ```
 
@@ -84,6 +114,9 @@ record panel-press {
 | `width` | `f32` |  |
 | `height` | `f32` |  |
 | `held` | `bool` |  |
+| `to-local` | `local-map` |  |
+
+Types: [`local-map`](panel.md#type-local-map).
 
 ## Functions
 

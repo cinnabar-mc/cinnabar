@@ -14,6 +14,8 @@ impl ModUi {
 pub(super) struct Press {
     pub(super) control: usize,
     pub(super) rect: [f32; 4],
+    /// Drawn panel units to the box's layout coordinates, `[a, b, c, d, e, f]`.
+    pub(super) to_local: [f32; 6],
     pub(super) held: bool,
 }
 
@@ -120,10 +122,19 @@ impl ModPanel {
                         .and_then(|action| action.strip_prefix("mod.control:"))
                         .and_then(|index| index.parse::<usize>().ok()),
                 )
-                .map(|(hit, control)| Press {
-                    control,
-                    rect: [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h].map(|v| v as f32),
-                    held,
+                .and_then(|(hit, control)| {
+                    // A hit transform is invertible: a collapsed one takes no presses.
+                    let local = hit
+                        .transform
+                        .map_or(Some(json_ui::transform::Affine::IDENTITY), |t| t.inverse())?;
+                    let [a, b, c, d] = local.linear;
+                    let [e, f] = local.translation;
+                    Some(Press {
+                        control,
+                        rect: [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h].map(|v| v as f32),
+                        to_local: [a, b, c, d, e, f].map(|v| v as f32),
+                        held,
+                    })
                 });
         }
         if pressed {

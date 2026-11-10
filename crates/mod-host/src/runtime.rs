@@ -828,7 +828,11 @@ impl Instance {
     /// Records this mod's open panel's last press on a declared control, for `panel.read-press`.
     pub(super) fn observe_panel_press(&mut self, press: Option<ui::mod_hud::PanelPress>) {
         self.store.data_mut().controls.press = press.filter(|press| {
-            press.rect.iter().all(|value| value.is_finite())
+            press
+                .rect
+                .iter()
+                .chain(&press.to_local)
+                .all(|value| value.is_finite())
                 && press.rect[2] >= 0.
                 && press.rect[3] >= 0.
         });
