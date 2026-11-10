@@ -6,6 +6,7 @@ use assets::{
 };
 
 use assets::audio_category::AudioCategory;
+mod notifications;
 mod polyphony;
 mod weather;
 

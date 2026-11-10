@@ -1395,6 +1395,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pending native-reference and rendered-frame acceptance; they do not close this gate.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
+  Finite notification toasts emit their [interface sound](docs/reference/toast-audio.md)
+  once when their queued presentation begins. Native sound timing and matched live
+  achievement notification acceptance remain incomplete.
   Titles, subtitles, the action bar and non-raw chat replace `:_input_<binding>:` with the
   bound control's controls-screen label when they arrive. Vanilla draws mouse-button, gamepad
   and touch controls as icons through its emoticon list (`font/emoticons`) and glyph sheets,
