@@ -1,6 +1,8 @@
 use super::*;
 use crate::{MATERIAL_FLAG_ISOTROPIC, MATERIAL_FLAG_ROTATE_UV, TextureMip, TextureRef};
 
+mod carried_fences;
+
 #[test]
 fn azalea_inventory_has_a_separate_stem_and_open_bottom_canopy() {
     let source: Vec<_> = BlockFace::ALL
