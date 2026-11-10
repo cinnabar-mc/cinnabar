@@ -44,6 +44,20 @@ pub(super) struct GameplayContext<'w> {
 
 const _: () = assert!(mod_api::BEDROCK_TICKS_PER_SECOND == simulation_clock::TICKS_PER_SECOND);
 
+/// Keeps pending jumps only while an active mod can request them from this input source.
+pub(super) fn jump_input_allowed(
+    hosts: &super::ModHosts,
+    captured: bool,
+    source_admitted: bool,
+) -> bool {
+    (0..hosts.host_count()).any(|index| {
+        let host = hosts.host(index);
+        host.is_active()
+            && (host.grants().movement && captured
+                || host.grants().gameplay_input && source_admitted)
+    })
+}
+
 impl GameplayContext<'_> {
     /// Borrows the connected core endpoint independently of who owns its directory.
     pub(super) fn core_socket_directory(&self) -> Option<&std::path::Path> {
@@ -295,6 +309,23 @@ impl GameplayContext<'_> {
             eligible: true,
             knockback_sequence: physics.knockback_sequence(),
         })
+    }
+
+    /// Routes button taps to ordered interactions or a jump held through one physics tick.
+    pub(super) fn pulse_button(
+        &mut self,
+        button: mod_host::GameplayButton,
+        filter_owner: Option<u64>,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) {
+        let action = match button {
+            mod_host::GameplayButton::Attack => semantic_input::Action::Attack,
+            mod_host::GameplayButton::Use => semantic_input::Action::Use,
+            mod_host::GameplayButton::Jump => return self.pulse_jump(true, ui),
+        };
+        if let Some(input) = self.input.as_deref_mut() {
+            input.request_mod_tap(action, filter_owner);
+        }
     }
 
     /// Queues an ordinary jump while the current walking authority remains valid.

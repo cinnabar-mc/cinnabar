@@ -3,12 +3,19 @@ use crate::{Action, ActionPhase, ActionSnapshot};
 
 /// The last action frame accepted by the semantic router.
 #[derive(Debug, Default, Clone)]
-pub struct FinalizedInput(Option<ActionSnapshot>, bool);
+pub struct FinalizedInput(Option<ActionSnapshot>, bool, Vec<ModTap>);
+
+/// A pending gameplay tap and the requesting component's optional filter identity.
+#[derive(Debug, Clone)]
+pub(crate) struct ModTap {
+    pub action: Action,
+    pub owner: Option<u64>,
+}
 
 impl FinalizedInput {
     /// Retains a finalized router result for consumers.
     pub fn from_finalized(snapshot: ActionSnapshot) -> Self {
-        Self(Some(snapshot), false)
+        Self(Some(snapshot), false, Vec::new())
     }
 
     /// Whether the current movement buttons come from resolved mod controls.
@@ -82,48 +89,21 @@ impl FinalizedInput {
         true
     }
 
-    /// Adds one semantic gameplay tap as ordered press/release edges.
+    /// Queues one gameplay tap for ordered filtering without changing physical input.
     ///
-    /// The supported actions are deliberately restricted to ordinary gameplay buttons. The
-    /// synthetic tap never changes physical input, modifiers, or desktop key state.
-    pub fn request_mod_tap(&mut self, action: Action) -> bool {
-        if !matches!(action, Action::Attack | Action::Use | Action::Jump) {
+    /// Jump requests use the physics tick's pulse queue instead. The caller supplies the
+    /// requesting component's filter identity so quarantine can withdraw its taps.
+    pub fn request_mod_tap(&mut self, action: Action, owner: Option<u64>) -> bool {
+        if !matches!(action, Action::Attack | Action::Use) {
             return false;
         }
-        let Some(snapshot) = self.0.as_mut() else {
+        let Some(snapshot) = self.0.as_ref() else {
             return false;
         };
         if snapshot.authority_released {
             return false;
         }
-
-        let mut pressed = snapshot.phases.map(|phase| phase.held);
-        pressed[action as usize] = true;
-        let held = snapshot.phases.map(|phase| phase.held);
-        let was_held = held[action as usize];
-        let ordered = snapshot.ordered.get_or_insert_with(|| {
-            let mut ordered = crate::OrderedActions::default();
-            ordered.set_initial_buttons(crate::ActionButtons::new(held));
-            ordered
-        });
-        ordered.push(crate::ActionEvent {
-            action,
-            pressed: true,
-            buttons: crate::ActionButtons::new(pressed),
-        });
-
-        let phase = &mut snapshot.phases[action as usize];
-        phase.pressed = true;
-        if !was_held {
-            let mut released = held;
-            released[action as usize] = false;
-            ordered.push(crate::ActionEvent {
-                action,
-                pressed: false,
-                buttons: crate::ActionButtons::new(released),
-            });
-            phase.released = true;
-        }
+        self.2.push(ModTap { action, owner });
         true
     }
 
@@ -140,7 +120,14 @@ impl FinalizedInput {
         ) -> Option<crate::action_filter::ActionVerdict>,
     ) -> [bool; 2] {
         if let Some(snapshot) = self.0.as_mut() {
-            state.filter(snapshot, owner, time_us, repeat, decide)
+            state.filter_with_taps(
+                snapshot,
+                owner,
+                time_us,
+                repeat,
+                &std::mem::take(&mut self.2),
+                decide,
+            )
         } else {
             state.reset();
             [false; 2]
@@ -151,12 +138,14 @@ impl FinalizedInput {
     pub fn replace(&mut self, snapshot: ActionSnapshot) {
         self.0 = Some(snapshot);
         self.1 = false;
+        self.2.clear();
     }
 
     /// Retires a frame that could not be finalized.
     pub fn clear(&mut self) {
         self.0 = None;
         self.1 = false;
+        self.2.clear();
     }
 }
 
@@ -241,6 +230,7 @@ mod tests {
                 authority_released: false,
             }),
             false,
+            Vec::new(),
         )
     }
 
@@ -289,11 +279,23 @@ mod tests {
         assert_eq!(input.snapshot(), Some(&expected));
     }
 
+    /// Admits pending gameplay taps without a guest filter.
+    fn pass_taps(input: &mut FinalizedInput) {
+        input.filter_actions(
+            &mut crate::action_filter::ActionFilterState::default(),
+            None,
+            0,
+            [false; 2],
+            |_| panic!("no filter owner"),
+        );
+    }
+
     #[test]
     fn gameplay_tap_adds_one_ordered_press_and_release_without_retaining_a_hold() {
         let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
 
-        assert!(input.request_mod_tap(Action::Use));
+        assert!(input.request_mod_tap(Action::Use, None));
+        pass_taps(&mut input);
         let snapshot = input.snapshot().unwrap();
         assert!(snapshot.phases[Action::Use as usize].pressed);
         assert!(snapshot.phases[Action::Use as usize].released);
@@ -311,8 +313,10 @@ mod tests {
         let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
         input.0.as_mut().unwrap().phases[Action::Attack as usize].held = true;
 
-        assert!(input.request_mod_tap(Action::Attack));
-        assert!(!input.request_mod_tap(Action::Menu));
+        assert!(input.request_mod_tap(Action::Attack, None));
+        assert!(!input.request_mod_tap(Action::Menu, None));
+        assert!(!input.request_mod_tap(Action::Jump, None));
+        pass_taps(&mut input);
         let snapshot = input.snapshot().unwrap();
         assert!(snapshot.phases[Action::Attack as usize].held);
         assert!(!snapshot.phases[Action::Attack as usize].released);
@@ -325,7 +329,7 @@ mod tests {
     fn gameplay_taps_obey_action_filter_decisions() {
         for accepted in [false, true] {
             let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
-            input.request_mod_tap(Action::Use);
+            input.request_mod_tap(Action::Use, None);
             input.filter_actions(
                 &mut crate::action_filter::ActionFilterState::default(),
                 Some(1),
@@ -341,6 +345,174 @@ mod tests {
             );
             assert_eq!(input.phase(Action::Use).pressed, accepted);
             assert!(!input.phase(Action::Use).held);
+        }
+    }
+
+    #[test]
+    fn gameplay_taps_preserve_phase_only_physical_edges() {
+        for mode in [InputMode::GamePad, InputMode::Touch] {
+            let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+            let snapshot = input.0.as_mut().unwrap();
+            snapshot.input_mode = mode;
+            snapshot.phases[Action::Attack as usize] = ActionPhase {
+                pressed: true,
+                held: true,
+                released: false,
+            };
+            snapshot.phases[Action::PickItem as usize].pressed = true;
+            snapshot.phases[Action::HotbarNext as usize].pressed = true;
+            input.request_mod_tap(Action::Use, Some(1));
+            input.filter_actions(
+                &mut crate::action_filter::ActionFilterState::default(),
+                Some(1),
+                0,
+                [false; 2],
+                |frame| {
+                    assert_eq!(frame.physical, [false; 2]);
+                    assert_eq!(frame.transitions.len(), 3);
+                    Some(crate::action_filter::ActionVerdict::passthrough(frame))
+                },
+            );
+            let events = input.snapshot().unwrap().ordered.as_ref().unwrap().events();
+            assert_eq!(
+                events
+                    .iter()
+                    .map(|event| (event.action, event.pressed))
+                    .collect::<Vec<_>>(),
+                [
+                    (Action::Attack, true),
+                    (Action::HotbarNext, true),
+                    (Action::PickItem, true),
+                    (Action::Use, true),
+                    (Action::Use, false),
+                ],
+            );
+            assert!(input.phase(Action::Attack).pressed && input.phase(Action::Attack).held);
+        }
+    }
+
+    #[test]
+    fn failed_filter_withdraws_its_taps_and_preserves_physical_input() {
+        for action in [Action::Attack, Action::Use] {
+            for physical in [
+                ActionPhase::default(),
+                ActionPhase {
+                    pressed: true,
+                    held: true,
+                    released: false,
+                },
+                ActionPhase {
+                    pressed: true,
+                    held: false,
+                    released: true,
+                },
+                ActionPhase {
+                    pressed: false,
+                    held: false,
+                    released: true,
+                },
+                ActionPhase {
+                    pressed: false,
+                    held: true,
+                    released: false,
+                },
+            ] {
+                for malformed in [false, true] {
+                    let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+                    input.0.as_mut().unwrap().phases[action as usize] = physical;
+                    let mut expected = input.clone();
+                    expected.filter_actions(
+                        &mut crate::action_filter::ActionFilterState::default(),
+                        None,
+                        0,
+                        [false; 2],
+                        |_| panic!("no filter owner"),
+                    );
+                    input.request_mod_tap(action, Some(1));
+                    input.filter_actions(
+                        &mut crate::action_filter::ActionFilterState::default(),
+                        Some(1),
+                        0,
+                        [false; 2],
+                        |frame| {
+                            if malformed {
+                                Some(crate::action_filter::ActionVerdict {
+                                    accepted: vec![true; frame.transitions.len() + 1],
+                                    release: [false; 2],
+                                })
+                            } else {
+                                None
+                            }
+                        },
+                    );
+                    assert_eq!(input.phase(action), expected.phase(action));
+                    let events = input.snapshot().unwrap().ordered.as_ref().unwrap().events();
+                    assert_eq!(
+                        events.iter().filter(|event| event.pressed).count(),
+                        usize::from(physical.pressed)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn failed_filter_preserves_taps_from_another_owner() {
+        let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        input.request_mod_tap(Action::Attack, Some(1));
+        input.request_mod_tap(Action::Use, Some(2));
+        input.filter_actions(
+            &mut crate::action_filter::ActionFilterState::default(),
+            Some(1),
+            0,
+            [false; 2],
+            |_| None,
+        );
+        assert_eq!(input.phase(Action::Attack), ActionPhase::default());
+        assert!(input.phase(Action::Use).pressed && input.phase(Action::Use).released);
+        assert!(!input.phase(Action::Use).held);
+    }
+
+    #[test]
+    fn gameplay_taps_do_not_revive_a_suppressed_physical_hold() {
+        let mut state = crate::action_filter::ActionFilterState::default();
+        let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        input.0.as_mut().unwrap().phases[Action::Attack as usize] = ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        };
+        let mut next = input.clone();
+        input.filter_actions(&mut state, Some(1), 0, [false; 2], |frame| {
+            Some(crate::action_filter::ActionVerdict {
+                accepted: vec![false; frame.transitions.len()],
+                release: [true; 2],
+            })
+        });
+        next.request_mod_tap(Action::Use, Some(1));
+        next.filter_actions(&mut state, Some(1), 1, [false; 2], |frame| {
+            assert_eq!(frame.physical, [true, false]);
+            None
+        });
+        assert_eq!(next.phase(Action::Attack), ActionPhase::default());
+        assert_eq!(next.phase(Action::Use), ActionPhase::default());
+    }
+
+    #[test]
+    fn queued_gameplay_taps_leave_physical_input_unchanged_and_retire_with_the_frame() {
+        for replace in [false, true] {
+            let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+            let physical = input.snapshot().unwrap().clone();
+            input.request_mod_tap(Action::Use, Some(1));
+            assert_eq!(input.snapshot(), Some(&physical));
+            if replace {
+                input.replace(physical);
+            } else {
+                input.clear();
+                input.replace(physical);
+            }
+            pass_taps(&mut input);
+            assert_eq!(input.phase(Action::Use), ActionPhase::default());
         }
     }
 

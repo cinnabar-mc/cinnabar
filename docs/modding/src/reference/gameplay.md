@@ -435,7 +435,9 @@ pulse-button: func(button: button) -> result<_, string>;
 ```
 
 Requests one tap on a gameplay button while focused gameplay owns input.
-Requires gameplay-input authority; accepted taps use the ordinary ordered input pipeline.
+Requires gameplay-input authority. Attack and Use taps use the ordered input pipeline;
+Jump stays active through one physics tick. Quarantine withdraws the failed filter owner's
+pending taps.
 
 Types: [`button`](gameplay.md#type-button).
 

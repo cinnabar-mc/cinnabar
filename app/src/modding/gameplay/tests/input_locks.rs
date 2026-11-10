@@ -38,7 +38,7 @@ fn server_input_locks_gate_mod_camera_deltas_and_allow_fresh_deltas_after_unlock
 }
 
 #[test]
-fn server_input_locks_reject_mod_jump_requests_while_physics_is_paused() {
+fn gameplay_jump_button_survives_subtick_frames_and_obeys_input_locks() {
     use client_interaction::movement::{LocalPhysicsController, MovementTicker};
     use client_shell::ui_resources::UiRuntimeResource;
     use gameplay::movement::MovementSource;
@@ -50,9 +50,11 @@ fn server_input_locks_reject_mod_jump_requests_while_physics_is_paused() {
     fn request_jump(
         mut context: GameplayContext,
         ui: Res<UiRuntimeResource>,
+        runtime: Res<crate::modding::ModRuntime>,
         mut observed: ResMut<ObservedEligibility>,
     ) {
-        context.synchronize_jump_scope(true, &ui);
+        let allowed = jump_input_allowed(&runtime.hosts, false, true);
+        context.synchronize_jump_scope(allowed, &ui);
         observed.0 = context
             .movement_snapshot(
                 true,
@@ -63,7 +65,7 @@ fn server_input_locks_reject_mod_jump_requests_while_physics_is_paused() {
                 &ui,
             )
             .is_some();
-        context.pulse_jump(true, &ui);
+        context.pulse_button(mod_host::GameplayButton::Jump, None, &ui);
     }
 
     struct Floor;
@@ -93,6 +95,22 @@ fn server_input_locks_reject_mod_jump_requests_while_physics_is_paused() {
         (ClientInputLock::Camera as u32, false),
         (0, false),
     ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("jump-authority.wat");
+        let component = br#"(component
+            (core module $m (func (export "init")) (func (export "frame")))
+            (core instance $i (instantiate $m))
+            (func (export "init") (canon lift (core func $i "init")))
+            (func (export "frame") (canon lift (core func $i "frame"))))"#;
+        let host = mod_host::ModHost::load_snapshot_with_grants(
+            &path,
+            component,
+            ModGrants {
+                gameplay_input: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let mut app = App::new();
         let mut physics = LocalPhysicsController::default();
         let position = [0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
@@ -105,6 +123,10 @@ fn server_input_locks_reject_mod_jump_requests_while_physics_is_paused() {
             .facts
             .apply_input_locks(7, ClientInputLocks::from_bits(bits));
         app.insert_resource(player)
+            .insert_resource(crate::modding::ModRuntime::new(
+                host,
+                crate::modding::registration::HostMetadata::environment(0),
+            ))
             .insert_resource(physics)
             .insert_resource(movement)
             .insert_resource(finalized_input(false))
@@ -121,16 +143,25 @@ fn server_input_locks_reject_mod_jump_requests_while_physics_is_paused() {
             .resource_mut::<client_state::PlayerRuntime>()
             .facts
             .apply_input_locks(7, ClientInputLocks::default());
-        let result = app
-            .world_mut()
-            .resource_mut::<LocalPhysicsController>()
-            .advance(
-                Duration::from_millis(50),
-                sim::MovementInput::default(),
-                &Floor,
-            );
-        assert_eq!(result.samples.len(), 1);
+        let mut physics = app.world_mut().resource_mut::<LocalPhysicsController>();
+        let early = physics.advance(
+            Duration::from_millis(10),
+            sim::MovementInput::default(),
+            &Floor,
+        );
+        assert!(early.samples.is_empty());
+        let result = physics.advance(
+            Duration::from_millis(90),
+            sim::MovementInput::default(),
+            &Floor,
+        );
+        assert_eq!(result.samples.len(), 2);
         assert_eq!(result.samples[0].processed.jump_initiated, !blocked);
+        assert_eq!(result.samples[0].input.jump.held, !blocked);
+        assert_eq!(result.samples[0].input.jump.pressed, !blocked);
+        assert!(!result.samples[1].input.jump.held);
+        assert!(!result.samples[1].input.jump.pressed);
+        assert_eq!(result.samples[1].input.jump.released, !blocked);
     }
 }
 
