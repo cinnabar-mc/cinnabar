@@ -388,15 +388,27 @@ fn culled(
     };
     let scale = model_scale(state, assets) * actor.render_scale();
     let player = matches!(actor.kind(), ActorKind::Player { .. });
-    let bounds = if let Some(skin) = state.skin_skeleton() {
+    let base = assets.rig_geometries().get(state.geometry_binding);
+    let mut bounds = if let Some(skin) = state.skin_skeleton() {
         skin.prepared.geometry.visible_bounds.unwrap_or_default()
     } else {
-        assets
-            .rig_geometries()
-            .get(state.geometry_binding)
-            .and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
+        base.and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
             .unwrap_or_default()
     };
+    // A player's rig keeps its default model while its controllers draw other models beside it,
+    // so any of those reaching into view keeps it animating. Unbounded models fail open.
+    if player {
+        for &geometry in state
+            .layer_skeletons
+            .keys()
+            .filter(|&&geometry| base.is_none_or(|base| base.geometry != geometry))
+        {
+            let Some(model) = assets.geometry_visible_bounds(geometry as usize) else {
+                return false;
+            };
+            bounds = bounds.union(model);
+        }
+    }
     let bounds = crate::actor_culling_bounds(bounds, actor, scale);
     !view.admits(actor.position(), scale, player, bounds)
         && !view.admits(actor.previous_position(), scale, player, bounds)

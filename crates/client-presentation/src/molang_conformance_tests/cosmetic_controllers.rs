@@ -1,6 +1,6 @@
 //! A player pack that lists conditional cosmetic controllers before the body controller.
 use super::*;
-use actor_animation::{ActorAnimationStore, ActorTickContext};
+use actor_animation::{ActorAnimationStore, ActorAnimationView, ActorTickContext};
 use std::collections::HashMap;
 
 /// An original player pack: a hat controller picks its model from an array by
@@ -19,34 +19,48 @@ fn cosmetic_pack() -> Pack {
             {"controller.render.player":"!variable.is_first_person"}
         ]}}});
     let cube = |origin: [i32; 3], size: [i32; 3]| serde_json::json!([{"origin": origin, "size": size, "uv": [0, 0]}]);
+    // A narrow body and a hat whose authored visible box reaches far to either side.
+    let bounded = |mut geometry: serde_json::Value, width: u32| {
+        let description = &mut geometry["minecraft:geometry"][0]["description"];
+        description["visible_bounds_width"] = width.into();
+        description["visible_bounds_height"] = 2.into();
+        description["visible_bounds_offset"] = serde_json::json!([0, 1, 0]);
+        geometry
+    };
     write_pack(
         "player",
         vec![
             ("entity/player.entity.json", entity),
             (
                 "models/entity/player.geo.json",
-                geometry_file(
-                    "player",
-                    vec![
-                        serde_json::json!({"name":"body","pivot":[0,24,0],
+                bounded(
+                    geometry_file(
+                        "player",
+                        vec![
+                            serde_json::json!({"name":"body","pivot":[0,24,0],
                             "cubes":cube([-4, 12, -2], [8, 12, 4])}),
-                        serde_json::json!({"name":"head","parent":"body","pivot":[0,24,0],
+                            serde_json::json!({"name":"head","parent":"body","pivot":[0,24,0],
                             "cubes":cube([-4, 24, -4], [8, 8, 8])}),
-                        serde_json::json!({"name":"leftLeg","parent":"body","pivot":[2,12,0],
+                            serde_json::json!({"name":"leftLeg","parent":"body","pivot":[2,12,0],
                             "cubes":cube([0, 0, -2], [4, 12, 4])}),
-                    ],
+                        ],
+                    ),
+                    1,
                 ),
             ),
             (
                 "models/entity/hat.geo.json",
-                geometry_file(
-                    "hat",
-                    vec![
-                        serde_json::json!({"name":"body","pivot":[0,24,0]}),
-                        serde_json::json!({"name":"head","parent":"body","pivot":[0,24,0]}),
-                        serde_json::json!({"name":"hat","parent":"head","pivot":[0,32,0],
+                bounded(
+                    geometry_file(
+                        "hat",
+                        vec![
+                            serde_json::json!({"name":"body","pivot":[0,24,0]}),
+                            serde_json::json!({"name":"head","parent":"body","pivot":[0,24,0]}),
+                            serde_json::json!({"name":"hat","parent":"head","pivot":[0,32,0],
                             "cubes":cube([-3, 32, -3], [6, 3, 6])}),
-                    ],
+                        ],
+                    ),
+                    40,
                 ),
             ),
             (
@@ -75,6 +89,14 @@ fn cosmetic_pack() -> Pack {
 
 /// Compiles the pack and advances a player through two ticks.
 fn tick_player(pack: &Pack) -> (ActorAnimationStore, Arc<RuntimeEntityAssets>) {
+    tick_player_in(pack, None)
+}
+
+/// Advances the player through two ticks, culling its animation against `view`.
+fn tick_player_in(
+    pack: &Pack,
+    view: Option<&ActorAnimationView>,
+) -> (ActorAnimationStore, Arc<RuntimeEntityAssets>) {
     let (world, entities) = spawned("player", pack);
     let mut actor = world.authority().actor(5).unwrap().clone();
     actor.kind = ActorKind::Player {
@@ -85,7 +107,7 @@ fn tick_player(pack: &Pack) -> (ActorAnimationStore, Arc<RuntimeEntityAssets>) {
     store.insert(1, 0, &actor);
     let actors = HashMap::from([(5, actor)]);
     for _ in 0..2 {
-        store.advance_tick(&actors, None, None, true, false, |_| {
+        store.advance_tick(&actors, view, None, true, false, |_| {
             ActorTickContext::default()
         });
     }
@@ -144,5 +166,23 @@ fn every_passing_player_controller_draws_its_own_model() {
     assert!(
         rig.render.iter().any(|layer| layer.geometry.is_none()),
         "the body controller still draws the player's model"
+    );
+}
+
+#[test]
+fn a_player_whose_controller_model_reaches_into_view_still_animates() {
+    let pack = cosmetic_pack();
+    // The view keeps `x <= -2` from a camera behind both boxes: the narrow body at the origin
+    // is outside, the wide hat inside.
+    let view = ActorAnimationView {
+        planes: [[-1.0, 0.0, 0.0, -2.0]; 6],
+        camera: [0.0, 64.0, 30.0],
+        player_distance: 100.0,
+        entity_radius: 72.0,
+    };
+    let (store, _) = tick_player_in(&pack, Some(&view));
+    assert!(
+        store.get(5).unwrap().pose_evaluated,
+        "the hat's visible box keeps the player animating"
     );
 }
