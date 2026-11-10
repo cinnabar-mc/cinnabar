@@ -62,6 +62,8 @@ impl Reveal {
 
 /// Runs until readiness, parent EOF, cancellation, or a display error.
 pub(super) fn run() -> Result<()> {
+    // The parent measured the reveal delay at spawn, so helper setup must count against it.
+    let started = Instant::now();
     let arguments: Vec<_> = std::env::args().skip(2).collect();
     let [width, height, reveal_millis] = arguments.as_slice() else {
         anyhow::bail!("startup screen needs a width, height and reveal delay");
@@ -73,7 +75,7 @@ pub(super) fn run() -> Result<()> {
             .all(|value| value.is_finite() && *value > 0.0),
         "startup screen needs a valid width and height"
     );
-    let reveal_in = Duration::from_millis(reveal_millis.parse()?);
+    let reveal_at = started + Duration::from_millis(reveal_millis.parse()?);
     let layout = InstallLayout::discover()?;
     let mut screen = Screen {
         model: Model::default(),
@@ -86,7 +88,7 @@ pub(super) fn run() -> Result<()> {
         epoch: Instant::now(),
         next_redraw: Instant::now(),
         reveal: Reveal {
-            at: Instant::now() + reveal_in,
+            at: reveal_at,
             revealed: false,
         },
         shown: false,
