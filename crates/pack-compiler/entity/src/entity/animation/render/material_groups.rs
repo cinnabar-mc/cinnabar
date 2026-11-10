@@ -65,18 +65,17 @@ pub(super) fn resolve(
     selected: impl IntoIterator<Item = u32>,
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
-    // A whole-model selector draws one layer; extension bindings partition bones instead.
+    // Unbound bones retain the authored whole-model selector after partitioning.
+    let selection = uniform_selection(description, controller, materials, table)?;
     let extended = materials
         .extension_rules(entity, controller_name)
         .next()
         .is_some();
-    if !extended
-        && let Some(selection) = uniform_selection(description, controller, materials, table)?
-    {
+    if !extended && let Some(selection) = &selection {
         return Ok(vec![Group {
             raster: Raster::default(),
             hidden: Vec::new(),
-            selection: Some(selection),
+            selection: Some(Arc::clone(selection)),
         }]);
     }
     let aliases = super::lowercase_map(description.get("materials"));
@@ -92,7 +91,7 @@ pub(super) fn resolve(
             let target = aliases.get(&alias.to_ascii_lowercase())?;
             Some((pattern.to_ascii_lowercase(), target))
         })
-        .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
+        .map(|(pattern, target)| (pattern, Some(raster(Some(target), materials, table))))
         .collect::<Vec<_>>();
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
         if let Some((state, definition, masks)) = materials.resolve_extension(material, table) {
@@ -103,20 +102,28 @@ pub(super) fn resolve(
                 masks,
                 required_textures: table.required_textures(definition),
             };
-            rules.push((pattern.to_owned(), raster));
+            rules.push((pattern.to_owned(), Some(raster)));
         }
     }
     let fallback = rules
         .iter()
         .rev()
         .find(|(pattern, _)| pattern == "*")
-        .map_or_else(Raster::default, |(_, raster)| *raster);
+        .map_or_else(
+            || selection.is_none().then(Raster::default),
+            |(_, raster)| *raster,
+        );
+    let group = |raster: Option<Raster>, hidden| Group {
+        raster: raster.unwrap_or_default(),
+        selection: if raster.is_none() {
+            selection.clone()
+        } else {
+            None
+        },
+        hidden,
+    };
     if rules.iter().all(|(_, raster)| *raster == fallback) {
-        return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
-            selection: None,
-        }]);
+        return Ok(vec![group(fallback, Vec::new())]);
     }
     if parents.is_none() {
         *parents = Some(validate_entity_geometry_inheritance(geometries)?);
@@ -137,11 +144,7 @@ pub(super) fn resolve(
         }
     }
     if names.is_empty() {
-        return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
-            selection: None,
-        }]);
+        return Ok(vec![group(fallback, Vec::new())]);
     }
     let assignments: Vec<_> = names
         .into_iter()
@@ -158,21 +161,19 @@ pub(super) fn resolve(
     let mut seen = BTreeSet::new();
     for raster in rules.iter().map(|(_, raster)| *raster).chain([fallback]) {
         if assignments.iter().any(|(_, assigned)| *assigned == raster)
-            && seen.insert((
-                raster.material.word(raster.state),
-                raster.definition,
-                raster.masks,
-            ))
+            && seen.insert(raster.map(|raster| {
+                (
+                    raster.material.word(raster.state),
+                    raster.definition,
+                    raster.masks,
+                )
+            }))
         {
             order.push(raster);
         }
     }
     if order.len() == 1 {
-        return Ok(vec![Group {
-            raster: order[0],
-            hidden: Vec::new(),
-            selection: None,
-        }]);
+        return Ok(vec![group(order[0], Vec::new())]);
     }
     if order.len() > MAX_ENTITY_RENDER_LAYERS
         || assignments.len().saturating_mul(order.len() - 1) > MAX_ENTITY_RENDER_VISIBILITY
@@ -191,14 +192,15 @@ pub(super) fn resolve(
     }
     Ok(order
         .into_iter()
-        .map(|raster| Group {
-            raster,
-            selection: None,
-            hidden: assignments
-                .iter()
-                .filter(|(_, assigned)| *assigned != raster)
-                .map(|(name, _)| name.as_str().into())
-                .collect(),
+        .map(|raster| {
+            group(
+                raster,
+                assignments
+                    .iter()
+                    .filter(|(_, assigned)| *assigned != raster)
+                    .map(|(name, _)| name.as_str().into())
+                    .collect(),
+            )
         })
         .collect())
 }
