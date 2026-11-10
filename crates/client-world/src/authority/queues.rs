@@ -36,7 +36,7 @@ impl WorldAuthority {
         self.push_committed_ui(CommittedUiEvent::LocalSpawn {
             sequence,
             health,
-            ridden_unique_id: self.actors.ridden_unique_id(self.local_player_unique_id),
+            ridden_unique_id: self.actors.linked_unique_id(self.local_player_unique_id),
         });
         true
     }

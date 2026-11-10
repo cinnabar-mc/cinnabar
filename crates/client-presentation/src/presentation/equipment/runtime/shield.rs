@@ -12,7 +12,7 @@ struct Key {
 
 struct Image {
     /// Keeps the pointer used by the key alive until its cached composition is retired.
-    _source: Arc<[u8]>,
+    _source: render_model::PagePixels,
     raster: EquipmentRaster,
     rig: Option<EntityRigId>,
     used: bool,
@@ -27,6 +27,7 @@ pub(super) struct Patterns {
 impl EquipmentRuntime {
     /// Starts a frame's visible shield set without throwing away unchanged compositions.
     pub(crate) fn begin_shield_frame(&mut self) {
+        self.trims.begin_frame();
         for image in self.shield_patterns.images.values_mut() {
             image.used = false;
         }
@@ -34,6 +35,7 @@ impl EquipmentRuntime {
 
     /// Releases compositions no longer used by a visible hand or actor.
     pub(crate) fn finish_shield_frame(&mut self) {
+        self.trims.finish_frame();
         self.shield_patterns.images.retain(|_, image| image.used);
     }
 
@@ -79,7 +81,7 @@ impl EquipmentRuntime {
         let (width, height) = page.dimensions();
         let key = Key {
             pattern: pattern.as_ref().clone(),
-            source: pixels.as_ptr() as usize,
+            source: pixels.storage_id(),
             layer: location.layer(),
             size: [width, height],
             icon: icon.map(|icon| [icon.x, icon.y, icon.width, icon.height]),
@@ -120,7 +122,7 @@ impl EquipmentRuntime {
                     identifier: item.identifier.as_ref().into(),
                     width,
                     height,
-                    rgba8: Arc::from(selected),
+                    rgba8: Arc::from(selected.as_ref()),
                 };
                 let composed =
                     self.compose_shield(&base, pattern, usize::from(width) * usize::from(height))?;

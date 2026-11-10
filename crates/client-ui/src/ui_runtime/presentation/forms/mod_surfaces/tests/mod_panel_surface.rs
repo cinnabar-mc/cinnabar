@@ -194,9 +194,6 @@ fn prepared_panel_falls_back_for_changed_wrapper_facts() {
     let prepared = mod_ui::PreparedPanelUi::prepare(Arc::new(bundle)).unwrap();
     let mut variants = Vec::new();
     let mut changed = initial.clone();
-    changed.toggle_key = "F8".into();
-    variants.push(changed);
-    let mut changed = initial.clone();
     changed.reference_size = Some([300.0, 200.0]);
     variants.push(changed);
     for changed in variants {

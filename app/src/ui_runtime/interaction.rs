@@ -7,6 +7,7 @@ pub(super) mod command_macros;
 mod drop_swing;
 pub(crate) mod input_capture;
 pub(crate) mod inventory;
+mod screen_text;
 pub(crate) use chat::drive_chat_ui_actions;
 
 use bevy::{
@@ -36,7 +37,9 @@ use client_shell::menu::settings_options::control_bindings::{
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
+use super::input_owner::InputOwner;
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+use client_ui::ui_runtime::scene_stack::Scene;
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 use ui_screens::container_actions::InventoryCellHit;
 
@@ -85,6 +88,7 @@ pub(crate) fn drive_inventory_ui_actions(
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     consent: Option<Res<client_state::ConsentInput>>,
+    owner: InputOwner,
 ) {
     let input_available = !consent.is_some_and(|consent| consent.0)
         && (driven.is_some()
@@ -112,18 +116,11 @@ pub(crate) fn drive_inventory_ui_actions(
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.resource_pack_loading()
-        || runtime.credits().owns_input()
-        || runtime.server_forms().owns_input()
-        || runtime.data_driven_ui().owns_input()
-    {
-        runtime.screen_state_mut().container_close_armed = false;
-        runtime.screen_state_mut().container_scroll_drag = None;
-        return;
-    }
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
         || !input_available
+        || !frame.reads(|scene| scene == Scene::Container)
     {
         runtime.screen_state_mut().container_close_armed = false;
         runtime.screen_state_mut().container_scroll_drag = None;
@@ -192,8 +189,8 @@ fn route_press(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
-    // Menu Cancel outranks a hotbar slot on the same button: vanilla's screen mapping binds no
-    // hotbar action.
+    // Menu Cancel outranks a hotbar slot if a saved layout binds both to one button; remapping
+    // either in Controls leaves the button on one of them.
     let cancel = menu_cancel_button(menu, button);
     if cancel && inventory::handle_menu_cancel(player_runtime, runtime, presentation.as_deref()) {
         return (PressRoute::Binding, true);
@@ -266,8 +263,8 @@ pub(crate) fn drive_chat_keyboard_input(
     mut presentation: Option<ResMut<UiPresentationResource>>,
     mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
-    (emote_input, driven, world): (
-        Option<Res<client_state::ScreenInputConsumed>>,
+    (owner, driven, world): (
+        InputOwner,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::runtime::world::ClientWorld>>,
     ),
@@ -294,7 +291,8 @@ pub(crate) fn drive_chat_keyboard_input(
         .map(|stream| stream.authority());
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    if runtime.resource_pack_loading() {
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
+    if frame.top() == Scene::ResourcePackLoading {
         modifiers.reset_all();
         discard_keyboard(&mut runtime, &mut keyboard_messages, input_available);
         keys.reset_all();
@@ -303,7 +301,7 @@ pub(crate) fn drive_chat_keyboard_input(
         set_cursor_capture(&mut cursor, false);
         return;
     }
-    if runtime.credits().owns_input() {
+    if frame.top() == Scene::Credits {
         let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
         let finished = runtime.credits().active().is_some_and(|active| {
             presentation
@@ -368,15 +366,20 @@ pub(crate) fn drive_chat_keyboard_input(
         set_cursor_capture(&mut cursor, false);
         return;
     }
-    if runtime.sign_editor().is_open()
-        || runtime.server_forms().owns_input()
-        || runtime.data_driven_ui().owns_input()
-        || runtime.emotes().is_open()
-        || runtime.mob_effect_screen().is_open()
-        || emote_input.is_some_and(|consumed| consumed.0)
-        || presentation
-            .as_ref()
-            .is_some_and(|view| view.mod_ui().mod_panel_open())
+    // The scenes these keys are for, and the menu, which the branch below hands them to.
+    if !frame.reads(|scene| {
+        matches!(
+            scene,
+            Scene::Gameplay
+                | Scene::Bed
+                | Scene::Container
+                | Scene::Chat
+                | Scene::Loading
+                | Scene::Menu(_)
+        )
+    }) || presentation
+        .as_ref()
+        .is_some_and(|view| view.mod_ui().mod_panel_open())
     {
         modifiers.reset_all();
         discard_keyboard(&mut runtime, &mut keyboard_messages, true);
@@ -626,6 +629,15 @@ pub(crate) fn drive_chat_keyboard_input(
                     }
                     // An OS repeat of a held key is not a new press, so it never closes a screen.
                     KeyCode::Escape => {}
+                    key if screen_text::edit_field_key(
+                        &mut runtime,
+                        key,
+                        &modifiers
+                            .get_pressed()
+                            .map(|key| keyboard_key(*key))
+                            .collect::<Vec<_>>(),
+                        clipboard.as_deref_mut(),
+                    ) => {}
                     KeyCode::Backspace => runtime.screen_state_mut().backspace_text(),
                     key if runtime.book_key(&mut player_runtime, keyboard_key(key)) => {}
                     _ => {

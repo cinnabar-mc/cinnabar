@@ -4,6 +4,38 @@ use update_manifest::TrustedKeys;
 pub(super) const TEST_SEED: [u8; update_manifest::KEY_BYTES] = [7; update_manifest::KEY_BYTES];
 
 #[test]
+fn only_cinnabars_flatpak_sandbox_manages_application_updates() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join(".flatpak-info");
+    assert!(!owns_flatpak_sandbox(&marker));
+    for info in [
+        String::new(),
+        "[Application]\nname=com.valvesoftware.Steam\n".into(),
+        format!("[Runtime]\nname={FLATPAK_APP_ID}\n"),
+        format!("[Application]\n[Context]\nname={FLATPAK_APP_ID}\n"),
+        format!("[Application]\nname={FLATPAK_APP_ID}.other\n"),
+    ] {
+        std::fs::write(&marker, &info).unwrap();
+        assert!(!owns_flatpak_sandbox(&marker), "{info}");
+    }
+    std::fs::write(
+        &marker,
+        format!("# Sandbox\r\n[Application]\r\nname = {FLATPAK_APP_ID}\r\n[Context]\r\n"),
+    )
+    .unwrap();
+    assert!(owns_flatpak_sandbox(&marker));
+}
+
+#[test]
+fn flatpak_update_identity_matches_the_package() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../packaging/flatpak/io.github.cinnabar_mc.cinnabar.json"
+    ))
+    .unwrap();
+    assert_eq!(manifest["app-id"].as_str(), Some(FLATPAK_APP_ID));
+}
+
+#[test]
 fn running_clients_check_each_interval_from_completion_without_skipped_ticks_deferring_it() {
     let root = tempfile::tempdir().unwrap();
     let mut state = State::new();
@@ -957,4 +989,35 @@ fn changing_channels_keeps_pending_worker_cancellation_busy() {
     assert!(!state.request_check());
     assert!(state.finish_check(old, false, true));
     assert!(state.request_check());
+}
+
+/// Background preparation reads the offered bundle's kit, never the running one's.
+#[cfg(unix)]
+#[test]
+fn the_offered_kit_sits_where_the_running_bundle_keeps_its_own() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("Cinnabar.app");
+    let layout = InstallLayout::resolve(
+        launcher::install_layout::Platform::MacOs,
+        &launcher::install_layout::InstallEnvironment {
+            executable: target.join("Contents/MacOS/cinnabar"),
+            user_root: None,
+            home: Some(root.path().join("home")),
+            local_app_data: None,
+            xdg_config_home: None,
+            xdg_data_home: None,
+            xdg_runtime_dir: None,
+        },
+    )
+    .unwrap();
+    let candidate = root.path().join(".Cinnabar.app.prepared-digest");
+    assert_eq!(worker::candidate_kit(&layout, &target, &candidate), None);
+    let kit = candidate.join("Contents/Resources/prep-kit");
+    std::fs::create_dir_all(&kit).unwrap();
+    assert_eq!(
+        worker::candidate_kit(&layout, &target, &candidate),
+        Some(kit)
+    );
+    let elsewhere = root.path().join("Downloads/Cinnabar.app");
+    assert_eq!(worker::candidate_kit(&layout, &elsewhere, &candidate), None);
 }

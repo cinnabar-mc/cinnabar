@@ -33,6 +33,8 @@ impl ChunkStore {
             collision_revision_allocator: Arc::clone(&self.collision_revision_allocator),
             collision_snapshot: Mutex::default(),
             content_revision: next_content_revision(),
+            simulation_tick: self.simulation_tick,
+            moving_pistons: std::collections::BTreeSet::new(),
         });
         *cached = Arc::downgrade(&snapshot);
         snapshot

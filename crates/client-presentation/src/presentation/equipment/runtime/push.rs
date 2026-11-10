@@ -3,7 +3,7 @@
 use {
     super::*,
     render_model::equipment::{
-        BoneChannels, ItemDisplay, attach_to_bone, held_block_display_for_hand,
+        BoneChannels, ItemDisplay, SpriteGrip, attach_to_bone, held_block_display_for_hand,
         held_sprite_display_for_hand,
     },
 };
@@ -93,11 +93,9 @@ impl EquipmentRuntime {
         let Some((mesh, location, span)) = self.held_icon_mesh(item) else {
             return;
         };
-        let mut display = held_sprite_display_for_hand(
-            item.grip.upright().unwrap_or(false),
-            layer == LAYER_OFF_HAND,
-        );
-        display.scale *= scale;
+        let display = self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale, |runtime| {
+            runtime.held_icon_dimensions(item)
+        });
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -236,8 +234,9 @@ impl EquipmentRuntime {
                     (index, MeshKey::SessionBlock(index), placement, location)
                 }
                 ItemArtwork::SessionSprite => {
+                    let (identifier, metadata) = runtime.session_icon_key(item);
                     let (index, placement, location) =
-                        runtime.session_sprite(&item.identifier, item.metadata)?;
+                        runtime.session_sprite(identifier, metadata)?;
                     (index, MeshKey::Session(index), placement, location)
                 }
                 ItemArtwork::StartupCube => {
@@ -247,16 +246,16 @@ impl EquipmentRuntime {
                     {
                         return Some((rig, location, true, span));
                     }
-                    let HeldKind::Block(visual) = item.kind else {
-                        return None;
-                    };
+                    let visual = runtime.held_block_visual(item.kind)?;
                     let (index, placement, location) = runtime.block_placement(visual)?;
                     (index, MeshKey::Block(visual), placement, location)
                 }
                 ItemArtwork::StartupSprite => {
                     match item.kind {
                         HeldKind::Other => return None,
-                        HeldKind::Block(_) if !icon_fallback => return None,
+                        HeldKind::Block(_) | HeldKind::RetainedBlock { .. } if !icon_fallback => {
+                            return None;
+                        }
                         _ => {}
                     }
                     let (index, placement, location) = runtime.held_icon_parts(item)?;
@@ -275,9 +274,8 @@ impl EquipmentRuntime {
         &mut self,
         item: &WornItem,
     ) -> Option<(EntityRigId, ActorArtworkLocation, [f32; 2])> {
-        if let Some((index, placement, location)) =
-            self.session_sprite(&item.identifier, item.metadata)
-        {
+        let (identifier, metadata) = self.session_icon_key(item);
+        if let Some((index, placement, location)) = self.session_sprite(identifier, metadata) {
             let mesh = self.mesh_for(MeshKey::Session(index), index, placement)?;
             return Some((mesh, location, glint_span(placement.uv_rect(), false)));
         }
@@ -296,6 +294,62 @@ impl EquipmentRuntime {
             .copied()
             .flatten()?;
         Some((index, placement, location))
+    }
+
+    /// Third-person placement of a flat sprite on its item bone: its render offsets, or the retail
+    /// grip. `scale` is the actor's held item scale. `dimensions` is the texel size of the sprite
+    /// being drawn.
+    pub(super) fn held_sprite_display(
+        &self,
+        item: &WornItem,
+        off_hand: bool,
+        scale: f32,
+        dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
+    ) -> ItemDisplay {
+        let placement = held_sprite_placement(item, false);
+        let grip = SpriteGrip::from(item.grip);
+        let side = if off_hand {
+            render_api::HeldItemHandSide::Off
+        } else {
+            render_api::HeldItemHandSide::Main
+        };
+        let offset = (placement != render_api::HeldItemPlacement::Retail)
+            .then(|| dimensions(self))
+            .flatten()
+            .and_then(|dimensions| {
+                render_model::equipment::offset_held_display(
+                    placement, grip, side, dimensions, scale,
+                )
+            });
+        offset.unwrap_or_else(|| {
+            let mut retail = held_sprite_display_for_hand(grip, off_hand);
+            retail.scale *= scale;
+            retail
+        })
+    }
+
+    /// Texel size of the sprite `held_icon_mesh` draws for this item.
+    pub(super) fn held_icon_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        let (identifier, metadata) = self.session_icon_key(item);
+        let sprite = self
+            .session_sprite(identifier, metadata)
+            .and_then(|(index, _, _)| self.session_sprite_pixels(index))
+            .or_else(|| {
+                self.held_icon_index(item)
+                    .and_then(|index| self.icons.sprites().get(index))
+            })?;
+        Some([sprite.width, sprite.height])
+    }
+
+    /// Texel size of the sprite `held_mesh_with_use` draws for the same input: the selected native
+    /// frame when the item has native artwork.
+    pub(super) fn held_mesh_dimensions(
+        &self,
+        item: &WornItem,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<[u16; 2]> {
+        self.native_sprite_dimensions_with_use(item, input)
+            .or_else(|| self.held_icon_dimensions(item))
     }
 
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
@@ -317,17 +371,19 @@ impl EquipmentRuntime {
         else {
             return;
         };
-        let mut display = override_display.unwrap_or_else(|| {
-            if block {
-                held_block_display_for_hand(layer == LAYER_OFF_HAND)
-            } else {
-                held_sprite_display_for_hand(
-                    item.grip.upright().unwrap_or(false),
-                    layer == LAYER_OFF_HAND,
-                )
+        let display = match override_display {
+            None if !block => {
+                self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale, |runtime| {
+                    runtime.held_icon_dimensions(item)
+                })
             }
-        });
-        display.scale *= scale;
+            override_display => {
+                let mut display = override_display
+                    .unwrap_or_else(|| held_block_display_for_hand(layer == LAYER_OFF_HAND));
+                display.scale *= scale;
+                display
+            }
+        };
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -401,7 +457,7 @@ impl EquipmentRuntime {
             .as_ref()
             .map(|selected| selected.texture.as_ref())
             .unwrap_or(&binding.texture.identifier);
-        let Some((_, _, location)) = self.draw_artwork(texture, &source) else {
+        let Some((artwork, texture_index, location)) = self.draw_artwork(texture, &source) else {
             return;
         };
         let geometry_identifier = selected
@@ -561,6 +617,17 @@ impl EquipmentRuntime {
             super::style::LayerStyle::from_layer(&selected.layer)
                 .apply(&mut presentation.submission);
         }
+        if item.trim.is_some() {
+            self.trims.remember_worn(
+                presentation.submission.input.identity,
+                trims::WornSource {
+                    catalog: Arc::clone(catalog),
+                    binding: index,
+                    artwork,
+                    texture: texture_index,
+                },
+            );
+        }
         layers.push(presentation);
     }
 
@@ -652,17 +719,20 @@ impl EquipmentRuntime {
                     if root == actor_animation::AttachableBoneParent::BindingExpression {
                         return Some(hidden_bone());
                     }
-                    let Some(parent) = modern::parent_for_root(
+                    let Some(parent) = actor_animation::attachment::parent_for_root(
                         &body.input.previous_bones,
                         &body.input.current_bones,
-                        bones,
+                        &bones.names,
                         input,
                         root,
                         evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     ) else {
                         return Some(hidden_bone());
                     };
-                    Some(modern::compose_parent(parent, *local).unwrap_or_else(hidden_bone))
+                    Some(
+                        actor_animation::attachment::compose_parent(parent, *local)
+                            .unwrap_or_else(hidden_bone),
+                    )
                 },
             )
             .ok_or(())?[0]
@@ -768,6 +838,15 @@ fn with_glint(
         };
     }
     presentation
+}
+
+/// The item's placement when drawn as a flat sprite; a cube keeps its own retail placement.
+pub(super) fn held_sprite_placement(item: &WornItem, block: bool) -> render_api::HeldItemPlacement {
+    if block {
+        render_api::HeldItemPlacement::Retail
+    } else {
+        item.use_facts.held_placement
+    }
 }
 
 #[cfg(test)]

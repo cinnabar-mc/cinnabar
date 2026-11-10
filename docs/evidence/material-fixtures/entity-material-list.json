@@ -1,0 +1,3 @@
+[
+  {"path": "materials/entity.material", "tag": "fixture", "+defines": ["FIXTURE_LIST_DEFINE"]}
+]

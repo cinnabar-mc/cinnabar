@@ -111,7 +111,13 @@ fn prepare(
         );
         presentation.enable_touch_controls(launcher::TOUCH_PRIMARY);
         render_scene::startup_timing::measure("interface_artwork", || {
-            if let Some(images) = join(artwork)
+            let mut images = join(artwork).unwrap_or_default();
+            oreui::images::panorama::install(
+                &mut images,
+                presentation.ui_assets(),
+                presentation.remaining_fixed_texture_bytes(),
+            );
+            if !images.pages.is_empty()
                 && let Err(reason) = presentation.enable_oreui_originals(images)
             {
                 bevy::log::warn!("OreUI originals disabled ({reason})");

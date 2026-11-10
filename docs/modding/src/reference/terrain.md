@@ -12,6 +12,69 @@ keeps its subscriptions. Unknown terrain is never reported as air.
 
 ## Types
 
+<a id="type-surface-condition"></a>
+
+### `surface-condition`
+
+Face-local U/V/normal offset; every component is -1..=1, not all zero.
+
+```wit
+record surface-condition {
+    offset: tuple<s8, s8, s8>,
+    present: bool,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `offset` | `tuple<s8, s8, s8>` |  |
+| `present` | `bool` |  |
+
+<a id="type-surface-clause"></a>
+
+### `surface-clause`
+
+Adds tiles when all neighbour conditions hold. Missing terrain keeps the face.
+
+```wit
+record surface-clause {
+    conditions: list<surface-condition>,
+    tiles: u16,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `conditions` | `list<surface-condition>` |  |
+| `tiles` | `u16` |  |
+
+Types: [`surface-condition`](terrain.md#type-surface-condition).
+
+<a id="type-surface-rule"></a>
+
+### `surface-rule`
+
+Identifiers form one connection group. Border is 1..127 in 1/256 block units.
+Tiles are a 3x3 bit mask along positive physical U, then V; centre is bit 4.
+Each group connects independently; groups share the same coverage clauses.
+Only non-occluding faces with alpha cutout/blend materials are eligible.
+
+```wit
+record surface-rule {
+    groups: list<list<string>>,
+    border: u8,
+    clauses: list<surface-clause>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `groups` | `list<list<string>>` |  |
+| `border` | `u8` |  |
+| `clauses` | `list<surface-clause>` |  |
+
+Types: [`surface-clause`](terrain.md#type-surface-clause).
+
 <a id="type-position"></a>
 
 ### `position`
@@ -374,6 +437,20 @@ enum read-error {
 | `limit-exceeded` |  |  |
 
 ## Functions
+
+<a id="set-surface-rules"></a>
+
+### `set-surface-rules`
+
+```wit
+set-surface-rules: func(rules: list<surface-rule>) -> result<_, string>;
+```
+
+Replaces this owner's retained full-cell model-face coverage. Empty restores defaults.
+Requires render-material. Original textures, physics and destruction overlays remain.
+First matching rule in mod load order wins. Successful callback publication only.
+
+Types: [`surface-rule`](terrain.md#type-surface-rule).
 
 <a id="read-region"></a>
 

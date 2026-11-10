@@ -106,12 +106,12 @@ async fn session_round_trip_preserves_packets_packs_reports_and_shutdown() {
                 };
                 assert_eq!(handoff.packs.len(), pack_count);
                 if pack_count > 0 {
-                    assert_eq!(handoff.packs[0].content_key.expose(), "");
+                    assert_eq!(handoff.packs[0].content_key.expose(), b"");
                 }
                 if pack_count == 2 {
                     assert_eq!(
                         handoff.packs[1].content_key.expose(),
-                        fixtures::ENCRYPTED_PACK_KEY
+                        fixtures::ENCRYPTED_PACK_KEY.as_bytes()
                     );
                 }
                 let mut receiver = HandoffPackReceiver::new(&handoff, None).unwrap();
@@ -138,7 +138,7 @@ async fn session_round_trip_preserves_packets_packs_reports_and_shutdown() {
                                         pack.version.clone(),
                                         pack.sub_pack.clone(),
                                         archive,
-                                        pack.content_key.expose().as_bytes().to_vec(),
+                                        pack.content_key.expose().to_vec(),
                                     )
                                 })
                                 .collect(),

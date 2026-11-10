@@ -93,8 +93,50 @@ fn fingerprint(hash: &mut Sha256, f: &BlockFact) {
     hash.update([0]);
 }
 
+/// The block whose source states carry no collision shape, and the first of the source-independent
+/// shape ids its connection masks take.
+const CHORUS_PLANT: &str = "minecraft:chorus_plant";
+const CHORUS_SHAPE_BASE: u16 = 0xff00;
+
+/// A plant's one box: its core reaches each block edge it has a connection toward. The native shape
+/// comes from the same neighbours the state's connections name.
+fn chorus_plant_collision(f: &BlockFact) -> Result<CollisionSeed> {
+    let fields: BTreeMap<String, serde_json::Value> = serde_json::from_str(&f.state)?;
+    let connected = |side: &str| {
+        fields
+            .get(&format!("minecraft:connection_{side}"))
+            .and_then(|field| field.get("value"))
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|value| value != 0)
+    };
+    let unit = assets::block_shapes::COLLISION_UNITS_PER_BLOCK as i32;
+    let near = |side: &str| if connected(side) { 0 } else { unit / 8 };
+    let far = |side: &str| if connected(side) { unit } else { unit * 7 / 8 };
+    let mask = ["down", "east", "north", "south", "up", "west"]
+        .into_iter()
+        .enumerate()
+        .filter(|(_, side)| connected(side))
+        .fold(0_u16, |mask, (bit, _)| mask | 1 << bit);
+    Ok(CollisionSeed {
+        shape_id: CHORUS_SHAPE_BASE + mask,
+        confidence: CollisionConfidence::CollisionOnly,
+        boxes: vec![assets::CollisionBox {
+            min_x: near("west"),
+            min_y: near("down"),
+            min_z: near("north"),
+            max_x: far("east"),
+            max_y: far("up"),
+            max_z: far("south"),
+        }]
+        .into(),
+    })
+}
+
 /// Converts exact source boxes into the existing fixed-point carrier coordinates.
 pub(super) fn collision(f: &BlockFact) -> Result<CollisionSeed> {
+    if f.name == CHORUS_PLANT && f.shape_id == 0 {
+        return chorus_plant_collision(f);
+    }
     check(
         f.shape_id != 0,
         format!("collision shape unavailable for {}", f.name),
@@ -356,5 +398,45 @@ mod tests {
             assert_eq!(record.sequential_id, direction);
             assert!(!record.flags.contains(BlockFlags::CUBE_GEOMETRY));
         }
+    }
+
+    #[test]
+    fn a_chorus_plant_box_reaches_only_the_edges_it_connects_toward() {
+        let fact = |connected: &[&str]| BlockFact {
+            sequential_id: 0,
+            network_hash: 0,
+            name: CHORUS_PLANT.into(),
+            state: serde_json::Value::Object(
+                ["down", "east", "north", "south", "up", "west"]
+                    .map(|side| {
+                        (
+                            format!("minecraft:connection_{side}"),
+                            serde_json::json!({
+                                "type": "byte",
+                                "value": i32::from(connected.contains(&side)),
+                            }),
+                        )
+                    })
+                    .into_iter()
+                    .collect(),
+            )
+            .to_string(),
+            shape_id: 0,
+            boxes: None,
+            friction: 0.6,
+            emission: 0,
+            filter: 0,
+            can_contain_liquid_source: false,
+        };
+        let unit = assets::block_shapes::COLLISION_UNITS_PER_BLOCK as i32;
+        let alone = collision(&fact(&[])).unwrap();
+        assert_eq!(alone.boxes[0].min_x, unit / 8);
+        assert_eq!(alone.boxes[0].max_y, unit * 7 / 8);
+        let rooted = collision(&fact(&["down", "east"])).unwrap();
+        assert_ne!(alone.shape_id, rooted.shape_id);
+        let shape = rooted.boxes[0];
+        assert_eq!((shape.min_y, shape.max_y), (0, unit * 7 / 8));
+        assert_eq!((shape.min_x, shape.max_x), (unit / 8, unit));
+        assert_eq!((shape.min_z, shape.max_z), (unit / 8, unit * 7 / 8));
     }
 }

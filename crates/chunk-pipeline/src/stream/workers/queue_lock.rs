@@ -69,7 +69,7 @@ mod tests {
                     let mut queues = shared.lock();
                     started.send(()).unwrap();
                     while !queues.shutdown {
-                        queues = shared.wait(queues);
+                        queues = shared.wait(queues, None);
                     }
                 })
             }

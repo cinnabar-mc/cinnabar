@@ -148,19 +148,14 @@ pub(in crate::chunk) fn validate_local_model_streams(
         let mut visible = words[3];
         while visible != 0 {
             let quad_index = visible.trailing_zeros();
-            let Some(draw_ref) = model_draw_refs.get(draw_index).copied() else {
-                return false;
-            };
-            let draw_words = draw_ref.words();
-            if draw_words != [model_ref_index, quad_index]
-                || quad_index >= 32
-                || lighting_base
-                    .checked_add(quad_index as usize)
-                    .is_none_or(|index| index >= model_lighting.len())
-            {
+            if !consume_surface_draws(
+                model_draw_refs,
+                &mut draw_index,
+                model_ref_index,
+                quad_index,
+            ) {
                 return false;
             }
-            draw_index += 1;
             visible &= visible - 1;
         }
     }
@@ -249,17 +244,9 @@ pub(in crate::chunk) fn validate_partitioned_model_streams(
             } else {
                 (opaque_draw_refs, &mut opaque_index)
             };
-            let Some(draw_ref) = draw_refs.get(*draw_index).copied() else {
-                return false;
-            };
-            if draw_ref.words() != [model_ref_index, quad_index]
-                || lighting_base
-                    .checked_add(quad_index as usize)
-                    .is_none_or(|index| index >= model_lighting.len())
-            {
+            if !consume_surface_draws(draw_refs, draw_index, model_ref_index, quad_index) {
                 return false;
             }
-            *draw_index += 1;
             visible &= visible - 1;
         }
     }
@@ -288,4 +275,69 @@ fn model_lighting_base_matches(
         && PackedQuadLighting::offset_from_prefix([prefix[0], prefix[1]])
             .iter()
             .all(|value| value.is_finite())
+}
+
+/// Admits one original face or its strictly ordered, non-overlapping partition tiles.
+fn consume_surface_draws(
+    draws: &[PackedModelDrawRef],
+    index: &mut usize,
+    model: u32,
+    quad: u32,
+) -> bool {
+    let start = *index;
+    let mut previous = None;
+    let mut border = None;
+    while let Some(draw) = draws.get(*index).copied() {
+        let words = draw.words();
+        if words[0] != model || draw.quad_index() != quad {
+            break;
+        }
+        if !draw.valid_surface_tile() {
+            return false;
+        }
+        if words[1] <= meshing::surface::QUAD_INDEX_MASK {
+            if *index != start {
+                return false;
+            }
+            *index += 1;
+            return true;
+        }
+        let tile = (words[1] >> meshing::surface::TILE_SHIFT) & meshing::surface::TILE_MASK;
+        let width = words[1] >> meshing::surface::BORDER_SHIFT;
+        if previous.is_some_and(|previous| tile <= previous)
+            || border.is_some_and(|border| border != width)
+        {
+            return false;
+        }
+        previous = Some(tile);
+        border = Some(width);
+        *index += 1;
+    }
+    *index > start
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+
+    #[test]
+    fn surface_tiles_allow_distinct_patches_but_reject_overlap_and_mixed_widths() {
+        let draw = PackedModelDrawRef::new(0, 3);
+        let patches = [draw.with_surface_tile(0, 16), draw.with_surface_tile(8, 16)];
+        let mut index = 0;
+        assert!(consume_surface_draws(&patches, &mut index, 0, 3));
+        assert_eq!(index, 2);
+        assert!(!consume_surface_draws(
+            &[patches[0], patches[0]],
+            &mut 0,
+            0,
+            3
+        ));
+        assert!(!consume_surface_draws(
+            &[patches[0], draw.with_surface_tile(8, 8)],
+            &mut 0,
+            0,
+            3
+        ));
+    }
 }

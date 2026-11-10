@@ -89,6 +89,7 @@ impl Plugin for ChunkRenderPlugin {
                 ),
             );
         super::visibility::install(app);
+        super::markers::install(app);
 
         if app.get_sub_app(RenderApp).is_none() {
             return;
@@ -174,6 +175,13 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 Render,
                 (
+                    super::recovery::begin_recovery
+                        .in_set(ChunkPublicationStage::CoverageBegin)
+                        .before(super::coverage::begin_terrain_coverage),
+                    super::recovery::finish_publication
+                        .after(crate::upload_staging::UploadGrowth)
+                        .after(RenderSystems::PrepareBindGroups)
+                        .before(RenderSystems::Render),
                     super::coverage::begin_terrain_coverage
                         .in_set(ChunkPublicationStage::CoverageBegin),
                     super::coverage::publish_terrain_coverage
@@ -188,6 +196,9 @@ impl Plugin for ChunkRenderPlugin {
                     queue_transparent_chunks
                         .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
+                    transparent::batching::batch_adjacent_water
+                        .in_set(RenderSystems::PhaseSort)
+                        .after(crate::transparent_phase::sort),
                     prepare_chunk_texture_assets
                         .in_set(ChunkPublicationStage::Attributes)
                         .run_if(render_scene::startup_work::world_work_allowed),
@@ -217,6 +228,11 @@ impl Plugin for ChunkRenderPlugin {
         install_atmosphere(app);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             transparent::gamma_pass::install_graph(render_app.world_mut());
+        }
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            let device = render_app.world().resource::<RenderDevice>();
+            let recovery = super::recovery::TerrainGpuRecovery::new(device);
+            render_app.insert_resource(recovery);
         }
         gpu_cull::install(app);
     }

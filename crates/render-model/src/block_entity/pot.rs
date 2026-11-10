@@ -8,7 +8,7 @@ use assets::block_entity_geometry::{self as geometry, BoxSpec, POT_BODY_HALF as 
 use glam::Vec3;
 
 use super::{
-    atlas::{AtlasRect, BlockEntityAtlas},
+    atlas::BlockEntityAtlas,
     mesh::{Facing, Layer, MeshBuilder, WHITE, model_matrix},
 };
 
@@ -107,13 +107,22 @@ pub(super) fn emit(
                     .to_array()
             })
         };
-        builder.textured_quad(Layer::Solid, world([0.0; 3]), side.rect, WHITE);
+        builder.quad(
+            Layer::Solid,
+            world([0.0; 3]),
+            side.rect_uv(geometry::POT_SIDE_TEXELS),
+            WHITE,
+        );
         let pattern = model.sherds[index].as_deref().and_then(|stem| {
             builder.required_texture(atlas, &format!("textures/blocks/{stem}"), [16.0, 16.0])
         });
         if let Some(pattern) = pattern {
-            let rect: AtlasRect = pattern.rect;
-            builder.textured_quad(Layer::Solid, world(lift), rect, WHITE);
+            builder.quad(
+                Layer::Solid,
+                world(lift),
+                pattern.rect_uv(geometry::POT_SIDE_TEXELS),
+                WHITE,
+            );
         }
     }
 }
@@ -172,6 +181,66 @@ mod tests {
         let (lip_min, lip_max) = bounds(&builder.solid[36..72]);
         assert!((neck_min - 17.1).abs() < 1.0e-4 && (neck_max - 19.9).abs() < 1.0e-4);
         assert!((lip_min - 15.8).abs() < 1.0e-4 && (lip_max - 17.2).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn a_pot_side_samples_only_the_art_between_its_transparent_columns() {
+        let side = geometry::POT_SIDE_TEXTURE.0;
+        let pattern = "textures/blocks/archer_pottery_pattern";
+        let placement = |name: &str, x, width| assets::BlockEntityPlacement {
+            name: name.into(),
+            x,
+            y: 0,
+            width,
+            height: width,
+        };
+        let encoded = assets::encode_block_entity_catalog(
+            b"{}",
+            64,
+            32,
+            &vec![255; 64 * 32 * 4],
+            &[
+                placement(pattern, 48, 16),
+                placement(geometry::POT_BASE_TEXTURE.0, 0, 32),
+                placement(side, 32, 16),
+            ],
+        )
+        .unwrap();
+        let atlas = BlockEntityAtlas::from_assets(
+            &assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap(),
+        );
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &DecoratedPotModel {
+                facing: Facing::North,
+                sherds: [Some("archer_pottery_pattern".into()), None, None, None],
+            },
+        );
+        // Neck and lip are 36 vertices each, the top and bottom planes 6 each.
+        let sides = &builder.solid[84..];
+        assert_eq!(sides.len(), 5 * 6);
+        let columns = |vertices: &[super::super::mesh::BlockEntityVertex]| {
+            vertices
+                .iter()
+                .map(|vertex| vertex.uv[0] * 64.0)
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), u| {
+                    (min.min(u), max.max(u))
+                })
+        };
+        let inside = |(min, max): (f32, f32), origin: f32| {
+            (min - (origin + 1.0)).abs() < 1.0e-3 && (max - (origin + 15.0)).abs() < 1.0e-3
+        };
+        // The first face in `pot_sides` shows no sherd; the second carries the back one.
+        assert!(
+            inside(columns(&sides[..6]), 32.0),
+            "{:?}",
+            columns(&sides[..6])
+        );
+        assert!(inside(columns(&sides[6..12]), 32.0));
+        assert!(inside(columns(&sides[12..18]), 48.0));
     }
 }
 

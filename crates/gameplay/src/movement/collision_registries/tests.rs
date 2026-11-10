@@ -8,6 +8,9 @@ use super::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
 #[path = "tests/bamboo.rs"]
 mod bamboo;
 
+#[path = "tests/block_defaults.rs"]
+mod block_defaults;
+
 #[path = "tests/custom_shapes.rs"]
 mod custom_shapes;
 

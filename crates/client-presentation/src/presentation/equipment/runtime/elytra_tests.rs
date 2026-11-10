@@ -150,6 +150,7 @@ pub(super) fn owner_rig<'a>(
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        visibility: Default::default(),
         attachments: None,
         bone_names: names,
         skin_geometry: None,
@@ -172,6 +173,7 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
         armor: [
             None,
             Some(WornItem {
+                trim: None,
                 variant: Default::default(),
                 map_id: None,
                 shield_pattern: None,

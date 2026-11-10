@@ -45,13 +45,13 @@ pub(crate) fn drive_chat_ui_actions(
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     mut keyboard: Option<ResMut<client_shell::platform_text::KeyboardRequests>>,
+    owner: InputOwner,
 ) {
     let (window_entity, window) = *window;
-    if runtime.resource_pack_loading()
-        || runtime.credits().owns_input()
-        || runtime.server_forms().owns_input()
-        || runtime.data_driven_ui().owns_input()
-    {
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
+    if !frame.reads(|scene| matches!(scene, Scene::Bed | Scene::Chat | Scene::Loading)) {
+        presentation.set_bed_pointer(None);
+        presentation.set_chat_pointer(None);
         gesture.cancel();
         return;
     }
@@ -74,7 +74,11 @@ pub(crate) fn drive_chat_ui_actions(
         return;
     }
     if bed && mouse_buttons.just_pressed(MouseButton::Left) {
-        match pointer.and_then(|position| presentation.hit_test_bed(position)) {
+        let hit = pointer.and_then(|position| presentation.hit_test_bed(position));
+        if hit.is_some() {
+            client_ui::sound_requests::ui_click();
+        }
+        match hit {
             Some(BedHit::LeaveBed) => {
                 runtime.request_wake();
                 if let Some(focus) = focus.as_deref_mut() {

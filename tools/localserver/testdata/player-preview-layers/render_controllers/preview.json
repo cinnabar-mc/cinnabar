@@ -1,0 +1,38 @@
+{
+  "format_version": "1.8.0",
+  "render_controllers": {
+    "controller.render.preview.body": {
+      "geometry": "Geometry.default",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "Texture.default"
+      ]
+    },
+    "controller.render.preview.panel": {
+      "geometry": "Geometry.panel",
+      "materials": [
+        {
+          "*": "Material.default"
+        }
+      ],
+      "textures": [
+        "Texture.default"
+      ],
+      "ignore_lighting": true,
+      "uv_anim": {
+        "offset": [
+          "query.camera_rotation(1) / 360.0",
+          0
+        ],
+        "scale": [
+          2,
+          1
+        ]
+      }
+    }
+  }
+}

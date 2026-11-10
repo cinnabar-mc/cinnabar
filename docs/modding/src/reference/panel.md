@@ -56,16 +56,39 @@ record panel-layout {
 
 ## Functions
 
-<a id="set-open"></a>
+<a id="open"></a>
 
-### `set-open`
+### `open`
 
 ```wit
-set-open: func(open: bool) -> result<_, string>;
+open: func() -> result<_, string>;
 ```
 
-Changes this instance's panel input ownership on successful callback return.
-Requires controls authority and a retained or pending panel when opening.
+Opens this instance's panel on successful callback return. Requires controls
+authority and retained or pending panel content. Repeated opens keep it open.
+The latest opener owns input and closes other owners. Opening keys belong to the mod.
+
+<a id="close"></a>
+
+### `close`
+
+```wit
+close: func() -> result<_, string>;
+```
+
+Closes this instance's panel on successful callback return. Requires controls authority.
+Repeated closes keep it closed; content remains available for a later open.
+
+<a id="toggle"></a>
+
+### `toggle`
+
+```wit
+toggle: func() -> result<_, string>;
+```
+
+Flips this instance's requested visibility, including earlier requests in this callback.
+Uses the same authority, content and successful-return rules as open and close.
 
 <a id="set-content"></a>
 
@@ -90,6 +113,7 @@ update-content: func(json: string) -> result<_, string>;
 ```
 
 Applies a bounded sparse control patch and registered surface route atomically.
+A route change keeps the offset of each scroll view the new surface shares by layout key, clamped to its content.
 Omitting controls preserves them; bindings, when present, replace custom scalars.
 The JSON record optionally accepts collection_reveal: {collection: string, item: u32}.
 The item is its immutable published index, resolved through the accepted collection_order.

@@ -1,6 +1,6 @@
 //! The layer-composition kernel (`compose.wesl`): artwork whose native material composes
-//! texture layers in the fragment (colour masks, multitexture) becomes one opaque layer the
-//! pack samples as `gtexture`.
+//! texture layers in the fragment becomes one layer the pack samples as `gtexture`.
+//! Masked two-texture layers retain cutout alpha; dye and three-texture layers are opaque.
 
 use std::num::NonZeroU64;
 
@@ -22,8 +22,10 @@ pub(super) const COMPOSE_SHADER: Handle<Shader> =
 
 /// Side of the kernel's square workgroup, substituted into its source.
 const COMPOSE_WORKGROUP_SIDE: u32 = 8;
-/// The kernel's mode for [`LayerCompose::Multitexture`]; any other mode is a colour mask.
+/// The kernel's three-sampler RGB composition mode.
 const COMPOSE_MULTITEXTURE: u32 = 1;
+/// The kernel's two-sampler replacement and keep-mask mode.
+const COMPOSE_MASKED_MULTITEXTURE: u32 = 2;
 /// The composed layer's format: raw gamma bytes, as the pack reads every actor texture.
 const COMPOSED_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
 
@@ -38,6 +40,8 @@ pub(crate) enum LayerCompose {
     /// Native `entity_multitexture`: two overlay layers of the same texture, each weighted by
     /// its alpha over the base; base alpha is not coverage.
     Multitexture { layers: [u32; 2] },
+    /// A two-texture cutout whose colored transparent mask keeps the base texel.
+    MaskedMultitexture { layer: u32 },
 }
 
 impl LayerCompose {
@@ -48,7 +52,13 @@ impl LayerCompose {
         multitexture: bool,
         instance: &ActorGpuInstance,
     ) -> Self {
-        if color_mask {
+        if instance.material & assets::EntityRenderMaterialState::MASKED_MULTITEXTURE != 0
+            && instance.multitexture_layers[0] != u32::MAX
+        {
+            Self::MaskedMultitexture {
+                layer: instance.multitexture_layers[0],
+            }
+        } else if color_mask {
             Self::ColorMask {
                 tint: instance.tint,
             }
@@ -64,12 +74,13 @@ impl LayerCompose {
     /// Whether the composed layer already carries every colour the material applies, so the
     /// draw's vertex colour stays white.
     pub(crate) fn composes_colour(self) -> bool {
-        self != Self::Plain
+        matches!(self, Self::ColorMask { .. } | Self::Multitexture { .. })
     }
 
     fn params(self, layer: u32) -> ComposeParams {
         let (overlays, tint, mode) = match self {
             Self::Multitexture { layers } => (layers, 0, COMPOSE_MULTITEXTURE),
+            Self::MaskedMultitexture { layer } => ([layer; 2], 0, COMPOSE_MASKED_MULTITEXTURE),
             Self::ColorMask { tint } => ([layer; 2], tint, 0),
             Self::Plain => ([layer; 2], 0, 0),
         };
@@ -95,6 +106,10 @@ struct ComposeParams {
 /// Resolves the kernel's generated constants.
 pub(super) fn compose_shader_source(source: &str) -> String {
     source
+        .replace(
+            "COMPOSE_MASKED_MULTITEXTURE_MODE",
+            &format!("{COMPOSE_MASKED_MULTITEXTURE}u"),
+        )
         .replace(
             "COMPOSE_WORKGROUP_SIDE",
             &format!("{COMPOSE_WORKGROUP_SIDE}u"),

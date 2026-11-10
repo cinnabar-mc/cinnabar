@@ -53,6 +53,7 @@ pub(super) fn configure(app: &mut App) {
             network::receive_network_events,
             super::session::observe_terminal,
             world::reconcile_world_stream_before_physics,
+            crate::ui_runtime::outbound::reconcile_mining_inventory,
             world::drain_committed_ui_before_authority,
         )
             .chain()
