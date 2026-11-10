@@ -97,7 +97,7 @@ pub fn sample_surface(controls: &[Control]) -> ui::mod_panel::Surface {
     }
 }
 
-/// A panel with one control of each kind and a [`sample_surface`].
+/// A panel with a toggle, slider, keybind and button, drawn by a [`sample_surface`].
 pub fn sample_panel() -> Panel {
     let controls = vec![
         Control::Toggle {
@@ -113,11 +113,11 @@ pub fn sample_panel() -> Panel {
             max: 100.0,
             step: 1.0,
         },
-        Control::Choice {
-            id: "mode".into(),
-            label: "Activation".into(),
-            index: 0,
-            options: vec!["Continuous".into(), "While clicking".into()],
+        Control::Keybind {
+            id: "activate".into(),
+            label: "Activate".into(),
+            key: "KeyC".into(),
+            capturing: false,
         },
         Control::Button {
             id: "binding".into(),

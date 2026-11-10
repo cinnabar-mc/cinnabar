@@ -99,25 +99,16 @@ fn actual_engine_geometry_routes_all_control_types() {
             .mod_panel_events(toggle, false, true)
             .is_empty()
     );
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    assert!(
-        presentation
-            .mod_ui_mut()
-            .mod_panel_events(choice, true, true)
-            .is_empty()
-    );
-    frame(&mut presentation, [1280, 720]);
-    let option = point(&presentation, "mod.option:1", 0.5);
+    let keybind = point(&presentation, "mod.control:2", 0.5);
     assert_eq!(
         presentation
             .mod_ui_mut()
-            .mod_panel_events(option, true, true),
+            .mod_panel_events(keybind, true, true),
         vec![Event {
-            id: "mode".into(),
+            id: "activate".into(),
             value: 1.0
         }]
     );
-    frame(&mut presentation, [1280, 720]);
     let button = point(&presentation, "mod.control:3", 0.5);
     assert_eq!(
         presentation
