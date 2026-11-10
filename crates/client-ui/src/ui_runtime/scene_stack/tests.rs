@@ -227,16 +227,16 @@ fn launcher_menus_have_no_world_beneath() {
     assert!(!runtime.scenes(&player_runtime, launcher).steals_mouse());
 }
 
-// A health drop closes a top container whose screen asks for it.
+// A health drop leaves a container open even when its screen asks to close.
 #[test]
-fn hurt_closes_a_top_container_that_asks() {
+fn hurt_keeps_a_top_container_open() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
     runtime.toggle_inventory(&mut player_runtime, None);
     runtime.note_player_hurt();
     runtime.close_scenes_on_player_hurt(&mut player_runtime, None);
-    assert!(!runtime.inventory_open());
+    assert!(runtime.inventory_open());
 }
 
 // Being hit leaves chat open even though the chat screen asks to close when hurt.
@@ -481,6 +481,69 @@ fn open_storage_window(
     }
     runtime.drain_pending_inventory(player);
     assert!(runtime.inventory_open());
+}
+
+#[test]
+fn hurt_keeps_a_server_storage_window_open_without_sending_close() {
+    let mut player = player_state::PlayerState::new(1);
+    let table = Arc::new(ScreenSettingsTable(HashMap::from([(
+        json_ui::vanilla::Reference::ChestSmallChestScreen.as_str(),
+        settings(json!({"close_on_player_hurt": true})),
+    )])));
+    let mut runtime = in_world(&mut player, table);
+    open_storage_window(&mut runtime, &mut player, [0, 64, 0]);
+    assert_eq!(
+        runtime.scenes(&player, host(None)).closes_on_hurt(),
+        Some(Scene::Container)
+    );
+
+    runtime.note_player_hurt();
+    runtime.close_scenes_on_player_hurt(&mut player, None);
+
+    assert!(runtime.inventory_open());
+    assert!(player.inventory.ledger().storage_generation().is_some());
+    assert!(
+        player
+            .inventory
+            .ledger_mut()
+            .pending_batch()
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn entity_storage_closes_only_beyond_eleven_and_a_half_blocks() {
+    for (distance, closed) in [(11.0, false), (11.5, false), (11.51, true)] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = in_world(&mut player, vanilla_like_table());
+        runtime
+            .enqueue_inventory_event(
+                &mut player,
+                1,
+                1,
+                protocol::InventoryEvent::Open(protocol::ContainerOpenEvent {
+                    container: protocol::ContainerIdentity::window(7),
+                    window_type: protocol::WINDOW_TYPE_CONTAINER,
+                    position: [0; 3],
+                    runtime_entity_id: 123,
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
+        assert!(runtime.inventory_open());
+        runtime.close_distant_entity_storage(&mut player, [distance, 0.0, 0.0], Some([0.0; 3]));
+        assert_eq!(runtime.inventory_open(), !closed);
+        assert_eq!(
+            player
+                .inventory
+                .ledger_mut()
+                .pending_batch()
+                .unwrap()
+                .is_some(),
+            closed
+        );
+    }
 }
 
 #[test]
