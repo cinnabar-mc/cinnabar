@@ -11,6 +11,7 @@ fn legacy_empty_main_arm_and_native_offhand_keep_separate_pose_stacks() {
         stream.sync_local_player_pose(&feed);
         stream.advance_actor_interpolation_frame(0);
         input.off = Some(crate::presentation::equipment::WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,

@@ -47,6 +47,7 @@ pub fn write(out: &Path) -> Result<()> {
         .iter()
         .map(|(name, effect)| {
             protocol_ids::ParticleType::from_name(name)
+                .filter(|kind| kind.wire_value() > 0)
                 .map(|kind| (kind.wire_value(), effect.clone()))
                 .ok_or_else(|| format!("unknown legacy particle type {name}").into())
         })

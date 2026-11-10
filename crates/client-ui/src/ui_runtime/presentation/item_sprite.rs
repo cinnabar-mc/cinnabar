@@ -60,7 +60,7 @@ impl UiPresentationRuntime {
         let grid = assets::BLOCK_ITEM_SHEET_GRID.map(u32::from);
         let [width, height] = [source.width / grid[0], source.height / grid[1]];
         let vertices =
-            if let Some((_, vertices)) = self.session_icons.held_block(identifier, metadata) {
+            if let Some((_, vertices, _)) = self.session_icons.held_block(identifier, metadata) {
                 if width == 0
                     || height == 0
                     || source.width != width * grid[0]
@@ -132,7 +132,7 @@ impl UiPresentationRuntime {
         metadata: u32,
         sheet: IconRef,
     ) -> Option<render_model::DroppedItemModel> {
-        if let Some((_, vertices)) = self.session_icons.held_block(identifier, metadata) {
+        if let Some((_, vertices, _)) = self.session_icons.held_block(identifier, metadata) {
             let pixels = crop_icon(self, sheet, assets::MAX_TILE_SIZE)?;
             let sprite = render_model::DroppedItemSprite {
                 width: pixels.width,

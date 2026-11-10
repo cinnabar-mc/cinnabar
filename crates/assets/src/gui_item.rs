@@ -15,7 +15,7 @@ mod sculk_shrieker;
 mod shading;
 pub use block_model::{
     GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
-    block_item_quads, cube_face, face_brightness, material_tile,
+    block_gui_uses_paint_order, block_item_quads, cube_face, face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
 pub use dried_ghast::{DRIED_GHAST_TENTACLES, dried_ghast_quads};
@@ -39,6 +39,12 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
     ]
     .iter()
     .any(|kind| name == kind.identifier())
+}
+
+/// Keeps accepted copper-grate GUI samples opaque independently of control fades.
+#[must_use]
+pub fn forces_covered_gui_alpha(kind: crate::facts::BlockRenderKind) -> bool {
+    kind == crate::facts::BlockRenderKind::CopperGrate
 }
 
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.

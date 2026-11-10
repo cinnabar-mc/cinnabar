@@ -82,13 +82,13 @@ pub const MAX_STAGE_PROFILE_EVENTS: usize = 2_097_152;
 pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
 
 /// Selects source mip levels from the projected footprint of an inventory surface.
-pub const UI_STYLE_TERRAIN_MIPS: u32 = 1 << 19;
+pub const UI_STYLE_TERRAIN_MIPS: u32 = UI_STYLE_RGB_COVERAGE << 1;
 
 /// Rounds projected item XY to half precision before viewport conversion.
-pub const UI_STYLE_HALF_FLOAT_XY: u32 = 1 << 20;
+pub const UI_STYLE_HALF_FLOAT_XY: u32 = UI_STYLE_TERRAIN_MIPS << 1;
 
 /// Stores block GUI texture coordinates as unsigned normalized 16-bit vertices.
-pub const UI_STYLE_UNORM16_UV: u32 = 1 << 21;
+pub const UI_STYLE_UNORM16_UV: u32 = UI_STYLE_HALF_FLOAT_XY << 1;
 
 /// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
 pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
@@ -98,3 +98,9 @@ pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;
 
 /// Uses the brightest sampled RGB channel as coverage, multiplied by texture alpha.
 pub const UI_STYLE_RGB_COVERAGE: u32 = 1 << 18;
+
+const _: () = assert!(
+    (UI_STYLE_TERRAIN_MIPS | UI_STYLE_HALF_FLOAT_XY | UI_STYLE_UNORM16_UV)
+        & (UI_STYLE_MODEL_VERTEX | UI_STYLE_RGB_COVERAGE | UI_STYLE_SPRITE_COLOR_MASK)
+        == 0
+);

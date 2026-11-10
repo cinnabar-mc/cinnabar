@@ -44,6 +44,10 @@ mod tests {
                 LevelEvent::ParticleLegacyEvent.wire_value() | ParticleType::Terrain.wire_value(),
                 7,
             ),
+            (
+                LevelEvent::ParticleLegacyEvent.wire_value() | ParticleType::MobFlame.wire_value(),
+                7,
+            ),
             (2014, (5 << 24) | 7),
             (2002, 7),
         ]
@@ -73,11 +77,11 @@ mod tests {
 
     #[test]
     fn terrain_particle_events_use_the_same_internal_ids_as_chunks() {
-        assert_eq!(terrain_events(false), [5, 5, 5, (5 << 24) | 5, 7]);
+        assert_eq!(terrain_events(false), [5, 5, 5, 7, (5 << 24) | 5, 7]);
     }
 
     #[test]
     fn hashed_terrain_events_preserve_hashes_and_crack_face_bits() {
-        assert_eq!(terrain_events(true), [7, 7, 7, (5 << 24) | 7, 7]);
+        assert_eq!(terrain_events(true), [7, 7, 7, 7, (5 << 24) | 7, 7]);
     }
 }

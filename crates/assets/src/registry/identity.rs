@@ -31,7 +31,7 @@ pub fn pinned_block_model_family(sequential_id: u32) -> Option<ModelFamily> {
     Some(pinned_identity(sequential_id)?.model_family)
 }
 
-/// Looks up a state ID in the shared borrowed identity index.
+/// Shares the borrowed identity index across name, state and family lookups.
 fn pinned_identity(sequential_id: u32) -> Option<&'static RegistryIdentity<'static>> {
     let identity = pinned_identities().get(sequential_id as usize)?;
     (identity.sequential_id == sequential_id).then_some(identity)
@@ -45,7 +45,7 @@ pub fn pinned_block_state_by_name(name: &str) -> Option<u32> {
         .map(|identity| identity.sequential_id)
 }
 
-/// Shares the borrowed identity index across name, state and family lookups.
+/// Shares the borrowed identity index between lookups by state ID and block name.
 fn pinned_identities() -> &'static [RegistryIdentity<'static>] {
     static IDENTITIES: OnceLock<Box<[RegistryIdentity<'static>]>> = OnceLock::new();
     IDENTITIES.get_or_init(|| {

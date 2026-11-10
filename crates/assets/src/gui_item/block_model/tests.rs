@@ -677,6 +677,7 @@ fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
         quad_count: 0,
         flags: MODEL_TEMPLATE_FLAG_FENCE_WOOD,
     }];
+    assert!(block_gui_uses_paint_order(Some(&templates[0])));
     let gui = block_gui_quads(
         crate::facts::BlockRenderKind::BambooFence,
         VisualKind::Model,
@@ -686,6 +687,18 @@ fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
         &[],
     )
     .unwrap();
+    let held = block_item_quads(VisualKind::Model, [7; 6], Some(0), &templates, &[]).unwrap();
+    assert_ne!(gui, held);
+    let ordinary = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [7; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    assert_ne!(gui, ordinary);
     let post = gui
         .iter()
         .find(|q| q.corners.iter().all(|p| p[2] == 0.25) && q.corners.iter().any(|p| p[1] == 1.0))

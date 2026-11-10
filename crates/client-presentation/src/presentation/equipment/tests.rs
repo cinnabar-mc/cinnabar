@@ -9,6 +9,8 @@ mod java_grip_facts_tests;
 #[path = "runtime/held_animation_tests.rs"]
 pub(super) mod held_animation_tests;
 
+#[path = "runtime/armor_geometry_tests.rs"]
+mod armor_geometry_tests;
 #[path = "runtime/legacy_combat_tests.rs"]
 mod legacy_combat_tests;
 #[path = "runtime/worn_texture_tests.rs"]
@@ -276,6 +278,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         overlay_rgba8: 0,
     };
     let worn = |identifier: &str| WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -347,6 +350,7 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
     ] {
         let input = ActorEquipmentInput {
             main: Some(WornItem {
+                trim: None,
                 variant: Default::default(),
                 map_id: None,
                 shield_pattern: None,
@@ -571,6 +575,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let (mut runtime, _) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let crown = WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -607,6 +612,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -674,6 +680,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let body = player_body(&mut runtime);
     let held = |identifier: &str| ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,
@@ -740,6 +747,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -909,6 +917,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
     body.overlay_rgba8 = 0x6600_00ff;
     let input = ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,
@@ -952,6 +961,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
     let mut body = player_body(&mut runtime);
     body.overlay_rgba8 = 0x6600_00ff;
     let item = WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -987,6 +997,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         off: Some(item.clone()),
         armor: [
             Some(WornItem {
+                trim: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip("test:crown"),
                 identifier: Arc::from("test:crown"),
@@ -1039,6 +1050,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let plain = WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
@@ -1058,6 +1070,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let (_, locations) = pages.with_equipment_rasters(staged.rasters());
     runtime.set_session_items(Some(&items), Some(staged), locations);
     let glinting = WornItem {
+        trim: None,
         enchanted: true,
 
         glint: Default::default(),
@@ -1115,29 +1128,4 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
             "an atlas sprite spans less than its page, so the glint scale exceeds 0.5"
         );
     }
-}
-
-#[test]
-fn canonical_humanoid_armor_geometry_aliases_to_native_player_armor() {
-    use super::runtime::canonical_armor_geometry_identifier;
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.helmet"),
-        "geometry.player.armor.helmet"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.chestplate"),
-        "geometry.player.armor.chestplate"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.leggings"),
-        "geometry.player.armor.leggings"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.boots"),
-        "geometry.player.armor.boots"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.custom.model"),
-        "geometry.custom.model"
-    );
 }

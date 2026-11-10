@@ -55,6 +55,7 @@ pub(super) fn mesh(
 
 /// Builds GUI geometry from a block shape, keeping the thumbnail when any input is unsupported.
 fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
+    let covered = assets::gui_item::forces_covered_gui_alpha(shape.render_kind);
     let quads = block_gui_quads(
         shape.render_kind,
         shape.kind,
@@ -83,7 +84,8 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         })
         .ok()?;
         // Blend-flagged art that is only opaque or cut out (the anvil's) draws like cutout.
-        if blend
+        if !covered
+            && blend
             && tile
                 .as_chunks::<4>()
                 .0
@@ -94,12 +96,14 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         }
         let side = u16::try_from(side).ok()?;
         let mut pixels = tile.to_vec();
-        for texel in pixels.as_chunks_mut::<4>().0 {
-            texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
-                255
-            } else {
-                0
-            };
+        if !covered {
+            for texel in pixels.as_chunks_mut::<4>().0 {
+                texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
+                    255
+                } else {
+                    0
+                };
+            }
         }
         source.insert((side, pixels));
     }
@@ -114,19 +118,16 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            let order = shape
-                .template
-                .and_then(|id| shape.templates.get(id as usize))
-                .filter(|template| {
-                    template.flags
-                        & (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                            | assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER)
-                        != 0
-                })
-                .map_or(item_gui::BlockModelOrder::Depth, |_| {
-                    item_gui::BlockModelOrder::Paint
-                });
-            item_gui::block_model(&placed, shading, order)
+            let order = if assets::gui_item::block_gui_uses_paint_order(
+                shape
+                    .template
+                    .and_then(|id| shape.templates.get(id as usize)),
+            ) {
+                item_gui::BlockModelOrder::Paint
+            } else {
+                item_gui::BlockModelOrder::Depth
+            };
+            item_gui::block_model(&placed, shading, Default::default(), order)
         },
     )
 }

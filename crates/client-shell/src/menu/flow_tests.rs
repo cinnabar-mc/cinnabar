@@ -273,6 +273,18 @@ fn server_draft_joins_the_separate_port_box() {
     assert_eq!(menu.draft_endpoint(), "play.example");
 }
 
+// A raw NetherNet target has no port: the prefilled port box must not be appended to its ID.
+#[test]
+fn server_draft_keeps_a_raw_nethernet_target_without_the_port() {
+    use bridge::contract::{NETHERNET_SIGNALING_JSONRPC, NETHERNET_TARGET_PREFIX};
+    let target = format!("{NETHERNET_TARGET_PREFIX}{NETHERNET_SIGNALING_JSONRPC}/1234567890");
+    let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+    menu.activate(MenuAction::PlayAddServer);
+    assert_eq!(menu.view().port, launcher::menu::DEFAULT_PORT);
+    menu.address.set_text(&target);
+    assert_eq!(menu.draft_endpoint(), target);
+}
+
 #[test]
 fn add_server_focus_skips_disabled_actions_and_tracks_the_footer_order() {
     let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());

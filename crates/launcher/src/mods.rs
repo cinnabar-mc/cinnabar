@@ -6,6 +6,8 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
+/// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
+pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
 /// File-name prefix reserved for managed marketplace components.
 ///
 /// It is distinctive so that ordinary local file names, such as `marketplace-prices.wasm`, are
@@ -34,6 +36,8 @@ pub fn marketplace_withdrawn(reason: &str) -> String {
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// Opens the website without changing the local library or its permissions.
+    BrowseMarketplace,
     ReadMore(u64),
     ToggleActive,
     ToggleAvailable,
@@ -110,6 +114,28 @@ impl InstalledMod {
                     total + 1,
                 )
             })
+    }
+    /// Host capability indices the component requests but its grants do not yet fully allow.
+    pub fn awaiting_approval(&self) -> impl Iterator<Item = usize> + '_ {
+        self.permissions
+            .iter()
+            .enumerate()
+            .filter(|(_, permission)| {
+                permission.applicable
+                    && permission.requested == Some(true)
+                    && !permission.requested_allowed
+            })
+            .map(|(index, _)| index)
+    }
+    /// Names requests awaiting approval that `previous`, an earlier revision of the same
+    /// registration, did not leave waiting: capabilities or values a replacement newly requests.
+    /// Requests the player already left off are not repeated.
+    pub fn new_requests(&self, previous: &InstalledMod) -> Vec<&str> {
+        let waiting: Vec<_> = previous.awaiting_approval().collect();
+        self.awaiting_approval()
+            .filter(|index| !waiting.contains(index))
+            .map(|index| self.permissions[index].name.as_str())
+            .collect()
     }
     /// Supplies stable host capability indices, with requested permissions first.
     pub fn permission_order(&self, show_all: bool) -> Vec<usize> {
@@ -248,6 +274,7 @@ impl Snapshot {
     /// Keeps disclosure changes local and forwards work only while the library is idle.
     pub fn apply(&mut self, action: Action) -> Option<Action> {
         match action {
+            Action::BrowseMarketplace => None,
             Action::Customize(id) => {
                 self.customizing = (self.customizing != Some(id)).then_some(id);
                 self.show_all_permissions = false;
@@ -412,6 +439,18 @@ mod tests {
     }
 
     #[test]
+    fn browsing_never_queues_library_work_or_changes_grants() {
+        for busy in [false, true] {
+            let mut snapshot = Snapshot::default();
+            snapshot.library.busy = busy;
+            snapshot.library.installed.push(installed(7));
+            let before = snapshot.clone();
+            assert_eq!(snapshot.apply(Action::BrowseMarketplace), None);
+            assert_eq!(snapshot, before);
+        }
+    }
+
+    #[test]
     fn permission_order_and_summary_keep_the_host_indices() {
         let mut item = installed(1);
         item.permissions = [false, true, false, true]
@@ -436,6 +475,40 @@ mod tests {
         assert_eq!(item.permission_order(true), [3, 0, 2]);
         assert_eq!(item.permission_order(false), [3]);
         assert_eq!(item.requested_counts(), (0, 1));
+    }
+
+    #[test]
+    fn only_requests_a_revision_newly_leaves_waiting_are_new() {
+        /// Builds one capability row from its request and allowance.
+        fn row(name: &str, requested: bool, allowed: bool) -> Permission {
+            Permission {
+                applicable: true,
+                name: name.into(),
+                description: String::new(),
+                enabled: allowed,
+                requested: Some(requested),
+                requested_allowed: requested && allowed,
+                sensitive: false,
+            }
+        }
+        let mut previous = installed(1);
+        previous.permissions = vec![
+            row("Camera", true, true),
+            row("Audio", true, false),
+            row("Render material", false, false),
+            row("Commands", true, true),
+        ];
+        let mut next = previous.clone();
+        assert!(next.new_requests(&previous).is_empty());
+        next.permissions[2] = row("Render material", true, false);
+        next.permissions[3].requested_allowed = false;
+        assert_eq!(next.awaiting_approval().collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(
+            next.new_requests(&previous),
+            ["Render material", "Commands"]
+        );
+        next.permissions[2].applicable = false;
+        assert_eq!(next.new_requests(&previous), ["Commands"]);
     }
 
     #[test]

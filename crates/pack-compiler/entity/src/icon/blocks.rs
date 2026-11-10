@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
+use assets::facts::pack::PackTexture;
 use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
@@ -165,6 +166,27 @@ impl IconBlocks {
                     candidate.name == record.name
                         && state[BlockProperty::FacingDirection.name()]["value"] == 5
                         && state[BlockProperty::ButtonPressedBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if matches!(
+            assets::facts::pack::face_slots(&record.name),
+            Some(assets::facts::pack::FaceSlots::Pumpkin)
+        ) {
+            // The item routes to the north state, whose carved or lit face lands on the side the
+            // GUI cube hides. The icon shows the placed south pose, with that face on the left.
+            return self
+                .records
+                .iter()
+                .filter(|candidate| candidate.name == record.name)
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    state[assets::facts::BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                        == "south"
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -517,7 +539,16 @@ impl IconBlocks {
                     })?
                     .into()
             }
-            None => resolve_carried_down_key(&pack.blocks, record)?,
+            None => resolve_carried_down_key(&pack.blocks, record).or_else(|| {
+                resolve_texture_key(&pack.blocks, record, icon_face)
+                    .key
+                    .map(|key| Cow::Owned(key.into_string()))
+            })?,
+        };
+        let key = if pack.terrain.get(&key).is_some() {
+            key
+        } else {
+            PackTexture::Missing.key().into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
@@ -735,13 +766,13 @@ mod lightning_rod_tests;
 mod button_tests;
 
 #[cfg(test)]
+#[path = "blocks/lectern_tests.rs"]
+mod lectern_tests;
+
+#[cfg(test)]
 #[path = "blocks/pumpkin_tests.rs"]
 mod pumpkin_tests;
 
 #[cfg(test)]
 #[path = "blocks/bookshelf_tests.rs"]
 mod bookshelf_tests;
-
-#[cfg(test)]
-#[path = "blocks/lectern_tests.rs"]
-mod lectern_tests;

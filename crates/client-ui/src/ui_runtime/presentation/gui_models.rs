@@ -5,8 +5,6 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(test)]
-use assets::ItemVisualDefinitionRoute;
 use assets::{RuntimeAssets, RuntimeEntityAssets};
 use render_model::UiTexturePage;
 use ui::{
@@ -29,8 +27,9 @@ mod live_equipment;
 mod live_player;
 mod pack_equipment;
 mod player_layers;
-pub(super) mod preparation;
+mod preparation;
 mod shield_icons;
+mod trim_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
 mod sources;
@@ -133,6 +132,7 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 #[derive(Default)]
 pub(super) struct GuiModels {
     pub(super) shield_icons: shield_icons::ShieldIcons,
+    pub(super) trim_icons: trim_icons::TrimIcons,
     pub(super) enabled: bool,
     #[cfg(test)]
     hud_cpu_reference: bool,
@@ -217,7 +217,25 @@ impl GuiModels {
     }
 }
 
+/// Immutable UI addresses used to prepare item geometry on a worker.
+pub struct GuiModelPreparation {
+    icons: Option<Arc<assets::RuntimeIconCatalog>>,
+    icon_refs: Option<Box<[IconRef]>>,
+    first: u16,
+    shield: Option<IconRef>,
+}
+
 impl UiPresentationRuntime {
+    /// Captures stable atlas addresses without preparing any item geometry.
+    pub fn gui_model_preparation(&self) -> GuiModelPreparation {
+        GuiModelPreparation {
+            icons: self.icon_catalog.clone(),
+            icon_refs: self.icon_refs.clone(),
+            first: (self.textures.dynamic_start() + MODEL_PAGE) as u16,
+            shield: self.item_icon(assets::gui_item::SHIELD_IDENTIFIER, 0),
+        }
+    }
+
     /// Prepares item sources immediately for callers outside deferred startup.
     pub fn set_gui_models(
         &mut self,
@@ -644,8 +662,9 @@ impl UiPresentationRuntime {
         let armor = std::array::from_fn(|slot| {
             let texture = self.player_preview_gear.armor[slot].as_ref()?;
             self.gui_models
-                .pack_equipment
-                .region(slot)
+                .trim_icons
+                .region(texture)
+                .or_else(|| self.gui_models.pack_equipment.region(slot))
                 .or_else(|| {
                     let key = atlas::key([texture.width, texture.height], &texture.rgba);
                     self.gui_models.sources.textures.get(&key).copied()

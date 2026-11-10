@@ -16,7 +16,7 @@ pub const WORLD_SHADE_X: f32 = 0.6;
 /// How a block item's GUI faces are lit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GuiShading {
-    /// Full texture brightness without directional face dimming.
+    /// Full texture brightness for inventory artwork without directional face dimming.
     Unshaded,
     /// The inventory cube's Up, South and West brightness, chosen by each face's axis.
     Inventory,

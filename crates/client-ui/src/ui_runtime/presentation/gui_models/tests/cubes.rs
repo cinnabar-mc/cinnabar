@@ -1,5 +1,7 @@
 use super::super::{preparation::cube_shape_admitted, sources::gui_cube_sheet, *};
-use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
+use assets::{
+    EquipmentTexture, ItemVisualDefinitionRoute, RuntimeEquipmentCatalog, RuntimeIconCatalog,
+};
 use ui::{UiNodeId, UiPoint, UiRect};
 
 mod alpha;
@@ -333,6 +335,7 @@ fn transparent_carried_sheets_preserve_shortened_models() {
                 &alpha::world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]),
                 VISUAL,
                 &sprite,
+                Default::default(),
             )
             .is_some(),
             "these source alpha modes can draw normalized cube faces"

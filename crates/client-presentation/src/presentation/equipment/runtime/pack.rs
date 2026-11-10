@@ -293,8 +293,14 @@ impl EquipmentRuntime {
         let mut indices = catalog
             .bindings()
             .iter()
-            .filter(|binding| binding.geometry.resolution == EntityDependencyResolution::Catalog)
-            .filter_map(|binding| find_geometry_index(assets, &binding.geometry.identifier))
+            .filter_map(|binding| {
+                find_geometry_index(assets, &binding.geometry.identifier).or_else(|| {
+                    find_geometry_index(
+                        assets,
+                        canonical_armor_geometry_identifier(&binding.geometry.identifier),
+                    )
+                })
+            })
             .collect::<Vec<_>>();
         indices.sort_unstable();
         indices.dedup();
@@ -314,6 +320,7 @@ impl EquipmentRuntime {
     /// textures (the pages `pack_rasters` produced).
     pub fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
         self.clear_shield_patterns();
+        self.trims.clear();
         // Startup texture meshes also depend on the replaced artwork layer.
         self.java_rasters.clear();
         self.free_meshes

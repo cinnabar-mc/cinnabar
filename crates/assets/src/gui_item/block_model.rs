@@ -59,6 +59,14 @@ pub enum GuiBlockReject {
     Texture,
 }
 
+/// Whether overlapping GUI faces draw in supplied order instead of using depth.
+#[must_use]
+pub fn block_gui_uses_paint_order(template: Option<&ModelTemplate>) -> bool {
+    template.is_some_and(|template| {
+        template.flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0
+    })
+}
+
 /// Inventory geometry, independent of the placed block's connection shape.
 pub fn block_gui_quads(
     render_kind: crate::facts::BlockRenderKind,
@@ -98,7 +106,7 @@ pub fn block_gui_quads(
             .collect());
     }
     if kind == VisualKind::Model
-        && flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0
+        && block_gui_uses_paint_order(template.and_then(|id| templates.get(id as usize)))
     {
         let material = faces[BlockFace::South as usize];
         return Ok(

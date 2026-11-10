@@ -1,6 +1,15 @@
 {
   "game_version": "1.26.60",
+  "wire_protocol": 2225,
+  "source": {
+    "sample_commit": "4d30ae63750467771b6eccda105f732c6cb77ff7",
+    "schema": "metadata/json_schemas/client/particles/legacy/ParticleType.json",
+    "schema_sha256": "65d02cf2dc511f73224fc38ba94966f5b1cd54e2174164cf277d8c5c6e88322c",
+    "notes": "Explicit binary selectors from the pinned Mojang sample metadata; MobPortal (24) and canonical WindExplosion (91) follow the native ParticleType enumeration rather than command aliases.",
+    "native_enum_url": "https://github.com/pmmp/BedrockData/blob/7e91146842837b2267a8e4d8bf8b8dab5e482970/enums/ParticleType.json"
+  },
   "values": {
+    "Undefined": 0,
     "Bubble": 1,
     "BubbleManual": 2,
     "Crit": 3,
@@ -86,12 +95,14 @@
     "Shriek": 83,
     "SculkSoul": 84,
     "SonicExplosion": 85,
+    "BrushDust": 86,
     "CherryLeaves": 87,
     "DustPlume": 88,
     "WhiteSmoke": 89,
     "VaultConnection": 90,
     "WindExplosion": 91,
     "WolfArmorCrack": 92,
+    "OminousItemSpawner": 93,
     "CreakingCrumble": 94,
     "PaleOakLeaves": 95,
     "EyeblossomOpen": 96,

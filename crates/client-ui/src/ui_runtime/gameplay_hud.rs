@@ -435,6 +435,7 @@ impl GameplayHudState {
                 }
             }
             InventoryEvent::Slot(_)
+            | InventoryEvent::Trims(_)
             | InventoryEvent::Transaction(_)
             | InventoryEvent::FurnaceOptions(_)
             | InventoryEvent::RecipeUnlocks(_)

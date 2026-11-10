@@ -96,8 +96,8 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     out.skin_layer = HAND_FIXTURE_LAYER;
     out.valid = 1u;
     out.shade = 1.0;
-    out.glint_instance = 0xffffffffu;
     out.native_light = vec3(1.0);
+    out.glint_instance = 0xffffffffu;
     return out;
 }"#
         )
