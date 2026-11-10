@@ -318,7 +318,13 @@ have not been compiled or executed and do not close this gate.
 Settings now manages ordered local components, independent reloads and per-mod permissions.
 The native mod host is always included; regular callback fuel and separate event/loading
 lanes are bounded across the full frame. Deferred lifecycle state and bounded screen-scoped
-edit text remain queued until delivery, while frame-local outputs reset. Revocation is distinct
+edit text remain queued until delivery, while frame-local outputs reset. Suspendible frame
+callbacks retain their store, fuel and private output across time slices; completed output
+publishes after post-return, and late frame actions expire. Invocation writes use deltas;
+drawing allocation and retirement retain one owner. In-flight actor references and mask
+members use confirmed despawns rather than candidate absence, and publication uses
+resource revisions and allocation identity without mesh or shader content comparisons. Decision-exporting instances
+remain synchronous. The new deterministic regressions have not been executed. Revocation is distinct
 from quarantine, so unrelated registration changes do not restart trapped guests.
 These extension changes close no vanilla parity gate. Their native execution and visual
 acceptance remain incomplete until CI and owner review, as recorded in `plan.md`.
@@ -406,6 +412,11 @@ execution of this move are unverified, and it adds no parity evidence.
 Session custom-item regressions cover scalar legacy facts and stack limits,
 shared held/preview/dropped block geometry, carried tint and owner-selected
 external armor models. Broader item-action and custom-content parity stays open.
+Trim stack identifiers feed inventory icons, player previews and worn armor compositions
+from pack masks and palettes. Startup collection retains unreferenced trim artwork;
+authored pattern and palette aliases retain precedence. Worn and preview compositions
+retain their admitted definition; regression cases cover owner-specific palettes, held
+session sprites and authored controller color and opacity. Native trim visual qualification remains open.
 Shield decoration tests cover metadata, ordered texture composition, stack-specific icons,
 selected artwork and pack replacement. Inventory, preview and held routes retain banner layers;
 dropped/frame models retain their authored geometry and decoration. Custom model-part trees,
@@ -535,6 +546,9 @@ Ordinary actor picks retain the frame's ticked camera-actor position for the fin
 trim. Knockback regressions cover preserved world intercepts beyond three blocks
 from the transaction source, rejected picks beyond the broader pick range, and
 presses after a later movement tick. Live comparison remains incomplete.
+Smithing trim recipe selection and preview retain the base stack's tags and use the
+server-advertised ingredient mappings. Regression cases cover identical trims, re-trimming,
+input consumption and rejected-request rollback. Native workstation timing remains open.
 
 Held placement now retains complete frame picks in arrival order, consumes each batch once,
 and permits due retries within that batch. Stored-hit refresh preserves the original bounded

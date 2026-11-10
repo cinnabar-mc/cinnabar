@@ -114,28 +114,36 @@ impl Layout {
 
 /// Selects the layout from the manifest's source text and parsed value; `None` is unsupported.
 pub(crate) fn layout(source: &[u8], root: &Value) -> Option<Layout> {
-    let version = match raw_format_version(source) {
-        Some(raw) => semantic_format_version(raw)?,
+    let version = match (raw_format_version(source), &root["format_version"]) {
+        (Some(raw), _) => semantic_format_version(raw)?,
         // Without a format version the legacy parser reads format 0.
-        None => return Some(Layout::Legacy0),
+        (None, Value::Null) => return Some(Layout::Legacy0),
+        // A key the raw scan cannot see, such as one written with escapes, is read from the
+        // parsed value, as the client re-serializes it before reading the version.
+        (None, value) => semantic_format_version(serde_json::to_string(value).ok()?.as_bytes())?,
     };
     if version.below([0, 0, 0]) {
         return None;
     }
     if version.below([3, 0, 0]) {
-        let format = match &root["format_version"] {
-            Value::Number(number) => number
-                .as_i64()
-                .or_else(|| number.as_f64().map(|real| real.trunc() as i64))?,
-            _ => 0,
-        };
-        return match format {
-            0 => Some(Layout::Legacy0),
-            1 | 2 => Some(Layout::Legacy),
-            _ => None,
-        };
+        return legacy_layout(root);
     }
     (version.triple == [3, 0, 0]).then_some(Layout::Current)
+}
+
+/// The layout the legacy parser selects by reading the parsed `format_version` as a JSON integer.
+fn legacy_layout(root: &Value) -> Option<Layout> {
+    let format = match &root["format_version"] {
+        Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_f64().map(|real| real.trunc() as i64))?,
+        _ => 0,
+    };
+    match format {
+        0 => Some(Layout::Legacy0),
+        1 | 2 => Some(Layout::Legacy),
+        _ => None,
+    }
 }
 
 /// The value text after the first `"format_version"` key in the source, as the client finds it: an
@@ -234,6 +242,28 @@ mod tests {
             r#""2.0-beta""#,
         ] {
             assert_eq!(layout_of(format), None, "format {format}");
+        }
+    }
+
+    #[test]
+    fn an_escaped_format_version_key_selects_its_format_from_the_parsed_value() {
+        // The raw scan only matches the key's literal text, so the version comes from the parsed
+        // value instead.
+        for (format, expected) in [
+            ("2", Some(Layout::Legacy)),
+            ("1", Some(Layout::Legacy)),
+            ("0", Some(Layout::Legacy0)),
+            (r#""2""#, Some(Layout::Legacy0)),
+            ("3", Some(Layout::Current)),
+            ("[3, 0, 0]", Some(Layout::Current)),
+            ("4", None),
+        ] {
+            let text = format!(r#"{{"\u0066ormat_version": {format}, "header": {{}}}}"#);
+            assert_eq!(
+                layout(text.as_bytes(), &serde_json::from_str(&text).unwrap()),
+                expected,
+                "format {format}"
+            );
         }
     }
 

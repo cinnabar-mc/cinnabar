@@ -78,6 +78,7 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             interact_rotation: [-bevy_pitch.to_degrees(), yaw],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
+            interaction_model: protocol::PlayerInteractionModel::Crosshair,
             vehicle: None,
         })
         .unwrap();

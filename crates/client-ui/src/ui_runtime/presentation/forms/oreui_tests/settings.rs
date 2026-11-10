@@ -58,31 +58,30 @@ fn native_video_settings_exposes_animation_choices_and_hud_toggles() {
 }
 
 #[test]
-fn video_chat_position_choices_are_clickable_in_both_saved_states() {
-    use launcher::menu::settings_options::CHAT_POSITION_OPTION;
+fn video_chat_position_and_input_choices_are_clickable_in_both_saved_states() {
+    use launcher::menu::settings_options::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 
-    let index = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| option.name == CHAT_POSITION_OPTION.name)
-        .unwrap();
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = settings_view("video_forced_index");
-    for size in [[1280.0, 720.0], [1920.0, 1080.0]] {
-        for value in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
-            Arc::make_mut(&mut view.settings_options).set(index, value);
-            present(&mut presentation, &view, size);
-            for choice in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
-                let action = MenuAction::SettingsOption(index as u16, choice);
-                // Platform-only rows above it, such as the Windows graphics API, can push it
-                // below the viewport; focus reveals it as keyboard navigation would.
-                view.focused_action = Some(action);
+    for option in [CHAT_POSITION_OPTION, CHAT_INPUT_OPTION] {
+        let index = option.id.index();
+        for size in [[1280.0, 720.0], [1920.0, 1080.0]] {
+            for value in option.min..=option.max {
+                Arc::make_mut(&mut view.settings_options).set(index, value);
                 present(&mut presentation, &view, size);
-                let bounds = presentation
-                    .menu_hit_targets
-                    .iter()
-                    .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
-                    .expect("Video exposes both chat placements");
-                assert_eq!(presentation.hit_test_menu(centre(bounds)), Some(action));
+                for choice in option.min..=option.max {
+                    let action = MenuAction::SettingsOption(index as u16, choice);
+                    // Platform-only rows above it, such as the Windows graphics API, can push
+                    // it below the viewport; focus reveals it as keyboard navigation would.
+                    view.focused_action = Some(action);
+                    present(&mut presentation, &view, size);
+                    let bounds = presentation
+                        .menu_hit_targets
+                        .iter()
+                        .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
+                        .unwrap_or_else(|| panic!("Video exposes every {} choice", option.name));
+                    assert_eq!(presentation.hit_test_menu(centre(bounds)), Some(action));
+                }
             }
         }
     }
@@ -383,31 +382,58 @@ fn settings_slider_capture_clamps_outside_the_bar_on_both_axes() {
 }
 
 #[test]
-fn settings_scale_choices_do_not_publish_slider_capture_geometry() {
+fn settings_scale_slider_capture_clamps_to_its_end_modifiers() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = settings_view("accessibility_forced_index");
-    view.gui_scale_choices = ui::DesktopGuiScale::for_window([1280, 720])
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
         .choices()
         .collect();
-    view.focused_action = Some(MenuAction::SettingsScale(-1));
-    present(&mut presentation, &view, [1280.0, 720.0]);
-    assert!(
-        presentation
-            .menu_hit_targets
-            .iter()
-            .any(|(action, _)| *action == MenuAction::SettingsScale(-1))
+    let (first, last) = (
+        view.gui_scale_choices.first().unwrap().offset,
+        view.gui_scale_choices.last().unwrap().offset,
     );
-    for point in [
-        UiPoint::new(-1000.0, -1000.0).unwrap(),
-        UiPoint::new(4000.0, 4000.0).unwrap(),
-    ] {
-        assert_eq!(
-            presentation.gui_scale_drag_action(point),
-            None,
-            "native option buttons never acquire slider capture"
+    view.focused_action = Some(MenuAction::SettingsScale(last));
+    presentation.set_menu_view(Some(view.clone()));
+    present(&mut presentation, &view, [1280.0, 720.0]);
+    for choice in &view.gui_scale_choices {
+        assert!(
+            presentation
+                .menu_hit_targets
+                .iter()
+                .any(|(action, _)| *action == MenuAction::SettingsScale(choice.offset)),
+            "every modifier has a slider stop"
         );
     }
-    assert_eq!(presentation.gui_scale_slider_track(), None);
+    for (point, offset) in [
+        (UiPoint::new(-1000.0, -1000.0).unwrap(), first),
+        (UiPoint::new(4000.0, 4000.0).unwrap(), last),
+    ] {
+        assert_eq!(
+            presentation.gui_scale_drag_action(point, None),
+            Some(MenuAction::SettingsScale(offset)),
+            "a captured drag beyond the track clamps to its end modifier"
+        );
+    }
+    let live = presentation
+        .gui_scale_slider_track()
+        .expect("the OreUI GUI-scale row publishes its track");
+    let y = (live.min().y() + live.max().y()) * 0.5;
+    let point = UiPoint::new(live.min().x() + live.width() * 0.4, y).unwrap();
+    let middle = view.gui_scale_choices[1].offset;
+    assert_eq!(
+        presentation.gui_scale_drag_action(point, None),
+        Some(MenuAction::SettingsScale(middle))
+    );
+    let captured = ui::UiRect::new(
+        live.min(),
+        UiPoint::new(live.min().x() + live.width() * 0.5, live.max().y()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        presentation.gui_scale_drag_action(point, Some(captured)),
+        Some(MenuAction::SettingsScale(last)),
+        "a held pointer maps through the track it captured, not the relaid-out one"
+    );
 }
 
 /// Query edits reset result scrolling without moving the fixed editor.

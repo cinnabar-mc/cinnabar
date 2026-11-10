@@ -147,6 +147,7 @@ fn install_actor_render(app: &mut App) {
         render_model::ACTOR_RIG_VERTEX_WORDS
     );
     crate::nametag_render::install_nametag_render(app);
+    crate::pipeline_warmup::register_pending::<render_scene::ActorPipelineReadiness>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     crate::device_poll::install(app.sub_app_mut(RenderApp));
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));

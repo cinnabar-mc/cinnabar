@@ -174,6 +174,7 @@ pub fn advance_actor_frame(
         server_camera,
         view,
         camera,
+        pack_cameras: _,
     } = presentation;
     let session_id = client_world
         .stream
@@ -276,10 +277,7 @@ pub fn advance_actor_frame(
         equipment.set_show_custom_item_models(settings.feel().show_custom_item_models);
     }
     layer_poses.begin_frame();
-    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let first_person = server_camera.as_deref().map_or(first_person, |camera| {
-        camera.renders_first_person(first_person)
-    });
+    let first_person = crate::camera::hand_first_person(Some(&*settings), server_camera.as_deref());
     let java_mode = settings.feel().java_animations;
     // Java selects poses and items; the shared combat profile always owns bob, hurt and glint.
     let combat_visuals = render_api::DEFAULT_COMBAT_VISUALS;
@@ -335,7 +333,9 @@ pub fn advance_actor_frame(
         if let Some(progress) = input.swing_progress {
             stream.sync_local_swing(progress);
         }
-        stream.set_actor_camera_rotation(views::actor_camera_rotation(view.camera_rotation()));
+        stream.set_actor_camera_rotation(views::actor_camera_rotation(
+            view.camera_rotation(&settings),
+        ));
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
@@ -374,7 +374,7 @@ pub fn advance_actor_frame(
         });
     publish_local_actor_visibility(
         &avatar,
-        settings.perspective(),
+        settings.rendered_perspective(),
         server_camera.as_deref(),
         authoritative_subject_eye,
         authoritative_subject_feet,
@@ -388,7 +388,7 @@ pub fn advance_actor_frame(
     };
     let sampling_camera = camera.single().ok().map(|(transform, _)| {
         (
-            views::actor_camera_rotation(view.camera_rotation()),
+            views::actor_camera_rotation(view.camera_rotation(&settings)),
             transform.translation.to_array(),
         )
     });

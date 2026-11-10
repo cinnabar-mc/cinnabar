@@ -108,6 +108,10 @@ pub struct Hud {
     /// Enables host-owned corner handles for uniform card resizing.
     #[serde(default)]
     pub resizable: bool,
+    /// Host-only inclusive scale bounds narrower than the card range, for host previews whose
+    /// painter supports fewer sizes. JSON cannot set this bound.
+    #[serde(skip)]
+    pub scale_range: Option<[f32; 2]>,
     /// Hides editor labels while preserving native draggable outlines.
     #[serde(default)]
     pub hide_editor_labels: bool,
@@ -498,8 +502,23 @@ fn color(value: [f32; 4]) -> Result<(), String> {
     Ok(())
 }
 impl Hud {
+    /// Inclusive bounds every card scale and editor scaling gesture stays within.
+    pub fn scale_bounds(&self) -> [f32; 2] {
+        self.scale_range.unwrap_or([MIN_CARD_SCALE, MAX_CARD_SCALE])
+    }
+
     /// Rejects unbounded or malformed guest data before publication.
     pub fn validate(&self) -> Result<(), String> {
+        if self.scale_range.is_some_and(|[lo, hi]| {
+            !(lo.is_finite()
+                && hi.is_finite()
+                && MIN_CARD_SCALE <= lo
+                && lo < hi
+                && hi <= MAX_CARD_SCALE)
+        }) {
+            return Err("HUD scale bounds exceed the card scale range".into());
+        }
+        let [min_scale, max_scale] = self.scale_bounds();
         if self.inspector_size.is_some_and(|size| {
             size.into_iter()
                 .any(|value| !value.is_finite() || value <= 0.)
@@ -600,10 +619,10 @@ impl Hud {
                 .editor_size
                 .is_some_and(|size| size.into_iter().any(|side| !side.is_finite() || side <= 0.))
                 || card.reset_scale.is_some_and(|scale| {
-                    !scale.is_finite() || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&scale)
+                    !scale.is_finite() || !(min_scale..=max_scale).contains(&scale)
                 })
                 || !card.scale.is_finite()
-                || !(MIN_CARD_SCALE..=MAX_CARD_SCALE).contains(&card.scale)
+                || !(min_scale..=max_scale).contains(&card.scale)
                 || card.offset.into_iter().any(|v| !v.is_finite())
                 || card.rows.len() > MAX_CARD_ROWS
                 || card.cells.len() > MAX_CARD_CELLS

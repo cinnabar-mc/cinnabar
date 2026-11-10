@@ -73,7 +73,7 @@ fn load_rgba(paths: &[PathBuf]) -> Option<Vec<u8>> {
     Some(image.into_raw())
 }
 
-/// Loads available startup masks independently, preserving absent procedural layers.
+/// Loads the available startup masks independently, preserving absent procedural layers.
 pub fn load_textures(resource_root: &Path) -> Option<ScreenOverlayTextures> {
     let pumpkin = load_rgba(&candidates(resource_root, PUMPKIN_MASK_PATH));
     let spyglass = load_rgba(&candidates(resource_root, SPYGLASS_MASK_PATH));
@@ -190,8 +190,34 @@ mod tests {
 
     #[test]
     fn candidates_prefer_the_shipped_carrier() {
-        let paths = candidates(Path::new("root"), PUMPKIN_MASK_PATH);
-        assert!(paths[0].ends_with("overlays/pumpkinblur.png"));
-        assert!(paths[1].ends_with("textures/misc/pumpkinblur.png"));
+        let paths = candidates(Path::new("root"), SPYGLASS_MASK_PATH);
+        let name = SPYGLASS_MASK_PATH.rsplit('/').next().unwrap();
+        assert!(paths[0].ends_with(Path::new("overlays").join(name)));
+        assert!(paths[1].ends_with(SPYGLASS_MASK_PATH));
+    }
+
+    #[test]
+    fn pumpkin_mask_loads_without_a_spyglass_and_prefers_the_carrier() {
+        let root = tempfile::tempdir().unwrap();
+        let write = |path: &Path, color| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            image::RgbaImage::from_pixel(4, 4, image::Rgba(color))
+                .save(path)
+                .unwrap();
+        };
+        let [carrier, vanilla] = candidates(root.path(), PUMPKIN_MASK_PATH);
+        let expected = [10, 20, 30, 255];
+        write(&vanilla, expected);
+        let textures = load_textures(root.path()).expect("the installed pumpkin mask loads");
+        assert_eq!(&textures.pumpkin().unwrap()[..4], &expected);
+        assert!(textures.spyglass().is_none());
+        let preferred = [40, 50, 60, 255];
+        write(&carrier, preferred);
+        let textures = load_textures(root.path()).expect("the pumpkin carrier loads");
+        assert_eq!(&textures.pumpkin().unwrap()[..4], &preferred);
+        assert_eq!(
+            textures.pumpkin().unwrap().len(),
+            (SCREEN_OVERLAY_TEXTURE_SIDE * SCREEN_OVERLAY_TEXTURE_SIDE * 4) as usize
+        );
     }
 }

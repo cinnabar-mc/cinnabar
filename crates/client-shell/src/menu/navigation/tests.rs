@@ -1,7 +1,38 @@
 use {
     super::super::MenuRuntime,
-    launcher::menu::{MenuAction, MenuScreen},
+    launcher::menu::{MenuAction, MenuField, MenuScreen},
 };
+
+#[test]
+fn chat_settings_back_returns_to_the_world_without_pause() {
+    use launcher::menu::settings_sections::SettingSection;
+
+    let mut menu = MenuRuntime::new(false, 2, "Player".into());
+    menu.open_chat_settings();
+    assert!(menu.is_visible());
+    assert_eq!(menu.screen(), MenuScreen::Settings);
+    assert_eq!(menu.settings_section(), Some(SettingSection::Chat));
+    assert!(menu.over_world());
+    assert!(!menu.uses_panorama());
+    menu.activate(MenuAction::SearchSettings);
+    menu.edit_text("chat");
+    menu.activate(MenuAction::AddBack);
+    assert!(!menu.is_visible());
+
+    menu.open_pause();
+    menu.activate(MenuAction::PauseSettings);
+    assert!(menu.view().settings_query.is_empty());
+    menu.activate(MenuAction::AddBack);
+    assert!(menu.is_visible());
+    assert_eq!(menu.screen(), MenuScreen::Pause);
+
+    menu.show_home();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    assert!(menu.uses_panorama());
+    menu.activate(MenuAction::AddBack);
+    assert!(menu.is_visible());
+    assert_eq!(menu.screen(), MenuScreen::Home);
+}
 
 #[test]
 fn a_loaded_self_profile_can_open_dressing_room_from_keyboard_focus() {
@@ -120,5 +151,44 @@ fn a_session_without_a_play_page_keeps_its_existing_return_defaults() {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.request_connect("fixture.invalid".into());
     menu.cancel_join();
+    assert_eq!(menu.screen(), MenuScreen::Play);
+}
+
+#[test]
+fn tab_shortcuts_step_through_play_tabs_and_stop_at_each_end() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    menu.step_play_tab(-1);
+    assert_eq!(menu.screen(), MenuScreen::Play);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Social);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Servers);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Servers);
+    menu.step_play_tab(-1);
+    assert_eq!(menu.screen(), MenuScreen::Social);
+    menu.activate(MenuAction::AddBack);
+    assert_eq!(menu.screen(), MenuScreen::Home);
+}
+
+#[test]
+fn tab_shortcuts_do_nothing_off_the_play_screen_or_under_a_dialog() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Home);
+    menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    menu.activate(MenuAction::OpenExitDialog);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Play);
+}
+/// `[` and `]` type into a focused text field, so they must not also switch tabs.
+#[test]
+fn tab_shortcuts_leave_the_tabs_alone_while_a_text_field_has_focus() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    menu.focus_field(MenuField::Name);
+    assert_eq!(menu.field, Some(MenuField::Name));
+    menu.step_play_tab(1);
     assert_eq!(menu.screen(), MenuScreen::Play);
 }

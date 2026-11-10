@@ -8,7 +8,7 @@ fn consume(id: i32) -> [StackRequestAction; 1] {
         amount: 1,
         source: StackRequestSlot {
             container: StackRequestContainer::CreatedOutput,
-            slot: CREATED_OUTPUT_SLOT,
+            slot: u16::from(CREATED_OUTPUT_SLOT),
             stack_network_id: id,
         },
     }]

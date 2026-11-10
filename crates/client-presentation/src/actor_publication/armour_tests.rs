@@ -123,6 +123,7 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
         armor: [
             None,
             Some(WornItem {
+                trim: None,
                 identifier: "minecraft:iron_chestplate".into(),
                 kind: HeldKind::Other,
                 grip: assets::item::grip::ItemGrip::default(),

@@ -37,7 +37,7 @@ pub(super) const REGISTRATION_FILE: &str = "local-mod.json";
 pub(super) const STATUS_FILE: &str = "local-mod.status.json";
 /// Room for every allowed entry with a long path and every grant serialized.
 const MAX_BYTES: usize = mod_api::MAX_LOADED_MODS * 4 * 1024;
-const MAX_REQUEST_BYTES: usize = 64;
+pub(super) const MAX_REQUEST_BYTES: usize = 64;
 
 /// Runtime metadata belongs to one instance and moves with it during reordering.
 pub(super) struct HostMetadata {
@@ -255,6 +255,7 @@ enum Message {
 
 #[derive(Resource)]
 pub(crate) struct Watcher {
+    pub(super) marketplace: Arc<launcher_host::marketplace::Guard>,
     updates: Receiver<Update>,
     messages: Sender<Message>,
     retired: Sender<Retired>,
@@ -310,6 +311,8 @@ impl Watcher {
         directory: PathBuf,
         poll_interval: Duration,
     ) -> Result<Self, String> {
+        let marketplace = Arc::new(launcher_host::marketplace::Guard::default());
+        let authority = marketplace.clone();
         let (send_updates, updates) = bounded(1);
         let (messages, receive_messages) = bounded(8);
         let (retired, receive_retired) = bounded(mod_api::MAX_LOADED_MODS * 2);
@@ -337,12 +340,14 @@ impl Watcher {
                     selection,
                     current,
                     fences,
+                    authority,
                     poll_interval,
                 );
                 life.store(false, Ordering::Release);
             })
             .map_err(|error| error.to_string())?;
         Ok(Self {
+            marketplace,
             updates,
             messages,
             retired,

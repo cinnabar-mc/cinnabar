@@ -56,6 +56,7 @@ fn region(kind: HitKind, pressed: Option<&str>, collection: Option<(&str, usize)
         checked: None,
         max_length: None,
         group_index: None,
+        radio_index: None,
         renderer: None,
         drag_axes: [false; 2],
         sound: None,

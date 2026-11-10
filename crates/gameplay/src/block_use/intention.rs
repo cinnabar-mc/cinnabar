@@ -3,7 +3,7 @@
 use super::LocalUse;
 
 /// A clicked support and face chosen by the held placement intention.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlacementTarget {
     pub position: [i32; 3],
     pub face: u8,

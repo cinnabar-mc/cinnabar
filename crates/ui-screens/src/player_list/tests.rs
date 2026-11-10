@@ -34,7 +34,11 @@ fn render(list: &mut PlayerList) -> Vec<json_ui::DrawNode> {
     let context = Context::default()
         .with_var("row_height", serde_json::json!(ROW_HEIGHT))
         .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
-        .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
+        .with_var("title_top", serde_json::json!(4.0 + list.header_height()))
+        .with_var(
+            "grid_top",
+            serde_json::json!(ROW_HEIGHT + 8.0 + list.header_height()),
+        )
         .with_var("cell_width", serde_json::json!(80))
         .with_var("head_size", serde_json::json!(HEAD_WIDTH - 1.0))
         .with_var("name_offset", serde_json::json!(2.0 + HEAD_WIDTH))
@@ -323,4 +327,66 @@ fn skin_changes_refresh_only_their_portrait_and_invalid_skins_use_default() {
     rows[0].skin.as_mut().unwrap().width = 1;
     list.refresh(&rows, MAX_ROWS);
     assert_eq!(list.portraits[&list.heads[0]].identity(), fallback);
+}
+
+/// A heading-only change updates the visible label and leaves the row portraits intact.
+#[test]
+fn header_updates_without_a_roster_change_and_blank_headers_disappear() {
+    let mut list = PlayerList::default();
+    let roster = names(3);
+    list.refresh(&roster, MAX_ROWS);
+    let portraits = list.heads.clone();
+    let labels = |list: &mut PlayerList| -> Vec<String> {
+        render(list)
+            .into_iter()
+            .filter_map(|node| match node.draw {
+                Draw::Text { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect()
+    };
+    list.set_header("  First\nWorld  ");
+    list.refresh(&roster, MAX_ROWS);
+    assert!(labels(&mut list).iter().any(|text| text == "First World"));
+    list.set_header("Second World");
+    list.refresh(&roster, MAX_ROWS);
+    let shown = labels(&mut list);
+    assert!(shown.iter().any(|text| text == "Second World"));
+    assert!(!shown.iter().any(|text| text == "First World"));
+    let stable = Arc::clone(&list.data);
+    list.set_header("Second World");
+    list.refresh(&roster, MAX_ROWS);
+    assert!(Arc::ptr_eq(&stable, &list.data));
+    list.set_header(" \n\t ");
+    assert!(!labels(&mut list).iter().any(|text| text == "Second World"));
+    assert_eq!(list.header_height(), 0.0);
+    assert_eq!(list.heads, portraits);
+}
+
+/// Heading, count and first row occupy separate lines with or without a level name.
+#[test]
+fn header_count_and_rows_have_separate_readable_lines() {
+    for header in ["", "Example World"] {
+        let mut list = PlayerList::default();
+        list.set_header(header);
+        list.refresh(&names(100), MAX_ROWS);
+        let nodes = render(&mut list);
+        let bounds = |wanted: &str| {
+            nodes
+                .iter()
+                .find_map(|node| match &node.draw {
+                    Draw::Text { text, .. } if text == wanted => Some(node.dest),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let count = bounds(&list.title());
+        assert!(list.title().contains(&format!("(first {MAX_PLAYERS})")));
+        let first = bounds("Player00");
+        assert!(count.y + count.h <= first.y);
+        if !header.is_empty() {
+            let heading = bounds(header);
+            assert!(heading.y + heading.h <= count.y);
+        }
+    }
 }

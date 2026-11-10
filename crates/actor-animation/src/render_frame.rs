@@ -13,6 +13,7 @@ mod retained;
 mod rotation;
 pub(super) mod sampling;
 mod schedule;
+mod visibility;
 
 use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 
@@ -20,6 +21,7 @@ use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 #[derive(Clone)]
 pub struct ActorRenderLayers<'a> {
     pub render: Cow<'a, [RenderTextureLayer]>,
+    pub visibility: RenderVisibility,
     pub skin: Cow<'a, [SkinRenderLayer]>,
     /// Main-hand size evaluated with this frame's owner variables and query inputs.
     pub held_item_scale: Option<f32>,
@@ -152,6 +154,45 @@ impl<'a> ActorRenderFrame<'a> {
             .as_ref()
     }
 
+    /// Moves a single actor's sample to a retained consumer without a frame-map allocation.
+    pub fn into_layers(
+        mut self,
+        runtime_id: u64,
+        sample_skin: bool,
+    ) -> Option<ActorRenderLayers<'a>> {
+        self.sampled_layers.remove(&runtime_id).unwrap_or_else(|| {
+            Self::sample(
+                self.store,
+                self.actors,
+                (self.camera_rotation, self.camera_position, self.alpha),
+                runtime_id,
+                &mut self.remaining_ops,
+                sample_skin,
+            )
+        })
+    }
+
+    /// Samples into caller-owned storage, retaining vector capacity as frame inputs advance.
+    /// Visibility-only consumers may receive completed artwork and scale instead of sampled poses.
+    pub fn into_layers_reusing(
+        mut self,
+        runtime_id: u64,
+        sample_skin: bool,
+        visibility_only: bool,
+        render: &mut Vec<RenderTextureLayer>,
+    ) -> Option<ActorRenderLayers<'a>> {
+        self.store.render_layers_reusing(
+            self.actors.animated_actor(runtime_id)?,
+            self.alpha,
+            self.camera_rotation,
+            self.camera_position,
+            &mut self.remaining_ops,
+            sample_skin,
+            visibility_only,
+            render,
+        )
+    }
+
     /// Samples authored scale before admission and caches its layers for the same draw.
     /// Ordinary rigs retain their tick scale without evaluating layer expressions.
     pub fn sample_rig_scale(&mut self, mut rig: ActorRigSnapshot<'a>) -> ActorRigSnapshot<'a> {
@@ -167,15 +208,16 @@ impl<'a> ActorRenderFrame<'a> {
         rig
     }
 
-    /// Shares the owner's sampled item scale with equipment under this frame's budget.
-    pub fn sample_held_item_scale<'rig>(
+    /// Shares sampled held-item scale and visibility under this frame's budget.
+    pub fn sample_equipment_properties<'rig>(
         &mut self,
         mut rig: ActorRigSnapshot<'rig>,
     ) -> ActorRigSnapshot<'rig> {
-        if rig.held_item_scale.is_some()
+        if (rig.held_item_scale.is_some() || rig.visibility.hide_held_items.is_some())
             && let Some(layers) = self.cached_layers(rig.actor.runtime_id)
         {
             rig.held_item_scale = layers.held_item_scale;
+            rig.visibility = layers.visibility;
         }
         rig
     }
@@ -197,6 +239,11 @@ impl<'a> ActorRenderFrame<'a> {
                     .iter()
                     .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
             })
+    }
+
+    /// Shares the frame's visibility without copying its pose or texture layers.
+    pub fn visibility(&mut self, runtime_id: u64) -> Option<RenderVisibility> {
+        Some(self.cached_layers(runtime_id)?.visibility)
     }
 
     /// The head angles of the pose this frame draws the actor's body with, so a layer built on the
@@ -253,6 +300,7 @@ pub(crate) struct FrameSamplingCache {
     layers: render::cache::RenderCache,
     compositions: composition::Compositions,
     retained: Option<retained::Sample>,
+    visibility: Option<visibility::Plan>,
 }
 
 impl FrameSamplingCache {

@@ -18,7 +18,10 @@ use {crate::runtime::world::ClientWorld, client_state::RuntimeSettings};
 
 /// Physical controls already consumed before gameplay reads this frame's ordered events.
 #[derive(Resource, Default)]
-pub(crate) struct ReservedControls(pub Vec<String>);
+pub(crate) struct ReservedControls {
+    pub keys: Vec<String>,
+    pub scroll: bool,
+}
 
 #[derive(Resource, Default)]
 pub struct SemanticInputRuntime {
@@ -98,6 +101,16 @@ impl SemanticInputRuntime {
             );
         }
         Ok(snapshot)
+    }
+
+    /// Returns the manual fallback mode used when no active input candidates exist.
+    pub fn preferred_input_mode(&self) -> Option<semantic_input::InputMode> {
+        self.router.preferred_input_mode()
+    }
+
+    /// Sets the manual fallback mode used when no active input candidates exist.
+    pub fn set_preferred_input_mode(&mut self, mode: Option<semantic_input::InputMode>) -> bool {
+        self.router.set_preferred_input_mode(mode)
     }
 
     pub fn set_context(&mut self, context: InputContext) {

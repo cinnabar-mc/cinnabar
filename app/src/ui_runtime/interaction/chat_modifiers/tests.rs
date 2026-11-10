@@ -8,6 +8,7 @@ use std::sync::{
 mod command_chat;
 mod focus;
 mod platform_back;
+mod search_field;
 
 /// UIKit supplies Return as text without a physical key; repeats must not submit it.
 #[test]
