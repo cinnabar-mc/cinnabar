@@ -525,7 +525,7 @@ fn window_mouse_input_returns_touch_mode_to_keyboard_mouse() {
         WindowEvent::CursorMoved(CursorMoved {
             window,
             position: Vec2::new(40.0, 30.0),
-            delta: None,
+            delta: Some(Vec2::new(4.0, 0.0)),
         }),
         WindowEvent::MouseButtonInput(MouseButtonInput {
             button: MouseButton::Right,
@@ -558,7 +558,7 @@ fn window_mouse_input_returns_touch_mode_to_keyboard_mouse() {
     reset_platform_globals();
 }
 
-/// A mouse release, which also arrives when capture or focus is lost, and a touch-emulated UI
+/// A mouse release with winit's accompanying unchanged cursor position, and a touch-emulated UI
 /// press, which never reaches the window event stream, leave Touch selected.
 #[test]
 fn mouse_release_and_touch_emulated_press_keep_touch_mode() {
@@ -566,6 +566,12 @@ fn mouse_release_and_touch_emulated_press_keep_touch_mode() {
     reset_platform_globals();
     let mut app = hybrid_input_app_in_touch_mode();
     let window = Entity::PLACEHOLDER;
+    app.world_mut()
+        .write_message(WindowEvent::CursorMoved(CursorMoved {
+            window,
+            position: Vec2::new(40.0, 30.0),
+            delta: Some(Vec2::ZERO),
+        }));
     app.world_mut()
         .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
             button: MouseButton::Left,

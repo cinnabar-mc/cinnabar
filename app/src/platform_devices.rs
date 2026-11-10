@@ -296,7 +296,8 @@ pub fn drain_platform_mouse_events(
 /// mouse forwarding can see them, or through the drained platform queue. Both write raw motion
 /// as `MouseMotion` and the rest to the window event stream. Touch-emulated UI presses write
 /// only `MouseButtonInput` messages, and releases also arrive when capture or focus is lost, so
-/// neither counts.
+/// neither counts. winit also reports the unchanged cursor position with each uncaptured button
+/// change, so only a cursor that moved counts.
 pub fn detect_physical_mouse_activity(
     mut window_events: MessageReader<WindowEvent>,
     mut motion: MessageReader<MouseMotion>,
@@ -308,7 +309,10 @@ pub fn detect_physical_mouse_activity(
     let window = window_events.read().fold(false, |active, event| {
         active
             | match event {
-                WindowEvent::CursorMoved(_) | WindowEvent::MouseWheel(_) => true,
+                WindowEvent::CursorMoved(moved) => {
+                    moved.delta.is_none_or(|delta| delta != Vec2::ZERO)
+                }
+                WindowEvent::MouseWheel(_) => true,
                 WindowEvent::MouseButtonInput(input) => input.state == ButtonState::Pressed,
                 _ => false,
             }
