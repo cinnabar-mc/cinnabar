@@ -1,23 +1,38 @@
 //! Ordered app adapter for UI scene retirement.
 use crate::runtime::world::ClientWorld;
-use bevy::prelude::{Local, Real, Res, ResMut, Time};
+use bevy::{
+    ecs::system::SystemParam,
+    prelude::{Local, Real, Res, ResMut, Time},
+};
 use client_interaction::block_use::BlockUseRuntime;
 use client_interaction::movement::LocalPhysicsController;
 use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene;
 use {client_shell::menu::MenuRuntime, client_state::PlayerRuntime};
 
+/// World and interaction facts used to retire distant entity storage.
+#[derive(SystemParam)]
+pub(crate) struct EntityStorageInputs<'w> {
+    world: Option<Res<'w, ClientWorld>>,
+    physics: Option<Res<'w, LocalPhysicsController>>,
+    block_use: Option<Res<'w, BlockUseRuntime>>,
+    time: Option<Res<'w, Time<Real>>>,
+}
+
 /// Applies damage-driven scene retirement at its existing authority phase.
 pub(crate) fn close_scenes_on_player_hurt(
     mut player_runtime: ResMut<PlayerRuntime>,
     menu: Option<Res<MenuRuntime>>,
     mut runtime: ResMut<UiRuntimeResource>,
-    world: Option<Res<ClientWorld>>,
-    physics: Option<Res<LocalPhysicsController>>,
-    block_use: Option<Res<BlockUseRuntime>>,
-    time: Option<Res<Time<Real>>>,
+    storage: EntityStorageInputs,
     mut anchor: Local<Option<(u64, u64, u64)>>,
 ) {
+    let EntityStorageInputs {
+        world,
+        physics,
+        block_use,
+        time,
+    } = storage;
     let session = runtime.session_id();
     let generation = player_runtime.inventory.ledger().storage_generation();
     let stream = world.as_deref().and_then(|world| world.stream.as_ref());
