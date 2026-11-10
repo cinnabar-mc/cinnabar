@@ -5021,6 +5021,7 @@ dependencies = [
  "bytes",
  "protocol",
  "protocol-ids",
+ "render-api",
  "serde",
  "serde_json",
  "sha2",

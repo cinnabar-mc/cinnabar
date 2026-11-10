@@ -15,7 +15,7 @@ fn smithing_trim_take_consumes_each_input_once_and_rejection_restores_them() {
     }
     let extra = protocol::apply_item_trim(
         &[],
-        &protocol::ItemTrim {
+        &render_api::ItemTrim {
             material: "gold".into(),
             pattern: "sentry".into(),
         },

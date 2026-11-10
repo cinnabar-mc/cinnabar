@@ -32,6 +32,8 @@ mod shield_icons;
 mod trim_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
+mod world_trim;
+pub use world_trim::WorldTrimArtwork;
 mod sources;
 use sources::{ModulatedMeshes, modulated};
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};

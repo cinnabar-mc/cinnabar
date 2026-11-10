@@ -42,7 +42,9 @@ mod source_cost;
 use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
+mod trims;
 use preparation::DropPreparation;
+use trims::{placed_trim_model, trimmed_model};
 
 // Provisional world sizes and colours; each needs independent measurement.
 const TNT_FLASH_OVERLAY: [f32; 4] = [1.0, 1.0, 1.0, 0.8];
@@ -441,13 +443,17 @@ impl DroppedItemPublisher<'_, '_> {
             }
             ItemArtwork::SessionSprite => {
                 icons.session_item_icon(&placement.identifier, placement.metadata)?;
-                Self::icon_model(
-                    cache,
-                    icons,
-                    &placement.identifier,
-                    placement.metadata,
-                    false,
-                )
+                let icon = icons.item_icon(&placement.identifier, placement.metadata);
+                icon.and_then(|icon| placed_trim_model(cache, icons, placement, icon))
+                    .or_else(|| {
+                        Self::icon_model(
+                            cache,
+                            icons,
+                            &placement.identifier,
+                            placement.metadata,
+                            false,
+                        )
+                    })
             }
             ItemArtwork::StartupCube if placement.allow_block_models => Self::carried_block_model(
                 cache,
@@ -459,8 +465,10 @@ impl DroppedItemPublisher<'_, '_> {
             ItemArtwork::StartupCube => None,
             ItemArtwork::StartupSprite => {
                 let icon = startup_icon?;
-                Self::resolved_icon_model(cache, icons, icon, false, || {
-                    resolved_icon_sprite(icons, icon, false)
+                placed_trim_model(cache, icons, placement, icon).or_else(|| {
+                    Self::resolved_icon_model(cache, icons, icon, false, || {
+                        resolved_icon_sprite(icons, icon, false)
+                    })
                 })
             }
         })
@@ -509,6 +517,18 @@ impl DroppedItemPublisher<'_, '_> {
                     ItemArtwork::SessionSprite => icons.session_item_icon(icon_identifier, variant),
                     _ => icons.startup_item_icon(icon_identifier, variant),
                 }?;
+                if let Some(artwork) =
+                    icons.world_trim_artwork(identifier, icon, view.item.trim.as_ref(), true)
+                {
+                    let key = ModelKey::Trim(artwork.clone());
+                    if let Some(prepared) =
+                        preparation.model(cache, &key, DroppedItemShape::Sprite, |cache| {
+                            trimmed_model(cache, icons, artwork)
+                        })
+                    {
+                        return Some(prepared);
+                    }
+                }
                 preparation.model(
                     cache,
                     &ModelKey::icon(icon, true),
@@ -878,6 +898,13 @@ impl DroppedItemPublisher<'_, '_> {
     }
 }
 
+/// The longest side of an extruded item sprite on this device.
+fn item_sprite_side() -> u32 {
+    assets::texture::policy::device_policy()
+        .max_side()
+        .min(MAX_ITEM_SPRITE_SIDE)
+}
+
 /// Builds icon pixels lazily; unavailable sprites are retried on the next frame.
 fn icon_sprite(
     icons: &UiPresentationRuntime,
@@ -894,12 +921,7 @@ fn resolved_icon_sprite(
     icon: ui::IconRef,
     native_drop: bool,
 ) -> Option<DroppedItemModel> {
-    let pixels = icons.resolved_item_sprite(
-        icon,
-        assets::texture::policy::device_policy()
-            .max_side()
-            .min(MAX_ITEM_SPRITE_SIDE),
-    )?;
+    let pixels = icons.resolved_item_sprite(icon, item_sprite_side())?;
     let sprite = DroppedItemSprite {
         width: pixels.width,
         height: pixels.height,

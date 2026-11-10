@@ -40,7 +40,7 @@ pub const MAX_EQUIPMENT_NOTICES: usize = 256;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemStack {
     /// Root trim identifiers retained independently of item metadata and stack identity.
-    pub trim: Option<protocol::ItemTrim>,
+    pub trim: Option<render_api::ItemTrim>,
     /// Drawing role resolved for the current numeric item registry.
     pub use_animation: assets::item_use::ItemUseAnimation,
     /// Grip resolved for the current numeric item registry generation.
@@ -844,7 +844,7 @@ mod armor_tests {
 
     #[test]
     fn canonical_armor_retains_trim_through_registry_replacement() {
-        let expected = protocol::ItemTrim {
+        let expected = render_api::ItemTrim {
             material: "gold".into(),
             pattern: "sentry".into(),
         };

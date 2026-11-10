@@ -1,12 +1,6 @@
 //! Bedrock's root Trim compound, independent of item names and display tags.
 use super::*;
-
-/// Material and pattern identifiers stored on one trimmed stack.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ItemTrim {
-    pub material: Arc<str>,
-    pub pattern: Arc<str>,
-}
+use render_api::ItemTrim;
 
 /// Reads both case-sensitive strings from the root Trim compound.
 #[must_use]

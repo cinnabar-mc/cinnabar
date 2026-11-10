@@ -18,7 +18,7 @@ pub fn trim_gallery(
         )
         .unwrap(),
     );
-    let trim = protocol::ItemTrim {
+    let trim = render_api::ItemTrim {
         material: "gold".into(),
         pattern: "sentry".into(),
     };

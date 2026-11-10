@@ -673,6 +673,7 @@ fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
     .unwrap();
     let mut placement = render_model::StaticItemPlacement {
         shield_pattern: None,
+        trim: None,
         allow_block_models: true,
         identifier: "minecraft:barrel".into(),
         metadata: 0,

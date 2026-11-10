@@ -6,7 +6,7 @@ mod tests;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
-    trim: protocol::ItemTrim,
+    trim: render_api::ItemTrim,
     binding: usize,
     slot: u8,
     armor_material: Option<assets::facts::ArmourMaterial>,
@@ -78,13 +78,53 @@ impl TrimIcons {
     }
 }
 
+/// The pinned armor material that selects a darker palette for a same-material trim.
+fn armor_material(identifier: &str) -> Option<Option<assets::facts::ArmourMaterial>> {
+    Some(
+        assets::facts::ItemFacts::builtin()
+            .ok()?
+            .by_identifier(identifier)?
+            .armor_material(),
+    )
+}
+
+/// Composes one trim over `base` from the active pack's masks and palettes, then the startup
+/// carrier's; `binding` supplies authored pattern and palette aliases. `None` for an item that
+/// is not trimmable armor or whose artwork is missing.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn compose_trim(
+    startup: &assets::RuntimeEquipmentCatalog,
+    pack: Option<&assets::RuntimeEquipmentCatalog>,
+    base: &assets::EquipmentTexture,
+    binding: Option<&assets::EquipmentBinding>,
+    trim: &render_api::ItemTrim,
+    identifier: &str,
+    icon: bool,
+    dye: Option<assets::item::trim::Dye>,
+) -> Option<assets::EquipmentTexture> {
+    assets::item::trim::compose(
+        base,
+        armor_material(identifier)?,
+        &trim.material,
+        &trim.pattern,
+        assets::item::trim::armor_slot(identifier)?,
+        icon,
+        dye,
+        binding.map(|binding| &binding.resources),
+        |path| {
+            pack.and_then(|p| p.texture(path))
+                .or_else(|| startup.texture(path))
+        },
+    )
+}
+
 impl UiPresentationRuntime {
     /// Resolves a stack's material-colored inventory trim over the current item artwork.
     pub(in crate::ui_runtime::presentation) fn trim_icon(
         &self,
         identifier: &str,
         metadata: u32,
-        trim: &protocol::ItemTrim,
+        trim: &render_api::ItemTrim,
         dye: Option<u32>,
     ) -> Option<IconRef> {
         let base_icon = dye
@@ -156,7 +196,7 @@ impl UiPresentationRuntime {
         preview: &player_preview::PreviewTexture,
         path: &str,
         binding: Option<&assets::EquipmentBinding>,
-        trim: &protocol::ItemTrim,
+        trim: &render_api::ItemTrim,
         identifier: &str,
     ) -> Option<player_preview::PreviewTexture> {
         let base = assets::EquipmentTexture {
@@ -182,7 +222,7 @@ impl UiPresentationRuntime {
         &self,
         base: &assets::EquipmentTexture,
         binding: Option<&assets::EquipmentBinding>,
-        trim: &protocol::ItemTrim,
+        trim: &render_api::ItemTrim,
         identifier: &str,
         icon: bool,
         dye: Option<u32>,
@@ -190,10 +230,7 @@ impl UiPresentationRuntime {
         let startup = self.equipment_catalog.as_deref()?;
         let pack = self.gui_models.pack_equipment.source.as_deref();
         let slot = assets::item::trim::armor_slot(identifier)?;
-        let armor_material = assets::facts::ItemFacts::builtin()
-            .ok()?
-            .by_identifier(identifier)?
-            .armor_material();
+        let armor_material = armor_material(identifier)?;
         let key = Key {
             trim: trim.clone(),
             binding: binding.map_or(0, |binding| binding as *const _ as usize),
@@ -211,12 +248,13 @@ impl UiPresentationRuntime {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         if !cache.images.contains_key(&key) {
-            let texture = assets::item::trim::compose(
+            let texture = compose_trim(
+                startup,
+                pack,
                 base,
-                armor_material,
-                &trim.material,
-                &trim.pattern,
-                slot,
+                binding,
+                trim,
+                identifier,
                 icon,
                 dye.map(|rgb| {
                     let [_, r, g, b] = rgb.to_be_bytes();
@@ -225,11 +263,6 @@ impl UiPresentationRuntime {
                         alpha: assets::item::trim::DyeAlpha::Coverage,
                     }
                 }),
-                binding.map(|binding| &binding.resources),
-                |path| {
-                    pack.and_then(|p| p.texture(path))
-                        .or_else(|| startup.texture(path))
-                },
             )?;
             cache.images.insert(
                 key.clone(),

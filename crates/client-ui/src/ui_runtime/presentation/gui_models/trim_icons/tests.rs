@@ -30,7 +30,7 @@ fn unchanged_preview_trims_reuse_compositions_and_pages() {
         rgba: Arc::from([10, 20, 30, 255]),
         tint: None,
     };
-    let trim = protocol::ItemTrim {
+    let trim = render_api::ItemTrim {
         material: "gold".into(),
         pattern: "sentry".into(),
     };
@@ -103,7 +103,7 @@ fn shared_preview_pixels_keep_the_admitted_armor_material() {
         rgba: Arc::from([20, 30, 40, 255]),
         tint: None,
     };
-    let trim = protocol::ItemTrim {
+    let trim = render_api::ItemTrim {
         material: "diamond".into(),
         pattern: "sentry".into(),
     };

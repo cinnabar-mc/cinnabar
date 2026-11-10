@@ -594,7 +594,7 @@ fn resident_player_renderers_resolve_trimmed_base_and_pack_armor() {
             rgba: Arc::from([20, 30, 40, 255]),
             tint: None,
         };
-        let trim = protocol::ItemTrim {
+        let trim = render_api::ItemTrim {
             material: "gold".into(),
             pattern: "sentry".into(),
         };

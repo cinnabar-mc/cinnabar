@@ -13,13 +13,13 @@ pub struct TrimRegistry {
 
 impl TrimRegistry {
     /// Resolves the pattern template and material from the server's current registry.
-    pub fn resolve(&self, template: &str, addition: &str) -> Option<crate::ItemTrim> {
+    pub fn resolve(&self, template: &str, addition: &str) -> Option<render_api::ItemTrim> {
         let lookup = |entries: &[TrimMapping], item: &str| {
             let mut matches = entries.iter().filter(|(name, _)| name.as_ref() == item);
             let (_, value) = matches.next()?;
             (matches.all(|(_, next)| next == value) && !value.is_empty()).then(|| Arc::clone(value))
         };
-        Some(crate::ItemTrim {
+        Some(render_api::ItemTrim {
             pattern: lookup(&self.patterns, template)?,
             material: lookup(&self.materials, addition)?,
         })
@@ -80,7 +80,7 @@ mod tests {
         };
         assert_eq!(
             registry.resolve("custom:template", "custom:material"),
-            Some(crate::ItemTrim {
+            Some(render_api::ItemTrim {
                 pattern: "sentry".into(),
                 material: "gold".into()
             })

@@ -103,7 +103,7 @@ fn trim_recipes_preview_the_decorated_base_without_a_static_output() {
     let output = session.predicted_smithing_trim().unwrap();
     assert_eq!(
         protocol::item_trim(&output.extra_data),
-        Some(protocol::ItemTrim {
+        Some(render_api::ItemTrim {
             material: "gold".into(),
             pattern: "sentry".into()
         })

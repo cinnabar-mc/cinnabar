@@ -13,6 +13,8 @@ pub mod primitive_shapes;
 mod publication;
 mod shield;
 pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
+mod trim;
+pub use trim::ItemTrim;
 mod vsync;
 pub use held_item::{
     DEFAULT_ITEM_RENDER_OFFSETS, HeldItemHand, HeldItemHandSide, HeldItemPerspective,
