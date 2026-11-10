@@ -12,6 +12,7 @@ reads = ["crates/assets/data/*"]
 [dependencies]
 pack-json = { path = "../../pack-json" }
 assets = { path = "../../assets" }
+protocol-ids = { path = "../../protocol-ids" }
 image.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
