@@ -64,7 +64,7 @@ impl SignTextSpec {
     pub(super) fn is_visible(&self) -> bool {
         self.text
             .chars()
-            .any(|character| !character.is_whitespace())
+            .any(|character| !character.is_whitespace() && character != '\r')
     }
 
     /// Identifies this face's canvas; equal specs share one key.
@@ -128,6 +128,7 @@ pub(super) fn rasterize(
     let mut placed = Vec::new();
     let block_top = (height - LINES as i32 * LINE_PITCH_PIXELS) / 2;
     for (index, line) in spec.text.split('\n').take(LINES).enumerate() {
+        let line = line.trim_end_matches('\r');
         if line.trim().is_empty() {
             continue;
         }

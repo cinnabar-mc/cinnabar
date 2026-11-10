@@ -283,10 +283,30 @@ pub(super) fn piston_arm(
     })
 }
 
+fn extract_sign_text(compound: &NbtCompound) -> Option<String> {
+    if let Some(text) = compound.string("Text") {
+        return Some(text.to_owned());
+    }
+    // Dragonfly / Castleonline and older BDS variants store text lines as Text1..Text4
+    let mut lines = Vec::new();
+    let mut found = false;
+    for key in ["Text1", "Text2", "Text3", "Text4"] {
+        if let Some(line) = compound.string(key) {
+            found = true;
+            lines.push(line);
+        }
+    }
+    if found {
+        return Some(lines.join("\n"));
+    }
+    None
+}
+
 /// Keeps visible text and its retained appearance.
 fn sign_face(face: &NbtCompound) -> Option<SignTextSpec> {
+    let text = extract_sign_text(face)?;
     let spec = SignTextSpec::new(
-        face.string("Text")?.to_owned(),
+        text,
         face.integer("SignTextColor")
             .and_then(|value| i32::try_from(value).ok())
             .unwrap_or(DEFAULT_SIGN_COLOR),
@@ -309,7 +329,11 @@ fn sign(
             sign_face(nbt),
             None,
         ),
-        (front, back) => (front.and_then(sign_face), back.and_then(sign_face)),
+        (front, back) => {
+            let front_face = front.and_then(sign_face).or_else(|| sign_face(nbt));
+            let back_face = back.and_then(sign_face);
+            (front_face, back_face)
+        }
     };
     (front.is_some() || back.is_some()).then_some(Template::Sign { mount, front, back })
 }

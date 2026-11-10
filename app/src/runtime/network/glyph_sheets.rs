@@ -115,16 +115,17 @@ fn bitmap(view: &LayeredPackView, ascii: Option<&str>, unicode: Option<&str>) ->
 
 /// A malformed optional sheet falls through to the next valid layer.
 fn read_named_sheet(view: &LayeredPackView, high_byte: u8, name: &str) -> Option<GlyphSheet> {
-    let localized = format!(
-        "texts/{}/{}",
-        pack_runtime::pack_language::active_language_code(),
-        name
-    );
-    [localized.as_str(), name].into_iter().find_map(|path| {
-        view.read_layers_capped(path, MAX_SHEET_SOURCE_BYTES)
-            .rev()
-            .find_map(|bytes| decode_sheet(high_byte, &bytes))
-    })
+    let lang = pack_runtime::pack_language::active_language_code();
+    let localized = format!("texts/{lang}/{name}");
+    let en_us = format!("texts/en_US/{name}");
+    let textures = format!("textures/{name}");
+    [localized.as_str(), en_us.as_str(), name, textures.as_str()]
+        .into_iter()
+        .find_map(|path| {
+            view.read_layers_capped(path, MAX_SHEET_SOURCE_BYTES)
+                .rev()
+                .find_map(|bytes| decode_sheet(high_byte, &bytes))
+        })
 }
 
 /// Decodes only a valid, bounded 16-by-16 bitmap sheet.
