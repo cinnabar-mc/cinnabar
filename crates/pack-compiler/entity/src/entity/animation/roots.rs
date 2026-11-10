@@ -54,6 +54,11 @@ pub(crate) struct ActivationRoot {
     pub condition: Option<String>,
 }
 
+/// Reports whether the entity schema activates any animation or controller aliases.
+pub fn has_entity_animation_roots(value: &Value) -> bool {
+    activation_roots(value).is_some_and(|roots| !roots.is_empty())
+}
+
 /// Returns the aliases a rig plays each tick, or `None` for an unrecognized schema.
 pub(crate) fn activation_roots(value: &Value) -> Option<Vec<ActivationRoot>> {
     let description = description(value)?;

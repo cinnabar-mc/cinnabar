@@ -29,11 +29,13 @@ use inventory::inventory_ledger::InventoryTarget;
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.
 const PERSONAL_CRAFT_SLOT: u8 = 28;
 const WORKBENCH_CRAFT_SLOT: u8 = 32;
+mod cells;
 mod held_stack;
 #[cfg(test)]
 mod held_stack_tests;
 mod preparation;
 pub mod presses;
+mod storage_radio;
 use held_stack::held_stack;
 
 /// Which screen the engine drew, for mapping its cells back to ledger targets.
@@ -88,6 +90,13 @@ impl ScreenLayout {
         };
         if matches!(self, ScreenLayout::Book) {
             return widget();
+        }
+        if let ScreenLayout::Station(kind) = self
+            && furnace_book::hit(kind.screen, region).is_none()
+            && container_data::widget_hit(kind.screen, region).is_none()
+            && let Some(radio) = storage_radio::hit(region)
+        {
+            return Some(InventoryCellHit::Widget(radio));
         }
         let (Some(index), Some(collection)) =
             (region.collection_index, region.collection.as_deref())
@@ -222,7 +231,7 @@ impl ContainerScreen {
             _ => context = recipe_book::context(context),
         }
         let mut icons = Vec::new();
-        let data = screen_data(
+        let mut data = screen_data(
             source,
             items,
             layout,
@@ -231,6 +240,9 @@ impl ContainerScreen {
             (&mut self.book, &mut self.furnace),
         );
         let screen = source.screen();
+        if let Some(frame) = previous {
+            storage_radio::select(&mut data, &frame.hits, screen.storage_radios);
+        }
         let view = ViewState {
             hovered: previous
                 .zip(pointer)
@@ -266,12 +278,19 @@ impl ContainerScreen {
             pointer,
             &mut icons,
         );
+        // A selection in the search or anvil name box draws highlighted.
+        let edit = screen
+            .search_caret
+            .or(screen.anvil_caret)
+            .and_then(|caret| caret.selection)
+            .map(|selection| ui_engine::engine::host_edit::Feedback::new(Some(selection)));
         let art = ScreenArt {
             view: Some(&view),
             tooltip,
             pointer,
             clocks: Some(clocks),
             overlay: &overlay,
+            edit,
             ..ScreenArt::default()
         };
         let mut item_renderer = ItemRenderer {
@@ -575,6 +594,16 @@ impl ScreenCache {
     }
 }
 
+/// A stack's hover text: its name, then each lore line after `\n§5§o`, as
+/// `ItemStackBase::getFormattedHovertext` appends them. Server packs read lore out of this text.
+fn hover_text(mut name: String, extra_data: &[u8]) -> String {
+    for line in protocol::item_display(extra_data).lore {
+        name.push_str("\n§5§o");
+        name.push_str(&line);
+    }
+    name
+}
+
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
 struct Cells<'a> {
     names: &'a std::collections::HashMap<(i32, u32), Arc<str>>,
@@ -609,6 +638,7 @@ impl Cells<'_> {
                     .or_else(|| self.names.get(&(stack.network_id, stack.metadata)).cloned())
             })
             .map_or_else(String::new, |name| name.to_string());
+        let hover = stack.map_or_else(String::new, |stack| hover_text(name, &stack.extra_data));
         item.with(
             "#inventory_stack_count",
             Scalar::Text(if count > 1 {
@@ -617,7 +647,7 @@ impl Cells<'_> {
                 String::new()
             }),
         )
-        .with("#hover_text", Scalar::Text(name))
+        .with("#hover_text", Scalar::Text(hover))
         .with(
             "#item_id_aux",
             Scalar::Int(i64::from(
@@ -811,6 +841,8 @@ mod empty_cells_tests;
 mod press_drop_tests;
 #[cfg(test)]
 mod station_output_tests;
+#[cfg(test)]
+mod storage_radio_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(
@@ -847,12 +879,15 @@ fn station_cell<'a>(
             }
             let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
             match (ledger.created_output_stack(), frame.recipe_output) {
-                // Anvil and grindstone results are the client's prediction until the server
-                // states one.
+                // Station predictions fill the result until the server states one.
                 (None, Some(output))
                     if matches!(
                         ledger.window_kind(),
-                        Some(protocol::WindowKind::Anvil | protocol::WindowKind::Grindstone)
+                        Some(
+                            protocol::WindowKind::Anvil
+                                | protocol::WindowKind::Grindstone
+                                | protocol::WindowKind::Smithing
+                        )
                     ) =>
                 {
                     (Some(&output.stack), output.icon, output.durability)

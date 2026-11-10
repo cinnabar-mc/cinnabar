@@ -84,6 +84,7 @@ fn draw(engine: &FormEngine, visible: bool, blend: ui::UiBlendMode) -> (Vec<UiNo
                     hud: &hud,
                     hunger_update: None,
                     bounds: None,
+                    effect_bounds: None,
                 }],
             },
         )

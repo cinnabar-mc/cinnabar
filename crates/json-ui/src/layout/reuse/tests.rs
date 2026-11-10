@@ -267,10 +267,11 @@ fn screen(shape: &Shape) -> ResolvedControl {
     )
 }
 
-/// Draws, hit regions and report of a gated layout placing every control.
+/// Draws, hit regions and report of a layout placing every control.
 fn placed_everywhere(
     tree: &ResolvedControl,
     state: &ViewState,
+    gated: bool,
 ) -> (
     Vec<crate::DrawNode>,
     Vec<crate::HitRegion>,
@@ -282,10 +283,14 @@ fn placed_everywhere(
     };
     let mut cache = MeasureCache::default();
     cache.enter(tree);
-    let (laid, report) = super::super::lay_out(tree, [200.0, 200.0], &env, state, true, None);
+    let (laid, report) = super::super::lay_out(tree, [200.0, 200.0], &env, state, gated, None);
     cache.leave();
     (
-        crate::emit::emit_gated(&laid, &env),
+        if gated {
+            crate::emit::emit_gated(&laid, &env)
+        } else {
+            crate::emit::emit(&laid, &env)
+        },
         crate::input::hit_regions(&laid),
         report,
     )
@@ -309,7 +314,7 @@ fn replay(steps: &[(Shape, Scroll)]) -> Vec<usize> {
         let state = scroll.state();
         let (output, report) =
             super::super::layout_reusing(&tree, [200.0, 200.0], &env, &state, &mut cache, true);
-        let (nodes, hits, cold_report) = placed_everywhere(&next, &state);
+        let (nodes, hits, cold_report) = placed_everywhere(&next, &state, true);
         let context = format!("step {step}: {shape:?} {scroll:?}");
         assert_eq!(*output.nodes, *nodes, "{context}: draws");
         assert_eq!(*output.hits, *hits, "{context}: hit regions");
@@ -317,6 +322,100 @@ fn replay(steps: &[(Shape, Scroll)]) -> Vec<usize> {
         placed.push(cache.placed());
     }
     placed
+}
+
+/// Checks retained output against fresh layouts as only the view state changes.
+fn replay_states(tree: &ResolvedControl, states: &[ViewState], gated: bool) {
+    let env = LayoutEnv {
+        text: &Fixed,
+        textures: &Fixed,
+    };
+    let mut cache = MeasureCache::default();
+    for (step, state) in states.iter().enumerate() {
+        let (output, report) =
+            super::super::layout_reusing(tree, [200.0, 200.0], &env, state, &mut cache, gated);
+        let (nodes, hits, cold_report) = placed_everywhere(tree, state, gated);
+        assert_eq!(*output.nodes, *nodes, "step {step}: draws");
+        assert_eq!(*output.hits, *hits, "step {step}: hit regions");
+        assert_eq!(report, cold_report, "step {step}: report");
+    }
+}
+
+#[test]
+fn interaction_changes_refresh_retained_layouts() {
+    let mut field = button("field", "text");
+    field.control_type = Some("edit_box".into());
+    let tree = node("root", "panel", json!({"size": [200, 200]}), vec![field]);
+    let key = "/root/field".to_owned();
+    let mut held = ViewState::default();
+    held.focus_memory.held = Some(key.clone());
+    for active in [
+        ViewState {
+            hovered: Some(key.clone()),
+            ..ViewState::default()
+        },
+        ViewState {
+            pressed: Some(key.clone()),
+            ..ViewState::default()
+        },
+        ViewState {
+            focused: Some(key),
+            ..ViewState::default()
+        },
+        held,
+    ] {
+        replay_states(
+            &tree,
+            &[ViewState::default(), active, ViewState::default()],
+            false,
+        );
+    }
+}
+
+#[test]
+fn drag_and_pointer_changes_refresh_retained_layouts() {
+    let tree = node(
+        "root",
+        "panel",
+        json!({"size": [200, 200]}),
+        vec![
+            node(
+                "wrapper",
+                "panel",
+                json!({"size": [100, 100]}),
+                vec![node(
+                    "knob",
+                    "label",
+                    json!({"size": [20, 10], "text": "knob", "draggable": "both"}),
+                    vec![],
+                )],
+            ),
+            node(
+                "cursor",
+                "label",
+                json!({"size": [20, 10], "text": "cursor", "follows_cursor": true}),
+                vec![],
+            ),
+        ],
+    );
+    let states = [
+        ViewState::default(),
+        ViewState {
+            drags: [("/root/wrapper/knob".to_owned(), [30.0, 20.0])]
+                .into_iter()
+                .collect(),
+            ..ViewState::default()
+        },
+        ViewState::default(),
+        ViewState {
+            pointer: Some([90.0, 40.0]),
+            ..ViewState::default()
+        },
+        ViewState::default(),
+    ];
+    for gated in [false, true] {
+        replay_states(&tree, &states, gated);
+    }
 }
 
 #[test]

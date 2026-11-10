@@ -122,6 +122,7 @@ fn rig<'a>(
         rest: previous,
         rest_completed_tick: 11,
         rest_reset_generation: 5,
+        visibility: Default::default(),
         completed_tick: 11,
         reset_generation: 5,
         pose_evaluated: true,

@@ -597,6 +597,19 @@ impl ServerCameraView {
             .map_or(fallback, |name| name == "minecraft:first_person")
     }
 
+    /// Whether the view is the player's own third-person camera: no server camera, or a native
+    /// third-person preset. Free, follow-orbit and fixed-boom rigs are detached server cameras.
+    pub fn renders_native_third_person(&self) -> bool {
+        self.active_base_preset_name.as_deref().is_none_or(|name| {
+            [
+                PerspectiveMode::ThirdPersonBack,
+                PerspectiveMode::ThirdPersonFront,
+            ]
+            .into_iter()
+            .any(|perspective| name == perspective_camera_name(perspective))
+        })
+    }
+
     /// Free cameras retain the FOV option without gameplay-driven zoom or widening.
     pub fn gameplay_fov_enabled(&self) -> bool {
         self.active_base_preset_name.as_deref() != Some("minecraft:free")

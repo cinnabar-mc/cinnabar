@@ -4,7 +4,7 @@ use assets::{EntityAnimationProperty, EntityAssetKind, EntityGeometryScalar, Mol
 use render_api::CombatVisuals;
 use render_model::{
     RenderBoneTransform,
-    equipment::{ItemDisplay, attach_to_bone, held_sprite_display},
+    equipment::{ItemDisplay, SpriteGrip, attach_to_bone, held_sprite_display},
     java_animation::{self as java, JavaBipedInput, JavaHeldItem, JavaItemMesh},
 };
 use std::sync::Arc;
@@ -192,7 +192,7 @@ fn frames(mode: Mode, interval: u32, wrapped: bool) -> Vec<Frame> {
                     .unwrap();
                     (
                         bones[ARM].rotation,
-                        attach_to_bone(hand, held_sprite_display(true))
+                        attach_to_bone(hand, held_sprite_display(SpriteGrip::HandEquipped))
                             .unwrap()
                             .rotation,
                     )

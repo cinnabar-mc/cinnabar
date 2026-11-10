@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
+mod edit_keys;
+
 pub const MAX_CHAT_MESSAGES: usize = 512;
 pub const MAX_CHAT_RETAINED_BYTES: usize = 1_048_576;
 pub const MAX_CHAT_INPUT_BYTES: usize = 512;
@@ -863,6 +865,12 @@ impl ChatStore {
         self.messages.clear();
         self.retained_bytes = 0;
         self.last_sequence = None;
+    }
+
+    /// Clears displayed history while preserving the last accepted server sequence.
+    pub fn clear_messages(&mut self) {
+        self.messages.clear();
+        self.retained_bytes = 0;
     }
 
     pub fn push(&mut self, message: ChatMessage) -> ChatApplyResult {

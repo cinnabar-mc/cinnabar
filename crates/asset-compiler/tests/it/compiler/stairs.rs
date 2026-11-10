@@ -2,8 +2,8 @@ use {
     super::support::*,
     assets::{
         BlockFace, BlockFlags, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
-        MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField, RuntimeAssets, VisualKind,
-        encode_blob, read_registry,
+        MODEL_QUAD_FLAG_WORLD_ALIGNED_UV, MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField,
+        RuntimeAssets, VisualKind, encode_blob, read_registry,
     },
     std::{collections::HashSet, path::Path},
 };
@@ -273,8 +273,14 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
                     && b != c
                     && a != c
                     && quad.uvs.iter().all(|uv| uv[0] <= 4096 && uv[1] <= 4096)
-                    && quad.flags & !(MODEL_QUAD_FLAG_FACE_MASK | MODEL_QUAD_FLAG_CULL_FACE_MASK)
+                    && quad.flags
+                        & !(MODEL_QUAD_FLAG_FACE_MASK
+                            | MODEL_QUAD_FLAG_CULL_FACE_MASK
+                            | MODEL_QUAD_FLAG_WORLD_ALIGNED_UV)
                         == 0
+                    // Only down and up faces turn their UVs back to the world axes.
+                    && (quad.flags & MODEL_QUAD_FLAG_WORLD_ALIGNED_UV != 0)
+                        == matches!(quad.flags & MODEL_QUAD_FLAG_FACE_MASK, 1 | 2)
             }));
         }
     }
@@ -290,16 +296,16 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
     .model_template as usize;
     let straight = compiled.model_templates[north_lower];
     let expected_shape_digests = [
-        "2e07913dd24532f98c2e2a2352f4434cee0485f3b80a1b36346543b8f41fb381",
-        "65128da5f92158b78301af0bb455f5d5a9a74fc0434e50553787d31c64ac88da",
-        "17ed41557ef2ecfd36c077b347aafea71e8deca603f4155fe1001b2992b0deb2",
-        "a8362bb0405925933f2a24acf62338455c1f07390d136446f2e6cf34dd2166b5",
-        "3836909fd60a7bedb8e51c4b8358a42fdb5e23ad580a53536b3c81492423720b",
-        "d18605f16826c3570a3691c95793e25d4be00702d6ae7221ffaa75d75e1efee6",
-        "28c0a4d6a13b85633117437f6bb6b8263e7cd03b05ab890b69e294b84d11f990",
-        "02a8b452d0d4f1de93c604bca2175dbfac432380ce2c54036b79e6073403eb7f",
-        "f06c28159d93b5528ae9aff35580d1bae8676a2e0c72c7264c1b1b3fe046691f",
-        "f1f5f7b2c7527ca6105c875dc4e04f0d4239e46e220325147dc27e965c267760",
+        "bdd2fc108640f1bca2a4af2cddd85f9f4a782286e9c40671da22d67609287188",
+        "d1f4332cf5165cea53ec1b7e8b8dd7235d4963650197c5df58704dabe01728c6",
+        "03868b5dec70bacf949ec194616ff6d48ce2f8bab37589ac94873e5db36cf241",
+        "94dc1872a18db5008e873cab26161040018931aaab50df3badcc606011a0d149",
+        "ce45f3cb6aa752596964defd8f4a58f8172e81bc34bf86dc6b051915e7e9e1b5",
+        "7b25a1174d78a3c6374f47b50a56000ac0d15b42bae1137163a30ce7d2fac603",
+        "b5443f39ccecc7e1314f798efeb60582064220ff40402c4e7c94f9ee8bf76399",
+        "8187ed8beb25e3f95f08ce8266e117e1f1ecad82ff508aef71d510433978b984",
+        "e53d6f89142420fa43fc58653cecb5800e2dccf675368fe639b343fa92a69875",
+        "856e3c56bbaffae96045d44a23b639909381a2558c408f14674ce0832ac5b59c",
     ];
     let mut actual_shape_digests = Vec::new();
     for base in [

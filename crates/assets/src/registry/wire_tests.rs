@@ -131,7 +131,6 @@ fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
         (50, 0x80),
         (51, 8),
         (92, 0xff),
-        (100, 0x80),
         (101, 0xff),
     ] {
         let mut bytes = fixture();
@@ -155,6 +154,15 @@ fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
         read_registry_for_protocol(&bytes, 2225),
         Err(AssetError::TrailingRegistryBytes { .. })
     ));
+}
+
+#[test]
+fn reads_the_highest_trait_bit() {
+    // Every trait bit is allocated, so the top bit decodes rather than being rejected.
+    let mut bytes = fixture();
+    bytes[100] |= 0x80;
+    let records = read_registry_for_protocol(&bytes, 2225).unwrap();
+    assert!(records[0].traits.contains(BlockTraits::INTERACTIVE));
 }
 
 #[test]
@@ -316,4 +324,24 @@ fn identity_projection_checks_text_framing_without_decoding_state_facts() {
         identity::read_identities(&bad_magic, 2225),
         Err(AssetError::InvalidRegistryMagic)
     ));
+}
+
+#[test]
+fn borrowed_pinned_families_match_the_complete_registry() {
+    let records = read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    for record in records {
+        assert_eq!(
+            pinned_block_model_family(record.sequential_id),
+            Some(record.model_family)
+        );
+        assert_eq!(
+            pinned_block_identity(record.sequential_id),
+            Some((record.name.as_ref(), record.canonical_state.as_ref()))
+        );
+    }
+    assert_eq!(pinned_block_model_family(u32::MAX), None);
 }

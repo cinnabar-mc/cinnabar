@@ -6,6 +6,7 @@ pub(in crate::stream) const MAX_MESH_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 pub(in crate::stream) struct MeshMemoryBudget {
     pub(in crate::stream) retained: Arc<AtomicU64>,
     bounds: ::meshing::MeshOutputBounds,
+    pub(in crate::stream) surface_rules: Arc<[::meshing::surface::SurfaceRule]>,
 }
 
 impl MeshMemoryBudget {
@@ -14,6 +15,7 @@ impl MeshMemoryBudget {
         Self {
             retained: Arc::new(AtomicU64::new(0)),
             bounds: ::meshing::MeshOutputBounds::new(assets),
+            surface_rules: Arc::from([]),
         }
     }
 
@@ -32,8 +34,12 @@ impl MeshMemoryBudget {
     ) -> Option<MeshMemoryPermit> {
         MeshMemoryPermit::reserve(
             &self.retained,
-            self.bounds.for_sub_chunk(source, assets, mode)
-                + self.bounds.for_overlays(overlays)
+            self.bounds.for_sub_chunk_with_surface_patches(
+                source,
+                assets,
+                mode,
+                &self.surface_rules,
+            ) + self.bounds.for_overlays(overlays)
                 + std::mem::size_of::<MeshCompletion>() as u64,
         )
     }

@@ -29,7 +29,8 @@ pub(super) mod tests;
 /// Presentation resource bound, not a native visibility rule.
 pub(super) const MAX_PRESENTED_NAMETAGS: usize = 128;
 const DEFAULT_RENDER_DISTANCE: f32 = 64.0;
-const HEAD_CLEARANCE: f32 = 0.5;
+/// Vanilla's fixed label clearance above the actor's box, in blocks.
+const HEAD_CLEARANCE: f32 = 0.7;
 const DEFAULT_HEIGHT: f32 = 1.8;
 /// Java's sneaking label moves down in camera space after its head translation.
 const SNEAK_LABEL_DROP: f32 = 0.25;
@@ -41,7 +42,15 @@ const METADATA_SCORE: u32 = ActorDataKey::Score.wire_value();
 const METADATA_RENDER_DISTANCE: u32 = ActorDataKey::NameplateRenderDistance.wire_value();
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
 pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
-pub(super) const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
+pub(super) const PLATE_COLOR: [f32; 4] = [
+    0.0,
+    0.0,
+    0.0,
+    launcher::menu::settings_options::SettingId::NametagBackgroundOpacity
+        .definition()
+        .default as f32
+        / 100.0,
+];
 /// Each line needs one background and one text record.
 pub(super) const NAMETAG_RECORDS_PER_LINE: usize = 2;
 /// Most lines one tag can consume in a scene, including its backing plates.
@@ -202,7 +211,8 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
 
 /// Follows the published box height, as vanilla anchors every actor's label to its box, except
 /// that crouched and sleeping players keep the standing height before their Java-style drop.
-/// Raw metadata height and clearance each receive the render scale once.
+/// Render scale resizes the box, which keeps its minimum extent; the clearance above it is fixed,
+/// so a zero-scale text carrier's label still clears its host position.
 fn tag_height(actor: &ActorSnapshot) -> f32 {
     let player = matches!(actor.kind, ActorKind::Player { .. });
     let prone = player
@@ -224,7 +234,8 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
         Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => *height,
         _ => DEFAULT_HEIGHT,
     };
-    (height + HEAD_CLEARANCE) * actor.render_scale() - offset
+    (height * actor.render_scale()).max(client_world::MIN_COLLISION_DIMENSION) + HEAD_CLEARANCE
+        - offset
 }
 
 /// Adds the actor's current label height to the selected render feet.

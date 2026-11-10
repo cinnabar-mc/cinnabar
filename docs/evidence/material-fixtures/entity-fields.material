@@ -1,0 +1,30 @@
+{
+  "materials": {
+    "fixture_base": {
+      "version": "1.0.0",
+      "states": ["Blending", "DisableCulling", "DisableDepthWrite"],
+      "defines": ["FIXTURE_DEFINE"],
+      "vertexShader": "fixture.vertex",
+      "fragmentShader": "fixture.fragment",
+      "geometryShader": "fixture.geometry",
+      "depthFunc": "LessEqual",
+      "frontFace": {"stencilFunc": "Always", "stencilFailOp": "Keep", "stencilDepthFailOp": "Keep", "stencilPassOp": "Replace"},
+      "backFace": {"stencilFunc": "Always", "stencilFailOp": "Keep", "stencilDepthFailOp": "Keep", "stencilPassOp": "Replace"},
+      "stencilRefOverride": true,
+      "stencilRef": 1,
+      "stencilReadMask": 255,
+      "stencilWriteMask": 255,
+      "blendSrc": "SourceAlpha",
+      "blendDst": "OneMinusSrcAlpha",
+      "alphaSrc": "One",
+      "alphaDst": "OneMinusSrcAlpha",
+      "samplerStates": [{"samplerIndex": 0, "textureFilter": "Point", "textureWrap": "Clamp", "shaderStage": "Pixel"}],
+      "vertexFields": [{"field": "Position"}, {"field": "UV0"}],
+      "depthBias": 0.0,
+      "slopeScaledDepthBias": 0.0,
+      "msaaSupport": "Both",
+      "primitiveMode": "TriangleList"
+    },
+    "fixture_child:fixture_base": {"+states": ["EnableAlphaToCoverage"], "-states": ["Blending"], "+defines": ["ALPHA_TO_COVERAGE"], "variants": [{"fixture_variant": {"defines": ["GLINT"]}}]}
+  }
+}
