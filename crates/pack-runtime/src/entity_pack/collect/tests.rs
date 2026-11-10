@@ -234,10 +234,6 @@ fn changing_mob_geometry_keeps_both_owner_armour_variants() {
     }
 }
 
-fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
-    archive_with(id, "materials/entity.material", material)
-}
-
 /// A resource pack archive holding a manifest and `value` at `path`.
 fn archive_with(id: u128, path: &str, value: serde_json::Value) -> protocol::ResourcePackArchive {
     archive_files(id, vec![(path, value)])
@@ -260,46 +256,6 @@ fn archive_files(id: u128, files: Vec<(&str, serde_json::Value)>) -> protocol::R
         String::new(),
         zip.finish().unwrap().into_inner(),
     )
-}
-
-#[test]
-fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child() {
-    let lower = archive(
-        1,
-        json!({"materials":{
-            "version":"1.0.0",
-            "fixture:entity_alphatest":{"+states":["Blending"]},
-            "unchanged:entity_alphatest":{"-defines":["FANCY"]}
-        }}),
-    );
-    let upper = archive(
-        2,
-        json!({"materials":{
-            "version":"1.0.0",
-            "fixture:entity_alphatest_one_sided":{"+states":["DisableDepthWrite"]}
-        }}),
-    );
-    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
-    ));
-    let files = super::collect_files(&view, None, None);
-    let definitions = files
-        .iter()
-        .find_map(|(path, bytes)| {
-            path.starts_with("materials/").then(|| {
-                serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["materials"].clone()
-            })
-        })
-        .expect("authored material definitions must reach entity compilation");
-    assert_eq!(
-        definitions["fixture:entity_alphatest_one_sided"],
-        json!({"+states":["DisableDepthWrite"]})
-    );
-    assert_eq!(
-        definitions["unchanged:entity_alphatest"],
-        json!({"-defines":["FANCY"]})
-    );
-    assert!(definitions.get("fixture:entity_alphatest").is_none());
 }
 
 #[test]

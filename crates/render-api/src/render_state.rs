@@ -228,11 +228,60 @@ impl RenderState {
     pub fn ignores_stored_depth(&self) -> bool {
         matches!(self.depth.compare, None | Some(CompareFunction::Always))
     }
+
+    /// Whether a draw can pass behind terrain, so terrain occlusion cannot discard it.
+    #[must_use]
+    pub fn may_pass_behind_terrain(&self) -> bool {
+        match self.depth.compare {
+            None
+            | Some(
+                CompareFunction::Always
+                | CompareFunction::Greater
+                | CompareFunction::GreaterEqual
+                | CompareFunction::NotEqual,
+            ) => true,
+            Some(
+                CompareFunction::Never
+                | CompareFunction::Less
+                | CompareFunction::Equal
+                | CompareFunction::LessEqual,
+            ) => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terrain_occlusion_respects_authored_depth_comparisons() {
+        for (compare, may_pass) in [
+            (None, true),
+            (Some(CompareFunction::Never), false),
+            (Some(CompareFunction::Less), false),
+            (Some(CompareFunction::Equal), false),
+            (Some(CompareFunction::LessEqual), false),
+            (Some(CompareFunction::Greater), true),
+            (Some(CompareFunction::NotEqual), true),
+            (Some(CompareFunction::GreaterEqual), true),
+            (Some(CompareFunction::Always), true),
+        ] {
+            let raster = RenderState {
+                depth: DepthState {
+                    compare,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert_eq!(raster.may_pass_behind_terrain(), may_pass, "{compare:?}");
+            assert_eq!(
+                raster.ignores_stored_depth(),
+                matches!(compare, None | Some(CompareFunction::Always)),
+                "comparisons accepting occluded fragments still test depth"
+            );
+        }
+    }
 
     #[test]
     fn depth_bias_equality_distinguishes_every_bit() {

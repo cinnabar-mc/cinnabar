@@ -1250,7 +1250,9 @@ and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the default
 branch. Whole-model material arrays and ternaries retain one controller layer and
 evaluate each material decision once, after activation and before authored part
-visibility. Render-controller expressions share frame dependency analysis, keeping
+visibility. Bone material bindings preserve that selection on unbound bones; material-only
+bindings load installed entity definitions and their referenced resources.
+Render-controller expressions share frame dependency analysis, keeping
 camera-driven choices live between ticks. Dynamic per-bone material rules, selector
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a
@@ -1270,13 +1272,15 @@ held build schedule, and starts the brush's local held use, which button-up rele
 Actors using a main-hand item with the brush use animation publish the native
 `variable.is_using_brush`, so the pack's third-person `brushing` pose sweeps the brush.
 The brush's 200-tick use duration is observed on BDS 1.26.61.1; its native registration
-is unverified. The native first-person brush sweep
-(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants are
-unverified), the brush dust the native client spawns every 8 ticks
-(particle type 86, drawn through the level's block-particle effect with unread
-parameters), a server-flag start of a brush taking its use duration, and the native
-`variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain
-incomplete.
+is unverified. A local brush stroke on a block sweeps vanilla's brush dust (particle
+type 86) off it once its 8-tick effects cooldown has passed: the block destruction
+effect at the stroke's hit, textured and tinted from the brushed block, with the
+terrain effect's top-face or side-face intensity, speed and radius. The native
+first-person brush sweep (`ItemInHandRenderer::renderFirstPerson` use animation 12,
+whose translations, tilt, time divisor and angle offset are unread), a server-flag
+start of a brush taking its use duration, and the native `variable.is_holding_spyglass`
+and `variable.is_tooting_goat_horn` flags (their items' use-animation registration is
+unread) remain incomplete.
 
 Feeding a baby animal arrives from vanilla BDS as actor event 57 followed by event 60 with
 zero data; event 60 now draws the vanilla crop-growth (bone meal) effect at the baby's
@@ -1433,11 +1437,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   once when their queued presentation begins. Native sound timing and matched live
   achievement notification acceptance remain incomplete.
   Titles, subtitles, the action bar and non-raw chat replace `:_input_<binding>:` with the
-  bound control's controls-screen label when they arrive. Vanilla draws mouse-button, gamepad
-  and touch controls as icons through its emoticon list (`font/emoticons`) and glyph sheets,
-  which the fetched pack lacks; Cinnabar shows the controls-screen text instead, and touch
-  reads the keyboard bindings. `:_gamepad_<button>:` names, other `:name:` emoticons and the
-  vanilla key-name table are not implemented. These remain incomplete.
+  bound control when they arrive, and `:_gamepad_<button>:` with the Xbox emoticon after the
+  A/B and X/Y swap options; then listed `:name:` emoticons become private-use glyphs. Keys
+  keep their controls-screen names, while mouse buttons and gamepad controls use their
+  emoticons. Vanilla reads its emoticon list from the game's own `font/emoticons` file and
+  draws it from built-in glyph pages, neither of which the fetched pack has. Cinnabar lists
+  only the 16 Xbox and 3 mouse emoticons and draws them with original art on page E0 beneath
+  pack glyph pages. Named label faces draw private-use glyphs they lack from the default
+  font at its size; whether vanilla's named fonts do is unverified. The code points follow
+  community documentation and are unverified against the game's list. Other vanilla emoticons, a pack's own `font/emoticons.json` (its
+  code-point key is unverified), left-stick direction tokens, the light-variant tokens, touch
+  icons (touch still names the keyboard bindings with text) and the vanilla key-name table
+  are not implemented. These remain incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.
@@ -2058,7 +2069,10 @@ Flathub submission remain incomplete.
   tombstones from v0.1.29 to v0.1.31 show two pipeline-creation threads in its compiler, in half of
   them both faulting at the same instruction, with the failing program changing between launches. No
   Adreno phone has confirmed that serializing avoids the crash; if it persists, the single
-  compiling thread identifies the failing program.
+  compiling thread identifies the failing program. On these drivers the lock also covers
+  shader-module destruction, including each pipeline's temporary stage modules, and
+  pipeline-cache creation, reads and destruction. One Snapdragon tester still reports a crash
+  just after the menu on the first nightly with the lock; that crash report is still missing.
   Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.

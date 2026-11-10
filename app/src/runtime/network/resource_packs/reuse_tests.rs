@@ -311,6 +311,12 @@ fn only_an_uncancelled_join_under_unchanged_tables_is_kept() {
     };
     kept.keep_join(before_device, &now, &application, None, &|| false);
     assert_eq!(kept.len(), 0, "device capacity changed mid-compile");
+    let before_graphics = CompileEnvironment {
+        fancy_graphics: !now.fancy_graphics,
+        ..now.clone()
+    };
+    kept.keep_join(before_graphics, &now, &application, None, &|| false);
+    assert_eq!(kept.len(), 0, "graphics mode changed mid-compile");
     kept.keep_join(now.clone(), &now, &application, None, &|| false);
     assert_eq!(kept.len(), 1);
 }
@@ -380,6 +386,10 @@ fn another_environment_compiles_again() {
             carrier_tables: tables,
             ..environment.clone()
         },
+        CompileEnvironment {
+            fancy_graphics: !environment.fancy_graphics,
+            ..environment.clone()
+        },
     ] {
         assert_ne!(other, environment);
         let again =
@@ -387,6 +397,49 @@ fn another_environment_compiles_again() {
         assert!(!same(&first.server_lang, &again.server_lang));
         assert!(!same(&first.glyph_sheets, &again.glyph_sheets));
     }
+}
+
+#[test]
+fn graphics_mode_changes_rebuild_reload_materials() {
+    let _cache = overlay_cache();
+    let kept = CompiledStacks::new();
+    let archive = every_subscriber_archive(144, b"a=b");
+    let first = compile_reusing(
+        &kept,
+        admitted(&archive),
+        every_input(),
+        &CompileEnvironment::current(),
+        &|| false,
+    )
+    .unwrap();
+    assert!(first.entities.is_some() && first.item_icons.is_some());
+    let previous = PackApplication {
+        fancy_graphics: !first.fancy_graphics,
+        entities: first.entities.as_deref().cloned().map(Arc::new),
+        item_icons: Some(Arc::default()),
+        block_overlay: Some(Arc::new(super::super::CompiledBlockOverlay {
+            overlay: Default::default(),
+            gaps: Default::default(),
+            vanilla_carried: Vec::new(),
+        })),
+        ..first.clone()
+    };
+    let reloaded = super::super::prepare_changed_application(
+        &kept,
+        Arc::clone(stack(&first)),
+        Arc::clone(&first.inputs),
+        Some(&previous),
+    );
+    assert_eq!(reloaded.fancy_graphics, first.fancy_graphics);
+    assert!(!same(&previous.entities, &reloaded.entities));
+    assert!(!same(&previous.item_icons, &reloaded.item_icons));
+    assert!(!same(&previous.block_overlay, &reloaded.block_overlay));
+    assert_eq!(
+        first.block_overlay.as_deref(),
+        reloaded.block_overlay.as_deref()
+    );
+    assert_eq!(payload_fingerprint(&first), payload_fingerprint(&reloaded));
+    assert!(same(&previous.server_lang, &reloaded.server_lang));
 }
 
 // The reload that composes global packs under the joined stack reuses the join's outputs when
@@ -507,7 +560,10 @@ fn the_post_join_reload_publishes_the_join_outputs() {
     let ui = app
         .world()
         .resource::<client_shell::ui_resources::UiRuntimeResource>();
-    assert!(same(&ui.session_glyphs().cloned(), &joined.glyph_sheets));
+    assert!(same(
+        &Some(ui.session_glyphs().clone()),
+        &joined.glyph_sheets
+    ));
     assert!(same(&ui.server_ui().cloned(), &joined.server_ui));
     let world = app.world().resource::<crate::runtime::world::ClientWorld>();
     assert!(same(&world.pack_entities, &joined.entities));
@@ -728,6 +784,7 @@ fn leaving_releases_all_decoded_outputs_but_keeps_the_archives() {
         terrain_identity: _,
         admission: _,
         inputs: _,
+        fancy_graphics: _,
         property_defaults: _,
         extension_marker,
         server_lang,

@@ -127,9 +127,9 @@ fn oversized_run(
 /// Pushes a same-size group split into capped pages, all at the one resolution the remaining
 /// budget allows for the whole group, copies included. Members of one `companion` group stay on
 /// one page where they fit (see [`page_chunks`]). Each chunk is built, fitted and placed before
-/// the next is built, so at most one full-resolution chunk is alive. `placed` receives each
-/// admitted chunk, its page id, `build`'s value, and whether the page kept the built pixels
-/// unchanged.
+/// the next is built. `build` receives the fitted size limit so expansion allocates only
+/// budgeted pixels. `placed` receives each admitted chunk, its page id, `build`'s value, and
+/// whether the page kept the built pixels unchanged.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn push_group<T>(
     pages: &mut Vec<ActorTexturePage>,
@@ -138,7 +138,7 @@ pub(super) fn push_group<T>(
     [width, height]: [u16; 2],
     multitexture: bool,
     companion: impl Fn(usize) -> Option<Companion>,
-    mut build: impl FnMut(&[usize]) -> (ActorTexturePage, T),
+    mut build: impl FnMut(&[usize], u32) -> (ActorTexturePage, T),
     mut placed: impl FnMut(&[usize], ActorArtworkPageId, T, bool),
 ) {
     let mut limit = u32::from(width.max(height));
@@ -159,7 +159,7 @@ pub(super) fn push_group<T>(
         limit /= 2;
     };
     for chunk in chunks.iter().map(Vec::as_slice) {
-        let (built, value) = build(chunk);
+        let (built, value) = build(chunk, limit);
         let page = built.fit_within(limit).into_owned();
         // Only unchanged pixels stay referenced; a downscaled chunk's original frees here.
         let unchanged = built.rgba8.ptr_eq(&page.rgba8).then(|| page.rgba8.clone());

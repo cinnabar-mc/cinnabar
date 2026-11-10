@@ -137,8 +137,8 @@ fn occluded_ordinary_rigs_preserve_the_budget_for_visible_frame_layers() {
 
     let mut frame = store.render_frame(0.5);
     frame.set_remaining_ops(marker_cost);
-    assert!(!frame.has_always_depth_material(1));
-    assert!(frame.has_always_depth_material(2));
+    assert!(!frame.has_occlusion_bypass_material(1));
+    assert!(frame.has_occlusion_bypass_material(2));
     assert_eq!(frame.layers(2).unwrap(), marker_layers);
 }
 

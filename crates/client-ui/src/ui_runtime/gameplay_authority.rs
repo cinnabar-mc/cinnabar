@@ -501,8 +501,13 @@ impl UiRuntime {
         self.session.session_glyphs = glyphs;
     }
 
-    pub fn session_glyphs(&self) -> Option<&Arc<super::presentation::SessionGlyphSheets>> {
-        self.session.session_glyphs.as_ref()
+    /// The glyph sheets text draws with: the session's, or the built-in emoticon glyphs when
+    /// its packs carry none.
+    pub fn session_glyphs(&self) -> &Arc<super::presentation::SessionGlyphSheets> {
+        self.session
+            .session_glyphs
+            .as_ref()
+            .unwrap_or_else(|| super::presentation::SessionGlyphSheets::builtin())
     }
 
     pub fn session_icons(&self) -> Option<&Arc<super::presentation::SessionIcons>> {

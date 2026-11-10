@@ -2,19 +2,28 @@ use super::*;
 
 /// The fixture's terrain catalog plus `bindings` as its Cinnabar material bindings.
 fn bound_stack(bindings: &Value) -> LayeredPackView {
-    bound_stack_with(bindings, json!({}), Vec::new())
+    bound_stack_with_blocks(bindings, &json!({}))
 }
 
-/// [`bound_stack`] with the terrain entries `terrain` and the files `extra` add.
+/// Builds a binding fixture with independent per-block texture overrides.
+fn bound_stack_with_blocks(bindings: &Value, blocks: &Value) -> LayeredPackView {
+    bound_stack_with(bindings, blocks, json!({}), Vec::new())
+}
+
+/// Builds a binding fixture with block overrides, extra terrain entries and image files.
 fn bound_stack_with(
     bindings: &Value,
+    blocks: &Value,
     terrain: Value,
     extra: Vec<(&str, Vec<u8>)>,
 ) -> LayeredPackView {
     let id = "00000000-0000-0000-0000-000000000001";
     let manifest = json!({"format_version":2,"header":{"uuid":id,"version":[1,0,0]},
         "modules":[{"type":"resources"}]});
-    let mut entries = json!({"state":{"textures":["textures/base_a","textures/base_b"]}});
+    let mut entries = json!({
+        "state":{"textures":["textures/base_a","textures/base_b"]},
+        "replacement":{"textures":"textures/replacement"}
+    });
     entries
         .as_object_mut()
         .unwrap()
@@ -23,12 +32,17 @@ fn bound_stack_with(
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (path, bytes) in [
         ("manifest.json", manifest.to_string().into_bytes()),
+        ("blocks.json", blocks.to_string().into_bytes()),
         (
             "textures/terrain_texture.json",
             terrain.to_string().into_bytes(),
         ),
         ("textures/base_a.png", png(16, 16, |_, _| [9, 9, 9, 128])),
         ("textures/base_b.png", png(16, 16, |_, _| [9, 9, 9, 128])),
+        (
+            "textures/replacement.png",
+            png(16, 16, |_, _| [20, 40, 60, 128]),
+        ),
         (
             pack_entity_compiler::MATERIAL_BINDINGS_PATH,
             bindings.to_string().into_bytes(),
@@ -103,6 +117,103 @@ fn a_vanilla_block_binding_blends_only_that_blocks_cube_faces() {
             .iter()
             .all(|flags| flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0)
     );
+}
+
+#[test]
+fn a_blended_vanilla_cube_draws_a_non_occluding_model() {
+    let base = base();
+    let compiled = compile(
+        &model_binding(json!({"material":{"states":["Blending"]}})),
+        &base,
+        &keys(),
+    );
+    let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
+    let bound = runtime.resolve(NetworkIdMode::Sequential, 0);
+    assert_eq!(bound.kind(), VisualKind::Model);
+    assert!(
+        !bound
+            .flags()
+            .intersects(assets::BlockFlags::CUBE_GEOMETRY | assets::BlockFlags::OCCLUDES_FULL_FACE)
+    );
+    let quads = template_quads(&runtime, bound.model_template().unwrap());
+    assert_eq!(quads.len(), 6);
+    for quad in quads {
+        assert_ne!(
+            runtime.material(quad.material).flags & assets::MATERIAL_FLAG_ALPHA_BLEND,
+            0
+        );
+        assert_ne!(quad.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED, 0);
+    }
+    assert_eq!(
+        runtime.resolve(NetworkIdMode::Sequential, 1).kind(),
+        VisualKind::Cube
+    );
+    assert!(
+        runtime
+            .resolve(NetworkIdMode::Sequential, 1)
+            .flags()
+            .contains(assets::BlockFlags::OCCLUDES_FULL_FACE)
+    );
+}
+
+#[test]
+fn a_promoted_cube_rejects_a_template_with_changed_geometry() {
+    let base = base();
+    let mut compiled = compile(
+        &model_binding(json!({"material":{"states":["Blending"]}})),
+        &base,
+        &keys(),
+    );
+    let (_, head) = compiled.overlay.template_overrides[0];
+    let start = compiled.overlay.model_templates[head as usize].quad_start as usize;
+    compiled.overlay.model_quads[start].positions[0][0] += 1;
+    assert!(base.with_block_overlay(2, &compiled.overlay).is_err());
+}
+
+#[test]
+fn vanilla_bindings_preserve_per_face_texture_overrides() {
+    let record = first_record();
+    for states in [json!([]), json!(["Blending"])] {
+        let document = json!({
+            "format_version": "1.0.0",
+            "materials": {"example:lamp": {
+                "material": {"states": states},
+                "textures": {"glow_mask": "state"}
+            }},
+            "bindings": [{"block": record.name.as_ref(), "material": "example:lamp"}]
+        });
+        let view = bound_stack_with_blocks(
+            &document,
+            &json!({
+                "fixture": {"textures": {"up":"replacement","down":"replacement","side":"state"}}
+            }),
+        );
+        let base = base();
+        let compiled = compile(&view, &base, &keys());
+        let runtime = base.with_block_overlay(2, &compiled.overlay).unwrap();
+        let block = runtime.resolve(NetworkIdMode::Sequential, 0);
+        for face in BlockFace::ALL {
+            let material = block.face(face).material_id();
+            assert_eq!(
+                material_color(&runtime, material),
+                if matches!(face, BlockFace::Up | BlockFace::Down) {
+                    [20, 40, 60, 128]
+                } else {
+                    [9, 9, 9, 128]
+                }
+            );
+            assert_ne!(runtime.material(material).glow_mask, assets::NO_MASK);
+        }
+        if let Some(template) = block.model_template() {
+            for quad in template_quads(&runtime, template) {
+                assert!(
+                    BlockFace::ALL
+                        .iter()
+                        .any(|&face| block.face(face).material_id() == quad.material)
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -366,6 +477,7 @@ fn a_released_texture_slot_takes_no_texture_set_surfaces_to_its_next_texture() {
     // releases the set's slot, which material 2 then takes.
     let stack = bound_stack_with(
         &document,
+        &json!({}),
         json!({"copied": {"textures": {"variations": [
             {"path": "textures/copied"}, {"path": "textures/missing"}
         ]}}}),

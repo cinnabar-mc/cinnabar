@@ -184,3 +184,66 @@ fn the_last_matching_binding_decides_both_method_and_masks() {
         assert_ne!(material.glow_mask, assets::NO_MASK);
     }
 }
+
+#[test]
+fn identical_geometry_keeps_state_specific_masks_in_both_id_orders() {
+    let view = bound_view(json!({
+        "format_version": "1.0.0",
+        "materials": {"example:lamp": {"textures": {"glow_mask": "gen_glow"}}},
+        "bindings": [{
+            "block": "test:generator",
+            "states": {"minecraft:cardinal_direction": "west"},
+            "material": "example:lamp"
+        }]
+    }));
+    for geometry in [None, Some("geometry.gen".into())] {
+        for masked_first in [false, true] {
+            let mut block = generator();
+            let visual = Arc::make_mut(&mut block.visual);
+            visual.base.geometry = geometry.clone();
+            visual.permutations = Box::new([]);
+            if masked_first {
+                visual.state_axes[0].values.swap(0, 1);
+            }
+            let states = block.hashed_states();
+            let blocks = CustomBlocks {
+                blocks: vec![block].into(),
+                ..CustomBlocks::default()
+            };
+            for hashed in [false, true] {
+                let compiled = compile_block_overlay(&view, &blocks, hashed, None).unwrap();
+                for (index, visual) in compiled.overlay.visuals.iter().enumerate() {
+                    let values = if hashed {
+                        states[index].values.to_vec()
+                    } else {
+                        blocks.blocks[0]
+                            .state_values(index as u32)
+                            .unwrap()
+                            .to_vec()
+                    };
+                    let masked = values[0] == CustomStateValue::String("west".into());
+                    let materials = if visual.kind == VisualKind::Model {
+                        let template =
+                            compiled.overlay.model_templates[visual.model_template as usize];
+                        compiled.overlay.model_quads[template.quad_start as usize..]
+                            .iter()
+                            .take(template.quad_count as usize)
+                            .map(|quad| quad.material)
+                            .collect::<Vec<_>>()
+                    } else {
+                        visual.faces.to_vec()
+                    };
+                    assert!(!materials.is_empty());
+                    for material in materials {
+                        assert_eq!(
+                            compiled.overlay.materials[material as usize].glow_mask
+                                != assets::NO_MASK,
+                            masked,
+                            "state {values:?}, hashed {hashed}, masked first {masked_first}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

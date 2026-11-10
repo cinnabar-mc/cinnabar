@@ -185,6 +185,7 @@ pub(super) fn collect_files_for_graphics_unless(
         mut references,
     } = unique_entities(view);
     complete_inert_overrides(&mut entities, &mut references, vanilla_pack_dir);
+    collect_material_binding_entities(view, &mut entities, &mut references, vanilla_pack_dir);
     let mut geometry = unshadowed_geometry(view);
     let mut pack_geometry = BTreeSet::new();
     for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
@@ -519,6 +520,11 @@ fn material_files(
     let mut listed = Vec::new();
     let mut listed_paths = BTreeSet::new();
     for mut entry in entries {
+        // Pack reads resolve casing aliases to the same file.
+        if !listed_paths.insert(entry.path.to_ascii_lowercase()) {
+            report.repeated_paths += 1;
+            continue;
+        }
         let Some(document) = merged_layers(view.read_layers(&entry.path)) else {
             continue;
         };
@@ -529,7 +535,7 @@ fn material_files(
         } else {
             format!("{LISTED_MATERIAL_PREFIX}{}.material", listed.len())
         };
-        listed_paths.insert(std::mem::replace(&mut entry.path, key.as_str().into()));
+        entry.path = key.as_str().into();
         files.insert(key, document);
         listed.push(entry);
     }
@@ -539,7 +545,7 @@ fn material_files(
             .into_iter()
             .filter(|path| is_material_file(path))
         {
-            if listed_paths.contains(path) {
+            if listed_paths.contains(&path.to_ascii_lowercase()) {
                 continue;
             }
             let Ok(Some(bytes)) = layer.read_file(path) else {
@@ -807,6 +813,60 @@ fn complete_inert_overrides(
     });
 }
 
+/// Loads installed definitions and their references for binding targets the pack does not define.
+fn collect_material_binding_entities(
+    view: &LayeredPackView,
+    entities: &mut Vec<(Box<str>, Vec<u8>)>,
+    references: &mut References,
+    vanilla_pack_dir: Option<&Path>,
+) {
+    let Some(document) = material_bindings_document(view) else {
+        return;
+    };
+    let mut targets = pack_entity_compiler::entity_material_binding_targets(&document)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    for (_, bytes) in entities.iter() {
+        if let Some(document) = parse_pack_json(bytes)
+            && let Some(identifier) = document
+                .pointer("/minecraft:client_entity/description/identifier")
+                .and_then(Value::as_str)
+        {
+            targets.remove(identifier);
+        }
+    }
+    if targets.is_empty() {
+        return;
+    }
+    let Some(installed) = vanilla_pack_dir
+        .and_then(|root| pack_entity_compiler::load_vanilla_entity_definitions(root).ok())
+    else {
+        return;
+    };
+    let mut paths = entities
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<BTreeSet<_>>();
+    let mut index = 0;
+    for target in targets {
+        let Some(document) = installed.get(&target) else {
+            continue;
+        };
+        let Ok(bytes) = serde_json::to_vec(document) else {
+            continue;
+        };
+        let path = loop {
+            let path: Box<str> = format!("entity/_cinnabar_material_bindings/{index}.json").into();
+            index += 1;
+            if paths.insert(path.clone()) {
+                break path;
+            }
+        };
+        references.read(document);
+        entities.push((path, bytes));
+    }
+}
+
 /// Lays `overlay` over `base`: objects merge key by key, any other value replaces.
 fn overlay_json(base: &mut Value, overlay: Value) {
     match (base, overlay) {
@@ -931,6 +991,8 @@ mod attachables;
 
 #[cfg(test)]
 mod harness_tests;
+#[cfg(test)]
+mod material_bindings_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

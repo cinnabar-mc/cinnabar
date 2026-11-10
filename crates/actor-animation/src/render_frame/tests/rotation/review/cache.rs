@@ -90,7 +90,7 @@ fn admission_body_and_draw_share_material_scale_and_persona_after_budget_exhaust
                 assert!((admitted.scale - expected_scale).abs() < 1e-5);
                 assert_ne!(admitted.scale, rig.scale);
             } else {
-                assert!(frame.has_always_depth_material(1));
+                assert!(frame.has_occlusion_bypass_material(1));
             }
             let after_admission = frame.remaining_ops();
             let first_body = frame.layers_with_skin(1).unwrap();
@@ -119,7 +119,7 @@ fn admission_body_and_draw_share_material_scale_and_persona_after_budget_exhaust
             }
             let draw = frame.layers(1).unwrap();
             assert_eq!(draw, body.render);
-            assert!(frame.has_always_depth_material(1));
+            assert!(frame.has_occlusion_bypass_material(1));
             assert_eq!(frame.sample_rig_scale(rig).scale, scale[0]);
             assert_eq!(frame.layers_with_skin(1).unwrap().render, draw);
             assert_eq!(frame.remaining_ops(), 0);
@@ -163,7 +163,7 @@ fn persona_work_exhaustion_preserves_successful_body_and_admission_layers() {
         assets::MAX_SKIN_GEOMETRY_BONES
     );
     let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.5);
-    assert!(frame.has_always_depth_material(1));
+    assert!(frame.has_occlusion_bypass_material(1));
     frame.set_remaining_ops(0);
     let body = frame.layers_with_skin(1).unwrap();
     assert!(matches!(body.render, Cow::Owned(_)));

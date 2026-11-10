@@ -18,7 +18,8 @@ pub use block_entity::{
 };
 pub use entity::materials::extension::{
     BlockMaskPaths, MATERIAL_BINDINGS_PATH, ResolvedBlockBinding,
-    block_bindings as block_material_bindings, validate as validate_material_bindings,
+    block_bindings as block_material_bindings, entity_targets as entity_material_binding_targets,
+    validate as validate_material_bindings,
 };
 pub use entity::materials::list::{
     ENTITY_MATERIAL_LIST_PATH, MAX_MATERIAL_LIST_PATH_BYTES, MaterialListEntry,

@@ -12,5 +12,5 @@ mod world_adapter;
 
 pub(crate) use carrier::load_optional_carrier;
 pub(crate) use drive::{
-    ParticleIcons, ParticleInbox, configure_particles, drain_committed_particles,
+    LocalBrushDust, ParticleIcons, ParticleInbox, configure_particles, drain_committed_particles,
 };

@@ -36,6 +36,8 @@ pub struct PackApplication {
     pub(crate) extension_marker: Option<Arc<[u8]>>,
     pub(crate) admission: PackAdmission,
     pub(super) inputs: Arc<pack_runtime::PackInputs>,
+    /// Graphics mode used to resolve this application's materials.
+    pub(super) fancy_graphics: bool,
     pub(crate) server_lang: Option<Arc<assets::ServerLangOverlay>>,
     pub(crate) block_overlay: Option<Arc<CompiledBlockOverlay>>,
     pub(crate) item_icons: Option<Arc<SessionIcons>>,
@@ -64,6 +66,7 @@ impl Default for PackApplication {
             extension_marker: None,
             admission: PackAdmission::None,
             inputs: Arc::default(),
+            fancy_graphics: pack_runtime::graphics::fancy_graphics(),
             server_lang: None,
             block_overlay: None,
             item_icons: None,
@@ -298,7 +301,7 @@ fn compile_application(
     stack: Arc<resource_pack::ValidatedPackStack>,
     inputs: Arc<pack_runtime::PackInputs>,
     previous: Option<&PackApplication>,
-    changes: pack_runtime::reload_diff::Changes,
+    mut changes: pack_runtime::reload_diff::Changes,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Option<PackApplication> {
     use pack_runtime::reload_diff::{Subscriber, compile_part};
@@ -318,6 +321,11 @@ fn compile_application(
     let max_layers = overlay_texture_layer_limit();
     // Read once, so every block and icon compile and its cache key agree.
     let fancy_graphics = pack_runtime::graphics::fancy_graphics();
+    if previous.is_some_and(|old| old.fancy_graphics != fancy_graphics) {
+        changes.blocks = true;
+        changes.icons = true;
+        changes.entities = true;
+    }
     let view = LayeredPackView::new(Arc::clone(&stack));
     let fingerprint = stack.fingerprint();
     let (mut blocks, mut icons, mut language, mut glyphs) = (None, None, None, None);
@@ -582,6 +590,7 @@ fn compile_application(
         property_defaults,
         prepared_actor_artwork: previous.and_then(|old| old.prepared_actor_artwork.clone()),
         inputs,
+        fancy_graphics,
         server_lang,
         item_icons,
         item_components: None,

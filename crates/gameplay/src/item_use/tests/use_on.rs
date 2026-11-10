@@ -60,3 +60,15 @@ fn a_use_on_a_block_replaces_a_stale_use_and_its_pending_release() {
     assert!(runtime.step(&brush_frame(10, true)).packets.is_empty());
     assert!(runtime.is_using());
 }
+
+#[test]
+fn brush_dust_waits_until_its_cooldown_tick_has_passed() {
+    let mut runtime = ItemUseRuntime::default();
+    assert!(runtime.brush_effects_due(10));
+    // Uses on the block at the held repeat cadence draw nothing until tick 18 has passed.
+    assert!(!runtime.brush_effects_due(14));
+    assert!(!runtime.brush_effects_due(18));
+    assert!(runtime.brush_effects_due(19));
+    assert!(!runtime.brush_effects_due(27));
+    assert!(runtime.brush_effects_due(31));
+}

@@ -110,6 +110,57 @@ fn every_packs_material_list_resolves_into_one_list_naming_its_files() {
 }
 
 #[test]
+fn material_list_casing_aliases_retain_one_document_and_the_first_defines() {
+    let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    for extension in ["json", "material"] {
+        let entries = (0..4096)
+            .map(|variant| {
+                let name = "abcdefghijkl"
+                    .bytes()
+                    .enumerate()
+                    .map(|(bit, byte)| {
+                        char::from(if variant & (1 << bit) == 0 {
+                            byte
+                        } else {
+                            byte.to_ascii_uppercase()
+                        })
+                    })
+                    .collect::<String>();
+                json!({
+                    "path": format!("materials/{name}.{extension}"),
+                    "+defines": [if variant == 0 { "FIRST" } else { "LATER" }]
+                })
+            })
+            .collect::<Vec<_>>();
+        let path = format!("materials/ABCDEFGHIJKL.{extension}");
+        let document = json!({"shared": {"payload": "x".repeat(4096)}});
+        let pack = archive_files(1, vec![(list, json!(entries)), (&path, document.clone())]);
+        let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(vec![pack]),
+        ));
+        let (files, report) = super::super::material_files(&view, true);
+        let files = files
+            .into_iter()
+            .map(|(path, bytes)| {
+                (
+                    path,
+                    serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let key = if extension == "material" {
+            "materials/abcdefghijkl.material"
+        } else {
+            "materials/:listed/0.material"
+        };
+        assert_eq!(files.len(), 2, "aliases share one retained payload");
+        assert_eq!(files[key], document);
+        assert_eq!(files[list], json!([{"path": key, "defines": ["FIRST"]}]));
+        assert_eq!(report.repeated_paths, 4095);
+    }
+}
+
+#[test]
 fn collection_reports_material_list_entries_it_read_in_part() {
     let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
     let pack = archive_files(
@@ -161,6 +212,51 @@ fn simple_graphics_loads_the_sad_material_list_and_fancy_the_fancy_one() {
         list(false),
         Some(json!([{"path": "materials/simple.material", "defines": []}]))
     );
+}
+
+/// Builds a pack archive containing one entity material document.
+fn archive(id: u128, material: serde_json::Value) -> protocol::ResourcePackArchive {
+    archive_with(id, "materials/entity.material", material)
+}
+
+#[test]
+fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child() {
+    let lower = archive(
+        1,
+        json!({"materials":{
+            "version":"1.0.0",
+            "fixture:entity_alphatest":{"+states":["Blending"]},
+            "unchanged:entity_alphatest":{"-defines":["FANCY"]}
+        }}),
+    );
+    let upper = archive(
+        2,
+        json!({"materials":{
+            "version":"1.0.0",
+            "fixture:entity_alphatest_one_sided":{"+states":["DisableDepthWrite"]}
+        }}),
+    );
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::super::collect_files(&view, None, None);
+    let definitions = files
+        .iter()
+        .find_map(|(path, bytes)| {
+            path.starts_with("materials/").then(|| {
+                serde_json::from_slice::<serde_json::Value>(bytes).unwrap()["materials"].clone()
+            })
+        })
+        .expect("authored material definitions must reach entity compilation");
+    assert_eq!(
+        definitions["fixture:entity_alphatest_one_sided"],
+        json!({"+states":["DisableDepthWrite"]})
+    );
+    assert_eq!(
+        definitions["unchanged:entity_alphatest"],
+        json!({"-defines":["FANCY"]})
+    );
+    assert!(definitions.get("fixture:entity_alphatest").is_none());
 }
 
 #[test]

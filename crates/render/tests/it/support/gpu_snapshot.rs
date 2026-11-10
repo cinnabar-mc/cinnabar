@@ -176,6 +176,24 @@ impl Gpu {
             })
     }
 
+    /// A zeroed, and so disabled, world point-light uniform sized for `source`'s declaration,
+    /// for fixtures that remap the point-light binding into their own group.
+    pub fn disabled_point_light(&self, source: &str) -> wgpu::Buffer {
+        let size =
+            point_light_size(source, "", "", true).expect("fixture declares the world point light");
+        self.zeroed_point_light(size)
+    }
+
+    /// Allocates a zero-initialized point-light uniform; zero disables every source.
+    fn zeroed_point_light(&self, size: u32) -> wgpu::Buffer {
+        self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("disabled fixture point light"),
+            size: u64::from(size),
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        })
+    }
+
     /// Uploads both the raw and byte-truncated tables using the production lightmap layout.
     pub fn lightmap(&self, values: &[f32]) -> wgpu::Buffer {
         let raw: &[[f32; 4]; 256] = bytemuck::cast_slice(values)
@@ -633,12 +651,7 @@ impl Gpu {
             let point_light =
                 point_light_size(source, vertex, draw.fragment, state.layout.is_some()).map(
                     |size| {
-                        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("disabled fixture point light"),
-                            size: u64::from(size),
-                            usage: wgpu::BufferUsages::UNIFORM,
-                            mapped_at_creation: false,
-                        });
+                        let buffer = self.zeroed_point_light(size);
                         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                             label: Some("disabled fixture point light"),
                             layout: &pipeline.get_bind_group_layout(POINT_LIGHT_GROUP),

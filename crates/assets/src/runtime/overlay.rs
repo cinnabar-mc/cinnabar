@@ -56,8 +56,8 @@ pub struct BlockOverlay {
     pub material_overrides: Vec<MaterialOverride>,
     /// Base visual faces rebound to overlay-local materials; absent faces retain their base.
     pub face_overrides: Vec<(u32, [Option<u32>; 6])>,
-    /// Base model visuals redrawn with overlay-local copies of their complete template span;
-    /// kind, variant and faces are unchanged.
+    /// Base models redrawn with overlay-local copies of their complete template span, or
+    /// plain cubes promoted to full-block models. Face bindings remain independent.
     pub template_overrides: Vec<(u32, u32)>,
     /// Optional pack-defined tint maps and biome appearance rules.
     pub biomes: Option<crate::CompiledBiomeAssets>,
@@ -531,6 +531,7 @@ impl RuntimeAssets {
             &mut visuals,
             &self.model_templates,
             &overlay.model_templates,
+            &overlay.model_quads,
             template_base,
         )?;
         // Overridden visuals point past the base templates, so only base sheets rebind.

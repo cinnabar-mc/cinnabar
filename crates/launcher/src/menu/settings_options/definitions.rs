@@ -518,7 +518,7 @@ settings! {
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
     MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
-    MentionsTarget => "mentions_target", dropdown("chat.settings.mentionsTarget", super::chat::MENTIONS_TARGETS, 0),
+    MentionsTarget => "mentions_target", dropdown("chat.settings.mentionsTarget", super::chat::MENTIONS_TARGETS, 1),
         [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
         [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
