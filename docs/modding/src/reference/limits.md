@@ -42,6 +42,7 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | --- | ---: | --- |
 | `mod_api::MAX_SELECTED_SLOT_READS` | 8 | Selected-slot reads per callback, apart from the player-state read allowance. |
 | `mod_api::MAX_INPUT_BINDINGS_PER_READ` | 16 | Physical binding entries copied per read. |
+| `mod_api::MAX_INPUT_BINDING_WRITES` | 8 | Actions whose player binding one callback may change. |
 | `mod_api::MAX_INPUT_BINDINGS` | 128 | Physical binding entries per settings snapshot. |
 | `mod_api::MAX_INPUT_ACTION_BYTES` | 32 | Bytes per stable binding action name. |
 | `mod_api::MAX_CONTROL_KEYS` | 64 | Physical keys per held/admitted/pressed list, selection or reservation. Held and admitted lists truncate independently in physical-name order; above the cap, chord resolution can differ from the host gate. |
