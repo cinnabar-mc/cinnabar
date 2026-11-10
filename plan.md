@@ -766,6 +766,10 @@ qualification remain open.
 Remote players remain eligible while their collision box contains the camera. Render and
 animation bounds containing the eye survive frustum rejection after distance admission;
 matched overlapping-player visual qualification remains open.
+The exact pinned modern snow-golem sample restores the
+[retail arm cube binds](docs/reference/snow-golem-rendering.md) while
+preserving animated bone frames and authored replacements. Matched arm geometry,
+turning, lighting and depth qualification remains open.
 Ocelot controllers receive the native movement-state variable from synced flags before
 authored pre-animation, including sitting and native flag precedence. Custom actors
 inherit their advertised ocelot base. Contributor gameplay captures confirm the sitting

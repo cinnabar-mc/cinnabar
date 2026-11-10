@@ -13,6 +13,9 @@ mod feline_tests;
 #[path = "native_bind_pose/fox_tests.rs"]
 mod fox_tests;
 #[cfg(test)]
+#[path = "native_bind_pose/snow_golem_tests.rs"]
+mod snow_golem_tests;
+#[cfg(test)]
 #[path = "native_bind_pose/villager_tests.rs"]
 mod villager_tests;
 
@@ -26,6 +29,8 @@ const CAT_PATH: &str = "models/entity/cat.geo.json";
 const CAT_GEOMETRY: &str = "geometry.cat";
 const OCELOT_PATH: &str = "models/entity/ocelot.geo.json";
 const OCELOT_GEOMETRY: &str = "geometry.ocelot.v1.8";
+const SNOW_GOLEM_PATH: &str = "models/entity/snow_golem.geo.json";
+const SNOW_GOLEM_GEOMETRY: &str = "geometry.snowgolem.v1.8";
 const VILLAGER_PATH: &str = "models/entity/villager_v2.geo.json";
 const VILLAGER_GEOMETRY: &str = "geometry.villager_v2";
 // Canonical pinned sample source, not a blanket default for similarly named custom models.
@@ -48,6 +53,10 @@ const CAT_SAMPLE_SHA256: [u8; 32] = [
 const OCELOT_SAMPLE_SHA256: [u8; 32] = [
     0x4d, 0xc6, 0x52, 0xc9, 0xed, 0x62, 0x11, 0xb3, 0x8e, 0xd1, 0x61, 0x76, 0x1f, 0xc3, 0x88, 0xc2,
     0xec, 0xee, 0x74, 0x6c, 0xe0, 0x7d, 0xee, 0x33, 0x5a, 0x4e, 0x11, 0x4f, 0xe5, 0x9e, 0x52, 0xda,
+];
+const SNOW_GOLEM_SAMPLE_SHA256: [u8; 32] = [
+    0x0d, 0x01, 0x46, 0xdd, 0x81, 0xf5, 0x5e, 0xeb, 0xfc, 0x67, 0xdf, 0x09, 0xe6, 0x98, 0x24, 0xd3,
+    0x45, 0xe8, 0x2b, 0x95, 0xfe, 0x84, 0xbb, 0x41, 0x9f, 0xce, 0xca, 0x6c, 0x6a, 0x23, 0x05, 0x0c,
 ];
 const VILLAGER_SAMPLE_SHA256: [u8; 32] = [
     0x33, 0x27, 0x1d, 0xb5, 0xb8, 0x7d, 0x3b, 0xe5, 0x65, 0x6f, 0xad, 0x93, 0xd0, 0x8f, 0x41, 0x75,
@@ -73,6 +82,8 @@ const FELINE_BINDS: CubeBinds = &[
     ("tail1", NATIVE_BODY_BIND_ROTATION),
     ("tail2", NATIVE_BODY_BIND_ROTATION),
 ];
+// Shipped 1.26.60.4 cube binds omitted by the pinned modern snow-golem sample.
+const SNOW_GOLEM_BINDS: CubeBinds = &[("arm1", [0.0, 0.0, 57.3]), ("arm2", [0.0, 180.0, -57.3])];
 // Sample path, geometry, source digest and the retained cube binds.
 const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
     (
@@ -89,6 +100,12 @@ const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
         OCELOT_GEOMETRY,
         OCELOT_SAMPLE_SHA256,
         FELINE_BINDS,
+    ),
+    (
+        SNOW_GOLEM_PATH,
+        SNOW_GOLEM_GEOMETRY,
+        SNOW_GOLEM_SAMPLE_SHA256,
+        SNOW_GOLEM_BINDS,
     ),
     (
         VILLAGER_PATH,
