@@ -961,7 +961,15 @@ and version-matched in-game acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
+  Framed filled maps retain signed numeric and decimal-string map IDs, request missing
+  images, and wait for image data without displaying their inventory icon.
   Framed filled maps wait for image data without displaying their inventory icon.
+  Received framed maps select the full-face rim even without a server map bit. Map and
+  text canvas pages grow without moving live pixel rects; the former 16-map ceiling is removed.
+  Map growth reserves capacity for every admitted sign page. Artwork reloads that cannot
+  retain the cached canvases report an error before publishing the replacement pack.
+  Moving-camera map-wall qualification and overflow beyond the atlas texture-side budget
+  remain incomplete.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
   inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head

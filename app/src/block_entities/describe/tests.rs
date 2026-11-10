@@ -332,6 +332,47 @@ fn the_default_dye_is_red_and_an_unknown_dye_draws_nothing() {
 }
 
 #[test]
+fn framed_maps_keep_numeric_and_decimal_string_identities() {
+    use world::NbtValue;
+    for (value, expected) in [
+        (NbtValue::Long(266), Some(266)),
+        (NbtValue::String("266".into()), Some(266)),
+        (
+            NbtValue::String("-9223372036854775808".into()),
+            Some(i64::MIN),
+        ),
+        (NbtValue::String(" \t+266suffix".into()), Some(266)),
+        (NbtValue::String("9223372036854775808".into()), None),
+        (NbtValue::String("invalid".into()), None),
+    ] {
+        let mut tag = NbtCompound::default();
+        tag.insert("map_uuid", value);
+        let mut stack = NbtCompound::default();
+        stack.insert(
+            "Name",
+            NbtValue::String(assets::facts::FILLED_MAP_IDENTIFIER.into()),
+        );
+        stack.insert("tag", NbtValue::Compound(tag));
+        let mut root = NbtCompound::default();
+        root.insert("Item", NbtValue::Compound(stack));
+        let Some(Template::ItemFrame { map_id, item, .. }) = describe(
+            "ItemFrame",
+            "minecraft:frame",
+            &state(r#"{"facing_direction":3,"item_frame_map_bit":1}"#),
+            &root,
+            [0; 3],
+        ) else {
+            panic!("framed filled map expected");
+        };
+        assert_eq!(map_id, expected);
+        assert_eq!(
+            item.unwrap().identifier.as_ref(),
+            assets::facts::FILLED_MAP_IDENTIFIER
+        );
+    }
+}
+
+#[test]
 fn item_frames_preserve_all_six_outward_facing_states() {
     for (id, name, glow) in [
         ("ItemFrame", "minecraft:frame", false),
