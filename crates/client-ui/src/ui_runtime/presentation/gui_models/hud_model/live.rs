@@ -348,7 +348,7 @@ impl HudModel {
         let material = (
             ui::UiBlendMode::Alpha,
             !raster.ignores_stored_depth(),
-            raster.depth.write,
+            raster.depth.write && raster.depth.compare.is_some(),
             state
                 .alpha_test
                 .then_some(assets::ENTITY_ALPHA_TEST_THRESHOLD),

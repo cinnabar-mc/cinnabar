@@ -192,13 +192,15 @@ fn removing_the_pack_clears_controller_artwork_and_geometry() {
 
 #[test]
 fn authored_material_culling_and_depth_reach_the_retained_controller_draws() {
-    for (cull, depth_func, disable_depth_test, depth_test, depth_write) in [
-        (false, "LessEqual", false, true, true),
-        (true, "LessEqual", false, true, true),
-        (true, "Always", false, false, true),
-        (true, "LessEqual", true, false, true),
-        (true, "LessEqual", false, true, false),
-        (false, "Always", false, false, false),
+    for (cull, depth_func, disable_depth_test, depth_write, expected_depth) in [
+        (false, "LessEqual", false, true, (true, true)),
+        (true, "LessEqual", false, true, (true, true)),
+        (true, "Always", false, true, (false, true)),
+        (true, "LessEqual", true, true, (false, false)),
+        (true, "Always", true, true, (false, false)),
+        (true, "LessEqual", true, false, (false, false)),
+        (true, "LessEqual", false, false, (true, false)),
+        (false, "Always", false, false, (false, false)),
     ] {
         let mut source = files();
         let entity = source
@@ -252,7 +254,7 @@ fn authored_material_culling_and_depth_reach_the_retained_controller_draws() {
             raster.cull == render_api::render_state::CullMode::Back,
             cull
         );
-        assert_eq!(!raster.ignores_stored_depth(), depth_test);
+        assert_eq!(!raster.ignores_stored_depth(), expected_depth.0);
         assert_eq!(raster.depth.write, depth_write);
         let mut ui = presentation(false);
         ui.set_preview_player_layers(Some(pack));
@@ -274,7 +276,8 @@ fn authored_material_culling_and_depth_reach_the_retained_controller_draws() {
             .collect();
         assert!(!batches.is_empty());
         assert!(batches.iter().all(|batch| {
-            batch.depth_test == u32::from(depth_test) && batch.depth_write == u32::from(depth_write)
+            batch.depth_test == u32::from(expected_depth.0)
+                && batch.depth_write == u32::from(expected_depth.1)
         }));
     }
 }
