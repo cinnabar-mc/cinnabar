@@ -59,7 +59,7 @@ impl UiPresentationRuntime {
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
         self.publish_local_player_identity(runtime.session_id());
-        session_glyphs::observe(self, runtime.session_glyphs());
+        session_glyphs::observe(self, Some(runtime.session_glyphs()));
         // Install artwork before any screen resolves its pixel UVs.
         if self.menu_artwork_loader.poll() {
             self.rebuild_dynamic_textures();

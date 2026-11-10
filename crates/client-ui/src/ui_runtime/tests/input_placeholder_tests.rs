@@ -92,10 +92,45 @@ fn input_placeholders_follow_remaps_and_the_gamepad() {
             envelope(1, 2, title(protocol::TitleAction::ActionBar, bar)),
         )
         .unwrap();
+    let a = assets::emoticons::EmoticonList::builtin()
+        .get("xbox_face_button_down")
+        .unwrap();
     assert_eq!(
         runtime.hud().actionbar().unwrap().text.as_ref(),
-        "A / controllerLayoutScreen.unassigned"
+        format!("{a} / controllerLayoutScreen.unassigned")
     );
+}
+
+/// Mouse buttons and `:_gamepad_<button>:` names arrive as glyphs that the built-in emoticon
+/// page draws even when the session's packs carry no glyph sheets.
+#[test]
+fn control_emoticons_arrive_as_drawn_glyphs() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let bar = "Press :_input_key.attack: and :_gamepad_face_button_down:";
+    runtime
+        .apply(
+            &mut player_runtime,
+            envelope(1, 1, title(protocol::TitleAction::ActionBar, bar)),
+        )
+        .unwrap();
+    let list = assets::emoticons::EmoticonList::builtin();
+    let (mouse, a) = (
+        list.get("mouse_left_button").unwrap(),
+        list.get("xbox_face_button_down").unwrap(),
+    );
+    assert_eq!(
+        runtime.hud().actionbar().unwrap().text.as_ref(),
+        format!("Press {mouse} and {a}")
+    );
+    let drawn: Vec<_> = runtime
+        .session_glyphs()
+        .cells()
+        .iter()
+        .filter(|cell| cell.size != [0, 0])
+        .map(|cell| cell.codepoint)
+        .collect();
+    assert!(drawn.contains(&mouse) && drawn.contains(&a));
 }
 
 fn server_lang(runtime: &mut UiRuntime, entries: &str) {

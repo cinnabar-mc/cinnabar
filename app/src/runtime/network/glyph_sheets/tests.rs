@@ -65,6 +65,39 @@ fn empty_stack_records_missing_sheets_for_later_activation() {
     }
 }
 
+/// Packs that leave out the emoticon page keep the built-in emoticons beneath their own pages;
+/// a pack's own emoticon page replaces the built-in one wholesale, as vanilla's would.
+#[test]
+fn the_builtin_emoticon_page_sits_below_pack_pages() {
+    let a = assets::emoticons::EmoticonList::builtin()
+        .get("xbox_face_button_down")
+        .unwrap();
+    let cell = |sheets: &super::SessionGlyphSheets, codepoint: char| {
+        sheets
+            .cells()
+            .iter()
+            .find(|cell| cell.codepoint == codepoint)
+            .map(|cell| cell.size)
+    };
+    let other_page = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[("font/glyph_E1.png", sheet_png(8, 2))],
+    )]))
+    .expect("sheets");
+    assert_eq!(cell(&other_page, '\u{e102}'), Some([8, 8]));
+    let builtin = assets::emoticons::builtin_emoticon_cells();
+    let drawn = builtin.iter().find(|cell| cell.codepoint == a).unwrap();
+    assert_eq!(cell(&other_page, a), Some(drawn.size));
+
+    let own_page = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[("font/glyph_E0.png", sheet_png(8, 3))],
+    )]))
+    .expect("sheets");
+    assert_eq!(cell(&own_page, a), Some([0, 0]));
+    assert_eq!(cell(&own_page, '\u{e003}'), Some([8, 8]));
+}
+
 // The first server pack replaces a sheet wholesale; missing sheets use lower packs.
 #[test]
 fn the_first_server_pack_wins_per_sheet() {
@@ -178,7 +211,11 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
         (assets::texel_size_64(0, 1) / 2) as i16
     );
     let restored = compile_session_glyphs(&view(vec![lower()])).unwrap();
-    assert_eq!(restored.cells().len(), 256);
+    // The default8 cells, plus the built-in emoticon page that no pack replaced.
+    assert_eq!(
+        restored.cells().len(),
+        256 + assets::emoticons::builtin_emoticon_cells().len()
+    );
     assert_eq!(
         restored
             .cells()
@@ -277,4 +314,49 @@ fn a_unicode_sheet_space_cell_draws_nothing() {
     assert_eq!(space.size, [0, 0]);
     assert!(space.rgba8.is_empty());
     assert_eq!(space.advance_64, (assets::texel_size_64(0, 1) / 2) as i16);
+}
+
+/// A pack whose font metadata replaces the default face keeps the emoticons that face lacks,
+/// drawn by the pack's own emoticon page when it has one and by the built-in page otherwise.
+#[test]
+fn a_metadata_default_face_keeps_the_emoticons_it_lacks() {
+    let list = assets::emoticons::EmoticonList::builtin();
+    let a = list.get("xbox_face_button_down").unwrap();
+    let y = list.get("xbox_face_button_up").unwrap();
+    let metadata = br#"{"version":1,"fonts":[{"font_format":"bitmap","font_name":"default","ascii_font_file":"font/custom"}]}"#;
+    let cell = |sheets: &super::SessionGlyphSheets, codepoint: char| {
+        sheets
+            .cells()
+            .iter()
+            .find(|cell| cell.codepoint == codepoint)
+            .cloned()
+    };
+    let without_page = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[
+            ("font/custom.png", sheet_png(8, 65)),
+            ("font/font_metadata.json", metadata.to_vec()),
+        ],
+    )]))
+    .expect("sheets");
+    assert_eq!(cell(&without_page, 'A').unwrap().size, [8, 8]);
+    let builtin = assets::emoticons::builtin_emoticon_cells();
+    for emoticon in &builtin {
+        assert_eq!(
+            cell(&without_page, emoticon.codepoint).as_ref(),
+            Some(emoticon)
+        );
+    }
+
+    let own_page = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[
+            ("font/custom.png", sheet_png(8, 65)),
+            ("font/font_metadata.json", metadata.to_vec()),
+            ("font/glyph_E0.png", sheet_png(8, 3)),
+        ],
+    )]))
+    .expect("sheets");
+    assert_eq!(cell(&own_page, y).unwrap().size, [8, 8]);
+    assert_eq!(cell(&own_page, a).unwrap().size, [0, 0]);
 }
