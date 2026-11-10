@@ -141,6 +141,10 @@ pub(super) fn hud_model(
             bounded_text(runtime.hud().subtitle_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
         ),
         actionbar: runtime.hud().actionbar_request().map(timed),
+        actionbar_creation_id: runtime
+            .hud()
+            .actionbar_request()
+            .map(|text| text.fifo_sequence),
         tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,
