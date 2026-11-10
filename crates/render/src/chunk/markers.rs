@@ -112,11 +112,13 @@ struct MarkerInstance {
     block: [i32; 3],
     /// Box flag and cell light; see the shader's `marker_vertex`.
     packed: u32,
-    /// Index of the marker's art in [`MarkerTables::animations`].
+    /// Index of the marker's art in [`MarkerTables::animations`]; a box's six faces follow
+    /// in [`BlockFace::ALL`] order.
     animation: u32,
 }
 
-/// One frame of marker art: its texture page, array layer and exposed UV scale.
+/// One frame of marker art: its texture page, array layer, exposed UV scale and the source
+/// texture's size relative to its page, which keeps mip selection at the source resolution.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct MarkerTexture {
@@ -124,9 +126,10 @@ struct MarkerTexture {
     layer: u32,
     uv_scale: f32,
     reserved: u32,
+    gradient_scale: [f32; 2],
 }
 
-/// The frames of one marker's art; static art is a single frame.
+/// The frames of one marker's art; static art is a single frame and missing art none.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct MarkerAnimation {
@@ -150,14 +153,24 @@ impl MarkerTables {
     }
 
     /// Appends `material`'s flipbook frames, or its one texture, and returns the art's index.
+    /// A missing material appends art with no frames, which draws nothing.
     fn push(
         &mut self,
-        material: &Material,
+        material: Option<&Material>,
         animations: &[Animation],
         frames: &[TextureRef],
         texture: impl Fn(TextureRef) -> MarkerTexture,
     ) -> u32 {
         let frame_start = self.textures.len() as u32;
+        let Some(material) = material else {
+            self.animations.push(MarkerAnimation {
+                frame_start,
+                frame_count: 0,
+                ticks_per_frame: 1,
+                flags: 0,
+            });
+            return (self.animations.len() - 1) as u32;
+        };
         let flipbook = animations
             .get(material.animation as usize)
             .filter(|animation| animation.ticks_per_frame != 0)
@@ -250,23 +263,52 @@ fn marker_instances(
     }
 }
 
-/// The material a marker block draws with in `assets`, if that pack gives it art.
-fn marker_material(assets: &RuntimeAssets, block: u32) -> Option<&Material> {
+/// Appends the art a marker block draws with in `assets` and returns its index: the up face's
+/// art for a sprite, or all six faces' for a box. A pack without the art draws nothing.
+fn marker_art(assets: &RuntimeAssets, block: u32, tables: &mut MarkerTables) -> Option<u32> {
     let resolved = assets.resolve_known(NetworkIdMode::Sequential, block)?;
-    TerrainMarker::from_variant(resolved.kind(), resolved.variant())?;
-    let material = resolved.face(BlockFace::Up).material_id();
-    if material == DIAGNOSTIC_MATERIAL {
+    let marker = TerrainMarker::from_variant(resolved.kind(), resolved.variant())?;
+    let material = |face| {
+        let material = resolved.face(face).material_id();
+        (material != DIAGNOSTIC_MATERIAL)
+            .then(|| assets.materials().get(material as usize))
+            .flatten()
+    };
+    let faces = if marker.is_camera_facing() {
+        &[BlockFace::Up][..]
+    } else {
+        &BlockFace::ALL[..]
+    };
+    let materials = faces.iter().map(|&face| material(face)).collect::<Vec<_>>();
+    if materials.iter().all(Option::is_none) {
         return None;
     }
-    assets.materials().get(material as usize)
+    let first = tables.animations.len() as u32;
+    for material in materials {
+        tables.push(
+            material,
+            assets.animations(),
+            assets.animation_frames(),
+            |texture| marker_texture(assets, texture),
+        );
+    }
+    Some(first)
 }
 
 fn marker_texture(assets: &RuntimeAssets, texture: TextureRef) -> MarkerTexture {
+    let page = assets
+        .texture_pages()
+        .get(texture.page() as usize)
+        .and_then(|page| page.texture.mips.first())
+        .map_or(assets::TILE_SIZE, |mip| mip.size) as f32;
     MarkerTexture {
         page: texture.page(),
         layer: texture.layer(),
         uv_scale: (-f32::from(assets.texture_source_grid(texture))).exp2(),
         reserved: 0,
+        gradient_scale: assets
+            .texture_source_size(texture)
+            .map(|size| size as f32 / page),
     }
 }
 
@@ -297,15 +339,9 @@ fn extract_markers(
         &sections,
         layers,
         |block| {
-            *by_block.entry(block).or_insert_with(|| {
-                let material = marker_material(assets, block)?;
-                Some(batch.tables.push(
-                    material,
-                    assets.animations(),
-                    assets.animation_frames(),
-                    |texture| marker_texture(assets, texture),
-                ))
-            })
+            *by_block
+                .entry(block)
+                .or_insert_with(|| marker_art(assets, block, &mut batch.tables))
         },
         &mut batch.instances,
         &mut boxes,
@@ -684,14 +720,14 @@ impl crate::pipeline_warmup::PrewarmPipelines for MarkerPipeline {
 /// Queues one depth-writing draw per view, ahead of translucent terrain like opaque particles.
 fn queue_markers(
     batch: Res<MarkerBatch>,
-    gpu: Res<MarkerGpu>,
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<MarkerPipeline>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &ExtractedCamera, &Msaa)>,
 ) {
-    if !batch.uploaded || gpu.bind_group.is_none() {
+    // Preparation runs after queueing; a batch not yet uploaded or bound skips at draw time.
+    if batch.instances.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawMarkers>();

@@ -41,18 +41,16 @@ pub(in crate::compiler) fn terrain_marker(record: &RegistryRecord) -> Option<Ter
     }
 }
 
-/// The texture a marker draws: its world texture, or the carried art of a light block, whose
-/// pack entry names no world texture.
+/// The texture a marker draws on `face`: its world texture, or the carried art of a light
+/// block, whose pack entry names no world texture.
 pub(in crate::compiler) fn marker_descriptor(
     pack: &PackSources,
     record: &RegistryRecord,
+    face: BlockFace,
 ) -> Option<(Descriptor, Box<str>)> {
-    let key = match resolve_texture_key(&pack.blocks, record, BlockFace::Up).key {
+    let key = match resolve_texture_key(&pack.blocks, record, face).key {
         Some(key) if key.as_ref() != pack_compile_input::pack::MISSING_TILE_TEXTURE_KEY => key,
-        _ => {
-            pack_compile_input::pack::resolve_carried_face_key(&pack.blocks, record, BlockFace::Up)?
-                .into()
-        }
+        _ => pack_compile_input::pack::resolve_carried_face_key(&pack.blocks, record, face)?.into(),
     };
     let (path, state_variant) = pack.terrain.get_for_record_variant(&key, record)?;
     Some((
@@ -82,8 +80,10 @@ pub(in crate::compiler) fn compile_rule(
         // layers; a pack without the marker's art leaves it with nothing to draw.
         if let Some(marker) = terrain_marker(record) {
             visual.variant = marker.variant();
-            if let Some(material) = inputs.material(record, BlockFace::Up) {
-                visual.faces = [material; 6];
+            for (slot, face) in visual.faces.iter_mut().zip(BlockFace::ALL) {
+                if let Some(material) = inputs.material(record, face) {
+                    *slot = material;
+                }
             }
         }
         return CompileRuleResult::Compiled(visual);
@@ -231,12 +231,12 @@ mod tests {
         }
         std::fs::write(
             directory.path().join("blocks.json"),
-            r#"{"barrier":{"textures":"barrier"},"structure_void":{"textures":"flattened_structure_void"},"light_block_0":{"carried_textures":"light_block_0"},"light_block_15":{"carried_textures":"light_block_15"}}"#,
+            r#"{"barrier":{"textures":"barrier"},"structure_void":{"textures":{"up":"structure_void_top","down":"flattened_structure_void","side":"flattened_structure_void"}},"light_block_0":{"carried_textures":"light_block_0"},"light_block_15":{"carried_textures":"light_block_15"}}"#,
         )
         .unwrap();
         std::fs::write(
             directory.path().join("textures/terrain_texture.json"),
-            r#"{"texture_data":{"barrier":{"textures":"textures/blocks/barrier"},"flattened_structure_void":{"textures":"textures/blocks/structure_void"},"light_block_0":{"textures":"textures/items/light_block_0"},"light_block_15":{"textures":"textures/items/light_block_15"}}}"#,
+            r#"{"texture_data":{"barrier":{"textures":"textures/blocks/barrier"},"flattened_structure_void":{"textures":"textures/blocks/structure_void"},"structure_void_top":{"textures":"textures/blocks/structure_void_top"},"light_block_0":{"textures":"textures/items/light_block_0"},"light_block_15":{"textures":"textures/items/light_block_15"}}}"#,
         )
         .unwrap();
         std::fs::write(
@@ -250,6 +250,11 @@ mod tests {
                 "blocks/structure_void",
                 assets::TILE_SIZE,
                 [220, 220, 220, 229],
+            ),
+            (
+                "blocks/structure_void_top",
+                assets::TILE_SIZE,
+                [120, 220, 220, 229],
             ),
             ("items/light_block_0", 32, [20, 20, 20, 133]),
             ("items/light_block_15", 32, [250, 250, 120, 255]),
@@ -292,8 +297,19 @@ mod tests {
                     .flags
                     .intersects(BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE)
             );
-            assert_ne!(visual.faces[0], DIAGNOSTIC_MATERIAL, "{name}");
-            assert!(visual.faces.iter().all(|&face| face == visual.faces[0]));
+            assert!(
+                visual.faces.iter().all(|&face| face != DIAGNOSTIC_MATERIAL),
+                "{name}"
+            );
+            let [west, east, down, up, north, south] = visual.faces;
+            if marker == TerrainMarker::StructureVoid {
+                // Boxes keep each face's own art.
+                assert_ne!(up, down);
+                assert!([west, east, north, south].iter().all(|&side| side == down));
+            } else {
+                // Sprites draw the up face's art.
+                assert!(visual.faces.iter().all(|&face| face == up), "{name}");
+            }
             if marker == TerrainMarker::Light {
                 light_materials.push(visual.faces[0]);
             }

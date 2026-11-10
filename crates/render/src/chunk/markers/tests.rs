@@ -114,7 +114,8 @@ fn draws_split_sprites_and_boxes_across_fixed_size_buffers() {
     assert!(chunk_draws(0, 0).next().is_none());
 }
 
-/// Flipbook art keeps every frame and its timing, so the GPU steps it with the terrain clock.
+/// Flipbook art keeps every frame and its timing, so the GPU steps it with the terrain clock;
+/// missing art keeps no frames.
 #[test]
 fn flipbook_art_keeps_its_frames_and_timing() {
     let texture = |layer| TextureRef::new(1, layer).unwrap();
@@ -123,6 +124,7 @@ fn flipbook_art_keeps_its_frames_and_timing() {
         layer: texture.layer(),
         uv_scale: 1.0,
         reserved: 0,
+        gradient_scale: [0.25; 2],
     };
     let animations = [Animation {
         frame_start: 1,
@@ -145,8 +147,12 @@ fn flipbook_art_keeps_its_frames_and_timing() {
         animation: 0,
         ..Material::unvaried()
     };
-    assert_eq!(tables.push(&still, &animations, &frames, encode), 0);
-    assert_eq!(tables.push(&animated, &animations, &frames, encode), 1);
+    assert_eq!(tables.push(Some(&still), &animations, &frames, encode), 0);
+    assert_eq!(
+        tables.push(Some(&animated), &animations, &frames, encode),
+        1
+    );
+    assert_eq!(tables.push(None, &animations, &frames, encode), 2);
 
     assert_eq!(
         tables.animations,
@@ -162,6 +168,13 @@ fn flipbook_art_keeps_its_frames_and_timing() {
                 frame_count: 2,
                 ticks_per_frame: 3,
                 flags: ANIMATION_FLAG_BLEND,
+            },
+            // A face without art has no frames, so it draws nothing.
+            MarkerAnimation {
+                frame_start: 3,
+                frame_count: 0,
+                ticks_per_frame: 1,
+                flags: 0,
             },
         ]
     );

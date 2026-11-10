@@ -34,8 +34,14 @@ pub(super) fn descriptor_for(
     if visuals::mapped_face::is_record(record) {
         return visuals::mapped_face::descriptor(pack, record, face);
     }
-    if visuals::literal::terrain_marker(record).is_some() {
-        return visuals::literal::marker_descriptor(pack, record);
+    if let Some(marker) = visuals::literal::terrain_marker(record) {
+        // Sprites draw the up face's art; structure-void boxes keep each face's own.
+        let face = if marker.is_camera_facing() {
+            BlockFace::Up
+        } else {
+            face
+        };
+        return visuals::literal::marker_descriptor(pack, record, face);
     }
     let TextureKey { key, uv_rotation } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;

@@ -6,8 +6,8 @@ import render::world_projection::{section_camera_offset, camera_offset_clip};
 
 // The frames of one marker's art, selected by the shared terrain animation clock.
 struct MarkerAnimation { frame_start: u32, frame_count: u32, ticks_per_frame: u32, flags: u32 }
-// One frame's texture page, array layer and exposed UV scale.
-struct MarkerTexture { page: u32, layer: u32, uv_scale: f32, reserved: u32 }
+// One frame's texture page, array layer, exposed UV scale and source-to-page size ratio.
+struct MarkerTexture { page: u32, layer: u32, uv_scale: f32, reserved: u32, gradient_scale: vec2<f32> }
 struct MarkerClock { tick: u32, partial_tick: f32, reserved_a: u32, reserved_b: u32 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -33,7 +33,9 @@ struct VertexOutput {
     @location(2) @interpolate(flat) frames: vec4<u32>,
     // UV scales of both frames and the blend weight towards the second.
     @location(3) @interpolate(flat) frame_mix: vec3<f32>,
-    @location(4) camera_offset: vec3<f32>,
+    // Source-to-page gradient scales of both frames.
+    @location(4) @interpolate(flat) gradient_scales: vec4<f32>,
+    @location(5) camera_offset: vec3<f32>,
 }
 
 @vertex
@@ -42,7 +44,8 @@ fn marker_vertex(
     @location(0) block: vec3<i32>,
     // Bit 0 selects the box, bits 8..16 hold the cell light.
     @location(1) packed: u32,
-    @location(2) animation_index: u32,
+    // The art's index; a box's six faces follow in west, east, down, up, north, south order.
+    @location(2) art_index: u32,
 ) -> VertexOutput {
     // Two triangles over a unit quad's corners.
     var corners = array<vec2<f32>, 6>(
@@ -60,24 +63,32 @@ fn marker_vertex(
     );
     let corner = corners[vertex_index % 6u];
     var local: vec3<f32>;
+    var animation_index = art_index;
     if ((packed & 1u) != 0u) {
-        let face = faces[min(vertex_index / 6u, 5u)];
+        let face_index = min(vertex_index / 6u, 5u);
+        let face = faces[face_index];
         local = face[0] + face[1] * corner.x + face[2] * corner.y;
+        animation_index += face_index;
     } else {
         // A one-block sprite centred in its cell, spanning the view's right and up axes.
         let right = view.world_from_view[0].xyz;
         let up = view.world_from_view[1].xyz;
         local = vec3(0.5) + right * (corner.x - 0.5) + up * (corner.y - 0.5);
     }
-    let offset = section_camera_offset(block, local, view.world_position);
     var out: VertexOutput;
+    let animation = marker_animations[animation_index];
+    if (animation.frame_count == 0u) {
+        // A face without art collapses to a point and draws nothing.
+        out.clip_position = vec4(0.0);
+        return out;
+    }
+    let offset = section_camera_offset(block, local, view.world_position);
     out.clip_position = camera_offset_clip(view.clip_from_world, view.world_position, offset);
     out.uv = vec2(corner.x, 1.0 - corner.y);
     out.packed = packed;
     // Flipbooks step and blend exactly as terrain materials do.
-    let animation = marker_animations[animation_index];
     let ticks = max(animation.ticks_per_frame, 1u);
-    let count = max(animation.frame_count, 1u);
+    let count = animation.frame_count;
     let current = (clock.tick / ticks) % count;
     let blends = (animation.flags & 1u) != 0u && count > 1u;
     let next = select(current, (current + 1u) % count, blends);
@@ -86,6 +97,7 @@ fn marker_vertex(
     let blend = (f32(clock.tick % ticks) + clamp(clock.partial_tick, 0.0, 0.99999994)) / f32(ticks);
     out.frames = vec4(current_texture.page, current_texture.layer, next_texture.page, next_texture.layer);
     out.frame_mix = vec3(current_texture.uv_scale, next_texture.uv_scale, select(0.0, blend, blends));
+    out.gradient_scales = vec4(current_texture.gradient_scale, next_texture.gradient_scale);
     out.camera_offset = offset;
     return out;
 }
@@ -107,10 +119,13 @@ fn marker_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let dy = dpdy(in.uv);
     let current = in.uv * in.frame_mix.x;
     let next = in.uv * in.frame_mix.y;
-    var sampled = sample_page(in.frames.x, current, i32(in.frames.y), dx * in.frame_mix.x, dy * in.frame_mix.x);
+    // Gradients follow the source texture's size, as terrain's do, so mips match its resolution.
+    let current_gradient = in.gradient_scales.xy;
+    let next_gradient = in.gradient_scales.zw;
+    var sampled = sample_page(in.frames.x, current, i32(in.frames.y), dx * current_gradient, dy * current_gradient);
     // Explicit gradients let only blending flipbooks take the second sample.
     if (in.frame_mix.z > 0.0) {
-        let blended = sample_page(in.frames.z, next, i32(in.frames.w), dx * in.frame_mix.y, dy * in.frame_mix.y);
+        let blended = sample_page(in.frames.z, next, i32(in.frames.w), dx * next_gradient, dy * next_gradient);
         sampled = mix(sampled, blended, in.frame_mix.z);
     }
     if (sampled.a <= MARKER_ALPHA_THRESHOLD) {
