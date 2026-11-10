@@ -518,13 +518,16 @@ fn evaluate_layer_into(
     {
         return Ok(LayerStatus::Inactive);
     }
-    let SelectedMaterial {
+    let Some(SelectedMaterial {
         material,
         state: material_state,
         definition: material_definition,
         masks: material_masks,
         uv_anim: material_uv_anim,
-    } = selected_material(evaluator, variables, layer, budget)?;
+    }) = selected_material(evaluator, variables, layer, budget)?
+    else {
+        return Ok(LayerStatus::Active);
+    };
     let mut samplers = material_state.map_or(
         &[] as &[usize],
         assets::EntityRenderMaterialState::extra_texture_slots,
@@ -735,21 +738,22 @@ fn selected_material(
     variables: &mut MolangVariables,
     layer: &assets::EntityRenderLayer,
     budget: &mut EvalBudget<'_>,
-) -> Result<SelectedMaterial, EvalError> {
+) -> Result<Option<SelectedMaterial>, EvalError> {
     use assets::EntityRenderMaterialSelection as Node;
     let Some(mut selected) = layer.material_selection else {
-        return Ok(SelectedMaterial {
+        return Ok(Some(SelectedMaterial {
             material: layer.material,
             state: layer.material_state,
             definition: layer.material_definition,
             masks: layer.material_masks,
             uv_anim: true,
-        });
+        }));
     };
     let nodes = &evaluator.assets.render_data().material_selections;
     loop {
         budget.charge_work()?;
         selected = match nodes.get(selected as usize).ok_or(EvalError::Invalid)? {
+            Node::Empty => return Ok(None),
             Node::Raster {
                 material,
                 state,
@@ -757,13 +761,13 @@ fn selected_material(
                 masks,
                 uv_anim,
             } => {
-                return Ok(SelectedMaterial {
+                return Ok(Some(SelectedMaterial {
                     material: *material,
                     state: *state,
                     definition: *definition,
                     masks: *masks,
                     uv_anim: *uv_anim,
-                });
+                }));
             }
             Node::Branch { condition, yes, no } => {
                 if evaluator

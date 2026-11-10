@@ -329,7 +329,7 @@ pub(super) fn append(
         candidates,
         visibility,
         geometries,
-        skipped_draws: _,
+        skipped_draws,
     } = records;
     let extra = groups.len().saturating_sub(1);
     let candidate_count: usize = slots[base.first_slot as usize..]
@@ -361,10 +361,15 @@ pub(super) fn append(
             material_definition: group.raster.definition,
             material_masks: group.raster.masks,
             uv_anim: base.uv_anim.filter(|_| group.raster.uv_anim),
-            material_selection: group
-                .selection
-                .clone()
-                .and_then(|selection| retain_selection(selection, selections, molang)),
+            material_selection: group.selection.clone().and_then(|selection| {
+                retain_selection(
+                    selection,
+                    base.slot_count,
+                    selections,
+                    molang,
+                    skipped_draws,
+                )
+            }),
             ..base
         });
         return Ok(());
@@ -414,9 +419,15 @@ pub(super) fn append(
         layer.material_definition = group.raster.definition;
         layer.material_masks = group.raster.masks;
         layer.uv_anim = base.uv_anim.filter(|_| group.raster.uv_anim);
-        layer.material_selection = group
-            .selection
-            .and_then(|selection| retain_selection(selection, selections, molang));
+        layer.material_selection = group.selection.and_then(|selection| {
+            retain_selection(
+                selection,
+                base.slot_count,
+                selections,
+                molang,
+                skipped_draws,
+            )
+        });
         layers.push(layer);
     }
     Ok(())
@@ -425,13 +436,19 @@ pub(super) fn append(
 /// Drops an unsupported selection without leaving partial nodes or Molang programs behind.
 fn retain_selection(
     selection: Arc<Selection<Raster>>,
+    textures: u16,
     nodes: &mut Vec<assets::EntityRenderMaterialSelection>,
     molang: &mut MolangCompiler,
+    skipped_draws: &mut u32,
 ) -> Option<u32> {
     let start = nodes.len();
     let mark = molang.mark();
-    match compile_selection(selection, nodes, molang) {
-        Ok(root) => Some(root),
+    let mut skipped = 0;
+    match compile_selection(selection, textures, nodes, molang, &mut skipped) {
+        Ok(root) => {
+            *skipped_draws += skipped;
+            Some(root)
+        }
         Err(_) => {
             nodes.truncate(start);
             molang.rollback(mark);
@@ -443,29 +460,23 @@ fn retain_selection(
 /// Lowers one decision tree without cloning the authored controller or repeating its scripts.
 fn compile_selection(
     selection: Arc<Selection<Raster>>,
+    textures: u16,
     nodes: &mut Vec<assets::EntityRenderMaterialSelection>,
     molang: &mut MolangCompiler,
+    skipped_draws: &mut u32,
 ) -> Result<u32, AssetError> {
     use assets::EntityRenderMaterialSelection as Node;
     if nodes.len() >= MAX_ENTITY_RENDER_CANDIDATES {
         return Err(invalid("entity material selection count exceeds bound"));
     }
     let root = nodes.len();
-    nodes.push(Node::Raster {
-        material: EntityRenderMaterial::Default,
-        state: None,
-        definition: None,
-        masks: None,
-        uv_anim: true,
-    });
+    nodes.push(Node::Empty);
     let node = match selection.as_ref() {
-        Selection::Empty => Node::Raster {
-            material: EntityRenderMaterial::Default,
-            state: None,
-            definition: None,
-            masks: None,
-            uv_anim: true,
-        },
+        Selection::Empty => Node::Empty,
+        Selection::Leaf(raster) if raster.required_textures > textures => {
+            *skipped_draws += 1;
+            Node::Empty
+        }
         Selection::Leaf(raster) => Node::Raster {
             material: raster.material,
             state: raster.state,
@@ -475,14 +486,16 @@ fn compile_selection(
         },
         Selection::Branch(condition, yes, no) => Node::Branch {
             condition: compile_or_zero(molang, condition)?,
-            yes: compile_selection(Arc::clone(yes), nodes, molang)?,
-            no: compile_selection(Arc::clone(no), nodes, molang)?,
+            yes: compile_selection(Arc::clone(yes), textures, nodes, molang, skipped_draws)?,
+            no: compile_selection(Arc::clone(no), textures, nodes, molang, skipped_draws)?,
         },
         Selection::Array(index, choices) if !choices.is_empty() => Node::Array {
             index: compile_or_zero(molang, index)?,
             choices: choices
                 .iter()
-                .map(|choice| compile_selection(Arc::clone(choice), nodes, molang))
+                .map(|choice| {
+                    compile_selection(Arc::clone(choice), textures, nodes, molang, skipped_draws)
+                })
                 .collect::<Result<_, _>>()?,
         },
         Selection::Array(..) => return Err(invalid("empty material selector array")),

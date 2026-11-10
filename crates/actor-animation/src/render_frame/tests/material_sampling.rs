@@ -10,6 +10,16 @@ fn blends(layer: &crate::RenderTextureLayer) -> bool {
 
 /// Builds a static actor whose material selector reads one query, directly or through a script.
 fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<RuntimeEntityAssets> {
+    let compiled = compiled_material_assets(query, threshold, indirect);
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+}
+
+/// Builds the editable carrier for material selection sampling fixtures.
+fn compiled_material_assets(
+    query: MolangQuery,
+    threshold: f32,
+    indirect: bool,
+) -> CompiledEntityAssets {
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
     compiled.rig_bindings[0].pre_animation = None;
     compiled.render.layers[0].color = None;
@@ -90,7 +100,45 @@ fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<Ru
     ]
     .into();
     compiled.render.layers[0].material_selection = Some(0);
-    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+    compiled
+}
+
+#[test]
+fn empty_material_choices_skip_draws_at_ticks_and_between_frames() {
+    let mut compiled = compiled_material_assets(MolangQuery::DistanceFromCamera, 8.0, false);
+    compiled.render.material_selections[2] = EntityRenderMaterialSelection::Empty;
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
+    let actor = crate::tests::actor_with_metadata(HashMap::new());
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let mut store = ActorAnimationStore::with_assets(assets);
+    store.insert(1, 0, &actor);
+    for distance in [9.0, 5.0, 9.0] {
+        store.advance_tick(&actors, None, None, true, true, |_| ActorTickContext {
+            camera_position: [0.0, 0.0, distance],
+            ..Default::default()
+        });
+        let completed = store.get(1).unwrap().render.to_vec();
+        assert_eq!(completed.is_empty(), distance >= 8.0);
+        let authored = authored_state(&store);
+        for sample_distance in [5.0, 9.0, 5.0] {
+            let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+            let sampled = store
+                .render_layers(
+                    &actor,
+                    0.5,
+                    [0.0; 2],
+                    [0.0, 0.0, sample_distance],
+                    &mut budget,
+                    false,
+                )
+                .unwrap();
+            assert_eq!(sampled.render.is_empty(), sample_distance >= 8.0);
+        }
+        assert_eq!(store.get(1).unwrap().render, completed);
+        assert_eq!(authored_state(&store), authored);
+    }
 }
 
 #[test]

@@ -172,6 +172,22 @@ fn material_choices_share_the_multitexture_page_when_any_choice_multitextures() 
 }
 
 #[test]
+fn empty_material_choices_round_trip_without_a_fallback_raster() {
+    let mut compiled = carrier_v4_fixture();
+    compiled.render.layers[0].material_selection = Some(0);
+    compiled.render.material_selections = vec![assets::EntityRenderMaterialSelection::Empty].into();
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&encoded).unwrap();
+    let render = runtime.render_data();
+    assert_eq!(
+        render.material_selections,
+        compiled.render.material_selections
+    );
+    assert_eq!(render.materials(&render.layers[0]).count(), 0);
+    assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_ref());
+}
+
+#[test]
 fn authored_color_masks_preserve_fractional_mask_alpha() {
     let mut compiled = carrier_v4_fixture();
     let source = compiled.render.candidates[0].source;

@@ -128,15 +128,16 @@ fn drawn_with(
             }
             !hidden
         })
-        .map(|layer| {
+        .filter_map(|layer| {
             let Some(mut selected) = layer.material_selection else {
-                return layer.material.word(layer.material_state);
+                return Some(layer.material.word(layer.material_state));
             };
             loop {
                 selected = match &data.material_selections[selected as usize] {
+                    Node::Empty => return None,
                     Node::Raster {
                         material, state, ..
-                    } => return material.word(*state),
+                    } => return Some(material.word(*state)),
                     Node::Branch { condition, yes, no } => {
                         if read(*condition) != 0.0 {
                             *yes
@@ -172,6 +173,22 @@ fn material_arrays_select_one_raster_with_wrapped_and_clamped_indices() {
         assert_eq!(drawn(&fixture, "root", index), [expected]);
         assert_eq!(drawn(&fixture, "eye", index), [expected]);
     }
+}
+
+#[test]
+fn unresolved_array_members_hide_only_their_assigned_bones() {
+    let fixture = compile(json!({
+        "arrays": {"materials": {"Array.states": ["Material.solid", "Material.blend", "Material.missing"]}},
+        "materials": [{"*": "Material.solid"}, {"eye": "Array.states[query.is_invisible]"}]
+    }));
+    for (index, expected) in [(0.0, "entity_alphatest"), (1.0, "entity_alphablend")] {
+        assert_eq!(drawn(&fixture, "eye", index), [material_word(expected)]);
+    }
+    assert!(drawn(&fixture, "eye", 2.0).is_empty());
+    assert_eq!(
+        drawn(&fixture, "root", 2.0),
+        [material_word("entity_alphatest")]
+    );
 }
 
 #[test]
