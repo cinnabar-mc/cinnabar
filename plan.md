@@ -883,6 +883,9 @@ and version-matched in-game acceptance remain incomplete.
   The slim left leg drops the fetched copy's mirror to match in-game output and the newest
   identified public copy of that skin pack; public copies disagree on this flag, and the target
   version's own `skin_packs/vanilla/geometry.json` is unverified.
+  Received classic and slim skins retain transparent body regions, including legacy
+  limb expansion. Body-coverage protection stays at local import; matched post-change
+  in-game qualification of received transparency remains open.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified. Snow golems wear a carved pumpkin
@@ -1908,6 +1911,13 @@ through the Game Controller framework. Gameplay locks the iPadOS pointer through
 so mouse clicks do not also arrive as touches. While text input is enabled, the keyboard's
 Backspace yields to winit's text path. Device acceptance remains incomplete, including mouse
 delta and scroll directions and scales, Enter handling in focused text fields, and micro-profile
+Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
+winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
+look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
+gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
+winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
+PlayStation and generic controllers remains incomplete, as do controllers whose right stick
+uses `AXIS_RX`/`AXIS_RY`. iOS still lacks hardware keyboard keys, mouse capture and
 controllers.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers

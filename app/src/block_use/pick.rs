@@ -102,20 +102,16 @@ pub(crate) fn retain_block_use_pick(
     let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
     let mut capture = |liquids| {
         pick_context.liquids = liquids;
-        let world = PaletteWorld::new(
-            stream.collision_store(),
+        let picks = crate::block_ray_cache::CachedPickWorld::new(
+            &context.client_world.block_rays,
+            stream,
             context.collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
+            bevy::ecs::change_detection::DetectChanges::last_changed(&context.collisions),
             pick_context,
-        )
-        .with_cell_overlays(&overlay_ids);
-        let hit = world
-            .block_interaction_ray_prefix_current(
-                vector(origin),
-                vector(direction),
-                reach,
-                query_reach,
-            )
+            &overlay_ids,
+        );
+        let hit = picks
+            .ray_prefix(vector(origin), vector(direction), reach, query_reach)
             .ok()?;
         if let Crosshair::Actor(actor) = classify_block_hit(actor, origin, hit.as_ref(), reach) {
             return Some(
@@ -130,9 +126,7 @@ pub(crate) fn retain_block_use_pick(
             let block = block_pick(&hit, false);
             return Some(PickResult::Block(block).trimmed(state.position, reach));
         }
-        let indirect = world
-            .block_use_miss_support_current(vector(origin), vector(direction))
-            .ok()?;
+        let indirect = picks.miss_support(vector(origin), vector(direction)).ok()?;
         Some(indirect.map_or(PickResult::Miss, |hit| {
             PickResult::Block(block_pick(&hit, true)).trimmed(state.position, reach)
         }))

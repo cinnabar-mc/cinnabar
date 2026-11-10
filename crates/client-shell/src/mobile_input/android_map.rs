@@ -2,7 +2,7 @@
 
 use bevy::prelude::{GamepadAxis, GamepadButton};
 
-use super::gamepads::{GamepadInput, NativeGamepadEvent, changed_inputs};
+use super::gamepads::NativeGamepadEvent;
 
 /// `AINPUT_SOURCE_KEYBOARD`'s device bit, above the button class.
 const SOURCE_KEYBOARD_BIT: u32 = 0x0100;
@@ -69,23 +69,30 @@ pub(super) struct JoystickSample {
     pub hat_y: f32,
 }
 
-const TARGETS: [GamepadInput; 10] = [
-    GamepadInput::Axis(GamepadAxis::LeftStickX),
-    GamepadInput::Axis(GamepadAxis::LeftStickY),
-    GamepadInput::Axis(GamepadAxis::RightStickX),
-    GamepadInput::Axis(GamepadAxis::RightStickY),
-    GamepadInput::Button(GamepadButton::LeftTrigger2),
-    GamepadInput::Button(GamepadButton::RightTrigger2),
-    GamepadInput::Button(GamepadButton::DPadLeft),
-    GamepadInput::Button(GamepadButton::DPadRight),
-    GamepadInput::Button(GamepadButton::DPadUp),
-    GamepadInput::Button(GamepadButton::DPadDown),
+/// A joystick value's Bevy destination.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Target {
+    Axis(GamepadAxis),
+    Button(GamepadButton),
+}
+
+const TARGETS: [Target; 10] = [
+    Target::Axis(GamepadAxis::LeftStickX),
+    Target::Axis(GamepadAxis::LeftStickY),
+    Target::Axis(GamepadAxis::RightStickX),
+    Target::Axis(GamepadAxis::RightStickY),
+    Target::Button(GamepadButton::LeftTrigger2),
+    Target::Button(GamepadButton::RightTrigger2),
+    Target::Button(GamepadButton::DPadLeft),
+    Target::Button(GamepadButton::DPadRight),
+    Target::Button(GamepadButton::DPadUp),
+    Target::Button(GamepadButton::DPadDown),
 ];
 
 /// Values in `TARGETS` order. Android's stick Y axes point down while Bevy's point up; the
 /// right stick is `AXIS_Z`/`AXIS_RZ`, and either trigger axis pair drives the analog triggers.
 fn target_values(sample: JoystickSample) -> [f32; 10] {
-    let held = |pressed: bool| f32::from(u8::from(pressed));
+    let held = |pressed: bool| if pressed { 1.0 } else { 0.0 };
     [
         sample.x,
         -sample.y,
@@ -109,11 +116,37 @@ pub(super) struct ControllerState {
 }
 
 impl ControllerState {
-    /// Events for the values that changed since this controller's previous joystick sample.
-    pub(super) fn joystick(&mut self, id: u64, sample: JoystickSample) -> Vec<NativeGamepadEvent> {
+    /// Replays a motion event's history in arrival order before its current sample.
+    pub(super) fn motion(
+        &mut self,
+        id: u64,
+        history: impl IntoIterator<Item = JoystickSample>,
+        current: JoystickSample,
+    ) -> Vec<NativeGamepadEvent> {
+        history
+            .into_iter()
+            .chain([current])
+            .flat_map(|sample| self.joystick(id, sample))
+            .collect()
+    }
+
+    /// Reports axis changes without initial zeroes that could release key-only buttons.
+    fn joystick(&mut self, id: u64, sample: JoystickSample) -> Vec<NativeGamepadEvent> {
         let values = target_values(sample);
         self.analog_triggers |= values[4] != 0.0 || values[5] != 0.0;
-        changed_inputs(id, &TARGETS, &mut self.joystick, values)
+        let previous = self.joystick.replace(values);
+        TARGETS
+            .iter()
+            .zip(values)
+            .enumerate()
+            .filter(|(index, (_, value))| {
+                previous.map_or(*value != 0.0, |previous| previous[*index] != *value)
+            })
+            .map(|(_, (target, value))| match *target {
+                Target::Axis(axis) => NativeGamepadEvent::Axis { id, axis, value },
+                Target::Button(button) => NativeGamepadEvent::Button { id, button, value },
+            })
+            .collect()
     }
 
     /// The event for a controller key edge, or none when trigger axes already report it.
@@ -159,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn first_sample_reports_every_value_then_only_changes() {
+    fn first_sample_reports_nonzero_values_then_only_changes() {
         let mut state = ControllerState::default();
         let first = state.joystick(
             1,
@@ -169,7 +202,7 @@ mod tests {
                 ..JoystickSample::default()
             },
         );
-        assert_eq!(first.len(), TARGETS.len());
+        assert_eq!(first.len(), 2);
         assert!(first.contains(&NativeGamepadEvent::Axis {
             id: 1,
             axis: GamepadAxis::LeftStickY,
@@ -203,6 +236,90 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn neutral_joystick_axes_preserve_key_only_buttons_until_key_up() {
+        for target in TARGETS {
+            let Target::Button(button) = target else {
+                continue;
+            };
+            let mut state = ControllerState::default();
+            assert_eq!(
+                state.key(1, button, true),
+                Some(NativeGamepadEvent::Button {
+                    id: 1,
+                    button,
+                    value: 1.0,
+                })
+            );
+            for sample in [
+                JoystickSample::default(),
+                JoystickSample {
+                    x: 0.75,
+                    ..JoystickSample::default()
+                },
+            ] {
+                assert!(!state.motion(1, [], sample).iter().any(|event| matches!(
+                    event,
+                    NativeGamepadEvent::Button { button: changed, .. } if *changed == button
+                )));
+            }
+            assert_eq!(
+                state.key(1, button, false),
+                Some(NativeGamepadEvent::Button {
+                    id: 1,
+                    button,
+                    value: 0.0,
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn batched_hat_taps_are_replayed_before_the_current_neutral_sample() {
+        let mut state = ControllerState::default();
+        state.motion(1, [], JoystickSample::default());
+        let events = state.motion(
+            1,
+            [
+                JoystickSample {
+                    hat_x: -1.0,
+                    ..JoystickSample::default()
+                },
+                JoystickSample {
+                    hat_x: 1.0,
+                    ..JoystickSample::default()
+                },
+            ],
+            JoystickSample::default(),
+        );
+        assert_eq!(
+            events,
+            [
+                NativeGamepadEvent::Button {
+                    id: 1,
+                    button: GamepadButton::DPadLeft,
+                    value: 1.0,
+                },
+                NativeGamepadEvent::Button {
+                    id: 1,
+                    button: GamepadButton::DPadLeft,
+                    value: 0.0,
+                },
+                NativeGamepadEvent::Button {
+                    id: 1,
+                    button: GamepadButton::DPadRight,
+                    value: 1.0,
+                },
+                NativeGamepadEvent::Button {
+                    id: 1,
+                    button: GamepadButton::DPadRight,
+                    value: 0.0,
+                },
+            ]
+        );
+        assert!(state.motion(1, [], JoystickSample::default()).is_empty());
     }
 
     #[test]
