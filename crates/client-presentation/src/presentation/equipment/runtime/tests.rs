@@ -1032,6 +1032,7 @@ fn owner_layer(
 ) -> actor_animation::RenderTextureLayer {
     actor_animation::RenderTextureLayer {
         render_state: None,
+        masks: None,
         material: Default::default(),
         material_state: None,
         source: 0,

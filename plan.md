@@ -1243,7 +1243,9 @@ and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the default
 branch. Whole-model material arrays and ternaries retain one controller layer and
 evaluate each material decision once, after activation and before authored part
-visibility. Render-controller expressions share frame dependency analysis, keeping
+visibility. Bone material bindings preserve that selection on unbound bones; material-only
+bindings load installed entity definitions and their referenced resources.
+Render-controller expressions share frame dependency analysis, keeping
 camera-driven choices live between ticks. Dynamic per-bone material rules, selector
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a

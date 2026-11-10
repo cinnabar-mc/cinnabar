@@ -148,7 +148,7 @@ fn world_carrier_exact_bytes() {
     .into_boxed_slice();
 
     let bytes = encode_blob(&fixture).expect("encode every world carrier table");
-    assert_eq!(bytes.len(), 1_576_352);
+    assert_eq!(bytes.len(), 1_576_384);
     assert_eq!(
         &bytes[..8],
         &BLOB_MAGIC,
@@ -156,7 +156,7 @@ fn world_carrier_exact_bytes() {
     );
     assert_eq!(
         format!("{:x}", Sha256::digest(&bytes)),
-        "fa5725727ffbc7083dbe9a8c8f86e62ba95198651093bcddf706f624e9fd05a1",
+        "707edb9b9a3278b1417d48be368cfcd617af6bccab5cef394f68e1ca53374ebf",
         "the complete every-table fixture is the byte-exact world carrier golden"
     );
     assert_eq!(read_u32(&bytes, 20), 2);
@@ -183,6 +183,15 @@ fn world_carrier_exact_bytes() {
     assert_eq!(
         read_u32(&bytes, materials + assets::MATERIAL_BYTES),
         1 << assets::TEXTURE_PAGE_SHIFT
+    );
+    assert_eq!(
+        read_u32(&bytes, materials + assets::MATERIAL_BYTES + 24),
+        assets::NO_MASK,
+        "an unvaried material names no glow mask"
+    );
+    assert_eq!(
+        read_u32(&bytes, materials + assets::MATERIAL_BYTES + 28),
+        assets::NO_MASK
     );
     assert_eq!(read_u32(&bytes, templates + 4), 1);
     assert_eq!(read_u32(&bytes, quads + 40), 1);

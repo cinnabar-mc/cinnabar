@@ -52,8 +52,8 @@ pub use v4::{
     EntityAnimationClip, EntityAnimationController, EntityAnimationInterpolation,
     EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
-    EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityControllerTransition, EntityMaterialMasks, EntityRenderCandidate, EntityRenderData,
+    EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
     EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING,
@@ -71,9 +71,9 @@ pub use v4::{
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
 /// Includes item-use, seat, interaction, rig-frame, intrinsic shine, geometry-locator facts,
-/// authored held-item visibility and resolved entity material definitions; stale carriers need
-/// `make assets`.
-pub const ENTITY_BLOB_VERSION: u32 = 26;
+/// authored held-item visibility, resolved entity material definitions and Cinnabar material
+/// masks; stale carriers need `make assets`.
+pub const ENTITY_BLOB_VERSION: u32 = 27;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).

@@ -25,6 +25,10 @@ struct Raster {
     state: Option<EntityRenderMaterialState>,
     /// Index of the complete definition in the carrier's material table.
     definition: Option<u32>,
+    /// Index of a Cinnabar material's masks in the carrier's mask table.
+    masks: Option<u32>,
+    /// Textures the controller must supply for this material to draw.
+    required_textures: u16,
 }
 
 pub(super) struct Group {
@@ -42,10 +46,17 @@ fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut Material
         }),
         state: resolved.map(|(state, _)| state),
         definition: resolved.map(|(_, definition)| definition),
+        masks: None,
+        required_textures: resolved
+            .map_or(0, |(_, definition)| table.required_textures(definition)),
     }
 }
 
+/// Partitions a controller's bones by material: its authored rules first, then Cinnabar
+/// extension bindings for (`entity`, `controller_name`), the last match winning per bone.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn resolve(
+    (entity, controller_name): (&str, &str),
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
     materials: &MaterialStates,
@@ -54,15 +65,21 @@ pub(super) fn resolve(
     selected: impl IntoIterator<Item = u32>,
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
-    if let Some(selection) = uniform_selection(description, controller, materials, table)? {
+    // Unbound bones retain the authored whole-model selector after partitioning.
+    let selection = uniform_selection(description, controller, materials, table)?;
+    let extended = materials
+        .extension_rules(entity, controller_name)
+        .next()
+        .is_some();
+    if !extended && let Some(selection) = &selection {
         return Ok(vec![Group {
             raster: Raster::default(),
             hidden: Vec::new(),
-            selection: Some(selection),
+            selection: Some(Arc::clone(selection)),
         }]);
     }
     let aliases = super::lowercase_map(description.get("materials"));
-    let rules: Vec<_> = controller
+    let mut rules: Vec<_> = controller
         .get("materials")
         .and_then(Value::as_array)
         .into_iter()
@@ -74,19 +91,39 @@ pub(super) fn resolve(
             let target = aliases.get(&alias.to_ascii_lowercase())?;
             Some((pattern.to_ascii_lowercase(), target))
         })
-        .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
+        .map(|(pattern, target)| (pattern, Some(raster(Some(target), materials, table))))
         .collect::<Vec<_>>();
+    for (pattern, material) in materials.extension_rules(entity, controller_name) {
+        if let Some((state, definition, masks)) = materials.resolve_extension(material, table) {
+            let raster = Raster {
+                material: EntityRenderMaterial::Default,
+                state: Some(state),
+                definition: Some(definition),
+                masks,
+                required_textures: table.required_textures(definition),
+            };
+            rules.push((pattern.to_owned(), Some(raster)));
+        }
+    }
     let fallback = rules
         .iter()
         .rev()
         .find(|(pattern, _)| pattern == "*")
-        .map_or_else(Raster::default, |(_, raster)| *raster);
+        .map_or_else(
+            || selection.is_none().then(Raster::default),
+            |(_, raster)| *raster,
+        );
+    let group = |raster: Option<Raster>, hidden| Group {
+        raster: raster.unwrap_or_default(),
+        selection: if raster.is_none() {
+            selection.clone()
+        } else {
+            None
+        },
+        hidden,
+    };
     if rules.iter().all(|(_, raster)| *raster == fallback) {
-        return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
-            selection: None,
-        }]);
+        return Ok(vec![group(fallback, Vec::new())]);
     }
     if parents.is_none() {
         *parents = Some(validate_entity_geometry_inheritance(geometries)?);
@@ -107,11 +144,7 @@ pub(super) fn resolve(
         }
     }
     if names.is_empty() {
-        return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
-            selection: None,
-        }]);
+        return Ok(vec![group(fallback, Vec::new())]);
     }
     let assignments: Vec<_> = names
         .into_iter()
@@ -128,17 +161,19 @@ pub(super) fn resolve(
     let mut seen = BTreeSet::new();
     for raster in rules.iter().map(|(_, raster)| *raster).chain([fallback]) {
         if assignments.iter().any(|(_, assigned)| *assigned == raster)
-            && seen.insert((raster.material.word(raster.state), raster.definition))
+            && seen.insert(raster.map(|raster| {
+                (
+                    raster.material.word(raster.state),
+                    raster.definition,
+                    raster.masks,
+                )
+            }))
         {
             order.push(raster);
         }
     }
     if order.len() == 1 {
-        return Ok(vec![Group {
-            raster: order[0],
-            hidden: Vec::new(),
-            selection: None,
-        }]);
+        return Ok(vec![group(order[0], Vec::new())]);
     }
     if order.len() > MAX_ENTITY_RENDER_LAYERS
         || assignments.len().saturating_mul(order.len() - 1) > MAX_ENTITY_RENDER_VISIBILITY
@@ -157,14 +192,15 @@ pub(super) fn resolve(
     }
     Ok(order
         .into_iter()
-        .map(|raster| Group {
-            raster,
-            selection: None,
-            hidden: assignments
-                .iter()
-                .filter(|(_, assigned)| *assigned != raster)
-                .map(|(name, _)| name.as_str().into())
-                .collect(),
+        .map(|raster| {
+            group(
+                raster,
+                assignments
+                    .iter()
+                    .filter(|(_, assigned)| *assigned != raster)
+                    .map(|(name, _)| name.as_str().into())
+                    .collect(),
+            )
         })
         .collect())
 }
@@ -237,10 +273,16 @@ pub(super) struct Records<'a> {
 
 pub(super) fn append(
     base: EntityRenderLayer,
-    groups: Vec<Group>,
+    mut groups: Vec<Group>,
     records: Records<'_>,
     molang: &mut MolangCompiler,
 ) -> Result<(), AssetError> {
+    // A material whose controller supplies too few textures is not drawn, as on Bedrock; its
+    // bones stay hidden in the other groups.
+    groups.retain(|group| group.raster.required_textures <= base.slot_count);
+    if groups.is_empty() {
+        return Ok(());
+    }
     let Records {
         selections,
         layers,
@@ -270,12 +312,13 @@ pub(super) fn append(
             "entity material groups exceed admitted render bounds",
         ));
     }
-    if groups.len() == 1 {
+    if groups.len() == 1 && groups[0].hidden.is_empty() {
         let group = groups.into_iter().next().expect("one group");
         layers.push(EntityRenderLayer {
             material: group.raster.material,
             material_state: group.raster.state,
             material_definition: group.raster.definition,
+            material_masks: group.raster.masks,
             material_selection: group
                 .selection
                 .and_then(|selection| retain_selection(selection, selections, molang)),
@@ -328,6 +371,7 @@ pub(super) fn append(
         layer.material = group.raster.material;
         layer.material_state = group.raster.state;
         layer.material_definition = group.raster.definition;
+        layer.material_masks = group.raster.masks;
         layer.material_selection = group
             .selection
             .and_then(|selection| retain_selection(selection, selections, molang));
@@ -369,17 +413,20 @@ fn compile_selection(
         material: EntityRenderMaterial::Default,
         state: None,
         definition: None,
+        masks: None,
     });
     let node = match selection.as_ref() {
         Selection::Empty => Node::Raster {
             material: EntityRenderMaterial::Default,
             state: None,
             definition: None,
+            masks: None,
         },
         Selection::Leaf(raster) => Node::Raster {
             material: raster.material,
             state: raster.state,
             definition: raster.definition,
+            masks: raster.masks,
         },
         Selection::Branch(condition, yes, no) => Node::Branch {
             condition: molang.compile(condition)?,

@@ -225,6 +225,10 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
             variation_start: material.variation_start,
             variation_count: material.variation_count,
             variation_weight: material.variation_weight,
+            glow_mask: gpu_mask_reference(assets.assets(), material.glow_mask),
+            emissive_mask: gpu_mask_reference(assets.assets(), material.emissive_mask),
+            mask_strength: material.mask_strength,
+            ao_exponent: material.ao_exponent,
         })
         .collect::<Vec<_>>();
     let animation_words = assets
@@ -639,6 +643,14 @@ fn upload_texture_page_format(
         ..Default::default()
     });
     (texture, view, queue_upload_bytes)
+}
+
+/// The GPU texture reference of a material mask; [`assets::NO_MASK`] stays unset.
+fn gpu_mask_reference(assets: &assets::RuntimeAssets, raw: u32) -> u32 {
+    match assets::TextureRef::from_raw(raw) {
+        Ok(texture) if raw != assets::NO_MASK => gpu_texture_reference(assets, texture),
+        _ => assets::NO_MASK,
+    }
 }
 
 #[cfg(test)]

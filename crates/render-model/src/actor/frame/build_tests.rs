@@ -313,6 +313,8 @@ fn reference(
                 1.0
             },
             raster: intern_raster(&mut rasters, submission.material.raster()),
+            mask_layers: [u32::MAX; 2],
+            mask_strength: 0.0,
         });
         manifest.push(ActorDrawManifestEntry {
             identity: submission.input.identity,

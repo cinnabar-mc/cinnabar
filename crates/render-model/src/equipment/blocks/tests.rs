@@ -210,7 +210,7 @@ fn ao_exponents_preserve_carried_cube_face_pixels() {
             BLOCK_ITEM_FACE_SIDE.into(),
         );
         let expected = overlay_sheet(&source, 0, None).unwrap();
-        source.materials[1].flags |= 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
+        source.materials[1].ao_exponent = 0.8_f32.to_bits();
         let actual = overlay_sheet(&source, 0, None)
             .expect("world lighting metadata preserves carried face admission");
         assert_eq!(actual, expected);

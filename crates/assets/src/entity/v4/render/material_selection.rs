@@ -10,6 +10,9 @@ pub enum EntityRenderMaterialSelection {
         /// Index into [`EntityRenderData::materials`] when the choice resolved completely.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         definition: Option<u32>,
+        /// Index into [`EntityRenderData::material_masks`] for a Cinnabar material with masks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        masks: Option<u32>,
     },
     Branch {
         condition: u32,
@@ -47,6 +50,13 @@ impl EntityRenderMaterialSelection {
 }
 
 impl EntityRenderData {
+    /// Mask textures Cinnabar materials sample; their alpha weights the mask.
+    pub fn material_mask_sources(&self) -> impl Iterator<Item = u32> + '_ {
+        self.material_masks
+            .iter()
+            .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
+    }
+
     /// Walks reachable decisions once, tolerating unvalidated indices without looping.
     pub fn material_nodes(
         &self,
@@ -101,6 +111,7 @@ impl EntityRenderData {
                             material,
                             state,
                             definition: index,
+                            ..
                         } => Some((*material, *state, definition(*index))),
                         _ => None,
                     }),
@@ -119,6 +130,7 @@ pub(super) fn validate(render: &EntityRenderData, expressions: usize) -> Result<
             .is_some_and(|expression| expression as usize >= expressions)
             || matches!(node, EntityRenderMaterialSelection::Array { choices, .. } if choices.is_empty())
             || matches!(node, EntityRenderMaterialSelection::Raster { definition: Some(definition), .. } if *definition as usize >= render.materials.len())
+            || matches!(node, EntityRenderMaterialSelection::Raster { masks: Some(masks), .. } if *masks as usize >= render.material_masks.len())
             || node.children().any(|child| {
                 child as usize <= index || child as usize >= render.material_selections.len()
             })

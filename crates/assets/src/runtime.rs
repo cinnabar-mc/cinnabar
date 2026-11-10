@@ -6,6 +6,7 @@ mod hashed_ids;
 mod id_remap;
 mod overlay;
 mod server_defined_blocks;
+mod template_overrides;
 
 pub use id_remap::SequentialIdRemap;
 pub use overlay::{BlockOverlay, MaterialOverride, VanillaFallback};

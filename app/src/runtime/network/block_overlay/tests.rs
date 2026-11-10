@@ -26,6 +26,7 @@ fn compile_block_overlay(
     )
 }
 
+mod alpha_masked_tint;
 mod block_items;
 mod budget;
 mod builtins;
@@ -36,12 +37,14 @@ mod flipbooks;
 mod hd_textures;
 mod legacy;
 mod lighting;
+mod material_bindings;
 mod mining;
 mod multi_page;
 mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
+mod texture_variations;
 mod top_rotation;
 mod vanilla_terrain;
 

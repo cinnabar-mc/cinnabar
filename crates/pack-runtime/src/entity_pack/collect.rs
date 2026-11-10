@@ -139,6 +139,7 @@ pub fn collect_files(
         mut references,
     } = unique_entities(view);
     complete_inert_overrides(&mut entities, &mut references, vanilla_pack_dir);
+    collect_material_binding_entities(view, &mut entities, &mut references, vanilla_pack_dir);
     let mut geometry = unshadowed_geometry(view);
     let mut pack_geometry = BTreeSet::new();
     for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
@@ -236,12 +237,14 @@ pub fn collect_files(
     }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
+    textures.extend(material_binding_textures(view));
     files.extend(entities);
     files.extend(
         materials
             .into_iter()
             .map(|(path, bytes)| (path.into(), bytes)),
     );
+    files.extend(material_bindings(view));
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -326,6 +329,49 @@ fn declared_texture_stem(path: &str) -> Option<String> {
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
+}
+
+/// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
+/// when invalid; the compiler then ignores it and the reason is logged here.
+fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
+    let document = material_bindings_document(view)?;
+    if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
+        tracing::warn!(%reason, "ignoring the pack's material bindings");
+    }
+    Some((
+        pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
+        serde_json::to_vec(&document).ok()?,
+    ))
+}
+
+/// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
+fn material_binding_textures(view: &LayeredPackView) -> Vec<String> {
+    let Some(document) = material_bindings_document(view) else {
+        return Vec::new();
+    };
+    document
+        .get("materials")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|materials| materials.values())
+        .filter_map(|material| material.get("textures")?.as_object())
+        .flat_map(|textures| textures.values())
+        .filter_map(|path| path.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The stack's winning `cinnabar/material-bindings.json` document.
+pub fn material_bindings_document(view: &LayeredPackView) -> Option<Value> {
+    parse_pack_json(&view.read(pack_entity_compiler::MATERIAL_BINDINGS_PATH)?)
+}
+
+/// The stack's `.material` documents, merged per path and in path order, as entity
+/// compilation reads them.
+pub fn material_documents(view: &LayeredPackView) -> Vec<Value> {
+    material_files(view)
+        .into_iter()
+        .filter_map(|(_, bytes)| parse_pack_json(&bytes))
+        .collect()
 }
 
 /// Material files merged per path across the stack, lowest precedence first, as the client
@@ -575,6 +621,60 @@ fn complete_inert_overrides(
     });
 }
 
+/// Loads installed definitions and their references for binding targets the pack does not define.
+fn collect_material_binding_entities(
+    view: &LayeredPackView,
+    entities: &mut Vec<(Box<str>, Vec<u8>)>,
+    references: &mut References,
+    vanilla_pack_dir: Option<&Path>,
+) {
+    let Some(document) = material_bindings_document(view) else {
+        return;
+    };
+    let mut targets = pack_entity_compiler::entity_material_binding_targets(&document)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    for (_, bytes) in entities.iter() {
+        if let Some(document) = parse_pack_json(bytes)
+            && let Some(identifier) = document
+                .pointer("/minecraft:client_entity/description/identifier")
+                .and_then(Value::as_str)
+        {
+            targets.remove(identifier);
+        }
+    }
+    if targets.is_empty() {
+        return;
+    }
+    let Some(installed) = vanilla_pack_dir
+        .and_then(|root| pack_entity_compiler::load_vanilla_entity_definitions(root).ok())
+    else {
+        return;
+    };
+    let mut paths = entities
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<BTreeSet<_>>();
+    let mut index = 0;
+    for target in targets {
+        let Some(document) = installed.get(&target) else {
+            continue;
+        };
+        let Ok(bytes) = serde_json::to_vec(document) else {
+            continue;
+        };
+        let path = loop {
+            let path: Box<str> = format!("entity/_cinnabar_material_bindings/{index}.json").into();
+            index += 1;
+            if paths.insert(path.clone()) {
+                break path;
+            }
+        };
+        references.read(document);
+        entities.push((path, bytes));
+    }
+}
+
 /// Lays `overlay` over `base`: objects merge key by key, any other value replaces.
 fn overlay_json(base: &mut Value, overlay: Value) {
     match (base, overlay) {
@@ -699,5 +799,7 @@ mod attachables;
 
 #[cfg(test)]
 mod harness_tests;
+#[cfg(test)]
+mod material_bindings_tests;
 #[cfg(test)]
 mod tests;

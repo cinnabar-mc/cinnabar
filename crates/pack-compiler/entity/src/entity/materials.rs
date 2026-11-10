@@ -40,6 +40,10 @@ struct Declaration {
 
 #[derive(Default)]
 pub(super) struct MaterialStates {
+    /// The pack's `cinnabar/material-bindings.json`, when valid.
+    extension: Option<extension::Extension>,
+    /// Entity raster sources by extensionless path, for extension texture lookups.
+    textures: BTreeMap<Box<str>, u32>,
     files: usize,
     definitions: BTreeMap<Box<str>, Declaration>,
     /// `+name` declarations applied in place after the named material resolves.
@@ -79,16 +83,58 @@ pub(super) struct MaterialTable {
     unresolved: u32,
     /// Parent-chain links resolved against the built-in bases.
     chains: ChainMemo,
+    /// Interned Cinnabar glow and emissive mask pairs.
+    masks: Vec<assets::EntityMaterialMasks>,
 }
 
 impl MaterialTable {
-    /// The finished table, in index order.
-    pub(super) fn into_definitions(self) -> Box<[EntityMaterialDefinition]> {
-        self.definitions.into_boxed_slice()
+    /// The finished definition and mask tables, in index order.
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        Box<[EntityMaterialDefinition]>,
+        Box<[assets::EntityMaterialMasks]>,
+    ) {
+        (
+            self.definitions.into_boxed_slice(),
+            self.masks.into_boxed_slice(),
+        )
     }
 
-    /// Definitions and variants that did not fit the carrier bound. Their materials draw as
-    /// layers without one, and the rest of the pack still compiles.
+    /// Textures a draw with definition `index` needs, as Bedrock validates them before drawing:
+    /// `GLINT` needs a second texture, and with `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE`
+    /// a third; either of those alone needs a second. Other materials need none here, so layers
+    /// with unresolved textures keep their artwork fallback.
+    pub(super) fn required_textures(&self, index: u32) -> u16 {
+        let Some(definition) = self.definitions.get(index as usize) else {
+            return 0;
+        };
+        let glint = definition.has_define("GLINT");
+        let tint = definition.has_define("MULTIPLICATIVE_TINT")
+            || definition.has_define("MASKED_MULTITEXTURE");
+        match (glint, tint) {
+            (true, true) => 3,
+            (true, false) | (false, true) => 2,
+            (false, false) => 0,
+        }
+    }
+
+    /// Interns `masks`, reusing an equal existing entry. Masks past the carrier bound stay
+    /// unresolved and are counted; their material draws without them.
+    fn intern_masks(&mut self, masks: assets::EntityMaterialMasks) -> Option<u32> {
+        if let Some(index) = self.masks.iter().position(|existing| *existing == masks) {
+            return Some(index as u32);
+        }
+        if self.masks.len() >= MAX_ENTITY_MATERIAL_DEFINITIONS {
+            self.unresolved += 1;
+            return None;
+        }
+        self.masks.push(masks);
+        Some(self.masks.len() as u32 - 1)
+    }
+
+    /// Definitions, variants and mask pairs that did not fit the carrier bound. Their materials
+    /// draw without them, and the rest of the pack still compiles.
     pub(super) fn unresolved(&self) -> u32 {
         self.unresolved
     }
@@ -141,6 +187,24 @@ impl MaterialStates {
         let mut states = Self::default();
         for path in paths {
             states.read(payloads.read(root, path)?);
+        }
+        states.textures = sources
+            .iter()
+            .enumerate()
+            .filter_map(|(index, source)| {
+                let stem = source
+                    .path
+                    .strip_suffix(".png")
+                    .or_else(|| source.path.strip_suffix(".tga"))?;
+                Some((stem.into(), index as u32))
+            })
+            .collect();
+        if sources
+            .iter()
+            .any(|source| source.path.as_ref() == extension::MATERIAL_BINDINGS_PATH)
+        {
+            states.extension =
+                extension::parse(payloads.read(root, extension::MATERIAL_BINDINGS_PATH)?).ok();
         }
         Ok(states)
     }
@@ -273,9 +337,78 @@ impl MaterialStates {
         }
         let resolved = self
             .resolve_with(name, &builtin, &mut table.chains)
-            .and_then(|resolved| Some((shading(&resolved), table.intern(&resolved)?)));
+            .and_then(|resolved| {
+                let drawn = resolved.actor_variant();
+                Some((shading(drawn), table.intern(drawn)?))
+            });
         table.resolved.insert(name.into(), resolved);
         resolved
+    }
+
+    /// Resolves a pack's block bindings: `.material` documents in path order supply bases, and
+    /// bindings whose material does not resolve are dropped.
+    pub(crate) fn block_bindings(
+        material_documents: &[Value],
+        document: &Value,
+    ) -> Vec<extension::ResolvedBlockBinding> {
+        let mut states = Self::default();
+        for value in material_documents {
+            states.read(value);
+        }
+        states.extension = extension::parse(document).ok();
+        let mut table = MaterialTable::default();
+        let Some(extension) = &states.extension else {
+            return Vec::new();
+        };
+        extension
+            .block_bindings
+            .iter()
+            .filter_map(|binding| {
+                let (shading, index, _) =
+                    states.resolve_extension(&binding.material, &mut table)?;
+                Some(extension::ResolvedBlockBinding {
+                    block: binding.block.clone(),
+                    states: binding.states.clone(),
+                    material_instance: binding.material_instance.clone(),
+                    definition: table.definitions[index as usize].clone(),
+                    shading,
+                    masks: extension.materials[&binding.material].mask_paths(),
+                })
+            })
+            .collect()
+    }
+
+    /// Extension material bindings of `entity`'s `controller`, as (bone pattern, material), in
+    /// document order.
+    pub(super) fn extension_rules<'a>(
+        &'a self,
+        entity: &'a str,
+        controller: &'a str,
+    ) -> impl Iterator<Item = (&'a str, &'a str)> + 'a {
+        self.extension
+            .iter()
+            .flat_map(move |extension| extension.entity_rules(entity, controller))
+    }
+
+    /// Resolves extension material `name` over its base, interns it and returns its shading
+    /// features with the definition's table index and its interned masks, if any.
+    pub(super) fn resolve_extension(
+        &self,
+        name: &str,
+        table: &mut MaterialTable,
+    ) -> Option<(EntityRenderMaterialState, u32, Option<u32>)> {
+        let material = self.extension.as_ref()?.materials.get(name)?;
+        let mut resolved = match &material.base {
+            Some(base) => self.resolve_with(material_name(base), &builtin, &mut table.chains)?,
+            None => Resolved::default(),
+        };
+        resolved.version = 1;
+        resolved.apply(&material.fields);
+        let masks = material
+            .masks(|path| self.textures.get(path).copied())
+            .and_then(|masks| table.intern_masks(masks));
+        let drawn = resolved.actor_variant();
+        Some((shading(drawn), table.intern(drawn)?, masks))
     }
 
     /// Walks `name`'s parent chain until a link `memo` already knows, then applies each
@@ -421,6 +554,9 @@ fn file_entries(value: &Value) -> Option<(&Map<String, Value>, u8)> {
     Some((root, 0))
 }
 
+/// The variant an actor draw selects.
+const SKINNING_VARIANT: &str = "skinning";
+
 /// Skinning variants use their base material's declaration.
 fn material_name(target: &str) -> &str {
     target.strip_suffix(".skinning").unwrap_or(target)
@@ -540,6 +676,16 @@ impl Resolved {
             vertex_fields: self.vertex_fields.as_deref().map(Box::from),
             ..self.definition.clone()
         }
+    }
+
+    /// What an actor draw uses: Bedrock looks up `<name>.skinning` for every client-entity
+    /// material and falls back to the material itself. Actor meshes carry no vertex colour, so
+    /// the `skinning_color` variant is not selected.
+    fn actor_variant(&self) -> &Self {
+        self.variants
+            .iter()
+            .find(|(name, _)| name.as_ref() == SKINNING_VARIANT)
+            .map_or(self, |(_, variant)| variant)
     }
 
     /// Applies one declaration's fields with this material's version rules.
@@ -812,3 +958,6 @@ fn stencil_face(fields: &Map<String, Value>, face: &mut EntityMaterialStencilFac
 #[cfg(test)]
 #[path = "materials/tests.rs"]
 mod tests;
+
+#[path = "materials/extension.rs"]
+pub(crate) mod extension;

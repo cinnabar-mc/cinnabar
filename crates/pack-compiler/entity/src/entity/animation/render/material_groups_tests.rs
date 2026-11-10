@@ -3,6 +3,14 @@ use serde_json::json;
 
 /// Compiles material groups and authored visibility for a two-bone controller fixture.
 fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
+    compile_with_materials(controller, &MaterialStates::default())
+}
+
+/// Compiles the fixture with authored and extension material definitions.
+fn compile_with_materials(
+    controller: Value,
+    materials: &MaterialStates,
+) -> (assets::EntityRenderData, MolangCompiler) {
     let description =
         json!({"materials": {"solid": "entity_alphatest", "blend": "entity_alphablend"}});
     let geometry: EntityGeometry = serde_json::from_value(json!({
@@ -12,9 +20,10 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
     .unwrap();
     let controller = controller.as_object().unwrap();
     let groups = resolve(
+        ("test:entity", "controller.render.test"),
         description.as_object().unwrap(),
         controller,
-        &MaterialStates::default(),
+        materials,
         &mut MaterialTable::default(),
         &[geometry],
         [0],
@@ -218,6 +227,7 @@ fn static_single_material_needs_no_literal_bone_mask() {
     }))
     .unwrap();
     let groups = resolve(
+        ("test:entity", "controller.render.test"),
         description.as_object().unwrap(),
         controller.as_object_mut().unwrap(),
         &MaterialStates::default(),
@@ -229,4 +239,65 @@ fn static_single_material_needs_no_literal_bone_mask() {
     .unwrap();
     assert_eq!(groups.len(), 1);
     assert!(groups[0].hidden.is_empty());
+}
+
+/// Loads one fixed emissive binding through the same material inputs as a pack.
+fn bound_materials(bone: &str) -> MaterialStates {
+    use crate::entity::{SourceDocuments, SourcePayloads};
+    let document = json!({
+        "format_version": "1.0.0",
+        "materials": {"test:fixed": {
+            "base": "entity_alphatest", "material": {"+defines": ["USE_EMISSIVE"]}
+        }},
+        "bindings": [{"entity": "test:entity", "bone": bone, "material": "test:fixed"}]
+    });
+    let bytes = serde_json::to_vec(&document).unwrap();
+    let source = assets::EntityAssetSource {
+        path: crate::MATERIAL_BINDINGS_PATH.into(),
+        source_bytes: bytes.len() as u32,
+        source_sha256: [0; 32],
+    };
+    let payloads = SourcePayloads::from([(source.path.clone(), bytes.into_boxed_slice())]);
+    MaterialStates::load(
+        std::path::Path::new("."),
+        &SourceDocuments::new(&payloads),
+        &[source],
+    )
+    .unwrap()
+}
+
+#[test]
+fn bone_bindings_preserve_dynamic_materials_on_unbound_bones() {
+    for expression in [
+        "query.is_invisible ? Material.blend : Material.solid",
+        "Array.states[query.is_invisible]",
+    ] {
+        for bone in ["eye", "missing", "*"] {
+            let materials = bound_materials(bone);
+            let (state, _, _) = materials
+                .resolve_extension("test:fixed", &mut MaterialTable::default())
+                .unwrap();
+            let fixed = EntityRenderMaterial::Default.word(Some(state));
+            let fixture = compile_with_materials(
+                json!({
+                    "arrays": {"materials": {"Array.states": ["Material.solid", "Material.blend"]}},
+                    "materials": [{"*": expression}]
+                }),
+                &materials,
+            );
+            for (value, expected) in [(0.0, "entity_alphatest"), (1.0, "entity_alphablend")] {
+                for name in ["root", "eye"] {
+                    assert_eq!(
+                        drawn(&fixture, name, value),
+                        [if bone == name || bone == "*" {
+                            fixed
+                        } else {
+                            material_word(expected)
+                        }],
+                        "{expression}, binding {bone}, drawn bone {name}, query {value}"
+                    );
+                }
+            }
+        }
+    }
 }

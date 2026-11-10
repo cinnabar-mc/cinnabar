@@ -260,6 +260,7 @@ mod tests {
         let pose: std::sync::Arc<[BoneTransform]> = std::sync::Arc::from([pose]);
         RenderTextureLayer {
             render_state: None,
+            masks: None,
             material: Default::default(),
             material_state: None,
             source: 0,

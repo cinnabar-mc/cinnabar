@@ -56,6 +56,8 @@ impl ActorMaterial {
             suppress_overlay: _,
             dissolve_multiplier: _,
             light_color_multiplier: _,
+            // Masks are instance data; they reach neither the word nor the raster.
+            masks: _,
         } = self;
         [kind, assets::EntityRenderMaterial::Glint]
             .into_iter()

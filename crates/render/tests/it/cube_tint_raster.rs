@@ -367,7 +367,7 @@ fn render_fixture(cache_admission: bool) {
         .into_iter()
         .enumerate()
         .flat_map(|(index, flags)| {
-            [
+            crate::material_records::plain_material(
                 0,
                 flags,
                 if index % 2 == 0 {
@@ -375,10 +375,7 @@ fn render_fixture(cache_admission: bool) {
                 } else {
                     0
                 },
-                0,
-                0,
-                0,
-            ]
+            )
         })
         .collect::<Vec<_>>();
     let view = gpu.buffer(

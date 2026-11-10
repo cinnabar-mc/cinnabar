@@ -4,6 +4,7 @@
 
 use assets::material_keys::MaterialKeys;
 
+mod bindings;
 mod condition;
 mod items;
 pub(super) use items::compile_block_item_overlay;
@@ -164,12 +165,14 @@ pub(super) fn compile_block_overlay_with_textures(
         max_layers,
         slots: TextureSlots::default(),
         materials: HashMap::new(),
+        state_masks: bindings::StateMasks::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
             invalid_legacy_bindings: legacy.invalid,
             ..OverlayGaps::default()
         },
     };
+    let bindings = bindings::MaterialBindings::new(view, &mut builder.gaps);
     builder.sources.push((Source::Diagnostic, 0));
     builder.overlay.materials.push(Material {
         texture: TextureRef::new(builder.overlay.base_texture_pages, 0).expect("layer zero"),
@@ -199,6 +202,8 @@ pub(super) fn compile_block_overlay_with_textures(
                 let physics = block.physics_for_state(index as u32);
                 visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
+                bindings.apply(block, Some(&state.values), &mut visual.components);
+                builder.state_masks = bindings.state_masks(block, Some(&state.values));
                 builder.push_state(
                     &visual,
                     &geometries,
@@ -218,6 +223,8 @@ pub(super) fn compile_block_overlay_with_textures(
             let physics = block.physics_for_state(state);
             visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
+            bindings.apply(block, values.as_deref(), &mut visual.components);
+            builder.state_masks = bindings.state_masks(block, values.as_deref());
             builder.push_state(
                 &visual,
                 &geometries,
@@ -237,10 +244,12 @@ pub(super) fn compile_block_overlay_with_textures(
         builder.override_vanilla_materials(keys);
         builder.override_vanilla_bindings(keys, &legacy);
         builder.override_marker_bindings(keys, &legacy);
+        builder.bind_vanilla_blocks(keys, &bindings);
     }
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
         && builder.overlay.face_overrides.is_empty()
+        && builder.overlay.template_overrides.is_empty()
         && builder.vanilla_carried.is_empty()
     {
         builder.catalog.emit_diagnostics();
@@ -294,7 +303,7 @@ struct Builder<'a> {
     base_assets: Option<&'a assets::RuntimeAssets>,
     base_keys: Option<&'a MaterialKeys>,
     vanilla_carried: Vec<CarriedBlock>,
-    terrain_materials: HashMap<(String, u32, u32), u32>,
+    terrain_materials: HashMap<(String, u32, u32, u32), u32>,
     overlay: BlockOverlay,
     /// Base-carrier textures for vanilla keys the server stack does not ship.
     fallback: Option<assets::VanillaFallback<'a>>,
@@ -309,7 +318,10 @@ struct Builder<'a> {
     texture_policy: TexturePolicy,
     max_layers: usize,
     slots: TextureSlots,
-    materials: HashMap<(String, u32), u32>,
+    /// Admitted materials by texture key, flags, AO exponent bits and raw mask references.
+    materials: HashMap<(String, u32, u32, [u32; 3]), u32>,
+    /// Mask textures bindings assign to the state being pushed.
+    state_masks: bindings::StateMasks,
     visuals: HashMap<String, BlockVisual>,
     gaps: OverlayGaps,
 }
@@ -365,7 +377,10 @@ impl Builder<'_> {
         geometries: &HashMap<String, Geometry>,
     ) -> BlockVisual {
         let components = &state.components;
-        let key = format!("{components:?}{:?}", state.hidden_bones);
+        let key = format!(
+            "{components:?}{:?}{:?}",
+            state.hidden_bones, self.state_masks
+        );
         if let Some(visual) = self.visuals.get(&key) {
             return *visual;
         }

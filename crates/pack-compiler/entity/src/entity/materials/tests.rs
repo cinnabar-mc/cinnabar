@@ -542,3 +542,20 @@ fn two_long_chains_from_one_root_apply_each_declaration_once_and_share_its_lists
         1
     );
 }
+
+#[test]
+fn actor_draws_use_a_materials_skinning_variant_and_otherwise_the_material() {
+    let file = modern(json!({
+        "owner": {"+defines": ["OWNER"], "variants": [{"skinning": {"+states": ["Blending"]}}]},
+        "plain": {"+defines": ["PLAIN"]}
+    }));
+    let mut states = MaterialStates::default();
+    states.read(&file);
+    let mut table = MaterialTable::default();
+    for (name, blends, define) in [("owner", true, "OWNER"), ("plain", false, "PLAIN")] {
+        let (_, index) = states.resolve(name, &mut table).unwrap();
+        let drawn = &table.definitions[index as usize];
+        assert_eq!(drawn.has_state(State::Blending), blends, "{name}");
+        assert!(drawn.has_define(define), "{name}");
+    }
+}
