@@ -122,11 +122,13 @@ pub use inventory::recipes::{
     recipe_binding_supported, vanilla_tag_contains,
 };
 pub use inventory::{
-    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, BookEdit, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MAX_STACK_REQUEST_AMOUNT,
-    MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem,
-    TradeOffer, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_BOOK_PAGE_BYTES, MAX_STACK_REQUEST_ACTIONS,
+    MAX_STACK_REQUEST_AMOUNT, MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
+    TradeEvent, TradeItem, TradeOffer, TrimRegistry, WINDOW_TYPE_TRADE, actor_pick_request_packet,
+    block_pick_request_packet, book_edit_packet, container_window, crafter_slot_toggle_packet,
+    is_personal_ui_inventory, lectern_update_packet,
 };
 pub use inventory::{
     ArmorDamage, ArmorDamageEvent, CONTAINER_NAME_ARMOR,
@@ -147,10 +149,6 @@ pub use inventory::{
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
     repeated_container_open_warning_packet, validate_item_nbt_size,
-};
-pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
-    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CraftingRules, CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem,
@@ -175,22 +173,24 @@ pub use inventory::{
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
-    DiggerSpeed, DiggerStates, EquipmentEvent, FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent,
-    ItemAnvilData, ItemAttackCooldown, ItemAttackTiming, ItemBlockList, ItemBook, ItemComponents,
-    ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
-    ItemRegistryVersion, ItemSeed, ItemShooter, ItemStackFacts, ItemStackFactsCache,
-    ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    DiggerSpeed, DiggerStates, EquipmentEvent, FireworkExplosion, FoodProperties,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAnvilData, ItemAttackCooldown, ItemAttackTiming,
+    ItemBlockList, ItemBook, ItemComponents, ItemDigger, ItemDisplay, ItemFireworks, ItemNbtEdit,
+    ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, ItemSeed,
+    ItemShooter, ItemStackFacts, ItemStackFactsCache, ItemTrim, ItemUseCooldown,
+    KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
     MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, apply_banner_to_shield, book_init_extra,
-    book_needs_init, edit_item_extra, held_items_match, item_anvil_data, item_banner_patterns,
-    item_banner_type, item_block_list, item_book, item_bundle_id, item_charged_projectile,
-    item_custom_color, item_custom_name, item_display, item_enchantment_level,
-    item_enchantment_level_value, item_enchantment_mask, item_extra_damage,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, apply_banner_to_shield, apply_item_trim,
+    book_init_extra, book_needs_init, edit_item_extra, held_items_match, item_anvil_data,
+    item_banner_patterns, item_banner_type, item_block_list, item_book, item_bundle_id,
+    item_charged_projectile, item_custom_color, item_custom_name, item_display,
+    item_enchantment_level, item_enchantment_level_value, item_enchantment_mask, item_extra_damage,
     item_extra_damage_integer, item_extra_damage_value, item_extra_lock, item_extra_slot_locked,
-    item_extra_unbreakable, item_filtered_custom_name, item_has_enchantment_list, item_has_trim,
-    item_id_aux, item_map_id, item_repair_cost, item_shield_pattern, item_stack_damage,
-    item_use_progress_packet, item_user_data_equal, offhand_equipment_packet,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    item_extra_unbreakable, item_filtered_custom_name, item_firework_star, item_fireworks,
+    item_has_enchantment_list, item_has_trim, item_id_aux, item_map_id, item_repair_cost,
+    item_shield_pattern, item_stack_damage, item_trim, item_use_progress_packet,
+    item_user_data_equal, offhand_equipment_packet, select_hotbar_slot_packet,
+    vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};

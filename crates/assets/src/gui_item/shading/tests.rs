@@ -21,7 +21,6 @@ fn world_shading_lights_each_outward_direction_like_flat_terrain() {
         (BlockFace::West, WORLD_SHADE_X),
         (BlockFace::East, WORLD_SHADE_X),
     ] {
-        assert_eq!(GuiShading::Unshaded.brightness(cube_face(face).0), 1.0);
         assert_eq!(
             GuiShading::World.brightness(cube_face(face).0),
             expected,

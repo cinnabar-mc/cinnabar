@@ -54,6 +54,11 @@ impl Atlas {
         }
     }
 
+    /// Finds an existing source without allocating more atlas space.
+    pub(super) fn get(&self, size: [u16; 2], pixels: &[u8]) -> Option<IconRef> {
+        self.refs.get(&key(size, pixels)).copied()
+    }
+
     /// Places full-resolution texels. Each side keeps a one-texel edge gutter where the page has
     /// room; a side as long as the page fills it, its page border clamping instead.
     pub(super) fn insert(

@@ -4,6 +4,10 @@ pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
 pub const BRUSH_IDENTIFIER: &str = "minecraft:brush";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
+/// Canonical firework rocket identity; its hover text lists flight and explosions.
+pub const FIREWORK_ROCKET_IDENTIFIER: &str = "minecraft:firework_rocket";
+/// Canonical firework star identity; its hover text describes its explosion.
+pub const FIREWORK_STAR_IDENTIFIER: &str = "minecraft:firework_star";
 /// Item atlas key whose variants are the tipped arrow icons.
 pub const TIPPED_ARROW_ATLAS_KEY: &str = "tipped_arrow";
 /// Identifies harness items independently of their color and runtime network ID.
@@ -18,6 +22,9 @@ pub fn harness_color(identifier: &str) -> Option<&str> {
 
 /// Suffix shared by the retail actor-placer (spawn egg) item identities.
 pub const SPAWN_EGG_SUFFIX: &str = "_spawn_egg";
+
+/// Legacy generic spawn egg identity; metadata selects the actor.
+pub const SPAWN_EGG_IDENTIFIER: &str = "minecraft:spawn_egg";
 
 /// Legacy item names the client's vanilla item registration aliases to a retail identity.
 pub const LEGACY_ITEM_ALIASES: &[(&str, &str)] = &[(
@@ -36,6 +43,8 @@ pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+/// Canonical empty glass bottle identity, which fills from a targeted water source.
+pub const GLASS_BOTTLE_IDENTIFIER: &str = "minecraft:glass_bottle";
 
 /// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
 pub fn has_bucket_name(identifier: &str) -> bool {
@@ -216,7 +225,7 @@ impl PotionForm {
 }
 
 /// Native armour texture materials that are absent from tool-tier tags.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmourMaterial {
     Leather,
@@ -249,6 +258,19 @@ impl ArmourMaterial {
             Self::Diamond => 4,
             Self::Copper => 5,
             Self::Netherite => 6,
+        }
+    }
+
+    /// Names the trim material whose palette uses its darker variant on this armour.
+    #[must_use]
+    pub const fn trim_material(self) -> &'static str {
+        match self {
+            Self::Leather => "leather",
+            Self::Iron => "iron",
+            Self::Gold => "gold",
+            Self::Diamond => "diamond",
+            Self::Copper => "copper",
+            Self::Netherite => "netherite",
         }
     }
 }
@@ -333,15 +355,20 @@ impl ItemFact {
             }))
     }
 
-    /// Preserves the native armour texture order; unresolved materials use slot zero.
-    pub fn armor_texture_index(&self) -> u8 {
-        let material = if self.is_leather() {
+    /// Resolves armour material from admitted facts independently of selected artwork.
+    pub fn armor_material(&self) -> Option<ArmourMaterial> {
+        if self.is_leather() {
             Some(ArmourMaterial::Leather)
         } else {
             self.armour_material
                 .or_else(|| self.tier.and_then(ArmourMaterial::from_tier))
-        };
-        material.map_or(0, ArmourMaterial::texture_index)
+        }
+    }
+
+    /// Preserves the native armour texture order; unresolved materials use slot zero.
+    pub fn armor_texture_index(&self) -> u8 {
+        self.armor_material()
+            .map_or(0, ArmourMaterial::texture_index)
     }
 
     /// Tests an exact retail material or an admitted repair tag without parsing names.

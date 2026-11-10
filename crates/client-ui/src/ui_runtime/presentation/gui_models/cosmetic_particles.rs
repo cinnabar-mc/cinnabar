@@ -203,7 +203,7 @@ impl PreviewParticles {
             return false;
         }
         let side = system.atlas().side();
-        self.page = UiTexturePage::owned([side; 2], Arc::from(system.atlas().pixels())).ok();
+        self.page = UiTexturePage::owned([side; 2], system.atlas().pixels()).ok();
         self.patch_seq = Some(seq);
         true
     }

@@ -68,12 +68,30 @@ pub(super) fn decorated_item_atlas(
     layer: &mut FirstPersonItem,
     artwork: &render_model::ActorArtworkPages,
 ) -> Option<HandItemAtlas> {
-    if let Some((raster, rig)) = equipment.shield_raster(
-        item,
-        artwork,
-        layer.presentation.location,
-        layer.presentation.submission.input.rig,
-    ) {
+    if let Some((raster, rig)) = equipment
+        .trim_raster(
+            item,
+            artwork,
+            layer.presentation.location,
+            layer.presentation.submission.input.rig,
+            (layer.presentation.submission.tint != 0).then(|| {
+                let [r, g, b, _] = layer.presentation.submission.tint.to_le_bytes();
+                assets::item::trim::Dye {
+                    rgb: [r, g, b],
+                    alpha: assets::item::trim::DyeAlpha::Coverage,
+                }
+            }),
+            None,
+        )
+        .or_else(|| {
+            equipment.shield_raster(
+                item,
+                artwork,
+                layer.presentation.location,
+                layer.presentation.submission.input.rig,
+            )
+        })
+    {
         layer.presentation.submission.input.rig = rig;
         layer.presentation.location.layer = 0;
         layer.presentation.submission.texture_layer = 0;

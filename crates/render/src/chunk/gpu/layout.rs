@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use crate::gpu_allocation::Requirement;
 use crate::queue_writes::ProfiledQueue as _;
 use crate::upload_staging::{BufferWrite, TerrainUploadStaging};
 use render_scene::ChunkUploadBudget;
@@ -144,6 +145,26 @@ pub(in crate::chunk) struct GpuUploadReservation {
 }
 
 impl GpuUploadReservation {
+    /// Bounds generation rebuild work, admitting one retained payload even
+    /// when the configured allowance is zero or smaller than that payload.
+    pub(in crate::chunk) fn try_reserve_rebuild(
+        &mut self,
+        budget: ChunkUploadBudget,
+        incremental_bytes: u64,
+    ) -> bool {
+        let limits = PublicationServiceConfig::DEFAULT;
+        let max_bytes = budget.max_bytes_per_frame.min(limits.maximum_frame_bytes);
+        self.try_reserve_within(
+            budget.max_per_frame.clamp(1, limits.maximum_frame_items),
+            if self.items == 0 {
+                max_bytes.max(incremental_bytes)
+            } else {
+                max_bytes
+            },
+            incremental_bytes,
+        )
+    }
+
     pub(in crate::chunk) fn try_reserve_permitted(&mut self, incremental_bytes: u64) -> bool {
         let limits = PublicationServiceConfig::DEFAULT;
         self.try_reserve_within(
@@ -320,8 +341,12 @@ pub(in crate::chunk) fn begin_arena_migration(
     render_device: &RenderDevice,
     stream: ArenaStream,
     growth: ArenaGrowthPlan,
+    requirement: Requirement,
 ) -> bool {
     debug_assert!(arena.migration.is_none());
+    if requirement == Requirement::Optional && arena.growth_blocked {
+        return false;
+    }
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
         "terrain.arena_allocate",
@@ -330,21 +355,28 @@ pub(in crate::chunk) fn begin_arena_migration(
     )
     .entered();
     let bytes = growth.new_capacity as u64 * stream.item_bytes();
-    let Some((buffer, host_visible)) = super::allocation::terrain_buffer(
-        render_device,
-        super::arena::storage_buffer_descriptor(stream.label(), bytes),
-        &mut arena.memory,
-    ) else {
+    let allocated = requirement.attempt(render_device, || {
+        let buffer = super::allocation::terrain_buffer(
+            render_device,
+            super::arena::storage_buffer_descriptor(stream.label(), bytes),
+            &mut arena.memory,
+        )?;
+        let offsets = if stream == ArenaStream::Origins {
+            Some(super::allocation::try_identity_vertex_offsets(
+                render_device,
+                growth.new_capacity,
+                &mut arena.memory,
+            )?)
+        } else {
+            None
+        };
+        Some((buffer, offsets))
+    });
+    let Some(((buffer, host_visible), offsets)) = allocated else {
+        arena.growth_blocked |= requirement == Requirement::Optional;
         return false;
     };
-    if stream == ArenaStream::Origins {
-        let Some((offsets, host_visible)) = super::allocation::try_identity_vertex_offsets(
-            render_device,
-            growth.new_capacity,
-            &mut arena.memory,
-        ) else {
-            return false;
-        };
+    if let Some((offsets, host_visible)) = offsets {
         if host_visible {
             arena.memory.record_host_visible_allocation(
                 super::allocation::IDENTITY_VERTEX_OFFSETS_LABEL,
@@ -368,6 +400,30 @@ pub(in crate::chunk) fn begin_arena_migration(
     });
     super::telemetry::log_arena_capacity(arena, "migration started");
     true
+}
+
+/// [`begin_arena_migration`] with `growth`, then with the smaller `minimum` when the device
+/// cannot hold the larger buffer, so a small GPU keeps admitting uploads.
+#[must_use]
+pub(in crate::chunk) fn begin_arena_migration_or_minimum(
+    arena: &mut ChunkGpuArena,
+    render_device: &RenderDevice,
+    stream: ArenaStream,
+    growth: ArenaGrowthPlan,
+    minimum: ArenaGrowthPlan,
+) -> bool {
+    (minimum.new_capacity < growth.new_capacity
+        && begin_arena_migration(arena, render_device, stream, growth, Requirement::Optional))
+        || begin_arena_migration(
+            arena,
+            render_device,
+            stream,
+            ArenaGrowthPlan {
+                new_capacity: minimum.new_capacity,
+                gpu_copy_bytes: growth.gpu_copy_bytes,
+            },
+            Requirement::Required,
+        )
 }
 
 /// Render device, queue and retained terrain staging, the path every arena write takes.
@@ -404,14 +460,16 @@ impl TerrainUploads<'_> {
         self,
         writes: &[BufferWrite<'_>],
         fallback: impl FnOnce(&[BufferWrite<'_>], &'static std::panic::Location<'static>),
-    ) {
+    ) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
         let site = std::panic::Location::caller();
-        match self.staging {
-            Some(staging) => {
-                staging.write_batch_or(self.device, self.queue, writes, |rest| fallback(rest, site))
+        let bytes = writes.iter().map(|write| write.2.len() as u64).sum();
+        crate::gpu_allocation::terrain_write(self.device, "terrain arena upload", bytes, || {
+            match self.staging {
+                Some(staging) => staging
+                    .write_batch_or(self.device, self.queue, writes, |rest| fallback(rest, site)),
+                None => fallback(writes, site),
             }
-            None => fallback(writes, site),
-        }
+        })
     }
 }
 
@@ -477,7 +535,7 @@ pub(in crate::chunk) fn write_geometry_stream_words(
     uploads: TerrainUploads<'_>,
     offset_bytes: u64,
     bytes: &[u8],
-) {
+) -> Result<(), crate::gpu_allocation::TerrainWriteError> {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("terrain.geometry_write", offset_bytes, bytes = bytes.len())
         .entered();
@@ -495,7 +553,7 @@ pub(in crate::chunk) fn write_geometry_stream_words(
                 .queue
                 .profiled_write_buffer_at(buffer, offset, bytes, site);
         }
-    });
+    })
 }
 
 pub(in crate::chunk) fn account_chunk_gpu_uploads(

@@ -1,6 +1,7 @@
 use {super::*, ui::IconRef};
 
 mod cubes;
+mod held_routes;
 mod short_models;
 mod world_models;
 
@@ -312,6 +313,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
         item_gui::block_model(
             &quads,
             assets::gui_item::GuiShading::Inventory,
+            Default::default(),
             item_gui::BlockModelOrder::Depth,
         )
         .unwrap(),

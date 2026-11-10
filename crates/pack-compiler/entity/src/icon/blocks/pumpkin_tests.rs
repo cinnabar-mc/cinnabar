@@ -74,8 +74,9 @@ fn pumpkin_gui_fronts_keep_their_class_artwork_without_changing_held_sheets() {
             &[20, 30, 40, 255]
         );
         assert_eq!(&gui[BlockFace::Up as usize].rgba8[..4], &[90, 80, 70, 255]);
+        let held_record = &blocks.records[blocks.icon_state(visual).0 as usize];
         let Some(assets::facts::StateValue::String(direction)) =
-            record.property(assets::facts::BlockProperty::MinecraftCardinalDirection)
+            held_record.property(assets::facts::BlockProperty::MinecraftCardinalDirection)
         else {
             panic!("missing held facing");
         };

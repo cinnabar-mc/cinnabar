@@ -36,7 +36,13 @@ fn quads_paint_in_supplied_order_through_the_cube_projection() {
         corner[1] = 0.0;
     }
     let quads = [(lower_top, tile(3)), (slab_top, tile(3))];
-    let mesh = mesh(&quads, GuiShading::Inventory, BlockModelOrder::Paint).unwrap();
+    let mesh = mesh(
+        &quads,
+        GuiShading::Inventory,
+        CubeLighting::Directional,
+        BlockModelOrder::Paint,
+    )
+    .unwrap();
     assert_eq!(mesh.vertices().len(), 8);
     assert_eq!(mesh.batches().len(), 1);
     let batch = &mesh.batches()[0];
@@ -64,7 +70,13 @@ fn overlapping_quads_preserve_paint_order_across_texture_pages() {
         (quad(BlockFace::South), tile(2)),
         (quad(BlockFace::West), tile(4)),
     ];
-    let mesh = mesh(&quads, GuiShading::Inventory, BlockModelOrder::Paint).unwrap();
+    let mesh = mesh(
+        &quads,
+        GuiShading::Inventory,
+        CubeLighting::Directional,
+        BlockModelOrder::Paint,
+    )
+    .unwrap();
     let pages: Vec<_> = mesh
         .batches()
         .iter()
@@ -81,6 +93,7 @@ fn a_uv_outside_its_tile_keeps_the_thumbnail() {
         mesh(
             &[(wrapped, tile(1))],
             GuiShading::Inventory,
+            CubeLighting::Directional,
             BlockModelOrder::Paint
         )
         .is_none()
@@ -95,6 +108,7 @@ fn rear_faces_do_not_fill_cutout_holes() {
             (quad(BlockFace::Down), tile(1)),
         ],
         GuiShading::Inventory,
+        CubeLighting::Directional,
         BlockModelOrder::Paint,
     )
     .unwrap();
@@ -109,6 +123,7 @@ fn authored_two_sided_planes_remain_visible_from_the_back() {
         mesh(
             &[(plane, tile(1))],
             GuiShading::Inventory,
+            CubeLighting::Directional,
             BlockModelOrder::Paint
         )
         .unwrap()
@@ -129,7 +144,13 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
         corner[1] = 0.5;
     }
     let quads = [(lower, tile(4)), (top, tile(2)), (top, tile(4))];
-    let mesh = mesh(&quads, GuiShading::Inventory, BlockModelOrder::Depth).unwrap();
+    let mesh = mesh(
+        &quads,
+        GuiShading::Inventory,
+        CubeLighting::Directional,
+        BlockModelOrder::Depth,
+    )
+    .unwrap();
     assert!(mesh.batches().iter().all(|b| b.depth_test && b.depth_write));
     let pages: Vec<_> = mesh
         .batches()
@@ -144,17 +165,22 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
             .fold(f32::MIN, f32::max)
     };
     assert!(nearest(4..8) > nearest(0..4));
+    assert!(
+        mesh.vertices()
+            .iter()
+            .all(|vertex| (0.0..=1.0).contains(&vertex.clip_z))
+    );
 }
 
 #[test]
-fn world_shaded_quads_take_flat_world_brightness() {
+fn quads_preserve_world_inventory_and_unshaded_brightness() {
     let quads = [
         (quad(BlockFace::Up), tile(1)),
         (quad(BlockFace::South), tile(1)),
         (quad(BlockFace::West), tile(1)),
     ];
-    let shades = |shading| {
-        mesh(&quads, shading, BlockModelOrder::Paint)
+    let shades = |shading, lighting, order| {
+        mesh(&quads, shading, lighting, order)
             .unwrap()
             .vertices()
             .chunks(4)
@@ -162,7 +188,17 @@ fn world_shaded_quads_take_flat_world_brightness() {
             .collect::<Vec<_>>()
     };
     // Bytes truncate `255 * brightness`, as the GUI tessellator does.
-    assert_eq!(shades(GuiShading::World), [255, 204, 153]);
-    assert_eq!(shades(GuiShading::Inventory), [255, 127, 186]);
-    assert_eq!(shades(GuiShading::Unshaded), [255; 3]);
+    for order in [BlockModelOrder::Depth, BlockModelOrder::Paint] {
+        assert_eq!(
+            shades(GuiShading::World, CubeLighting::Directional, order),
+            [255, 204, 153]
+        );
+        assert_eq!(
+            shades(GuiShading::Inventory, CubeLighting::Directional, order),
+            [255, 127, 186]
+        );
+        for shading in [GuiShading::World, GuiShading::Inventory] {
+            assert_eq!(shades(shading, CubeLighting::Unshaded, order), [255; 3]);
+        }
+    }
 }

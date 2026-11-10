@@ -2,10 +2,12 @@
 use super::*;
 
 mod cosmetic_particles;
+mod trims;
 use crate::test_support::fixture_hud;
 pub use cosmetic_particles::cosmetic_particle_preview;
 #[cfg(test)]
 pub(super) use cosmetic_particles::particle_fixture_assets;
+pub use trims::trim_gallery;
 use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.

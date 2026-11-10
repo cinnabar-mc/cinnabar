@@ -15,6 +15,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 mod animation;
+pub use animation::roots::has_entity_animation_roots;
 mod attachable;
 pub(crate) mod collect;
 mod geometry;
@@ -44,6 +45,7 @@ mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
 pub use sample_omissions::missing_equipment_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
+pub use versions::load_vanilla_entity_definitions;
 
 pub(crate) use pack::compile_entity_pack_unless;
 pub use pack::{
@@ -189,6 +191,12 @@ fn compile_with_behavior(
         &mut selected,
     )?;
     collect_optional_family(root, "attachables", &["json"], &mut selected)?;
+    collect_optional_family(
+        root,
+        assets::item::trim::TEXTURE_DIRECTORY.trim_end_matches('/'),
+        &["png", "tga"],
+        &mut selected,
+    )?;
     collect_optional_family(
         root,
         "textures/models/armor",

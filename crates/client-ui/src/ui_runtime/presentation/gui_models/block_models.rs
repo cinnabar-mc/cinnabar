@@ -127,7 +127,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
             } else {
                 item_gui::BlockModelOrder::Depth
             };
-            item_gui::block_model(&placed, shading, order)
+            item_gui::block_model(&placed, shading, Default::default(), order)
         },
     )
 }

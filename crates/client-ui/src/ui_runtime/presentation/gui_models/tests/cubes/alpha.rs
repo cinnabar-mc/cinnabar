@@ -161,3 +161,80 @@ fn fractional_blended_cube_faces_keep_the_composited_thumbnail_under_pressure() 
         }
     }
 }
+
+#[test]
+fn gui_only_cutout_sheets_override_world_artwork_and_keep_thumbnail_fades() {
+    for alpha in [assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD, 255] {
+        let (base, entities) = catalog_for(ITEM, alpha, 255);
+        let original = base.icon_catalog.as_deref().unwrap();
+        let models: Vec<_> = original
+            .entries()
+            .iter()
+            .map(|entry| assets::IconBlockModel {
+                sprite: entry.sprite,
+                visual: VISUAL,
+                held_sprite: None,
+            })
+            .collect();
+        let icons = Arc::new(
+            RuntimeIconCatalog::decode(
+                &assets::encode_icon_catalog_with_gui_cube_sheets(
+                    entities.source_manifest_sha256(),
+                    original.sprites(),
+                    original.entries(),
+                    &[],
+                    &models,
+                    &[],
+                    original.block_sheets(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+            ui_engine::test_support::fixture_font(),
+            crate::test_support::fixture_hud(),
+            Arc::clone(&icons),
+        )
+        .unwrap();
+        let source_world =
+            super::super::short_models::world(entities.source_manifest_sha256(), 256, 192);
+        presentation
+            .set_gui_models(&source_world, &entities)
+            .unwrap();
+        assert!(icons.block_sheets().is_empty());
+        assert_eq!(icons.block_models(), models);
+        let gui_sheet = &icons.sprites()[icons.gui_block_sheets()[0].sprite as usize];
+        for entry in icons.entries() {
+            let icon = presentation
+                .item_icon(&entry.identifier, entry.metadata)
+                .unwrap();
+            let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+            let vertices = mesh.vertices();
+            let x = ((vertices[0].uv[0] + vertices[2].uv[0]) / 2.0) as usize;
+            let y = ((vertices[0].uv[1] + vertices[2].uv[1]) / 2.0) as usize;
+            let page = &presentation.textures.pages()[usize::from(mesh.batches()[0].texture_page)];
+            let at = (y * page.dimensions()[0] as usize + x) * 4;
+            assert_eq!(
+                &page.pixels()[at..at + 3],
+                &gui_sheet.rgba8[..3],
+                "the GUI mesh must sample its own sheet instead of the world texture"
+            );
+            for opacity in [255, 254, 127, 0] {
+                for glint in [false, true] {
+                    let original = control(icon, opacity, glint);
+                    let mut nodes = [original.clone()];
+                    presentation.apply_gui_models(&mut nodes);
+                    if opacity == 255 {
+                        assert!(matches!(nodes[0].visual(), UiVisual::Mesh(_)));
+                    } else {
+                        assert_eq!(
+                            nodes[0], original,
+                            "fades retain the composed GUI thumbnail"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
