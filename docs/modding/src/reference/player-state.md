@@ -593,8 +593,9 @@ Actual upstream round-trip milliseconds; absent before measurement or when unsup
 read-actors: func() -> result<list<actor>, string>;
 ```
 
-At most 16 actors within 128 blocks, nearest first among the kinds the caller may read:
-player rows require players, other rows entities.
+The nearest `MAX_READ_ACTORS` actors within `OBSERVED_ACTOR_RANGE_BLOCKS` (128) of the
+local feet, nearest first among the kinds the caller may read: player rows require
+players, other rows entities.
 
 Types: [`actor`](player-state.md#type-actor).
 
@@ -606,8 +607,10 @@ Types: [`actor`](player-state.md#type-actor).
 read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
 ```
 
-Reads a smaller prefix of the same authorized observations to bound guest copying work.
-limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
+The nearest `limit` of the same authorized observations, 1 through `MAX_OBSERVED_ACTORS`
+(64), so copying work follows the limit. The client observes the nearest
+`MAX_OBSERVED_ACTORS` actors of each kind, so a mod granted one kind receives all of its
+nearest 64. Filtering and session authority are as `read-actors`.
 
 Types: [`observed-actor`](player-state.md#type-observed-actor).
 

@@ -295,7 +295,7 @@ fn nearest_observed_actors<'a>(
     let mut nearby = BinaryHeap::new();
     for actor in actors {
         let distance = squared_distance(actor.position, origin);
-        if !distance.is_finite() || distance > 128. * 128. {
+        if !distance.is_finite() || distance > mod_api::OBSERVED_ACTOR_RANGE_BLOCKS.powi(2) {
             continue;
         }
         let candidate = NearbyActor { distance, actor };
@@ -674,7 +674,8 @@ mod tests {
                     .zip(origin)
                     .map(|(a, b)| (a - b).powi(2))
                     .sum::<f32>();
-                (distance.is_finite() && distance <= 128. * 128.).then_some((distance, actor))
+                (distance.is_finite() && distance <= mod_api::OBSERVED_ACTOR_RANGE_BLOCKS.powi(2))
+                    .then_some((distance, actor))
             })
             .collect();
         nearby.sort_by(|a, b| {

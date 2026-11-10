@@ -218,7 +218,7 @@ mod observations;
 pub use observations::{
     MAX_ACTOR_LIFE_READS, MAX_COMBAT_LIFE_READS, MAX_COMBAT_READ_EVENTS, MAX_OBSERVED_ACTOR_BOXES,
     MAX_OBSERVED_ACTOR_NAME_BYTES, MAX_OBSERVED_ACTORS, MAX_OBSERVED_COMBAT_EVENTS,
-    MAX_WORLD_IDENTITY_BYTES,
+    MAX_READ_ACTORS, MAX_WORLD_IDENTITY_BYTES, OBSERVED_ACTOR_RANGE_BLOCKS,
 };
 
 /// Limits of the `presentation` interface.
@@ -257,7 +257,7 @@ pub const MAX_DRAW_GROUP_NAME_BYTES: usize = 32;
 pub const MAX_DRAW_EXPANDED_VERTICES: usize = MAX_DRAW_INDICES;
 
 /// Current actor observations and retained actor references, per drawing owner.
-pub const MAX_DRAW_ENTITIES: usize = MAX_OBSERVED_ACTORS;
+pub const MAX_DRAW_ENTITIES: usize = MAX_READ_ACTORS;
 /// Radius around the view within which actors are offered as drawing references, in blocks.
 pub const MAX_DRAW_ENTITY_RANGE_BLOCKS: f32 = 64.0;
 

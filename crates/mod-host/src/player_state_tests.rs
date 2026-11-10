@@ -970,8 +970,50 @@ fn entity_rows_survive_nearer_players_with_every_former_mob_fact() {
     );
     state.grants.players = true;
     let rows = state.read_actors().unwrap().unwrap();
-    assert_eq!(rows.len(), mod_api::MAX_OBSERVED_ACTORS);
+    assert_eq!(rows.len(), mod_api::MAX_READ_ACTORS);
     assert!(rows.iter().all(|row| row.player));
+}
+
+/// An entities-only mod reads as many nearby non-player actors as the removed mob read gave
+/// (64 within 64 blocks), while `read-actors` keeps its shorter prefix.
+#[test]
+fn limited_actor_reads_cover_the_former_mob_count() {
+    const FORMER_MOBS: usize = 64;
+    const FORMER_MOB_RANGE_BLOCKS: f32 = 64.;
+    const _: () = assert!(
+        mod_api::MAX_OBSERVED_ACTORS >= FORMER_MOBS
+            && mod_api::OBSERVED_ACTOR_RANGE_BLOCKS >= FORMER_MOB_RANGE_BLOCKS
+    );
+    let mut state = State::new(
+        ModGrants {
+            entities: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    state.player_state.observations.actors = (1..=FORMER_MOBS as u64)
+        .map(|runtime_id| observed_actor(runtime_id, false))
+        .collect();
+    let rows = state
+        .read_actors_limited(FORMER_MOBS as u32)
+        .unwrap()
+        .unwrap();
+    assert_eq!(rows.len(), FORMER_MOBS);
+    assert!(
+        rows.iter()
+            .all(|row| !row.actor.player && row.max_health.is_some())
+    );
+    assert!(
+        state
+            .read_actors_limited(mod_api::MAX_OBSERVED_ACTORS as u32 + 1)
+            .unwrap()
+            .is_err()
+    );
+    assert_eq!(
+        state.read_actors().unwrap().unwrap().len(),
+        mod_api::MAX_READ_ACTORS
+    );
 }
 
 /// The selection read is session-scoped, granted, and bounded by its own allowance, so it

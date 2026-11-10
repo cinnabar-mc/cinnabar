@@ -313,8 +313,10 @@ Components importing them no longer link; rebuild against the current WIT:
 | `players` in `gameplay.read-frame` | Player rows from `player-state.read-actors` under `players`, at the pose drawn in the same frame |
 | `player-state.read-equipment-matches` | `player-state.read-equipment`, re-read only when `read-revisions` reports a new equipment token |
 
-Actor reads return up to `MAX_OBSERVED_ACTORS` actors within 128 blocks of the local
-feet, nearest first among the kinds the mod's grants admit.
+`read-actors` returns the nearest `MAX_READ_ACTORS` (16) actors within 128 blocks of the
+local feet, and `read-actors-limited` the nearest 1 to `MAX_OBSERVED_ACTORS` (64), nearest
+first among the kinds the mod's grants admit. The client observes the 64 nearest actors of
+each kind, so an entities-only mod reads at least as many mobs as `read-mobs` gave.
 
 ## Trusted packet mods
 

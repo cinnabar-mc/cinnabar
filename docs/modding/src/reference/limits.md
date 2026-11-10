@@ -103,7 +103,9 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | Constant | Value | Scope |
 | --- | ---: | --- |
 | `mod_api::MAX_GAMEPLAY_PLAYERS` | 128 | Remote player poses per native packet-mod frame. |
-| `mod_api::MAX_OBSERVED_ACTORS` | 16 | Actor observations per read. |
+| `mod_api::MAX_READ_ACTORS` | 16 | Actor rows per `read-actors`. |
+| `mod_api::MAX_OBSERVED_ACTORS` | 64 | Actors of each kind observed per callback, and the largest `read-actors-limited` limit. |
+| `mod_api::OBSERVED_ACTOR_RANGE_BLOCKS` | 128 | Radius of actor observations around the local feet, in blocks. |
 | `mod_api::MAX_OBSERVED_ACTOR_BOXES` | 8 | Boxes per observed actor. |
 | `mod_api::MAX_ACTOR_LIFE_READS` | 64 | Actor IDs per life lookup. |
 | `mod_api::MAX_COMBAT_READ_EVENTS` | 4 | Combat events per incremental read. |

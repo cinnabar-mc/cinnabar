@@ -93,7 +93,9 @@ pub(super) fn render() -> String {
     );
     section!("World and player observations",
         mod_api::MAX_GAMEPLAY_PLAYERS => "Remote player poses per native packet-mod frame.",
-        mod_api::MAX_OBSERVED_ACTORS => "Actor observations per read.",
+        mod_api::MAX_READ_ACTORS => "Actor rows per `read-actors`.",
+        mod_api::MAX_OBSERVED_ACTORS => "Actors of each kind observed per callback, and the largest `read-actors-limited` limit.",
+        mod_api::OBSERVED_ACTOR_RANGE_BLOCKS => "Radius of actor observations around the local feet, in blocks.",
         mod_api::MAX_OBSERVED_ACTOR_BOXES => "Boxes per observed actor.",
         mod_api::MAX_ACTOR_LIFE_READS => "Actor IDs per life lookup.",
         mod_api::MAX_COMBAT_READ_EVENTS => "Combat events per incremental read.",

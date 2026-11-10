@@ -241,7 +241,7 @@ impl cinnabar::extension::player_state::Host for State {
     }
     fn read_actors(&mut self) -> Result<Result<Vec<crate::ActorObservation>, String>> {
         Ok(self
-            .read_actor_observations(mod_api::MAX_OBSERVED_ACTORS as u32)?
+            .read_actor_observations(mod_api::MAX_READ_ACTORS as u32)?
             .map(|actors| actors.map(|observed| observed.actor.clone()).collect()))
     }
     fn read_actors_limited(
