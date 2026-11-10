@@ -4,8 +4,18 @@
 //! prediction follows.
 
 use protocol::ActorMoveEvent;
+use protocol_ids::ActorFlag;
 
-use super::{ActorPose, ActorStore};
+use super::{ActorPose, ActorSnapshot, ActorStore};
+
+impl ActorSnapshot {
+    /// Whether only the server moves riders off this vehicle, so a rider leaving it waits for
+    /// the server instead of placing itself.
+    #[must_use]
+    pub fn server_owns_dismount(&self) -> bool {
+        self.flag(ActorFlag::DoesServerAuthOnlyDismount.wire_value())
+    }
+}
 
 /// Server changes to the predicted vehicle that prediction follows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -45,9 +55,75 @@ pub(super) struct LocalVehicle {
     render: Option<(u64, ActorPose)>,
     /// Passengers held on the boat's render pose, released with it.
     held_passengers: Vec<u64>,
+    /// The local player after it got off its vehicle on the client, until the server's links
+    /// for it change: the client's one record of that leave, which
+    /// [`ActorStore::ridden_unique_id`] applies for every reader. Its committed link stays,
+    /// so the server's unlink still commits.
+    pub(super) left_rider: Option<i64>,
+    /// The `(rider, vehicle)` the local player got off on the client, while movement
+    /// collision still passes through that vehicle. Unverified against vanilla: a rider left at
+    /// its seat inside the vehicle's box would otherwise be lifted out on top of it. The
+    /// caller releases it once the player's box no longer overlaps the vehicle.
+    pub(super) passed_through: Option<(i64, i64)>,
 }
 
 impl ActorStore {
+    /// Takes the linked local player `local` off its vehicle as getting off does on the
+    /// client: it rides nothing until the server's links for it change.
+    /// Movement collision passes through that vehicle until the caller releases it.
+    pub(crate) fn leave_local_vehicle(&mut self, local: i64) {
+        if let Some(&vehicle) = self.rider_to_ridden.get(&local) {
+            self.local_vehicle.left_rider = Some(local);
+            self.local_vehicle.passed_through = Some((local, vehicle));
+        }
+    }
+
+    /// Ends a client-side leave once the server's links for `rider` change.
+    pub(super) fn forget_left_rider(&mut self, rider: i64) {
+        if self.local_vehicle.left_rider == Some(rider) {
+            self.local_vehicle.left_rider = None;
+        }
+    }
+
+    /// Ends movement's pass through a vehicle once `rider` boards one or `vehicle` goes.
+    pub(super) fn forget_passed_through(&mut self, rider: Option<i64>, vehicle: Option<i64>) {
+        if self
+            .local_vehicle
+            .passed_through
+            .is_some_and(|(left, left_vehicle)| {
+                Some(left) == rider || Some(left_vehicle) == vehicle
+            })
+        {
+            self.local_vehicle.passed_through = None;
+        }
+    }
+
+    /// The vehicle movement collision passes through for `rider`, which got off it on the
+    /// client.
+    pub(super) fn passed_through_vehicle(&self, rider: i64) -> Option<i64> {
+        self.local_vehicle
+            .passed_through
+            .filter(|(left, _)| *left == rider)
+            .map(|(_, vehicle)| vehicle)
+    }
+
+    /// Collision bounds of the vehicle movement passes through for `rider`.
+    pub(crate) fn passed_through_bounds(&self, rider: i64) -> Option<super::ActorCollisionBounds> {
+        self.snapshot_by_unique(self.passed_through_vehicle(rider)?)?
+            .movement_collision_bounds()
+    }
+
+    /// Makes movement collide with the vehicle `rider` got off again.
+    pub(crate) fn release_passed_through(&mut self, rider: i64) {
+        self.forget_passed_through(Some(rider), None);
+    }
+
+    /// Whether the local player `local` got off its vehicle on the client while the server's
+    /// link for it still stands.
+    pub(crate) fn left_local_vehicle(&self, local: i64) -> bool {
+        self.local_vehicle.left_rider == Some(local) && self.rider_to_ridden.contains_key(&local)
+    }
+
     /// The boat the local player currently steers, from the current links; the client
     /// predicts it while this holds.
     pub(crate) fn local_steered_boat(&self) -> Option<u64> {
@@ -55,7 +131,7 @@ impl ActorStore {
             .actors
             .get(&self.remote_state_excluded_runtime_id?)?
             .unique_id;
-        let vehicle = *self.rider_to_ridden.get(&local)?;
+        let vehicle = self.ridden_unique_id(local)?;
         if !self.rider_controls_vehicle(local) {
             return None;
         }

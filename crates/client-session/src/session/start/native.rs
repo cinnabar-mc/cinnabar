@@ -19,6 +19,11 @@ pub fn spawn_network<P: Send + 'static>(
     let profile = bridge::join_profile::JoinProfile::current();
     let (mut handle, channels) = network_channels(config.session_generation);
     let failure = channels.control_event_tx.clone();
+    handle.pick_trace = config
+        .packet_capture
+        .as_ref()
+        .map(|_| Arc::new(std::sync::OnceLock::new()));
+    let pick_trace = handle.pick_trace.clone();
     handle.thread = Some(
         thread::Builder::new()
             .name("bedrock-network".to_owned())
@@ -41,6 +46,11 @@ pub fn spawn_network<P: Send + 'static>(
                 };
                 let (packet_tap, packet_capture) =
                     packet_log::session_tap(config.packet_capture.as_ref());
+                if let Some(pick_trace) = pick_trace
+                    && let Some(trace) = packet_tap.pick_trace()
+                {
+                    let _ = pick_trace.set(trace);
+                }
                 let executor = NativeNetworkExecutor {
                     socket_dir: config.socket_dir.clone(),
                 };

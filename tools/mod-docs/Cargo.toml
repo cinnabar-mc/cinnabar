@@ -1,0 +1,23 @@
+[package]
+name = "mod-docs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+reads = ["crates/mod-api/wit", "crates/experience-sdk/wit/client/deps/server-experience", "crates/experience-sdk/wit/session", "docs/modding"]
+
+[dependencies]
+anyhow.workspace = true
+mod-api = { path = "../../crates/mod-api" }
+mod-host = { path = "../../crates/mod-host" }
+server-experience = { path = "../../crates/server-experience" }
+ui = { path = "../../crates/ui" }
+wit-parser.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

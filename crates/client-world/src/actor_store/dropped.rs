@@ -13,7 +13,7 @@ use crate::item::CanonicalItemStack;
 /// Most stacked copies drawn for one dropped stack.
 pub const MAX_DROPPED_ITEM_COPIES: usize = 4;
 
-// Vanilla dropped-item rendering (1.26.50.26). The random phase belongs to
+// Vanilla dropped-item rendering (1.26.60.26). The random phase belongs to
 // vertical bob only, never spin; the half-tick subtraction is performed after the rate.
 const SPIN_RATE_PER_TICK: f32 = 0.05;
 const SPIN_HALF_TICK: f32 = SPIN_RATE_PER_TICK * 0.5;

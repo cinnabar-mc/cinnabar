@@ -39,8 +39,11 @@ fn a_new_raster_hashes_only_its_own_bytes_and_shares_unchanged_pixels() {
     assert_eq!(incremental, rasters[2].rgba8.len());
     assert_eq!(locations[0].unwrap().page(), 3);
     for (index, raster) in rasters.iter().enumerate() {
-        assert!(Arc::ptr_eq(&next.pages()[index].rgba8, &raster.rgba8));
-        assert_eq!(next.pages()[index].pixels(), raster.rgba8.as_ref());
+        assert!(Arc::ptr_eq(
+            &next.pages()[index].rgba8.parts()[0],
+            &raster.rgba8
+        ));
+        assert_eq!(next.pages()[index].pixels().as_ref(), raster.rgba8.as_ref());
     }
     assert_ne!(original.identity(), next.identity());
     let (grouped, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
@@ -70,10 +73,7 @@ fn replacement_updates_only_its_owned_slot_and_invalidates_its_old_witness() {
     assert_eq!(take_hashed_bytes(), replacement.rgba8.len());
     assert_eq!(updated[0], locations[0]);
     assert_eq!(next.pages().len(), original.pages().len());
-    assert!(Arc::ptr_eq(
-        &next.pages()[1].rgba8,
-        &original.pages()[1].rgba8
-    ));
+    assert!(next.pages()[1].rgba8.ptr_eq(&original.pages()[1].rgba8));
     assert!(next.equipment_artwork_location([1; 32]).is_none());
     assert_eq!(next.equipment_artwork_location([2; 32]), locations[1]);
     assert!(next.valid(crate::equipment_rig_id(0), updated[0].unwrap()));
@@ -100,7 +100,7 @@ fn invalid_updates_preserve_the_original_snapshot_without_hashing() {
             width: image.width,
             height: image.height,
             layers: 1,
-            rgba8: image.rgba8,
+            rgba8: image.rgba8.into(),
             color_mask: false,
             multitexture: false,
         }]),

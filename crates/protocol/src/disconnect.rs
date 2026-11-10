@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_51::enums::ConnectionDisconnectFailReason;
-use bedrock_protocol_1_26_51::packets::{self, Disconnect};
-use bedrock_protocol_1_26_51::types::DisconnectMessages;
+use bedrock_protocol_1_26_60::enums::ConnectionDisconnectFailReason;
+use bedrock_protocol_1_26_60::packets::{self, Disconnect};
+use bedrock_protocol_1_26_60::types::DisconnectMessages;
 
 use crate::codec::SessionFailure;
 use crate::session_wire::SessionDisconnect;
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn normalization_is_lenient_about_empty_and_oversized_text() {
         let empty = ServerDisconnectEvent::from_packet_data(&disconnect_data(
-            ConnectionDisconnectFailReason::Noreason,
+            ConnectionDisconnectFailReason::NoReason,
             "",
             "",
         ))
@@ -220,12 +220,12 @@ mod tests {
     #[test]
     fn normalization_labels_known_and_unknown_wire_reasons() {
         let known = ServerDisconnectEvent::from_packet_data(&disconnect_data(
-            ConnectionDisconnectFailReason::Kickedforexploit,
+            ConnectionDisconnectFailReason::KickedForExploit,
             "x",
             "",
         ))
         .expect("known reason normalizes");
-        assert_eq!(known.reason, "Kickedforexploit");
+        assert_eq!(known.reason, "KickedForExploit");
 
         let unknown = ServerDisconnectEvent::from_packet_data(&disconnect_data(
             ConnectionDisconnectFailReason::Unknown2(-7),
@@ -266,14 +266,14 @@ mod tests {
         };
         assert_eq!(
             disconnect_reason(25),
-            ConnectionDisconnectFailReason::Serverfull
+            ConnectionDisconnectFailReason::ServerFull
         );
         assert_eq!(
             disconnect_reason(i32::MAX),
             ConnectionDisconnectFailReason::Unknown2(i32::MAX)
         );
         let shown = ServerDisconnectEvent::from_session(&disconnect(25, false));
-        assert_eq!(shown.reason, "Serverfull");
+        assert_eq!(shown.reason, "ServerFull");
         assert_eq!(
             (shown.message.as_deref(), shown.filtered_message.as_deref()),
             (Some("kicked"), Some("k*****"))
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn normalization_ignores_non_disconnect_packets() {
         let other = packets::Packet::SetTime(packets::SetTime {
-            time: bedrock_protocol_1_26_51::wire::ZigZag32(7),
+            time: bedrock_protocol_1_26_60::wire::ZigZag32(7),
         });
         assert!(ServerDisconnectEvent::from_packet_data(&other).is_none());
     }

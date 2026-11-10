@@ -13,13 +13,16 @@ use assets::carriers::{self, COMPILED_DIR};
 use diagnostics::session_log::{Family, Retention, SessionLog, SharedLog};
 
 use super::{
-    download,
+    download, next,
     runner::{self, Compiler, Event, Selection},
     status::{Phase, Status},
 };
 use launcher::install_layout::{InstallLayout, vanilla_pack_relative};
 
 pub(super) const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
+
+#[cfg(all(test, unix))]
+mod cache_tests;
 
 fn compiler<'a>(
     layout: &InstallLayout,
@@ -40,6 +43,7 @@ fn compiler<'a>(
         cancel,
         #[cfg(unix)]
         own_group: !launcher_host::lifecycle::update::launched_by_updater(),
+        background: false,
     })
 }
 
@@ -47,7 +51,12 @@ fn compiler<'a>(
 pub(super) fn selection(layout: &InstallLayout) -> Result<Selection> {
     let prepared = layout.prepared_assets_dir();
     runner::recover(&prepared);
-    compiler(layout, None, &AtomicBool::new(false))?.check(&prepared)
+    check(layout, &prepared)
+}
+
+/// The carriers in `dir` the installed kit's pins make stale.
+pub(super) fn check(layout: &InstallLayout, dir: &Path) -> Result<Selection> {
+    compiler(layout, None, &AtomicBool::new(false))?.check(dir)
 }
 
 /// Consent-free preparation. Ends with a `Done` or `Failed` report; failures also go to the log.
@@ -111,26 +120,28 @@ fn run(
     let prepared = layout.prepared_assets_dir();
     runner::recover(&prepared);
     let compiler = compiler(layout, Some(log), cancel)?;
-    let selection = compiler.check(&prepared)?;
     let (kit, workspace) = (&compiler.kit, &compiler.workspace);
+    let staged = workspace.join(COMPILED_DIR);
+    if staged.exists() {
+        fs::remove_dir_all(&staged)?;
+    }
+    // A background build for this release resumes; otherwise current carriers carry over.
+    if !next::take(layout, &staged)? {
+        fs::create_dir_all(&staged)?;
+        runner::seed(&prepared, &staged)?;
+    }
+    let selection = compiler.check(&staged)?;
     // Server-pack entities may name vanilla textures, so an install keeps them beside its carriers.
     let needs_pack = selection.needs_pack || !vanilla_textures_kept(layout);
-    let unpack = usize::from(needs_pack);
+    let unpack = usize::from(needs_pack && !download::pack_cached(kit, workspace)?);
     let total = unpack + selection.stale.len();
-    if needs_pack {
+    if unpack != 0 {
         download::fetch_archive(kit, workspace, cancel, |received, total| {
             report(Status::downloading(received, total));
         })?;
         report(Status::new(Phase::Running, 1, total, UNPACK_LABEL));
         download::unpack(kit, workspace, cancel).context(UNPACK_LABEL)?;
     }
-    let staged = workspace.join(COMPILED_DIR);
-    if staged.exists() {
-        fs::remove_dir_all(&staged)?;
-    }
-    fs::create_dir_all(&staged)?;
-    // Current carriers and their stamp carry over; prepare replaces the stale ones.
-    runner::seed(&prepared, &staged)?;
     let mut finished = 0;
     let mut running: Vec<(String, String)> = Vec::new();
     compiler.prepare(&staged, |event| {
@@ -161,8 +172,7 @@ fn run(
             &layout.vanilla_pack_dir(),
         )?;
     }
-    // Only the current pack's archive is kept, so a carrier-only update needs no download.
-    let _ = fs::remove_dir_all(workspace.join(".local/assets/bedrock-samples"));
+    // Retain extracted resource versions across compiler updates and version switches.
     download::prune(kit, workspace);
     Ok(())
 }

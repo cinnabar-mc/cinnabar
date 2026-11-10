@@ -110,12 +110,12 @@ impl Builder<'_> {
                     source.source_faces[index] as usize,
                     false,
                 )?;
-                let rotation = if binding.per_face && source.source_rotations[index] {
-                    assets::MATERIAL_FLAG_ROTATE_UV
+                let rotation = if binding.per_face {
+                    u32::from(source.source_rotations[index])
                 } else {
                     0
                 };
-                let flags = (material.flags & !assets::MATERIAL_FLAG_ROTATE_UV) | rotation;
+                let flags = (material.flags & !assets::MATERIAL_FLAG_UV_ROTATION_MASK) | rotation;
                 (flags != material.flags
                     || keys
                         .material_source(id)
@@ -199,7 +199,7 @@ impl Builder<'_> {
                 let variant = keys
                     .material_source(material)
                     .map_or(0, |source| source.variant);
-                let flags = base.material(material).flags & !assets::MATERIAL_FLAG_ROTATE_UV;
+                let flags = base.material(material).flags & !assets::MATERIAL_FLAG_UV_ROTATION_MASK;
                 self.terrain_material(keys, carried_keys[index]?, variant, flags)
             });
             if carried.iter().all(Option::is_some) {

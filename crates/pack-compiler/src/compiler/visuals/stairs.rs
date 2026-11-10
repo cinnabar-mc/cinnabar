@@ -2,7 +2,10 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
-use {super::super::*, assets::BlockFace};
+use {
+    super::super::*,
+    assets::{BlockFace, MODEL_QUAD_FLAG_WORLD_ALIGNED_UV},
+};
 
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
@@ -204,6 +207,11 @@ pub(in crate::compiler) const fn toward(orientation: u32, x: usize, z: usize) ->
     }
 }
 
+/// One half-block cell face of a stair template.
+///
+/// `BlockTessellator::tessellateStairsInWorld` draws each stair box with the cube face UVs of
+/// its world bounds and no rotation, so planks line up with neighbouring blocks whichever way
+/// the stair faces.
 pub(in crate::compiler) fn stair_cell_quad(
     materials: [u32; 6],
     face: BlockFace,
@@ -249,17 +257,35 @@ pub(in crate::compiler) fn stair_cell_quad(
             z == 1,
         ),
     };
-    let uvs = positions.map(|[px, py, pz]| match face {
-        BlockFace::West | BlockFace::East => [(pz as u16) * 16, (4096 - i32::from(py) * 16) as u16],
-        BlockFace::North | BlockFace::South => {
-            [(px as u16) * 16, (4096 - i32::from(py) * 16) as u16]
-        }
-        BlockFace::Down | BlockFace::Up => [(px as u16) * 16, (pz as u16) * 16],
-    });
+    let uvs = positions.map(|position| native_box_uv(face, position));
+    // Side UVs run left to right as seen from outside, so a quarter turn keeps them world
+    // aligned; the shader turns up and down UVs back against the model turn.
+    let world_aligned = match face {
+        BlockFace::Down | BlockFace::Up => MODEL_QUAD_FLAG_WORLD_ALIGNED_UV,
+        _ => 0,
+    };
     ModelQuad {
         positions,
         uvs,
         material: materials[face as usize],
-        flags: face_id | (u32::from(boundary) * (face_id << 4)),
+        flags: face_id | (u32::from(boundary) * (face_id << 4)) | world_aligned,
     }
 }
+
+/// Native cube face UVs of a template position (1/256 block): west +z/-y, east -z/-y,
+/// north -x/-y, south +x/-y, down +x/-z, up +x/+z.
+const fn native_box_uv(face: BlockFace, [x, y, z]: [i16; 3]) -> [u16; 2] {
+    let [x, y, z] = [x as u16 * 16, y as u16 * 16, z as u16 * 16];
+    match face {
+        BlockFace::West => [z, 4096 - y],
+        BlockFace::East => [4096 - z, 4096 - y],
+        BlockFace::North => [4096 - x, 4096 - y],
+        BlockFace::South => [x, 4096 - y],
+        BlockFace::Down => [x, 4096 - z],
+        BlockFace::Up => [x, z],
+    }
+}
+
+#[cfg(test)]
+#[path = "stairs_tests.rs"]
+mod tests;

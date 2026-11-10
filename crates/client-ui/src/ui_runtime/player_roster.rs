@@ -1,39 +1,43 @@
 //! Shared roster answers and display policy for tab-list and name-tag badges.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
+use ui::mod_presentation::Spans;
 use ui_screens::player_list::RosterRow;
-mod counters;
 
 /// The session's named roster entries and their tab-list rows.
 #[derive(Clone, Debug, Default)]
 pub struct PlayerRoster {
     entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>,
+    level_name: Arc<str>,
     revision: u64,
     reported: Arc<HashSet<String>>,
     hide_badges: bool,
     rows: Vec<RosterRow>,
-    counters: counters::Counters,
+    annotations: HashMap<[u8; 16], Arc<Spans>>,
 }
 
 impl PlayerRoster {
-    /// Publishes one native interval's counts to both roster rows and eligible world nametags.
-    pub fn set_totem_annotations(
-        &mut self,
-        style: Option<&ui::mod_hud::TotemCounterStyle>,
-        facts: impl Iterator<Item = ([u8; 16], u32, bool)>,
-    ) {
-        if self.counters.update(style, facts) {
-            self.rebadge();
-        }
+    /// Sets this session's server-provided level display name.
+    pub fn set_level_name(&mut self, name: Arc<str>) {
+        self.level_name = name;
     }
 
-    /// Looks up a UUID-bound nametag decoration independently of the tab visibility switch.
-    pub fn totem_annotation(
-        &self,
-        uuid: &[u8; 16],
-    ) -> Option<&Arc<ui::mod_hud::CounterAnnotation>> {
-        self.counters.annotation(uuid)
+    /// The level display name, empty when the server supplied none.
+    pub fn level_name(&self) -> &str {
+        &self.level_name
+    }
+
+    /// Replaces the mod spans drawn on roster rows, keyed by the player's roster UUID; rows
+    /// rebuild only when the spans change.
+    pub fn set_annotations(&mut self, annotations: HashMap<[u8; 16], Arc<Spans>>) {
+        if self.annotations != annotations {
+            self.annotations = annotations;
+            self.rebadge();
+        }
     }
     /// Replaces the `(username, xuid, uuid)` roster; the revision advances only when it changed.
     pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>) {
@@ -133,13 +137,7 @@ impl PlayerRoster {
             .map(|(index, (name, xuid, uuid))| RosterRow {
                 name: Arc::clone(name),
                 badged: self.has_badge(xuid, uuid),
-                annotation: self
-                    .counters
-                    .style
-                    .as_ref()
-                    .filter(|style| style.show_tab)
-                    .and_then(|_| self.counters.annotation(uuid))
-                    .cloned(),
+                annotation: self.annotations.get(uuid).cloned(),
                 skin: self.rows.get(index).and_then(|row| row.skin.clone()),
             })
             .collect();
@@ -241,6 +239,31 @@ mod tests {
         roster.set_cinnabar(Arc::new(HashSet::from([uuid.to_string()])));
         assert_eq!(badges(&roster), [("Alex", false), ("Steve", true)]);
         assert!(roster.has_badge("", uuid.as_bytes()));
+    }
+
+    /// Spans follow each row's UUID, survive badge changes and clear when withdrawn.
+    #[test]
+    fn annotations_follow_roster_uuids() {
+        let mut roster = PlayerRoster::default();
+        roster.set_entries(vec![
+            ("Alex".into(), "11".into(), [1; 16]),
+            ("Alex".into(), "22".into(), [2; 16]),
+        ]);
+        let spans = Arc::new(Spans {
+            spans: [ui::mod_presentation::Span {
+                text: "3".into(),
+                color: [1.; 4],
+            }]
+            .into(),
+            position: ui::mod_presentation::SpanPosition::After,
+        });
+        roster.set_annotations(HashMap::from([([2; 16], Arc::clone(&spans))]));
+        assert!(roster.rows()[0].annotation.is_none());
+        assert_eq!(roster.rows()[1].annotation, Some(Arc::clone(&spans)));
+        roster.set_show_badges(false);
+        assert_eq!(roster.rows()[1].annotation, Some(spans));
+        roster.set_annotations(HashMap::new());
+        assert!(roster.rows().iter().all(|row| row.annotation.is_none()));
     }
 
     #[test]

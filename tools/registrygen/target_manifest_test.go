@@ -21,6 +21,7 @@ type bedrockTargetManifest struct {
 	Artifacts    map[string]string `json:"artifacts"`
 }
 
+// effectiveTrackedAttributes reads the attributes Git will apply from the index.
 func effectiveTrackedAttributes(root, carrier string) (map[string]string, error) {
 	command := exec.Command("git", "-C", root, "check-attr", "--cached", "-z", "text", "eol", "--", carrier)
 	output, err := command.CombinedOutput()
@@ -74,13 +75,14 @@ func TestBedrockTargetCarrierAutocrlfUpgrade(t *testing.T) {
 	}
 }
 
+// testBedrockTargetCarrierAutocrlfUpgrade checks a real checkout across the LF-pinning upgrade.
 func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding string) {
 	t.Helper()
 	sourceRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	carrierPath := "crates/assets/data/block-item-routes-v2193.json"
+	carrierPath := "crates/assets/data/block-item-routes-v2225.json"
 	manifestPath := "assets/bedrock-target.json"
 	attributePath := ".gitattributes"
 	readSource := func(path string) []byte {
@@ -109,11 +111,9 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	if !bytes.Equal(baseSemantic.Bytes(), candidateSemantic.Bytes()) {
 		t.Fatal("active carrier upgrade byte revision changed JSON semantics")
 	}
-	const attributePin = "crates/assets/data/block-item-routes-v*.json text eol=lf"
-	baseAttributes := bytes.Replace(candidateAttributes, []byte(attributePin+attributeLineEnding), nil, 1)
-	if bytes.Equal(baseAttributes, candidateAttributes) {
-		t.Fatal("active carrier tracked-LF pin is absent")
-	}
+	// The synthetic base must permit autocrlf even when broader rules now pin this carrier.
+	// Reset its effective eol attribute instead of depending on the spelling of those rules.
+	baseAttributes := append(bytes.Clone(candidateAttributes), []byte(attributeLineEnding+carrierPath+" text !eol"+attributeLineEnding)...)
 	var target bedrockTargetManifest
 	if err := json.Unmarshal(candidateManifest, &target); err != nil {
 		t.Fatal(err)
@@ -129,8 +129,8 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	}
 
 	cloneRoot := filepath.Join(t.TempDir(), "upgrade")
-	if output, err := exec.Command("git", "clone", "--quiet", "--shared", "--no-checkout", sourceRoot, cloneRoot).CombinedOutput(); err != nil {
-		t.Fatalf("git clone failed: %v: %s", err, output)
+	if output, err := exec.Command("git", "init", "--quiet", cloneRoot).CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, output)
 	}
 	runGit := func(arguments ...string) string {
 		t.Helper()
@@ -144,10 +144,13 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	runGit("config", "core.autocrlf", "true")
 	runGit("config", "user.name", "Cinnabar Test")
 	runGit("config", "user.email", "cinnabar-test@example.invalid")
-	runGit("checkout", "--quiet", "--detach", "HEAD")
 	writeClone := func(path string, contents []byte) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(cloneRoot, filepath.FromSlash(path)), contents, 0o644); err != nil {
+		destination := filepath.Join(cloneRoot, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(destination, contents, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -191,17 +194,20 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	if !bytes.Equal(candidateCheckout, candidateCarrier) {
 		t.Fatalf("candidate checkout did not rematerialize exact tracked-LF carrier bytes: got %x, want %s", sha256.Sum256(candidateCheckout), candidateDigest)
 	}
-	command := exec.Command("go", "test", ".", "-run", "^TestBedrockTargetManifestOwnsEveryProductionCarrier$", "-count=1")
-	command.Dir = filepath.Join(cloneRoot, "tools", "registrygen")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("candidate target manifest test failed after upgrade: %v: %s", err, output)
-	}
+	checkBedrockTargetCarriers(t, cloneRoot)
 }
 
 // TestBedrockTargetManifestOwnsEveryProductionCarrier prevents runtime,
 // build, and packaging defaults from selecting protocols independently.
 func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	root := filepath.Join("..", "..")
+	target := checkBedrockTargetCarriers(t, root)
+	checkBedrockTargetConsumers(t, root, target)
+}
+
+// checkBedrockTargetCarriers validates the target identity, carrier hashes and checkout attributes.
+func checkBedrockTargetCarriers(t *testing.T, root string) bedrockTargetManifest {
+	t.Helper()
 	payload, err := os.ReadFile(filepath.Join(root, "assets", "bedrock-target.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -210,12 +216,12 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	if err := json.Unmarshal(payload, &target); err != nil {
 		t.Fatal(err)
 	}
-	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.50" || target.WireProtocol != 2193 || target.CodecCrate != "bedrock-protocol-1-26-51" {
+	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.60" || target.WireProtocol != 2225 || target.CodecCrate != "bedrock-protocol-1-26-60" {
 		t.Fatalf("unexpected target identity: %+v", target)
 	}
 	for name, path := range target.Artifacts {
-		if !strings.Contains(path, "2193") || strings.Contains(path, "1001") {
-			t.Fatalf("target artifact %s is not protocol-2193-only: %s", name, path)
+		if !strings.Contains(path, "2225") || strings.Contains(path, "1001") {
+			t.Fatalf("target artifact %s is not protocol-2225-only: %s", name, path)
 		}
 	}
 	for name, expected := range target.Hashes {
@@ -240,14 +246,20 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 			t.Fatalf("raw-byte target carrier %s is not pinned to tracked LF checkout bytes: %+v", carrier, attributes)
 		}
 	}
+	return target
+}
+
+// checkBedrockTargetConsumers checks that production and acceptance code use the shared target.
+func checkBedrockTargetConsumers(t *testing.T, root string, target bedrockTargetManifest) {
+	t.Helper()
 	consumers := map[string][]string{
 		"Makefile":                                       {"assets/bedrock-target.json", "physics-assets"},
-		"crates/assets/src/carriers.rs":                  {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2193.mcbea"},
-		"crates/assets/src/pinned_content.rs":            {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
+		"crates/assets/src/carriers.rs":                  {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2225.mcbea"},
+		"crates/assets/src/pinned_content.rs":            {"block-registry-v2225.bin", "block-light-registry-v2225.bin", "biome-registry-v2225.bin", "bedrock-target.json"},
 		"crates/launcher/src/install_layout.rs":          {"carriers::physics_registry_basename", "carriers::WORLD"},
 		"tools/dist/src/layout.rs":                       {"carriers::physics_registry_basename", "carriers::required"},
-		"crates/pack-compiler/entity/src/entity/item.rs": {"pinned_block_registry_bytes", "block-item-routes-v2193.json"},
-		"crates/asset-compiler/src/bin/assetc/cli.rs":    {"vanilla-v2193.mcbea"},
+		"crates/pack-compiler/entity/src/entity/item.rs": {"pinned_block_registry_bytes", "block-item-routes-v2225.json"},
+		"crates/asset-compiler/src/bin/assetc/cli.rs":    {"vanilla-v2225.mcbea"},
 		"crates/protocol/Cargo.toml":                     {target.CodecCrate},
 		"crates/launcher-host/src/local_worlds/mod.rs":   {"bedrock-target.json", "server_version", "bds_container_image"},
 	}
@@ -290,7 +302,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 				t.Fatalf("acceptance consumer %s does not derive %s from the target manifest or registry", path, value)
 			}
 		}
-		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2193") {
+		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2225") {
 			t.Fatalf("acceptance consumer %s hard-codes a versioned carrier instead of deriving the target", path)
 		}
 	}
@@ -301,7 +313,7 @@ func TestBedrockTargetManifestOwnsEveryProductionCarrier(t *testing.T) {
 	if !strings.Contains(string(workflow), "make physics-assets") {
 		t.Fatal("CI does not exercise the manifest-owned physics target")
 	}
-	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2193"} {
+	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2225"} {
 		if strings.Contains(string(workflow), carrier) {
 			t.Fatalf("CI hard-codes %s instead of using the manifest-owned Make target", carrier)
 		}

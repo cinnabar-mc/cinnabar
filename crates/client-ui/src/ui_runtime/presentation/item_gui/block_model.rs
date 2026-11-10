@@ -1,10 +1,10 @@
 //! Block items with overlapping faces as GUI geometry: the quads their baked thumbnail
-//! projects, painted in their supplied order at the control's physical size.
+//! projects, drawn at the control's physical size with depth or supplied paint order.
 
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::gui_item::{
-    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, face_brightness,
+    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, GuiShading,
     project_cube,
 };
 use ui::{UiMesh, UiMeshBatch};
@@ -15,10 +15,11 @@ use {
     ui::IconRef,
 };
 
-/// Each quad with its tile's place in the atlas. `None` when a UV leaves its tile, which an atlas
-/// cannot wrap.
+/// Draws atlas quads with the requested shading, brightness and overlap order.
+/// Returns `None` when a UV leaves its tile, which an atlas cannot wrap.
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
+    shading: GuiShading,
     lighting: CubeLighting,
     order: BlockModelOrder,
 ) -> Option<Arc<UiMesh>> {
@@ -38,7 +39,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         {
             return None;
         }
-        let shade = shade(face_brightness(quad.corners), lighting);
+        let shade = shade(shading.brightness(quad.corners), lighting);
         let start = vertices.len() as u32;
         for (corner, uv) in quad.corners.into_iter().zip(quad.uvs) {
             let [x, y, z] = project_cube(corner);
@@ -50,7 +51,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
                 true,
             );
             if order == BlockModelOrder::Depth {
-                vertex.clip_z = 0.5 - z / 8.0;
+                vertex.clip_z = depth(z);
             }
             vertex.terrain_mips = true;
             vertices.push(vertex);
@@ -86,6 +87,11 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         .ok()
         .map(UiMesh::with_compact_block_vertices)
         .map(Arc::new)
+}
+
+/// Converts projected view depth to UI depth, where greater values are nearer.
+fn depth(z: f32) -> f32 {
+    0.5 - z / 8.0
 }
 
 #[cfg(test)]

@@ -260,3 +260,21 @@ fn extended_mapping_named_bitmap_and_locale_overrides_are_kept_separate() {
     assert_eq!(sheets.named()["rune"][0].codepoint, 'A');
     assert_eq!(sheets.named()["rune"][0].size, [8, 8]);
 }
+
+// Packs built from Unicode pages often draw an `SP` label in the space cell; vanilla never shows it.
+#[test]
+fn a_unicode_sheet_space_cell_draws_nothing() {
+    let sheets = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[("font/glyph_00.png", sheet_png(16, u32::from(' ')))],
+    )]))
+    .unwrap();
+    let space = sheets
+        .cells()
+        .iter()
+        .find(|cell| cell.codepoint == ' ')
+        .unwrap();
+    assert_eq!(space.size, [0, 0]);
+    assert!(space.rgba8.is_empty());
+    assert_eq!(space.advance_64, (assets::texel_size_64(0, 1) / 2) as i16);
+}

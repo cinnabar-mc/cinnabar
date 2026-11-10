@@ -29,7 +29,7 @@ fn option_modal() -> Modal<'static> {
         body: Cow::Borrowed(""),
         body_color: TEXT,
         buttons: Vec::new(),
-        close: Some(MenuAction::SettingsScalePicker),
+        close: Some(MenuAction::SettingsDropdown(0)),
     }
 }
 
@@ -80,7 +80,7 @@ fn picker_overlaps_the_bottom_border_without_changing_other_modals() {
 
 #[test]
 fn gamepad_picker_keeps_back_dismissal_but_hides_the_pointer_close_button() {
-    let close = MenuAction::SettingsScalePicker;
+    let close = MenuAction::SettingsDropdown(0);
     for gamepad in [false, true] {
         let mut view = MenuView::new(true, "Player".into());
         view.gamepad_input = gamepad;

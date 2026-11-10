@@ -1,15 +1,15 @@
 use assets::NetworkIdMode;
 use std::sync::Arc;
 
-use super::{BREG_V2193, active_content_registry_protocol, bind, custom_block, synthetic_preg};
+use super::{BREG_V2225, active_content_registry_protocol, bind, custom_block, synthetic_preg};
 
 #[test]
 fn compiled_headings_match_canonical_states_in_both_identity_spaces() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(protocol, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(protocol, BREG_V2225, &records),
         protocol,
     )
     .unwrap();
@@ -70,10 +70,10 @@ fn compiled_headings_match_canonical_states_in_both_identity_spaces() {
 #[test]
 fn custom_session_replacement_never_inherits_a_compiled_heading() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(protocol, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(protocol, BREG_V2225, &records),
         protocol,
     )
     .unwrap();

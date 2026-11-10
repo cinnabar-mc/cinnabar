@@ -238,6 +238,8 @@ fn every_shader_parses_and_validates() {
             || name == "biome_tint.wesl"
             || name == "material.wesl"
             || name == "chunk_bindings.wesl"
+            // Spliced into `ui.wgsl`, which validates it through the production constructor.
+            || name == "ui_texture_vertex.wgsl"
         {
             continue;
         }

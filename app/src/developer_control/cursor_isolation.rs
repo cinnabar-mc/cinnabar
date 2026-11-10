@@ -26,7 +26,7 @@ struct PhysicalState {
 }
 
 #[derive(Resource)]
-pub(super) struct Isolation {
+pub(crate) struct Isolation {
     hidden: bool,
     physical: Option<PhysicalState>,
     virtual_position: Option<Vec2>,
@@ -45,6 +45,25 @@ impl Isolation {
     /// Retains logical synthetic coordinates even while Window hit testing clips them.
     pub(super) fn set_pointer(&mut self, position: Vec2) {
         self.virtual_position = Some(position);
+    }
+}
+
+/// Moves the active cursor owner, preserving virtual coordinates across isolation boundaries.
+pub(crate) fn position_pointer(
+    window: &mut Mut<'_, Window>,
+    isolation: Option<&mut Isolation>,
+    driven: bool,
+    position: Vec2,
+) {
+    if driven {
+        if let Some(isolation) = isolation {
+            isolation.set_pointer(position);
+        }
+        window
+            .bypass_change_detection()
+            .set_cursor_position(Some(position));
+    } else {
+        window.set_cursor_position(Some(position));
     }
 }
 

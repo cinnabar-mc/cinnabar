@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::{packets, types};
+use bedrock_protocol_1_26_60::{packets, types};
 
 use super::{CameraEvent, bounded_identifier, validate_count, validate_finite, validate_position};
 use crate::WorldPacketError;
