@@ -8,11 +8,12 @@ Max: menus, sign-in, joining servers and shader packs work; touch input is light
 
 ## Get the IPA
 
-The iOS workflow builds `Cinnabar-<version>-unsigned.ipa` and attaches it to the run as
-`cinnabar-ios-unsigned`. To get one, push a branch named `ios/<anything>` to your fork of the
-repository (enable Actions on the fork first) or run the iOS workflow by hand, then download it
-with `gh run download <run id> -R <you>/cinnabar -n cinnabar-ios-unsigned`. On a Mac with
-Xcode 26, the iOS Rust target (`rustup target add aarch64-apple-ios`), Go and librsvg or
+Every nightly and Beta release attaches `Cinnabar-arm64-unsigned.ipa` beside the desktop
+downloads. For a build of your own branch, the iOS workflow builds
+`Cinnabar-<version>-unsigned.ipa` and attaches it to the run as `cinnabar-ios-unsigned`. Push a
+branch named `ios/<anything>` to your fork of the repository (enable Actions on the fork first)
+or run the iOS workflow by hand, then download it with
+`gh run download <run id> -R <you>/cinnabar -n cinnabar-ios-unsigned`. On a Mac with Xcode 26, the iOS Rust target (`rustup target add aarch64-apple-ios`), Go and librsvg or
 ImageMagick, build it locally instead:
 
 ```sh
