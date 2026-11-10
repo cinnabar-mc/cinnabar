@@ -1024,6 +1024,54 @@ fn attachment_placement_shared_endpoint_composes_once() {
     assert_eq!(work, 1);
     assert!(Arc::ptr_eq(&poses[0], &poses[1]));
 }
+/// A root may follow a controller model's bone, so that model moving makes placement depend on
+/// the frame time even while the body stands still.
+#[test]
+fn attachment_placement_interpolates_a_moving_controller_model_on_a_still_body() {
+    let (_, mut body, _) = block_fixture();
+    body.input.current_bones = Arc::clone(&body.input.previous_bones);
+    let still = actor_animation::BoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 0.0, 0.0, 1.0],
+        axis_scale: [1.0; 3],
+    };
+    let moved = actor_animation::BoneTransform {
+        translation_scale: [0.0, 1.0, 0.0, 1.0],
+        ..still
+    };
+    let layer = |previous: actor_animation::BoneTransform,
+                 current: actor_animation::BoneTransform| {
+        actor_animation::RenderTextureLayer {
+            material: Default::default(),
+            material_state: None,
+            source: 0,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry: Some(1),
+            previous_pose: Arc::from([previous]),
+            pose: Arc::from([current]),
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin: false,
+            pack: true,
+        }
+    };
+    assert!(!placement_cache::owner_changing(&body, &[]));
+    assert!(!placement_cache::owner_changing(
+        &body,
+        &[layer(still, still)]
+    ));
+    assert!(placement_cache::owner_changing(
+        &body,
+        &[layer(still, moved)]
+    ));
+}
+
 mod walls;
 
 #[test]

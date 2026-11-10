@@ -38,15 +38,25 @@ pub(super) fn attach(
                     .is_some_and(|actor| actor.is_using_item());
                 input.java = Some(crate::presentation::equipment::JavaGrip { blocking: using });
             }
+            let local_rig = local_coverage && runtime_id == poses.local_runtime_id;
+            // Roots follow the controller models this frame draws, not the completed tick's.
+            // Only owners that may draw other models copy the frame's layers.
+            let frame_layers = render_frame
+                .as_mut()
+                .filter(|frame| !local_rig && frame.may_replace_body_geometry(runtime_id))
+                .and_then(|frame| frame.layers(runtime_id));
             let animation = stream.authority().actor(runtime_id).zip(
                 stream.authority().actor_rig(runtime_id).map(|rig| {
-                    let mut rig = if local_coverage && runtime_id == poses.local_runtime_id {
+                    let mut rig = if local_rig {
                         rig
                     } else {
                         render_frame
                             .as_mut()
                             .map_or(rig, |frame| frame.sample_equipment_properties(rig))
                     };
+                    if let Some(layers) = frame_layers.as_deref() {
+                        rig.render = layers;
+                    }
                     if local_coverage
                         && runtime_id == poses.local_runtime_id
                         && let Some(layers) = stream.authority().actor_ui_layers(runtime_id)

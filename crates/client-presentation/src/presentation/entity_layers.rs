@@ -210,31 +210,45 @@ fn resolve_layer(
             None
         } else if player_skin && layer.geometry.is_some() {
             // Another model never falls back to the skin, which is laid out for the body.
-            Some(artwork.source_location(layer.pack, layer.source)?)
+            Some(catalog_location(
+                layer,
+                |source| artwork.source_location(layer.pack, source),
+                |sources| artwork.source_multitexture_location(layer.pack, sources),
+            )?)
         } else if player_skin {
             artwork.source_location(layer.pack, layer.source)
         } else {
-            Some(match layer.multitexture {
-                Some([second, third]) => artwork
-                    .multitexture_location(submission.input.rig, [layer.source, second, third])
-                    .or_else(|| {
-                        if layer
-                            .material_state
-                            .is_some_and(|state| state.masked_multitexture)
-                        {
-                            artwork.variant_location(submission.input.rig, layer.source)
-                        } else {
-                            None
-                        }
-                    })?,
-                None => artwork.variant_location(submission.input.rig, layer.source)?,
-            })
+            let rig = submission.input.rig;
+            Some(catalog_location(
+                layer,
+                |source| artwork.variant_location(rig, source),
+                |sources| artwork.multitexture_location(rig, sources),
+            )?)
         },
         tint: pack_layer_tint(layer.color),
         overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
         hidden_bones: Arc::clone(&layer.hidden_bones),
         uv_anim: layer.uv_anim,
     })
+}
+
+/// The catalog texture and extra samplers a layer draws with. A masked multitexture whose
+/// samplers cannot share a page still draws its base texture.
+fn catalog_location(
+    layer: &RenderTextureLayer,
+    single: impl Fn(u32) -> Option<ActorArtworkLocation>,
+    multitexture: impl Fn([u32; 3]) -> Option<ActorArtworkLocation>,
+) -> Option<ActorArtworkLocation> {
+    match layer.multitexture {
+        Some([second, third]) => multitexture([layer.source, second, third]).or_else(|| {
+            layer
+                .material_state
+                .is_some_and(|state| state.masked_multitexture)
+                .then(|| single(layer.source))
+                .flatten()
+        }),
+        None => single(layer.source),
+    }
 }
 
 /// Refills the bounded body layers using the same admission as inherited equipment styling.
@@ -743,17 +757,19 @@ mod tests {
             runtime_skin,
             pack: true,
         };
-        let artwork = ActorArtworkPages::default().with_pack_artwork(
-            &[assets::ActorTexture {
-                source: 23,
-                width: 2,
-                height: 2,
-                pixel_sha256: [1; 32],
-                rgba8: vec![255; 16].into(),
-            }],
-            &[],
-        );
-        let layers = [layer(false, 23, Some(7)), layer(true, 0, None)];
+        let texture = |source| assets::ActorTexture {
+            source,
+            width: 2,
+            height: 2,
+            pixel_sha256: [source as u8; 32],
+            rgba8: vec![255; 16].into(),
+        };
+        let artwork =
+            ActorArtworkPages::default().with_pack_artwork(&[texture(23), texture(24)], &[]);
+        // The cosmetic samples a second catalog texture, as a two-texture material does.
+        let mut hat = layer(false, 23, Some(7));
+        hat.multitexture = Some([24, 24]);
+        let layers = [hat, layer(true, 0, None)];
         apply_render_layers_cached(
             &mut batch,
             |_| {
@@ -776,9 +792,16 @@ mod tests {
             hat.input.rig,
             layer_geometry_rig_id(render_model::pack_rig_id(0), 7)
         );
+        let location = batch.artwork.get(&hat.input.identity).copied().unwrap();
         assert_eq!(
-            batch.artwork.get(&hat.input.identity).copied(),
-            artwork.source_location(true, 23)
+            location,
+            artwork
+                .source_multitexture_location(true, [23, 24, 24])
+                .unwrap()
+        );
+        assert!(
+            location.multitexture.is_some(),
+            "the second sampler is kept"
         );
     }
 

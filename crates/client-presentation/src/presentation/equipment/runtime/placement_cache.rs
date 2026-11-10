@@ -205,17 +205,36 @@ fn render_equal(a: &[RenderBoneTransform], b: &[RenderBoneTransform]) -> bool {
         })
 }
 
-/// Parent interpolation depends on frame time only for an attachment following changing owner bones.
+/// Whether the owner's body or any controller model a root may follow differs between its
+/// previous and current endpoints.
+pub(super) fn owner_changing(
+    body: &ActorRigSubmission,
+    owner_layers: &[actor_animation::RenderTextureLayer],
+) -> bool {
+    (!Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones)
+        && !render_equal(&body.input.previous_bones, &body.input.current_bones))
+        || owner_models(owner_layers).any(|layer| {
+            !Arc::ptr_eq(&layer.previous_pose, &layer.pose)
+                && (layer.previous_pose.len() != layer.pose.len()
+                    || !layer
+                        .previous_pose
+                        .iter()
+                        .zip(layer.pose.iter())
+                        .all(|(a, b)| local_equal(*a, *b)))
+        })
+}
+
+/// Parent interpolation depends on frame time only for an attachment following changing owner
+/// bones: the body's, or those of a controller model in `owner_layers` a root may follow.
 pub(super) fn alpha(
     body: &ActorRigSubmission,
+    owner_layers: &[actor_animation::RenderTextureLayer],
     rig: &actor_animation::AttachableRigSnapshot<'_>,
     geometry: u32,
     count: usize,
     alpha: f32,
 ) -> Option<f32> {
-    let changing = !Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones)
-        && !render_equal(&body.input.previous_bones, &body.input.current_bones);
-    (changing
+    (owner_changing(body, owner_layers)
         && (0..count).any(|index| {
             matches!(
                 rig.bone_parent(geometry, index),

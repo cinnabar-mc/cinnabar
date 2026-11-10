@@ -199,6 +199,7 @@ impl EquipmentRuntime {
                     .then(|| {
                         placement_cache::alpha(
                             body,
+                            owner_rig.render,
                             &evaluated,
                             geometry_index,
                             pose.len(),

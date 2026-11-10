@@ -76,6 +76,7 @@ impl EquipmentRuntime {
                 scale,
                 alpha: placement_cache::alpha(
                     body,
+                    animation.rig.render,
                     &evaluated,
                     geometry_index,
                     local.len(),

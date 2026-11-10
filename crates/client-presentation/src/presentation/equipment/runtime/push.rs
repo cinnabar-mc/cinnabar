@@ -695,6 +695,7 @@ impl EquipmentRuntime {
                     scale: evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     alpha: placement_cache::alpha(
                         body,
+                        animation.rig.render,
                         &evaluated,
                         geometry_index,
                         local.len(),
