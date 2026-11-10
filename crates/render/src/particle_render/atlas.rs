@@ -49,33 +49,60 @@ pub(super) fn prepare(
         // A full-size retry may fit once in-flight frames retire the released atlas.
         install(gpu, device, queue, !released);
         let uploaded = gpu.texture.is_some();
-        gpu.atlas.retry.record(uploaded, released.then_some(queue));
+        if !uploaded {
+            gpu.atlas.retry.record(false, released.then_some(queue));
+        }
     } else if gpu.atlas.retry.take_ready() {
         install(gpu, device, queue, true);
         let uploaded = gpu.texture.is_some();
-        gpu.atlas.retry.record(uploaded, None);
+        if !uploaded {
+            gpu.atlas.retry.record(false, None);
+        }
     }
     if let Some(texture) = &gpu.texture
         && frame.patch_seq != gpu.uploaded_seq
     {
         let factor = gpu.atlas.reduction.max(1);
-        for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
-            let origin = [patch.x / factor, patch.y / factor];
-            if factor == 1 {
-                write_rect(
-                    queue,
-                    texture,
-                    origin,
-                    [patch.width, patch.height],
-                    &patch.rgba8,
-                );
-            } else if let Some((size, pixels)) =
-                reduce(patch.width, patch.height, &patch.rgba8, factor)
-            {
-                write_rect(queue, texture, origin, size, &pixels);
+        let bytes = frame
+            .patches
+            .iter()
+            .filter(|patch| patch.seq > gpu.uploaded_seq)
+            .map(|patch| patch.rgba8.len() as u64)
+            .sum();
+        let uploaded = gpu_allocation::checked(device, "particle atlas patches", bytes, || {
+            for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
+                let origin = [patch.x / factor, patch.y / factor];
+                if factor == 1 {
+                    write_rect(
+                        queue,
+                        texture,
+                        origin,
+                        [patch.width, patch.height],
+                        &patch.rgba8,
+                    );
+                } else if let Some((size, pixels)) =
+                    reduce(patch.width, patch.height, &patch.rgba8, factor)
+                {
+                    write_rect(queue, texture, origin, size, &pixels);
+                }
             }
+        });
+        if uploaded.is_none() {
+            // A partial write cannot commit this generation. Rebuild the base and replay the
+            // current patches after the released texture's last submission retires.
+            shared_atlases.release(gpu.texture.as_ref());
+            gpu.texture = None;
+            gpu.texture_view = None;
+            gpu.bind_group = None;
+            let released = (!gpu.atlas.retry.failed()).then_some(queue);
+            gpu.atlas.retry.record(false, released);
+            return;
         }
         gpu.uploaded_seq = frame.patch_seq;
+    }
+    if gpu.texture.is_some() {
+        // The base and its patches form one attempt; only their combined success clears backoff.
+        gpu.atlas.retry.record(true, None);
     }
 }
 

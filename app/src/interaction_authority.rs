@@ -10,7 +10,10 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 
 use client_ui::ui_runtime::UiRuntime;
 use {
-    crate::runtime::world::ClientWorld,
+    crate::{
+        block_ray_cache::{BlockRayCache, CachedPickWorld},
+        runtime::world::ClientWorld,
+    },
     client_interaction::movement::PhysicsCollisionRegistries,
     client_presentation::local_player::InteractionOriginSnapshot,
     gameplay::mining::{
@@ -157,6 +160,84 @@ pub(crate) fn observe_block_ray_using(
         f64,
     ) -> Result<Option<sim::BlockHit>, sim::WorldQueryError>,
 ) -> Result<sim::CollisionQuery<Option<FrozenBlockObservation>>, BlockRayUnavailable> {
+    let observe = |picks: &CachedPickWorld<'_>, origin, direction, reach| {
+        picks
+            .world()
+            .observe(|world| choose(world, origin, direction, reach))
+    };
+    observe_block_ray_with(
+        origin,
+        ui,
+        client_world,
+        (collisions, None),
+        selection,
+        game_mode,
+        liquids,
+        input,
+        observe,
+    )
+}
+
+/// [`observe_block_ray`]'s nearest-block observation, reused from
+/// [`crate::block_ray_cache::BlockRayCache`] while its inputs are unchanged.
+pub(crate) fn observe_nearest_block_ray(
+    origin: &InteractionOriginSnapshot,
+    ui: &UiRuntime,
+    client_world: &ClientWorld,
+    collisions: &bevy::prelude::Res<PhysicsCollisionRegistries>,
+    selection: FrozenMiningSelection,
+    game_mode: Option<protocol::PlayerGameMode>,
+    input: (
+        PlayerInputMode,
+        f64,
+        (InputAuthorityGeneration, InputSequence),
+        PositionAuthorityGeneration,
+    ),
+) -> Result<sim::CollisionQuery<Option<FrozenBlockObservation>>, BlockRayUnavailable> {
+    use bevy::ecs::change_detection::DetectChanges;
+    observe_block_ray_with(
+        origin,
+        ui,
+        client_world,
+        (collisions, Some(collisions.last_changed())),
+        selection,
+        game_mode,
+        false,
+        input,
+        |picks, origin, direction, reach| picks.observed_ray(origin, direction, reach),
+    )
+}
+
+/// Builds the frozen observation from `observe`'s result on the current ray and world. Without a
+/// registry change tick the shared cache is never consulted.
+#[allow(clippy::too_many_arguments)]
+fn observe_block_ray_with(
+    origin: &InteractionOriginSnapshot,
+    ui: &UiRuntime,
+    client_world: &ClientWorld,
+    (collisions, registry_changed): (
+        &PhysicsCollisionRegistries,
+        Option<bevy::ecs::change_detection::Tick>,
+    ),
+    selection: FrozenMiningSelection,
+    game_mode: Option<protocol::PlayerGameMode>,
+    liquids: bool,
+    input: (
+        PlayerInputMode,
+        f64,
+        (InputAuthorityGeneration, InputSequence),
+        PositionAuthorityGeneration,
+    ),
+    observe: impl FnOnce(
+        &CachedPickWorld<'_>,
+        Vec3,
+        Vec3,
+        f64,
+    ) -> Result<
+        sim::CollisionQuery<Result<Option<sim::BlockHit>, sim::WorldQueryError>>,
+        sim::WorldQueryError,
+    >,
+) -> Result<sim::CollisionQuery<Option<FrozenBlockObservation>>, BlockRayUnavailable> {
     let (
         input_mode,
         reach,
@@ -179,15 +260,17 @@ pub(crate) fn observe_block_ray_using(
     );
     context.liquids = liquids;
     let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
-    let world = PaletteWorld::new(
-        stream.collision_store(),
+    // An uncached caller gets a private cache, so its own query is computed afresh.
+    let private = registry_changed.is_none().then(BlockRayCache::default);
+    let picks = CachedPickWorld::new(
+        private.as_ref().unwrap_or(&client_world.block_rays),
+        stream,
         collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
+        registry_changed.unwrap_or_default(),
         context,
-    )
-    .with_cell_overlays(&overlay_ids);
-    let observed = world
-        .observe(|world| choose(world, vector(ray.origin()), vector(ray.direction()), reach))
+        &overlay_ids,
+    );
+    let observed = observe(&picks, vector(ray.origin()), vector(ray.direction()), reach)
         .map_err(|_| BlockRayUnavailable)?;
     let Some(mut hit) = observed.value.map_err(|_| BlockRayUnavailable)? else {
         return Ok(sim::CollisionQuery {
@@ -242,51 +325,8 @@ pub(crate) fn observe_block_ray_using(
 }
 
 #[cfg(test)]
-/// A top-face hit on `position` holding `item` in slot 2.
-pub(crate) fn fixture(
-    position: [i32; 3],
-    face: u8,
-    item: protocol::VerifiedNetworkItemStack,
-) -> FrozenBlockObservation {
-    let identity = sim::CollisionQuery::synthetic(()).identity;
-    let relative_hit = [0.5, 1.0, 0.5];
-    FrozenBlockObservation {
-        frame: FrozenMiningFrame {
-            session_generation: SessionGeneration::new(7),
-            position_authority_generation: PositionAuthorityGeneration::new(0),
-            input_authority_generation: InputAuthorityGeneration::INITIAL,
-            input_frame_sequence: InputSequence::new(1),
-            fifo_sequence: protocol::identity::FifoSequence::new(1),
-            physics_tick: simulation_clock::PhysicsTick::new(101),
-            pose_generation: render_api::PoseGeneration::new(1),
-        },
-        ray: FrozenMiningRay {
-            origin: [0.5, 65.62, 0.5],
-            direction: [0.0, -1.0, 0.0],
-            movement_world_identity: identity.clone(),
-            world_identity: identity.clone(),
-        },
-        reach: 5.7,
-        input_mode: PlayerInputMode::Mouse,
-        selection: FrozenMiningSelection { slot: 2, item },
-        target: FrozenMiningTarget {
-            position,
-            face,
-            relative_hit,
-            hit_world: std::array::from_fn(|axis| position[axis] as f32 + relative_hit[axis]),
-            runtime_id: 9,
-            identity,
-        },
-    }
-}
-
-#[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        client_presentation::local_player::InteractionOriginSnapshot,
-        gameplay::interaction_authority::{FrozenBlockObservation, within_pick_range},
-    };
+    use {super::*, client_presentation::local_player::InteractionOriginSnapshot};
 
     fn stream() -> chunk_pipeline::WorldStream {
         chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
@@ -400,44 +440,6 @@ mod tests {
             simulation_clock::identity::SessionGeneration::new(connection_session),
             &stream
         ));
-    }
-
-    fn at(position: [i32; 3], input_mode: PlayerInputMode, reach: f64) -> FrozenBlockObservation {
-        let stack = protocol::NetworkItemStack::empty();
-        let item =
-            protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
-        FrozenBlockObservation {
-            input_mode,
-            reach,
-            ..fixture(position, 1, item)
-        }
-    }
-
-    #[test]
-    fn touch_picks_past_the_server_corner_limit_are_dropped() {
-        // Eye at (0.5, 65.62, 0.5); a block down the negative axes is centre-near, corner-far.
-        let far_corner = [-5, 62, -3];
-        assert!(!within_pick_range(&at(
-            far_corner,
-            PlayerInputMode::Touch,
-            6.7
-        )));
-        assert!(within_pick_range(&at(
-            [-4, 63, -2],
-            PlayerInputMode::Touch,
-            6.7
-        )));
-        // Mouse reach cannot reach the corner limit, so only the centre rule applies.
-        assert!(within_pick_range(&at(
-            [-4, 63, -1],
-            PlayerInputMode::Mouse,
-            5.7
-        )));
-        assert!(!within_pick_range(&at(
-            [-6, 63, 0],
-            PlayerInputMode::Mouse,
-            5.7
-        )));
     }
 }
 

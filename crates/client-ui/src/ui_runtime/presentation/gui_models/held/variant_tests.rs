@@ -48,6 +48,21 @@ fn fixture(item: &str, mapped: &str) -> assets::SessionEntityPack {
             rgba8: color.repeat(1024).into(),
         });
     }
+    for texture in &textures {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_raw(
+            texture.width.into(),
+            texture.height.into(),
+            texture.rgba8.to_vec(),
+        )
+        .unwrap()
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+        files.push((
+            format!("{}.png", texture.identifier).into(),
+            png.into_inner(),
+        ));
+    }
     let compiled = pack_entity_compiler::compile_entity_pack(files)
         .unwrap()
         .unwrap();
@@ -208,6 +223,7 @@ fn selection_consumers_held_previews_draw_the_selected_definition_in_both_orders
                 Default::default(),
                 |_| {
                     Some(client_world::CanonicalItemStack {
+                        trim: None,
                         identifier: Some(item.into()),
                         identity: assets::ItemStackIdentity::empty(),
                         visual: assets::ItemVisualRoute::Missing,
@@ -464,6 +480,7 @@ fn shield_stack_patterns_select_distinct_inventory_artwork() {
     let canonical = crate::test_support::fixture_item(item);
     let first = stack_icon(&runtime, &ui, &plain, canonical.clone(), None).unwrap();
     let canonical = client_world::CanonicalItemStack {
+        trim: None,
         shield_pattern: protocol::item_shield_pattern(&patterned.extra_data).map(Arc::new),
         ..canonical
     };
@@ -566,6 +583,7 @@ fn shield_stack_patterns_select_distinct_inventory_artwork() {
     let canonical = crate::test_support::fixture_item(item);
     ui.dress_player_preview(&player, &runtime, None, Default::default(), |stack| {
         Some(client_world::CanonicalItemStack {
+            trim: None,
             shield_pattern: Some(if stack.metadata == 0 {
                 appearance.clone()
             } else {

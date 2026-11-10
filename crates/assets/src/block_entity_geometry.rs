@@ -79,7 +79,8 @@ pub const SHULKER_TEXTURE_SIZE: [f32; 2] = [64.0; 2];
 pub const CONDUIT_TEXTURE: (&str, [f32; 2]) = ("textures/blocks/conduit_base", [24.0, 12.0]);
 pub const POT_BASE_TEXTURE: (&str, [f32; 2]) = ("textures/blocks/decorated_pot_base", [32.0; 2]);
 pub const POT_SIDE_TEXTURE: (&str, [f32; 2]) = ("textures/blocks/decorated_pot_side", [16.0; 2]);
-pub const LECTERN_TEXTURES: [&str; 4] = [
+pub const LECTERN_TEXTURES: [&str; 5] = [
+    "textures/blocks/planks_oak",
     "textures/blocks/lectern_base",
     "textures/blocks/lectern_sides",
     "textures/blocks/lectern_top",
@@ -158,48 +159,67 @@ pub const LECTERN_BOARD_PIVOT: [f32; 3] = [0.0, 7.0, -1.0];
 pub const LECTERN_BOARD_OFFSET: [f32; 3] = [0.0, 1.05, 1.0];
 pub const LECTERN_SLOPE_DEGREES: f32 = 22.5;
 
+/// One stand face: an index into [`LECTERN_TEXTURES`], its `[u0, v0, u1, v1]` art in texels,
+/// and the quarter turns the art takes across the face, each moving it one corner onward.
+type LecternArt = (usize, [f32; 4], usize);
+
+/// North-facing art of the base, post and board, each in [`tile_box_faces`] order.
+const LECTERN_ART: [[LecternArt; 6]; 3] = {
+    const BOTTOM: usize = 0;
+    const BASE: usize = 1;
+    const SIDES: usize = 2;
+    const TOP: usize = 3;
+    const FRONT: usize = 4;
+    const FULL: [f32; 4] = [0.0, 0.0, 16.0, 16.0];
+    const BASE_EDGE: [f32; 4] = [0.0, 6.0, 16.0, 8.0];
+    const POST_CAP: [f32; 4] = [4.0, 4.0, 12.0, 12.0];
+    const BOARD_END: [f32; 4] = [0.0, 4.0, 13.0, 8.0];
+    [
+        [
+            (BASE, BASE_EDGE, 0),
+            (BASE, BASE_EDGE, 0),
+            (BOTTOM, FULL, 0),
+            (BASE, FULL, 0),
+            (BASE, [0.0, 14.0, 16.0, 16.0], 0),
+            (BASE, BASE_EDGE, 0),
+        ],
+        [
+            (SIDES, [2.0, 8.0, 15.0, 16.0], 1),
+            (SIDES, [2.0, 16.0, 15.0, 8.0], 1),
+            (SIDES, POST_CAP, 0),
+            (SIDES, POST_CAP, 0),
+            (FRONT, [0.0, 0.0, 8.0, 13.0], 0),
+            (FRONT, [8.0, 3.0, 16.0, 16.0], 0),
+        ],
+        [
+            (SIDES, BOARD_END, 0),
+            (SIDES, BOARD_END, 0),
+            (BOTTOM, [0.0, 0.0, 16.0, 13.0], 0),
+            (TOP, [0.0, 1.0, 16.0, 14.0], 2),
+            (SIDES, [0.0, 0.0, 16.0, 4.0], 0),
+            (SIDES, [0.0, 4.0, 16.0, 8.0], 0),
+        ],
+    ]
+};
+
 /// Closed north-facing stand in authoring pixels; each face indexes [`LECTERN_TEXTURES`].
+/// A face's first corner takes the texture rectangle's first corner, and the rectangle runs
+/// on through the others in order.
 #[must_use]
 pub fn lectern_faces() -> [(usize, ModelFace); 18] {
-    let full = [0.0, 0.0, 16.0, 16.0];
-    let (bottom, sides, top, front) = (0, 1, 2, 3);
-    let surfaces = [
-        [
-            (sides, [0.0, 6.0, 16.0, 2.0], 0),
-            (sides, [0.0, 6.0, 16.0, 2.0], 0),
-            (bottom, [0.0, 16.0, 16.0, -16.0], 0),
-            (sides, full, 0),
-            (sides, [0.0, 14.0, 16.0, 2.0], 0),
-            (sides, [0.0, 6.0, 16.0, 2.0], 0),
-        ],
-        [
-            (sides, [2.0, 8.0, 13.0, 8.0], 0),
-            (sides, [2.0, 16.0, 13.0, -8.0], 0),
-            (sides, [4.0, 12.0, 8.0, -8.0], 0),
-            (sides, [4.0, 4.0, 8.0, 8.0], 2),
-            (front, [0.0, 0.0, 8.0, 13.0], 1),
-            (front, [8.0, 3.0, 8.0, 13.0], 1),
-        ],
-        [
-            (sides, [0.0, 4.0, 13.0, 4.0], 0),
-            (sides, [0.0, 4.0, 13.0, 4.0], 0),
-            (bottom, [0.0, 13.0, 16.0, -13.0], 0),
-            (top, [0.0, 1.0, 16.0, 13.0], 0),
-            (sides, [0.0, 0.0, 16.0, 4.0], 0),
-            (sides, [0.0, 4.0, 16.0, 4.0], 0),
-        ],
-    ];
     let bounds = [LECTERN_BASE, LECTERN_POST, LECTERN_BOARD];
     let faces = bounds.map(tile_box_faces);
     std::array::from_fn(|index| {
         let (part, face) = (index / 6, index % 6);
-        let (texture, texels, turns) = surfaces[part][face];
+        let (texture, [u0, v0, u1, v1], turns) = LECTERN_ART[part][face];
         let mut corners = faces[part][face];
         if part == 2 {
             corners = corners.map(lectern_board_point);
         }
-        corners.rotate_right(turns);
-        (texture, (corners, texels))
+        // Tile boxes start their horizontal faces at the far corner of the art's reading order.
+        let start = if matches!(face, 2 | 3) { 2 } else { 0 };
+        corners.rotate_left((start + turns) % 4);
+        (texture, (corners, [u0, v0, u1 - u0, v1 - v0]))
     })
 }
 

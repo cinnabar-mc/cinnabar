@@ -84,6 +84,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             snapshot: Vec::new(),
             network: None,
             inventory: None,
+            pose: None,
             containers: None,
             call,
         };

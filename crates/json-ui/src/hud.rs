@@ -21,6 +21,8 @@ pub struct HudModel {
     pub touch_inventory: bool,
     /// The classic experience bar shows (else the hotbar stands alone).
     pub xp_bar: bool,
+    /// Server locations replace the experience artwork while retaining its level label.
+    pub locator_bar: bool,
     pub exp_progress: f64,
     pub level: u32,
     pub hotbar: Vec<HudSlot>,
@@ -38,6 +40,8 @@ pub struct HudModel {
     pub title_text: Option<String>,
     pub subtitle_text: Option<String>,
     pub actionbar: Option<Timed>,
+    /// Controller request identity; absent uses the action bar's creation clock.
+    pub actionbar_creation_id: Option<u64>,
     /// The tip text above the hotbar, which server packs reposition (the
     /// Lumine array list moves it to the screen's top right).
     pub tip: Option<Timed>,
@@ -49,6 +53,8 @@ pub struct HudModel {
     pub chat_mention_color: Option<char>,
     /// The current local actor display name used for mention matching.
     pub chat_local_player: std::sync::Arc<str>,
+    /// Restricts mention coloring to the local display name and all-player mentions.
+    pub chat_mentions_only_self: bool,
     pub chat_visible: bool,
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,
@@ -328,8 +334,12 @@ fn status_data(data: &mut DataSource, model: &HudModel) {
         ),
         ("#hotbar_elipses_left_visible", false),
         ("#hotbar_with_xp_bar", model.xp_bar),
-        ("#hotbar_no_xp_bar", !model.xp_bar),
-        ("#level_number_visible", model.xp_bar && model.level > 0),
+        ("#hotbar_with_locator_bar", model.locator_bar),
+        ("#hotbar_no_xp_bar", !model.xp_bar && !model.locator_bar),
+        (
+            "#level_number_visible",
+            (model.xp_bar || (model.locator_bar && model.survival_ui)) && model.level > 0,
+        ),
         ("#is_spectator_mode", model.spectator),
         ("#survival_horse_hearts", model.riding_hearts),
         (
@@ -582,6 +592,7 @@ fn titles(data: &mut DataSource, model: &HudModel) {
             "hud_actionbar_text_factory",
             vec![
                 FactoryItem::new("hud_actionbar_text", 0.0)
+                    .identified(model.actionbar_creation_id.unwrap_or(bar.born.to_bits()))
                     .clocked(ACTIONBAR_CLOCK)
                     .named("hud_actionbar_text")
                     .var("actionbar_text", Value::from(bar.text.clone()))

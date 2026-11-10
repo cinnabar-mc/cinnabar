@@ -40,6 +40,11 @@ impl SignInBrowser {
         }
     }
 
+    /// Leaves a code the player already took to the browser for an explicit press to reopen.
+    pub fn skip_automatic_open(&mut self, code: &str) {
+        self.link.skip_automatic_open(code);
+    }
+
     /// Collects the OS handoff result without blocking the menu frame.
     pub fn poll(&mut self) {
         if let Some(receiver) = &self.pending

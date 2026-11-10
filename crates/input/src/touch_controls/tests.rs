@@ -166,3 +166,36 @@ fn an_ended_finger_frees_its_id_for_a_new_contact_in_the_same_frame() {
     assert_eq!(held[0].hit_id, Some(touch::JOYSTICK));
     assert_eq!(state.end(8), None);
 }
+
+/// D-pad cells steer digitally; a top corner steers diagonally only for a finger already moving
+/// forward, and a second finger cannot take the pad.
+#[test]
+fn dpad_cells_steer_digitally_and_forward_diagonals_need_forward() {
+    let mut state = TouchControlState::default();
+    let dpad = region(touch::DPAD);
+    // Top-left corner straight away: diagonals are not shown yet.
+    assert!(state.begin(1, [0.12, 0.62], 1, Some(dpad)));
+    assert_eq!(state.sample()[0].delta, [0.0; 2]);
+    state.release(1);
+    let steps = [
+        ([0.2, 0.62], [0.0, 1.0]),
+        ([0.12, 0.62], [-1.0, 1.0]),
+        ([0.28, 0.62], [1.0, 1.0]),
+        ([0.28, 0.8], [1.0, 0.0]),
+        ([0.28, 0.62], [0.0, 0.0]),
+        ([0.12, 0.8], [-1.0, 0.0]),
+        ([0.2, 0.95], [0.0, -1.0]),
+        ([0.2, 0.8], [0.0, 0.0]),
+    ];
+    assert!(state.begin(2, steps[0].0, 2, Some(dpad)));
+    assert!(!state.begin(3, [0.2, 0.62], 3, Some(dpad)));
+    for (sequence, (position, expected)) in steps.into_iter().enumerate() {
+        state.move_to(2, position, 4 + sequence as u64);
+        let held: Vec<_> = state
+            .sample()
+            .into_iter()
+            .filter(|sample| sample.hit_id == Some(touch::DPAD))
+            .collect();
+        assert_eq!(held[0].delta, expected, "at {position:?}");
+    }
+}

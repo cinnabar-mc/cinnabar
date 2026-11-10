@@ -62,6 +62,8 @@ struct NodeTimer {
     slots: [Slot; SLOTS],
     ring: ReadbackRing,
     period_ns: f32,
+    /// Marks between passes use encoder timestamps; see `super::encoder_timestamps`.
+    encoder_marks: bool,
     /// Node plots first, then section plots in registration order.
     plots: Mutex<Vec<PlotName>>,
     /// Section names and their plot indices, registered on first use.
@@ -110,6 +112,7 @@ impl NodeTimer {
 pub(crate) struct SectionSpan<'w> {
     queries: &'w wgpu::QuerySet,
     pub(super) begin: u32,
+    in_encoder: bool,
 }
 
 impl SectionSpan<'_> {
@@ -121,15 +124,16 @@ impl SectionSpan<'_> {
         Some(SectionSpan {
             queries: &timer.queries,
             begin,
+            in_encoder: timer.encoder_marks,
         })
     }
 
     pub(crate) fn begin(&self, encoder: &mut wgpu::CommandEncoder) {
-        mark(encoder, self.queries, self.begin);
+        mark(encoder, self.queries, self.begin, self.in_encoder);
     }
 
     pub(crate) fn end(&self, encoder: &mut wgpu::CommandEncoder) {
-        mark(encoder, self.queries, self.begin + 1);
+        mark(encoder, self.queries, self.begin + 1, self.in_encoder);
     }
 }
 
@@ -156,6 +160,7 @@ pub(super) fn open_node<'w>(world: &'w World, name: &'static str) -> Option<Sect
     Some(SectionSpan {
         queries: &timer.queries,
         begin: timer.open(index)?,
+        in_encoder: timer.encoder_marks,
     })
 }
 
@@ -164,7 +169,12 @@ pub(super) fn close_node(world: &World, context: &mut RenderContext, begin: u32)
     if begin != super::NO_SPAN
         && let Some(timer) = world.get_resource::<NodeTimer>()
     {
-        mark(context.command_encoder(), &timer.queries, begin + 1);
+        mark(
+            context.command_encoder(),
+            &timer.queries,
+            begin + 1,
+            timer.encoder_marks,
+        );
     }
 }
 
@@ -266,6 +276,7 @@ fn timer(device: &RenderDevice, period_ns: f32) -> NodeTimer {
         }),
         ring: ReadbackRing::default(),
         period_ns,
+        encoder_marks: super::encoder_timestamps(device.features()),
         plots: Mutex::new(Vec::new()),
         sections: Mutex::new(Vec::new()),
         passes: Mutex::new(Vec::new()),

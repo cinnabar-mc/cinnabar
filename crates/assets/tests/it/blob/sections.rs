@@ -125,7 +125,7 @@ fn blob_rejects_material_layer_visual_and_mip_invariants() {
     ));
 
     let mut bad_mip_count = valid_assets();
-    bad_mip_count.texture_pages[0].texture.mips = Vec::new().into_boxed_slice();
+    bad_mip_count.texture_pages[0].texture.mips = Vec::new().into();
     assert!(matches!(
         encode_blob(&bad_mip_count),
         Err(AssetError::InvalidCompiledAssets { .. })
@@ -284,7 +284,7 @@ fn blob_rejects_non_monotonic_hashes_and_allocation_counts() {
     let mut layers = valid_assets();
     layers.texture_pages[0].texture = TextureArray {
         layers: (MAX_TEXTURE_LAYERS + 1) as u32,
-        mips: Vec::new().into_boxed_slice(),
+        mips: Vec::new().into(),
     };
     assert!(matches!(
         encode_blob(&layers),

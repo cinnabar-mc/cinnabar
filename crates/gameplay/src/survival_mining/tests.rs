@@ -13,10 +13,12 @@ use super::{
 use crate::movement::{MovementSource, MovementTicker, flush_player_auth_inputs};
 
 mod attack_admission;
+mod break_timing;
 mod creative_destroy;
 mod custom_mining;
 mod painting_attacks;
 mod refused_starts;
+mod tool_wear;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
     DestroyTarget {
@@ -53,6 +55,7 @@ struct MiningAdmission {
     mining: SurvivalMiningRuntime,
     swings: crate::melee::SwingTracker,
     packets: Vec<protocol::Packet>,
+    inventory: inventory::PlayerInventoryLedger,
     predictions: Vec<[i32; 3]>,
 }
 
@@ -65,6 +68,7 @@ impl MiningAdmission {
             mining: Default::default(),
             swings: Default::default(),
             packets: Vec::new(),
+            inventory: Default::default(),
             predictions: Vec::new(),
         }
     }
@@ -128,7 +132,7 @@ impl MiningAdmission {
         attack: Option<(crate::melee::Crosshair, crate::melee::PressContext)>,
         full: bool,
     ) {
-        crate::melee::admit_attack_frame(
+        let admitted = crate::melee::admit_attack_frame(
             &mut self.melee,
             &mut self.mining,
             &mut self.swings,
@@ -155,10 +159,11 @@ impl MiningAdmission {
                     }
                 },
                 swing_duration: |_| actor_animation::ACTOR_SWING_TICKS,
-                request_id: |_, _| None,
+                request_id: |slot, damage| self.inventory.begin_mining_request(slot, damage),
                 predict_break: |position| self.predictions.push(position),
             },
         );
+        admitted.mining.settle_inventory(&mut self.inventory);
     }
 
     /// Publishes retained inputs and their preceding actions through the production guards.
@@ -258,7 +263,7 @@ fn server_authority_is_silent_while_cracking_and_completes_with_continue_then_pr
         assert_eq!(payload.destroy, None);
     }
     let next = target([1, 1, 3], "minecraft:dirt", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &next, Server).is_empty());
     }
     // The destroy stays active on the broken block, so the next block continues it.
@@ -379,13 +384,13 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     let (interactions, _) = done.into_interactions([0.5, 64.0, 0.5]);
     assert!(matches!(
         interactions.block_interaction,
-        Some(protocol::BlockItemInteraction::Destroy(ref request))
+        Some(protocol::BlockItemInteraction::Destroy(ref request, None))
             if request.block_position == [4, 5, 6] && request.selected_slot == 2
                 && request.block_runtime_id == 7 && dirt.runtime_id == 9
     ));
     let other = target([4, 5, 7], "minecraft:stone", None);
     // The post-break delay still reports the block now under the crosshair.
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert_eq!(
             kinds(&held(&mut machine, &other, Client)),
             [(CrackBlock, [4, 5, 7], 1)]
@@ -414,7 +419,7 @@ fn only_zero_hardness_breaks_on_the_start_tick() {
         [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
     );
     let next = target([2, 1, 2], "minecraft:torch", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &next, Server).is_empty());
     }
     assert!(!held(&mut machine, &next, Server).is_empty());
@@ -462,6 +467,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         wear: Some(ToolWear {
             current_damage: 4,
             break_damage: 2,
+            maximum: None,
         }),
         ..target([0, 0, 0], block, Some("minecraft:iron_sword"))
     };
@@ -502,6 +508,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
         wear: Some(ToolWear {
             current_damage: 4,
             break_damage: 0,
+            maximum: None,
         }),
         ..dirt.clone()
     };
@@ -537,7 +544,7 @@ fn a_completion_predicts_the_break_and_a_rolled_back_block_is_mined_again() {
         None,
         "hit sounds and particles stop with the break"
     );
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &dirt, Server).is_empty());
     }
     // The server restated the block: no hold, destroying resumes at once.
@@ -654,19 +661,6 @@ fn a_held_instant_destroy_repeats_after_the_delay_or_per_block_travelled() {
     assert!(
         (machine.travel - 0.2).abs() < 1e-5,
         "the fraction carries over"
-    );
-}
-
-/// Releasing clears the delay, so a fresh press starts at once.
-#[test]
-fn release_clears_the_destroy_delay() {
-    let torch = target([1, 1, 1], "minecraft:torch", None);
-    let mut machine = DestroyMachine::default();
-    held(&mut machine, &torch, Server);
-    machine.step(DestroyInput::Released, STILL, Server);
-    assert_eq!(
-        kinds(&held(&mut machine, &torch, Server)),
-        [(StartDestroy, [1, 1, 1], 1), (PredictDestroy, [1, 1, 1], 1)]
     );
 }
 
@@ -850,6 +844,7 @@ fn a_worn_tool_completion_carries_the_mine_block_request_on_its_tick() {
         wear: Some(ToolWear {
             current_damage: 3,
             break_damage: 1,
+            maximum: None,
         }),
         ..target(
             [0, 1, -3],
@@ -1037,7 +1032,7 @@ fn instant_plants_publish_the_carried_destroy_effect_once() {
                     );
                     assert!(matches!(
                         interactions.block_interaction,
-                        Some(protocol::BlockItemInteraction::Destroy(_))
+                        Some(protocol::BlockItemInteraction::Destroy(_, None))
                     ));
                 }
             }

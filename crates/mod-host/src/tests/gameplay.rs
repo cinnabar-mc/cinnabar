@@ -524,6 +524,114 @@ fn control_modes_commit_per_renewed_frame_and_clear_after_a_trap() {
     assert_eq!(trapped.control_modes(), None);
 }
 
+/// A guest that renews its modes every frame keeps them through a frame whose callback the host
+/// deferred; the guest never omitted them.
+#[test]
+fn control_modes_survive_a_deferred_frame_callback() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let (_directory, mut host) = load("", CONTROL_MODES, grants);
+    host.set_frame_authority(
+        CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "control frame");
+    host.set_frame_authority(CallbackBudget::new(FRAME_FUEL - 1), false, false);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(host.is_active());
+    assert_eq!(
+        host.control_modes(),
+        Some(staged_modes()),
+        "a deferred callback reverted the mod's renewed modes to the player's settings"
+    );
+    host.instance.bind_drawing_policy(
+        ModGrants::default(),
+        mod_api::drawing::DrawingSession {
+            connection: 1,
+            dimension: 0,
+            local: false,
+            permissions: Default::default(),
+        },
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "retained modes outlived the movement grant"
+    );
+}
+
+/// Restarting a guest after a frame fuel overrun runs `init`, which cannot renew control modes,
+/// so the modes committed before the overrun stay until the fresh guest completes a frame.
+#[test]
+fn control_modes_survive_frame_fuel_recovery() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let overrun_after_first_frame = format!(
+        "i32.const 1024 i32.load if (loop $forever br $forever) end \
+         {CONTROL_MODES} i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut host) = load("", &overrun_after_first_frame, grants);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "control frame");
+    assert!(
+        host.frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert!(host.is_recovering());
+    assert_eq!(host.control_modes(), Some(staged_modes()), "overrun frame");
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(!host.is_recovering());
+    assert_eq!(
+        host.control_modes(),
+        Some(staged_modes()),
+        "recovery initialization released the retained modes"
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "fresh guest");
+}
+
+/// A recovery frame skips the guest callback but still releases modes it could not renew there.
+#[test]
+fn control_modes_release_on_an_unfocused_recovery_frame() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let overrun_after_first_frame = format!(
+        "i32.const 1024 i32.load if (loop $forever br $forever) end \
+         {CONTROL_MODES} i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut host) = load("", &overrun_after_first_frame, grants);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(
+        host.frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert_eq!(host.control_modes(), Some(staged_modes()), "overrun frame");
+    host.frame_with_controls(false, Some(snapshot()), crate::empty_controls())
+        .unwrap();
+    assert!(!host.is_recovering());
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "modes outlived focus across recovery"
+    );
+}
+
 /// Components compiled against the original gameplay interface still instantiate unchanged.
 #[test]
 fn legacy_gameplay_component_keeps_its_original_import_type() {

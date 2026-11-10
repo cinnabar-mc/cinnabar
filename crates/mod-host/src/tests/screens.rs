@@ -525,15 +525,16 @@ fn a_package_keeps_its_settings_beside_its_directory() {
 
 #[test]
 fn an_extension_init_stays_on_the_frame_budget() {
-    // About half a million instructions: within `LOAD_FUEL`, beyond `FRAME_FUEL`.
+    // Several instructions per iteration exceed frame fuel while staying below load fuel.
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("busy.wat");
     std::fs::write(
         &path,
-        r#"(component
+        format!(
+            r#"(component
             (core module $m
                 (func (export "init") (local $n i32)
-                    (local.set $n (i32.const 100000))
+                    (local.set $n (i32.const {}))
                     (loop $l
                         (local.set $n (i32.sub (local.get $n) (i32.const 1)))
                         (br_if $l (local.get $n))))
@@ -541,6 +542,8 @@ fn an_extension_init_stays_on_the_frame_budget() {
             (core instance $i (instantiate $m))
             (func (export "init") (canon lift (core func $i "init")))
             (func (export "frame") (canon lift (core func $i "frame"))))"#,
+            FRAME_FUEL
+        ),
     )
     .unwrap();
     assert!(ModHost::load(&path).is_err());
@@ -670,7 +673,6 @@ fn frame_authority_preserves_the_full_session_loading_budget() {
         crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
         false,
         false,
-        0,
     );
     host.set_session(session_sized(4_000, 3_000, 1)).unwrap();
     assert!(host.is_active());
@@ -685,7 +687,7 @@ fn deferred_lifecycle_notifications_coalesce_and_run_after_the_lanes_reset() {
     use server_experience::runtime::{CALLBACK_FUEL, LOAD_FUEL};
     let (_dir, mut host) = probe();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert!(budget.reserve(CALLBACK_FUEL).is_some());
     assert!(budget.reserve(LOAD_FUEL).is_some());
     let mut first = layout();
@@ -725,7 +727,7 @@ fn view_closure_is_delivered_even_when_the_layout_callback_uses_the_event_lane()
     ])
     .unwrap();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     let before = value(&host, "#view_closed").cloned();
     assert_eq!(
         host.dispatch(vec![ModEvent::ScreenChanged(None)]).unwrap(),
@@ -741,23 +743,19 @@ fn view_closure_is_delivered_even_when_the_layout_callback_uses_the_event_lane()
 #[test]
 fn ordinary_events_keep_their_callback_allowance_under_frame_authority() {
     let directory = tempfile::tempdir().unwrap();
-    let path = partial_component(
-        directory.path(),
-        &[(
-            "view-closed",
-            "",
-            r#"(local $n i32)
-        (local.set $n (i32.const 100000))
+    let work = format!(
+        r#"(local $n i32)
+        (local.set $n (i32.const {}))
         (loop $work (local.set $n (i32.sub (local.get $n) (i32.const 1)))
         (br_if $work (local.get $n)))"#,
-        )],
+        mod_api::TOTAL_MOD_FRAME_FUEL / 4
     );
+    let path = partial_component(directory.path(), &[("view-closed", "", &work)]);
     let mut host = ModHost::load(&path).unwrap();
     host.set_frame_authority(
         crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
         false,
         false,
-        0,
     );
     host.dispatch(vec![
         ModEvent::ScreenChanged(Some(layout())),
@@ -782,7 +780,7 @@ fn edit(value: &str) -> ModEvent {
 fn deferred_edit_text_coalesces_and_survives_same_screen_geometry_changes() {
     let (_dir, mut host) = probe();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert_eq!(
         host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), edit("dir")])
             .unwrap(),
@@ -814,7 +812,7 @@ fn departing_screens_and_views_discard_deferred_edits() {
     }] {
         let (_dir, mut host) = probe();
         let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-        host.set_frame_authority(budget.clone(), false, false, 0);
+        host.set_frame_authority(budget.clone(), false, false);
         host.dispatch(vec![
             ModEvent::ScreenChanged(Some(layout())),
             edit("old-screen"),
@@ -833,7 +831,7 @@ fn departing_screens_and_views_discard_deferred_edits() {
 fn deferred_edits_reject_undeclared_controls_and_unbounded_text_before_queueing() {
     let (_dir, mut host) = probe();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)
@@ -859,7 +857,7 @@ fn replacement_quarantine_and_revocation_discard_the_old_guests_deferred_text() 
     for transition in 0..3 {
         let (directory, mut host) = probe();
         let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-        host.set_frame_authority(budget.clone(), false, false, 0);
+        host.set_frame_authority(budget.clone(), false, false);
         host.dispatch(vec![
             ModEvent::ScreenChanged(Some(layout())),
             edit("old-guest"),
@@ -886,7 +884,7 @@ fn replacement_quarantine_and_revocation_discard_the_old_guests_deferred_text() 
 fn deferred_edits_keep_one_latest_value_for_each_declared_control() {
     let (_dir, mut host) = probe();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)
@@ -919,7 +917,7 @@ fn escaping_cancels_deferred_edits_before_actions_and_closes_their_view() {
     host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), open.clone()])
         .unwrap();
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)

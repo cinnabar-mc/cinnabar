@@ -115,6 +115,8 @@ pub fn installed_version(build: &Build) -> String {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct View {
+    /// Flatpak owns application installation and release selection in this window.
+    pub managed: bool,
     /// A downloaded copy needs the older client to release this installation's updater role.
     pub manual_pending: bool,
     /// Only the client holding the updater role exposes update controls and notices.
@@ -197,6 +199,7 @@ impl View {
     /// Builds a view from the publishing tracks declared by a release catalog.
     pub fn with_publications(published: impl Fn(Channel) -> bool) -> Self {
         Self {
+            managed: false,
             manual_pending: false,
             active: true,
             ready: None,

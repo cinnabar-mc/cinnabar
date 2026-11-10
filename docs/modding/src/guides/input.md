@@ -81,7 +81,7 @@ Two further reads serve mods with text fields:
 
 With `controls`, the `touch` interface lets a mod put its own buttons on the touch controls:
 
-- `touch::set_buttons` replaces your retained buttons, at most 4. A button has an `id` (1–32 bytes of lowercase ASCII letters, digits, `_` and `-`; prefix it with your mod's name, because a player's saved placement is keyed by it and the earlier mod wins a collision), a one-line `label` (1–24 bytes, no `§` codes), a default `anchor` and `offset`, and a `size` between 18 and 96 GUI pixels per side. Players move your buttons in the touch layout editor; you supply placement, they own the final position.
+- `touch::set_buttons` replaces your retained buttons, at most 4. A button has an `id` (1–32 bytes of lowercase ASCII letters, digits, `_` and `-`; prefix it with your mod's name, because a player's saved placement is keyed by it and the earlier mod wins a collision), a one-line `label` (1–24 bytes, no `§` codes), a default `anchor` and `offset`, and a `size` between 18 and 96 GUI pixels per side. Players move and resize your buttons in the touch layout editor; you supply placement and size, they own the final position and scale.
 - `touch::read_presses` returns the ids of your buttons tapped since your previous frame callback, oldest first. A tap completes when the finger lifts inside the button. It is empty outside `frame`, and a deferred frame keeps its taps for the next one.
 
 Buttons are committed after a successful callback and removed on quarantine, unload or revocation.
@@ -94,9 +94,11 @@ Separate grants let a mod request actions instead of only observing input. Each 
 | --- | --- | --- |
 | `gameplay::pulse_jump` | `movement` | Stages one ordinary jump input for the next physics tick |
 | `gameplay::set_movement_intents` | `movement` | Holds sprint or sneak as if bound; renew every focused gameplay frame, omission releases both |
-| `gameplay::set_control_modes` | `movement` | Replaces toggle sprint/sneak and always-sprint while renewed every focused gameplay frame |
+| `gameplay::set_control_modes` | `movement` | Turns on toggle sprint/sneak and always-sprint while renewed every focused gameplay frame; it cannot turn off a mode the player enabled |
 | `gameplay::pulse_attack` | `interaction` | One attack-press edge, only while the physical attack control is held |
 | `gameplay::set_block_mining` | `interaction` | Holds ordinary mining on the crosshair block for this successful frame; renew while needed |
+| `gameplay::read_block_target` | `terrain` | Reads the center of the current crosshair block while gameplay owns input |
+| `gameplay::set_block_mining_target` | `interaction`, `terrain` | Directs physically held mining toward a point without moving the view; renew each frame |
 | `item_use::pulse_use` | `item_use` | One item-use press edge for the next gameplay tick, only while the physical use control is held; skips only the client's use repeat delays |
 | `gameplay::request_command` | `commands` | Sends a player command request after the frame returns; the command name must be granted. At most 4 per frame and 10 per second, each at most 128 bytes |
 | `gameplay::set_attack_reach` | `interaction` | Sets local actor pick and attack range from 0 through `MAX_ENTITY_REACH_BLOCKS`; a value needs a current gameplay frame, and none restores game-mode rules |

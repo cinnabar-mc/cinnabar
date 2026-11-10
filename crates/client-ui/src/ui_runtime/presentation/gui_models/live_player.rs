@@ -1,7 +1,7 @@
 //! The HUD uses the same geometry and evaluated bones as the world player.
 
 use super::super::UiPresentationRuntime;
-use glam::{Affine3A, Quat, Vec3, Vec4};
+use glam::{Affine3A, Mat3, Quat, Vec3, Vec4};
 #[cfg(any(test, feature = "test-support"))]
 use render_model::ActorVertex;
 use render_model::{ActorRigGeometry, EntityRigId, RenderBoneTransform};
@@ -13,11 +13,13 @@ pub(super) struct ModelGeometry {
     pub(super) geometry: Option<ActorRigGeometry>,
     pub(super) transforms: Vec<Affine3A>,
     pub(super) texture_key: Option<String>,
+    /// A cosmetic anchored to the head turns with it in a screen's live renderer.
+    pub(super) follows_head: bool,
 }
 
 impl ModelGeometry {
     /// Retains immutable geometry and evaluates each bone frame once, independently of vertex count.
-    fn capture(
+    pub(super) fn capture(
         &mut self,
         geometry: &ActorRigGeometry,
         pose: &[RenderBoneTransform],
@@ -75,7 +77,7 @@ pub(super) struct LivePlayer {
     pub(super) hat_vertices: std::collections::HashMap<cosmetics::Item, Vec<ActorVertex>>,
     hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
     pub(super) hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,
-    bones: Vec<RenderBoneTransform>,
+    pub(super) bones: Vec<RenderBoneTransform>,
     cape_bones: Vec<RenderBoneTransform>,
     cape_bindings: Option<(
         GeometryIdentity,
@@ -85,16 +87,70 @@ pub(super) struct LivePlayer {
     pub(super) emitter_owner: Option<(u64, u64, u64)>,
     pub(super) emitters: Vec<(cosmetics::Item, usize, render_model::ActorEmitterTransform)>,
     pub(super) parts: [Option<Affine3A>; 6],
+    /// Unmasked item bones from the UI evaluation, independent of arm visibility.
+    pub(super) hands: [Option<RenderBoneTransform>; 2],
+    /// The posed head bone, which carries a block worn on the head.
+    pub(super) head_bone: Option<RenderBoneTransform>,
+    pub(super) frame: Affine3A,
     part_bindings: [Option<(usize, Affine3A)>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
     pub(super) outer_y: f32,
     /// `[pitch, yaw]` of the gliding body in degrees, applied about the feet.
     pub(super) glide: Option<[f32; 2]>,
+    /// Whether this frame's publication captured the actor, so a screen may draw it.
+    pub(super) fresh: bool,
+    /// The captured head bone, from which a live renderer turns it.
+    head: Option<CapturedHead>,
+    /// Which body bones follow the head.
+    pub(super) head_bones: Vec<bool>,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
 }
 
+/// The head bone in model space, kept apart from the model frame so that a frame's
+/// non-uniform scale never has to be decomposed.
+#[derive(Clone, Copy)]
+struct CapturedHead {
+    /// Model space to model UI space, as applied to every captured bone.
+    frame: Affine3A,
+    /// The frame's rotation alone: the body's facing and glide tilt.
+    facing: Mat3,
+    pivot: Vec3,
+    rotation: Quat,
+}
+
+impl LivePlayer {
+    /// The transform that replaces the captured head orientation with `pitch` and `yaw` radians
+    /// about the head pivot, in the same space as the captured bone frames.
+    pub(super) fn head_turn(&self, pitch: f32, yaw: f32) -> Option<Affine3A> {
+        let head = self.head?;
+        // The preview rig's Y turn runs opposite glam's for the same angle. The look is given
+        // in UI space and brought into the body's own space.
+        let look = head.facing.transpose()
+            * Mat3::from_rotation_y(-yaw)
+            * Mat3::from_rotation_x(pitch)
+            * head.facing;
+        let turn = Affine3A::from_translation(head.pivot)
+            * Affine3A::from_mat3(look * Mat3::from_quat(head.rotation.inverse()))
+            * Affine3A::from_translation(-head.pivot);
+        Some(head.frame * turn * head.frame.inverse())
+    }
+}
+
 impl UiPresentationRuntime {
+    /// Marks the next frame's actor capture as not yet taken; call before capturing.
+    pub fn begin_live_capture(&mut self) {
+        self.gui_models.live_player.fresh = false;
+        self.gui_models.player_layers.clear_capture();
+    }
+
+    /// Whether a screen drew a live player renderer in the last published frame.
+    pub fn live_renderer_shown(&self) -> bool {
+        self.gui_models
+            .live_renderer_shown
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Shares the actor frame's evaluated motion without advancing a second animation clock.
     pub fn set_cosmetic_motion(
         &mut self,
@@ -130,7 +186,20 @@ impl UiPresentationRuntime {
         self.gui_models.live_player.glide = rotation;
     }
 
+    /// Captures the UI pose and both renderer contexts from the same completed actor tick.
     pub fn capture_hud_player_with_emote(
+        &mut self,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
+        swimming: bool,
+        emote: Option<(cosmetics::emotes::Item, f64)>,
+    ) {
+        self.capture_live_pose(local, swimming, emote);
+        self.capture_player_layers(local);
+        self.capture_live_equipment(local);
+    }
+
+    /// Retains the animated body and unmasked attachment bones for the current capture.
+    fn capture_live_pose(
         &mut self,
         local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
         swimming: bool,
@@ -151,7 +220,12 @@ impl UiPresentationRuntime {
         }
         live.emitters.clear();
         live.emitter_owner = None;
+        live.fresh = false;
+        live.head = None;
         live.parts = [None; 6];
+        live.hands = [None; 2];
+        live.head_bone = None;
+        live.frame = Affine3A::IDENTITY;
         live.fire_size = None;
         live.body.geometry = None;
         live.cape.geometry = None;
@@ -170,6 +244,7 @@ impl UiPresentationRuntime {
             live.fire = Default::default();
             return;
         };
+        live.fresh = true;
         let id = local.runtime_id();
         live.emitter_owner = local
             .actor()
@@ -255,7 +330,39 @@ impl UiPresentationRuntime {
             live.bones.push(bone);
         }
         let frame = offset * actor_scale * basis * tilt;
+        live.frame = frame;
+        live.hands = ["rightItem", "leftItem"].map(|name| {
+            let index = rig
+                .bone_names
+                .iter()
+                .position(|bone| bone.eq_ignore_ascii_case(name))?;
+            live.bones.get(index).copied()
+        });
         live.body.capture(geometry, &live.bones, frame);
+        let head_index = live.part_bindings[0].map(|(index, _)| index);
+        live.head_bone = head_index.and_then(|index| live.bones.get(index).copied());
+        live.head = head_index.and_then(|index| {
+            let bone = live.bones.get(index)?;
+            let rotation = Vec4::from_array(bone.rotation)
+                .try_normalize()
+                .map(Quat::from_vec4)?;
+            // A model scaled to nothing has no frame to turn within.
+            (frame.matrix3.determinant().abs() > f32::EPSILON).then_some(CapturedHead {
+                frame,
+                facing: Mat3::from((basis * tilt).matrix3),
+                pivot: Vec3::new(
+                    bone.translation_scale[0],
+                    bone.translation_scale[1],
+                    bone.translation_scale[2],
+                ),
+                rotation,
+            })
+        });
+        live.head_bones.clear();
+        if let Some(head) = head_index {
+            live.head_bones
+                .extend((0..live.bones.len()).map(|bone| local.bone_descends_from(bone, head)));
+        }
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
         for &hat in &self.menu_preview_model.cosmetics {
@@ -291,13 +398,12 @@ impl UiPresentationRuntime {
                     live.emitters.push((hat, index, transform));
                 }
             }
-            live.hats
-                .entry(hat)
-                .or_insert_with(|| ModelGeometry {
-                    texture_key: Some(hat.texture_key()),
-                    ..Default::default()
-                })
-                .capture(&render_model::hats::rig(hat).geometry, &pose, frame);
+            let model = live.hats.entry(hat).or_insert_with(|| ModelGeometry {
+                texture_key: Some(hat.texture_key()),
+                ..Default::default()
+            });
+            model.capture(&render_model::hats::rig(hat).geometry, &pose, frame);
+            model.follows_head = live.head_bones.get(index).copied().unwrap_or(false);
         }
         if draw_cape && let Some(cape) = &self.gui_models.sources.cape {
             let bindings = if let Some(bindings) =
@@ -369,7 +475,7 @@ fn bone_matrix(bone: &actor_animation::BoneTransform) -> Option<Affine3A> {
 }
 
 /// Converts an evaluated model-space bone to the block coordinates shared by both renderers.
-fn render_bone(bone: &actor_animation::BoneTransform) -> Option<RenderBoneTransform> {
+pub(super) fn render_bone(bone: &actor_animation::BoneTransform) -> Option<RenderBoneTransform> {
     RenderBoneTransform::from_model_space_scaled(
         bone.rotation,
         bone.translation_scale,
@@ -378,7 +484,7 @@ fn render_bone(bone: &actor_animation::BoneTransform) -> Option<RenderBoneTransf
 }
 
 /// Builds a render-space frame, retaining zero scales that hide an authored bone.
-fn render_matrix(bone: &RenderBoneTransform) -> Option<Affine3A> {
+pub(super) fn render_matrix(bone: &RenderBoneTransform) -> Option<Affine3A> {
     let rotation = Vec4::from_array(bone.rotation)
         .try_normalize()
         .map(Quat::from_vec4)?;
@@ -417,4 +523,6 @@ mod hud_doll_tests;
 #[cfg(test)]
 mod redraw_tests;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
+#[cfg(test)]
+mod ui_context_tests;

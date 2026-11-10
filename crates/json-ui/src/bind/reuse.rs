@@ -173,6 +173,16 @@ pub(super) struct Prior {
 }
 
 impl Track {
+    pub(super) fn count(&self) -> usize {
+        self.count
+    }
+
+    /// Marks a detached subtree as replacing the placeholder currently baked at its key.
+    pub(super) fn restore(&mut self, prior: Option<Box<Prior>>) {
+        self.fresh = true;
+        self.prior = prior;
+    }
+
     /// The immutable template before binding patched a grid's layout properties.
     pub(super) fn source<'a>(&'a self, current: &'a Src) -> &'a Src {
         self.origin.as_ref().unwrap_or(current)

@@ -4,7 +4,8 @@ The Android client is the desktop client built for arm64-v8a Android 8+ devices 
 The APK holds the client library, the Go core, the Dragonfly local server, `assetc` and the
 shader-pack compiler, plus the prep kit. It ships no game assets: first launch asks you to accept
 the Minecraft EULA, then downloads Mojang's sample resource pack and compiles the carriers into
-the app's private storage. Keep the app open until setup finishes.
+the app's private storage. Consent, progress and any failure appear on the startup screen. Keep
+the app open until setup finishes.
 
 ## Release APKs
 
@@ -15,7 +16,7 @@ signing key so later APKs can update the installed app. The desktop updater does
 Uninstall an earlier CI test build before installing a release APK; this clears its app data.
 
 On Android 11+, reopening the app after an unexpected exit offers **Copy details** with the
-device, a readable exit cause with its numeric reason, and the end of the client log. Consecutive
+device, a readable exit cause with its numeric reason, and the start and end of long client logs, retaining build and startup context. Consecutive
 duplicate log lines appear once with a repeat count. Include those details when reporting a crash.
 **Save report** writes a ZIP to Downloads with those details and Android's retained crash trace,
 when available. For native crashes on Android 12+, the trace is the original tombstone protobuf;

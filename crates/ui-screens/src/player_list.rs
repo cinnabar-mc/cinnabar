@@ -56,6 +56,8 @@ pub struct PlayerList {
     data: Arc<DataSource>,
     dimensions: [usize; 2],
     geometry: Option<Geometry>,
+    header_source: String,
+    header: String,
     context: Context,
     portraits: BTreeMap<String, render_model::UiTexturePage>,
     heads: Vec<String>,
@@ -84,9 +86,50 @@ impl PlayerList {
             data: Arc::default(),
             dimensions: [0, 0],
             geometry: None,
+            header_source: String::new(),
+            header: String::new(),
             context: Context::default(),
             portraits: BTreeMap::new(),
             heads: Vec::new(),
+        }
+    }
+
+    /// Updates the optional level heading without rebuilding unchanged player portraits.
+    pub fn set_header(&mut self, header: &str) {
+        if self.header_source == header {
+            return;
+        }
+        self.header_source = header.to_owned();
+        self.header = header.split_whitespace().collect::<Vec<_>>().join(" ");
+        self.geometry = None;
+        self.bind_header();
+    }
+
+    /// Publishes the heading independently from roster changes.
+    fn bind_header(&mut self) {
+        let data = Arc::make_mut(&mut self.data);
+        data.set_global("#server_header", Scalar::Text(self.header.clone()));
+        data.set_global(
+            "#server_header_visible",
+            Scalar::Bool(!self.header.is_empty()),
+        );
+    }
+
+    /// The vertical space reserved only when a level name is available.
+    fn header_height(&self) -> f64 {
+        if self.header.is_empty() {
+            0.0
+        } else {
+            ROW_HEIGHT + 4.0
+        }
+    }
+
+    /// The displayed count includes the existing visible-roster disclosure.
+    fn title(&self) -> String {
+        if self.total > MAX_PLAYERS {
+            format!("Online players: {} (first {MAX_PLAYERS})", self.total)
+        } else {
+            format!("Online players: {}", self.total)
         }
     }
 
@@ -124,14 +167,11 @@ impl PlayerList {
             self.dimensions = [columns, rows];
             self.geometry = None;
             let mut data = DataSource::new();
-            let title = if players.len() > MAX_PLAYERS {
-                format!("Online players: {} (first {MAX_PLAYERS})", players.len())
-            } else {
-                format!("Online players: {}", players.len())
-            };
+            let title = self.title();
             data.set_global("#online_title", Scalar::Text(title));
             data.set_grid_dimensions("#players_dimensions", [columns as u32, rows as u32]);
             self.data = Arc::new(data);
+            self.bind_header();
         }
         [columns, rows]
     }
@@ -281,7 +321,8 @@ impl PlayerList {
         let language = frame.language;
         let top_inset = available_y.start.clamp(0., frame.content[1]);
         let bottom = available_y.end.clamp(top_inset, frame.content[1]);
-        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0) / ROW_HEIGHT)
+        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0 - self.header_height())
+            / ROW_HEIGHT)
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
         let [columns, rows] = self.refresh(players, max_rows);
@@ -308,15 +349,20 @@ impl PlayerList {
                 let width = (widest + 8.0 + HEAD_WIDTH + badge_width)
                     .min((root[0] - 8.0).max(1.0) / columns as f64);
                 self.bind_rows(width, env.text);
-                let title = format!("Online players: {}", self.total);
+                let title = self.title();
                 let panel_width = (width * columns as f64 + 4.0)
-                    .max(env.text.extent(&title)[0] + 4.0)
+                    .max(env.text.extent(&title)[0] + 12.0)
+                    .max(env.text.extent(&self.header)[0] + 12.0)
                     .min(root[0]);
                 self.context = Context::default()
                     .with_var("top_inset", serde_json::json!(top_inset / px))
                     .with_var("row_height", serde_json::json!(ROW_HEIGHT))
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
-                    .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))
+                    .with_var("title_top", serde_json::json!(4.0 + self.header_height()))
+                    .with_var(
+                        "grid_top",
+                        serde_json::json!(ROW_HEIGHT + 8.0 + self.header_height()),
+                    )
                     .with_var("cell_width", serde_json::json!(width))
                     .with_var("head_size", serde_json::json!(HEAD_WIDTH - 1.0))
                     .with_var("name_offset", serde_json::json!(2.0 + HEAD_WIDTH))
@@ -328,7 +374,9 @@ impl PlayerList {
                     .with_var("panel_width", serde_json::json!(panel_width))
                     .with_var(
                         "panel_height",
-                        serde_json::json!(ROW_HEIGHT + 5.0 + rows as f64 * ROW_HEIGHT),
+                        serde_json::json!(
+                            ROW_HEIGHT + 11.0 + self.header_height() + rows as f64 * ROW_HEIGHT
+                        ),
                     );
                 self.geometry = Some(geometry);
             }
