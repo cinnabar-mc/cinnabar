@@ -69,7 +69,7 @@ fn carried_fences_join_their_rail_halves_without_internal_caps() {
             bamboo += 1;
         } else {
             assert!(vertices.iter().any(|vertex| vertex.position[2] == 0.0));
-            assert!(vertices.chunks_exact(6).all(|face| {
+            assert!(vertices.as_chunks::<6>().0.iter().all(|face| {
                 face[0].normal[2] == 0.0 || face.iter().any(|vertex| vertex.position[2] != 0.0)
             }));
             ordinary += 1;
