@@ -63,18 +63,22 @@ pub(crate) struct ItemUseContext<'w, 's> {
     weather: Option<Res<'w, render_scene::AtmosphereViewInputs>>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    locomotion: Res<'w, client_interaction::movement::LocomotionState>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
 }
 
 /// Consumes new frame edges after movement drains, then advances accepted held item use once.
-pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
+pub(crate) fn produce_item_use(
+    world: &mut bevy::prelude::World,
+    mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
+) {
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::AfterMovement,
+        &mut windows,
     );
-    world
-        .run_system_cached(maintain_item_use)
+    crate::ordered_interactions::run_cached(world, maintain_item_use, ())
         .expect("item maintenance resources");
 }
 
@@ -105,7 +109,12 @@ pub(crate) fn adopt_server_item_use(
     }
     take_server_item_use(&mut runtime, context.physics.as_deref_mut());
     let ticks = context.physics.as_deref().is_some_and(|physics| {
-        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+        gameplay::movement::frame_simulates_tick(
+            physics,
+            &movement,
+            &context.locomotion,
+            context.time.delta(),
+        )
     });
     if !ticks {
         return;

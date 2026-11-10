@@ -37,6 +37,9 @@ pub struct TranslateConfig {
     /// satisfies (such as `= false`) are translated with `options` as they are. For tooling
     /// and coverage runs.
     pub force_disabled: bool,
+    /// Emulate fused dot accumulation when the backend cannot guarantee binary32 FMA.
+    #[serde(default)]
+    pub software_fused_dot: bool,
 }
 
 impl Default for TranslateConfig {
@@ -46,6 +49,7 @@ impl Default for TranslateConfig {
             environment: Environment::default(),
             options: OptionValues::new(),
             force_disabled: false,
+            software_fused_dot: false,
         }
     }
 }
@@ -384,6 +388,7 @@ impl ShaderPack {
             }
         }
         let cx = Context {
+            software_fused_dot: config.software_fused_dot,
             cancelled,
             source: &self.source,
             options: &self.options,

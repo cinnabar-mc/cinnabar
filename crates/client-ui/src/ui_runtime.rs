@@ -26,12 +26,14 @@ pub mod inventory_actions;
 pub mod inventory_drag;
 pub mod inventory_ingress;
 
+pub mod command_block;
 mod food;
 mod furnace_options;
 mod inventory_options;
 mod item_activation;
 pub mod item_facts;
 pub mod json_ui_assets;
+mod locator;
 pub mod mob_effects;
 mod mod_inventory;
 pub mod platform_clipboard;
@@ -49,8 +51,8 @@ pub mod sign_editor;
 pub mod use_on_identity_evidence;
 
 pub use forms::{
-    FormRespondError, FormTransportError, LocalFormAction, ServerFormEntry, ServerFormIdentity,
-    ServerFormStore, flush_form_response,
+    FORM_HANDOFF_GRACE_MILLIS, FormRespondError, FormTransportError, LocalFormAction,
+    ServerFormEntry, ServerFormIdentity, ServerFormStore, flush_form_response,
 };
 
 pub use gameplay_authority::Translator;
@@ -135,6 +137,10 @@ pub struct UiRuntime {
     pub session: session::SessionUi,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
     toast_display_millis: u64,
+    /// The player's bindings and active input mode, which name the controls in
+    /// `:_input_<binding>:` placeholders when server text arrives.
+    control_settings: Arc<launcher::menu::settings_options::SettingsOptions>,
+    input_mode: semantic_input::InputMode,
     /// Developer captures never draw toasts.
     hide_toasts: bool,
     chat_history: ChatHistory,
@@ -154,6 +160,8 @@ pub struct UiRuntime {
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: Option<ui::LoadingStage>,
+    /// A client-owned cover shown while a global resource-pack replacement publishes.
+    resource_pack_loading: bool,
 }
 
 impl UiRuntime {
@@ -163,7 +171,10 @@ impl UiRuntime {
             item_fuel_catalog: None,
             screen_settings: Arc::default(),
             loading_screen: None,
+            resource_pack_loading: false,
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
+            control_settings: Arc::default(),
+            input_mode: semantic_input::InputMode::default(),
             hide_toasts: false,
             chat_history: ChatHistory::default(),
             dropped_unsent_chat_messages: 0,
@@ -176,6 +187,16 @@ impl UiRuntime {
             stack_facts: Default::default(),
             item_name_generation: 0,
         }
+    }
+
+    /// Shows or hides the client-owned cover used while global packs are replaced in-session.
+    pub fn set_resource_pack_loading(&mut self, loading: bool) {
+        self.resource_pack_loading = loading;
+    }
+
+    /// Whether the global resource-pack replacement currently owns the screen.
+    pub const fn resource_pack_loading(&self) -> bool {
+        self.resource_pack_loading
     }
 
     pub const fn session_id(&self) -> u64 {
@@ -271,6 +292,12 @@ impl UiRuntime {
         self.session.chat_focused
     }
 
+    /// Whether a focused chat, search, anvil-name or editable-book box takes typed characters,
+    /// so a key binding on a character key must not also act.
+    pub fn text_entry_focused(&self) -> bool {
+        self.chat_focused() || self.screen_state().text_focused()
+    }
+
     pub const fn inventory_open(&self) -> bool {
         self.session.inventory_open
     }
@@ -290,6 +317,14 @@ impl UiRuntime {
         &mut self.session.sign_editor
     }
 
+    pub const fn command_block(&self) -> &command_block::CommandBlockEditor {
+        &self.session.command_block
+    }
+
+    pub fn command_block_mut(&mut self) -> &mut command_block::CommandBlockEditor {
+        &mut self.session.command_block
+    }
+
     pub const fn server_forms(&self) -> &ServerFormStore {
         &self.session.forms
     }
@@ -302,6 +337,21 @@ impl UiRuntime {
         action: LocalFormAction,
     ) -> Result<(), FormRespondError> {
         self.session.forms.respond(identity, action)
+    }
+
+    /// Answers a form and keeps its surface visible briefly for a possible server handoff.
+    pub fn respond_to_server_form_at(
+        &mut self,
+        identity: ServerFormIdentity,
+        action: LocalFormAction,
+        now_millis: u64,
+    ) -> Result<(), FormRespondError> {
+        self.session.forms.respond_at(identity, action, now_millis)
+    }
+
+    /// Advances the visual grace period after a form answer.
+    pub fn advance_form_handoff(&mut self, now_millis: u64) -> bool {
+        self.session.forms.advance_form_handoff(now_millis)
     }
 
     pub fn server_forms_mut(&mut self) -> &mut ServerFormStore {
@@ -595,6 +645,7 @@ impl UiRuntime {
             self.observe_inventory_window(player_runtime);
         } else {
             self.session.screen.search_focused = false;
+            self.session.screen.anvil_focused = false;
         }
         UiAuthorityTransition {
             consumes_text: false,
@@ -613,6 +664,7 @@ impl UiRuntime {
         self.session.screen.container_close_armed = false;
         self.session.screen.inventory = None;
         self.session.screen.search_focused = false;
+        self.session.screen.anvil_focused = false;
         player_runtime
             .inventory
             .ledger_mut()
@@ -740,6 +792,19 @@ impl UiRuntime {
     /// Applies the toast preference even when this frame cannot publish a viewport.
     pub fn set_toast_lifetime(&mut self, lifetime: u64) {
         self.toast_display_millis = lifetime;
+    }
+
+    /// Names controls in server text received from now on with these bindings.
+    pub fn set_control_settings(
+        &mut self,
+        settings: Arc<launcher::menu::settings_options::SettingsOptions>,
+    ) {
+        self.control_settings = settings;
+    }
+
+    /// Names controls in server text received from now on for this input mode.
+    pub fn set_input_mode(&mut self, mode: semantic_input::InputMode) {
+        self.input_mode = mode;
     }
 
     /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue

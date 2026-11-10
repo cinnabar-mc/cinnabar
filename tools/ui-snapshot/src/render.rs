@@ -10,6 +10,8 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+mod creative_delete;
+mod crosshair_coverage;
 #[cfg(feature = "test-support")]
 mod data_driven;
 mod edit_selection;
@@ -27,6 +29,8 @@ mod tiled_image;
 mod touch_editor;
 #[cfg(feature = "test-support")]
 mod touch_utilities;
+#[cfg(feature = "test-support")]
+mod trims;
 
 use std::{
     collections::HashMap,
@@ -37,7 +41,7 @@ use std::{
 use image::ImageEncoder;
 use jsonui_editor::raster::{Canvas, Page};
 use oreui::menu_screen::{MenuGeometry, MenuInput};
-use ui::{DpiScale, SafeArea, TextLayoutCache, UiScale, UiTree};
+use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiNodeId, UiScale, UiTree, UiVisual};
 use ui_engine::{
     engine::{
         FormEngine,
@@ -84,12 +88,17 @@ impl RemoteSource for Offline {
 /// Paints a named state at fixed times and encodes deterministic RGBA PNG bytes.
 #[cfg(test)]
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
-    png_at(state, dir, CAPTURE_SECONDS)
+    png_at(state, dir, CAPTURE_SECONDS, None)
 }
 
 /// Samples caller-owned UI and cosmetic animation time without reading the clock.
-pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
-    png_fixture(state, (state.fixture)(), dir, seconds, None)
+pub fn png_at(
+    state: &State,
+    dir: &Path,
+    seconds: f64,
+    resource_pack: Option<&Path>,
+) -> Result<Vec<u8>, Error> {
+    png_fixture(state, (state.fixture)(), dir, seconds, resource_pack)
 }
 
 /// Renders an authored panel at an explicit animation sample without creating a window.
@@ -125,6 +134,13 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    #[cfg(feature = "test-support")]
+    if let Fixture::ArmorTrims { trimmed } = &fixture {
+        return trims::png(state.size, dir, resource_pack, *trimmed);
+    }
+    if let Fixture::CrosshairCoverage { fixed } = &fixture {
+        return crosshair_coverage::png(state.size, *fixed, resource_pack);
+    }
     if let Fixture::MaskRegression = &fixture {
         return saturation_overlap::regression_png(state.size);
     }
@@ -144,6 +160,10 @@ fn png_fixture(
     #[cfg(feature = "test-support")]
     if let Fixture::CosmeticParticles { view, emitting } = &fixture {
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
+    }
+    #[cfg(feature = "test-support")]
+    if let Fixture::FormHandoff { retained } = &fixture {
+        return form_overlap::handoff_png(state, dir, *retained);
     }
     #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::FormOverlap) {
@@ -173,18 +193,24 @@ fn png_fixture(
     if let Fixture::BedrockHotbar { raised } = &fixture {
         return bedrock_hotbar::png(state, dir, *raised);
     }
-    let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
+    let menu = matches!(
+        &fixture,
+        Fixture::Menu(_) | Fixture::Loading(_) | Fixture::ResourcePackLoading
+    );
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
+        Fixture::ResourcePackLoading => false,
         Fixture::Chat { .. }
-        | Fixture::TabList(_)
+        | Fixture::TabList(..)
         | Fixture::EditSelection
+        | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::SpriteOutline { .. }
         | Fixture::Toast { .. }
         | Fixture::BackupFont
+        | Fixture::CreativeCatalogDelete
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(..)
         | Fixture::HudSurface(..) => false,
@@ -195,11 +221,13 @@ fn png_fixture(
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::FormHandoff { .. }
         | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked
-        | Fixture::CosmeticParticles { .. } => false,
+        | Fixture::CosmeticParticles { .. }
+        | Fixture::ArmorTrims { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
@@ -234,11 +262,17 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::CreativeCatalogDelete => {
+            let mut engine = json_engine(&carriers)?;
+            creative_delete::paint(&engine, &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         Fixture::BackupFont => {
             let engine = json_engine(&carriers)?;
             backup_font::paint(&engine, &mut frame)?;
         }
         Fixture::SpriteOutline { .. }
+        | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::TiledImage { .. } => {
@@ -246,7 +280,9 @@ fn png_fixture(
         }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
+        | Fixture::ArmorTrims { .. }
         | Fixture::FormOverlap
+        | Fixture::FormHandoff { .. }
         | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
@@ -410,7 +446,7 @@ fn png_fixture(
                 rgba: logo.into_raw().into(),
             });
             cosmetic_icons(&mut artwork, &mut carriers.pages, seconds);
-            mod_icons(&view, &mut artwork, &mut carriers.pages)?;
+            menu_icons(&view, &mut artwork, &mut carriers.pages)?;
             let character_page = (view.screen == launcher::menu::MenuScreen::Home)
                 .then(|| character::texture(dir, &mut carriers.pages))
                 .transpose()?;
@@ -481,10 +517,11 @@ fn png_fixture(
                 }
             }
         }
-        Fixture::TabList(rows) => {
+        Fixture::TabList(rows, header) => {
             carriers::install_default_skin(dir)?;
             let mut engine = json_engine(&carriers)?;
             let mut list = PlayerList::default();
+            list.set_header(header);
             for now in [0.0, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
@@ -526,12 +563,53 @@ fn png_fixture(
                 )
                 .map_err(|error| error.to_string())?;
         }
+        Fixture::ResourcePackLoading => {
+            carriers::validate_oreui(dir)?;
+            let images = oreui::images::load_optional_oreui_images(dir)
+                .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            let first = carriers.pages.len() as u16;
+            let artwork = HashMap::new();
+            carriers.pages.extend(images.pages.iter().map(|page| Page {
+                repeat_content: None,
+                width: page.dimensions[0],
+                height: page.dimensions[1],
+                rgba: Arc::clone(&page.pixels),
+            }));
+            let mut screen = oreui_screen(first, images);
+            let viewport = ui_engine::engine::rect(0.0, 0.0, size[0], size[1])
+                .map_err(|error| error.to_string())?;
+            frame.nodes.push(
+                UiNode::new(UiNodeId::new(*frame.next), None, viewport).with_visual(
+                    UiVisual::Solid {
+                        texture_page: frame.solid_page,
+                        color: oreui::loading_screen::RESOURCE_PACK_BACKGROUND,
+                    },
+                ),
+            );
+            *frame.next = (*frame.next).saturating_add(1);
+            frame.now = seconds;
+            screen
+                .paint_loading(
+                    oreui::loading_screen::LoadingInput {
+                        stage: ui::LoadingStage::BuildingTerrain,
+                        words: oreui::loading_screen::RESOURCE_PACK_WORDS,
+                        size,
+                        title_artwork: None,
+                        destination_icon: None,
+                        artwork: &artwork,
+                        dimension: 0,
+                    },
+                    &mut frame,
+                )
+                .map_err(|error| error.to_string())?;
+        }
         Fixture::Chat {
             draft,
             suggestions,
-            messages,
+            mut messages,
             options,
             server_hover,
+            receive_while_scrolled,
         } => {
             let mut engine = json_engine(&carriers)?;
             #[cfg(feature = "test-support")]
@@ -545,7 +623,7 @@ fn png_fixture(
             frame.now = seconds;
             let mut screen = ChatScreen::default();
             screen.settings.set_snapshot((options, None));
-            for now in [0.0, seconds, seconds] {
+            for (step, now) in [0.0, seconds, seconds].into_iter().enumerate() {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -556,6 +634,7 @@ fn png_fixture(
                             local_player: "Alex",
                             editor: &editor,
                             messages: &messages,
+                            first_message_id: 1,
                             suggestions: &suggestions,
                             usage: None,
                             selected_suggestion: Some(0),
@@ -566,6 +645,20 @@ fn png_fixture(
                         &mut frame,
                     )
                     .map_err(|error| error.to_string())?;
+                if receive_while_scrolled {
+                    if step == 0 {
+                        screen.scroll(120.0, true);
+                    } else if step == 1 {
+                        messages.push_back(ui::ChatMessage {
+                            fifo_sequence: messages.back().map_or(1, |row| row.fifo_sequence + 1),
+                            received_millis: 0,
+                            kind: ui::ChatMessageKind::System,
+                            source: None,
+                            message: "NEW incoming message: this longer row wraps while the reader is looking at older messages.".into(),
+                            parameters: Arc::from([]),
+                        });
+                    }
+                }
                 if server_hover == Some(true)
                     && let Some(caption) = screen.nodes().iter().find(|node| node.name == "caption")
                 {
@@ -753,17 +846,25 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
     }
 }
 
-/// Gives each Mods-tab icon its own page under the key its card draws, as the client's
-/// artwork worker does.
-fn mod_icons(
+/// Gives each inline menu thumbnail its own page, as the client's artwork worker does.
+fn menu_icons(
     view: &launcher::menu::MenuView,
     artwork: &mut HashMap<String, ui::IconRef>,
     pages: &mut Vec<Page>,
 ) -> Result<(), Error> {
-    for item in &view.mods.library.installed {
-        let (Some(key), Some(png)) = (item.icon_key(), &item.metadata.icon) else {
-            continue;
-        };
+    let icons = view
+        .mods
+        .library
+        .installed
+        .iter()
+        .filter_map(|item| Some((item.icon_key()?, item.metadata.icon.as_ref()?)))
+        .chain(
+            view.storage
+                .cached
+                .iter()
+                .filter_map(|item| Some((item.icon_key(), item.icon.as_ref()?))),
+        );
+    for (key, png) in icons {
         let image = image::load_from_memory(png)
             .map_err(|error| error.to_string())?
             .to_rgba8();

@@ -114,6 +114,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
     let (mut old, ingress) = NetworkHandle::<Pack>::stub_with_control_sender();
     ingress
         .try_send(NetworkControlEvent::Bootstrap {
+            player_rotation: [0.0, 180.0],
             session_generation: simulation_clock::identity::SessionGeneration::new(1),
             identity: Default::default(),
             world: protocol::WorldBootstrap {
@@ -144,6 +145,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
             server_authoritative_block_breaking: false,
             rewind_history_size: 0,
             base_game_version: protocol::BaseGameVersion::Any,
+            overworld_range: protocol::MODERN_OVERWORLD_RANGE,
             hardcore: false,
             hud_rules: Default::default(),
             death_rules: Default::default(),
@@ -151,6 +153,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
             packs: Pack(dropped),
             terrain_before_spawn: false,
             level_identity: None,
+            level_name: Default::default(),
         })
         .unwrap_or_else(|_| panic!("fixture queue has room"));
     old.retire();

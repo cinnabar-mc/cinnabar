@@ -3,8 +3,8 @@
 
 //! Packet entries with only their header parsed, so play can route by ID and decode bodies lazily.
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::codec::SessionFailure;
@@ -94,13 +94,33 @@ impl RawPacket {
     }
 }
 
-/// Splits a batch body, its length-prefixed entries without the `0xfe` marker, into raw packets
-/// sharing its bytes. A body over `max_bytes` is refused; the body's own length bounds the
-/// entries, as Bedrock bounds a batch by its payload rather than by an entry count.
-pub(crate) fn decode_batch_body(
-    body: Bytes,
-    max_bytes: usize,
-) -> Result<Vec<RawPacket>, SessionError> {
+/// A validated batch that creates packet metadata only as its entries are consumed.
+#[derive(Debug)]
+pub(crate) struct RawBatch {
+    frames: wire::Frames,
+    backing_len: usize,
+    remaining: usize,
+}
+
+impl Iterator for RawBatch {
+    type Item = RawPacket;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let frame = self.frames.next()?.expect("batch framing was validated");
+        self.remaining -= 1;
+        Some(raw_packet(frame, self.backing_len).expect("batch packet IDs were validated"))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for RawBatch {}
+
+/// Validates every length-prefixed entry before yielding packets that share the batch bytes.
+/// The byte bound applies without a packet-count cap or a per-entry metadata allocation.
+pub(crate) fn decode_batch_body(body: Bytes, max_bytes: usize) -> Result<RawBatch, SessionError> {
     if body.len() > max_bytes {
         return Err(SessionFailure::BatchTooLarge {
             actual: body.len(),
@@ -110,20 +130,26 @@ pub(crate) fn decode_batch_body(
     }
     let backing_len = body.len();
     let mut offset = 0;
-    let mut packets = Vec::new();
+    let mut remaining = 0;
     for frame in wire::Frames::new(body.clone(), usize::MAX) {
         let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
         offset += frame.frame().len();
-        packets.push(raw_packet(frame, backing_len)?);
+        let id = frame.header().id;
+        PacketId::from_raw(id).ok_or(SessionFailure::UnknownPacketId(id))?;
+        remaining += 1;
     }
-    Ok(packets)
+    Ok(RawBatch {
+        frames: wire::Frames::new(body, usize::MAX),
+        backing_len,
+        remaining,
+    })
 }
 
 /// Decodes the first packet entry in `cursor` and advances past it.
 #[cfg(test)]
 pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, SessionError> {
     let backing_len = cursor.len();
-    let frame = wire::Frames::new(cursor.clone(), usize::MAX)
+    let frame = wire::Frames::new(cursor.clone(), 1)
         .next()
         .unwrap_or(Err(wire::DecodeError::UnexpectedEof {
             needed: 1,
@@ -145,12 +171,15 @@ pub(crate) fn decode_batch(
             actual: batch.first().copied(),
         });
     }
-    Ok(decode_batch_body(batch.slice(1..), max_bytes)?)
+    Ok(decode_batch_body(batch.slice(1..), max_bytes)?.collect())
 }
 
 /// Maps a framing failure of the entry starting at `rest`: a declared length past the input is
 /// a truncated entry, while a cut-short or overlong length or header varint is malformed.
 fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
+    if let wire::DecodeError::TooManyFrames { limit } = error {
+        return SessionFailure::TooManyPackets { max: limit }.into();
+    }
     let mut reader = wire::Reader::new(rest);
     match reader.read_var_u32() {
         Ok(declared) if declared as usize > reader.remaining() => SessionFailure::TruncatedEntry {

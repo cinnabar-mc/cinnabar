@@ -45,91 +45,15 @@ fn snapshot() -> GameplaySnapshot {
     }
 }
 
-fn call(enabled: bool, denied: bool) -> String {
-    format!(
-        "i32.const {} i32.const 256 call $preserve i32.const 256 i32.load8_u i32.const {} i32.ne if unreachable end",
-        u8::from(enabled),
-        u8::from(denied)
-    )
-}
-
-#[test]
-fn camera_policy_is_granted_per_gameplay_frame_and_false_disables_it() {
-    let (_dir, mut denied) = load(&call(true, true), false);
-    denied.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(!denied.preserves_teleport_rotation());
-    let frame = format!(
-        "global.get $count i32.const 1 i32.eq if {} else {} end",
-        call(true, false),
-        call(false, false)
-    );
-    let (_dir, mut host) = load(&frame, true);
-    assert!(!host.preserves_teleport_rotation());
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(host.preserves_teleport_rotation());
-    host.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(!host.preserves_teleport_rotation());
-    let (_dir, mut menus) = load(&call(true, false), true);
-    menus.frame_with_gameplay(false, Some(snapshot())).unwrap();
-    assert!(menus.preserves_teleport_rotation());
-    menus.frame(false).unwrap();
-    assert!(!menus.preserves_teleport_rotation());
-}
-
-#[test]
-fn omission_traps_and_reload_revoke_camera_policy() {
-    let first = format!(
-        "global.get $count i32.const 1 i32.eq if {} end",
-        call(true, false)
-    );
-    let (_dir, mut omitted) = load(&first, true);
-    omitted
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(omitted.preserves_teleport_rotation());
-    omitted
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(!omitted.preserves_teleport_rotation());
-    let frame = format!(
-        "{} global.get $count i32.const 2 i32.eq if unreachable end",
-        call(true, false)
-    );
-    let (_dir, mut trapped) = load(&frame, true);
-    trapped
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(trapped.preserves_teleport_rotation());
-    assert!(
-        trapped
-            .frame_with_gameplay(false, Some(snapshot()))
-            .is_err()
-    );
-    assert!(!trapped.is_active());
-    assert!(!trapped.preserves_teleport_rotation());
-    trapped
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(!trapped.preserves_teleport_rotation());
-    let (dir, mut reloaded) = load(&call(true, false), true);
-    reloaded
-        .frame_with_gameplay(false, Some(snapshot()))
-        .unwrap();
-    assert!(reloaded.preserves_teleport_rotation());
-    std::fs::write(dir.path().join("camera.wat"), source("")).unwrap();
-    assert!(reloaded.reload_if_changed().unwrap());
-    assert!(!reloaded.preserves_teleport_rotation());
-}
-
 #[test]
 fn camera_import_budget_quarantines_excess_writes() {
-    let calls = std::iter::repeat_n(call(true, false), 9)
+    let calls = std::iter::repeat_n(view_call("0.25", "0.25", false), 9)
         .collect::<Vec<_>>()
         .join(" ");
     let (_dir, mut host) = load(&calls, true);
-    assert!(host.frame_with_gameplay(false, Some(snapshot())).is_err());
+    assert!(view_frame(&mut host, true, false, true).is_err());
     assert!(!host.is_active());
-    assert!(!host.preserves_teleport_rotation());
+    assert_eq!(host.camera_view_scale(), None);
 }
 
 /// Calls the view import and checks the canonical result's success/error tag.
@@ -300,7 +224,7 @@ fn view_scale_trap_reload_and_shared_import_budget_revoke_output() {
     let calls = format!(
         "{} {}",
         view_call("0.25", "0.25", false),
-        std::iter::repeat_n(call(true, false), 8)
+        std::iter::repeat_n(view_call("0.5", "0.5", false), 8)
             .collect::<Vec<_>>()
             .join(" ")
     );
@@ -311,7 +235,7 @@ fn view_scale_trap_reload_and_shared_import_budget_revoke_output() {
 
 #[test]
 fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
-    let frame = format!("{} {}", call(true, false), view_call("0.25", "0.25", false));
+    let frame = view_call("0.25", "0.25", false);
     let (_dir, mut host) = super::load_with_view_closed(
         source(&frame),
         ModGrants {
@@ -321,12 +245,10 @@ fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
         "",
     );
     view_frame(&mut host, true, false, true).unwrap();
-    assert!(host.preserves_teleport_rotation());
     assert_eq!(host.camera_view_scale(), Some([0.25; 2]));
     let budget = super::defer_view_closed(&mut host);
     view_frame(&mut host, false, false, false).unwrap();
     assert!(host.is_active());
-    assert!(!host.preserves_teleport_rotation());
     assert!(!host.has_camera_output());
     assert_eq!(host.camera_view_scale(), None);
     budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -334,7 +256,6 @@ fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
     assert_eq!(host.camera_view_scale(), Some([0.25; 2]));
     budget.reset(0);
     view_frame(&mut host, true, false, true).unwrap();
-    assert!(!host.preserves_teleport_rotation());
     assert!(!host.has_camera_output());
     assert_eq!(host.camera_view_scale(), None);
 }
@@ -343,8 +264,7 @@ fn deferred_lifecycle_and_frame_callbacks_cannot_republish_camera_policies() {
 fn lifecycle_callbacks_cannot_publish_camera_policy_through_the_next_frame() {
     for deferred in [false, true] {
         let event = format!(
-            "{} {} i32.const 7 global.set $count",
-            call(true, false),
+            "{} i32.const 7 global.set $count",
             view_call("0.25", "0.25", false)
         );
         let (_dir, mut host) = super::load_with_view_closed(
@@ -366,8 +286,77 @@ fn lifecycle_callbacks_cannot_publish_camera_policy_through_the_next_frame() {
         }
         view_frame(&mut host, true, false, true).unwrap();
         assert!(host.is_active());
-        assert!(!host.preserves_teleport_rotation());
         assert_eq!(host.camera_view_scale(), None);
         assert!(!host.has_camera_output());
     }
+}
+
+/// A temporary perspective needs a successful focused gameplay callback each frame.
+#[test]
+fn perspective_expires_and_requires_camera_authority() {
+    use mod_api::native_camera::Perspective;
+    let call = "i32.const 1 i32.const 2 i32.const 256 call $perspective";
+    let frame = format!("global.get $count i32.const 2 i32.ne if {call} end");
+    let (_dir, mut host) = load(&frame, true);
+    for expected in [
+        Some(Perspective::ThirdPersonFront),
+        None,
+        Some(Perspective::ThirdPersonFront),
+    ] {
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_perspective(), expected);
+    }
+    for (focus, panel, gameplay) in [
+        (false, false, true),
+        (true, true, true),
+        (true, false, false),
+    ] {
+        view_frame(&mut host, focus, panel, gameplay).unwrap();
+        assert_eq!(host.camera_perspective(), None);
+    }
+    let (_dir, mut denied) = load(call, false);
+    view_frame(&mut denied, true, false, true).unwrap();
+    assert_eq!(denied.camera_perspective(), None);
+    let (_dir, mut trapped) = load(&format!("{call} unreachable"), true);
+    assert!(view_frame(&mut trapped, true, false, true).is_err());
+    assert_eq!(trapped.camera_perspective(), None);
+}
+
+/// Relative headings need camera authority, finite bounds and a successful gameplay lease.
+#[test]
+fn yaw_offset_is_bounded_and_expires_at_input_boundaries() {
+    let call = "f32.const 180 i32.const 256 call $yaw-offset";
+    let frame = format!("global.get $count i32.const 2 i32.ne if {call} end");
+    let (_dir, mut host) = load(&frame, true);
+    for expected in [Some(180.), None, Some(180.)] {
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_yaw_offset(), expected);
+    }
+    for (focus, panel, gameplay) in [
+        (false, false, true),
+        (true, true, true),
+        (true, false, false),
+    ] {
+        view_frame(&mut host, focus, panel, gameplay).unwrap();
+        assert_eq!(host.camera_yaw_offset(), None);
+    }
+    for (degrees, grant, expected) in [
+        ("-180", true, Some(-180.)),
+        ("0", true, None),
+        ("181", true, None),
+        ("-181", true, None),
+        ("nan", true, None),
+        ("inf", true, None),
+        ("180", false, None),
+    ] {
+        let (_dir, mut host) = load(
+            &format!("f32.const {degrees} i32.const 256 call $yaw-offset"),
+            grant,
+        );
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_yaw_offset(), expected);
+    }
+    let (_dir, mut host) = load(&format!("{call} unreachable"), true);
+    assert!(view_frame(&mut host, true, false, true).is_err());
+    assert_eq!(host.camera_yaw_offset(), None);
 }

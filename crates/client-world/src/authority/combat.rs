@@ -22,6 +22,8 @@ pub struct ActorCombatEvidence {
     pub player: bool,
     pub position: [f32; 3],
     pub kind: ActorCombatKind,
+    /// Actor life after this status committed, including the new life on a death notice.
+    pub life: u64,
 }
 
 impl WorldAuthority {
@@ -58,6 +60,7 @@ impl WorldAuthority {
             player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
             position: actor.position,
             kind,
+            life: actor.life().life,
         });
     }
 }

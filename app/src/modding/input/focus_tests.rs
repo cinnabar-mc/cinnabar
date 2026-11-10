@@ -14,7 +14,7 @@ fn fixture() -> String {
 /// Builds the same controls component with optional guest-owned keyboard capture.
 fn fixture_with_capture(capture_key: bool) -> String {
     let panel = format!(
-        r#"{{"toggle_key":"ShiftRight","capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
+        r#"{{"capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
     );
     fixture_with_panel(&panel)
 }
@@ -332,7 +332,7 @@ fn native_text_clipboard_shortcuts_do_not_insert_command_letters() {
     use std::sync::{Arc, Mutex};
     for modifier in [KeyCode::SuperLeft, KeyCode::ControlLeft] {
         let component = fixture_with_panel(
-            r#"{"toggle_key":"ShiftRight","controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":0,"max_chars":24}]}"#,
+            r#"{"controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":0,"max_chars":24}]}"#,
         );
         let (mut app, window) = personal_panel_app_with_fixture(&component);
         let clipboard = Arc::new(Mutex::new("#7F00FF00".to_owned()));
@@ -466,8 +466,7 @@ fn panel_pointer_reports_hud_gui_units_for_a_scaled_reference_panel() {
         {"fill":{"type":"custom","renderer":"cinnabar_rounded_rectangle","size":[200,100],
             "offset":[20,20],"radius":2,"color":[0.1,0.1,0.1,1]}}
     ]}});
-    let panel = serde_json::json!({"toggle_key":"ShiftRight",
-        "controls":[],"reference_size":[2400.0,1600.0],
+    let panel = serde_json::json!({"controls":[],"reference_size":[2400.0,1600.0],
         "surface":{"screen":"extension.screen","document":document.to_string()}});
     host.set_panel_bundle(&serde_json::json!({"panel":panel,"surfaces":{}}).to_string())
         .unwrap();
@@ -522,64 +521,39 @@ fn panel_pointer_reports_hud_gui_units_for_a_scaled_reference_panel() {
     );
 }
 
-/// A modifier binding and the native fallback both open and close the selected panel without repeat toggles.
+/// Legacy authored and fallback keys are raw input, with no host visibility policy.
 #[test]
-fn personal_panel_opens_with_right_shift_or_f10_without_text_input() {
+fn personal_panel_keys_do_not_open_or_close_panels() {
     for (key_code, logical_key) in [(KeyCode::ShiftRight, Key::Shift), (KeyCode::F10, Key::F10)] {
-        let (mut app, window) = personal_panel_app(false);
-        app.world_mut()
-            .resource_mut::<ModRuntime>()
-            .hosts
-            .host_mut(0)
-            .set_panel_open(false);
-        app.world_mut()
-            .resource_mut::<UiPresentationResource>()
-            .mod_ui_mut()
-            .set_mod_panel_open(false);
-        let event = KeyboardInput {
-            key_code,
-            logical_key,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
-            window,
-        };
-        app.world_mut().write_message(event.clone());
-        app.update();
-        assert!(
-            app.world()
-                .resource::<ModRuntime>()
+        for open in [false, true] {
+            let (mut app, window) = personal_panel_app(false);
+            app.world_mut()
+                .resource_mut::<ModRuntime>()
                 .hosts
-                .host(0)
-                .panel_open(),
-            "{key_code:?}"
-        );
-        app.world_mut().write_message(KeyboardInput {
-            repeat: true,
-            ..event.clone()
-        });
-        app.update();
-        assert!(
-            app.world()
-                .resource::<ModRuntime>()
-                .hosts
-                .host(0)
-                .panel_open()
-        );
-        app.world_mut().write_message(KeyboardInput {
-            state: ButtonState::Released,
-            ..event.clone()
-        });
-        app.update();
-        app.world_mut().write_message(event);
-        app.update();
-        assert!(
-            !app.world()
-                .resource::<ModRuntime>()
-                .hosts
-                .host(0)
-                .panel_open()
-        );
+                .host_mut(0)
+                .set_panel_open(open);
+            app.world_mut()
+                .resource_mut::<UiPresentationResource>()
+                .mod_ui_mut()
+                .set_mod_panel_open(open);
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key: logical_key.clone(),
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+            app.update();
+            assert_eq!(
+                app.world()
+                    .resource::<ModRuntime>()
+                    .hosts
+                    .host(0)
+                    .panel_open(),
+                open
+            );
+        }
     }
 }
 
@@ -661,4 +635,54 @@ fn personal_panel_keyboard_capture_does_not_open_or_replay_world_ui() {
         app.update();
         assert!(app.world().resource::<UiRuntimeResource>().chat_focused());
     }
+}
+
+/// Builds a real guest whose initialization publishes and explicitly opens its panel.
+fn fixture_opened_in_init() -> String {
+    fixture()
+        .replace("(instance $panel ", "(instance $panel (export \"open\" (func (result (result (error string))))) ")
+        .replace("(alias export $panel \"set-content\" (func $set-panel))", "(alias export $panel \"set-content\" (func $set-panel)) (alias export $panel \"open\" (func $open))")
+        .replace("(core func $lower-panel", "(core func $lower-open (canon lower (func $open) (memory $memory) (realloc $realloc))) (core func $lower-panel")
+        .replace("(import \"host\" \"panel\"", "(import \"host\" \"open\" (func $open (param i32))) (import \"host\" \"panel\"")
+        .replace("(export \"panel\" (func $lower-panel))", "(export \"open\" (func $lower-open)) (export \"panel\" (func $lower-panel))")
+        .replace("call $panel", "call $panel i32.const 512 call $open")
+}
+
+#[test]
+fn latest_initial_panel_request_owns_the_first_input_frame() {
+    let source = fixture_opened_in_init();
+    let (mut app, _) = personal_panel_app_with_fixture(&source);
+    let directory = tempfile::tempdir().unwrap();
+    for index in 1..3 {
+        let host = mod_host::ModHost::load_snapshot_with_grants(
+            &directory.path().join(format!("initial-{index}.wat")),
+            source.as_bytes(),
+            mod_host::ModGrants {
+                controls: true,
+                hud: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        app.world_mut().resource_mut::<ModRuntime>().push_host(
+            host,
+            super::super::registration::HostMetadata::environment(index),
+        );
+    }
+    app.world_mut()
+        .resource_mut::<UiPresentationResource>()
+        .mod_ui_mut()
+        .set_mod_panel_open(false);
+    app.update();
+    let runtime = app.world().resource::<ModRuntime>();
+    assert_eq!(runtime.hosts.panel_owner(), 2);
+    assert!(!runtime.hosts.host(0).panel_open());
+    assert!(!runtime.hosts.host(1).panel_open());
+    assert!(runtime.hosts.host(2).panel_open());
+    assert!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_open()
+    );
 }

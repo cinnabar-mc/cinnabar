@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::blob_cache::ResolverReady;
@@ -77,7 +77,7 @@ pub struct PlaySession<R = bridge::FramedReader> {
     pending_ordinary: Option<(WorldIngress, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
-    ingress_position: (u64, u32), // core frame and slot of the packet behind the last ingress
+    ingress_position: crate::packet_tap::PacketOrigin,
 }
 
 enum WorldIngress {
@@ -148,7 +148,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
             pending_ordinary: None,
             server_disconnect: None,
             server_transfer: None,
-            ingress_position: (0, 0),
+            ingress_position: Default::default(),
         }
     }
 
@@ -332,7 +332,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 let packets::Packet::LevelChunk(packet) = *packet.data else {
                     unreachable!("LevelChunk packet ID decoded to another variant")
                 };
-                match crate::world::normalize_level_chunk_payload(packet) {
+                match crate::world::normalize_level_chunk_payload(*packet) {
                     Ok((event, payload)) => return Ok(WorldIngress::LevelChunk(event, payload)),
                     Err(error) => {
                         self.skip_or_fail_current(error.into())?;
@@ -386,18 +386,31 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         self.packet_id_trace.drain()
     }
 
+    /// Returns capture-only world/packet correspondence for the active transport.
+    pub fn pick_trace(&self) -> Option<std::sync::Arc<crate::capture::PickTrace>> {
+        self.transport.pick_trace()
+    }
+
     /// The latency-trace connection, core batch frame and in-frame index of the packet received
     /// last; see [`bridge::latency_trace`].
     #[must_use]
     pub fn latency_trace_position(&self) -> (u64, u64, u32) {
         let (conn, _, _) = self.transport.trace_position();
-        (conn, self.ingress_position.0, self.ingress_position.1)
+        (
+            conn,
+            self.ingress_position.trace.0,
+            self.ingress_position.trace.1,
+        )
     }
 
     /// The core frame and slot of the packet the transport delivered last.
-    fn delivered_position(&self) -> (u64, u32) {
-        let (_, frame, index) = self.transport.trace_position();
-        (frame, index)
+    fn delivered_position(&self) -> crate::packet_tap::PacketOrigin {
+        self.transport.packet_origin()
+    }
+
+    /// The captured packet behind the last delivered world item, including delayed cache work.
+    pub fn ingress_capture_sequence(&self) -> u64 {
+        self.ingress_position.capture_sequence
     }
 
     /// Number of receive-side decode/decompression failures observed in play.
@@ -452,7 +465,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 .pop_recovery_ready()
             {
                 // Recovery is the client's own resync request; no core packet produced it.
-                self.ingress_position = (0, 0);
+                self.ingress_position = Default::default();
                 return Ok(WorldIngress::Event(WorldEvent::ChunkResync(recovery)));
             }
             if let Some(event) = self.pending_blob_cache_events.pop_front() {
@@ -477,7 +490,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                         // the uncached lane does, rather than through an owned copy.
                         let normalized = match *packet.data {
                             packets::Packet::LevelChunk(level_chunk) => {
-                                match crate::world::normalize_level_chunk_payload(level_chunk) {
+                                match crate::world::normalize_level_chunk_payload(*level_chunk) {
                                     Ok((event, payload)) => {
                                         return Ok(WorldIngress::LevelChunk(event, payload));
                                     }
@@ -578,7 +591,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 }
                 Err(error) => return Err(self.fail_session(error)),
             };
-            if !ordinary_blocked && bridge::latency_trace::active().is_some() {
+            if !ordinary_blocked
+                && (bridge::latency_trace::active().is_some()
+                    || self.transport.pick_trace().is_some())
+            {
                 let origin = self.delivered_position();
                 self.blob_cache
                     .as_mut()
@@ -616,7 +632,8 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                     let packets::Packet::LevelChunk(view) = *packet.data else {
                         unreachable!("checked above")
                     };
-                    let (event, payload) = match crate::world::normalize_level_chunk_payload(view) {
+                    let (event, payload) = match crate::world::normalize_level_chunk_payload(*view)
+                    {
                         Ok(value) => value,
                         Err(error) => {
                             self.skip_or_fail_current(error.into())?;
@@ -794,7 +811,7 @@ fn decode_world_raw_with(
     decode: impl FnOnce(RawPacket) -> Result<(GameHeader, packets::Packet), SessionError>,
 ) -> Result<Option<WorldEvent>, ProtocolError> {
     if raw.id == PacketId::ItemRegistry {
-        // Login has already initialized this session's registry. Vanilla 1.26.50
+        // Login has already initialized this session's registry. Vanilla 1.26.60
         // ignores a repeated item registry once initialized, including an
         // empty/custom-only repeat. Decode the wire first so malformed repeats remain fatal;
         // neither the inventory ledger nor actor item store may be rebound here.
@@ -861,7 +878,7 @@ fn level_event_generic(raw: &RawPacket) -> Option<(GameHeader, packets::Packet)>
     let event_id = reader.read_zigzag_i32().ok()?;
     let data = packets::LevelEventGeneric {
         event_id: wire::ZigZag32(event_id),
-        ctd: wire::NetworkNbt(raw.body().slice(reader.position()..)),
+        ctd: wire::NetworkCompoundNbt(raw.body().slice(reader.position()..)),
     };
     Some((raw.header, data.into()))
 }

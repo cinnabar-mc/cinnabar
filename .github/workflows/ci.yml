@@ -182,7 +182,8 @@ jobs:
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Slower runners can use more than 45 minutes on the full checks.
+    timeout-minutes: 60
     env:
       FULL: ${{ needs.changes.outputs.full }}
       AFFECTED: ${{ needs.preflight.outputs.names }}
@@ -221,6 +222,9 @@ jobs:
           if affected cinnabar; then
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
+          fi
+          if affected ui-snapshot; then
+            cargo clippy -p ui-snapshot --features test-support --all-targets --locked -- -D warnings
           fi
       - name: Test developer control adapters
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
@@ -266,8 +270,9 @@ jobs:
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ${{ matrix.os }}
-    # Cold Windows builds need time to finish the tests, documentation and lint checks.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 150 || 90 }}
+    # Cold macOS and Windows builds need time to finish the tests, documentation and lint checks.
+    # Slower Windows runners take about 70 minutes to build and lint, and over 65 to run the tests.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-latest' && 90 || matrix.os == 'windows-latest' && 180 || 150 }}
     env:
       TESTS: ${{ needs.changes.outputs.full == 'true' && 'all()' || needs.preflight.outputs.tests }}
     strategy:
@@ -298,7 +303,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev spirv-tools
       # Builds the whole workspace, which the cache keeps fresh, and runs only affected tests.
       # Cargo's messages name every unit these builds use, fresh ones included; saves leave out the rest.
       - name: Build Rust tests

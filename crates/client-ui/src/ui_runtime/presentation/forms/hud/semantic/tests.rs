@@ -17,6 +17,7 @@ struct Fixture {
     names: ScoreboardOwnerNameAuthority,
     hide_sidebar: bool,
     hide_effects: bool,
+    hide_position: bool,
     bindings: HudBindings,
 }
 
@@ -38,6 +39,7 @@ impl Default for Fixture {
             names: Default::default(),
             hide_sidebar: false,
             hide_effects: false,
+            hide_position: false,
             bindings: Default::default(),
         }
     }
@@ -63,6 +65,7 @@ impl Fixture {
             key,
             &self.settings,
             self.hide_effects,
+            self.hide_position,
             &self.catalog,
         );
         let mut icons = Vec::new();
@@ -76,6 +79,9 @@ impl Fixture {
         );
         if self.hide_effects {
             expected.effects_visible = false;
+        }
+        if self.hide_position {
+            expected.player_position = None;
         }
         ui_screens::settings_chat::apply_hud(&self.settings, &mut expected);
         assert_eq!(cache.model, expected);
@@ -201,6 +207,29 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
     }
     fixture.frame.hotbar_cooldowns[0] = 0.1;
     assert_eq!(fixture.check(&mut cache), HudChanges::default());
+}
+
+#[test]
+fn creative_hides_hud_durability_bars_until_the_mode_changes_back() {
+    let mut fixture = Fixture::default();
+    fixture.frame.hotbar_stacks[0] = Some(stack(1));
+    fixture.frame.hotbar_durability[0] = Some(0.6);
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.hotbar[0].durability, Some(f64::from(0.6f32)));
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    assert!(fixture.check(&mut cache).hotbar);
+    assert_eq!(cache.model.hotbar[0].durability, None);
+    assert_eq!(cache.model.hotbar[0].count, 1);
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    assert!(fixture.check(&mut cache).hotbar);
+    assert_eq!(cache.model.hotbar[0].durability, Some(f64::from(0.6f32)));
 }
 
 #[test]
@@ -349,6 +378,14 @@ fn world_text_language_and_visibility_invalidate_without_touching_hotbar() {
         cache.model.player_position.as_deref(),
         Some("At 2 / 64 / -3")
     );
+    fixture.hide_position = true;
+    let changes = fixture.check(&mut cache);
+    assert!(changes.world_text && !changes.hotbar);
+    assert!(cache.model.player_position.is_none());
+    assert!(cache.model.days_played.is_some());
+    fixture.hide_position = false;
+    assert!(fixture.check(&mut cache).world_text);
+    assert!(cache.model.player_position.is_some());
     fixture.runtime.session.last_known_local_player_alive = Some(false);
     fixture.check(&mut cache);
     assert!(cache.model.player_position.is_none());

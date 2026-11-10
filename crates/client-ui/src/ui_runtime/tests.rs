@@ -83,6 +83,7 @@ mod data_driven_tests;
 mod death_tests;
 mod furnace_options_tests;
 mod gameplay_hud_tests;
+mod input_placeholder_tests;
 mod inventory_open_tests;
 mod inventory_options_tests;
 mod inventory_overlay_tests;

@@ -103,6 +103,8 @@ pub struct HudFrame {
     pub attack_indicator_charge: Option<f32>,
     /// The local player's floored feet position.
     pub player_block: Option<[i32; 3]>,
+    /// Rendered camera state used only to project server-supplied locator positions.
+    pub locator_view: Option<ui_screens::hud_renderers::LocatorView>,
     /// The absolute world tick, when the session has a clock.
     pub world_time: Option<f64>,
     /// A held filled map shows the position whatever the world rule says.
@@ -116,6 +118,19 @@ pub struct HudFrame {
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
+}
+
+impl HudFrame {
+    /// Shares the HUD binding's model visibility with capture, so hidden modes do no model work.
+    pub fn paper_doll_requested(
+        &self,
+        mode: Option<protocol::PlayerGameMode>,
+        settings: &launcher::menu::settings_options::SettingsOptions,
+    ) -> bool {
+        self.paper_doll_visible
+            && mode.is_none_or(protocol::PlayerGameMode::shows_hotbar)
+            && settings.value(launcher::menu::settings_options::SettingId::HidePaperdoll) == 0
+    }
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All

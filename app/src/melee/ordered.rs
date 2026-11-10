@@ -42,6 +42,7 @@ pub(crate) fn press(
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     item_use: Res<client_interaction::item_use::ItemUseRuntime>,
     mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
+    mut block_use: Option<ResMut<client_interaction::block_use::BlockUseRuntime>>,
 ) {
     // An earlier use edge in this batch may have started eating or drawing.
     if item_use.vetoes_attack(&player, context.client_world.stream.as_ref()) {
@@ -79,6 +80,13 @@ pub(crate) fn press(
     };
     let mut press = PressContext {
         refused_destroy: None,
+        actor_life: match picked.crosshair {
+            Crosshair::Actor(hit) => stream
+                .authority()
+                .actor(hit.runtime_id)
+                .map(|actor| actor.life().life),
+            _ => None,
+        },
         tick: sample.tick,
         player_position: sample.position,
         input_mode: protocol_input_mode(input.context.mode),
@@ -113,7 +121,14 @@ pub(crate) fn press(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.context.origin,
+                {
+                    let (origin, ticked) = input.context.attack.block_pick();
+                    crate::survival_mining::DestroyPick {
+                        origin,
+                        ticked,
+                        held: None,
+                    }
+                },
                 caps,
                 input.context.mode,
                 input.context.identity,
@@ -155,7 +170,9 @@ pub(crate) fn press(
             local_runtime_id: press.local_runtime_id,
         },
         gameplay::melee::AttackEffects {
-            send: |packets| network.send_inventory_packets(packets),
+            send: |packets| {
+                network.send_inventory_packets(crosshair::capture_packets(packets, picked.capture))
+            },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed).0),
             request_id: |slot, damage| {
                 player
@@ -179,10 +196,17 @@ pub(crate) fn press(
             "attack press admitted"
         );
     }
-    for request in admitted.cancelled_mining_requests {
-        player.inventory.ledger_mut().cancel_mining_request(request);
-    }
+    admitted
+        .mining
+        .settle_inventory(player.inventory.ledger_mut());
     if let Some(hit) = admitted.actor_attack {
+        if let Some(block_use) = block_use.as_deref_mut() {
+            block_use.record_actor_use(
+                context.ui.session_id(),
+                hit.runtime_id,
+                context.time.elapsed(),
+            );
+        }
         attack_cues.write(super::attack_cue(&context, hit.runtime_id));
     }
     if let Some(tick) = admitted.rotation_tick

@@ -170,6 +170,7 @@ pub(super) fn press(input_mode: PlayerInputMode) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick: 101,
         player_position: [0.5, 2.620_01, 0.5],
         input_mode,
@@ -568,6 +569,7 @@ fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
     let mut swings = SwingTracker::default();
     let mut press = press(PlayerInputMode::Mouse);
     press.swing_duration = duration;
+    press.actor_life = Some(77);
     runtime.observe_input(true, true);
     swings.sync_ticks(
         (
@@ -622,6 +624,9 @@ fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
         }
         Ok(())
     });
+    if matches!(crosshair, Crosshair::Actor(_)) {
+        assert_eq!(runtime.admitted_attack().unwrap().life, Some(77));
+    }
     assert_eq!(
         admitted_packets, initial_packets,
         "the retry keeps its admitted swing and packet order"

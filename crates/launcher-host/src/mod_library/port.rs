@@ -32,6 +32,10 @@ pub trait Backend: 'static {
 
     /// The canonical package byte limit used by both import picking and update downloading.
     const MAX_SOURCE_BYTES: usize;
+    /// JSON array of API revisions supported by this native build.
+    const MOD_API_REVISIONS_JSON: &'static str = "[]";
+    /// Full commit stamped into this native binary; unstamped builds cannot request updates.
+    const HOST_REVISION: &'static str = "";
 
     /// Reads the canonical registration with statuses matched to its request and reload counters.
     fn registered(directory: &Path) -> Vec<Self::Registered>;
@@ -47,6 +51,44 @@ pub trait Backend: 'static {
     fn read_source(path: &Path) -> Result<Vec<u8>, String>;
     /// Validates the exact package bytes without admitting or granting a running instance.
     fn validate_source(bytes: &[u8]) -> Result<(), String>;
+    /// Checks the exact signed release against native declarations; unimplemented ports refuse admission.
+    fn validate_marketplace(
+        _bytes: &[u8],
+        _manifest: &crate::marketplace::Manifest,
+    ) -> Result<(), String> {
+        Err("Marketplace installation is unavailable for this runtime.".into())
+    }
+    /// Compares exact signed grants in the runtime schema, including command values.
+    fn marketplace_subset(
+        _old: &crate::marketplace::Manifest,
+        _next: &crate::marketplace::Manifest,
+    ) -> Result<bool, String> {
+        Err("Marketplace update migration is unavailable for this runtime.".into())
+    }
+    /// Fences predecessor admission while retaining its enabled selection, and publishes an
+    /// acknowledgement request. The successor must remain unselected until replacement.
+    fn pause_marketplace(
+        _directory: &Path,
+        _previous: &Path,
+        _request: String,
+    ) -> Result<Self::Receipt, String> {
+        Err("Marketplace settings migration is unavailable for this runtime.".into())
+    }
+    /// Releases an unchanged admission fence after a pre-transfer failure.
+    fn resume_marketplace(_directory: &Path, _receipt: &Self::Receipt) -> Result<(), String> {
+        Err("Marketplace settings migration is unavailable for this runtime.".into())
+    }
+    /// Atomically moves an unchanged predecessor's registration and capped choices to its successor,
+    /// clearing its admission fence. With no predecessor, preserves existing selection on retries.
+    fn replace_marketplace(
+        _directory: &Path,
+        _old: Option<&Self::Registered>,
+        _next: &Path,
+        _manifest: &crate::marketplace::Manifest,
+        _request: String,
+    ) -> Result<(), String> {
+        Err("Marketplace update migration is unavailable for this runtime.".into())
+    }
     /// Parses update metadata, optionally requiring a valid requested-permissions declaration.
     fn update_metadata(bytes: &[u8], check_requested: bool) -> Result<ModMetadata, String>;
     /// Persists a selection or permission action through the canonical registration editor.

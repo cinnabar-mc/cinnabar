@@ -27,7 +27,18 @@ pub(super) enum Event {
         Option<Box<launcher_host::minecraft_import::UserState>>,
     ),
     Snapshot(Snapshot),
-    Apply(Arc<ValidatedPackStack>, Vec<resource_pack::ActivePack>),
+    Apply(
+        Arc<ValidatedPackStack>,
+        Vec<resource_pack::ActivePack>,
+        ApplyOrigin,
+    ),
+}
+
+/// Identifies whether a pack publication came from persisted startup state or a user action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ApplyOrigin {
+    Startup,
+    User,
 }
 
 #[derive(Resource)]
@@ -101,9 +112,21 @@ fn run(
     };
     library.set_device_memory(launcher_host::memory::physical_bytes());
     super::icons::refresh(&library, &mut snapshot, &icon_root);
+    // Outlives the startup apply, whose acknowledgement would otherwise clear it unseen.
+    let mut missing_notice = (!library.missing_packs().is_empty()).then(|| {
+        format!(
+            "These packs' files are missing, so they were removed: {}. Import them again to use them.",
+            library.missing_packs().join(", ")
+        )
+    });
+    snapshot.message = missing_notice.clone().unwrap_or_default();
     match library.preview() {
         Ok(stack) => {
-            let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
+            let _ = outgoing.send(Event::Apply(
+                stack,
+                library.active().to_vec(),
+                ApplyOrigin::Startup,
+            ));
         }
         Err(error) => snapshot.message = error.to_string(),
     }
@@ -166,7 +189,11 @@ fn run(
                 changes_lists = changed;
                 if let Some(stack) = outcome.stack {
                     import_commit_pending = Some(library.active().to_vec());
-                    let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
+                    let _ = outgoing.send(Event::Apply(
+                        stack,
+                        library.active().to_vec(),
+                        ApplyOrigin::User,
+                    ));
                 }
                 let _ = outgoing.send(Event::MinecraftImport(
                     outcome.snapshot,
@@ -182,7 +209,7 @@ fn run(
                     &mut import_commit_pending,
                     &outgoing,
                 );
-                snapshot.message.clear();
+                snapshot.message = missing_notice.take().unwrap_or_default();
                 result
             }
             Command::Import(path) => {
@@ -443,7 +470,11 @@ fn act(
                 let _zone = bevy::log::info_span!("pack_apply.preview").entered();
                 library.preview()?
             };
-            let _ = outgoing.send(Event::Apply(stack, library.active().to_vec()));
+            let _ = outgoing.send(Event::Apply(
+                stack,
+                library.active().to_vec(),
+                ApplyOrigin::User,
+            ));
             snapshot.message = "Preparing resource packs…".into();
         }
         Action::Import => unreachable!("file picker handled by worker"),

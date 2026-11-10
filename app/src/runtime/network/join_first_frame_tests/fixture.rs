@@ -14,6 +14,7 @@ use std::io::Cursor;
 
 pub(super) const EYE: [f32; 3] = [8.5, 2.620_01, 12.5];
 pub(super) const ACTOR: u64 = 73;
+pub(super) const INITIAL_ROTATION: [f32; 2] = [30.0, 90.0];
 pub(super) const KEY: world::SubChunkKey = world::SubChunkKey::new(0, 0, 0, 0);
 pub(super) const TERRAIN_COLOR: [u8; 4] = [31, 173, 89, 255];
 pub(super) const ACTOR_COLOR: [u8; 4] = [223, 67, 41, 255];
@@ -24,14 +25,9 @@ pub(super) fn blocks() -> protocol::CustomBlocks {
         protocol::CustomBlocks::from_definitions([("join:floor", [10, 0, 0].as_slice())]);
     Arc::make_mut(&mut Arc::make_mut(&mut blocks.blocks)[0].visual)
         .base
-        .materials = Some(Box::new([protocol::CustomMaterialInstance {
-        name: "*".into(),
-        texture: "join_floor".into(),
-        render_method: None,
-        tint_method: None,
-        ambient_occlusion: None,
-        face_dimming: None,
-    }]));
+        .materials = Some(Box::new([
+        protocol::CustomMaterialInstance::with_authored_defaults("*", "join_floor"),
+    ]));
     blocks
 }
 
@@ -62,6 +58,7 @@ pub(super) fn bootstrap(
     custom_blocks: protocol::CustomBlocks,
 ) -> session::NetworkControlEvent {
     session::NetworkControlEvent::Bootstrap {
+        player_rotation: INITIAL_ROTATION,
         identity: Default::default(),
         session_generation: simulation_clock::identity::SessionGeneration::new(1),
         world: protocol::WorldBootstrap {
@@ -92,6 +89,7 @@ pub(super) fn bootstrap(
         server_authoritative_block_breaking: true,
         rewind_history_size: 20,
         base_game_version: protocol::BaseGameVersion::Any,
+        overworld_range: protocol::MODERN_OVERWORLD_RANGE,
         hardcore: false,
         hud_rules: Default::default(),
         death_rules: Default::default(),
@@ -99,6 +97,7 @@ pub(super) fn bootstrap(
         packs,
         terrain_before_spawn: true,
         level_identity: None,
+        level_name: Default::default(),
     }
 }
 
@@ -167,7 +166,7 @@ pub(super) fn actor() -> protocol::WorldEvent {
         kind: protocol::ActorKind::Entity {
             identifier: "join:actor".into(),
         },
-        position: [8.5, 1.0, 8.5],
+        position: [5.5, 1.0, 12.5],
         velocity: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
@@ -223,7 +222,6 @@ pub(super) fn install_renderer(
         .insert_resource(render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap())
         .insert_resource(HandRigBuilder::from_runtime_assets(&entities).unwrap())
         .insert_resource(client_shell::player_skin::LocalPlayerSkin::generated_default("join"))
-        .insert_resource(LocalViewPose::new(Vec3::from_array(EYE), Quat::IDENTITY))
         .add_systems(Update, crate::movement::advance_local_physics.in_set(ClientFrameSet::Physics))
         .add_systems(Update, (
             crate::local_player::resolve_local_player_presentation,

@@ -124,6 +124,29 @@ fn hidden_elements_are_retained_until_replaced() {
 }
 
 #[test]
+fn the_position_line_is_hidden_independently_of_elements() {
+    let (_dir, mut host) = load("call $hide-position call $hide-two", "call $show-all", true);
+    let hidden = host.hidden_hud_elements();
+    assert!(hidden.hides_position() && hidden.contains(VanillaElement::Hunger));
+    assert_eq!(hidden.iter().count(), 2);
+    host.frame(false).unwrap();
+    let hidden = host.hidden_hud_elements();
+    assert!(hidden.hides_position() && hidden.iter().next().is_none());
+    let (_dir, mut host) = load(
+        "call $hide-two call $hide-position",
+        "call $show-position",
+        true,
+    );
+    assert!(host.hidden_hud_elements().hides_position());
+    host.frame(false).unwrap();
+    let hidden = host.hidden_hud_elements();
+    assert!(!hidden.hides_position() && hidden.contains(VanillaElement::Crosshair));
+    let (_dir, mut host) = load("", "call $hide-position", false);
+    host.frame(false).unwrap();
+    assert!(host.hidden_hud_elements().is_empty());
+}
+
+#[test]
 fn viewport_reads_report_the_last_observed_root() {
     let (_dir, mut host) = load("call $require-no-viewport", "call $require-viewport", true);
     host.observe_hud(Some(VIEWPORT), [ElementState::default(); 4]);
@@ -149,6 +172,34 @@ fn text_measurement_uses_the_installed_label_metrics() {
 }
 
 #[test]
+fn frame_fuel_overrun_keeps_the_last_published_hud_surface_and_hidden_elements() {
+    let (_directory, mut host) = load(
+        "call $surface call $hide-two",
+        "call $clear call $show-all (loop $forever br $forever)",
+        true,
+    );
+    let (surface, revision) = host.hud_surface().map(|(s, r)| (Arc::clone(s), r)).unwrap();
+    let hidden = host.hidden_hud_elements();
+    host.frame(false).unwrap_err();
+    assert!(host.is_active());
+    let (retained, retained_revision) = host.hud_surface().unwrap();
+    assert!(Arc::ptr_eq(retained, &surface));
+    assert_eq!(retained_revision, revision);
+    assert_eq!(host.hidden_hud_elements(), hidden);
+    // A busy loading lane keeps published output available without entering the trapped guest.
+    let budget = CallbackBudget::new(0);
+    budget
+        .reserve(server_experience::runtime::LOAD_FUEL)
+        .unwrap();
+    host.set_frame_authority(budget, false, false);
+    host.frame(false).unwrap();
+    let (retained, retained_revision) = host.hud_surface().unwrap();
+    assert!(Arc::ptr_eq(retained, &surface));
+    assert_eq!(retained_revision, revision);
+    assert_eq!(host.hidden_hud_elements(), hidden);
+}
+
+#[test]
 fn reload_preserves_installed_text_metrics() {
     let (dir, mut host) = load("", "call $measure-sans", true);
     host.set_text_measure(Some(Arc::new(Metrics)));
@@ -158,4 +209,39 @@ fn reload_preserves_installed_text_metrics() {
     assert!(host.reload_if_changed().unwrap());
     host.frame(false).unwrap();
     assert!(host.is_active(), "the replacement still measures text");
+}
+
+#[test]
+fn dimension_loading_preserves_the_published_surface_and_connection_change_removes_it() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let (_directory, mut host) = load("call $surface", "call $patch", true);
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    host.frame(false).unwrap();
+    let (surface, revision) = host.hud_surface().map(|(s, r)| (Arc::clone(s), r)).unwrap();
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        let (retained, retained_revision) = host.hud_surface().unwrap();
+        assert!(Arc::ptr_eq(&surface, retained));
+        assert_eq!(revision, retained_revision);
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        let (retained, retained_revision) = host.hud_surface().unwrap();
+        assert!(Arc::ptr_eq(&surface, retained));
+        assert_eq!(revision, retained_revision);
+        assert!(!host.needs_drawing_restart());
+    }
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    assert!(host.is_revoked());
+    assert!(host.hud_surface().is_none());
 }

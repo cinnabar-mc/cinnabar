@@ -5,6 +5,7 @@ use super::*;
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 pub(super) struct ModObservation<'w, 's> {
+    pointer: ResMut<'w, super::pointer::Pending>,
     weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
     action_filter: Local<'s, semantic_input::action_filter::ActionFilterState>,
     action_scope: Local<'s, Option<(u64, i32)>>,
@@ -27,6 +28,10 @@ pub(super) struct ModObservation<'w, 's> {
     /// The damage shake that `read-damage-shake` reports.
     damage_shake: Option<Res<'w, client_presentation::camera::actor_effects::PresentedDamageShake>>,
     native_camera: Local<'s, native_camera::NativeCamera>,
+    bindings: Local<'s, bindings::Bindings>,
+    input_settings: Option<Res<'w, client_state::RuntimeSettings>>,
+    #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
+    pointer_isolation: Option<ResMut<'w, crate::developer_control::cursor_isolation::Isolation>>,
 }
 
 #[allow(
@@ -39,19 +44,20 @@ pub(super) fn drive_mod(
     keys: Res<ButtonInput<KeyCode>>,
     focus: Option<Res<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
-    windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
+    mut windows: Query<(&mut Window, Option<&CursorOptions>), With<PrimaryWindow>>,
     mut ui: ResMut<UiRuntimeResource>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationResource>,
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
-    interaction: Option<ResMut<interaction::ModInteraction>>,
+    mut interaction: Option<ResMut<interaction::ModInteraction>>,
     outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
     time: Res<Time<Real>>,
     observation: ModObservation,
 ) {
     let ModObservation {
+        mut pointer,
         mut weather,
         mut action_filter,
         mut action_scope,
@@ -67,9 +73,17 @@ pub(super) fn drive_mod(
         relayed,
         damage_shake,
         mut native_camera,
+        mut bindings,
+        input_settings,
+        #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
+        mut pointer_isolation,
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
+    if let Some(interaction) = interaction.as_deref_mut() {
+        interaction.block_mining = false;
+        interaction.block_mining_target = None;
+    }
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
     }
@@ -93,6 +107,12 @@ pub(super) fn drive_mod(
             crate::camera::mouse_input_active(window, cursor, focus.as_deref(), driven.is_some())
         })
     });
+    if (!focused || !captured || absorbed || extension.is_none())
+        && let Some(interaction) = interaction.as_deref_mut()
+    {
+        interaction.block_breaks.clear();
+        interaction.block_break_scope = None;
+    }
     let movement_allowed = extension.as_ref().is_some_and(|runtime| {
         !runtime.suspended
             && (0..runtime.hosts.host_count()).any(|index| {
@@ -131,11 +151,8 @@ pub(super) fn drive_mod(
         let source = output.as_ref().map_or(0, |output| output.camera_sequence);
         let effects = output.and_then(|output| output.camera);
         if let Some(camera) = camera.as_deref_mut() {
-            camera.set_preserve_teleport_rotation(
-                effects
-                    .as_ref()
-                    .is_some_and(|effects| effects.preserve_teleport_rotation),
-            );
+            camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(
                 effects
                     .as_ref()
@@ -161,6 +178,8 @@ pub(super) fn drive_mod(
         gameplay.apply_native_controls(effects.as_ref(), delta, &ui);
         clear_touch_buttons(&mut presentation);
         gameplay.apply_movement_intents(None, false);
+        gameplay.apply_control_modes(None);
+        gameplay.apply_movement_input(None, false, &ui);
         return;
     };
     if extension.suspended {
@@ -173,6 +192,8 @@ pub(super) fn drive_mod(
         *action_scope = None;
         gameplay.apply_native_input(None, &ui);
         gameplay.apply_movement_intents(None, false);
+        gameplay.apply_control_modes(None);
+        gameplay.apply_movement_input(None, false, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
             if let Some(scene) = render_scene.as_deref_mut() {
@@ -183,7 +204,8 @@ pub(super) fn drive_mod(
             packets.native_frame(None);
         }
         if let Some(camera) = camera.as_deref_mut() {
-            camera.set_preserve_teleport_rotation(false);
+            camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(None);
             native_camera.apply(
                 camera,
@@ -209,6 +231,18 @@ pub(super) fn drive_mod(
         .ok()
         .and_then(|(window, _)| window.cursor_position())
         .map(|point| point.to_array());
+    let container = observed_container_screen(&player_runtime, &ui);
+    let pointer_focused = pointer_focus_available(focused, focus.as_deref(), driven.is_some());
+    let pointer_available = container_pointer_available(
+        &player_runtime,
+        &ui,
+        &presentation,
+        menu_open,
+        pointer_focused,
+    );
+    for host in extension.hosts.iter_mut() {
+        host.observe_container_screen(container, pointer_available);
+    }
     screens::drive(
         &mut extension,
         &player_runtime,
@@ -220,7 +254,12 @@ pub(super) fn drive_mod(
         &mut screen_input,
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
-    let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let native_editing = std::mem::take(&mut extension.native_editing);
+    controls.keys_admitted = bindings::admitted_keys(
+        gameplay.input.as_deref().and_then(|input| input.snapshot()),
+        captured && !absorbed,
+    );
     let chat_events = std::mem::take(&mut extension.chat_events);
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registrations: Vec<_> = extension
@@ -238,12 +277,17 @@ pub(super) fn drive_mod(
     );
     extension.hosts.set_food_catalog(ui.food_catalog());
     let world_observation = gameplay.world_observation(&ui);
+    let actor_reads = (0..extension.hosts.host_count()).any(|index| {
+        let host = extension.hosts.host(index);
+        host.is_active() && (host.grants().players || host.grants().entities)
+    });
     let modules = module_observer.capture(
         &gameplay,
         &ui,
         world_observation.as_ref(),
         &player_runtime,
         Some(&interaction),
+        actor_reads,
     );
     let chat = if world_observation.is_some() {
         presentation_facts::chat_snapshot(&ui)
@@ -276,12 +320,36 @@ pub(super) fn drive_mod(
                 .map(|(_, layout)| layout),
         );
     }
-    let mut callback_failed = false;
+    let panel_owner = extension.hosts.panel_owner();
+    let panel_was_recovering = panel_owner < extension.hosts.host_count()
+        && !packets.as_ref().is_some_and(|packets| {
+            packets.panel.owned
+                && !(0..extension.hosts.host_count()).any(|i| extension.hosts.host(i).panel_open())
+        })
+        && extension.hosts.host(panel_owner).is_recovering();
+    let recovering_screen = extension
+        .hosts
+        .screen_owner()
+        .filter(|&owner| extension.hosts.host(owner).is_recovering());
+    let mut callback_failures = Vec::new();
+    if let Some(input_settings) = input_settings.as_ref() {
+        let bindings = bindings.sample(input_settings.controls_update().1);
+        for index in 0..extension.hosts.host_count() {
+            if let Err(error) = extension
+                .hosts
+                .host_mut(index)
+                .observe_input_bindings(std::sync::Arc::clone(&bindings))
+            {
+                warn!(%error, "mod input bindings rejected");
+            }
+        }
+    }
     multi::run_frame_callbacks(
         &mut extension.hosts,
         multi::FrameInput {
             pressed,
             controls: &controls,
+            native_editing,
             previous_cues: &previous_cues,
             player_state: player_state.as_ref(),
             world_observation: world_observation.as_ref(),
@@ -310,17 +378,26 @@ pub(super) fn drive_mod(
             (snapshot, mobs, movement)
         },
         |index, error| {
-            callback_failed = true;
-            if let Some(registered) = &registrations[index]
-                && let Some(watcher) = watcher.as_ref()
-            {
-                watcher.quarantine(&registered.entry, error.clone());
-            }
-            warn!("Cinnabar extension callback failed: {error}");
+            callback_failures.push((index, error));
         },
     );
-    // A tapped mod that opened its panel shows it, as its toggle key would.
-    extension.hosts.select_panels_opened_by_taps();
+    if panel_was_recovering && !extension.hosts.host(panel_owner).is_recovering() {
+        presentation.mod_ui_mut().cancel_mod_panel_edit();
+        presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
+    }
+    if recovering_screen.is_some_and(|owner| !extension.hosts.host(owner).is_recovering()) {
+        presentation.mod_ui_mut().reset_mod_screens();
+    }
+    let mut callback_failed = !callback_failures.is_empty();
+    for (index, error) in callback_failures {
+        if !extension.hosts.host(index).is_active()
+            && let Some(registered) = &registrations[index]
+            && let Some(watcher) = watcher.as_ref()
+        {
+            watcher.quarantine(&registered.entry, error.clone());
+        }
+        warn!("Cinnabar extension callback failed: {error}");
+    }
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(
@@ -382,6 +459,56 @@ pub(super) fn drive_mod(
         }
         warn!("Cinnabar action filter failed: {error}");
     }
+    let mut requested_pointer = None;
+    for index in 0..extension.hosts.host_count() {
+        if let Some(point) = extension.hosts.host_mut(index).take_pointer_position()
+            && requested_pointer.is_none()
+        {
+            requested_pointer = Some((index, point));
+        }
+    }
+    if let Some((owner, [x, y])) = requested_pointer
+        && let Ok((mut window, _)) = windows.single_mut()
+        && (driven.is_some() || window.focused)
+        && let Some(container) = container
+        && !extension
+            .hosts
+            .host(extension.hosts.panel_owner())
+            .panel_open()
+        && !extension
+            .hosts
+            .screen_owner()
+            .is_some_and(|owner| extension.hosts.host(owner).screens().view.is_some())
+        && container_pointer_available(
+            &player_runtime,
+            &ui,
+            &presentation,
+            menu_open,
+            pointer_focused,
+        )
+    {
+        let point = Vec2::new(
+            (x * window.width()).min((window.width() - 1.0).max(0.0)),
+            (y * window.height()).min((window.height() - 1.0).max(0.0)),
+        );
+        if driven.is_none() {
+            pointer.stage(
+                owner,
+                extension.hosts.host(owner).touch_owner(),
+                container,
+                point,
+            );
+        }
+        #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
+        crate::developer_control::cursor_isolation::position_pointer(
+            &mut window,
+            pointer_isolation.as_deref_mut(),
+            driven.is_some(),
+            point,
+        );
+        #[cfg(not(all(feature = "developer-control", not(target_arch = "wasm32"))))]
+        window.set_cursor_position(Some(point));
+    }
     let merged = multi::collect_frame_outputs(&mut extension.hosts);
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);
@@ -391,7 +518,39 @@ pub(super) fn drive_mod(
     });
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
+    let break_scope = gameplay
+        .world
+        .as_ref()
+        .filter(|_| enabled)
+        .and_then(|world| world.stream.as_ref())
+        .map(|stream| {
+            (
+                stream.authority().actor_session_id(),
+                stream.current_dimension(),
+            )
+        });
+    if interaction.block_break_scope != break_scope || !enabled {
+        interaction.block_breaks.clear();
+    }
+    interaction.block_break_scope = break_scope;
+    if enabled {
+        let remaining = mod_api::MAX_BLOCK_BREAKS.saturating_sub(interaction.block_breaks.len());
+        interaction.block_breaks.extend(
+            merged
+                .block_breaks
+                .into_iter()
+                .take(remaining)
+                .map(|p| [p.x, p.y, p.z]),
+        );
+        interaction.block_breaks.sort_unstable();
+        interaction.block_breaks.dedup();
+    }
     interaction.attack_reach = merged.attack_reach;
+    interaction.block_mining = enabled && merged.block_mining;
+    interaction.block_mining_target = merged
+        .block_mining_target
+        .filter(|_| enabled)
+        .map(|p| [p.x, p.y, p.z]);
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
@@ -432,6 +591,8 @@ pub(super) fn drive_mod(
         &ui,
     );
     gameplay.apply_movement_intents(merged.movement_intents, captured && !absorbed);
+    gameplay.apply_control_modes(merged.control_modes);
+    gameplay.apply_movement_input(merged.movement_input, captured && !absorbed, &ui);
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;
@@ -439,10 +600,16 @@ pub(super) fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         let native_effects = native_effects.as_ref().filter(|_| !regular_camera);
-        camera.set_preserve_teleport_rotation(
-            merged.preserve_teleport_rotation
-                || native_effects.is_some_and(|effects| effects.preserve_teleport_rotation),
-        );
+        camera.set_view_yaw_offset(merged.yaw_offset);
+        camera.set_mod_perspective(merged.perspective.map(|view| {
+            use mod_api::native_camera::Perspective as Mod;
+            use semantic_input::PerspectiveMode as Native;
+            match view {
+                Mod::FirstPerson => Native::FirstPerson,
+                Mod::ThirdPersonBack => Native::ThirdPersonBack,
+                Mod::ThirdPersonFront => Native::ThirdPersonFront,
+            }
+        }));
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
         camera.set_view_tilt(
@@ -484,29 +651,26 @@ pub(super) fn drive_mod(
         style.presentation = std::sync::Arc::clone(&mod_presentation);
     }
     presentation.set_mod_presentation(mod_presentation);
-    if !packets
-        .as_ref()
-        .is_some_and(|packets| packets.menu_owns_panel())
-    {
-        let owner = extension.hosts.panel_owner();
-        presentation.set_mod_menu_branding(extension.menu_branding());
-        if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone())
+    let packet_owns_panel = packets.as_ref().is_some_and(|packets| {
+        packets.panel.owned
+            && packets
+                .panel_open_order()
+                .is_some_and(|order| order > extension.hosts.latest_panel_open_order())
+    });
+    if packet_owns_panel {
+        for index in 0..extension.hosts.host_count() {
+            extension.hosts.host_mut(index).set_panel_open(false);
+        }
+    } else {
+        if let Some(packets) = packets.as_ref()
+            && packets
+                .panel_open_order()
+                .is_some_and(|order| order < extension.hosts.latest_panel_open_order())
+            && let Some(handle) = packets.panel_handle()
         {
-            warn!("Cinnabar extension panel font rejected: {error}");
+            handle.close();
         }
-        presentation
-            .mod_ui_mut()
-            .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
-        if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
-            extension.panel_ui_owner(owner),
-            extension.hosts.host(owner).panel(),
-        ) {
-            warn!("Cinnabar extension panel rejected: {error}");
-            extension.hosts.host_mut(owner).set_panel_open(false);
-        }
-        presentation
-            .mod_ui_mut()
-            .set_mod_panel_open(extension.hosts.host(owner).panel_open());
+        present_frame_panel(&mut extension, &mut presentation);
     }
     let hosts = &extension.hosts;
     presentation.set_mod_touch_buttons(
@@ -555,4 +719,206 @@ fn exchange_native_frame(
         now,
     );
     output
+}
+
+/// Observes a rendered container only while it is actually open, without requiring input focus.
+pub(super) fn observed_container_screen(
+    player: &player_state::PlayerState,
+    ui: &client_ui::ui_runtime::UiRuntime,
+) -> Option<&'static str> {
+    ui.inventory_open()
+        .then(|| client_ui::ui_runtime::presentation::forms::container_screen_reference(player, ui))
+        .flatten()
+}
+
+/// Driven input owns virtual focus independently of occluded or unfocused desktop windows.
+pub(super) fn pointer_focus_available(
+    focused: bool,
+    focus: Option<&client_state::CursorFocus>,
+    driven: bool,
+) -> bool {
+    driven || (focused && focus.is_none_or(|focus| focus.available()))
+}
+
+/// Restricts pointer writes to the top container scene and authoritative desktop focus.
+pub(super) fn container_pointer_available(
+    player: &player_state::PlayerState,
+    ui: &client_ui::ui_runtime::UiRuntime,
+    presentation: &client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    menu_open: bool,
+    focused: bool,
+) -> bool {
+    use client_ui::ui_runtime::scene_stack::{Scene, SceneHost};
+    focused
+        && !menu_open
+        && ui.inventory_open()
+        && !presentation.mod_ui().mod_panel_open()
+        && !presentation.mod_ui().experience_modal_open()
+        && !presentation.mod_ui().mod_view_shown()
+        && ui
+            .scenes(player, SceneHost::of(None, ui))
+            .top()
+            .is_some_and(|scene| scene.key == Scene::Container)
+}
+
+/// Publishes the selected frame owner's surface through the shared presentation path.
+pub(super) fn present_frame_panel(
+    extension: &mut ModRuntime,
+    presentation: &mut UiPresentationResource,
+) {
+    let owner = extension.hosts.panel_owner();
+    presentation.set_mod_menu_branding(extension.menu_branding());
+    if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
+        warn!("Cinnabar extension panel font rejected: {error}");
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
+    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+        extension.panel_ui_owner(owner),
+        extension.hosts.host(owner).panel(),
+    ) {
+        warn!("Cinnabar extension panel rejected: {error}");
+        extension.hosts.host_mut(owner).set_panel_open(false);
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_open(extension.hosts.host(owner).panel_open());
+}
+
+#[cfg(test)]
+mod pointer_observation_tests {
+    use super::{container_pointer_available, observed_container_screen, pointer_focus_available};
+    /// A default personal layout is not evidence that its inventory is open.
+    #[test]
+    fn container_observation_follows_inventory_lifetime() {
+        let mut player = player_state::PlayerState::new(1);
+        let mut ui = client_ui::test_support::inventory_session(&mut player);
+        assert_eq!(observed_container_screen(&player, &ui), None);
+        ui.toggle_inventory(&mut player, None);
+        assert_eq!(
+            observed_container_screen(&player, &ui),
+            Some("crafting.inventory_screen")
+        );
+        ui.toggle_inventory(&mut player, None);
+        assert_eq!(observed_container_screen(&player, &ui), None);
+    }
+    /// Suspended focus and modal owners cannot receive a container-scoped pointer move.
+    #[test]
+    fn container_pointer_respects_focus_and_modals() {
+        let mut player = player_state::PlayerState::new(1);
+        let mut ui = client_ui::test_support::inventory_session(&mut player);
+        ui.toggle_inventory(&mut player, None);
+        let mut presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+            ui_engine::test_support::fixture_font(),
+        )
+        .unwrap();
+        assert!(container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+        let mut focus = client_state::CursorFocus(Default::default());
+        focus.occlusion_changed(true);
+        assert!(!pointer_focus_available(true, Some(&focus), false));
+        assert!(pointer_focus_available(false, Some(&focus), true));
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            focus.available()
+        ));
+        focus.occlusion_changed(false);
+        focus.begin_frame(true);
+        focus.focus_changed(false);
+        focus.focus_changed(true);
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            focus.available()
+        ));
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            true,
+            true
+        ));
+        let mut modal = server_experience::screen::Modal::default();
+        modal.open(Some("ui/fixture.json".into()));
+        let files = std::sync::Arc::new(server_experience::screen::Files::default());
+        presentation.set_experience_modal(Some(mod_ui::experience_modal::ExperienceModal {
+            bundle: "fixture",
+            files: &files,
+            modal: &modal,
+        }));
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+    }
+    /// A server form admitted over a non-menu container owns the pointer instead.
+    #[test]
+    fn container_pointer_excludes_overlaid_server_forms() {
+        use client_ui::ui_runtime::scene_stack::ScreenSettingsTable;
+        let mut player = player_state::PlayerState::new(1);
+        let mut ui = client_ui::test_support::inventory_session(&mut player);
+        let mut catalog = json_ui::Catalog::default();
+        catalog.overlay_text("ui/container.json", r#"{"namespace":"crafting","inventory_screen":{"type":"screen","is_showing_menu":false}}"#);
+        ui.observe_presentation(
+            None,
+            std::sync::Arc::new(ScreenSettingsTable::resolve(
+                &catalog,
+                &json_ui::Context::default(),
+                ["crafting.inventory_screen"],
+            )),
+        );
+        ui.toggle_inventory(&mut player, None);
+        let presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+            ui_engine::test_support::fixture_font(),
+        )
+        .unwrap();
+        assert!(container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+        ui.apply(
+            &mut player,
+            client_ui::ui_runtime::SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 1,
+                server_tick: None,
+                event: protocol::UiEvent::Form(protocol::FormRequestEvent {
+                    form_id: 3,
+                    kind: protocol::FormKind::Menu,
+                    title: None,
+                    json: "{}".into(),
+                    model: protocol::ServerFormModel::Unsupported(
+                        protocol::UnsupportedForm::Family,
+                    ),
+                }),
+            },
+        )
+        .unwrap();
+        assert!(ui.server_forms().active().is_some());
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+    }
 }

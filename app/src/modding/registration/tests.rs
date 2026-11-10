@@ -2,8 +2,13 @@ use super::*;
 use candidate::build_candidate;
 use std::fs;
 
+#[path = "marketplace_tests.rs"]
+mod marketplace_tests;
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
+
+#[path = "event_tests.rs"]
+mod event_tests;
 
 /// Captures a fresh snapshot for fixtures that do not retain an observation worker.
 fn source_snapshot(entry: Entry) -> Result<SourceSnapshot, String> {
@@ -28,7 +33,7 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         label: "Enabled".into(),
         value: enabled,
     }];
-    let panel = serde_json::json!({"toggle_key":"ShiftRight","capture_key":capture_key,
+    let panel = serde_json::json!({"capture_key":capture_key,
         "surface":mod_ui::test_support::sample_surface(&controls),"controls":controls})
     .to_string();
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");
@@ -77,6 +82,7 @@ fn world() -> (World, Receiver<Message>, Receiver<Retired>) {
     let (retired, retiring) = bounded(mod_api::MAX_LOADED_MODS * 2);
     let mut world = World::new();
     world.insert_resource(Watcher {
+        marketplace: Arc::new(launcher_host::marketplace::Guard::default()),
         updates,
         messages,
         retired,
@@ -100,6 +106,7 @@ fn apply(world: &mut World, entries: Vec<Entry>, changes: Vec<Change>) {
     let watcher = world.resource::<Watcher>();
     let generation = watcher.latest.fetch_add(1, Ordering::AcqRel) + 1;
     let registration = Registration {
+        suspended: None,
         version: super::VERSION,
         request_id: format!("request-{generation}"),
         mods: entries,
@@ -255,6 +262,7 @@ fn revoking_one_mod_releases_only_its_authority_before_loader_completion() {
         .lock()
         .unwrap()
         .registration = Some(Registration {
+        suspended: None,
         version: super::VERSION,
         request_id: "off".into(),
         mods: vec![a, b],
@@ -289,6 +297,7 @@ fn an_obsolete_completed_candidate_cannot_replace_the_current_host() {
         Update {
             generation: 1,
             registration: Registration {
+                suspended: None,
                 version: super::VERSION,
                 request_id: "old".into(),
                 mods: vec![a],
@@ -461,6 +470,7 @@ fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
         .lock()
         .unwrap()
         .registration = Some(Registration {
+        suspended: None,
         version: super::VERSION,
         request_id: "revoke".into(),
         mods: vec![revoked],
@@ -639,11 +649,20 @@ fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
             changes.push(change(other));
         }
         apply(&mut world, entries.clone(), changes);
+        assert!(
+            world.contains_resource::<crate::environment::VisualWeatherOverride>(),
+            "a registered runtime must be able to present its weather override"
+        );
         messages.try_iter().for_each(drop);
         let mut disabled = entries.clone();
         disabled[0].enabled = false;
         apply(&mut world, disabled, Vec::new());
         assert_eq!(world.contains_resource::<ModRuntime>(), keep_other);
+        assert_eq!(
+            world.contains_resource::<crate::environment::VisualWeatherOverride>(),
+            keep_other,
+            "weather override must follow the frame runtime"
+        );
         // Reuse arrives while the coordinator still has the old installed identity.
         apply(&mut world, entries.clone(), Vec::new());
         assert!(matches!(
@@ -956,5 +975,97 @@ fn the_real_watcher_restarts_unchanged_bytes_under_each_drawing_fence() {
         let runtime = app.world().resource::<ModRuntime>();
         assert_eq!(runtime.hosts.host(0).label(), Some("Hello"));
         assert!(!runtime.hosts.host(0).needs_drawing_restart());
+    }
+}
+
+#[test]
+fn active_dimension_rebinds_do_not_queue_redundant_admission() {
+    use mod_api::drawing::{DrawingPermissions, DrawingSession};
+    let directory = tempfile::tempdir().unwrap();
+    let mut candidate = candidate(directory.path(), "guest.wasm", "Hello");
+    let mut snapshot = source_snapshot(candidate.registration.clone()).unwrap();
+    let host = candidate.frame_host_mut().unwrap();
+    let session = DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions::ALL,
+        ..Default::default()
+    };
+    host.bind_drawing_session(session);
+    assert!(host.reload_if_changed().unwrap());
+    let admitted = Admitted {
+        source: snapshot.identity,
+        drawing: Some(session),
+    };
+    for dimension in [1, 0] {
+        host.bind_drawing_world(host.drawing_session().unwrap(), false);
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+        host.bind_drawing_session(DrawingSession {
+            dimension,
+            ..session
+        });
+        snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+        assert!(!snapshot.needs_admission(Some(&admitted)));
+    }
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
+    assert!(host.reload_if_changed().unwrap());
+    host.bind_drawing_session(DrawingSession {
+        connection: 2,
+        permissions: DrawingPermissions::default(),
+        ..session
+    });
+    snapshot.drawing = super::super::admission::DrawingContext::capture(host);
+    assert!(snapshot.needs_admission(Some(&admitted)));
+}
+
+#[test]
+fn stale_packet_grants_do_not_change_a_frame_components_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let component = root.path().join("frame.wasm");
+    fs::write(
+        &component,
+        wat::parse_str(fixture(false, "", "Hello")).unwrap(),
+    )
+    .unwrap();
+    let entry = Entry {
+        component,
+        enabled: true,
+        grants: mod_host::ModGrants {
+            packets: true,
+            wasi: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let candidate = build_candidate(source_snapshot(entry).unwrap()).unwrap();
+    let CandidateRuntime::Frame(prepared) = candidate.runtime else {
+        panic!("frame component entered the packet runtime")
+    };
+    assert!(!prepared.host.grants().packets);
+    assert!(!prepared.host.grants().wasi);
+}
+
+#[test]
+fn frame_permission_edits_reject_packet_only_authority() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config");
+    let component = root.path().join("frame.wasm");
+    fs::write(
+        &component,
+        wat::parse_str(fixture(false, "", "Hello")).unwrap(),
+    )
+    .unwrap();
+    for (index, capability) in mod_host::ModGrants::CAPABILITIES.iter().enumerate() {
+        if matches!(capability.name, "packets" | "wasi") {
+            assert!(
+                selection::permission(&config, &component, index, true, "permission".into())
+                    .is_err()
+            );
+        }
     }
 }

@@ -73,6 +73,7 @@ impl Open {
                 options: pack.options,
                 dimension: String::new(),
                 environment: shaderpack::Environment::default(),
+                software_fused_dot: false,
                 purpose: shaderpack::worker::Purpose::Options,
             }),
             saving: None,

@@ -60,6 +60,7 @@ pub(super) fn drawing() -> (Store, mod_api::drawing::DrawingHandle, Instance) {
     let instance = Instance {
         geometry,
         material: None,
+        clip: None,
         params: mod_api::materials::Preset::default().0,
         anchor: Anchor::World {
             dimension: 0,
@@ -176,6 +177,7 @@ fn every_depth_and_blend_variant_keeps_depth_writes_disabled() {
                         hdr: false,
                         always,
                         additive,
+                        clipped: false,
                     },
                 )
                 .unwrap();

@@ -1,8 +1,29 @@
 //! Callback-scoped native motion, food, actor and combat evidence, and its validation.
 use crate::{
-    CombatObservation, MotionObservation, ObservedActor, VitalsObservation, WorldTimeObservation,
+    ActorLife, CombatObservation, MotionObservation, ObservedActor, VitalsObservation,
+    WorldTimeObservation,
 };
 use anyhow::{Result, ensure};
+use std::sync::Arc;
+
+/// Most published actor lives; the app checks it covers every actor its world admits.
+pub const MAX_ACTOR_LIVES: usize = 8_193;
+
+/// One admitted actor's current life, published for `read-actor-lives`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ActorLifeObservation {
+    pub runtime_id: u64,
+    /// Player rows require the players grant; other actors require entities.
+    pub player: bool,
+    pub life: ActorLife,
+}
+
+/// A retained combat event and its actor life captured by the owning authority.
+#[derive(Clone, Copy, Debug)]
+pub struct RecordedCombatObservation {
+    pub event: CombatObservation,
+    pub life: Option<u64>,
+}
 
 /// Callback-scoped read-only facts captured by native owning adapters.
 #[derive(Clone, Default)]
@@ -13,7 +34,10 @@ pub struct ModuleObservations {
     pub vitals: Option<VitalsObservation>,
     pub ping_ms: Option<u32>,
     pub actors: Vec<ObservedActor>,
-    pub combat: Vec<CombatObservation>,
+    pub combat: Vec<RecordedCombatObservation>,
+    /// Every admitted actor in the current dimension, sorted by runtime ID; shared by every mod
+    /// in one frame.
+    pub actor_lives: Arc<Vec<ActorLifeObservation>>,
 }
 
 /// Checks one finite world vector without inventing missing native evidence.
@@ -85,14 +109,26 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
             && facts
                 .combat
                 .windows(2)
-                .all(|events| events[0].sequence < events[1].sequence)
-            && facts.combat.iter().all(|e| e.sequence != 0
-                && e.session != 0
-                && e.runtime_id != 0
-                && finite(e.position)
-                && e.distance
-                    .is_none_or(|n| n.is_finite() && (0.0..=128.0).contains(&n))),
+                .all(|events| events[0].event.sequence < events[1].event.sequence)
+            && facts
+                .combat
+                .iter()
+                .map(|recorded| &recorded.event)
+                .all(|e| e.sequence != 0
+                    && e.session != 0
+                    && e.runtime_id != 0
+                    && finite(e.position)
+                    && e.distance
+                        .is_none_or(|n| n.is_finite() && (0.0..=128.0).contains(&n))),
         "invalid combat observation"
+    );
+    ensure!(
+        facts.actor_lives.len() <= MAX_ACTOR_LIVES
+            && facts
+                .actor_lives
+                .windows(2)
+                .all(|lives| lives[0].runtime_id < lives[1].runtime_id),
+        "invalid actor life observation"
     );
     Ok(())
 }
@@ -130,16 +166,19 @@ mod tests {
                 },
                 max_health: Some(20.),
             }],
-            combat: vec![CombatObservation {
-                sequence: 1,
-                session: 1,
-                dimension: 0,
-                kind: CombatKind::Hurt,
-                local: false,
-                player: true,
-                runtime_id: 5,
-                distance: None,
-                position: (0., 0., 0.),
+            combat: vec![RecordedCombatObservation {
+                life: Some(1),
+                event: CombatObservation {
+                    sequence: 1,
+                    session: 1,
+                    dimension: 0,
+                    kind: CombatKind::Hurt,
+                    local: false,
+                    player: true,
+                    runtime_id: 5,
+                    distance: None,
+                    position: (0., 0., 0.),
+                },
             }],
             ..Default::default()
         }
@@ -159,5 +198,31 @@ mod tests {
         facts.actors.clear();
         facts.combat.push(facts.combat[0]);
         assert!(validate(&facts).is_err());
+    }
+
+    /// Lives must stay sorted by unique runtime ID, within the published bound.
+    #[test]
+    fn unsorted_repeated_or_oversized_lives_are_rejected() {
+        let life = |runtime_id| ActorLifeObservation {
+            runtime_id,
+            player: false,
+            life: ActorLife {
+                life: 1,
+                dead: false,
+            },
+        };
+        let mut facts = ModuleObservations {
+            actor_lives: Arc::new(vec![life(1), life(5)]),
+            ..Default::default()
+        };
+        assert!(validate(&facts).is_ok());
+        facts.actor_lives = Arc::new(vec![life(5), life(1)]);
+        assert!(validate(&facts).is_err());
+        facts.actor_lives = Arc::new(vec![life(5), life(5)]);
+        assert!(validate(&facts).is_err());
+        facts.actor_lives = Arc::new((0..=MAX_ACTOR_LIVES as u64).map(life).collect());
+        assert!(validate(&facts).is_err());
+        Arc::make_mut(&mut facts.actor_lives).pop();
+        assert!(validate(&facts).is_ok());
     }
 }

@@ -15,9 +15,9 @@ use client_world::{BlockEntityKind, RopeKind};
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use {
     render_model::{
-        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, ItemMeshVertex,
-        MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
-        pack_overlay_rgba8, rope_color, rope_ribbon,
+        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, DynamicLightRun,
+        ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
+        dropped_item_transform, pack_overlay_rgba8, rope_color, rope_ribbon,
     },
     render_scene::{ChunkTextureAssets, DroppedItemScene},
 };
@@ -30,6 +30,8 @@ pub(crate) struct DroppedItemFrame<'a> {
     pub(crate) partial_tick: f32,
     pub(crate) fishing_line_anchors:
         &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+    /// Blocks actors carry this frame, drawn with the world's block models.
+    pub(crate) carried_blocks: &'a [crate::actor_publication::carried_blocks::CarriedBlock],
     pub(crate) prepared_blocks: Option<&'a Arc<crate::presentation::equipment::PreparedBlockItems>>,
 }
 
@@ -37,6 +39,7 @@ mod dials;
 mod lighting;
 mod preparation;
 mod source_cost;
+use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
 use preparation::DropPreparation;
@@ -85,6 +88,8 @@ pub(crate) struct PublishScratch {
     instances: Vec<DroppedItemInstance>,
     terrain_instances: Vec<TerrainItemInstance>,
     lines: Vec<ItemMeshVertex>,
+    /// Light runs over `lines`, one per rope.
+    line_lights: Vec<DynamicLightRun>,
     /// The startup icon each static placement resolved during demand collection.
     placement_icons: Vec<Option<ui::IconRef>>,
     transitions: HashMap<i64, Vec<TerrainItemTransition>>,
@@ -204,7 +209,8 @@ fn block_template(
     if !block.is_known() || !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
         return None;
     }
-    template_model(assets, block.model_template()?, block.variant() & 3)
+    let template = assets::item_model_template(assets.model_templates(), block.model_template()?);
+    template_model(assets, template, block.variant() & 3)
 }
 
 /// Retains the authored quads and pixels for a selected world or pot-content template.
@@ -414,6 +420,13 @@ impl DroppedItemPublisher<'_, '_> {
             let model = assets.and_then(|assets| Self::potted_model(cache, assets, id));
             return cache.count_item(model);
         }
+        if placement.allow_block_models
+            && placement.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(placement.shield_pattern.as_ref())
+            && let Some((_, model)) = cache.shield_model(artwork)
+        {
+            return cache.count_item(Some(model));
+        }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
                 placement.allow_block_models.then_some(())?;
@@ -464,6 +477,14 @@ impl DroppedItemPublisher<'_, '_> {
     ) -> Option<preparation::PreparedDrop> {
         let view = preparation.view;
         let identifier = view.item.identifier.as_deref()?;
+        if identifier == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
+            && let Some((key, model)) = cache.shield_model(artwork)
+        {
+            let prepared =
+                preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
+            return cache.count_item(prepared);
+        }
         let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -558,6 +579,7 @@ impl DroppedItemPublisher<'_, '_> {
         let DroppedItemFrame {
             partial_tick,
             fishing_line_anchors,
+            carried_blocks,
             prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
@@ -574,6 +596,7 @@ impl DroppedItemPublisher<'_, '_> {
             instances,
             terrain_instances,
             lines,
+            line_lights,
             placement_icons,
             transitions,
             dropped,
@@ -667,7 +690,20 @@ impl DroppedItemPublisher<'_, '_> {
                     if cache.is_planning() {
                         continue;
                     }
-                    let rows = placement.world_from_item;
+                    let rows = match &cache.models[model as usize] {
+                        DroppedItemModel::Block(_)
+                            if placement.identifier.as_ref()
+                                == assets::gui_item::SHIELD_IDENTIFIER =>
+                        {
+                            render_model::equipment::shield::framed_transform(
+                                placement.world_from_item,
+                            )
+                        }
+                        DroppedItemModel::Block(_) | DroppedItemModel::Cube(_) => placement
+                            .world_from_block
+                            .unwrap_or(placement.world_from_item),
+                        _ => placement.world_from_item,
+                    };
                     let (block_level, sky_level) = placement.light.unwrap_or_else(|| {
                         stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]])
                     });
@@ -744,10 +780,41 @@ impl DroppedItemPublisher<'_, '_> {
                         instances.push(instance);
                     }
                 }
+                let air = stream.air_block_id();
+                for carried in carried_blocks {
+                    let (mode, id) = match carried.block {
+                        CarriedBlockId::Wire(id) => {
+                            let id = stream.resolve_block_network_id(id);
+                            if id == air {
+                                continue;
+                            }
+                            (stream.network_id_mode(), id)
+                        }
+                        CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
+                    };
+                    let model =
+                        special::carried_block_model(cache, icons, assets, held_models, mode, id);
+                    let Some(model) = cache.count_item(model) else {
+                        continue;
+                    };
+                    if cache.is_planning() {
+                        continue;
+                    }
+                    let (block_level, sky_level) = carried.light;
+                    instances.push(DroppedItemInstance {
+                        model,
+                        world_from_item: carried.world_from_block,
+                        block_level: u32::from(block_level),
+                        sky_level: u32::from(sky_level),
+                        overlay_rgba8: 0,
+                        glint: false,
+                    });
+                }
             }
         });
 
         lines.clear();
+        line_lights.clear();
         if let Some((camera, _)) = camera {
             stream.authority().ropes_into(partial_tick, ropes);
             for rope in ropes.iter() {
@@ -784,6 +851,12 @@ impl DroppedItemPublisher<'_, '_> {
                 rope_ribbon(
                     from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
+                let (block, sky) = stream.rope_light(rope);
+                line_lights.push(DynamicLightRun {
+                    end: lines.len() as u32,
+                    block,
+                    sky,
+                });
             }
         }
         dial_models.warm(cache, icons);
@@ -794,6 +867,7 @@ impl DroppedItemPublisher<'_, '_> {
             Arc::clone(&cache.shared),
             instances,
             lines,
+            line_lights,
             DAYLIGHT,
         );
         scene.set_glint(glint.0, glint.1.scroll());

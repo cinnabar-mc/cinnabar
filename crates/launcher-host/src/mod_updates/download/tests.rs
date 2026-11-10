@@ -4,9 +4,10 @@ use std::{io::Read, net::TcpListener};
 /// Models the public asset API with a content-derived digest.
 fn asset(name: &str, bytes: &[u8]) -> Asset {
     Asset {
-        id: 42,
         name: name.into(),
         size: bytes.len() as u64,
+        url: None,
+        revision_update: None,
         digest: Some(format!("sha256:{:x}", Sha256::digest(bytes))),
     }
 }
@@ -14,7 +15,7 @@ fn asset(name: &str, bytes: &[u8]) -> Asset {
 #[test]
 fn selects_only_one_exact_asset_with_a_bounded_size_and_sha256() {
     let assets = [asset("other.wasm", b"other"), asset("zoom.wasm", b"wasm")];
-    assert_eq!(select(&assets, "zoom.wasm", 4).unwrap().id, 42);
+    assert_eq!(select(&assets, "zoom.wasm", 4).unwrap().name, "zoom.wasm");
     assert!(select(&assets, "Zoom.wasm", 4).is_none());
     assert!(select(&assets, "zoom.wasm", 3).is_none());
     let duplicate = [asset("zoom.wasm", b"a"), asset("zoom.wasm", b"b")];
@@ -28,27 +29,6 @@ fn selects_only_one_exact_asset_with_a_bounded_size_and_sha256() {
         let mut missing = asset("zoom.wasm", b"a");
         missing.digest = digest;
         assert!(select(&[missing], "zoom.wasm", 4).is_none());
-    }
-}
-
-#[test]
-fn asset_redirects_require_credential_free_https_on_known_hosts() {
-    for url in [
-        "https://api.github.com/a",
-        "https://release-assets.githubusercontent.com/a?sig=x",
-        "https://objects.githubusercontent.com/a",
-    ] {
-        assert!(trusted(&url.parse().unwrap()));
-    }
-    for url in [
-        "http://github.com/a",
-        "https://github.com.evil.test/a",
-        "https://github.com@evil.test/a",
-        "https://u:p@github.com/a",
-        "https://github.com:8443/a",
-        "https://127.0.0.1/a",
-    ] {
-        assert!(!trusted(&url.parse().unwrap()));
     }
 }
 
@@ -93,6 +73,7 @@ fn stage_in(
             .send()
             .await?;
         let candidate = Candidate {
+            revision_update: None,
             id: 1,
             repository: "example/zoom".into(),
             version: "1.0.0".into(),

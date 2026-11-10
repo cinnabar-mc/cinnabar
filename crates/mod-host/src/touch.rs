@@ -7,8 +7,8 @@ use ui::mod_touch::{MAX_QUEUED_TOUCH_PRESSES, TouchButton};
 static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 pub(super) struct TouchState {
-    /// Identifies this component instance to the host, so a tap is never delivered to a
-    /// replacement instance or another mod presenting the same button id.
+    /// Identifies this guest's touch input. Every replacement gets a new owner,
+    /// even when its published button IDs are unchanged.
     owner: u64,
     pub committed: Vec<TouchButton>,
     pending: Option<Vec<TouchButton>>,
@@ -38,6 +38,34 @@ impl Default for TouchState {
 }
 
 impl TouchState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            owner: 0,
+            committed: self.committed.clone(),
+            pending: None,
+            writes: 0,
+            reads: 0,
+            presses: self.presses.clone(),
+            in_frame: self.in_frame,
+            delivered: self.delivered,
+        }
+    }
+
+    /// Publishes button definitions without replaying taps captured by an earlier invocation.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        self.pending = transaction.pending;
+        self.delivered = transaction.delivered;
+    }
+
+    /// Invalidates old queued and captured touches while retaining published buttons.
+    pub fn restart_guest(&mut self) {
+        *self = Self {
+            committed: std::mem::take(&mut self.committed),
+            ..Self::default()
+        };
+    }
+
     /// Starts one callback's transaction and import budget.
     pub fn begin_callback(&mut self) {
         self.pending = None;
@@ -167,7 +195,7 @@ impl Instance {
     /// Queues one completed tap for the next frame callback. Taps on a button the instance no
     /// longer retains, or beyond the bounded queue, are dropped and return false.
     pub(crate) fn queue_touch_press(&mut self, id: &str) -> bool {
-        let active = self.is_active();
+        let active = self.is_active() && self.continuation.is_none();
         let state = self.store.data_mut();
         active && state.grants.controls && state.touch.queue(id)
     }

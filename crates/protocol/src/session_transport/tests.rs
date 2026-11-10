@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{PacketId, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{PacketId, SetTime};
+use bedrock_protocol_1_26_60::wire;
 
 use super::*;
 
@@ -7,7 +7,7 @@ use super::*;
 pub(crate) mod unix {
     use std::path::PathBuf;
 
-    use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
+    use bedrock_protocol_1_26_60::packets::{self, ScriptMessage};
     use futures::task::noop_waker;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
@@ -164,32 +164,6 @@ pub(crate) mod unix {
             frames[1].as_ptr().wrapping_add(frames[1].len()),
             "both batch packets slice one frame"
         );
-    }
-
-    /// A batch long past the 1,600-entry cap this codec once imposed still delivers every
-    /// packet in order; Bedrock bounds a batch by its payload, not by an entry count.
-    #[tokio::test]
-    async fn a_batch_delivers_more_than_1600_packets() {
-        let Pair {
-            transport, peer, ..
-        } = &mut pair("vast-batch", &[]).await;
-        let batch: Vec<_> = (5..=1_606)
-            .map(|time| {
-                Packet::new(SetTime {
-                    time: wire::ZigZag32(time),
-                })
-            })
-            .collect();
-        write_frame(peer, &batch_frame(&batch).unwrap()).await;
-        for expected in 5..=1_606 {
-            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
-                panic!("a packet arrives before any terminal message")
-            };
-            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
-                panic!("the packets arrive in order")
-            };
-            assert_eq!(time.time.0, expected);
-        }
     }
 
     /// A terminal message arrives as itself, never as a packet, and then the stream ends.
@@ -552,10 +526,20 @@ pub(crate) mod unix {
         let Pair {
             transport, peer, ..
         } = &mut tapped_pair("tap-batch", &[], Some(tap.clone())).await;
-        // The entry declares five bytes but carries one.
-        write_frame(peer, &[bridge::contract::KIND_BATCH, 5, 1]).await;
-        assert!(transport.recv().await.is_err());
-        assert_eq!(tap.events(), [TapEvent::RejectBatch(2)]);
+        let mut frame = batch_frame(&vec![
+            Packet::new(SetTime {
+                time: wire::ZigZag32(0),
+            });
+            4_096
+        ])
+        .unwrap()
+        .to_vec();
+        // The last entry declares five bytes but carries one.
+        frame.extend_from_slice(&[5, 1]);
+        // The frame exceeds small default socket buffers, so read while it is written.
+        let ((), received) = tokio::join!(write_frame(peer, &frame), transport.recv());
+        assert!(received.is_err());
+        assert_eq!(tap.events(), [TapEvent::RejectBatch(frame.len() - 1)]);
     }
 }
 
@@ -630,26 +614,23 @@ pub(crate) fn packet_bytes(packet: &Packet) -> Bytes {
     entry.slice(reader.position()..)
 }
 
-/// Startup batches stay within their byte bound, splitting only at it, and keep every packet
-/// in order.
+/// Startup batches respect both bounds and keep every packet in order.
 #[test]
-fn startup_batches_stay_within_their_byte_bound() {
-    let small: Vec<Bytes> = (0..4_000u32)
+fn startup_batches_stay_within_the_packet_and_byte_bounds() {
+    let small: Vec<Bytes> = (0..3_500u32)
         .map(|index| Bytes::from(index.to_le_bytes().to_vec()))
         .collect();
     let large: Vec<Bytes> = (0..5u8)
         .map(|index| Bytes::from(vec![index; 5 << 20]))
         .collect();
-    // A bound the small stream cannot fit in, so the split branch is exercised cheaply.
-    for (packets, bound) in [
-        (&small[..], 4_096usize),
-        (&large[..], MAX_SESSION_BATCH_BYTES),
-    ] {
+    for packets in [small, large] {
         let mut decoded = Vec::new();
-        let mut batches = 0;
-        for batch in startup_batches(packets, bound) {
-            batches += 1;
-            assert!(batch.len() <= bound, "{} bytes over {}", batch.len(), bound);
+        for batch in startup_batches(&packets) {
+            assert!(
+                batch.len() <= MAX_SESSION_BATCH_BYTES,
+                "{} bytes",
+                batch.len()
+            );
             let mut frame = BytesMut::from(&[bridge::contract::KIND_BATCH][..]);
             frame.extend_from_slice(&batch);
             let CoreMessage::Batch(inner) =
@@ -657,12 +638,10 @@ fn startup_batches_stay_within_their_byte_bound() {
             else {
                 unreachable!("a Batch frame decodes as a batch")
             };
+            assert!(inner.len() <= STARTUP_BATCH_PACKETS);
             decoded.extend(inner);
         }
-        assert_eq!(decoded, *packets);
-        if bound != MAX_SESSION_BATCH_BYTES {
-            assert!(batches > 1, "the bound must split the stream");
-        }
+        assert_eq!(decoded, packets);
     }
 }
 
@@ -672,12 +651,56 @@ fn startup_packets_keep_their_headers() {
         time: wire::ZigZag32(9),
     });
     let bytes = packet_bytes(&packet);
-    let batches = startup_batches(&[bytes], MAX_SESSION_BATCH_BYTES);
+    let batches = startup_batches(&[bytes]);
     let raw = decode_batch_body(batches[0].clone(), MAX_SESSION_BATCH_BYTES)
         .unwrap()
-        .remove(0);
+        .next()
+        .unwrap();
     assert_eq!(raw.id, PacketId::SetTime);
     assert_eq!(raw.decode().unwrap(), packet);
+}
+
+/// Many tiny entries cannot expand unbounded metadata before the first packet is delivered.
+#[tokio::test]
+async fn large_batches_expand_in_bounded_windows_without_losing_order() {
+    const COUNT: usize = 65_536;
+    let (reader, frames, _writer) = bridge::tasks::prepare_connection(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        bridge::MAX_FRAME_LEN,
+    );
+    let tap = Arc::new(RecordingTap::default());
+    let mut transport = SessionTransport::new(reader, frames, &[]).with_tap(Some(tap.clone()));
+    let mut body = Vec::new();
+    for time in 0..COUNT {
+        crate::codec::encode_entry(
+            &Packet::new(SetTime {
+                time: wire::ZigZag32(time as i32),
+            }),
+            &mut body,
+        )
+        .unwrap();
+    }
+    let (result, allocations) =
+        test_alloc::measure(|| transport.receive_server_batch(body.into(), 7));
+    result.unwrap();
+    assert!(allocations.bytes < 256 * 1024, "{allocations:?}");
+    for index in 0..COUNT {
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("all batch entries precede the next frame");
+        };
+        assert_eq!(raw.trace_position, (7, index as u32));
+        assert_eq!(raw.record, Some(PacketRecordId(index as u64)));
+        assert!(matches!(
+            *raw.decode().unwrap().data,
+            bedrock_protocol_1_26_60::packets::Packet::SetTime(time) if time.time.0 == index as i32
+        ));
+    }
+    assert_eq!(tap.events().len(), COUNT);
+    assert!(matches!(
+        transport.recv().await,
+        Err(SessionError(SessionFailure::ConnectionClosed))
+    ));
 }
 
 /// A packet the codec refuses is left out; the rest of the batch still goes, in order.
@@ -688,14 +711,18 @@ fn an_unencodable_packet_does_not_lose_its_batch() {
             time: wire::ZigZag32(time),
         })
     };
-    // The manifest bounds a LevelChunk at 64 sub-chunks, so the encoder refuses 65.
-    let refused = Packet::new(bedrock_protocol_1_26_51::packets::LevelChunk {
-        sub_chunks_count: wire::VarUInt(65),
-        ..Default::default()
-    });
+    let refused = unencodable_packet();
     assert_eq!(
         batch_frame(&[time(1), refused.clone(), time(2)]),
         batch_frame(&[time(1), time(2)])
     );
     assert_eq!(batch_frame(&[refused]), None);
+}
+
+/// Supplies a packet beyond the generated encoder's sub-chunk limit for batch-failure tests.
+pub(crate) fn unencodable_packet() -> Packet {
+    Packet::new(bedrock_protocol_1_26_60::packets::LevelChunk {
+        sub_chunks_count: wire::VarUInt(65),
+        ..Default::default()
+    })
 }

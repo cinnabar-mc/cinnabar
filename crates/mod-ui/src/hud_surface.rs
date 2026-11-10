@@ -1,5 +1,5 @@
-//! Mods' JSON-UI layers over gameplay. Each top-level control of a surface's root is laid out,
-//! painted and cached on its own and replayed every frame; a binding change repaints only the
+//! Mods' JSON-UI layers over gameplay. Independent top-level controls are laid out, painted
+//! and cached on their own; layered descendants and collection grids stay with their root. A binding change repaints the
 //! controls that read it, a replaced definition rebuilds only the controls and embedded
 //! controls whose resolution reads it, and a projected `#offset` that alone moves a control
 //! moves its cached artwork. Several mods' layers draw in load order, each under its own budget.
@@ -153,7 +153,7 @@ impl ModUi {
                 .surface
                 .bindings
                 .values()
-                .filter_map(|value| value.projection()?.actor())
+                .filter_map(|value| value.active_projection()?.actor())
         })
     }
 

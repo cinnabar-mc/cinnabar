@@ -19,6 +19,7 @@ pub(super) struct PlayerState {
     current_revision: Option<u64>,
     revision: u64,
     reads: u32,
+    selected_slot_reads: u32,
     split: split::SplitState,
     pub observations: crate::module_observations::ModuleObservations,
     pub world: Option<crate::WorldObservation>,
@@ -28,12 +29,47 @@ pub(super) struct PlayerState {
 }
 
 impl PlayerState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            snapshot: self.snapshot.clone(),
+            comparison_snapshot: None,
+            comparison_revision: 0,
+            current_revision: self.current_revision,
+            revision: 0,
+            reads: 0,
+            selected_slot_reads: 0,
+            split: self.split.transaction(),
+            observations: self.observations.clone(),
+            world: self.world.clone(),
+            fps: self.fps,
+            sidebar: self.sidebar.clone(),
+            chat: self.chat.clone(),
+        }
+    }
+
+    /// Retains the guest's comparison tokens without replacing current native observations.
+    pub(super) fn accept_reads(&mut self, transaction: Self) {
+        if let Some(snapshot) = transaction.comparison_snapshot {
+            self.comparison_snapshot = Some(snapshot);
+            self.comparison_revision = transaction.comparison_revision;
+        }
+        self.split = transaction.split;
+        self.split.begin_frame();
+    }
+
     /// Clears current reads without discarding the exact observation used for change detection.
     pub fn begin_frame(&mut self) {
         self.snapshot = None;
         self.current_revision = None;
         self.reads = 0;
+        self.selected_slot_reads = 0;
         self.split.begin_frame();
+    }
+
+    /// Renews allowances scoped to one callback rather than one frame.
+    pub fn begin_callback(&mut self) {
+        self.selected_slot_reads = 0;
     }
 
     /// Compares validated callback facts with the last snapshot imported by the guest.
@@ -140,6 +176,17 @@ pub(super) fn validate(snapshot: Option<&PlayerStateSnapshot>) -> Result<()> {
 }
 
 impl State {
+    /// Applies the combat stream's grants to both events and their retained lives.
+    fn can_read_combat(&self, event: &crate::CombatObservation) -> bool {
+        event.local
+            || event.kind == crate::CombatKind::AttackAdmitted
+            || if event.player {
+                self.grants.players
+            } else {
+                self.grants.entities
+            }
+    }
+
     /// Charges one shared read and selects authorized rows before applying the caller's bound.
     fn read_actor_observations(
         &mut self,
@@ -205,6 +252,34 @@ impl cinnabar::extension::player_state::Host for State {
             .read_actor_observations(limit)?
             .map(|actors| actors.cloned().collect()))
     }
+    fn read_actor_lives(
+        &mut self,
+        runtime_ids: Vec<u64>,
+    ) -> Result<Result<Vec<Option<crate::ActorLife>>, String>> {
+        self.player_state.read_budget()?;
+        if runtime_ids.len() > mod_api::MAX_ACTOR_LIFE_READS {
+            return Ok(Err("actor life read exceeds bounds".into()));
+        }
+        if !self.grants.players && !self.grants.entities {
+            return Ok(Err("actor observation capability denied".into()));
+        }
+        let lives = &self.player_state.observations.actor_lives;
+        Ok(Ok(runtime_ids
+            .into_iter()
+            .map(|runtime_id| {
+                let index = lives
+                    .binary_search_by_key(&runtime_id, |observed| observed.runtime_id)
+                    .ok()?;
+                let observed = lives[index];
+                let granted = if observed.player {
+                    self.grants.players
+                } else {
+                    self.grants.entities
+                };
+                granted.then_some(observed.life)
+            })
+            .collect()))
+    }
     fn read_combat(
         &mut self,
         after: u64,
@@ -222,18 +297,36 @@ impl cinnabar::extension::player_state::Host for State {
             .observations
             .combat
             .iter()
-            .filter(|event| {
-                event.sequence > after
-                    && (event.local
-                        || event.kind == crate::CombatKind::AttackAdmitted
-                        || if event.player {
-                            self.grants.players
-                        } else {
-                            self.grants.entities
-                        })
-            })
+            .map(|recorded| &recorded.event)
+            .filter(|event| event.sequence > after && self.can_read_combat(event))
             .take(limit as usize)
-            .cloned()
+            .copied()
+            .collect()))
+    }
+
+    fn read_combat_lives(
+        &mut self,
+        sequences: Vec<u64>,
+    ) -> Result<Result<Vec<Option<u64>>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        if sequences.len() > mod_api::MAX_COMBAT_LIFE_READS {
+            return Ok(Err("combat life read exceeds bounds".into()));
+        }
+        let history = &self.player_state.observations.combat;
+        Ok(Ok(sequences
+            .into_iter()
+            .map(|sequence| {
+                let index = history
+                    .binary_search_by_key(&sequence, |recorded| recorded.event.sequence)
+                    .ok()?;
+                let recorded = &history[index];
+                self.can_read_combat(&recorded.event)
+                    .then_some(recorded.life)
+                    .flatten()
+            })
             .collect()))
     }
 
@@ -309,6 +402,56 @@ impl cinnabar::extension::player_state::Host for State {
             .observe(self.player_state.snapshot.as_ref())?))
     }
 
+    fn read_equipment_matches(
+        &mut self,
+        identifier: String,
+    ) -> Result<Result<Option<cinnabar::extension::player_state::EquipmentMatches>, String>> {
+        self.player_state.read_budget()?;
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        if identifier.is_empty() || identifier.len() > MAX_ITEM_IDENTIFIER_BYTES {
+            return Ok(Err("invalid item identifier".into()));
+        }
+        let Some(revisions) = self
+            .player_state
+            .split
+            .observe(self.player_state.snapshot.as_ref())?
+        else {
+            return Ok(Ok(None));
+        };
+        let snapshot = self
+            .player_state
+            .snapshot
+            .as_ref()
+            .expect("observed snapshot");
+        let matches = |slot: &PlayerStateSlot| -> Option<bool> {
+            if !slot.known {
+                return None;
+            }
+            match &slot.item {
+                None => Some(false),
+                Some(item) => item
+                    .identifier
+                    .as_ref()
+                    .map(|name| *name == identifier && item.count > 0),
+            }
+        };
+        let inventory = snapshot
+            .inventory
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, item)| (matches(item) == Some(true)).then_some(slot as u8))
+            .collect();
+        Ok(Ok(Some(
+            cinnabar::extension::player_state::EquipmentMatches {
+                revisions,
+                inventory,
+                offhand: matches(&snapshot.offhand),
+            },
+        )))
+    }
+
     fn read_equipment(
         &mut self,
     ) -> Result<Result<Option<cinnabar::extension::player_state::Equipment>, String>> {
@@ -343,6 +486,30 @@ impl cinnabar::extension::player_state::Host for State {
             .effects
             .clone()
             .filter(|_| self.player_state.snapshot.is_some())))
+    }
+
+    /// Charges its own allowance, so polling the selection cannot exhaust snapshot reads.
+    fn read_selected_slot(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::player_state::SelectedSlot>, String>> {
+        self.player_state.selected_slot_reads += 1;
+        if self.player_state.selected_slot_reads > mod_api::MAX_SELECTED_SLOT_READS {
+            bail!("selected-slot read budget exhausted");
+        }
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.player_state.snapshot.as_ref().and_then(
+            |snapshot| {
+                snapshot
+                    .selected_slot
+                    .map(|slot| cinnabar::extension::player_state::SelectedSlot {
+                        session: snapshot.session,
+                        dimension: snapshot.dimension,
+                        slot,
+                    })
+            },
+        )))
     }
 
     fn read_revision(&mut self) -> Result<Result<Option<u64>, String>> {

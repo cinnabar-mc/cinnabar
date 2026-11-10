@@ -41,6 +41,7 @@ pub fn refresh(root: &Path) -> Result<(), String> {
 async fn refresh_at(root: &Path, origin: &str) -> Result<(), String> {
     std::fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let client = Client::builder()
+        .user_agent(launcher::PRODUCT_USER_AGENT)
         .timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -324,6 +325,15 @@ mod http_tests {
             read_asset(root.path(), &catalog.emotes[0].clip).unwrap(),
             clip
         );
-        assert_eq!(server.join().unwrap().len(), 5);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 5);
+        let agent =
+            format!("user-agent: {}\r\n", launcher::PRODUCT_USER_AGENT).to_ascii_lowercase();
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.to_ascii_lowercase().contains(&agent)),
+            "cosmetics requests must identify the client release"
+        );
     }
 }

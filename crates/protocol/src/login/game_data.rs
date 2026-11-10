@@ -2,12 +2,17 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{ItemRegistry, StartGame};
+use bedrock_protocol_1_26_60::{
+    enums::LevelGeneratorType,
+    packets::{ItemRegistry, StartGame},
+};
 
 use crate::{
-    CustomBlocks, DeathRules, GameModeUpdate, HudRules, InventoryAuthority, ItemComponents,
-    ItemRegistryEvent, PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldPacketError,
-    item::normalize_item_registry,
+    CLASSIC_OVERWORLD_RANGE, CustomBlocks, DeathRules, DimensionRange, GameModeUpdate, HudRules,
+    InventoryAuthority, ItemComponents, ItemRegistryEvent, LEGACY_OVERWORLD_RANGE,
+    MODERN_OVERWORLD_RANGE, PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap,
+    WorldPacketError,
+    item::{normalize_item_registry, with_block_items},
 };
 
 /// What StartGame and its item registry establish for one session, read once at login.
@@ -15,6 +20,10 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct GameData {
     pub world: WorldBootstrap,
+    /// The server-provided level display name, independent of its identity.
+    pub level_name: Arc<str>,
+    /// Initial local-player pitch and yaw in degrees, as supplied by the server.
+    pub player_rotation: [f32; 2],
     pub environment: WorldEnvironmentBootstrap,
     pub settings: StartupSettings,
     pub items: StartupItems,
@@ -47,6 +56,9 @@ pub struct StartupSettings {
     pub world_default_game_mode: GameModeUpdate,
     /// Whether the player follows the level default rather than a personal mode.
     pub player_game_mode_uses_world_default: bool,
+    /// The overworld range StartGame's generator selects; a server overworld definition
+    /// replaces it.
+    pub overworld_range: DimensionRange,
 }
 
 /// The StartGame item registry and the facts its component data declares.
@@ -68,6 +80,8 @@ impl GameData {
         let movement = &start_game.movement_settings;
         Self {
             world: WorldBootstrap::from_start_game(start_game),
+            level_name: Arc::from(start_game.level_name.to_string_lossy()),
+            player_rotation: start_game.rotation.to_array(),
             environment: WorldEnvironmentBootstrap::from_start_game(start_game),
             settings: StartupSettings {
                 base_game_version: start_game
@@ -93,12 +107,30 @@ impl GameData {
                 player_game_mode_uses_world_default: PlayerGameMode::bootstrap_uses_world_default(
                     start_game,
                 ),
+                overworld_range: generator_overworld_range(start_game.settings.generator_type),
             },
-            items: StartupItems::from_wire(item_registry),
+            items: StartupItems::from_wire(&with_block_items(item_registry, start_game)),
             custom_blocks: CustomBlocks::from_start_game(start_game),
             block_definition_count: start_game.block_properties.len(),
             level_identity: level_identity(start_game),
         }
+    }
+}
+
+/// The overworld range vanilla derives from the level generator when no overworld
+/// dimension is defined. Legacy ("Old") worlds keep the 128-block Pocket Edition
+/// height and unrecognised generators use 0..256. Overworld, Flat and Void keep the
+/// modern range; vanilla can also give them 0..256 from level state not modelled here.
+const fn generator_overworld_range(generator: LevelGeneratorType) -> DimensionRange {
+    match generator {
+        LevelGeneratorType::Legacy => LEGACY_OVERWORLD_RANGE,
+        LevelGeneratorType::Overworld | LevelGeneratorType::Flat | LevelGeneratorType::Void => {
+            MODERN_OVERWORLD_RANGE
+        }
+        LevelGeneratorType::Nether
+        | LevelGeneratorType::TheEnd
+        | LevelGeneratorType::Undefined
+        | LevelGeneratorType::Unknown(_) => CLASSIC_OVERWORLD_RANGE,
     }
 }
 
@@ -160,8 +192,21 @@ impl StartupItems {
 mod tests {
     use super::*;
     use crate::{ItemPacketError, WorldWireError};
-    use bedrock_protocol_1_26_51::types::ItemData;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::types::ItemData;
+    use bedrock_protocol_1_26_60::wire;
+
+    /// The display label is retained independently from the optional hashed identity.
+    #[test]
+    fn level_name_survives_bootstrap_without_a_level_id() {
+        let start = StartGame {
+            level_name: "Example World".into(),
+            ..Default::default()
+        };
+        let data = GameData::from_wire(&start, &ItemRegistry::default());
+        assert_eq!(&*data.level_name, "Example World");
+        assert!(data.level_identity.is_none());
+        assert!(GameData::default().level_name.is_empty());
+    }
 
     fn registry(items: &[(&str, i16)]) -> ItemRegistry {
         ItemRegistry {
@@ -203,6 +248,40 @@ mod tests {
             GameData::from_wire(&start_game, &ItemRegistry::default()).level_identity,
             None
         );
+    }
+
+    /// Old Pocket Edition worlds report the Legacy generator and only 128 blocks of height.
+    #[test]
+    fn start_game_generator_selects_the_undefined_overworld_range() {
+        let range = |raw: i32| {
+            let mut start_game = StartGame::default();
+            start_game.settings.generator_type = LevelGeneratorType::from(raw);
+            GameData::from_wire(&start_game, &ItemRegistry::default())
+                .settings
+                .overworld_range
+        };
+        assert_eq!(range(0), LEGACY_OVERWORLD_RANGE);
+        assert_eq!(LEGACY_OVERWORLD_RANGE.sub_chunk_count, 8);
+        for modern in [1, 2, 5] {
+            assert_eq!(range(modern), MODERN_OVERWORLD_RANGE, "generator {modern}");
+        }
+        for classic in [3, 4, 6, 99, -1] {
+            assert_eq!(
+                range(classic),
+                CLASSIC_OVERWORLD_RANGE,
+                "generator {classic}"
+            );
+        }
+    }
+
+    #[test]
+    fn startup_retains_the_server_player_rotation() {
+        let start_game = StartGame {
+            rotation: [27.5, -123.0].into(),
+            ..Default::default()
+        };
+        let data = GameData::from_wire(&start_game, &ItemRegistry::default());
+        assert_eq!(data.player_rotation, [27.5, -123.0]);
     }
 
     #[test]
@@ -278,28 +357,35 @@ mod tests {
     }
 
     #[test]
-    fn conflicting_components_do_not_publish_presentation_facts() {
+    fn a_later_declaration_of_the_same_item_supplies_its_presentation_facts() {
         let first = component_item("custom_blade");
         let second = component_item("other_blade");
         let items = StartupItems::from_wire(&ItemRegistry {
             item_data: vec![first, second],
         });
-        assert!(items.registry.is_err());
-        assert!(items.icon_keys.is_empty());
-        assert!(items.components.is_empty());
-        assert_eq!(items.identifiers.len(), 2);
+        let registry = items
+            .registry
+            .as_ref()
+            .expect("repeated items keep the registry");
+        assert_eq!(registry.entries.len(), 1);
+        assert_eq!(
+            items.icon_keys.as_ref(),
+            &[(Arc::from("test:sword"), Arc::from("other_blade"))]
+        );
+        assert_eq!(items.components.len(), 1);
     }
 
     #[test]
-    fn conflicting_registry_ids_are_a_semantic_rejection() {
+    fn a_reused_registry_id_belongs_to_the_later_item() {
         let items =
             StartupItems::from_wire(&registry(&[("minecraft:stick", 5), ("minecraft:stone", 5)]));
-        assert!(matches!(items.registry, Err(WorldPacketError::Item(_))));
-        assert_eq!(
-            items.identifiers.len(),
-            2,
-            "rejected items keep their identifiers"
-        );
+        let registry = items
+            .registry
+            .as_ref()
+            .expect("reused IDs keep the registry");
+        assert_eq!(registry.entries.len(), 1);
+        assert_eq!(registry.entries[0].identifier.as_ref(), "minecraft:stone");
+        assert_eq!(registry.entries[0].network_id, 5);
     }
 
     #[test]

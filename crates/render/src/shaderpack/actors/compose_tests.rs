@@ -5,10 +5,12 @@ use super::*;
 use crate::gpu_snapshot::Gpu;
 
 /// Two texels per layer: masked and unmasked base colours, then two overlay layers.
-const LAYERS: [[[u8; 4]; 2]; 3] = [
+const LAYERS: [[[u8; 4]; 2]; 5] = [
     [[200, 100, 50, 255], [200, 100, 50, 0]],
     [[10, 20, 30, 255], [0, 0, 0, 0]],
     [[0, 0, 0, 0], [90, 80, 70, 128]],
+    [[255, 255, 255, 0], [0, 0, 0, 0]],
+    [[0, 0, 0, 0], [90, 80, 70, 255]],
 ];
 
 /// The native fragment's gamma composition of `texel` with every layer's texel.
@@ -30,6 +32,7 @@ fn native(compose: LayerCompose, texel: usize) -> [u8; 4] {
             let [one, two] = layers.map(|layer| unit(layer as usize));
             std::array::from_fn(|c| mix(mix(base[c], one[c], one[3]), two[c], two[3]))
         }
+        LayerCompose::MaskedMultitexture { .. } => unreachable!(),
     };
     let [r, g, b] = rgb.map(|value| (value * 255.0).round() as u8);
     [r, g, b, 255]
@@ -173,6 +176,23 @@ fn composed_layers_match_native_colour_mask_and_multitexture_materials() {
     }
 }
 
+#[test]
+fn masked_multitexture_keeps_biome_masks_and_replaces_profession_coverage() {
+    let Some(gpu) = Gpu::for_fixture("masked profession texture composition") else {
+        return;
+    };
+    for (layer, expected) in [
+        (1, [[10, 20, 30, 255], [0, 0, 0, 0]]),
+        (3, [[200, 100, 50, 255], [0, 0, 0, 0]]),
+        (4, [[0, 0, 0, 0], [90, 80, 70, 255]]),
+    ] {
+        assert_eq!(
+            compose_on_gpu(&gpu, LayerCompose::MaskedMultitexture { layer }),
+            expected.as_flattened()
+        );
+    }
+}
+
 /// Artwork that only presents its layers, sampled by the planner.
 struct MaskedSource<'a> {
     instances: [render_model::ActorGpuInstance; 2],
@@ -287,4 +307,21 @@ fn multitexture_pages_compose_only_with_both_overlays() {
         LayerCompose::for_page(false, false, &instance),
         LayerCompose::Plain
     );
+}
+
+#[test]
+fn profession_sampler_uses_masked_composition_and_keeps_draw_tint() {
+    let instance = render_model::ActorGpuInstance {
+        material: assets::EntityRenderMaterial::Default.word(Some(
+            assets::EntityRenderMaterialState {
+                masked_multitexture: true,
+                ..Default::default()
+            },
+        )),
+        multitexture_layers: [3, 3],
+        ..Default::default()
+    };
+    let composed = LayerCompose::for_page(false, true, &instance);
+    assert_eq!(composed, LayerCompose::MaskedMultitexture { layer: 3 });
+    assert!(!composed.composes_colour());
 }

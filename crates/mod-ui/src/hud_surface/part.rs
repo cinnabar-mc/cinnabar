@@ -120,7 +120,8 @@ impl Part {
     }
 
     /// Names the item an item binding draws; none stops resolving the binding, leaving its
-    /// global to the caller.
+    /// global to the caller. Item ownership changes invalidate paint even when the global
+    /// still holds the same icon index.
     pub fn set_item(&mut self, name: &str, item: Option<SurfaceItem>) {
         let position = self.items.iter().position(|(binding, _)| binding == name);
         match (position, item) {
@@ -136,6 +137,8 @@ impl Part {
             (None, None) => return,
         }
         self.resolved.clear();
+        self.prepared = None;
+        self.laid = None;
     }
 
     /// Applies host identity bindings when this part reads them.

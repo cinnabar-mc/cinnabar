@@ -41,6 +41,84 @@ pub(super) struct HudState {
 }
 
 impl HudState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            surface: self.surface.clone(),
+            surface_revision: 0,
+            pending_surface: None,
+            index: self.index.clone(),
+            hidden: self.hidden,
+            pending_hidden: None,
+            local_messages: self.local_messages.clone(),
+            pending_messages: Vec::new(),
+            measures: 0,
+            viewport: self.viewport,
+            elements: self.elements,
+            text: self.text.clone(),
+        }
+    }
+
+    /// Adopts private writes and their validated index without replacing native observations.
+    pub(super) fn accept(&mut self, mut transaction: Self) {
+        if transaction.pending_surface.is_some() {
+            self.pending_surface = transaction.pending_surface.take();
+            self.index = transaction.index;
+        }
+        self.pending_hidden = transaction.pending_hidden;
+        self.pending_messages = transaction.pending_messages;
+    }
+
+    /// Invalidates world projections without rebuilding unaffected retained HUD surfaces.
+    pub(super) fn clear_world_projections(&mut self) {
+        let mut changed = false;
+        for surface in self
+            .surface
+            .iter_mut()
+            .chain(self.pending_surface.iter_mut().flatten())
+        {
+            if surface
+                .bindings
+                .values()
+                .any(|value| value.active_projection().is_some())
+            {
+                super::world_lifecycle::clear_surface_world(Arc::make_mut(surface));
+                changed = true;
+            }
+        }
+        if changed {
+            self.surface_revision = Self::next_revision();
+        }
+    }
+
+    /// Discards failed surface writes while retaining published output and native observations.
+    pub(super) fn rollback(&mut self) {
+        let Self {
+            surface,
+            surface_revision: _,
+            pending_surface,
+            index,
+            hidden: _,
+            pending_hidden,
+            local_messages: _,
+            pending_messages,
+            measures,
+            viewport: _,
+            elements: _,
+            text: _,
+        } = self;
+        *pending_surface = None;
+        *pending_hidden = None;
+        pending_messages.clear();
+        *measures = 0;
+        *index = surface
+            .as_deref()
+            .map(ui::mod_panel::HudIndex::new)
+            .transpose()
+            .expect("committed HUD surface was validated")
+            .unwrap_or_default();
+    }
+
     /// A process-unique revision for committed output that changed.
     fn next_revision() -> u64 {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -55,6 +133,11 @@ impl HudState {
             text: self.text.take(),
             ..Self::default()
         };
+    }
+
+    /// The hidden set this callback has staged, or the committed one.
+    pub(super) fn staged_hidden(&self) -> HiddenElements {
+        self.pending_hidden.unwrap_or(self.hidden)
     }
 
     /// Resets per-callback read budgets.

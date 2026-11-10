@@ -27,7 +27,7 @@ fn query_edits_clear_and_category_selection_preserve_saved_options() {
 /// Opening a result must retain a safe destination for the next navigation confirmation.
 #[test]
 fn category_search_shortcuts_retarget_focus_before_results_disappear() {
-    use crate::menu::input::MenuInputMode;
+    use crate::menu::input::mode::MenuInputMode;
     use launcher::menu::settings_options::video_presets::VideoPreset;
 
     for mode in [MenuInputMode::Keyboard, MenuInputMode::Gamepad] {

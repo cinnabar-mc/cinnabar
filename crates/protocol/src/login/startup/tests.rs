@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{LevelChunk, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{LevelChunk, SetTime};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use super::*;
@@ -88,8 +88,7 @@ fn deferred_packets_are_detached_and_bounded() {
         })
     };
     let mut deferred = DeferredPackets::default();
-    let chunks = decode_batch_body(body(&[half(), half()]), usize::MAX).unwrap();
-    let mut chunks = chunks.into_iter();
+    let mut chunks = decode_batch_body(body(&[half(), half()]), usize::MAX).unwrap();
     deferred.push(chunks.next().unwrap()).unwrap();
     assert!(matches!(
         deferred.push(chunks.next().unwrap()),
@@ -104,12 +103,13 @@ fn deferred_packets_are_detached_and_bounded() {
 mod session {
     use std::future::Future;
 
-    use bedrock_protocol_1_26_51::packets::{
+    use bedrock_protocol_1_26_60::packets::{
         ChunkRadiusUpdated, NetworkChunkPublisherUpdate, PlayStatus, Transfer,
     };
-    use bedrock_protocol_1_26_51::types::ItemData;
+    use bedrock_protocol_1_26_60::types::ItemData;
 
     use super::*;
+    use crate::session_transport::STARTUP_BATCH_PACKETS;
     use crate::session_transport::tests::packet_bytes;
     use crate::session_transport::tests::unix::{Pair, pair, write_frame};
 
@@ -140,7 +140,7 @@ mod session {
 
     fn player_spawn() -> Packet {
         Packet::new(PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         })
     }
 
@@ -370,23 +370,26 @@ mod session {
     }
 
     /// Optional packets are deferred to play in order, ahead of a packet the spawning batch
-    /// still held, even when they span more packets than one handed-off batch holds.
+    /// still held, even when they span several local startup groups.
     #[tokio::test]
     async fn deferred_packets_keep_their_order_across_batches() {
-        let mut second: Vec<Packet> = (900..=1_600).map(set_time).collect();
+        let half = STARTUP_BATCH_PACKETS / 2;
+        let mut second: Vec<Packet> = (half..=STARTUP_BATCH_PACKETS)
+            .map(|time| set_time(time as i32))
+            .collect();
         second.extend([
             registry("minecraft:shield", 355),
             radius(16),
             player_spawn(),
             set_time(-1),
         ]);
-        let first = (0..900).map(set_time).collect();
+        let first = (0..half).map(|time| set_time(time as i32)).collect();
         let Pair { transport, .. } = &mut handed_off("fifo", &[first, second]).await;
         await_spawn(transport, DEFAULT_CHUNK_RADIUS, |_, _| {})
             .await
             .expect("spawn");
-        for expected in 0..=1_600 {
-            assert_eq!(next_time(transport).await, expected);
+        for expected in 0..=STARTUP_BATCH_PACKETS {
+            assert_eq!(next_time(transport).await, expected as i32);
         }
         let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
             panic!("the radius reply is deferred")
@@ -558,7 +561,7 @@ mod session {
                     Ok(_) => panic!("a startup disconnect spawned"),
                     Err(error) => error.server_disconnect().expect("a server disconnect"),
                 };
-            assert_eq!(disconnect.reason, "Serverfull");
+            assert_eq!(disconnect.reason, "ServerFull");
             let expected = (!hide_screen).then_some("full");
             assert_eq!(disconnect.message.as_deref(), expected);
         }
