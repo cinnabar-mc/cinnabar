@@ -215,6 +215,7 @@ impl UiPresentationRuntime {
                     self.session_icons.held_block(identifier, metadata)
             {
                 player_preview::PreviewHeldModel {
+                    alpha_mode: render_model::HandItemAlphaMode::Cutout,
                     source,
                     vertices,
                     hand_pivots: self.gui_models.sources.hand_pivots?,
@@ -229,6 +230,7 @@ impl UiPresentationRuntime {
                 match base.filter(|base| base.is_sprite()) {
                     Some(base) => base.with_sprite(source, vertices),
                     None => player_preview::PreviewHeldModel {
+                        alpha_mode: render_model::HandItemAlphaMode::Cutout,
                         source,
                         vertices,
                         hand_pivots: self.gui_models.sources.hand_pivots?,
@@ -260,6 +262,7 @@ impl UiPresentationRuntime {
             self.session_icons.held_block(identifier, metadata)
         {
             player_preview::PreviewHeldModel {
+                alpha_mode: render_model::HandItemAlphaMode::Cutout,
                 source,
                 vertices,
                 hand_pivots: self.gui_models.sources.hand_pivots?,

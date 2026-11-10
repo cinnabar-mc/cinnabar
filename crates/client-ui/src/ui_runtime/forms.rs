@@ -1,6 +1,7 @@
 //! Session-bound form authority and single-enqueue responses.
 #[cfg(test)]
 mod busy_tests;
+mod button_images;
 pub mod engine_focus;
 pub mod engine_input;
 pub mod engine_scroll;
@@ -160,6 +161,7 @@ impl ServerFormStore {
         other_ui: bool,
     ) {
         shape_probe::observe(&event);
+        button_images::log(event.form_id, &event.model);
         self.next_revision = self.next_revision.saturating_add(1);
         let identity = ServerFormIdentity {
             session,

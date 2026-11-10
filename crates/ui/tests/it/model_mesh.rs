@@ -14,6 +14,7 @@ fn rect(x: f32, y: f32, width: f32, height: f32) -> UiRect {
 
 fn vertex(position: [f32; 2], w: f32) -> UiMeshVertex {
     UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.25 * w,
         clip_w: w,
@@ -23,6 +24,84 @@ fn vertex(position: [f32; 2], w: f32) -> UiMeshVertex {
         alpha_test: false,
         model_light: 0.718_629,
         overlay_color: [0.0; 4],
+    }
+}
+
+#[test]
+fn terrain_sampling_survives_mesh_draw_conversion() {
+    let mut source = vertex([0.0, 0.0], 1.0);
+    source.terrain_mips = true;
+    source.alpha_test = true;
+    let geometry = Arc::new(
+        UiMesh::new(
+            vec![source; 3].into(),
+            vec![0, 1, 2].into(),
+            vec![batch(1, 0..3)].into(),
+        )
+        .unwrap()
+        .with_compact_block_vertices(),
+    );
+    let bounds = rect(0.0, 0.0, 16.0, 16.0);
+    let mut tree = UiTree::new(vec![
+        UiNode::new(UiNodeId::new(1), None, bounds).with_visual(UiVisual::Mesh(geometry)),
+    ])
+    .unwrap();
+    tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.vertices.len(), 3);
+    for vertex in &draw.vertices {
+        assert_eq!(
+            vertex.style_flags,
+            render_api::UI_STYLE_TERRAIN_MIPS
+                | render_api::UI_STYLE_ALPHA_TEST
+                | render_api::UI_STYLE_HALF_FLOAT_XY
+                | render_api::UI_STYLE_UNORM16_UV,
+        );
+        assert_eq!(
+            vertex.style_flags
+                & (render_api::UI_STYLE_MODEL_VERTEX | render_api::UI_STYLE_RGB_COVERAGE),
+            0,
+        );
+    }
+}
+
+#[test]
+fn skinned_mesh_draws_keep_model_positions_without_terrain_styles() {
+    let source = vertex([3.0, 5.0], 2.0);
+    let geometry = UiMesh::skinned(
+        vec![source; 3].into(),
+        vec![0, 1, 2].into(),
+        vec![batch(1, 0..3)].into(),
+    )
+    .unwrap();
+    let ordinary = UiMesh::new(
+        geometry.vertices().into(),
+        geometry.indices().into(),
+        geometry.batches().into(),
+    )
+    .unwrap();
+    assert_ne!(geometry, ordinary);
+    let bounds = rect(10.0, 20.0, 16.0, 16.0);
+    let mut tree = UiTree::new(vec![
+        UiNode::new(UiNodeId::new(1), None, bounds).with_visual(UiVisual::Mesh(Arc::new(geometry))),
+    ])
+    .unwrap();
+    tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let draw = tree.build_draw_list().unwrap();
+    assert_eq!(draw.vertices.len(), 3);
+    for vertex in &draw.vertices {
+        assert_eq!(vertex.position, source.position);
+        assert_eq!(vertex.clip_w, source.clip_w);
+        assert_eq!(vertex.style_flags, render_api::UI_STYLE_MODEL_VERTEX);
+        assert_eq!(
+            vertex.style_flags
+                & (render_api::UI_STYLE_TERRAIN_MIPS
+                    | render_api::UI_STYLE_HALF_FLOAT_XY
+                    | render_api::UI_STYLE_UNORM16_UV),
+            0,
+        );
     }
 }
 
@@ -138,6 +217,7 @@ fn meshes_compare_by_contents_whether_or_not_they_share_buffers() {
     assert_eq!(*source, (*source).clone(), "shared buffers");
     assert_eq!(*source, *rebuilt, "separate buffers with the same contents");
     assert_ne!(*source, (*source).clone().with_opacity(0.5));
+    assert_ne!(*source, (*source).clone().with_compact_block_vertices());
     let moved = UiMesh::new(
         vec![
             vertex([0.0, 0.0], 2.0),

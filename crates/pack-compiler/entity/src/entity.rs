@@ -193,6 +193,12 @@ fn compile_with_behavior(
     collect_optional_family(root, "attachables", &["json"], &mut selected)?;
     collect_optional_family(
         root,
+        assets::item::trim::TEXTURE_DIRECTORY.trim_end_matches('/'),
+        &["png", "tga"],
+        &mut selected,
+    )?;
+    collect_optional_family(
+        root,
         "textures/models/armor",
         &["json", "png", "tga"],
         &mut selected,

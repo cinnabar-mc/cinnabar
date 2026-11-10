@@ -2,55 +2,71 @@
 
 use super::TransformError;
 use super::items::{
-    func_params, matching, parse_decl, shadowed_bindings, size_unsized_arrays, split_args,
-    split_items, struct_body_end,
+    binding_uses, func_params, matching, parse_decl, size_unsized_arrays, split_args, split_items,
+    struct_body_end,
 };
 use super::local_constants::fold_array_sizes;
 use crate::programs::StageKind;
 use crate::token::{Tok, TokKind, id, int, lex, p};
 use std::collections::{BTreeSet, HashSet};
+use std::ops::Range;
 
-/// Identifiers reserved or built in since GLSL 1.30 that 1.20 code may use as names.
-const RESERVED_SINCE_130: &[&str] = &[
-    "sample",
-    "filter",
-    "input",
-    "output",
-    "common",
-    "partition",
-    "active",
-    "resource",
-    "buffer",
-    "shared",
-    "subroutine",
-    "patch",
-    "precise",
-    "coherent",
-    "volatile",
-    "restrict",
-    "readonly",
-    "writeonly",
-    "layout",
+/// Words the emitted `#version 450` reserves, each with the first GLSL version whose section
+/// 3.6 "Keywords" lists it as a keyword or as reserved for future use. Older sources may use
+/// them as identifiers. `precise` is the 4.00 qualifier of section 4.7, though the keyword list
+/// first names it in 4.30. `input`, `output` and `volatile` are reserved from GLSL 1.10, so no
+/// valid source names anything with them.
+pub(super) const RESERVED_SINCE: &[(&str, u32)] = &[
+    ("filter", 130),
+    ("common", 130),
+    ("partition", 130),
+    ("active", 130),
+    ("layout", 140),
+    ("sample", 400),
+    ("patch", 400),
+    ("subroutine", 400),
+    ("precise", 400),
+    ("resource", 420),
+    ("coherent", 420),
+    ("restrict", 420),
+    ("readonly", 420),
+    ("writeonly", 420),
+    ("buffer", 430),
+    ("shared", 430),
 ];
 
 /// Vulkan GLSL type keywords that are plain identifiers in OpenGL GLSL.
 const RESERVED_VULKAN: &[&str] = &["sampler", "samplerShadow", "subpassInput"];
 
+/// Private keyword escapes use double underscores, which GLSL reserves in source names.
+const RESERVED_PREFIX: &str = "__shaderpack_reserved_";
+
+/// Restores a keyword escaped in the translator's private namespace.
+pub(crate) fn original_identifier(name: &str) -> &str {
+    name.strip_prefix(RESERVED_PREFIX).unwrap_or(name)
+}
+
 /// A GLSL identifier that keeps a sampler named `texture` distinct from lookup calls.
 const RENAMED_TEXTURE: &str = "_r_texture";
 
-/// Returns the pack's sampler name before renaming `texture` for GLSL.
+/// Returns the pack's sampler name before escaping keywords and `texture` for GLSL.
 pub(super) fn sampler_name(name: &str) -> &str {
     if name == RENAMED_TEXTURE {
         "texture"
     } else {
-        name
+        original_identifier(name)
     }
 }
 
 /// Uses the shared stage rewrites for a scalar or vector interface identifier.
 pub(crate) fn interface_identifier(name: &str, version: u32) -> Result<String, TransformError> {
-    let normalized = rewrite(&crate::token::lex(name), StageKind::Geometry, version, true)?;
+    let normalized = rewrite(
+        &crate::token::lex(name),
+        StageKind::Geometry,
+        version,
+        true,
+        false,
+    )?;
     match normalized.toks.as_slice() {
         [token] if token.ident().is_some() => Ok(token.ident().unwrap().to_owned()),
         _ => Err(TransformError::new(
@@ -149,16 +165,62 @@ const CORE_NAMES: &[(&str, &str, bool)] = &[
     ("vaUV2", "ivec2(gl_MultiTexCoord1.xy)", true),
 ];
 
-/// Replaces undeclared [`CORE_NAMES`] with their compatibility built-ins, so a stage that
-/// uses both (`gl_Normal` and `vaNormal`) reads one input. A declared name stays the
-/// pack's own variable.
-fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
+/// Rewrites [`CORE_NAMES`] a stage reads without declaring to their compatibility built-ins,
+/// so a stage that uses both (`gl_Normal` and `vaNormal`) reads one input. A declared name
+/// stays the pack's own variable, except that with `unbound_inputs` a declared vertex input
+/// without an explicit location is dropped and reads [`unbound_value`]. Explicit locations
+/// select vertex data even when Iris does not bind the input by name.
+fn core_names(src: &[Tok], stage: StageKind, unbound_inputs: bool) -> Option<Vec<Tok>> {
+    let attribute = |name: &str| {
+        CORE_NAMES
+            .iter()
+            .any(|(n, _, attribute)| *attribute && *n == name)
+    };
     let mut declared = HashSet::new();
-    let mut shadowed = shadowed_bindings(src, CORE_NAMES.iter().map(|(name, _, _)| *name));
+    // Unbound input names with the value they read.
+    let mut unbound: Vec<(String, String)> = Vec::new();
+    // Token ranges of declarations that lose unbound inputs, with what remains of them.
+    let mut dropped: Vec<(Range<usize>, Vec<Tok>)> = Vec::new();
+    let bindings = binding_uses(src, CORE_NAMES.iter().map(|(name, _, _)| *name));
+    let mut shadowed = HashSet::new();
     let mut offset = 0;
     for item in split_items(src) {
         if let Some(declaration) = parse_decl(&item) {
-            declared.extend(declaration.decls.into_iter().map(|(name, _, _)| name));
+            let mut gone = Vec::new();
+            if unbound_inputs
+                && stage == StageKind::Vertex
+                && declaration.block.is_none()
+                && declaration.ty_arr.is_empty()
+                && (declaration.has("in") || declaration.has("attribute"))
+                && !declaration
+                    .layout
+                    .iter()
+                    .any(|token| token.ident() == Some("location"))
+                && let Some(value) = unbound_value(&declaration.ty)
+            {
+                for (name, array, _) in &declaration.decls {
+                    if array.is_empty() && attribute(name) {
+                        unbound.push((name.clone(), value.clone()));
+                        gone.push(name.as_str());
+                    }
+                }
+            }
+            if !gone.is_empty() {
+                let rest = if gone.len() == declaration.decls.len() {
+                    vec![]
+                } else {
+                    drop_declarators(&item, &gone)
+                };
+                dropped.push((offset..offset + item.len(), rest));
+            }
+            let gone: HashSet<String> = gone.into_iter().map(str::to_string).collect();
+            declared.extend(
+                declaration
+                    .decls
+                    .into_iter()
+                    .map(|(name, _, _)| name)
+                    .filter(|name| !gone.contains(name)),
+            );
             if let Some((name, members, instance)) = declaration.block {
                 let open = item.iter().position(|token| token.is("{")).unwrap();
                 shadowed.extend(offset + open + 1..offset + open + 1 + members.len());
@@ -184,21 +246,44 @@ fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
         }
         offset += item.len();
     }
+    // Uses of a dropped input are not shadowed: they read its unbound value.
+    shadowed.extend(
+        bindings
+            .into_iter()
+            .filter(|(_, declarator)| !dropped.iter().any(|(range, _)| range.contains(declarator)))
+            .map(|(token, _)| token),
+    );
     let replace: Vec<(&str, &str)> = CORE_NAMES
         .iter()
         .filter(|(n, _, attribute)| {
             (!attribute || stage == StageKind::Vertex)
                 && src.iter().any(|t| t.ident() == Some(n))
                 && !declared.contains(*n)
+                && !unbound.iter().any(|(name, _)| name == n)
         })
         .map(|(n, compat, _)| (*n, *compat))
+        .chain(
+            unbound
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )
         .collect();
-    if replace.is_empty() {
+    if replace.is_empty() && dropped.is_empty() {
         return None;
     }
     let mut out = Vec::with_capacity(src.len());
     let mut type_end = 0;
+    let mut dropped = dropped.into_iter().peekable();
+    let mut skip_until = 0;
     for (i, t) in src.iter().enumerate() {
+        if i < skip_until {
+            continue;
+        }
+        if let Some((range, rest)) = dropped.next_if(|(range, _)| range.start == i) {
+            out.extend(rest);
+            skip_until = range.end;
+            continue;
+        }
         if let Some(end) = struct_body_end(src, i) {
             type_end = type_end.max(end);
         }
@@ -216,6 +301,62 @@ fn undeclared_core_names(src: &[Tok], stage: StageKind) -> Option<Vec<Tok>> {
         }
     }
     Some(out)
+}
+
+/// What a vertex input of type `ty` reads when no vertex data is bound to it: GL's initial
+/// current generic attribute `(0, 0, 0, 1)` cut to the declared components (OpenGL 4.6 core
+/// specification, section 10.2). `None` for types an attribute cannot have.
+fn unbound_value(ty: &str) -> Option<String> {
+    let (scalar, size) = match ty {
+        "float" | "int" | "uint" => (ty, 1),
+        _ => {
+            let size = ty
+                .strip_prefix(['i', 'u'])
+                .unwrap_or(ty)
+                .strip_prefix("vec")?
+                .parse::<usize>()
+                .ok()
+                .filter(|size| (2..=4).contains(size))?;
+            let scalar = match ty.as_bytes()[0] {
+                b'i' => "int",
+                b'u' => "uint",
+                _ => "float",
+            };
+            (scalar, size)
+        }
+    };
+    let (zero, one) = match scalar {
+        "float" => ("0.0", "1.0"),
+        "int" => ("0", "1"),
+        _ => ("0u", "1u"),
+    };
+    if size == 1 {
+        return Some(zero.to_string());
+    }
+    let components: Vec<&str> = (0..size).map(|i| if i == 3 { one } else { zero }).collect();
+    Some(format!("{ty}({})", components.join(", ")))
+}
+
+/// A declaration's tokens without the declarators named in `names` and their separating
+/// commas. At least one declarator must remain.
+fn drop_declarators(item: &[Tok], names: &[&str]) -> Vec<Tok> {
+    let mut out: Vec<Tok> = Vec::with_capacity(item.len());
+    let mut skip_comma = false;
+    for token in item {
+        if token.ident().is_some_and(|name| names.contains(&name)) {
+            if out.last().is_some_and(|last| last.is(",")) {
+                out.pop();
+            } else {
+                skip_comma = true;
+            }
+            continue;
+        }
+        if std::mem::take(&mut skip_comma) && token.is(",") {
+            continue;
+        }
+        out.push(token.clone());
+    }
+    out
 }
 
 /// GLSL shifts a signed literal into and past the sign bit (Rethinking Voxels marks texels
@@ -273,26 +414,57 @@ fn fold_sign_shifts(src: &[Tok]) -> Option<Vec<Tok>> {
     Some(out)
 }
 
+/// Whether the word at `src[i]` is an identifier that a `version` source may use but GLSL 4.50
+/// reserves.
+///
+/// Below its version a word still keeps its keyword meaning where the grammar puts a keyword:
+/// a qualifier is followed by another word (a qualifier, type or block name), and `layout` and
+/// `subroutine` may be followed by `(`. Variable and function names are followed by punctuation,
+/// so this keeps the keywords an `#extension` enables early, such as the `writeonly` images and
+/// `readonly buffer` blocks in Complementary's `#version 130` programs. Declared struct names
+/// stay identifiers at every use, including before another identifier or `(`.
+fn reserved_identifier(src: &[Tok], i: usize, version: u32, struct_names: &HashSet<&str>) -> bool {
+    let Some(name) = src[i].ident() else {
+        return false;
+    };
+    let Some(&(_, since)) = RESERVED_SINCE.iter().find(|(word, _)| *word == name) else {
+        return false;
+    };
+    version < since
+        && (struct_names.contains(name)
+            || match src.get(i + 1) {
+                Some(next) if next.ident().is_some() => false,
+                Some(next) if next.is("(") => !matches!(name, "layout" | "subroutine"),
+                _ => true,
+            })
+}
+
 /// Renames reserved identifiers, maps legacy built-ins and lookup functions, and gives
-/// implicit-LOD sampling outside fragment shaders an explicit LOD.
+/// implicit-LOD sampling outside fragment shaders an explicit LOD. `unbound_core_inputs`
+/// gives implicitly located core-profile vertex inputs GL's unbound value (see [`core_names`]).
 pub(super) fn rewrite(
     src: &[Tok],
     stage: StageKind,
     version: u32,
     compatibility: bool,
+    unbound_core_inputs: bool,
 ) -> Result<Legacy, TransformError> {
-    let legacy = version < 130;
     let mut sized = size_unsized_arrays(src);
     if let Some(folded) = fold_array_sizes(&sized) {
         sized = folded;
     }
-    if let Some(core) = undeclared_core_names(&sized, stage) {
+    if let Some(core) = core_names(&sized, stage, unbound_core_inputs) {
         sized = core;
     }
     if let Some(folded) = fold_sign_shifts(&sized) {
         sized = folded;
     }
     let src = &sized;
+    let struct_names: HashSet<_> = src
+        .windows(3)
+        .filter(|tokens| tokens[0].is("struct") && tokens[2].is("{"))
+        .filter_map(|tokens| tokens[1].ident())
+        .collect();
     let mut out = Legacy {
         toks: Vec::with_capacity(src.len()),
         builtins: BTreeSet::new(),
@@ -303,6 +475,9 @@ pub(super) fn rewrite(
     let toks = &mut out.toks;
     let mut pending_lod: Vec<usize> = vec![];
     let mut pending_close: Vec<usize> = vec![];
+    // Layout qualifier names "are identifiers, not keywords" (GLSL 4.20 section 4.4), so
+    // `layout(shared)` keeps its qualifier name.
+    let mut layout_args = 0..0;
     let mut i = 0;
     while i < src.len() {
         let t = &src[i];
@@ -334,8 +509,13 @@ pub(super) fn rewrite(
             i += 1;
             continue;
         }
-        if (legacy && RESERVED_SINCE_130.contains(&name)) || RESERVED_VULKAN.contains(&name) {
-            toks.push(id(&format!("_r_{name}")).at(line));
+        if name == "layout" && called && !struct_names.contains(name) {
+            layout_args = i + 2..matching(src, i + 1, "(", ")");
+        }
+        if (!layout_args.contains(&i) && reserved_identifier(src, i, version, &struct_names))
+            || RESERVED_VULKAN.contains(&name)
+        {
+            toks.push(id(&format!("{RESERVED_PREFIX}{name}")).at(line));
             i += 1;
             continue;
         }

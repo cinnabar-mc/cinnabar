@@ -103,14 +103,14 @@ pub use ui::{
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
     MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
-    MAX_UI_PACK_EQUIPMENT_PAGES, MAX_UI_SHIELD_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE,
-    UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
+    MAX_UI_PACK_EQUIPMENT_PAGES, MAX_UI_SHIELD_PAGES, MAX_UI_TEXTURE_BUCKETS, MAX_UI_TRIM_PAGES,
+    UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
     UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
     UI_NATIVE_SHEET_PAGE_OFFSET, UI_PACK_EQUIPMENT_PAGE_OFFSET, UI_PARTICLE_PAGE_OFFSET,
     UI_PLAYER_SKIN_PAGE_OFFSET, UI_SELECTED_MODEL_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET,
     UI_SESSION_GLYPH_PAGE_SIDE, UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET,
-    UI_SHIELD_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation,
-    UiTexturePage, UiTexturePlan,
+    UI_SHIELD_PAGE_OFFSET, UI_TRIM_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat,
+    UiTextureLocation, UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -215,7 +215,7 @@ pub use block_entity::{
     BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget,
 };
 pub use block_entity::{BannerLayer, BannerModel, BannerMount};
-pub use block_entity::{BedModel, bed_color};
+pub use block_entity::{BedModel, DEFAULT_BED_DYE, bed_color, bed_crack_shape};
 pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};

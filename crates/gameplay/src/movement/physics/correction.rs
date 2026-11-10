@@ -3,6 +3,21 @@
 use super::*;
 
 impl LocalPhysicsController {
+    /// Keeps failed timeline edits inside every later rewind until their frames are rebuilt.
+    pub(in crate::movement) fn require_timeline_rewind(&mut self, tick: u64) {
+        self.rewind_pending = Some(
+            self.rewind_pending
+                .map_or(tick, |pending| pending.min(tick)),
+        );
+    }
+
+    /// Returns an unresolved earlier edit, clamped to the history still available to replay.
+    pub(in crate::movement) fn rewind_before(&self, tick: u64) -> Option<u64> {
+        let pending = self.rewind_pending?;
+        let pending = pending.max(self.history.oldest_tick().unwrap_or(pending));
+        (pending < tick).then_some(pending)
+    }
+
     /// Defers travel suppression until a successful tick can retain it for replay.
     pub(in crate::movement) fn skip_next_travel_tick(&mut self) {
         self.skip_travel_pending = true;
@@ -189,6 +204,7 @@ impl LocalPhysicsController {
         tick: u64,
         world: &impl CollisionWorld,
     ) -> Result<PhysicsCorrectionPlan, PhysicsCorrectionError> {
+        let tick = self.rewind_before(tick).unwrap_or(tick);
         let current_tick = self
             .state
             .as_ref()
@@ -216,6 +232,7 @@ impl LocalPhysicsController {
         let prior_state = self.state.clone();
         let prior_climber = self.live_climber;
         let prior_position = prior_state.as_ref().map(|state| state.position);
+        let prior_sprinting = self.latest_sneak_sprint().map(|(_, sprinting)| sprinting);
         let prior_previous_position = self.previous_position;
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
@@ -243,6 +260,7 @@ impl LocalPhysicsController {
             .cloned()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
+        let mut movement_speed = anchor_controller.speed;
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
         let mut sync_state = anchor_controller.sync_state;
@@ -353,18 +371,20 @@ impl LocalPhysicsController {
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
+                    frame.prepare_speed(&mut movement_speed, modes.sprinting());
                     frame.network_height = network_height;
-                    let prepared = frame.prepare(
+                    frame.prepare(
                         &mut modes,
                         &mut anchor_state,
                         environment,
                         state,
                         input,
                         world,
-                    );
+                    )?;
+                    frame.finish_speed(&mut movement_speed, input);
                     network_height = frame.network_height;
                     spun = frame.flags.pose_word().spinning() || input.riptide.is_some();
-                    prepared
+                    Ok(())
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
@@ -501,6 +521,7 @@ impl LocalPhysicsController {
                 retained.processed.forced_sneak = frame.forced_sneak;
                 retained.processed.flight_request = frame.flight_request;
                 retained.processed.ride = frame.intent.ride;
+                retained.input.server_sprinting = frame.server_sprinting;
                 if let Some(delta) = frame.ride_delta {
                     retained.movement = delta;
                 }
@@ -547,6 +568,7 @@ impl LocalPhysicsController {
             posture::replay_actor_modes(&self.sync_pending, &mut modes);
         }
         self.modes = modes;
+        self.settle_rewound_sprint(prior_sprinting);
         if !keep_live_flags && let Some(using) = replayed_using {
             self.adopt_replayed_using_item(using);
         }
@@ -566,6 +588,7 @@ impl LocalPhysicsController {
             controller_frames.back().map_or(tick, |frame| frame.tick),
         );
         self.controller_history = controller_frames;
+        self.replayed_speed = Some(movement_speed);
         self.network_height = network_height;
         // Without replayed ticks, no producer superseded the live size or its owner.
         if !keep_live_flags {
@@ -635,6 +658,7 @@ impl LocalPhysicsController {
         // positionally instead of streaming an embedded pose indefinitely.
         self.anchor_state.rearm();
 
+        self.rewind_pending = None;
         Ok(PhysicsCorrectionPlan {
             outcome: PhysicsCorrectionOutcome::Replayed {
                 corrected_tick: replay.corrected_tick,
