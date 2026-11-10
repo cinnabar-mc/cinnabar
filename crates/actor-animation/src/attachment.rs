@@ -1,43 +1,135 @@
 //! Shared placement of evaluated item bones on an animated owner.
-use crate::{AttachableAnimationInput, AttachableBoneParent, BoneTransform};
+use crate::{
+    ActorRigSnapshot, AttachableAnimationInput, AttachableBoneParent, BoneTransform,
+    RenderTextureLayer,
+};
+use assets::RuntimeEntityAssets;
 use glam::{Quat, Vec3, Vec4};
 use render_model::RenderBoneTransform;
 
+/// The owner bones an attachable root can follow: the drawn body's, and the bones of each
+/// render-controller layer that draws its own model.
+#[derive(Clone, Copy)]
+pub struct OwnerSkeleton<'a> {
+    pub previous: &'a [RenderBoneTransform],
+    pub current: &'a [RenderBoneTransform],
+    /// Bone names of the drawn body, in pose order.
+    pub names: &'a [Box<str>],
+    /// The owner's controller layers in controller order, and the catalog their models index.
+    layers: &'a [RenderTextureLayer],
+    catalog: Option<&'a RuntimeEntityAssets>,
+}
+
+impl<'a> OwnerSkeleton<'a> {
+    /// The drawn body alone.
+    pub fn body(
+        previous: &'a [RenderBoneTransform],
+        current: &'a [RenderBoneTransform],
+        names: &'a [Box<str>],
+    ) -> Self {
+        Self {
+            previous,
+            current,
+            names,
+            layers: &[],
+            catalog: None,
+        }
+    }
+
+    /// Adds the controller layers `rig` draws, so roots also find bones only their models have.
+    pub fn with_layers(self, rig: &ActorRigSnapshot<'a>) -> Self {
+        Self {
+            layers: rig.render,
+            catalog: rig.animation_variables.asset_catalog(),
+            ..self
+        }
+    }
+
+    /// Whether a root named `name` has an owner bone to follow.
+    pub fn has(&self, name: &str) -> bool {
+        self.find(name).is_some()
+    }
+
+    /// The owner bone `name` resolves to. Vanilla searches each passing render controller's
+    /// geometry in controller order and takes the first that has the bone; the body is the
+    /// layer drawing the rig's own model, and also answers when no layer has the bone.
+    fn find(&self, name: &str) -> Option<OwnerBone<'a>> {
+        let body = || {
+            self.names
+                .iter()
+                .position(|owner| owner.eq_ignore_ascii_case(name))
+                .map(OwnerBone::Body)
+        };
+        let Some(catalog) = self
+            .catalog
+            .filter(|_| self.layers.iter().any(|layer| layer.geometry.is_some()))
+        else {
+            return body();
+        };
+        for layer in self.layers.iter().filter(|layer| layer.texture_slot == 0) {
+            let found = match layer.geometry {
+                None => body(),
+                Some(geometry) => {
+                    crate::geometry::merged_bone_index(catalog, geometry as usize, name)
+                        .filter(|&index| {
+                            index < layer.pose.len() && index < layer.previous_pose.len()
+                        })
+                        .map(|index| {
+                            OwnerBone::Layer(&layer.previous_pose[index], &layer.pose[index])
+                        })
+                }
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        body()
+    }
+
+    /// The bone's previous and current render transforms.
+    fn transforms(&self, bone: OwnerBone<'_>) -> Option<[RenderBoneTransform; 2]> {
+        match bone {
+            OwnerBone::Body(index) => Some([*self.previous.get(index)?, *self.current.get(index)?]),
+            OwnerBone::Layer(previous, current) => {
+                let convert = |bone: &BoneTransform| {
+                    RenderBoneTransform::from_model_space_scaled(
+                        bone.rotation,
+                        bone.translation_scale,
+                        bone.axis_scale,
+                    )
+                };
+                Some([convert(previous)?, convert(current)?])
+            }
+        }
+    }
+}
+
+/// Where an owner holds a named bone.
+#[derive(Clone, Copy)]
+enum OwnerBone<'a> {
+    Body(usize),
+    Layer(&'a BoneTransform, &'a BoneTransform),
+}
+
 /// Resolves the sampled owner frame inherited by an authored attachable root.
 pub fn parent_for_root(
-    previous: &[RenderBoneTransform],
-    current: &[RenderBoneTransform],
-    names: &[Box<str>],
+    owner: OwnerSkeleton<'_>,
     input: AttachableAnimationInput<'_>,
     root: AttachableBoneParent<'_>,
     model_scale: [f32; 3],
 ) -> Option<RenderBoneTransform> {
-    let owner = match root {
+    let name = match root {
         AttachableBoneParent::Actor => None,
-        AttachableBoneParent::OwnerNamed(name) => Some(
-            names
-                .iter()
-                .position(|owner| owner.eq_ignore_ascii_case(name))?,
-        ),
-        AttachableBoneParent::BindingExpression if input.worn => Some(
-            names
-                .iter()
-                .position(|owner| owner.eq_ignore_ascii_case(input.item_slot()))?,
-        ),
-        AttachableBoneParent::BindingExpression => Some(names.iter().position(|name| {
-            name.eq_ignore_ascii_case(if input.off_hand {
-                "leftItem"
-            } else {
-                "rightItem"
-            })
-        })?),
+        AttachableBoneParent::OwnerNamed(name) => Some(name),
+        AttachableBoneParent::BindingExpression if input.worn => Some(input.item_slot()),
+        AttachableBoneParent::BindingExpression if input.off_hand => Some("leftItem"),
+        AttachableBoneParent::BindingExpression => Some("rightItem"),
     };
-    let mut parent = match owner {
-        Some(index) => interpolate_parent(
-            *previous.get(index)?,
-            *current.get(index)?,
-            input.frame_alpha,
-        )?,
+    let mut parent = match name {
+        Some(name) => {
+            let [previous, current] = owner.transforms(owner.find(name)?)?;
+            interpolate_parent(previous, current, input.frame_alpha)?
+        }
         None => RenderBoneTransform {
             rotation: Quat::IDENTITY.to_array(),
             translation_scale: [0.0, 0.0, 0.0, 1.0],
@@ -134,9 +226,7 @@ mod tests {
         };
         for off_hand in [false, true] {
             let parent = parent_for_root(
-                &poses,
-                &poses,
-                &names,
+                OwnerSkeleton::body(&poses, &poses, &names),
                 AttachableAnimationInput {
                     off_hand,
                     ..Default::default()
@@ -156,15 +246,105 @@ mod tests {
     fn named_attachable_root_follows_its_matching_owner_bone() {
         let (names, poses) = owner_parents();
         let parent = parent_for_root(
-            &poses,
-            &poses,
-            &names,
+            OwnerSkeleton::body(&poses, &poses, &names),
             AttachableAnimationInput::default(),
             AttachableBoneParent::OwnerNamed("HEAD"),
             [1.0; 3],
         )
         .unwrap();
         assert_eq!(parent, poses[2]);
+    }
+
+    /// A controller layer drawing the fixture's own `geometry.item` model, posed at `pose`.
+    fn model_layer(geometry: Option<u32>, pose: BoneTransform) -> RenderTextureLayer {
+        let pose: std::sync::Arc<[BoneTransform]> = std::sync::Arc::from([pose]);
+        RenderTextureLayer {
+            render_state: None,
+            masks: None,
+            material: Default::default(),
+            material_state: None,
+            source: 0,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: std::sync::Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry,
+            previous_pose: std::sync::Arc::clone(&pose),
+            pose,
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin: false,
+            pack: false,
+        }
+    }
+
+    #[test]
+    fn a_root_follows_the_first_controller_model_that_has_its_bone() {
+        let assets = RuntimeEntityAssets::from_compiled(
+            crate::test_support::compiled_fixture().with_unresolved_admissions(),
+        )
+        .unwrap();
+        let (names, poses) = owner_parents();
+        let raised = BoneTransform {
+            rotation: Quat::from_rotation_y(0.3).to_array(),
+            translation_scale: [0.0, 1.5, 0.0, 1.0],
+            axis_scale: [1.0; 3],
+        };
+        let expected = RenderBoneTransform::from_model_space_scaled(
+            raised.rotation,
+            raised.translation_scale,
+            raised.axis_scale,
+        )
+        .unwrap();
+        let parent = |layers: &[RenderTextureLayer], root| {
+            parent_for_root(
+                OwnerSkeleton {
+                    layers,
+                    catalog: Some(&assets),
+                    ..OwnerSkeleton::body(&poses, &poses, &names)
+                },
+                AttachableAnimationInput::default(),
+                root,
+                [1.0; 3],
+            )
+        };
+        let hat = model_layer(Some(0), raised);
+        let body = model_layer(None, BoneTransform::default());
+        // An earlier controller's model has the item bone, so the root follows that model.
+        let ahead = [hat.clone(), body.clone()];
+        assert_eq!(
+            parent(&ahead, AttachableBoneParent::OwnerNamed("rightItem")),
+            Some(expected)
+        );
+        // Bones only the body has still follow the body.
+        assert_eq!(
+            parent(&ahead, AttachableBoneParent::OwnerNamed("head")),
+            Some(poses[2])
+        );
+        // The body drawn first keeps its own bone.
+        let behind = [body, hat];
+        assert_eq!(
+            parent(&behind, AttachableBoneParent::OwnerNamed("rightItem")),
+            Some(poses[0])
+        );
+        // A bone only a controller model has is found there instead of being lost.
+        let only_layer: Vec<Box<str>> = vec!["head".into()];
+        assert_eq!(
+            parent_for_root(
+                OwnerSkeleton {
+                    layers: &behind,
+                    catalog: Some(&assets),
+                    ..OwnerSkeleton::body(&poses[2..], &poses[2..], &only_layer)
+                },
+                AttachableAnimationInput::default(),
+                AttachableBoneParent::BindingExpression,
+                [1.0; 3],
+            ),
+            Some(expected)
+        );
     }
 
     #[test]
@@ -176,9 +356,7 @@ mod tests {
         });
         for off_hand in [false, true] {
             let parent = parent_for_root(
-                &previous,
-                &poses,
-                &names,
+                OwnerSkeleton::body(&previous, &poses, &names),
                 AttachableAnimationInput {
                     off_hand,
                     frame_alpha: 0.5,

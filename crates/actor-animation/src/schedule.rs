@@ -375,6 +375,13 @@ fn initially_admitted(
     catalog.is_some_and(|catalog| !culled(view, exempt, state, actor, catalog))
 }
 
+/// A box enclosing any view, for a controller model without authored visible bounds; finite so
+/// plane tests stay well defined.
+const UNBOUNDED_MODEL: assets::SkinGeometryBounds = assets::SkinGeometryBounds {
+    center: [0.0; 3],
+    half_extents: [1.0e6; 3],
+};
+
 /// Whether the rig sits outside the animation view on both of its last two positions.
 fn culled(
     view: Option<&ActorAnimationView>,
@@ -388,15 +395,29 @@ fn culled(
     };
     let scale = model_scale(state, assets) * actor.render_scale();
     let player = matches!(actor.kind(), ActorKind::Player { .. });
-    let bounds = if let Some(skin) = state.skin_skeleton() {
+    let base = assets.rig_geometries().get(state.geometry_binding);
+    let mut bounds = if let Some(skin) = state.skin_skeleton() {
         skin.prepared.geometry.visible_bounds.unwrap_or_default()
     } else {
-        assets
-            .rig_geometries()
-            .get(state.geometry_binding)
-            .and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
+        base.and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
             .unwrap_or_default()
     };
+    // A player's rig keeps its default model while its controllers draw other models beside it,
+    // so any of those reaching into view keeps it animating. A model without authored bounds
+    // passes the frustum test, but the player distance limit still applies.
+    if player {
+        for &geometry in state
+            .layer_skeletons
+            .keys()
+            .filter(|&&geometry| base.is_none_or(|base| base.geometry != geometry))
+        {
+            bounds = bounds.union(
+                assets
+                    .geometry_visible_bounds(geometry as usize)
+                    .unwrap_or(UNBOUNDED_MODEL),
+            );
+        }
+    }
     let bounds = crate::actor_culling_bounds(bounds, actor, scale);
     !view.admits(actor.position(), scale, player, bounds)
         && !view.admits(actor.previous_position(), scale, player, bounds)
