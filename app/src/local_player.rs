@@ -125,18 +125,21 @@ pub(crate) fn sync_world_point_light_from_local_player(
     world: Res<ClientWorld>,
     player: Option<Res<client_state::PlayerRuntime>>,
     ui: Option<Res<client_shell::ui_resources::UiRuntimeResource>>,
-    menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    #[cfg(not(target_arch = "wasm32"))] menu: Option<Res<client_shell::menu::MenuRuntime>>,
     light: Option<ResMut<render_scene::WorldPointLight>>,
 ) {
     let Some(mut light) = light else {
         return;
     };
+    #[cfg(not(target_arch = "wasm32"))]
     let enabled = menu.as_deref().is_some_and(|menu| {
         menu.settings_snapshot()
             .0
             .value(launcher::menu::settings_options::SettingId::DynamicLights)
             != 0
     });
+    #[cfg(target_arch = "wasm32")]
+    let enabled = false;
     if light.enabled != enabled {
         light.enabled = enabled;
     }
