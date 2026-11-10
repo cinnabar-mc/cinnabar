@@ -1,20 +1,66 @@
 //! Shared native GUI item coordinates for offline fallback baking and runtime model drawing.
-//! The matching 1.26.50.26 witnesses are recorded in docs/reference/inventory-gui-geometry.md.
+//! The matching 1.26.60.26 witnesses are recorded in docs/reference/inventory-gui-geometry.md.
 
 use crate::{BlockFace, EntityGeometryCube, EntityGeometryUv};
 
 mod block_model;
 mod cube_model;
+mod dried_ghast;
+mod dripleaf;
+pub use dripleaf::dripleaf_quads;
+mod lighting;
+pub use lighting::{CubeLighting, cube_lighting};
+mod sculk_sensor;
+mod sculk_shrieker;
+mod shading;
 pub use block_model::{
-    GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_item_quads,
-    cube_face, face_brightness, material_tile,
+    BlockModelOrder, GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE,
+    block_gui_quads, block_item_quads, carried_bamboo_fence_quads, carried_fence_quads,
+    carried_wall_quads, cube_face, face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
+pub use dried_ghast::{DRIED_GHAST_TENTACLES, dried_ghast_quads};
+pub use sculk_sensor::{
+    SENSOR_CRYSTAL_MATERIAL, SENSOR_TENDRIL_BRIGHTNESS, SENSOR_TENDRIL_MATERIAL, sculk_sensor_quads,
+};
+pub use sculk_shrieker::sculk_shrieker_quads;
+pub use shading::{GuiShading, WORLD_SHADE_DOWN, WORLD_SHADE_UP, WORLD_SHADE_X, WORLD_SHADE_Z};
+
+/// Block items with an inventory bitmap whose held presentation retains the world model.
+#[must_use]
+pub fn has_carried_bitmap_shape(name: &str) -> bool {
+    use crate::facts::pack::PackBlock as B;
+    [
+        B::DriedGhast,
+        B::SculkSensor,
+        B::CalibratedSculkSensor,
+        B::SculkShrieker,
+        B::BigDripleaf,
+        B::SmallDripleaf,
+    ]
+    .iter()
+    .any(|kind| name == kind.identifier())
+}
+
+/// Glass panes hold a solid plate; other pane-family blocks retain their sprite artwork.
+#[must_use]
+pub fn has_carried_glass_plate(name: &str) -> bool {
+    name == crate::facts::pack::PackBlock::GlassPane.identifier()
+        || crate::facts::block_render_fact(name).kind == crate::facts::BlockRenderKind::StainedPane
+}
+
+/// Keeps accepted copper-grate GUI samples opaque independently of control fades.
+#[must_use]
+pub fn forces_covered_gui_alpha(kind: crate::facts::BlockRenderKind) -> bool {
+    kind == crate::facts::BlockRenderKind::CopperGrate
+}
 
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.
 pub const GUI_ITEM_SIDE: f32 = 16.0;
 /// First accepted alpha byte for non-blended block GUI texels.
 pub const GUI_BLOCK_ALPHA_THRESHOLD: u8 = 128;
+/// Minimum sampled coverage for carried block faces, after source alpha normalization.
+pub const GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD: f32 = 0.1;
 pub const CUBE_SCALE: f32 = 10.0;
 pub const CUBE_OFFSET: [f32; 2] = [1.0, f32::from_bits(0x4147_ae14)];
 /// Canonical `[sin(X), cos(X), sin(Y), cos(Y)]` for native Rx(210°) Ry(45°).
@@ -32,7 +78,6 @@ pub const SHIELD_GUI_ROTATION_RADIANS: f32 = f32::from_bits(0x3f06_0a92);
 pub const SHIELD_ALPHA_CUTOFF: f32 = 0.5;
 pub const SHIELD_ROOT_BONE: &str = "shield";
 pub const SHIELD_IDENTIFIER: &str = crate::facts::VanillaItem::Shield.identifier();
-pub const SHULKER_GUI_LIGHT: f32 = f32::from_bits(0x3f3a_e148);
 pub const SHIELD_FACE_CORNERS: [[usize; 4]; 6] = [
     [3, 2, 1, 0],
     [6, 7, 4, 5],
@@ -79,6 +124,17 @@ pub fn project_cube([x, y, z]: [f32; 3]) -> [f32; 3] {
     ]
 }
 
+/// Carried dried-ghast block coordinates through the enlarged inventory camera.
+#[must_use]
+pub fn project_dried_ghast(point: [f32; 3]) -> [f32; 3] {
+    let projected = project_cube(point);
+    [
+        CUBE_OFFSET[0] + (projected[0] - CUBE_OFFSET[0]) * 1.2 - 1.0,
+        CUBE_OFFSET[1] + (projected[1] - CUBE_OFFSET[1]) * 1.2 - 1.0,
+        projected[2] * 1.2,
+    ]
+}
+
 /// Closed conduit model-part coordinates through its inventory matrix, in design pixels.
 #[must_use]
 pub fn project_conduit(point: [f32; 3]) -> [f32; 3] {
@@ -100,6 +156,19 @@ pub fn project_decorated_pot([x, y, z]: [f32; 3]) -> [f32; 3] {
         CUBE_SCALE,
         f32::from_bits(0xc027_8d36),
         f32::from_bits(0xbf49_0fdb),
+    )
+}
+
+/// Standing statue rig coordinates through the serialized-actor inventory camera.
+#[must_use]
+pub fn project_statue([x, y, z]: [f32; 3]) -> [f32; 3] {
+    let origin_y = SHIELD_MODEL_PART_HEIGHT - 0.9 / SHIELD_MODEL_UNIT;
+    project_entity(
+        [x, y - origin_y, z],
+        [8.0, 9.0, -10.0],
+        9.0,
+        f32::from_bits(0xc027_8d36),
+        f32::from_bits(0xc01c_61aa),
     )
 }
 

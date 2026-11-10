@@ -65,7 +65,8 @@ fn start_view_intent(env: &mut JNIEnv, context: &JObject, url: &str) -> jni::err
     Ok(())
 }
 
-/// Opens the Storage Access Framework picker and blocks until the user chooses or cancels.
+/// Opens the Storage Access Framework picker over every document and blocks until the user
+/// chooses or cancels; the caller checks filename extensions.
 ///
 /// Returns private copies of the chosen documents, an empty list on cancellation, `None` when no
 /// activity or document provider could show the picker, or an error when a document exceeds

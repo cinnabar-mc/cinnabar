@@ -40,7 +40,15 @@ pub(crate) fn press(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+    item_use: Res<client_interaction::item_use::ItemUseRuntime>,
+    mut attack_cues: bevy::prelude::MessageWriter<client_audio::audio::predicted::LocalAttackCue>,
+    mut block_use: Option<ResMut<client_interaction::block_use::BlockUseRuntime>>,
 ) {
+    // An earlier use edge in this batch may have started eating or drawing.
+    if item_use.vetoes_attack(&player, context.client_world.stream.as_ref()) {
+        gameplay::movement::note_click_drop("attack", gameplay::melee::USING_ITEM);
+        return;
+    }
     let Some(selection) = hand_interaction_selection(&player) else {
         return;
     };
@@ -70,7 +78,15 @@ pub(crate) fn press(
         runtime.cancel_press();
         return;
     };
-    let press = PressContext {
+    let mut press = PressContext {
+        refused_destroy: None,
+        actor_life: match picked.crosshair {
+            Crosshair::Actor(hit) => stream
+                .authority()
+                .actor(hit.runtime_id)
+                .map(|actor| actor.life().life),
+            _ => None,
+        },
         tick: sample.tick,
         player_position: sample.position,
         input_mode: protocol_input_mode(input.context.mode),
@@ -99,12 +115,20 @@ pub(crate) fn press(
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let mining_active = gameplay::survival_mining::mining_active(caps, focused, true);
-    let destroy = (picked.crosshair == Crosshair::Block && mining_active)
+    // A block press is refused at its start even where the game mode cannot mine.
+    let observation = (picked.crosshair == Crosshair::Block && focused)
         .then(|| {
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.context.origin,
+                {
+                    let (origin, ticked) = input.context.attack.block_pick();
+                    crate::survival_mining::DestroyPick {
+                        origin,
+                        ticked,
+                        held: None,
+                    }
+                },
                 caps,
                 input.context.mode,
                 input.context.identity,
@@ -112,6 +136,16 @@ pub(crate) fn press(
             )
         })
         .flatten();
+    let destroy = match observation {
+        Some(crate::survival_mining::DestroyObservation::Refused(refused)) => {
+            press.refused_destroy = Some(refused);
+            None
+        }
+        Some(crate::survival_mining::DestroyObservation::Target(target)) if mining_active => {
+            Some(target)
+        }
+        _ => None,
+    };
     let authority = player
         .facts
         .server_authoritative_block_breaking()
@@ -136,7 +170,9 @@ pub(crate) fn press(
             local_runtime_id: press.local_runtime_id,
         },
         gameplay::melee::AttackEffects {
-            send: |packets| network.send_inventory_packets(packets),
+            send: |packets| {
+                network.send_inventory_packets(crosshair::capture_packets(packets, picked.capture))
+            },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed).0),
             request_id: |slot, damage| {
                 player
@@ -160,8 +196,18 @@ pub(crate) fn press(
             "attack press admitted"
         );
     }
-    for request in admitted.cancelled_mining_requests {
-        player.inventory.ledger_mut().cancel_mining_request(request);
+    admitted
+        .mining
+        .settle_inventory(player.inventory.ledger_mut());
+    if let Some(hit) = admitted.actor_attack {
+        if let Some(block_use) = block_use.as_deref_mut() {
+            block_use.record_actor_use(
+                context.ui.session_id(),
+                hit.runtime_id,
+                context.time.elapsed(),
+            );
+        }
+        attack_cues.write(super::attack_cue(&context, hit.runtime_id));
     }
     if let Some(tick) = admitted.rotation_tick
         && let Some(rotation) = picked.action_rotation

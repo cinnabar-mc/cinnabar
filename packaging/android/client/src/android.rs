@@ -21,6 +21,7 @@ struct Runtime {
     application_id: String,
     core_library: String,
     compiler_library: String,
+    shaderpack_worker_library: String,
 }
 
 fn runtime() -> &'static Runtime {
@@ -33,7 +34,11 @@ fn runtime() -> &'static Runtime {
 
 /// The install layout for the app's private files and the APK's native-library directory.
 fn layout(files_dir: &Path, native_library_dir: &Path) -> InstallLayout {
-    InstallLayout::android(files_dir, native_library_dir.join(&runtime().core_library))
+    InstallLayout::android(
+        files_dir,
+        native_library_dir.join(&runtime().core_library),
+        native_library_dir.join(&runtime().shaderpack_worker_library),
+    )
 }
 
 #[bevy::prelude::bevy_main]
@@ -46,12 +51,51 @@ fn main() {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("{} failed: {error:#}", launcher::PRODUCT_NAME);
+            if let Err(display_error) = show_startup_failure(&error) {
+                eprintln!("Cannot show startup failure: {display_error:#}");
+            }
             1
         }
     };
     // Bevy's activity handle and winit's event loop are once per process, so a later launch
     // needs a fresh process; the activity's onDestroy also ends it.
     std::process::exit(code);
+}
+
+/// Shows the native error dialog and services activity events until Android closes the app.
+fn show_startup_failure(error: &anyhow::Error) -> Result<()> {
+    let app = ANDROID_APP
+        .get()
+        .context("Android activity is unavailable")?;
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }?;
+    let mut env = vm.attach_current_thread()?;
+    let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+    let message = env.new_string(format!("{error:#}"))?;
+    env.call_method(
+        &activity,
+        "startupFailed",
+        "(Ljava/lang/String;)V",
+        &[(&message).into()],
+    )?;
+    loop {
+        let mut destroyed = false;
+        let mut input_available = false;
+        app.poll_events(None, |event| {
+            use bevy::android::android_activity::{MainEvent, PollEvent};
+            match event {
+                PollEvent::Main(MainEvent::Destroy) => destroyed = true,
+                PollEvent::Main(MainEvent::InputAvailable) => input_available = true,
+                _ => {}
+            }
+        });
+        if destroyed {
+            return Ok(());
+        }
+        if input_available {
+            let mut events = app.input_events_iter()?;
+            while events.next(|_| bevy::android::android_activity::InputStatus::Unhandled) {}
+        }
+    }
 }
 
 fn run_client() -> Result<()> {
@@ -63,6 +107,7 @@ fn run_client() -> Result<()> {
         .context("Android reported no private files directory")?;
     configure_android(layout(&files_dir, &native_library_dir(app)?))?;
     cinnabar::startup_feedback::observe(startup_progress, startup_generation);
+    cinnabar::platform_devices::ingress::set_capture_driver(set_pointer_capture_enabled);
     if cinnabar::lifecycle::before_run(false)? {
         cinnabar::run(cinnabar::args::ClientArgs {
             force_vsync: true,
@@ -134,4 +179,27 @@ fn startup_generation() -> u64 {
             .j()? as u64)
     })();
     read.unwrap_or_default()
+}
+
+/// Requests or releases native Android pointer capture via CinnabarActivity.
+fn set_pointer_capture_enabled(enabled: bool) {
+    let call = (|| -> Result<()> {
+        let app = ANDROID_APP
+            .get()
+            .context("Android activity is unavailable")?;
+        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }?;
+        let mut env = vm.attach_current_thread()?;
+        let activity = unsafe { JObject::from_raw(app.activity_as_ptr().cast()) };
+        env.call_method(
+            &activity,
+            "setPointerCaptureEnabled",
+            "(Z)V",
+            &[jni::objects::JValue::Bool(u8::from(enabled))],
+        )?;
+        Ok(())
+    })();
+    if let Err(error) = call {
+        bevy::log::warn!("failed to set pointer capture: {error:#}");
+        cinnabar::platform_devices::ingress::forget_platform_pointer_capture_request();
+    }
 }

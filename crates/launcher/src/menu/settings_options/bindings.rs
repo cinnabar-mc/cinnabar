@@ -2,10 +2,6 @@
 
 use semantic_input::{Action, PhysicalControl};
 
-/// Whether this build offers shader-pack controls; the app enables it with its
-/// `shaderpacks` feature, alongside `render_model::SHADER_PACKS_ENABLED`.
-pub const SHADER_PACK_BINDINGS: bool = cfg!(feature = "shaderpacks");
-
 /// A row in a device's action or supplemental binding grid.
 #[derive(Clone, Copy, Debug)]
 pub enum DeviceRow {
@@ -134,8 +130,16 @@ bindings! {
         None, false, None;
     DebugOverlay => "key.debugOverlay", None, Some(DeviceRow::Extra(8, Some(PhysicalControl::KeyboardUsage(0x3c)))), None,
         None, false, Some("Debug Overlay");
-    // Iris's "Reload Shaders" on R; only builds that compile shader packs offer the row.
-    ReloadShaders => "key.reloadShaders", None, if SHADER_PACK_BINDINGS { Some(DeviceRow::Extra(9, Some(PhysicalControl::KeyboardUsage(0x15)))) } else { None }, None,
+    // Vanilla's keyboard default (`_populateKeyboardDefaults`) puts Mob Effects on Z.
+    MobEffects => "key.mobEffects", None, Some(DeviceRow::Extra(9, Some(PhysicalControl::KeyboardUsage(0x1d)))), None,
+        None, false, None;
+    // Vanilla's keyboard default (`_populateKeyboardDefaults`) puts Menu Cancel on the Back mouse
+    // button (mouse code 4 here), after Mob Effects. Screens also cancel on the fixed Escape and
+    // platform Back keys, which are not part of this binding.
+    MenuCancel => "key.menuCancel", None, Some(DeviceRow::Extra(10, Some(PhysicalControl::MouseButton(4)))), None,
+        None, false, None;
+    // Iris's "Reload Shaders" on R.
+    ReloadShaders => "key.reloadShaders", None, Some(DeviceRow::Extra(11, Some(PhysicalControl::KeyboardUsage(0x15)))), None,
         None, false, Some("Reload Shaders");
     CycleItemLeft => "key.cycleItemLeft", Some(Action::HotbarPrevious), None, Some(DeviceRow::Action(6)),
         None, false, None;

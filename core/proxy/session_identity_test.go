@@ -18,7 +18,7 @@ import (
 func TestSessionDialerDerivesSelfSignedIDFromCoreDevice(t *testing.T) {
 	t.Parallel()
 	profile := device.Profile{
-		OS: protocol.DeviceAndroid, Model: device.Models(protocol.DeviceAndroid)[0],
+		OS: protocol.DeviceAndroid, Model: "Fixture Android",
 		ID: "00112233445566778899aabbccddeeff",
 	}
 	for _, test := range []struct {
@@ -121,7 +121,7 @@ func TestSessionDownstreamKeepsCallerIdentityWithoutCoreDevice(t *testing.T) {
 
 func TestSessionDownstreamRejectsMissingCoreDeviceID(t *testing.T) {
 	t.Parallel()
-	profile := device.New(protocol.DeviceAndroid)
+	profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	profile.ID = ""
 	if _, err := newSessionDownstream(testSessionConnect(t), &profile); !errors.Is(err, errMalformedSession) {
 		t.Fatalf("missing core device ID: %v", err)
@@ -197,7 +197,7 @@ func TestSessionDialerSelfSignedIDVectors(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			profile := device.New(protocol.DeviceAndroid)
+			profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 			profile.ID = "audit-device-id"
 			downstream, err := newSessionDownstream(request, &profile)
 			if err != nil {

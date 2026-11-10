@@ -215,10 +215,10 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         args.root.join("assets/bedrock-target.json"),
     )?)?;
     let block: serde_json::Value = serde_json::from_slice(&std::fs::read(
-        args.root.join("assets/block-projection-v2193.json"),
+        args.root.join("assets/block-projection-v2225.json"),
     )?)?;
     let biome: serde_json::Value = serde_json::from_slice(&std::fs::read(
-        args.root.join("assets/biome-projection-v2193.json"),
+        args.root.join("assets/biome-projection-v2225.json"),
     )?)?;
     let artifact = |name: &str| -> Result<PathBuf> {
         Ok(PathBuf::from(
@@ -237,8 +237,8 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         .to_string_lossy();
     let seed_path =
         physics_path.with_file_name(filename.replace("block-physics-", "block-physics-seed-"));
-    let block_manifest = PathBuf::from("assets/block-projection-v2193.json");
-    let biome_manifest = PathBuf::from("assets/biome-projection-v2193.json");
+    let block_manifest = PathBuf::from("assets/block-projection-v2225.json");
+    let biome_manifest = PathBuf::from("assets/biome-projection-v2225.json");
     registry_policy::blocks(
         &args.root,
         facts,
@@ -345,9 +345,9 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
             &PathBuf::from(registry_policy::events::GENERATED_PATH),
             &PathBuf::from(registry_policy::identities::GENERATED_PATH),
             &PathBuf::from(registry_policy::presentation::GENERATED_PATH),
-            &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
+            &PathBuf::from("crates/assets/data/facts-expansion-v2225.tsv"),
             &PathBuf::from(assets::facts::BLOCK_PLACEMENT_SOURCE_PATH),
-            &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
+            &PathBuf::from("crates/assets/data/vocabulary-v2225.txt"),
             &item_path,
             &item_expansion,
             &block_path,

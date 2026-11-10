@@ -9,13 +9,34 @@ pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
 /// Server-pack held models are enabled until the player chooses item icons.
 pub const DEFAULT_SHOW_CUSTOM_ITEM_MODELS: bool = true;
+/// Other players' catalog cosmetics are visible until the player opts out.
+pub const DEFAULT_SHOW_OTHER_PLAYER_COSMETICS: bool = true;
 /// Default and slider bounds for the field-of-view option, in degrees.
 pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
 pub const MAX_FOV_DEGREES: i32 = 130;
 
-/// Desktop vanilla starts with two coverage samples per pixel.
-pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+/// Whether this build runs on a platform Bedrock classifies as Mobile.
+const MOBILE_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
+/// Coverage samples per pixel this platform starts with.
+pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = default_anti_aliasing_samples(MOBILE_PLATFORM);
+
+/// Bedrock's starting coverage samples: one (off) on Mobile platforms, two on desktop and
+/// console platforms.
+const fn default_anti_aliasing_samples(mobile: bool) -> u32 {
+    if mobile { 1 } else { 2 }
+}
+
+/// Lowest supported world-rendering resolution relative to the output.
+pub const MIN_RENDER_SCALE_PERCENT: u8 = 10;
+/// Native world-rendering resolution relative to the output.
+pub const MAX_RENDER_SCALE_PERCENT: u8 = 100;
+/// RCAS sharpening is enabled when reconstructing a reduced world image.
+pub const DEFAULT_RENDER_SCALE_SHARPEN: bool = true;
+/// FSR1 RCAS sharpness in stops, where zero is strongest and each stop halves strength.
+pub const FSR_SHARPNESS_STOPS: f32 = 0.2;
+/// Native world resolution remains the default; menus and the HUD stay at output resolution.
+pub const DEFAULT_RENDER_SCALE_PERCENT: u8 = MAX_RENDER_SCALE_PERCENT;
 #[path = "settings/render_distance.rs"]
 mod render_distance;
 pub use render_distance::{
@@ -185,6 +206,10 @@ pub struct VideoSettings {
     pub vsync: render_api::VsyncMode,
     pub vrr: VrrPreference,
     pub anti_aliasing_samples: u32,
+    /// World resolution relative to the output; menus and the HUD stay at output resolution.
+    pub render_scale_percent: u8,
+    /// Applies RCAS sharpening after FSR1 world upscaling.
+    pub render_scale_sharpen: bool,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
@@ -208,6 +233,8 @@ pub struct VideoSettings {
     pub java_animations: bool,
     /// Draws server-pack custom held-item models instead of their ordinary item icons.
     pub show_custom_item_models: bool,
+    /// Draws other players' catalog cosmetics and their effects.
+    pub show_other_player_cosmetics: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
     /// When to draw cached terrain past the render distance.
@@ -225,6 +252,8 @@ impl Default for VideoSettings {
             vsync: render_api::VsyncMode::DEFAULT,
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
+            render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
+            render_scale_sharpen: DEFAULT_RENDER_SCALE_SHARPEN,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
@@ -242,6 +271,7 @@ impl Default for VideoSettings {
             damage_bob: 1.0,
             java_animations: false,
             show_custom_item_models: DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
+            show_other_player_cosmetics: DEFAULT_SHOW_OTHER_PLAYER_COSMETICS,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
             // Far terrain has no setting while it is disabled.
             far_terrain: render_api::far_terrain::FarTerrainMode::Off,
@@ -259,6 +289,8 @@ pub struct GameplaySettings {
     pub always_sprint: bool,
     /// Sneak key toggles a persistent sneak instead of requiring hold.
     pub toggle_sneak: bool,
+    /// How touch controls move and interact.
+    pub touch_control_mode: semantic_input::TouchControlMode,
 }
 
 /// World rendering path. `Enhanced` and `ShaderPack` are opt-in custom looks that never
@@ -343,6 +375,17 @@ mod tests {
 #[cfg(test)]
 mod antialiasing_tests {
     use super::*;
+
+    /// Mobile platforms start without multisampling, while desktop keeps two samples.
+    #[test]
+    fn anti_aliasing_default_follows_the_platform_type() {
+        assert_eq!(default_anti_aliasing_samples(true), 1);
+        assert_eq!(default_anti_aliasing_samples(false), 2);
+        assert_eq!(
+            UserSettings::default().video.anti_aliasing_samples,
+            default_anti_aliasing_samples(MOBILE_PLATFORM)
+        );
+    }
 
     #[test]
     fn spatial_antialiasing_defaults_off_and_round_trips_setting_values() {

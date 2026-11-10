@@ -440,6 +440,7 @@ impl super::RigSource for GlintSource<'_> {
             texture: super::LayerTexture {
                 texture: self.texture,
                 layer: 0,
+                compose: super::LayerCompose::Plain,
             },
             runtime_id: None,
             camera: true,
@@ -784,7 +785,13 @@ fn actor_kernel_workgroup_sizes_match_host_dispatch() {
 
 #[test]
 fn actor_stream_failure_keeps_world_replacement_and_native_actors() {
-    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -840,6 +847,8 @@ fn actor_stream_failure_keeps_world_replacement_and_native_actors() {
     ));
     let output_layout =
         bevy::render::render_resource::BindGroupLayout::from(layout(super::skin::output_layout()));
+    let compose_layout =
+        bevy::render::render_resource::BindGroupLayout::from(layout(super::compose::layout()));
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl("@compute @workgroup_size(1) fn main() {}".into()),
@@ -878,9 +887,11 @@ fn actor_stream_failure_keeps_world_replacement_and_native_actors() {
         kernels: Some(super::skin::SkinKernels {
             rig: &pipeline,
             block_entities: &pipeline,
+            compose: &pipeline,
             rig_layout: &rig_layout,
             block_entity_layout: &block_layout,
             output_layout: &output_layout,
+            compose_layout: &compose_layout,
         }),
         ..Default::default()
     };

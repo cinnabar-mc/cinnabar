@@ -90,6 +90,7 @@ fn install(app: &mut App) {
         crate::shader_safety::from_wgsl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<OverlayPipeline>()
@@ -101,7 +102,7 @@ fn install(app: &mut App) {
                 prepare_overlay.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_overlay
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -567,12 +568,12 @@ fn queue_overlay(
             OverlayPipelineKey {
                 msaa: *msaa,
                 hdr: extracted_camera.hdr,
-                after_hand: ui.is_some() || (cfg!(feature = "shaderpacks") && pack_view),
+                after_hand: ui.is_some() || (pack_view),
             },
         ) else {
             continue;
         };
-        if ui.is_some() || (cfg!(feature = "shaderpacks") && pack_view) {
+        if ui.is_some() || (pack_view) {
             gpu.view_pipelines.insert(view_entity, pipeline_id);
             continue;
         }

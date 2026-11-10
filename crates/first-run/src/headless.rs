@@ -4,6 +4,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     sync::atomic::{AtomicBool, Ordering},
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -11,9 +12,11 @@ use launcher::install_layout::InstallLayout;
 use launcher_host::local_worlds::WorldError;
 
 use crate::{
-    CONSENT_BODY, Outcome, consent_recorded, prepare, record_consent, reporter, runner,
+    CONSENT_BODY, Outcome, Progress, consent_recorded, prepare, record_consent, reporter, runner,
+    screen::Meter,
     setup_title,
     status::{Phase, Status},
+    updating,
 };
 
 const LOCAL_WORLDS_LABEL: &str = "Preparing local worlds";
@@ -42,11 +45,12 @@ impl Pending {
     }
 }
 
-/// Whether a packaged install lacks current carriers, the only setup stage the game requires.
+/// Whether a packaged install lacks current carriers or kept vanilla textures.
 /// Local worlds are optional, so remote servers stay playable when their preparation fails.
 pub(super) fn assets_needed(layout: &InstallLayout) -> bool {
     layout.is_installed()
-        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
+        && (!prepare::selection(layout).is_ok_and(|selection| selection.is_current())
+            || !prepare::vanilla_textures_kept(layout))
 }
 
 /// Desktop setup never downloads a server, even when the host can run local worlds.
@@ -119,17 +123,29 @@ impl Preparer for Installed {
 }
 
 /// Prepares without a window or dialogs, as Android's setup activity does. `consent` asks with a
-/// title and body only when none is recorded, and `progress` receives each status line. Android
-/// prepares local worlds after assets and before reporting readiness. Asset failures fail setup;
+/// title and body only when none is recorded, and `progress` receives each update to display;
+/// failures arrive as the returned error instead. Android prepares local worlds after assets and before reporting readiness. Asset failures fail setup;
 /// a BDS preparation failure is logged and reported, and setup still finishes so the game can
 /// join remote servers and other local worlds. Setting `cancel` quits setup without reporting readiness.
 pub fn prepare_headless(
     layout: &InstallLayout,
     cancel: &AtomicBool,
     consent: impl FnOnce(&str, &str) -> bool,
-    progress: impl FnMut(&str),
+    mut progress: impl FnMut(&Progress),
 ) -> Result<Outcome> {
-    prepare_with(layout, cancel, consent, progress, &mut Installed)
+    let updating = updating(layout);
+    let mut meter = Meter::default();
+    prepare_with(
+        layout,
+        cancel,
+        consent,
+        |status: &Status| {
+            if let Some(update) = Progress::new(status, &mut meter, Instant::now(), updating) {
+                progress(&update);
+            }
+        },
+        &mut Installed,
+    )
 }
 
 /// Runs the same setup flow with explicit preparation operations.
@@ -137,7 +153,7 @@ fn prepare_with(
     layout: &InstallLayout,
     cancel: &AtomicBool,
     consent: impl FnOnce(&str, &str) -> bool,
-    mut progress: impl FnMut(&str),
+    progress: impl FnMut(&Status),
     preparer: &mut impl Preparer,
 ) -> Result<Outcome> {
     if cancel.load(Ordering::Relaxed) {
@@ -150,7 +166,7 @@ fn prepare_with(
     if !pending.any() {
         return Ok(Outcome::NotNeeded);
     }
-    let mut report = reporter(layout, |status: &Status| progress(&status.summary()));
+    let mut report = reporter(layout, progress);
     let needs_consent = !consent_recorded(layout);
     if needs_consent {
         report(Status::awaiting_consent());
@@ -171,12 +187,12 @@ fn prepare_with(
             ensure_active(cancel)?;
         }
         if pending.local_worlds {
-            report(Status::new(Phase::Running, 1, 1, LOCAL_WORLDS_LABEL));
+            report(Status::new(Phase::LocalWorlds, 1, 1, LOCAL_WORLDS_LABEL));
             ensure_active(cancel)?;
             let mut previous = LOCAL_WORLDS_LABEL.to_owned();
             let prepared = preparer.local_worlds(layout, cancel, &mut |line| {
                 if line != previous {
-                    report(Status::new(Phase::Running, 1, 1, line));
+                    report(Status::new(Phase::LocalWorlds, 1, 1, line));
                     previous = line.to_owned();
                 }
             });
@@ -186,7 +202,12 @@ fn prepare_with(
                 Err(error) => {
                     ensure_active(cancel)?;
                     log_local_worlds_failure(layout, &error);
-                    report(Status::new(Phase::Running, 1, 1, LOCAL_WORLDS_UNAVAILABLE));
+                    report(Status::new(
+                        Phase::LocalWorlds,
+                        1,
+                        1,
+                        LOCAL_WORLDS_UNAVAILABLE,
+                    ));
                 }
             }
         }

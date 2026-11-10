@@ -1,8 +1,97 @@
 //! Touchscreen entry and layout editing states with anonymous controls.
 use super::*;
 
+/// Utility states rendered with anonymous players and representative diagnostics.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy)]
+pub(crate) enum TouchUtilityView {
+    Closed,
+    Menu,
+    PlayerList,
+    DebugOverlay,
+    /// Sample mod-registered buttons beside the built-in controls, one held.
+    ModButtons,
+    /// The gameplay controls of one Control mode.
+    ControlMode(semantic_input::TouchControlMode),
+}
+
 /// Touchscreen settings and actual editor interactions at the standard capture viewport.
 pub(super) const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mode-touch",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::TouchUtilities(TouchUtilityView::ControlMode(
+                semantic_input::TouchControlMode::Touch,
+            ))
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mode-classic",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::TouchUtilities(TouchUtilityView::ControlMode(
+                semantic_input::TouchControlMode::Classic,
+            ))
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mode-crosshair",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::TouchUtilities(TouchUtilityView::ControlMode(
+                semantic_input::TouchControlMode::Crosshair,
+            ))
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-player-list",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::PlayerList),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-debug-overlay",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::DebugOverlay),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mod-buttons",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::ModButtons),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-closed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::Closed),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-open",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::Menu),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-tall",
+        size: [1080, 1920],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::Menu),
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "touch-editor-default-tall",
@@ -44,6 +133,20 @@ pub(super) const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::TouchEditor { phase: 2 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-editor-resized",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchEditor { phase: 4 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-editor-resized-saved",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchEditor { phase: 5 },
     },
     #[cfg(feature = "test-support")]
     State {

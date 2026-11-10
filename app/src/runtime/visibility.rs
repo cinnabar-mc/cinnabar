@@ -3,7 +3,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::{
     Add, Entity, Has, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
 };
-use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
+use chunk_pipeline::{CaveVisibilityRebuild, CaveVisibilityWork, CaveVisibleSet, WorldStream};
 use render_scene::{
     ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler, shaderpack::ShaderPackRendering,
 };
@@ -25,6 +25,7 @@ pub(crate) struct CaveVisibilityCache {
     pub(crate) visible: CaveVisibleSet,
     next_visible: CaveVisibleSet,
     scratch: chunk_pipeline::CaveVisibilityScratch,
+    rebuild: CaveVisibilityRebuild,
     /// Rendered entity per sub-chunk; trusted keys use Bevy's fixed fast hasher, since every
     /// chunk spawn, despawn and visibility flip looks one up.
     pub(crate) rendered: HashMap<SubChunkKey, Entity>,
@@ -192,6 +193,7 @@ pub(crate) fn refresh_cave_visibility(
                 *visibility = Visibility::Inherited;
             }
         });
+        cache.rebuild = CaveVisibilityRebuild::default();
         return;
     }
     #[cfg(feature = "developer-control")]
@@ -227,9 +229,11 @@ fn refresh_visible(
     chunks: &mut Query<&mut Visibility, With<ChunkRenderInstance>>,
 ) -> CaveVisibilityWork {
     let generation = stream.connectivity_generation();
+    // A superset left by removals keeps updating until a bounded rebuild makes it exact.
     if cache.camera == Some(camera_key)
         && cache.graph_generation == Some(generation)
         && cache.scratch.built_outward_only() == outward_only
+        && cache.scratch.is_exact()
         && cache.initialized
     {
         return CaveVisibilityWork::default();
@@ -237,6 +241,7 @@ fn refresh_visible(
 
     let rebuilt = stream.update_cave_visible_sub_chunks(
         camera_key,
+        &mut cache.rebuild,
         &mut cache.scratch,
         &mut cache.visible,
         &mut cache.next_visible,

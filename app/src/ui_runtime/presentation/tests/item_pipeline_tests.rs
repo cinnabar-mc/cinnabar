@@ -47,7 +47,7 @@ fn harness() -> Option<Harness> {
             .expect("decode installed entity fixture"),
     );
     let world = Arc::new(
-        RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?)
+        RuntimeAssets::decode(&local("vanilla-v2225.mcbea")?)
             .expect("decode installed world fixture"),
     );
     let carrier = ui_engine::test_support::carrier()?;
@@ -179,7 +179,7 @@ fn hotbar_stacks_resolve_icons_and_reach_the_engine_item_renderer() {
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );
@@ -298,7 +298,7 @@ fn window_120_armor_dresses_the_hud_inventory_and_local_rig() {
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1_000,
     );

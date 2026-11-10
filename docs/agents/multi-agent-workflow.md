@@ -59,7 +59,8 @@ hourly. Fix failing scheduled checks promptly.
 CI and packaging use `.github/actions/build-cache`. Rust caches keep workspace
 libraries, build-script outputs and fingerprints as well as dependencies, but not
 linked test and bin executables, their debug info or examples; Cargo relinks those.
-The save step logs the kept and left-out sizes by directory. The action hashes tracked inputs and restores
+Jobs that save pass `cargo-messages`, the JSON messages of their builds, so units those
+builds no longer use are left out; a failed build keeps every unit. The save step logs the kept and left-out sizes by directory. The action hashes tracked inputs and restores
 old file and directory timestamps only for identical tracked contents and
 permissions, so fresh checkouts do not force recompilation. Changed inputs get
 fresh timestamps after restoration. A source change

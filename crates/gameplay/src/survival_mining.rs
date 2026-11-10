@@ -20,8 +20,17 @@ pub enum BlockBreakCue {
     },
 }
 
-/// Ticks between a completed destroy and the next start. Needs independent measurement.
-pub const DESTROY_DELAY_TICKS: u8 = 5;
+/// Time after a completed destroy before another may start.
+const DESTROY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+/// Whole ticks covering [`DESTROY_DELAY`]; the deadline falls on the last of them.
+pub const DESTROY_DELAY_TICKS: u8 =
+    (DESTROY_DELAY.as_nanos() / simulation_clock::TICK_DURATION.as_nanos()) as u8;
+const _: () = assert!(
+    DESTROY_DELAY
+        .as_nanos()
+        .is_multiple_of(simulation_clock::TICK_DURATION.as_nanos()),
+    "the destroy deadline must land on a tick",
+);
 /// Progress at which a non-instant destroy completes.
 const COMPLETION_THRESHOLD: f32 = 0.99999;
 /// Below this speed (blocks/s) a held Creative destroy waits out the delay;
@@ -75,6 +84,8 @@ pub struct DestroyTarget {
 pub struct ToolWear {
     pub current_damage: i32,
     pub break_damage: i32,
+    /// The tool breaks once its damage exceeds this; `None` when unknown.
+    pub maximum: Option<i32>,
 }
 
 /// The standalone `PlayerAction` emitted for an instant creative destroy.
@@ -110,6 +121,8 @@ pub struct SurvivalTickPayload {
     pub swing: bool,
     /// `(slot, predicted damage, stack network id)` of a worn held tool.
     pub wear: Option<(u8, i32, i32)>,
+    /// The exact held-slot change retained with a client-authoritative destroy.
+    pub destroy_change: Option<protocol::PredictedSlotChange>,
     /// The request carrying `wear`, once a request id is allocated.
     pub mine_block: Option<protocol::MineBlockRequest>,
     /// The block this tick's completion removes locally once the tick carries it.
@@ -133,23 +146,49 @@ impl SurvivalTickPayload {
         PlayerAuthInputInteractions,
         Option<protocol::MineBlockRequest>,
     ) {
+        let change = self.destroy_change;
         let block_interaction = self.destroy.map(|target| {
-            BlockItemInteraction::Destroy(BlockUseRequest {
-                hand: protocol::ItemUseHand::Mainhand,
-                block_position: target.position,
-                face: target.face,
-                selected_slot: target.selection.slot,
-                selected_item: target.selection.item,
-                player_position,
-                relative_hit: target.relative_hit,
-                block_runtime_id: u64::from(target.wire_runtime_id),
-            })
+            BlockItemInteraction::Destroy(
+                BlockUseRequest {
+                    hand: protocol::ItemUseHand::Mainhand,
+                    block_position: target.position,
+                    face: target.face,
+                    selected_slot: target.selection.slot,
+                    selected_item: target.selection.item,
+                    player_position,
+                    relative_hit: target.relative_hit,
+                    block_runtime_id: u64::from(target.wire_runtime_id),
+                },
+                change,
+            )
         });
         let interactions = PlayerAuthInputInteractions {
             block_actions: self.actions,
             block_interaction,
         };
         (interactions, self.mine_block)
+    }
+
+    /// Attaches the payload once and retains only inventory effects its carrier accepted.
+    pub(crate) fn attach(
+        self,
+        ticker: &mut MovementTicker,
+        tick: u64,
+        admitted: &mut MiningAdmission,
+    ) -> bool {
+        let change = self
+            .destroy
+            .as_ref()
+            .map(|target| target.selection.slot)
+            .zip(self.destroy_change.clone());
+        let request = self.mine_block.map(|request| request.request_id());
+        if ticker.attach_survival_mining(tick, self) {
+            admitted.slot_changes.extend(change);
+            true
+        } else {
+            admitted.cancelled_requests.extend(request);
+            false
+        }
     }
 
     /// Allocates the inventory request for valid tool wear when a tick can carry it.
@@ -170,9 +209,9 @@ impl SurvivalTickPayload {
             });
     }
 
+    /// Retains a destroy action in the order this tick produced it.
     fn push(&mut self, kind: BlockActionKind, position: [i32; 3], face: u8) {
-        // A tick emits at most four actions; the bounded list holds eight.
-        let _ = self.actions.push(BlockAction {
+        self.actions.push(BlockAction {
             kind,
             position,
             face,
@@ -180,9 +219,35 @@ impl SurvivalTickPayload {
     }
 }
 
+/// Inventory effects of mining payloads admitted to their exact movement carriers.
+#[derive(Debug, Default)]
+pub struct MiningAdmission {
+    cancelled_requests: Vec<i32>,
+    slot_changes: Vec<(u8, protocol::PredictedSlotChange)>,
+}
+
+impl MiningAdmission {
+    /// Applies accepted slot changes and forgets mining requests without a carrier.
+    pub fn settle_inventory(self, ledger: &mut inventory::PlayerInventoryLedger) {
+        for request in self.cancelled_requests {
+            ledger.cancel_mining_request(request);
+        }
+        for (slot, change) in self.slot_changes {
+            ledger.settle_destroy_slot_change(slot, &change);
+        }
+    }
+
+    /// Combines effects produced by ordered presses and held mining in one frame.
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.cancelled_requests.extend(other.cancelled_requests);
+        self.slot_changes.extend(other.slot_changes);
+    }
+}
+
 /// The player's motion over one stepped tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TickMotion {
+    /// Ground contact before this tick's movement, which the destroy step precedes.
     pub on_ground: bool,
     /// Distance moved this tick, in blocks.
     pub moved: f32,
@@ -224,6 +289,7 @@ impl Destroying {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DestroyMachine {
     destroying: Option<Destroying>,
+    /// Ticks left until the destroy deadline; it is reached when this steps down to zero.
     delay: u8,
     pending_abort: Option<([i32; 3], u8)>,
     /// Blocks travelled toward the next moving Creative destroy.
@@ -256,8 +322,8 @@ impl DestroyMachine {
         if let Some((position, percent)) = self.pending_abort.take() {
             payload.push(BlockActionKind::AbortDestroy, position, percent);
         }
-        let delayed = self.delay > 0;
-        self.delay = self.delay.saturating_sub(1);
+        let remaining = self.delay;
+        self.delay = remaining.saturating_sub(1);
         let target = match input {
             DestroyInput::Held(Some(target)) | DestroyInput::Continue(Some(target))
                 if !matches!(input, DestroyInput::Continue(_))
@@ -283,7 +349,7 @@ impl DestroyMachine {
                 return payload;
             }
         };
-        self.advance(&mut payload, target, motion, authority, delayed);
+        self.advance(&mut payload, target, motion, authority, remaining);
         if authority == BlockBreakingAuthority::Client && self.destroying.is_some() {
             // Every held tick that keeps a client-authoritative destroy reports its target once,
             // after any start, stop or retarget, including delay and completion ticks.
@@ -292,16 +358,24 @@ impl DestroyMachine {
         payload
     }
 
-    /// Advances a held destroy on `target`, after any pending abort.
+    /// Advances a held destroy on `target`, after any pending abort. `remaining` is the
+    /// delay counter before this tick stepped it.
     fn advance(
         &mut self,
         payload: &mut SurvivalTickPayload,
         target: &DestroyTarget,
         motion: TickMotion,
         authority: BlockBreakingAuthority,
-        delayed: bool,
+        remaining: u8,
     ) {
         let creative_continue = target.instant && self.destroying.is_some();
+        // A survival start may land on the deadline tick; a held Creative destroy repeats
+        // only once the deadline has passed.
+        let delayed = if creative_continue {
+            remaining > 0
+        } else {
+            remaining > 1
+        };
         if delayed && !creative_continue {
             return;
         }
@@ -378,8 +452,8 @@ impl DestroyMachine {
     }
 
     /// The destroy stays active on the broken block, so the next target continues it.
-    /// A server-authoritative destroy of a block with hardness requests the tool's new
-    /// durability, only when the destroy actually damages it.
+    /// A destroy that damages the held tool reports its new damage: a mining request under
+    /// server authority, the transaction's slot change under client authority.
     fn complete(
         &mut self,
         payload: &mut SurvivalTickPayload,
@@ -389,17 +463,13 @@ impl DestroyMachine {
     ) {
         match authority {
             BlockBreakingAuthority::Server => {
-                let worn = target.block.is_some_and(|block| block.hardness > 0.0);
-                payload.wear = target
-                    .wear
-                    .filter(|wear| worn && wear.break_damage > 0)
-                    .map(|wear| {
-                        (
-                            target.selection.slot,
-                            wear.current_damage.saturating_add(wear.break_damage),
-                            target.selection.item.stack_network_id(),
-                        )
-                    });
+                payload.wear = worn_damage(target).map(|damage| {
+                    (
+                        target.selection.slot,
+                        damage,
+                        target.selection.item.stack_network_id(),
+                    )
+                });
                 if continued {
                     payload.push(
                         BlockActionKind::ContinueDestroy,
@@ -416,6 +486,18 @@ impl DestroyMachine {
             BlockBreakingAuthority::Client => {
                 payload.push(BlockActionKind::StopDestroy, [0; 3], 0);
                 payload.destroy = Some(target.clone());
+                payload.destroy_change = worn_damage(target).and_then(|damage| {
+                    let legacy_request_id = protocol::next_legacy_request_id()?;
+                    Some(protocol::PredictedSlotChange {
+                        legacy_request_id,
+                        from: target.selection.item.clone(),
+                        to: target.selection.item.worn(
+                            damage,
+                            target.wear?.maximum,
+                            legacy_request_id,
+                        )?,
+                    })
+                });
             }
         }
         if target.instant {
@@ -433,6 +515,16 @@ impl DestroyMachine {
         });
         payload.broken = Some(target.position);
     }
+}
+
+/// The held tool's damage after destroying `target`, when the destroy damages it: only blocks
+/// with hardness wear tools, and a spared Unbreaking roll leaves the stack unchanged.
+fn worn_damage(target: &DestroyTarget) -> Option<i32> {
+    let hard = target.block.is_some_and(|block| block.hardness > 0.0);
+    target
+        .wear
+        .filter(|wear| hard && wear.break_damage > 0)
+        .map(|wear| wear.current_damage.saturating_add(wear.break_damage))
 }
 
 /// Wall-clock spacing between block-diagnostic lines while an attack is held.
@@ -461,7 +553,7 @@ impl SurvivalMiningRuntime {
 
     /// Steps every unsent tick once and retains its destroy work on that sample,
     /// including silent progress or delay, so later presses cannot precede it.
-    /// Returns requests no tick carried; a break is predicted only after attachment.
+    /// Returns inventory effects for settlement; a break is predicted only after attachment.
     pub fn step_ticks(
         &mut self,
         ticker: &mut MovementTicker,
@@ -470,22 +562,22 @@ impl SurvivalMiningRuntime {
         mut swing: impl FnMut(u64),
         mut request_id: impl FnMut(u8, i32) -> Option<i32>,
         mut predict_break: impl FnMut([i32; 3]),
-    ) -> Vec<i32> {
-        let mut unsent = Vec::new();
+    ) -> MiningAdmission {
+        let mut admitted = MiningAdmission::default();
         self.synchronize(ticker.interaction_authority_identity());
         let ticks = ticker.unstepped_interaction_ticks(self.last_stepped_tick);
         let Some(&(newest, _)) = ticks.last() else {
-            return unsent;
+            return admitted;
         };
         if ticker.settling_position_authority() {
             // These ticks stay queued until earlier inputs are confirmed; step them then.
-            return unsent;
+            return admitted;
         }
         self.last_stepped_tick = Some(newest);
         if !ticker.accepts_block_interactions() {
             // Withheld ticks never reach the server, so neither may their actions.
             self.machine.interrupt();
-            return unsent;
+            return admitted;
         }
         for (tick, motion) in ticks {
             let maintaining = self.machine != DestroyMachine::default();
@@ -494,15 +586,11 @@ impl SurvivalMiningRuntime {
             if payload.swing {
                 swing(tick);
             }
-            let mine_block = payload
-                .mine_block
-                .as_ref()
-                .map(|request| request.request_id());
             let broken = payload.broken;
             if payload.is_empty() && !maintaining && self.machine == DestroyMachine::default() {
                 continue;
             }
-            if ticker.attach_survival_mining(tick, payload) {
+            if payload.attach(ticker, tick, &mut admitted) {
                 broken.into_iter().for_each(&mut predict_break);
                 if let Some(position) = broken {
                     if let DestroyInput::Held(Some(target)) | DestroyInput::Continue(Some(target)) =
@@ -518,10 +606,36 @@ impl SurvivalMiningRuntime {
             } else {
                 // A tick that cannot carry its actions desynchronizes the server's view.
                 self.machine.interrupt();
-                unsent.extend(mine_block);
             }
         }
-        unsent
+        admitted
+    }
+
+    /// Carries existing destroy cleanup before a refusal, committing both only after attachment.
+    pub(crate) fn attach_refused_press(
+        &mut self,
+        ticker: &mut MovementTicker,
+        tick: u64,
+        mut refusal: SurvivalTickPayload,
+        authority: BlockBreakingAuthority,
+    ) -> bool {
+        let Some((_, motion)) = ticker
+            .unstepped_interaction_ticks(None)
+            .into_iter()
+            .find(|(candidate, _)| *candidate == tick)
+        else {
+            return false;
+        };
+        let mut machine = self.machine.clone();
+        let mut cleanup = machine.step(DestroyInput::Released, motion, authority);
+        cleanup.actions.append(&refusal.actions);
+        refusal.actions = cleanup.actions;
+        if !ticker.attach_survival_mining(tick, refusal) {
+            return false;
+        }
+        self.machine = machine;
+        self.last_stepped_tick = Some(tick);
+        true
     }
 
     /// Previews a queued mining start without committing work before its carrier accepts it.
@@ -667,11 +781,13 @@ pub fn blocked_mining_reason(
     }
 }
 
-/// Admitted items carrying the creative no-break trait block local destroy prediction.
+/// Admitted attack items block local creative destroy prediction.
 pub fn destroys_in_creative(fact: &assets::facts::ItemFact) -> bool {
-    !fact
-        .traits
-        .contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
+    let traits = fact.traits;
+    !traits.contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
+        && !traits.contains(assets::facts::ItemTraits::SWORD)
+        && !traits.contains(assets::facts::ItemTraits::TRIDENT)
+        && !traits.contains(assets::facts::ItemTraits::MACE)
 }
 
 /// Flight, not mere airborne movement, exempts the destroy-speed penalty (`PlayerDestroy`).

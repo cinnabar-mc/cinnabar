@@ -1,4 +1,5 @@
-//! Bounded import of ordinary pack archives and resource halves of add-on bundles.
+//! Bounded import of ordinary pack archives, resource halves of add-on bundles and Java Edition
+//! resource packs, which are translated into Bedrock packs first.
 
 use pack_json::parse_jsonc;
 
@@ -6,7 +7,7 @@ use crate::{
     AdmissionError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK, MAX_FILE_BYTES,
     MAX_MANIFEST_BYTES, MAX_PACKS,
     library::{ImportReport, InstalledPack, LibraryError},
-    manifest::{Version, read_manifest},
+    manifest::{Version, manifest_identity, read_manifest},
     parser::{
         MANIFEST_NAMES, canonical_path, is_regular_file, prepare_zip_bytes, validate_archive_parts,
     },
@@ -17,10 +18,12 @@ use std::{
     io::{Cursor, Read},
     path::Path,
 };
-use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
+mod cached;
+pub use cached::{CachedPackMetadata, cached_pack_metadata};
 mod directory;
+mod java;
 mod selection;
 pub use selection::{
     GlobalSelectionEntry, ParsedGlobalSelection, merge_global_selection, parse_global_selection,
@@ -132,6 +135,19 @@ fn read_bundle(
             MANIFEST_NAMES.contains(&name).then(|| root.to_owned())
         })
         .collect::<HashSet<_>>();
+    // A Java pack is one more candidate: its outcome never hides nested sibling archives.
+    let java_root = roots.is_empty().then(|| java::root(&paths)).flatten();
+    if let Some(root) = &java_root {
+        let result = java::translate(&mut archive, &paths, root, source)
+            .and_then(|translated| read_bundle(translated, source, depth + 1, report, imported));
+        if let Err(error) = result {
+            if depth > 0 {
+                return Err(error);
+            }
+            report.rejected.push(format!("{source}: {error}"));
+        }
+    }
+    let java_assets = java_root.map(|root| format!("{root}assets/"));
     let mut roots = roots.into_iter().collect::<Vec<_>>();
     roots.sort();
     if roots.len() > MAX_PACKS {
@@ -152,6 +168,9 @@ fn read_bundle(
         let mut nested_bytes = 0usize;
         for (index, path) in &paths {
             if !roots.iter().any(|root| path.starts_with(root))
+                && !java_assets
+                    .as_ref()
+                    .is_some_and(|assets| path.starts_with(assets.as_str()))
                 && is_pack_import_path(Path::new(path))
             {
                 let bytes = match read_entry(&mut archive, *index, MAX_ARCHIVE_BYTES as u64) {
@@ -173,7 +192,7 @@ fn read_bundle(
             }
         }
     }
-    if roots.is_empty() && depth > 0 {
+    if roots.is_empty() && java_assets.is_none() && depth > 0 {
         return Err(AdmissionError::MissingManifest.into());
     }
     if depth == 0
@@ -279,7 +298,7 @@ fn read_candidate(
         .into_inner();
     let (validated, _) = validate_archive_parts(
         metadata.id,
-        &metadata.version_text(),
+        Version(metadata.version),
         "",
         bytes.clone(),
         None,
@@ -319,15 +338,8 @@ fn read_metadata(bytes: &[u8]) -> Result<Option<InstalledPack>, LibraryError> {
         return Ok(None);
     }
     let header = &root["header"];
-    let id = header["uuid"]
-        .as_str()
-        .and_then(|value| Uuid::parse_str(value.trim()).ok())
-        .ok_or(AdmissionError::MalformedManifest)?;
-    let version = Version::from_value(&header["version"])
-        .ok_or(AdmissionError::InvalidVersion)?
-        .0;
-    let version_text = version.map(|part| part.to_string()).join(".");
-    let manifest = read_manifest(bytes, id, &version_text)?;
+    let (id, Version(version)) = manifest_identity(bytes, &root)?;
+    let manifest = read_manifest(bytes, id, Version(version))?;
     let min_engine_version = if header["min_engine_version"].is_null() {
         None
     } else {

@@ -54,6 +54,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
@@ -211,11 +212,7 @@ fn render_first_person_held_item_frames() {
                 )
                 .unwrap();
                 let display = if third {
-                    held_sprite_display(
-                        assets::item::grip::builtin_item_grip(identifier)
-                            .upright()
-                            .unwrap_or(false),
-                    )
+                    held_sprite_display(assets::item::grip::builtin_item_grip(identifier).into())
                 } else {
                     first_person_display(
                         FirstPersonShape::Sprite {
@@ -251,7 +248,12 @@ fn render_first_person_held_item_frames() {
                 let display = if third {
                     held_block_display()
                 } else {
-                    first_person_display(FirstPersonShape::Block, REST)
+                    first_person_display(
+                        FirstPersonShape::Block {
+                            quarter_turn: false,
+                        },
+                        REST,
+                    )
                 };
                 (vertices, display, texture)
             }

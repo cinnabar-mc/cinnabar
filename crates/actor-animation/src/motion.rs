@@ -89,6 +89,16 @@ pub(super) struct MotionInput {
     pub(super) yaw: f32,
     pub(super) head_yaw: f32,
     pub(super) on_fire: bool,
+    /// Local players advance their walk cycle from completed physics ticks instead.
+    pub(super) actor_walk: bool,
+}
+
+/// Reversible walk values, independent of body turns and action clocks.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct WalkState {
+    pub(super) distance: f32,
+    pub(super) speed: f32,
+    stride: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -109,6 +119,8 @@ pub(super) struct MotionState {
     /// Fish animation phase survives geometry/controller resets for this actor lifetime.
     fish_phase: [f32; 2],
     pub(super) horse: super::horse::AnimationState,
+    /// Shulker lid-open fraction, stepped each tick toward the synced peek target.
+    pub(super) shulker_peek: f32,
 }
 
 impl MotionState {
@@ -181,6 +193,29 @@ impl MotionState {
         } else {
             self.turn_mob_body(input);
         }
+        if input.actor_walk {
+            self.advance_walk(input);
+        }
+    }
+
+    /// Saves only the gait so local movement retries preserve actions and body rotation.
+    pub(super) fn walk_state(&self) -> WalkState {
+        WalkState {
+            distance: self.distance,
+            speed: self.speed,
+            stride: self.stride,
+        }
+    }
+
+    /// Restores a gait checkpoint before replaying a changed movement sample.
+    pub(super) fn restore_walk(&mut self, walk: WalkState) {
+        self.distance = walk.distance;
+        self.speed = walk.speed;
+        self.stride = walk.stride;
+    }
+
+    /// Advances the walk cycle from one resolved movement tick without changing actions.
+    pub(super) fn advance_walk(&mut self, input: &MotionInput) {
         let step = input.delta[0].hypot(input.delta[2]);
         if step > STRIDE_STEP_MIN {
             self.stride += STRIDE_GAIN * step;
@@ -203,6 +238,12 @@ impl MotionState {
     }
 
     fn turn_player_body(&mut self, input: &MotionInput) {
+        // A free rider looks independently of the mount's retained actor facing.
+        let yaw = if input.riding {
+            input.head_yaw
+        } else {
+            input.yaw
+        };
         let [dx, _, dz] = input.delta;
         let mut target = if dx.hypot(dz) > PLAYER_FACING_STEP {
             dz.atan2(dx).to_degrees() - 90.0
@@ -210,20 +251,17 @@ impl MotionState {
             self.body_yaw
         };
         if self.attack_time() > 0.0 {
-            target = input.yaw;
+            target = yaw;
         }
         self.body_yaw += wrap_degrees(target - self.body_yaw) * PLAYER_BODY_FOLLOW;
-        if input.riding {
-            return;
-        }
         let mut difference =
-            wrap_degrees(input.yaw - self.body_yaw).clamp(-PLAYER_HEAD_LIMIT, PLAYER_HEAD_LIMIT);
+            wrap_degrees(yaw - self.body_yaw).clamp(-PLAYER_HEAD_LIMIT, PLAYER_HEAD_LIMIT);
         if difference.abs() > PLAYER_HEAD_SOFT_LIMIT {
             difference -= (difference.abs() - PLAYER_HEAD_SOFT_LIMIT)
                 * PLAYER_HEAD_SOFT_PULL
                 * difference.signum();
         }
-        self.body_yaw = wrap_degrees(input.yaw - difference);
+        self.body_yaw = wrap_degrees(yaw - difference);
     }
 
     fn turn_mob_body(&mut self, input: &MotionInput) {
@@ -262,6 +300,7 @@ mod tests {
             yaw,
             head_yaw: yaw,
             on_fire: false,
+            actor_walk: true,
         }
     }
 

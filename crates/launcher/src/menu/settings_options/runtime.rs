@@ -24,9 +24,7 @@ pub fn frame_rate_limit(value: i32) -> FrameRateLimit {
 /// The Max Framerate caption: a numeric cap or Unlimited.
 pub fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> String {
     match frame_rate_limit(value) {
-        FrameRateLimit::Automatic | FrameRateLimit::Unlimited => {
-            translate("options.framerateLimit.max")
-        }
+        FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
         FrameRateLimit::Fixed(fps) => fps.to_string(),
     }
 }
@@ -49,16 +47,13 @@ impl SettingsOptions {
         settings.controls.invert_gamepad_y = self.value(SettingId::ControllerInvertYAxis) != 0;
         settings.video.camera_shake = self.value(SettingId::CameraShake) != 0;
         settings.video.damage_bob = self.value(SettingId::DamageBob) as f32 / 100.0;
-        settings.video.frame_rate_limit =
-            if self.values.contains_key(SettingId::MaxFramerate.name()) {
-                frame_rate_limit(self.value(SettingId::MaxFramerate))
-            } else {
-                FrameRateLimit::Automatic
-            };
+        settings.video.frame_rate_limit = frame_rate_limit(self.value(SettingId::MaxFramerate));
         settings.video.vsync = render_api::VsyncMode::from_value(self.value(SettingId::Vsync));
         settings.video.vrr =
             render_api::VrrPreference::from_value(self.value(super::VRR_OPTION.id));
         settings.video.anti_aliasing_samples = self.value(SettingId::Msaa) as u32;
+        settings.video.render_scale_percent = self.value(SettingId::RenderResolution) as u8;
+        settings.video.render_scale_sharpen = self.value(SettingId::RenderScaleSharpen) != 0;
         settings.video.motion_blur =
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
@@ -68,6 +63,8 @@ impl SettingsOptions {
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));
         settings.video.java_animations = self.value(ANIMATIONS_OPTION.id) == 0;
         settings.video.show_custom_item_models = self.value(SettingId::ShowCustomItemModels) != 0;
+        settings.video.show_other_player_cosmetics =
+            self.value(SettingId::ShowOtherPlayerCosmetics) != 0;
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id) != 0;
         settings.video.outline_selection = self.value(SettingId::ClassicBoxSelection) != 0;
@@ -76,6 +73,7 @@ impl SettingsOptions {
             self.value(MOUSE_SENSITIVITY_OPTION.id) as f32 / MOUSE_SENSITIVITY_OPTION.max as f32;
         settings.controls.invert_mouse_y = self.value(SettingId::KeyboardMouseInvertYAxis) != 0;
         settings.gameplay.always_sprint = self.value(SettingId::AlwaysSprint) != 0;
+        settings.gameplay.touch_control_mode = self.touch_control_mode();
         settings.gameplay.default_perspective = match self.value(SettingId::ThirdPerson) {
             1 => PerspectiveMode::ThirdPersonBack,
             2 => PerspectiveMode::ThirdPersonFront,
@@ -88,6 +86,21 @@ impl SettingsOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_player_cosmetics_survive_save_and_reset() {
+        let mut options = SettingsOptions::default();
+        assert_eq!(
+            options.user_settings().video.show_other_player_cosmetics,
+            ui::VideoSettings::default().show_other_player_cosmetics
+        );
+        assert!(options.user_settings().video.show_other_player_cosmetics);
+        assert!(options.set(SettingId::ShowOtherPlayerCosmetics.index(), 0));
+        let mut restored = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
+        assert!(!restored.user_settings().video.show_other_player_cosmetics);
+        restored.reset_group(super::super::SettingsGroup::Video);
+        assert!(restored.user_settings().video.show_other_player_cosmetics);
+    }
 
     #[test]
     fn chunk_culling_defaults_on_and_survives_save_and_reset() {

@@ -20,7 +20,7 @@ pub fn step_and_send(
     if let Some(expected) = &runtime.pending.deferred_selection {
         match &frame.selection {
             Some(current) if current != expected => runtime.cancel_pending_input(),
-            None if !runtime.release_pending => return false,
+            None if !runtime.release.is_captured() => return false,
             _ => {}
         }
     }
@@ -28,7 +28,7 @@ pub fn step_and_send(
     let mut candidate_swings = swings.clone();
     let defer_click_until_verified = runtime.pending.deferred_selection.is_some()
         && frame.selection.is_none()
-        && runtime.release_pending;
+        && runtime.release.is_captured();
     candidate.pending.deferred_selection = None;
     if defer_click_until_verified {
         candidate.pending.latched_press = false;
@@ -72,7 +72,9 @@ pub fn step_and_send(
                 runtime.pending.latched_press = true;
                 runtime.pending.deferred_selection = frame.selection.clone();
             }
-            runtime.release_pending |= outcome.released;
+            if outcome.released {
+                runtime.release = ReleaseState::Captured;
+            }
             false
         }
         Err(BatchSendError::Closed) => {

@@ -33,6 +33,7 @@ pub(in crate::compiler) fn compile_rule(
             materials,
             [0, 0, 0],
             [256, ENCHANTING_TABLE_HEIGHT, 256],
+            0,
             templates,
             storage.templates,
             storage.quads,
@@ -88,7 +89,6 @@ mod tests {
             "minecraft:piglin_head",
             "minecraft:undyed_shulker_box",
             "minecraft:light_gray_shulker_box",
-            "minecraft:bell",
             assets::END_PORTAL_IDENTIFIER,
             assets::END_GATEWAY_IDENTIFIER,
         ] {
@@ -102,6 +102,8 @@ mod tests {
             "minecraft:furnace",
             "minecraft:stone",
             "minecraft:barrel",
+            "minecraft:lectern",
+            "minecraft:bell",
             "custom:chest",
         ] {
             assert!(!is_entity_drawn_name(name), "{name}");

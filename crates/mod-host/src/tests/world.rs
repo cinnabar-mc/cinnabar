@@ -128,6 +128,29 @@ fn frames_without_gameplay_cannot_set_a_rig_or_request_commands() {
     assert!(host.take_commands().is_empty());
 }
 
+#[test]
+fn fuel_recovery_cannot_reset_the_host_command_rate_limit() {
+    let (_directory, mut host) = load(
+        "",
+        "global.get $frames i32.const 2 i32.eq if (loop $forever br $forever) end
+         i32.const 528 i32.const 14 i32.const 256 call $command",
+    );
+    let mut snapshot = snapshot();
+    snapshot.frame_seconds = 0.0;
+    let mut sent = 0;
+    for _ in 0..=mod_api::MAX_COMMANDS_PER_SECOND {
+        host.frame_with_gameplay(false, Some(snapshot.clone()))
+            .unwrap();
+        sent += host.take_commands().len();
+        host.frame_with_gameplay(false, Some(snapshot.clone()))
+            .unwrap_err();
+        assert!(host.is_active());
+        host.frame_with_gameplay(false, Some(snapshot.clone()))
+            .unwrap();
+    }
+    assert_eq!(sent, mod_api::MAX_COMMANDS_PER_SECOND);
+}
+
 fn polled(count: u32) -> String {
     format!(
         "i32.const 700 call $poll i32.const 704 i32.load i32.const {count} i32.ne if unreachable end"

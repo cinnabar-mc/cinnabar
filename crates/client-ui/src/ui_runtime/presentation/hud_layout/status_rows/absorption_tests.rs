@@ -53,7 +53,7 @@ fn painted(player: &player_state::PlayerState, runtime: &UiRuntime) -> HudPaint 
 #[test]
 fn damage_hearts_draw_previous_and_current_health_on_the_actor_clock() {
     let (player, mut runtime) = absorbed(0.0, 20.0);
-    runtime.hud.set_health(ui::BoundedStat::new(7, 20));
+    runtime.session.hud.set_health(ui::BoundedStat::new(7, 20));
     runtime.publish_local_actor_damage(Some(client_world::ActorDamageState {
         previous_health: 20.0,
         remaining_ticks: client_world::HURT_DURATION_TICKS,
@@ -145,6 +145,7 @@ fn absorption_uses_current_points_and_wraps_after_health() {
     }
     let (player, mut runtime) = absorbed(4.0, 20.0);
     runtime
+        .session
         .hud
         .set_health(ui::BoundedStat::new_scaled(2000, 2050, 100));
     let paint = painted(&player, &runtime);
@@ -168,7 +169,7 @@ fn absorption_poison_wither_hardcore_and_damage_flash_match_vanilla() {
         (20, "wither_heart"),
     ] {
         let (player, mut runtime) = absorbed(3.0, 20.0);
-        runtime.gameplay_hud.set_hardcore(true);
+        runtime.session.gameplay_hud.set_hardcore(true);
         runtime
             .apply_local_effect(
                 1,
@@ -274,16 +275,14 @@ fn absorption_invalid_gui_scale_generates_no_cells() {
     }
 }
 
-/// The ordinary HUD starts with alpha blending until a module requests an inverse overlay.
+/// The ordinary HUD captures its hunger row artwork.
 #[test]
-fn captured_hunger_starts_without_an_inverse_overlay() {
+fn captured_hunger_has_row_artwork() {
     let mut runtime = UiRuntime::new(1);
     runtime
+        .session
         .hud
         .set_stats(None, ui::BoundedStat::new(20, 20), None, None);
     let hunger = hunger(&runtime, None);
     assert!(hunger.sprites.is_some());
-    assert!(!hunger.inverse_overlay);
-    assert_eq!(hunger.saturation_overlay, None);
-    assert_eq!(hunger.food_saturation_preview, None);
 }

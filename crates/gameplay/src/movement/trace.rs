@@ -81,6 +81,7 @@ fn format_trace_line(
         "head_yaw": sample.head_yaw,
         "input_mode": sample.input_mode,
         "camera_orientation": sample.camera_orientation,
+        "interact_rotation": sample.interact_rotation,
     });
     serde_json::to_string(&line).ok()
 }
@@ -113,8 +114,8 @@ mod tests {
 
     use super::{SCHEMA_TAG, enabled_for_env_value, format_trace_line, trace_line_if};
     use protocol::{
-        PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input,
-        player_auth_input_trace_sample, request_sub_chunk_column,
+        PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+        player_auth_input, player_auth_input_trace_sample, request_sub_chunk_column,
     };
 
     fn snapshot() -> PlayerAuthInputSnapshot {
@@ -130,10 +131,13 @@ mod tests {
             yaw: 88.5,
             head_yaw: 90.0,
             camera_orientation: [0.25, -0.5, 0.75],
+            interact_rotation: [-4.25, 88.5],
             flags: PlayerInputFlags::JUMPING
                 | PlayerInputFlags::SPRINTING
                 | PlayerInputFlags::HORIZONTAL_COLLISION,
             input_mode: PlayerInputMode::Mouse,
+            interaction_model: PlayerInteractionModel::Crosshair,
+            vehicle: None,
         }
     }
 
@@ -196,7 +200,11 @@ mod tests {
             object["camera_orientation"],
             serde_json::json!([0.25, -0.5, 0.75])
         );
-        assert_eq!(object.len(), 14, "schema tag plus thirteen movement fields");
+        assert_eq!(
+            object["interact_rotation"],
+            serde_json::json!([-4.25, 88.5])
+        );
+        assert_eq!(object.len(), 15, "schema tag plus fourteen movement fields");
     }
 
     #[test]

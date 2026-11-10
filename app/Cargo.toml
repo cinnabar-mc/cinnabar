@@ -12,10 +12,10 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
-    "crates/client-presentation/src/local_player.rs",
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/launcher-host/src/marketplace/fixtures/*.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
@@ -40,19 +40,17 @@ test = false
 alloc-stats = ["dep:test-alloc", "test-alloc/global-stats", "render/alloc-stats", "render-scene/alloc-stats"]
 # Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
-acceptance = ["dep:acceptance", "bridge/join-profile"]
+acceptance = ["dep:acceptance", "bridge/join-profile", "client-interaction/developer-control"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
-# Experimental Java (OptiFine/Iris) shader packs as a third Video renderer.
-shaderpacks = ["render/shaderpacks", "dep:shaderpack", "launcher/shaderpacks"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
+developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control", "client-interaction/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
 # Chrome trace through the app's own subscriber layer.
 frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
 # Live CPU attribution through Bevy, wgpu's encoding and submission scopes, and the owned
 # streaming/render hot paths.
-tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy", "protocol/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 # Opt-in allocator for release-profile measurements.
@@ -111,9 +109,9 @@ json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
 oreui = { path = "../crates/oreui" }
 mod-ui = { path = "../crates/mod-ui" }
+mod-api = { path = "../crates/mod-api" }
 particles = { path = "../crates/particles" }
 resource-pack = { path = "../crates/resource-pack" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -127,11 +125,9 @@ test-alloc = { path = "../crates/test-alloc", optional = true }
 mimalloc = { workspace = true, optional = true }
 client-extensions = { path = "../crates/client-extensions" }
 bootstrap-ui = { path = "../crates/bootstrap-ui" }
-crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
-mod-api = { path = "../crates/mod-api" }
 mod-render = { path = "../crates/mod-render" }
 tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 tracing-chrome = { version = "=0.7.2", optional = true }
@@ -145,12 +141,16 @@ update-manifest = { path = "../crates/update-manifest" }
 rich-presence = { path = "../crates/rich-presence" }
 mod-host = { path = "../crates/mod-host" }
 server-experience = { path = "../crates/server-experience" }
-shaderpack = { path = "../crates/shaderpack", optional = true }
+shaderpack = { path = "../crates/shaderpack" }
 rayon.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+
+# The out-of-process crash monitor; iOS cannot start a second process.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "ios")))'.dependencies]
+crash-monitor = { path = "../crates/crash-monitor" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["webgpu"] }
@@ -160,8 +160,14 @@ wgpu = { workspace = true, features = ["gles"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
-objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
+
+# The display link that requests full ProMotion and window refresh rates.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSRunLoop", "NSString"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CADisplayLink", "CAFrameRateRange", "CALayer", "CAMetalLayer", "objc2-metal"] }
 
@@ -169,19 +175,22 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
-    "Win32_System_Power",
+    "Win32_UI_Input",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]
+base64 = "0.22"
 resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
 wat = "1"
+
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }
+mod-ui = { path = "../crates/mod-ui", features = ["test-support"] }
 client-interaction = { path = "../crates/client-interaction", features = ["test-support"] }
 assets = { path = "../crates/assets", features = ["test-support"] }
 client-runtime = { path = "../crates/client-runtime", features = ["test-support"] }
@@ -205,6 +214,9 @@ pack-compiler = { path = "../crates/pack-compiler" }
 pack-entity-compiler = { path = "../crates/pack-compiler/entity" }
 chunk-pipeline = { path = "../crates/chunk-pipeline", features = ["publication-test-support"] }
 render = { path = "../crates/render", features = ["publication-test-support"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"
 
 [lints]
 workspace = true

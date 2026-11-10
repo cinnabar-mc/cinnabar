@@ -143,7 +143,7 @@ fn grid_raster(gpu: &Gpu, model: bool, enhanced: bool, samples: u32) -> Vec<u8> 
     let (sample, footprint, threshold) = if model {
         (
             "var input: VertexOutput; input.uv = uv; input.visibility.x = select(1u, 1u | MODEL_BOUNDED_TILE, c.w != 0u); let sampled = sample_model_ref(input, c.x, dx, dy);",
-            "model_alpha_footprint(c.x, uv, dx, dy, sampled)",
+            "model_alpha_footprint(c.x, uv, dx, dy, sampled, true)",
             "MODEL_ALPHA_THRESHOLD",
         )
     } else {

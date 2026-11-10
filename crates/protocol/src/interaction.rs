@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     AnimateAction, ContainerEnumName, HandSlot, InteractAction, InventorySourceType,
     ItemReleaseInventoryTransactionActionType, ItemUseInventoryTransactionActionType,
     ItemUseInventoryTransactionClientCooldownState,
@@ -6,15 +6,15 @@ use bedrock_protocol_1_26_51::enums::{
     ItemUseInventoryTransactionTriggerType, ItemUseOnActorInventoryTransactionActionType,
     PlayerActionType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, Animate, Interact, InventoryTransaction, PlayerAction,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, BlockPos, InventoryAction, InventorySource, InventoryTransactionData,
     InventoryTransactionPacketData, ItemStackLegacyRequestID, ItemUseInventoryTransaction,
     LegacySetSlot,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 use crate::{InventoryPacketError, VerifiedNetworkItemStack};
@@ -338,14 +338,14 @@ fn held_item_parts(
     Ok((wire::ZigZag32(i32::from(slot)), request.player_position))
 }
 
-struct SlotChangeParts {
-    legacy_request_id: i32,
-    legacy_set_item_slots: Option<Vec<LegacySetSlot>>,
-    actions: Vec<InventoryAction>,
+pub(crate) struct SlotChangeParts {
+    pub legacy_request_id: i32,
+    pub legacy_set_item_slots: Option<Vec<LegacySetSlot>>,
+    pub actions: Vec<InventoryAction>,
 }
 
 /// Records the inventory delta and the legacy request for a changed, nonempty result.
-fn slot_change_parts(
+pub(crate) fn slot_change_parts(
     hand: ItemUseHand,
     slot: u8,
     change: Option<PredictedSlotChange>,
@@ -361,7 +361,7 @@ fn slot_change_parts(
         if !change.to.is_empty() && change.legacy_request_id < 0 {
             legacy_request_id = change.legacy_request_id;
             legacy_set_item_slots = Some(vec![LegacySetSlot {
-                container_enum: ContainerEnumName::Inventorycontainer,
+                container_enum: ContainerEnumName::InventoryContainer,
                 slots: vec![slot].into(),
             }]);
         }
@@ -456,6 +456,14 @@ pub fn use_item_as_attack_packet(
     Ok(packet)
 }
 
+/// Whether a packet sends an actor attack transaction.
+#[must_use]
+pub fn is_actor_attack(packet: &crate::Packet) -> bool {
+    matches!(&*packet.data, packets::Packet::InventoryTransaction(packet)
+        if matches!(&packet.transaction, InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction { action_type, .. }
+            if *action_type == ItemUseOnActorInventoryTransactionActionType::Attack))
+}
+
 /// Native action aim rotation runs for actor attacks and held-item releases.
 #[must_use]
 pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
@@ -463,9 +471,11 @@ pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
         return false;
     };
     match &packet.transaction {
-        InventoryTransactionPacketData::ItemReleaseInventoryTransaction { action_type, .. } => {
-            *action_type == ItemReleaseInventoryTransactionActionType::Release
-        }
+        InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
+            hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
+            action_type,
+            ..
+        } => *action_type == ItemReleaseInventoryTransactionActionType::Release,
         InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
             action_type, ..
         } => *action_type == ItemUseOnActorInventoryTransactionActionType::Attack,
@@ -489,6 +499,7 @@ pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, Bl
         legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
+            hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
             actions: InventoryTransactionData {
                 actions: Vec::new(),
             },
@@ -532,6 +543,7 @@ pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, Actor
         legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
+            hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
             actions: InventoryTransactionData {
                 actions: Vec::new(),
             },
@@ -546,8 +558,10 @@ pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, Actor
 }
 
 /// Why the local arm swung, as carried by an outbound swing animation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SwingSource {
+    None,
     Build,
     Mine,
     Interact,
@@ -556,13 +570,26 @@ pub enum SwingSource {
     UseItem,
     ThrowItem,
     DropItem,
+    Event,
 }
 
 impl SwingSource {
+    /// Resolves a received source, using the absent-source value for unknown names.
+    pub fn from_wire_name(name: Option<&str>) -> Self {
+        name.and_then(|name| {
+            <Self as serde::Deserialize>::deserialize(serde::de::value::StrDeserializer::<
+                serde::de::value::Error,
+            >::new(name))
+            .ok()
+        })
+        .unwrap_or(Self::None)
+    }
+
     // The vanilla client sends the lowercase name; servers that match it exactly drop the
     // connection on any other casing.
     const fn wire_name(self) -> &'static str {
         match self {
+            Self::None => "none",
             Self::Build => "build",
             Self::Mine => "mine",
             Self::Interact => "interact",
@@ -570,6 +597,7 @@ impl SwingSource {
             Self::UseItem => "useitem",
             Self::ThrowItem => "throwitem",
             Self::DropItem => "dropitem",
+            Self::Event => "event",
         }
     }
 }
@@ -584,7 +612,7 @@ pub fn start_item_use_on_packet(
 ) -> crate::Packet {
     crate::Packet::new(PlayerAction {
         player_runtime_id: ActorRuntimeID(local_runtime_id),
-        action: PlayerActionType::Startitemuseon,
+        action: PlayerActionType::StartItemUseOn,
         block_position: block_pos(clicked),
         result_pos: block_pos(destination),
         face: wire::ZigZag32(i32::from(face)),
@@ -596,7 +624,7 @@ pub fn start_item_use_on_packet(
 pub fn stop_item_use_on_packet(local_runtime_id: u64, destination: [i32; 3]) -> crate::Packet {
     crate::Packet::new(PlayerAction {
         player_runtime_id: ActorRuntimeID(local_runtime_id),
-        action: PlayerActionType::Stopitemuseon,
+        action: PlayerActionType::StopItemUseOn,
         block_position: block_pos(destination),
         result_pos: block_pos([0; 3]),
         face: wire::ZigZag32(0),
@@ -612,7 +640,23 @@ pub fn creative_destroy_block_packet(
 ) -> crate::Packet {
     crate::Packet::new(PlayerAction {
         player_runtime_id: ActorRuntimeID(local_runtime_id),
-        action: PlayerActionType::Creativedestroyblock,
+        action: PlayerActionType::CreativeDestroyBlock,
+        block_position: block_pos(block_position),
+        result_pos: block_pos([0; 3]),
+        face: wire::ZigZag32(i32::from(face)),
+    })
+}
+
+/// Reports a destroy the client refused to start because the player may not break the block.
+#[must_use]
+pub fn deny_destroy_block_packet(
+    local_runtime_id: u64,
+    block_position: [i32; 3],
+    face: u8,
+) -> crate::Packet {
+    crate::Packet::new(PlayerAction {
+        player_runtime_id: ActorRuntimeID(local_runtime_id),
+        action: PlayerActionType::DenyDestroyBlock,
         block_position: block_pos(block_position),
         result_pos: block_pos([0; 3]),
         face: wire::ZigZag32(i32::from(face)),
@@ -624,7 +668,7 @@ pub fn creative_destroy_block_packet(
 pub fn stop_sleeping_packet(local_runtime_id: u64) -> crate::Packet {
     crate::Packet::new(PlayerAction {
         player_runtime_id: ActorRuntimeID(local_runtime_id),
-        action: PlayerActionType::Stopsleeping,
+        action: PlayerActionType::StopSleeping,
         block_position: block_pos([0; 3]),
         result_pos: block_pos([0; 3]),
         face: wire::ZigZag32(0),
@@ -643,7 +687,7 @@ pub fn stop_riding_packet(
         return Err(ActorUsePacketError::NonFinitePlayerPosition);
     }
     Ok(crate::Packet::new(Interact {
-        action: InteractAction::Stopriding,
+        action: InteractAction::StopRiding,
         target_runtime_id: ActorRuntimeID(mount_runtime_id),
         position: Some(player_position.into()),
     }))
@@ -653,7 +697,7 @@ pub fn stop_riding_packet(
 #[must_use]
 pub fn entity_hover_packet(target: Option<(u64, [f32; 3])>) -> crate::Packet {
     crate::Packet::new(Interact {
-        action: InteractAction::Interactupdate,
+        action: InteractAction::InteractUpdate,
         target_runtime_id: ActorRuntimeID(target.map_or(0, |(id, _)| id)),
         position: target.map(|(_, point)| point.into()),
     })
@@ -663,6 +707,7 @@ pub fn entity_hover_packet(target: Option<(u64, [f32; 3])>) -> crate::Packet {
 #[must_use]
 pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
     crate::Packet::new(Animate {
+        hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
         action: AnimateAction::Swing,
         target_actor_runtime_id: ActorRuntimeID(local_runtime_id),
         data: wire::F32LE(0.0),

@@ -130,3 +130,94 @@ fn rounded_zero_motion_in_a_face_plane_meets_the_face_it_crosses() {
         }
     }
 }
+
+/// A stored corner intercept remains the exact closed endpoint when the world is refreshed.
+#[test]
+fn refreshing_a_saved_intercept_does_not_rebuild_its_endpoint() {
+    let (store, registry, _) = fixture(7);
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+    let endpoint = Vec3::new(0.0, 0.5, 0.0);
+    let hit = world
+        .block_interaction_segment_current(Vec3::new(-1.0, 0.5, -1.0), endpoint)
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.block_pos, [0, 0, 0]);
+    assert_eq!(hit.hit_world, endpoint);
+    assert!(
+        world
+            .block_interaction_segment_current(endpoint, endpoint)
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// A shorter traversal must not rotate a rounded ray into an otherwise missed corner.
+#[test]
+fn traversal_prefix_preserves_the_full_rounded_ray_at_large_corners() {
+    let (mut store, _) = loaded_air_store(ChunkKey::new(0, 512, 256));
+    set_block(&mut store, [8193, 0, 4098], 0, 7);
+    let mut registry = CollisionRegistry::with_identity(identity());
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+    let origin = Vec3::new(8_192.195_312_5, 0.5, 4096.5);
+    let direction = Vec3::new(
+        f64::from(0.306_398_66_f32),
+        0.0,
+        f64::from(0.951_903_34_f32),
+    );
+    assert!(
+        world
+            .block_interaction_ray_current(origin, direction, 5.7)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        world
+            .block_interaction_ray_current(origin, direction, 2.73)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        world
+            .block_interaction_ray_prefix_current(origin, direction, 5.7, 2.73)
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// Prefixes retain every in-range full-ray hit and exclude only farther geometry.
+#[test]
+fn traversal_prefix_matches_the_full_ray_through_boundary_samples() {
+    let (mut store, _) = loaded_air_store(ChunkKey::new(0, 512, 256));
+    set_block(&mut store, [8193, 0, 4098], 0, 7);
+    let mut registry = CollisionRegistry::with_identity(identity());
+    registry.register(0, []).unwrap();
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+    let origin = Vec3::new(8_192.195_312_5, 0.5, 4096.5);
+    for x_offset in [-0.1_f32, -0.01, -0.001, 0.0, 0.001, 0.01, 0.1] {
+        let x = 0.306_398_66_f32 + x_offset;
+        let direction = Vec3::new(f64::from(x), 0.0, f64::from(0.951_903_34_f32));
+        let full = world
+            .block_interaction_ray_current(origin, direction, 5.7)
+            .unwrap();
+        for prefix in [0.0, 1.0, 2.0, 2.625, 2.73, 3.0, 5.7, 9.0] {
+            let bounded = world
+                .block_interaction_ray_prefix_current(origin, direction, 5.7, prefix)
+                .unwrap();
+            let expected = full.clone().filter(|hit| hit.distance <= prefix);
+            let geometry =
+                |hit: sim::BlockHit| (hit.block_pos, hit.face, hit.hit_world, hit.distance);
+            assert_eq!(
+                bounded.map(geometry),
+                expected.map(geometry),
+                "direction {direction:?}, prefix {prefix}"
+            );
+        }
+    }
+}

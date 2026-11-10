@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use assets::{
     AssetError, IconEntry, IconSprite, ItemVisualDefinitionRoute, MAX_ICON_BLOCK_SHEETS,
-    encode_icon_catalog_with_sources,
+    encode_icon_catalog_with_gui_cube_sheets,
 };
 use sha2::{Digest, Sha256};
 
@@ -18,6 +18,7 @@ mod blocks;
 mod carried;
 mod cube;
 mod model;
+mod shapes;
 mod shield;
 mod sprites;
 
@@ -126,9 +127,13 @@ fn compile(
     for visual in compiled.item_visuals.iter() {
         // Source filenames remain available even when the item draws an authored model.
         let source_sprite = match visual.route {
-            ItemVisualDefinitionRoute::Sprite { texture } => {
-                sprite_baker.bake(root, &compiled, texture.source, &mut sprites)?
-            }
+            ItemVisualDefinitionRoute::Sprite { texture } => sprite_baker.bake(
+                root,
+                &compiled,
+                texture.source,
+                &mut sprites,
+                assets::facts::pack::rules().default_item_tint(&visual.key.identifier),
+            )?,
             _ => None,
         };
         let sprite = if visual.key.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER {
@@ -180,6 +185,7 @@ fn compile(
         model_sprites,
         block_sprites,
         block_sheets,
+        gui_block_sheets,
         block_models,
     } = bake::run(
         root,
@@ -250,13 +256,14 @@ fn compile(
             sprite: *sprite,
         })
         .collect::<Vec<_>>();
-    let bytes = encode_icon_catalog_with_sources(
+    let bytes = encode_icon_catalog_with_gui_cube_sheets(
         compiled.source_manifest_sha256,
         &sprites,
         &entries,
         &block_sheets,
         &block_models,
         &source_sprites,
+        &gui_block_sheets,
     )?;
     Ok(CompiledIconCarrier {
         report: IconCompileReport {

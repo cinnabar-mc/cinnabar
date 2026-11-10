@@ -255,12 +255,14 @@ fn drive_owner(
     if up && focused {
         let modifiers = held_modifiers(&input.modifier_state);
         host.set_held_modifiers(modifiers);
-        let pressed = pointer_events(presentation, cursor, modifiers, input, &mut events);
+        let (pressed, cancel) =
+            pointer_events(presentation, menu, cursor, modifiers, input, &mut events);
         let frame = KeyFrame {
             keys: &keys,
             menu,
             cursor,
             pressed,
+            cancel,
         };
         close_view = key_events(player_runtime, ui, presentation, frame, input, &mut events);
     } else {
@@ -282,14 +284,16 @@ fn drive_owner(
 }
 
 /// The overlay's and view's hover, wheel, presses and secondary presses; returns whether the
-/// primary button went down, which the edit boxes also follow.
+/// primary button went down, which the edit boxes also follow, and whether a Menu Cancel mouse
+/// button did.
 fn pointer_events(
     presentation: &mut UiPresentationRuntime,
+    menu: Option<&client_shell::menu::MenuRuntime>,
     cursor: Option<[f32; 2]>,
     modifiers: KeyModifiers,
     input: &mut ScreenInput,
     events: &mut Vec<ModEvent>,
-) -> bool {
+) -> (bool, bool) {
     presentation.mod_ui_mut().hover_mod_screens(cursor);
     let notches: f64 = input
         .wheel
@@ -311,7 +315,13 @@ fn pointer_events(
     }
     let (mut pressed, mut released) = (false, false);
     let (mut secondary_pressed, mut secondary_released) = (false, false);
+    let mut cancel = false;
     for event in input.buttons.read() {
+        cancel |= event.state.is_pressed()
+            && client_shell::menu::settings_options::control_bindings::menu_cancel_button(
+                menu,
+                event.button,
+            );
         match event.button {
             MouseButton::Left => {
                 pressed |= event.state.is_pressed();
@@ -343,7 +353,7 @@ fn pointer_events(
             index: index.and_then(|index| u32::try_from(index).ok()),
         });
     }
-    pressed
+    (pressed, cancel)
 }
 
 /// What the key events of one frame read besides the input.
@@ -353,10 +363,13 @@ struct KeyFrame<'a> {
     cursor: Option<[f32; 2]>,
     /// The primary button went down this frame.
     pressed: bool,
+    /// A Menu Cancel mouse button went down this frame.
+    cancel: bool,
 }
 
-/// Typing into the mod's edit boxes, Escape (which deselects a box, else returns from the
-/// view), and declared keys; returns whether to close the view after dispatch.
+/// Typing into the mod's edit boxes, Escape or Menu Cancel (which deselects a box, else returns
+/// from the view), and declared keys; returns whether to close the view after dispatch. A
+/// key-bound Menu Cancel types instead while an edit box is focused.
 fn key_events(
     player_runtime: &player_state::PlayerState,
     ui: &UiRuntime,
@@ -370,6 +383,7 @@ fn key_events(
         menu,
         cursor,
         pressed,
+        cancel,
     } = frame;
     let view = presentation.mod_ui().mod_view_shown();
     let presses: Vec<_> = input.presses.drain(..).collect();
@@ -383,7 +397,15 @@ fn key_events(
             )
         })
         .collect();
-    let escape = presses.iter().any(|press| press.key == KeyCode::Escape);
+    let typing = presentation.mod_ui().mod_text_focused();
+    let escape = cancel
+        || presses.iter().any(|press| {
+            press.key == KeyCode::Escape
+                || (!typing
+                    && client_shell::menu::settings_options::control_bindings::menu_cancel_key(
+                        menu, press.key,
+                    ))
+        });
     let now = input
         .time
         .as_ref()

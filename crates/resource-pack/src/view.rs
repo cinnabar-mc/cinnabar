@@ -58,6 +58,13 @@ impl LayeredPackView {
     /// copy over the limit is skipped, so a lower layer's copy can still win.
     #[must_use]
     pub fn read_capped(&self, path: &str, limit: u64) -> Option<Box<[u8]>> {
+        self.read_capped_with_layer(path, limit)
+            .map(|(_, bytes)| bytes)
+    }
+
+    /// Returns a bounded read and its layer index, counting from the highest priority pack.
+    #[must_use]
+    pub fn read_capped_with_layer(&self, path: &str, limit: u64) -> Option<(usize, Box<[u8]>)> {
         if let Some(dependencies) = &self.dependencies {
             dependencies.file(path, limit);
         }
@@ -65,7 +72,11 @@ impl LayeredPackView {
             .packs()
             .iter()
             .rev()
-            .find_map(|pack| pack.read_file_with_limit(path, limit).ok().flatten())
+            .enumerate()
+            .find_map(|(index, pack)| {
+                let bytes = pack.read_file_with_limit(path, limit).ok()??;
+                Some((index, bytes))
+            })
     }
 
     /// Every readable copy of `path`, lowest precedence first.

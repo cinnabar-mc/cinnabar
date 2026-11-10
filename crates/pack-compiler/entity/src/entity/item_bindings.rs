@@ -12,13 +12,13 @@ use sha2::{Digest, Sha256};
 
 use super::invalid;
 
-pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
+pub(super) const SOURCE_PATH: &str = "registry/default-sprite-bindings-1.26.60.json";
 pub(super) const SOURCE_BYTES: &[u8] =
-    include_bytes!("../../../../assets/data/default-sprite-bindings-1.26.50.json");
+    include_bytes!("../../../../assets/data/default-sprite-bindings-1.26.60.json");
 
-const RETAIL_SHA256: &str = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821";
+const RETAIL_SHA256: &str = "4d9b95a973180279fba6c45e115c5327f995d5b50ac828aad278d6ca2a16946c";
 const ATLAS_SHA256: &str = "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a";
-const ROUTE_COUNT: usize = 45;
+const ROUTE_COUNT: usize = 46;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,7 +84,9 @@ fn parse(bytes: &[u8]) -> Result<Box<[DefaultBinding]>, AssetError> {
         .collect::<BTreeSet<_>>();
     let mut previous: Option<&str> = None;
     for binding in &table.routes {
-        if !retail.contains(binding.identifier.as_ref())
+        let admitted = retail.contains(binding.identifier.as_ref())
+            || binding.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER;
+        if !admitted
             || previous.is_some_and(|value| value >= binding.identifier.as_ref())
             || binding.atlas_variant != 0
             || binding.default_alias.is_empty()

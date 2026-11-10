@@ -19,6 +19,7 @@ fn pause_scales_actions_together_at_the_window_minimum() {
             c.metrics = metrics;
             c.rem = rem;
             c.title_artwork = Some(ui::IconRef {
+                color_mask: None,
                 page: 18,
                 uv: [0, 0, 400, 80],
                 glint: false,
@@ -62,6 +63,7 @@ fn pause_keeps_existing_geometry_at_short_desktop_and_normal_sizes() {
     for size in [[1000.0, 560.0], [1920.0, 1080.0]] {
         let (_, hits, _) = paint(Default::default(), |c| {
             c.title_artwork = Some(ui::IconRef {
+                color_mask: None,
                 page: 18,
                 uv: [0, 0, 400, 80],
                 glint: false,
@@ -77,4 +79,33 @@ fn pause_keeps_existing_geometry_at_short_desktop_and_normal_sizes() {
         assert!((resume.min().y() - ((size[1] - 496.0) * 0.5 + 296.0)).abs() < 0.001);
         assert!((resume.height() - 48.0).abs() < 0.001);
     }
+}
+
+#[test]
+fn pause_compact_layout_preserves_actions_without_manual_input_toggle() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.touch_available = true;
+    let (_, hits, _) = paint(Default::default(), |c| {
+        draw(c, &view, [480.0, 320.0], &|_| None).unwrap();
+    });
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseResume),
+        "Compact pause menu must preserve Resume"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseSettings),
+        "Compact pause menu must preserve Settings"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom)),
+        "Compact pause menu must preserve Dressing Room"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseDisconnect),
+        "Compact pause menu must preserve Save & Quit"
+    );
 }

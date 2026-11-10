@@ -17,6 +17,9 @@ use server_experience::{
     screen,
 };
 
+#[path = "../src/server/tests/guests.rs"]
+mod guests;
+
 /// Lets this process launch developer helpers. Every test sets the same value before any helper
 /// starts, and nothing else here reads the environment concurrently.
 fn developer() {
@@ -25,48 +28,14 @@ fn developer() {
     SET.call_once(|| unsafe { std::env::set_var(DEVELOPER_ENV, "1") });
 }
 
-/// The terminal test client part, built for wasm32 into a target directory of its own inside
-/// this test's, and turned into a component.
+/// The terminal test client part, built for wasm32 into the library tests' guest target.
 fn terminal_component() -> Vec<u8> {
-    let exe = std::env::current_exe().unwrap();
-    let target = exe
-        .ancestors()
-        .nth(3)
-        .unwrap()
-        .join(worktree_dir("mod-host-guests"));
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = std::process::Command::new(cargo)
-        .current_dir(&root)
-        .args(["build", "--locked", "--target", "wasm32-unknown-unknown"])
-        .args(["-p", "experience-terminal-client", "--target-dir"])
-        .arg(&target)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "building the terminal client part failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let module =
-        std::fs::read(target.join("wasm32-unknown-unknown/debug/experience_terminal_client.wasm"))
-            .unwrap();
-    wit_component::ComponentEncoder::default()
-        .module(&module)
-        .unwrap()
-        .validate(true)
-        .encode()
-        .unwrap()
+    guests::component("experience-terminal-client")
 }
 
-fn spawn(component: Vec<u8>) -> Helper {
-    developer();
-    let owner = Principal {
-        session: "session".into(),
-        bundle: "terminal".into(),
-        generation: 1,
-    };
-    let capabilities = Capabilities {
+/// Grants only the terminal fixture's modal output by default.
+fn capabilities() -> Capabilities {
+    Capabilities {
         scope: Scope {
             permissions: BTreeSet::from([Permission::ModalUi]),
             origins: BTreeSet::new(),
@@ -79,15 +48,38 @@ fn spawn(component: Vec<u8>) -> Helper {
         channels: Vec::new(),
         actions: BTreeSet::new(),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
-    };
+    }
+}
+
+/// Starts the test component with the supplied signed capability declarations.
+fn spawn(component: Vec<u8>, capabilities: Capabilities) -> Helper {
+    developer();
     Helper::spawn_developer(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),
         component,
-        owner,
+        owner(),
         capabilities,
-        1,
+        context(),
     )
     .unwrap()
+}
+
+/// The terminal bundle's owner.
+fn owner() -> Principal {
+    Principal {
+        session: "session".into(),
+        bundle: "terminal".into(),
+        generation: 1,
+    }
+}
+
+/// The drawing context a helper starts under: connection 1, epoch 1.
+fn context() -> mod_host::presentation::Context {
+    mod_host::presentation::Context {
+        connection: 1,
+        epoch: 1,
+        ..Default::default()
+    }
 }
 
 /// The helper's next reply, waiting at most 30 seconds (the helper compiles the component).
@@ -95,7 +87,9 @@ fn reply(helper: &mut Helper) -> Reply {
     let since = Instant::now();
     loop {
         if let Some(result) = helper.poll() {
-            return result.unwrap();
+            return result.unwrap_or_else(|error| {
+                panic!("{error:#}; helper stderr: {:?}", helper.drain_log())
+            });
         }
         assert!(since.elapsed() < Duration::from_secs(30), "no reply");
         test_time::idle();
@@ -103,11 +97,21 @@ fn reply(helper: &mut Helper) -> Reply {
 }
 
 fn call(helper: &mut Helper, channel: &str) -> Reply {
+    call_record(helper, channel, b"[]")
+}
+
+/// Sends a message payload through the real helper process and waits for its reply.
+fn call_record(helper: &mut Helper, channel: &str, record: &[u8]) -> Reply {
     helper
         .dispatch(Dispatch {
+            drawing: mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
             event: Event::Message {
                 channel: channel.into(),
-                record: b"[]".to_vec(),
+                record: record.to_vec(),
             },
             epoch: 1,
             gui: None,
@@ -119,14 +123,18 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
 
 fn failure(reply: Reply) -> CallFailure {
     match reply {
-        Reply::Failed(failure) => failure,
-        Reply::Committed { transaction, .. } => panic!("committed {transaction:?}"),
+        Reply::Failed { failure, .. } | Reply::Recovered { failure, .. } => failure,
+        Reply::NotReady { transaction, .. } | Reply::Committed { transaction, .. } => {
+            panic!("committed {transaction:?}")
+        }
     }
 }
 
 fn count(reply: Reply) -> i64 {
     match reply {
-        Reply::Committed { transaction, fuel } => match transaction.commands.as_slice() {
+        Reply::Committed {
+            transaction, fuel, ..
+        } => match transaction.commands.as_slice() {
             _ if fuel == 0 || fuel >= CALLBACK_FUEL => panic!("used {fuel} fuel"),
             [Command::Collection { rows, .. }] => match rows[0]["#count"] {
                 screen::Value::Integer(count) => count,
@@ -134,7 +142,10 @@ fn count(reply: Reply) -> i64 {
             },
             other => panic!("{other:?}"),
         },
-        Reply::Failed(failure) => panic!("failed {failure:?}"),
+        Reply::Failed { failure, .. } | Reply::Recovered { failure, .. } => {
+            panic!("failed {failure:?}")
+        }
+        Reply::NotReady { .. } => panic!("unexpected negotiation"),
     }
 }
 
@@ -160,7 +171,7 @@ fn wait_log(helper: &mut Helper, needle: &str) -> Vec<String> {
 /// helper's restart notice reaches the client through its stderr.
 #[test]
 fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
-    let mut helper = spawn(terminal_component());
+    let mut helper = spawn(terminal_component(), capabilities());
     assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
     assert_eq!(count(call(&mut helper, "terminal.count")), 2);
@@ -182,6 +193,48 @@ fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
 }
 
+/// The restricted helper compiles and runs the component inside its lockdown, without the
+/// developer switch: callbacks commit, and a failed callback's fresh instance starts there too.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restricted_helper_compiles_and_runs_its_component_contained() {
+    if let Some(missing) = mod_host::helper::restricted::missing_feature() {
+        eprintln!("skipping: missing {missing}");
+        return;
+    }
+    let mut helper = Helper::spawn_restricted(
+        Path::new(env!("CARGO_BIN_EXE_mod-host")),
+        &terminal_component(),
+        owner(),
+        capabilities(),
+        context(),
+    )
+    .unwrap();
+    assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
+    assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+    assert_eq!(
+        failure(call(&mut helper, "terminal.panic")).kind,
+        FailureKind::Panic
+    );
+    assert_eq!(count(call(&mut helper, "terminal.count")), 1);
+}
+
+/// Restricted launch is Linux-only; elsewhere it refuses rather than running unrestricted.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn restricted_helpers_are_refused_off_linux() {
+    let error = Helper::spawn_restricted(
+        Path::new(env!("CARGO_BIN_EXE_mod-host")),
+        &[],
+        owner(),
+        capabilities(),
+        context(),
+    )
+    .err()
+    .unwrap();
+    assert!(error.to_string().contains("unavailable"), "{error}");
+}
+
 /// A component that imports what the host does not provide fails to start, and the start's
 /// reply says why instead of the helper vanishing.
 #[test]
@@ -190,7 +243,7 @@ fn a_failed_start_answers_with_its_reason() {
         r#"(component (import "cinnabar:missing/world-access@1.0.0" (instance (export "f" (func)))))"#,
     )
     .unwrap();
-    let mut helper = spawn(component);
+    let mut helper = spawn(component, capabilities());
     let failure = failure(reply(&mut helper));
     assert_eq!(failure.kind, FailureKind::Startup);
     assert_eq!(failure.callback, "init");
@@ -204,13 +257,137 @@ fn a_failed_start_answers_with_its_reason() {
     );
 }
 
-/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
-/// dep-info paths are relative to the workspace, so two worktrees building into one target would
-/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
-/// each worktree's guests its own.
-fn worktree_dir(name: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-    format!("{name}-{:016x}", hasher.finish())
+/// A messaging guest's fresh initialization reaches the client in the failed call's own reply.
+#[test]
+fn recovery_messages_cross_helper_ipc_without_another_dispatch() {
+    use server_experience::wire::{Channel, Direction, Field, Scalar};
+
+    let mut capabilities = capabilities();
+    capabilities.scope.permissions = BTreeSet::from([Permission::Ui, Permission::Messaging]);
+    capabilities.channels.push(Channel {
+        id: "demo.request".into(),
+        schema: 1,
+        direction: Direction::ToServer,
+        fields: vec![Field::Bool {}],
+    });
+    let component = wat::parse_bytes(include_bytes!("../src/server/guest_recovery.wat"))
+        .unwrap()
+        .into_owned();
+    let mut helper = spawn(component, capabilities);
+    assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
+    let Reply::Recovered {
+        failure,
+        transaction,
+        confirmation: None,
+        ..
+    } = call(&mut helper, "demo.fail")
+    else {
+        panic!("the failed dispatch must include recovery messages");
+    };
+    assert_eq!(failure.kind, FailureKind::Panic);
+    assert_eq!(failure.callback, "dispatch");
+    assert_eq!(transaction.epoch, 1);
+    assert_eq!(transaction.owner.bundle, "terminal");
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, schema: 1, record }]
+        if channel == "demo.request" && record == &[Scalar::Bool(false)])
+    );
+}
+
+/// Readiness and the restarted guest's confirmation channel cross the actual process boundary.
+#[test]
+fn negotiation_readiness_and_recovery_cross_helper_ipc() {
+    use server_experience::wire::{Channel, Direction, Field};
+
+    let mut capabilities = capabilities();
+    capabilities.scope.permissions =
+        BTreeSet::from([Permission::Ui, Permission::ModalUi, Permission::Messaging]);
+    capabilities.templates.insert("ui/terminal.json".into());
+    capabilities.assets.insert("ui/terminal.json".into());
+    for (id, direction) in [
+        ("demo.registry", Direction::ToClient),
+        ("demo.registry_request", Direction::ToServer),
+    ] {
+        capabilities.channels.push(Channel {
+            id: id.into(),
+            schema: 1,
+            direction,
+            fields: vec![Field::Text { max_bytes: 64 }],
+        });
+    }
+    let component = wat::parse_bytes(include_bytes!("../src/server/guest_negotiation.wat"))
+        .unwrap()
+        .into_owned();
+    let mut helper = spawn(component, capabilities);
+    let Reply::NotReady {
+        confirmation,
+        transaction,
+        ..
+    } = reply(&mut helper)
+    else {
+        panic!("startup must report pending registry negotiation");
+    };
+    assert_eq!(confirmation, "demo.registry");
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, .. }] if channel == "demo.registry_request")
+    );
+    let Reply::NotReady { transaction, .. } = call(&mut helper, "demo.waiting") else {
+        panic!("an unconfirmed event must remain with its caller");
+    };
+    assert!(transaction.commands.is_empty());
+    assert!(matches!(
+        call_record(
+            &mut helper,
+            "demo.registry",
+            br#"[{"type":"text","value":"expected"}]"#
+        ),
+        Reply::Committed { .. }
+    ));
+    helper
+        .dispatch(Dispatch {
+            drawing: mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
+            event: Event::Message {
+                channel: "demo.fail".into(),
+                record: Vec::new(),
+            },
+            epoch: 1,
+            gui: None,
+            items: None,
+        })
+        .unwrap();
+    let Reply::Recovered {
+        confirmation,
+        failure,
+        transaction,
+        ..
+    } = reply(&mut helper)
+    else {
+        panic!("a trap must report the fresh guest's negotiation");
+    };
+    assert_eq!(confirmation.as_deref(), Some("demo.registry"));
+    assert_eq!(failure.kind, FailureKind::Panic);
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, .. }] if channel == "demo.registry_request")
+    );
+    assert!(matches!(
+        call(&mut helper, "demo.waiting"),
+        Reply::NotReady { .. }
+    ));
+    let Reply::Failed { failure, .. } = call_record(
+        &mut helper,
+        "demo.registry",
+        br#"[{"type":"text","value":"changed-server"}]"#,
+    ) else {
+        panic!("mismatched definitions must fail without restarting");
+    };
+    assert_eq!(failure.kind, FailureKind::RegistryMismatch);
+    assert_eq!(failure.reason, experience_sdk::REGISTRY_MISMATCH);
+    assert!(matches!(
+        call(&mut helper, "demo.waiting"),
+        Reply::Failed { .. }
+    ));
 }

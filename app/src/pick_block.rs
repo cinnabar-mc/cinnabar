@@ -100,7 +100,7 @@ fn observe(
                 .value
                 .as_ref()
                 .map(|observed| observed.hit_distance()),
-            ui.gameplay_hud().mount_unique_id(),
+            stream.authority().local_mount_unique_id(),
         )
     {
         return Some(PickAttempt {

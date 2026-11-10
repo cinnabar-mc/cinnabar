@@ -1,0 +1,7 @@
+{
+  "format_version": "1.16.100",
+  "minecraft:texture_set": {
+    "color": [255, 255, 255, 255],
+    "heightmap": 128
+  }
+}

@@ -9,6 +9,9 @@ use super::*;
 use crate::actor::gpu::ArtworkRawViews;
 use bevy::prelude::Entity;
 
+const PIPELINE_SAMPLE_VARIANTS: usize = 4;
+const PIPELINE_VARIANTS: usize = PIPELINE_SAMPLE_VARIANTS * 2 * 2;
+
 pub(super) struct HandRigDepth {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
@@ -19,7 +22,7 @@ pub(super) struct HandRigDepth {
 pub(super) struct HandRigAtlas {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
-    pub(super) pixels: Arc<[u8]>,
+    pub(super) pixels: render_model::PagePixels,
     pub(super) size: [u32; 3],
     pub(super) raw_views: ArtworkRawViews,
 }
@@ -56,8 +59,10 @@ pub(super) struct HandRigGpu {
     pub(super) spans: Option<Buffer>,
     pub(super) previous_bones: Option<Buffer>,
     pub(super) current_bones: Option<Buffer>,
+    /// Reused only by the compact layout to upload both pose endpoints together.
+    compact_pose: Vec<u8>,
     pub(super) skin: Option<HandRigSkin>,
-    pub(super) atlases: [Option<HandRigAtlas>; 2],
+    pub(super) atlases: [Option<HandRigAtlas>; 3],
     /// The raw-view setting new artwork textures are created with; artwork created under
     /// another setting is replaced.
     pub(super) raw_views: ArtworkRawViews,
@@ -68,7 +73,7 @@ pub(super) struct HandRigGpu {
     failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
-    pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; 8],
+    pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) geometry_revision: Option<u64>,
     pub(super) revision: Option<u64>,
     pub(super) maximum_vertex_count: u32,
@@ -76,6 +81,12 @@ pub(super) struct HandRigGpu {
 
 /// Allocates persistent rig buffers, layouts and nearest-sampled artwork bindings.
 pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+    let mut layout = hand_rig_layout();
+    if device.limits().max_storage_buffers_per_shader_stage
+        < crate::device_settings::vertex_storage_buffers(&layout)
+    {
+        layout.entries.retain(|entry| entry.binding != 5);
+    }
     let uniform = |label: &'static str, contents: &[u8]| {
         device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some(label),
@@ -89,7 +100,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         usage: BufferUsages::UNIFORM,
     });
     commands.insert_resource(HandRigGpu {
-        layout: hand_rig_layout(),
+        layout,
         sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person rig binary-alpha nearest"),
             mag_filter: FilterMode::Nearest,
@@ -110,8 +121,9 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         spans: None,
         previous_bones: None,
         current_bones: None,
+        compact_pose: Vec::new(),
         skin: None,
-        atlases: [None, None],
+        atlases: [None, None, None],
         raw_views: ArtworkRawViews::default(),
         glint_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person repeat glint sampler"),
@@ -127,7 +139,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         failed_depth: default(),
         bind_group: None,
         pipeline: None,
-        pipeline_variants: [None; 8],
+        pipeline_variants: [None; PIPELINE_VARIANTS],
         geometry_revision: None,
         revision: None,
         maximum_vertex_count: 0,
@@ -194,8 +206,9 @@ pub(super) fn prepare(
     build_bind_group(&mut gpu, &uploads.device, &cache);
     let gpu = &mut *gpu;
     let layout = gpu.layout.clone();
-    gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, || {
-        cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr))
+    let encoded = bindings::hand_uses_encoded_color(&frame.light, hdr);
+    gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, encoded, || {
+        cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr, encoded))
     });
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
@@ -292,6 +305,18 @@ pub(super) fn upload_pose(
     if gpu.revision == Some(frame.revision) && gpu.instances.is_some() {
         return true;
     }
+    let compact = !gpu.layout.entries.iter().any(|entry| entry.binding == 5);
+    if compact {
+        if frame.rig.previous_bones.len() != frame.rig.current_bones.len() {
+            return false;
+        }
+        gpu.compact_pose.clear();
+        gpu.compact_pose
+            .extend_from_slice(bytemuck::cast_slice(&frame.rig.previous_bones));
+        gpu.compact_pose
+            .extend_from_slice(bytemuck::cast_slice(&frame.rig.current_bones));
+    }
+    let stream_count = if compact { 2 } else { 3 };
     // The pose changes every frame; same-sized buffers are rewritten so the bind group survives.
     let streams = [
         (
@@ -300,7 +325,11 @@ pub(super) fn upload_pose(
         ),
         (
             "first-person rig previous bones",
-            bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones),
+            if compact {
+                &gpu.compact_pose
+            } else {
+                bytemuck::cast_slice::<_, u8>(&frame.rig.previous_bones)
+            },
         ),
         (
             "first-person rig current bones",
@@ -311,7 +340,12 @@ pub(super) fn upload_pose(
     // Resized streams are all allocated before any write, so out of memory keeps the last
     // consistent pose and retries next frame.
     let mut replacements: [Option<Buffer>; 3] = [None, None, None];
-    for ((slot, (label, bytes)), replacement) in slots.iter().zip(streams).zip(&mut replacements) {
+    for ((slot, (label, bytes)), replacement) in slots
+        .iter()
+        .zip(streams)
+        .zip(&mut replacements)
+        .take(stream_count)
+    {
         if slot
             .as_ref()
             .is_some_and(|buffer| buffer.size() == bytes.len() as u64)
@@ -335,7 +369,12 @@ pub(super) fn upload_pose(
         &mut gpu.previous_bones,
         &mut gpu.current_bones,
     ];
-    for ((slot, (_label, bytes)), replacement) in slots.into_iter().zip(streams).zip(replacements) {
+    for ((slot, (_label, bytes)), replacement) in slots
+        .into_iter()
+        .zip(streams)
+        .zip(replacements)
+        .take(stream_count)
+    {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "hand.pose_upload",
@@ -366,11 +405,12 @@ pub(super) fn upload_skin(
     queue: &RenderQueue,
     frame: &HandRigFrame,
 ) {
-    if gpu
-        .skin
-        .as_ref()
-        .is_some_and(|skin| skin.pixels == frame.skin && skin.raw_views == gpu.raw_views)
-    {
+    let format = bindings::hand_artwork_format(&frame.light);
+    if gpu.skin.as_ref().is_some_and(|skin| {
+        skin.pixels == frame.skin
+            && skin.raw_views == gpu.raw_views
+            && skin._texture.format() == format
+    }) {
         return;
     }
     let side = render_model::actor_skin_side(&frame.skin).expect("admitted hand skin") as u32;
@@ -386,9 +426,13 @@ pub(super) fn upload_skin(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: gpu.raw_views.view_formats(),
+            view_formats: if format.is_srgb() {
+                gpu.raw_views.view_formats()
+            } else {
+                &[]
+            },
         },
         TextureDataOrder::LayerMajor,
         &frame.skin,
@@ -415,6 +459,7 @@ pub(super) fn upload_atlas(
     frame: &HandRigFrame,
 ) {
     let raw_views = gpu.raw_views;
+    let format = bindings::hand_artwork_format(&frame.light);
     for (slot, atlas) in gpu.atlases.iter_mut().zip(&frame.item_atlases) {
         let Some(atlas) = atlas else {
             if slot.take().is_some() {
@@ -434,8 +479,9 @@ pub(super) fn upload_atlas(
             continue;
         }
         if slot.as_ref().is_some_and(|current| {
-            Arc::ptr_eq(&current.pixels, &atlas.rgba8)
+            current.pixels.ptr_eq(&atlas.rgba8)
                 && current.raw_views == raw_views
+                && current._texture.format() == format
                 && current.size
                     == [
                         u32::from(atlas.width),
@@ -457,12 +503,16 @@ pub(super) fn upload_atlas(
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
+                format,
                 usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-                view_formats: raw_views.view_formats(),
+                view_formats: if format.is_srgb() {
+                    raw_views.view_formats()
+                } else {
+                    &[]
+                },
             },
             TextureDataOrder::LayerMajor,
-            &atlas.rgba8,
+            &atlas.rgba8.joined(),
         );
         let view = texture.create_view(&TextureViewDescriptor {
             label: Some("first-person item atlas layers"),
@@ -472,7 +522,7 @@ pub(super) fn upload_atlas(
         *slot = Some(HandRigAtlas {
             _texture: texture,
             view,
-            pixels: Arc::clone(&atlas.rgba8),
+            pixels: atlas.rgba8.clone(),
             size: [
                 u32::from(atlas.width),
                 u32::from(atlas.height),
@@ -602,6 +652,11 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
     if gpu.bind_group.is_some() {
         return;
     }
+    let current = if gpu.layout.entries.iter().any(|entry| entry.binding == 5) {
+        gpu.current_bones.as_ref()
+    } else {
+        gpu.previous_bones.as_ref()
+    };
     let (
         Some(instances),
         Some(vertices),
@@ -615,7 +670,7 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
         gpu.vertices.buffer(),
         gpu.spans.as_ref(),
         gpu.previous_bones.as_ref(),
-        gpu.current_bones.as_ref(),
+        current,
         gpu.skin.as_ref(),
         gpu.glint.as_ref(),
     )
@@ -636,6 +691,9 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
             offhand_atlas: gpu.atlases[1]
                 .as_ref()
                 .map_or(&skin.view, |atlas| &atlas.view),
+            map_background: gpu.atlases[2]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
             item_glint: &glint.view,
             glint_sampler: &gpu.glint_sampler,
         }
@@ -654,6 +712,12 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
             resource: buffer.as_entire_binding(),
         }),
     );
+    entries.retain(|entry| {
+        gpu.layout
+            .entries
+            .iter()
+            .any(|kept| kept.binding == entry.binding)
+    });
     gpu.bind_group = Some(device.create_bind_group(
         "first-person rig bind group",
         &cache.get_bind_group_layout(&gpu.layout),
@@ -661,11 +725,12 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
     ));
 }
 
-/// Keeps one pipeline per supported sample count and colour format.
+/// Keeps each supported sample count, colour format and blend space independently.
 pub(super) fn memoized_pipeline<T: Copy>(
-    entries: &mut [Option<T>; 8],
+    entries: &mut [Option<T>; PIPELINE_VARIANTS],
     samples: u32,
     hdr: bool,
+    encoded: bool,
     create: impl FnOnce() -> T,
 ) -> Option<T> {
     let sample = match samples {
@@ -675,7 +740,9 @@ pub(super) fn memoized_pipeline<T: Copy>(
         8 => 3,
         _ => return None,
     };
-    let entry = &mut entries[sample + usize::from(hdr) * 4];
+    let entry = &mut entries[sample
+        + usize::from(hdr) * PIPELINE_SAMPLE_VARIANTS
+        + usize::from(encoded) * PIPELINE_SAMPLE_VARIANTS * 2];
     Some(*entry.get_or_insert_with(create))
 }
 
@@ -684,6 +751,7 @@ pub(super) fn specialized_pipeline(
     layout: BindGroupLayoutDescriptor,
     samples: u32,
     hdr: bool,
+    encoded: bool,
 ) -> RenderPipelineDescriptor {
     let mut descriptor = pipeline_descriptor(layout);
     descriptor.multisample.count = samples;
@@ -695,12 +763,19 @@ pub(super) fn specialized_pipeline(
     } else {
         render_scene::SCENE_COLOR_FORMAT
     };
+    if encoded {
+        let fragment = descriptor.fragment.as_mut().unwrap();
+        let target = fragment.targets[0].as_mut().unwrap();
+        target.format = target.format.remove_srgb_suffix();
+        fragment.shader_defs.push("ENCODED_HAND_COLOR".into());
+    }
     descriptor
 }
 
 /// Defines lit rig drawing with straight-alpha blending and private reverse-Z depth.
 pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPipelineDescriptor {
-    RenderPipelineDescriptor {
+    let compact = !layout.entries.iter().any(|entry| entry.binding == 5);
+    let mut descriptor = RenderPipelineDescriptor {
         label: Some("first-person animated rig".into()),
         layout: vec![layout, crate::lighting::layout()],
         vertex: VertexState {
@@ -727,7 +802,17 @@ pub(super) fn pipeline_descriptor(layout: BindGroupLayoutDescriptor) -> RenderPi
             bias: default(),
         }),
         ..default()
+    };
+    if compact {
+        descriptor.vertex.shader_defs.push("COMPACT_BONES".into());
+        descriptor
+            .fragment
+            .as_mut()
+            .unwrap()
+            .shader_defs
+            .push("COMPACT_BONES".into());
     }
+    descriptor
 }
 
 /// Declares the rig, pose, lighting and hand artwork bindings.
@@ -821,6 +906,16 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
                 count: None,
             },
             BindGroupLayoutEntry {
+                binding: 14,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
                 binding: 12,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
@@ -849,11 +944,27 @@ impl crate::pipeline_warmup::PrewarmPipelines for HandRigGpu {
     ) -> Result<(), BevyError> {
         let layout = &self.layout;
         let samples = view.msaa.samples();
-        let id = memoized_pipeline(&mut self.pipeline_variants, samples, view.hdr, || {
-            cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, view.hdr))
-        })
-        .ok_or("unsupported hand rig pipeline sample count")?;
-        ids.push(id);
+        for encoded in [false, true]
+            .into_iter()
+            .filter(|encoded| !encoded || !view.hdr)
+        {
+            let id = memoized_pipeline(
+                &mut self.pipeline_variants,
+                samples,
+                view.hdr,
+                encoded,
+                || {
+                    cache.queue_render_pipeline(specialized_pipeline(
+                        layout.clone(),
+                        samples,
+                        view.hdr,
+                        encoded,
+                    ))
+                },
+            )
+            .ok_or("unsupported hand rig pipeline sample count")?;
+            ids.push(id);
+        }
         Ok(())
     }
 }

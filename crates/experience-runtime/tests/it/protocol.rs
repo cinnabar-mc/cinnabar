@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use experience_runtime::hex;
 use experience_runtime::limits::MAX_FRAME_BYTES;
 use experience_runtime::protocol::{
-    Cause, Face, FailKind, Mining, PlacementState, RenderMethod, Request, Response, Scalar,
-    Texture, fixtures, read_frame, write_frame,
+    BlockDrops, BlockItem, Cause, DimensionType, Face, FailKind, GameMode, Generator, Mining,
+    PlacementState, RenderMethod, Request, Response, Scalar, StoreScope, Texture, fixtures,
+    read_frame, write_frame,
 };
 use serde::{Deserialize, Serialize};
 
@@ -13,11 +14,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Enums {
+    dimensions: Vec<DimensionType>,
+    generators: Vec<Generator>,
+    store_scopes: Vec<StoreScope>,
     faces: Vec<Face>,
     causes: Vec<Cause>,
     fail_kinds: Vec<FailKind>,
     render_methods: Vec<RenderMethod>,
     placement_states: Vec<PlacementState>,
+    block_drops: Vec<BlockDrops>,
+    block_items: Vec<BlockItem>,
+    game_modes: Vec<GameMode>,
     placement_values: Vec<PlacementValues>,
 }
 

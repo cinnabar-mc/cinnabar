@@ -100,6 +100,16 @@ impl SemanticInputRuntime {
         Ok(snapshot)
     }
 
+    /// Returns the manual fallback mode used when no active input candidates exist.
+    pub fn preferred_input_mode(&self) -> Option<semantic_input::InputMode> {
+        self.router.preferred_input_mode()
+    }
+
+    /// Sets the manual fallback mode used when no active input candidates exist.
+    pub fn set_preferred_input_mode(&mut self, mode: Option<semantic_input::InputMode>) -> bool {
+        self.router.set_preferred_input_mode(mode)
+    }
+
     pub fn set_context(&mut self, context: InputContext) {
         self.router.set_context(context);
     }

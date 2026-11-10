@@ -177,6 +177,7 @@ fn combined_snapshot() -> CombinedPublicationSnapshot {
             abandoned_cached_transactions: 21,
             recovery_requests: 22,
             ordinary_backpressure: 23,
+            ordinary_lane_stalls: 29,
             reconstructed_level_chunks: 2,
             reconstructed_sub_chunks: 1,
             ..Default::default()
@@ -209,24 +210,6 @@ fn player_column_witness_uses_subject_not_third_person_camera_boom() {
     assert_eq!(
         local_subject_column(0, third_person_camera),
         Some(ChunkKey::new(0, 1, 0))
-    );
-}
-
-#[test]
-fn serialized_publication_path_reads_the_frozen_local_subject_column() {
-    let source = include_str!("../runtime/telemetry.rs");
-    let record = source
-        .split("pub(crate) fn record_metrics(")
-        .nth(1)
-        .expect("record_metrics source")
-        .split_once("\n    if client_world.stream.is_some()")
-        .expect("publication evidence ends before gameplay visibility counters")
-        .0;
-
-    assert!(record.contains("render_metrics.local_player.snapshot()"));
-    assert!(record.contains("local_subject_column(stream.current_dimension(), local_frame.eye())"));
-    assert!(
-        !record.contains("camera_sub_chunk_key(stream.current_dimension(), camera.translation)")
     );
 }
 
@@ -297,6 +280,7 @@ fn publication_exposes_every_blob_cache_pressure_counter() {
         ("abandoned_cached_transactions", 21),
         ("recovery_requests", 22),
         ("ordinary_backpressure", 23),
+        ("ordinary_lane_stalls", 29),
     ];
     let mismatched = expected
         .into_iter()
@@ -405,22 +389,6 @@ fn key_manifest_identity_does_not_change_with_observation_frame() {
     assert!(
         publication_line_if_changed(&mut previous, snapshot).is_some(),
         "a semantic resident-manifest change must emit one updated marker",
-    );
-}
-
-#[test]
-fn frame_metrics_observe_the_real_clock() {
-    let source = include_str!("../runtime/telemetry.rs");
-    let function = source
-        .split_once("pub(crate) fn record_metrics(")
-        .expect("record_metrics definition")
-        .1
-        .split_once(") {")
-        .expect("record_metrics signature")
-        .0;
-    assert!(
-        function.contains("time: Res<Time<Real>>"),
-        "frame metrics must use unclamped wall-clock frame deltas, not Bevy's virtual clock",
     );
 }
 

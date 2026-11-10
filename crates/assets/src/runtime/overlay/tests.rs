@@ -51,7 +51,8 @@ fn review_full_face_occlusion_requires_drawable_geometry() {
     );
 }
 
-fn cube_overlay(texture: TextureArray) -> BlockOverlay {
+/// Creates one cube whose faces use the first overlay texture.
+pub(super) fn cube_overlay(texture: TextureArray) -> BlockOverlay {
     BlockOverlay {
         visuals: vec![BlockVisual {
             native_material: crate::native_material::NativeMaterialFacts::Unresolved,
@@ -98,6 +99,28 @@ fn overlay_shards_share_the_runtime_page_allocations() {
     assert_eq!(runtime.texture_shards().len(), overlay.textures.len());
     assert_shared_shards(runtime.texture_shards(), &runtime.texture_pages()[1..]);
     assert_eq!(base.texture_shards().len(), 0);
+}
+
+/// The compiled overlay and its base stay retained beside the merged assets, so merging
+/// shares their texel storage instead of copying every page.
+#[test]
+fn merging_an_overlay_does_not_copy_texture_pixels() {
+    let base = RuntimeAssets::diagnostic();
+    let overlay = cube_overlay(page(1024));
+    let pixel_bytes: usize = overlay.textures[0]
+        .mips
+        .iter()
+        .map(|mip| mip.rgba8.len())
+        .sum();
+    let (runtime, allocated) =
+        test_alloc::measure(|| base.with_block_overlay(1, &overlay).unwrap());
+    assert!(
+        allocated.bytes < pixel_bytes / 2,
+        "merging allocated {} bytes beside {pixel_bytes} shard texel bytes",
+        allocated.bytes
+    );
+    assert_shared_shards(&overlay.textures, &runtime.texture_pages()[1..]);
+    assert_shared_shards([base.texture_array()], runtime.texture_pages());
 }
 
 #[test]
@@ -157,6 +180,65 @@ fn material_overrides_repoint_base_materials() {
     assert!(base.with_block_overlay(1, &overlay).is_err());
 }
 
+/// A replaced shelf sheet is one overlay layer, so only its pose moves to the whole-sheet UVs.
+#[test]
+fn replacing_a_sheet_moves_only_its_models_to_their_whole_sheet_templates() {
+    let mut base = RuntimeAssets::diagnostic();
+    base.materials = vec![Material::unvaried(); 4].into();
+    base.light_properties = vec![LightProperties::OPAQUE_DARK; 3].into();
+    let diagnostic = base.visuals[0];
+    base.visuals = [0, 1, 2]
+        .map(|material| BlockVisual {
+            faces: [material; 6],
+            kind: VisualKind::Model,
+            model_template: 0,
+            ..diagnostic
+        })
+        .into();
+    base.model_templates = vec![
+        ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF | crate::MODEL_TEMPLATE_FLAG_SHEET_TILES,
+        },
+        ModelTemplate {
+            quad_start: 1,
+            quad_count: 1,
+            flags: crate::MODEL_TEMPLATE_FLAG_SHELF,
+        },
+    ]
+    .into();
+    base.model_quads = vec![
+        crate::ModelQuad {
+            positions: [[0; 3]; 4],
+            uvs: [[0; 2]; 4],
+            material: 3,
+            flags: 0,
+        };
+        2
+    ]
+    .into();
+    let template = |assets: &RuntimeAssets, visual| {
+        assets
+            .resolve(NetworkIdMode::Sequential, visual)
+            .model_template()
+    };
+    let mut overlay = cube_overlay(page(64));
+    let untouched = base.with_block_overlay(3, &overlay).unwrap();
+    assert_eq!(template(&untouched, 1), Some(0));
+    overlay.material_overrides.push(MaterialOverride {
+        material: 1,
+        texture: TextureRef::new(1, 0).unwrap(),
+        animation: NO_ANIMATION,
+        variation: None,
+    });
+    let replaced = base.with_block_overlay(3, &overlay).unwrap();
+    assert_eq!(template(&replaced, 1), Some(1));
+    assert_eq!(template(&replaced, 2), Some(0));
+    assert!(replaced.is_retextured(crate::BlockVisualId(1)));
+    assert!(!replaced.is_retextured(crate::BlockVisualId(2)));
+}
+
 #[test]
 fn raster_only_leaf_replacement_preserves_the_base_weighted_selector() {
     let mut base = RuntimeAssets::diagnostic();
@@ -192,6 +274,51 @@ fn raster_only_leaf_replacement_preserves_the_base_weighted_selector() {
     );
     assert_eq!(runtime.material(3).texture.page(), 1);
     assert_eq!(base.material(3).texture.page(), 0);
+}
+
+#[test]
+fn only_base_visuals_whose_face_art_changed_are_retextured() {
+    let mut base = RuntimeAssets::diagnostic();
+    base.materials = vec![
+        Material::unvaried(),
+        Material {
+            variation_start: 2,
+            variation_count: 2,
+            ..Material::unvaried()
+        },
+        Material {
+            variation_weight: 0.25_f32.to_bits(),
+            ..Material::unvaried()
+        },
+        Material {
+            variation_weight: 0.75_f32.to_bits(),
+            ..Material::unvaried()
+        },
+        Material::unvaried(),
+    ]
+    .into();
+    let diagnostic = base.visuals[0];
+    base.visuals = [0, 1, 4]
+        .map(|material| BlockVisual {
+            faces: [material; 6],
+            ..diagnostic
+        })
+        .into();
+    let mut overlay = cube_overlay(page(16));
+    let untouched = base.with_block_overlay(3, &overlay).unwrap();
+    assert!((0..4).all(|visual| !untouched.is_retextured(crate::BlockVisualId(visual))));
+    // Repointing one weighted leaf changes the art of every face that selects it.
+    overlay.material_overrides.push(MaterialOverride {
+        material: 3,
+        texture: TextureRef::new(1, 0).unwrap(),
+        animation: NO_ANIMATION,
+        variation: None,
+    });
+    let runtime = base.with_block_overlay(3, &overlay).unwrap();
+    let retextured = (0..4)
+        .filter(|&visual| runtime.is_retextured(crate::BlockVisualId(visual)))
+        .collect::<Vec<_>>();
+    assert_eq!(retextured, [1]);
 }
 
 #[test]
@@ -420,10 +547,6 @@ fn vanilla_fallback_does_not_substitute_another_static_variant() {
     for variant_zero in [
         Material {
             animation: 0,
-            ..Material::unvaried()
-        },
-        Material {
-            texture: TextureRef::new(1, 0).unwrap(),
             ..Material::unvaried()
         },
         Material {

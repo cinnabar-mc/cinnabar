@@ -292,7 +292,7 @@ fn upload_budget_is_nearest_first_and_queue_supports_update_remove() {
     );
     assert_eq!(
         app.world_mut()
-            .query::<(&Aabb, &Visibility)>()
+            .query::<(&ChunkRenderInstance, &Visibility, &NoCpuCulling)>()
             .iter(app.world())
             .count(),
         1,
@@ -400,7 +400,8 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("mix(current_sample, next_sample, frame_blend)"));
     assert!(shader.contains("@interpolate(flat) current_texture: u32"));
     assert!(shader.contains("@interpolate(flat) next_texture: u32"));
-    assert!(shader.contains("@interpolate(flat) frame_blend_uv_limit: vec3<f32>"));
+    assert!(shader.contains("@interpolate(flat) frame_blend: f32"));
+    assert!(shader.contains("@interpolate(flat) quad_shape: u32"));
     assert!(shader.contains("@location(3) @interpolate(flat) material_flags: u32"));
     assert!(shader.contains("@interpolate(flat) material_flags: u32"));
     assert_eq!(
@@ -444,9 +445,32 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("material.animation == 4294967295u"));
     assert!(shader.contains("var block_textures_page_0: texture_2d_array<f32>"));
     assert!(shader.contains("var block_textures_page_1: texture_2d_array<f32>"));
-    assert!(shader.contains("var<storage, read> animations: array<AnimationGpu>"));
-    assert!(shader.contains("var<storage, read> animation_frames: array<u32>"));
-    assert!(shader.contains("var<uniform> clock: AnimationClockGpu"));
+    for (binding, stride) in [(9, 16), (10, 4)] {
+        let variable = shader_binding(&module, binding);
+        assert_eq!(
+            variable.space,
+            naga::AddressSpace::Storage {
+                access: naga::StorageAccess::LOAD,
+            }
+        );
+        assert!(matches!(
+            module.types[variable.ty].inner,
+            naga::TypeInner::Array {
+                stride: actual,
+                size: naga::ArraySize::Dynamic,
+                ..
+            } if actual == stride
+        ));
+        assert!(entry_points_use_binding(
+            &module,
+            naga::ShaderStage::Vertex,
+            binding,
+        ));
+    }
+    assert_eq!(
+        shader_binding(&module, 11).space,
+        naga::AddressSpace::Uniform
+    );
     assert!(!shader.contains("debug_color"));
 }
 
@@ -455,10 +479,11 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../../src/lighting.wesl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap.raw[sample & 255u].rgb"));
-    for (shader, liquid) in [
-        (include_str!("../../../src/chunk.wesl"), false),
-        (include_str!("../../../src/model.wesl"), false),
-        (include_str!("../../../src/liquid.wesl"), true),
+    // Vanilla cube fragments read only the native table, so their vertices bake no colour.
+    for (shader, liquid, baked_colour) in [
+        (include_str!("../../../src/chunk.wesl"), false, false),
+        (include_str!("../../../src/model.wesl"), false, true),
+        (include_str!("../../../src/liquid.wesl"), true, true),
     ] {
         assert!(shader.contains("import render::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
@@ -492,11 +517,10 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
             naga::ShaderStage::Fragment,
             15
         ));
-        assert!(entry_points_call_function(
-            &module,
-            naga::ShaderStage::Vertex,
-            "light_colour"
-        ));
+        assert_eq!(
+            entry_points_call_function(&module, naga::ShaderStage::Vertex, "light_colour"),
+            baked_colour
+        );
         assert!(entry_points_call_function(
             &module,
             naga::ShaderStage::Fragment,
@@ -518,13 +542,23 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
 #[test]
 fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bindings() {
     let shader = include_str!("../../../src/chunk.wesl");
-    assert!(shader.contains("struct ChunkOrigin"));
-    assert!(shader.contains("stream_bases: vec4<u32>"));
     assert!(shader.contains("@binding(13) var<storage, read> geometry_streams: array<u32>"));
     assert!(shader.contains("let local_quad_index = instance_index - chunk_origin.stream_bases.x"));
     assert!(shader.contains("chunk_origin.stream_bases.y + local_quad_index"));
     let module = naga::front::wgsl::parse_str(&standalone_world_shader(shader))
         .expect("parse packed chunk WGSL");
+    let naga::TypeInner::Array { base, stride, .. } =
+        module.types[shader_binding(&module, 2).ty].inner
+    else {
+        panic!("section origins must be an array");
+    };
+    assert_eq!(stride, 32);
+    let naga::TypeInner::Struct { ref members, span } = module.types[base].inner else {
+        panic!("section origins must contain placement and stream bases");
+    };
+    assert_eq!(span, stride);
+    assert_eq!(members.len(), 2);
+    assert_eq!(members[1].offset, 16);
     assert!(entry_points_use_binding(
         &module,
         naga::ShaderStage::Vertex,
@@ -532,6 +566,21 @@ fn chunk_shader_reads_cube_light_from_expanded_origin_without_changing_stream_bi
     ));
     assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
     assert_eq!(std::mem::size_of::<meshing::PackedQuadLighting>(), 8);
+}
+
+/// Finds a compiled world binding without depending on source variable names.
+fn shader_binding(module: &naga::Module, binding: u32) -> &naga::GlobalVariable {
+    module
+        .global_variables
+        .iter()
+        .find(|(_, variable)| {
+            variable
+                .binding
+                .as_ref()
+                .is_some_and(|resource| resource.group == 0 && resource.binding == binding)
+        })
+        .expect("world shader binding must exist")
+        .1
 }
 
 fn uniform_biome_record(tint_index: u32) -> PackedBiomeRecord {
@@ -692,14 +741,27 @@ fn material_uv_flags_rotate_and_reflect_greedy_coordinates() {
 
 #[test]
 fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
-    use bevy::camera::primitives::{Aabb, Frustum};
+    use bevy::camera::{
+        Camera,
+        primitives::Frustum,
+        visibility::{VisibilityPlugin, VisibleEntities},
+    };
     let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .add_plugins(ChunkRenderPlugin::new(1));
+    app.add_plugins((
+        MinimalPlugins,
+        bevy::asset::AssetPlugin::default(),
+        bevy::mesh::MeshPlugin,
+        VisibilityPlugin,
+    ))
+    .add_plugins(ChunkRenderPlugin::new(1));
     let key = SubChunkKey::new(0, 0, 0, 0);
     let frustum = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
         &glam::camera::rh::proj::directx::orthographic(-1.4, -1.25, 0.0, 16.0, -16.0, 16.0),
     ));
+    let camera = app
+        .world_mut()
+        .spawn((Camera::default(), frustum, VisibleEntities::default()))
+        .id();
     for models in [false, true, false, true] {
         let cube = solid_mesh(1);
         let mesh = if models {
@@ -720,14 +782,14 @@ fn cpu_model_culling_keeps_overhangs_visible_across_geometry_updates() {
             .try_insert(key, mesh, ChunkUploadPriority::new(0.0))
             .unwrap();
         app.update();
-        let bounds = *app
-            .world_mut()
-            .query::<&Aabb>()
-            .single(app.world())
-            .unwrap();
+        let visible = app
+            .world()
+            .get::<VisibleEntities>(camera)
+            .unwrap()
+            .len(std::any::TypeId::of::<ChunkRenderInstance>());
         assert_eq!(
-            frustum.intersects_obb_identity(&bounds),
-            models,
+            visible,
+            usize::from(models),
             "displaced model overhang must survive a frustum excluding the whole cell, including cube/model replacement"
         );
     }

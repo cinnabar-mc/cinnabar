@@ -241,7 +241,9 @@ pub(crate) fn install_formats(render_app: &mut SubApp) {
 fn render_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
     use bevy::render::view::prepare_view_targets;
     (
-        apply_multisample_fallback.in_set(RenderSystems::CreateViews),
+        apply_multisample_fallback
+            .in_set(RenderSystems::CreateViews)
+            .after(crate::render_scale::RenderScaleSystems),
         withhold_view_samples
             .in_set(RenderSystems::PrepareViews)
             .before(prepare_view_targets),
@@ -316,6 +318,22 @@ pub(crate) struct SceneTargetUnavailable;
 /// Whether a view's world passes must skip because its scene colour is unavailable.
 pub(crate) fn unavailable(world: &World, view: Entity) -> bool {
     world.get::<SceneTargetUnavailable>(view).is_some()
+}
+
+/// Selects retained content's colour attachment only while the view's scene is drawable.
+pub(crate) fn retained_color_attachment<'a>(
+    world: &'a World,
+    view: Entity,
+    target: &'a bevy::render::view::ViewTarget,
+    encoded: bool,
+) -> Option<RenderPassColorAttachment<'a>> {
+    if unavailable(world, view) {
+        return None;
+    }
+    Some(world.get::<SceneTarget>(view).map_or_else(
+        || target.get_color_attachment(),
+        |scene| scene.color_attachment(target, encoded),
+    ))
 }
 
 /// Target sizes whose multisampled scene colour ran out of memory; those views render

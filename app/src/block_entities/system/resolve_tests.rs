@@ -19,12 +19,12 @@ impl Fixture {
     /// Creates a stream and scene with embedded fixtures and no book readers.
     fn new() -> Self {
         let breg = assets::pinned_block_registry_bytes();
-        let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
+        let records = assets::read_registry_for_protocol(breg, 2225).unwrap();
         let collisions = PhysicsCollisionRegistries::from_assets(
             breg,
             &records,
-            include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
-            2193,
+            include_bytes!("../../../../crates/assets/data/block-physics-v2225.bin"),
+            2225,
         )
         .unwrap();
         let atlas = assets::encode_block_entity_catalog(
@@ -156,7 +156,7 @@ fn frustum_hidden_cue_and_reader_changes_match_uninterrupted_animation_on_reentr
         chest_template(),
         Template::Bell {
             attachment: BellAttachment::Standing,
-            direction: 0,
+            ring_direction: 0,
         },
         Template::EnchantTable,
         Template::Shulker(render_model::ShulkerModel {
@@ -228,7 +228,7 @@ fn hidden_animation_state_resets_across_sessions_and_dimensions() {
         chest_template(),
         Template::Bell {
             attachment: BellAttachment::Standing,
-            direction: 0,
+            ring_direction: 0,
         },
         Template::EnchantTable,
     ];
@@ -352,7 +352,7 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
     });
     let bell_template = Template::Bell {
         attachment: BellAttachment::Standing,
-        direction: 0,
+        ring_direction: 0,
     };
     let frame_template = Template::ItemFrame {
         model: ItemFrameModel {
@@ -406,6 +406,94 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
         model.seconds_since_ring, 0.5,
         "the ring started while hidden"
     );
+}
+
+#[test]
+fn framed_filled_maps_wait_for_pixels_without_drawing_the_inventory_icon() {
+    for glow in [false, true] {
+        for map_id in [None, Some(77)] {
+            let mut fixture = Fixture::new();
+            let template = Template::ItemFrame {
+                model: ItemFrameModel {
+                    glow,
+                    outward: 2,
+                    full_face: true,
+                    map: None,
+                },
+                item: Some(HeldItem {
+                    shield_pattern: None,
+                    identifier: assets::facts::FILLED_MAP_IDENTIFIER.into(),
+                    metadata: 0,
+                }),
+                rotation_degrees: 90.0,
+                map_id,
+            };
+            let Some(BlockEntityKind::ItemFrame(model)) =
+                fixture.resolve(&template, [0, 64, 0], (0.0, 0.0), false)
+            else {
+                panic!("the frame remains visible while waiting for map data");
+            };
+            assert!(model.map.is_none());
+            assert!(fixture.held.is_empty(), "a missing map has no item sprite");
+            assert_eq!(
+                fixture.runtime.missing_maps,
+                map_id.into_iter().collect::<Vec<_>>()
+            );
+
+            let Some(map_id) = map_id else { continue };
+            fixture
+                .stream
+                .submit(
+                    1,
+                    WorldEvent::MapData(protocol::MapDataEvent {
+                        map_id,
+                        initialized_ids: Default::default(),
+                        start_x: 0,
+                        start_y: 0,
+                        width: 1,
+                        height: 1,
+                        pixels: Arc::from([0xff123456]),
+                    }),
+                )
+                .unwrap();
+            let Some(BlockEntityKind::ItemFrame(model)) =
+                fixture.resolve(&template, [0, 64, 0], (0.1, 0.1), false)
+            else {
+                panic!("a received map keeps its frame");
+            };
+            let map = model.map.expect("received pixels select the map plane");
+            assert_eq!(map.rotation_degrees, 90.0);
+            assert!(fixture.held.is_empty());
+        }
+    }
+}
+
+#[test]
+fn framed_ordinary_items_keep_their_icon_without_map_data() {
+    for identifier in ["minecraft:empty_map", "minecraft:stone"] {
+        let mut fixture = Fixture::new();
+        let template = Template::ItemFrame {
+            model: ItemFrameModel {
+                glow: false,
+                outward: 2,
+                full_face: false,
+                map: None,
+            },
+            item: Some(HeldItem {
+                shield_pattern: None,
+                identifier: identifier.into(),
+                metadata: 0,
+            }),
+            rotation_degrees: 0.0,
+            map_id: None,
+        };
+        assert!(matches!(
+            fixture.resolve(&template, [0, 64, 0], (0.0, 0.0), false),
+            Some(BlockEntityKind::ItemFrame(_))
+        ));
+        assert_eq!(fixture.held.len(), 1);
+        assert_eq!(fixture.held[0].identifier.as_ref(), identifier);
+    }
 }
 
 /// A sign hidden from its first frame shows its text on the frame it is revealed.
@@ -507,6 +595,7 @@ fn hidden_enchanting_books_resume_without_restarting_their_animation() {
 fn hidden_stateless_models_and_held_items_submit_no_geometry() {
     let mut fixture = Fixture::new();
     let item = HeldItem {
+        shield_pattern: None,
         identifier: Arc::from("minecraft:apple"),
         metadata: 0,
     };
@@ -649,5 +738,39 @@ fn player_appearance_readiness_does_not_gate_enchanting_book_readers() {
     assert!(
         book.pose(1.0).open > 0.0,
         "the nearby player opens the book before their skin appears"
+    );
+}
+
+#[test]
+fn overlay_items_lie_flat_on_their_faces_at_full_brightness() {
+    let mut fixture = Fixture::new();
+    let diamond = world::OverlayItem {
+        name: Arc::from("minecraft:diamond"),
+        damage: 0,
+        size: 6.4,
+        x: 0.0,
+        y: 0.8,
+    };
+    let template = Template::OverlayItems(Box::new([(2, diamond.clone()), (5, diamond)]));
+    assert_eq!(
+        fixture.resolve(&template, [4, 64, -3], (0.0, 0.0), true),
+        None
+    );
+    assert!(fixture.held.is_empty(), "hidden items submit no placements");
+    assert_eq!(
+        fixture.resolve(&template, [4, 64, -3], (0.0, 0.0), false),
+        None
+    );
+    let placed: Vec<_> = fixture
+        .held
+        .iter()
+        .map(|placement| (placement.light, placement.world_from_item))
+        .collect();
+    let pose = |face| {
+        render_model::overlay_item_transform([4, 64, -3], face, 6.4, 0.0, 0.8, false).unwrap()
+    };
+    assert_eq!(
+        placed,
+        [(Some((15, 15)), pose(2)), (Some((15, 15)), pose(5))]
     );
 }
