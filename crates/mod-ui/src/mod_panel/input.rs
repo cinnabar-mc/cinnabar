@@ -114,16 +114,17 @@ impl ModPanel {
             .then(|| hit.and_then(|hit| hit.pressed.as_deref()))
             .flatten();
         if pressed {
-            self.press = hit.zip(
-                action
-                    .and_then(|action| action.strip_prefix("mod.control:"))
-                    .and_then(|index| index.parse::<usize>().ok()),
-            )
-            .map(|(hit, control)| Press {
-                control,
-                rect: [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h].map(|v| v as f32),
-                held,
-            });
+            self.press = hit
+                .zip(
+                    action
+                        .and_then(|action| action.strip_prefix("mod.control:"))
+                        .and_then(|index| index.parse::<usize>().ok()),
+                )
+                .map(|(hit, control)| Press {
+                    control,
+                    rect: [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h].map(|v| v as f32),
+                    held,
+                });
         }
         if pressed {
             if action == Some("mod.dismiss") {

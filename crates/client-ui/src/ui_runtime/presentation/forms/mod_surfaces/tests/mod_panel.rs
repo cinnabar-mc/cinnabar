@@ -333,9 +333,7 @@ fn panel_presses_let_a_mod_drive_its_own_slider() {
 
     // The host slider and a mod slider on a button agree on the pressed position.
     let host = point(&presentation, "mod.control:1", 0.6);
-    let events = presentation
-        .mod_ui_mut()
-        .mod_panel_events(host, true, true);
+    let events = presentation.mod_ui_mut().mod_panel_events(host, true, true);
     let [Event { value, .. }] = events.as_slice() else {
         panic!("host slider press: {events:?}");
     };
@@ -364,7 +362,11 @@ fn panel_presses_let_a_mod_drive_its_own_slider() {
     assert_eq!(press.id, "binding");
     assert!((press_fraction(&presentation, start).unwrap() - 0.25).abs() < 0.01);
     // Dragging past the control and out of the panel keeps the press and its box.
-    for pointer in [[start[0] + 40., start[1] + 30.], [-500., -500.], [5000., start[1]]] {
+    for pointer in [
+        [start[0] + 40., start[1] + 30.],
+        [-500., -500.],
+        [5000., start[1]],
+    ] {
         presentation
             .mod_ui_mut()
             .mod_panel_events(pointer, false, true);

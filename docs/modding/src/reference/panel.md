@@ -54,6 +54,37 @@ record panel-layout {
 | `scale` | `f32` |  |
 | `offset` | `tuple<f32, f32>` |  |
 
+<a id="type-panel-press"></a>
+
+### `panel-press`
+
+The last pointer press on one of this panel's declared controls: its control `id` and
+the box, in panel units, where that control was laid out when pressed (scrolling
+included). `held` stays true while the button is held, wherever the pointer moves, even
+outside the control or the panel, and is false from the release until the next press;
+a press elsewhere clears it. With `input.read-controls` pointer and `read-layout`, a mod
+follows a press, drag and release relative to its own control.
+
+```wit
+record panel-press {
+    id: string,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    held: bool,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `id` | `string` |  |
+| `x` | `f32` |  |
+| `y` | `f32` |  |
+| `width` | `f32` |  |
+| `height` | `f32` |  |
+| `held` | `bool` |  |
+
 ## Functions
 
 <a id="open"></a>
@@ -133,3 +164,16 @@ read-layout: func() -> option<panel-layout>;
 Requires controls authority; none without it and while this mod's panel is not open.
 
 Types: [`panel-layout`](panel.md#type-panel-layout).
+
+<a id="read-press"></a>
+
+### `read-press`
+
+```wit
+read-press: func() -> option<panel-press>;
+```
+
+Requires controls authority; none without it, while this mod's panel is not open, or
+before a press on a declared control.
+
+Types: [`panel-press`](panel.md#type-panel-press).

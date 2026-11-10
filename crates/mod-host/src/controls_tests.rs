@@ -346,7 +346,11 @@ fn panel_press_reads_need_controls_authority_and_an_open_panel() {
         state.controls.open = true;
         let read = state.read_press().unwrap();
         assert_eq!(
-            read.map(|read| (read.id, [read.x, read.y, read.width, read.height], read.held)),
+            read.map(|read| (
+                read.id,
+                [read.x, read.y, read.width, read.height],
+                read.held
+            )),
             controls.then(|| ("strength".to_owned(), [10., 20., 120., 16.], true))
         );
     }
