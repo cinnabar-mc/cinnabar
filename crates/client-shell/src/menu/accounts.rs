@@ -158,12 +158,15 @@ impl MenuRuntime {
         match store.list() {
             Ok(accounts) => {
                 self.feeds.accounts = accounts;
-                self.feeds.account_active_id = self
+                let active = self
                     .layout
                     .auth_cache()
                     .is_file()
                     .then(|| store.active_id().ok().flatten())
                     .flatten();
+                self.feeds.account_active_id = active.or_else(|| {
+                    self.feeds.accounts.first().map(|a| a.id.clone())
+                });
             }
             Err(_) => self.feeds.account_error = Some("Could not load saved accounts.".into()),
         }

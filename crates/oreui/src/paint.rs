@@ -787,11 +787,15 @@ impl<'a> Canvas<'a> {
         let max = (content - height).max(0.0);
         let offset = scroll.offset.min(max);
         let (mut track, mut thumb) = (None, None);
-        if max > 0.0 {
+        if max > 0.0 && height > 0.0 {
             let width = self.r(if self.settings_scrollbars { 1.2 } else { 0.6 });
-            let side = (height * height / content).max(self.r(2.0));
-            let top = v[1] + offset / max * (height - side);
-            let bar = [v[2] - width, top, v[2], top + side];
+            let side = (height * height / content).max(self.r(2.0)).min(height);
+            let top = if height > side {
+                v[1] + (offset / max) * (height - side)
+            } else {
+                v[1]
+            };
+            let bar = [v[2] - width, top, v[2], (top + side).min(v[3])];
             if self.settings_scrollbars {
                 let x = v[2] - width * 0.5;
                 self.fill(
@@ -814,8 +818,12 @@ impl<'a> Canvas<'a> {
                     [TEXT_DIMMEST[0], TEXT_DIMMEST[1], TEXT_DIMMEST[2], 160],
                 )?;
             }
-            track = Some(rect(v[2] - width, v[1], v[2], v[3])?);
-            thumb = Some(rect(bar[0], bar[1], bar[2], bar[3])?);
+            if v[2] > v[2] - width && v[3] > v[1] {
+                track = rect(v[2] - width, v[1], v[2], v[3]).ok();
+            }
+            if bar[2] > bar[0] && bar[3] > bar[1] {
+                thumb = rect(bar[0], bar[1], bar[2], bar[3]).ok();
+            }
         }
         self.scrolls.push(ScrollArea {
             key: scroll.key,

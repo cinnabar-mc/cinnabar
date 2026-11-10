@@ -170,7 +170,7 @@ fn draw_fitted(
     let item = canvas.r(ITEM);
     // An overflowing menu shows whole items less half of one, so a cut row signals scrolling.
     let content = if list > 0.0 && list + text > room {
-        ((room / item).floor() * item - item * 0.5).max(item * 0.5)
+        ((room / item).floor() * item - item * 0.5).max(item * 1.5).min(room.max(item * 1.5))
     } else {
         (list + text).min(room)
     };
