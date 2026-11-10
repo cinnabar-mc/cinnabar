@@ -138,14 +138,6 @@ impl GuiModelPreparation {
             world,
         )?;
         fallbacks.held = held_fallbacks;
-        if fallbacks != AtlasFallbacks::default() {
-            tracing::warn!(
-                cubes = fallbacks.cubes,
-                equipment = fallbacks.equipment,
-                held = fallbacks.held,
-                "GUI model atlas is full; affected items keep their sprites"
-            );
-        }
         let required_pages = atlas.page_count();
         for sheet in icons.gui_block_sheets() {
             sources.insert(

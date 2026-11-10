@@ -260,8 +260,18 @@ impl UiPresentationRuntime {
         self.gui_models.enabled = true;
     }
 
-    /// Installs item sources prepared on a worker without replacing the live menu avatar.
+    /// Installs item sources prepared on a worker without replacing the live menu avatar, and
+    /// warns when a full model atlas left some sources on fallback artwork.
     pub fn install_gui_model_sources(&mut self, sources: PreparedGuiModels) {
+        let fallbacks = sources.fallbacks;
+        if fallbacks != AtlasFallbacks::default() {
+            tracing::warn!(
+                cubes = fallbacks.cubes,
+                equipment = fallbacks.equipment,
+                held = fallbacks.held,
+                "GUI model atlas is full; affected items keep their sprites"
+            );
+        }
         self.gui_models.sources = sources;
         self.gui_models.shield_icons = Default::default();
         self.gui_models.clear_selected_hands();
