@@ -87,7 +87,7 @@ pub struct EntityMaterialProvenance {
     /// material, or `client base` for a base the client declares itself.
     pub source: Box<str>,
     /// The material, then each parent it derives from; a client-declared base ends the chain.
-    pub chain: Box<[Box<str>]>,
+    pub chain: EntityMaterialChain,
     /// `skinning` when the draw uses the material's skinning variant, else `base`.
     pub variant: Box<str>,
     /// Actor defines the client draws.
@@ -105,3 +105,7 @@ pub struct EntityMaterialReport {
     /// Materials actors draw, sorted by name.
     pub materials: Box<[EntityMaterialProvenance]>,
 }
+
+#[path = "entity_material_chain.rs"]
+mod chain;
+pub use chain::EntityMaterialChain;

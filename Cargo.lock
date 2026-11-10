@@ -6884,6 +6884,7 @@ dependencies = [
  "sha2",
  "simulation-clock",
  "tempfile",
+ "test-alloc",
 ]
 
 [[package]]

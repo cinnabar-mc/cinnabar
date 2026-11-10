@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use assets::{
-    entity::material::actor_define_bit, entity::material_report::EntityMaterialProvenance,
+    entity::material::actor_define_bit,
+    entity::material_report::{EntityMaterialChain, EntityMaterialProvenance},
 };
 
 use super::{
@@ -17,12 +18,15 @@ const CLIENT_BASE: &str = "client base";
 
 /// The materials a compilation's actors draw, by name.
 #[derive(Default)]
-pub(crate) struct MaterialProvenance(BTreeMap<Box<str>, EntityMaterialProvenance>);
+pub(crate) struct MaterialProvenance {
+    materials: BTreeMap<Box<str>, EntityMaterialProvenance>,
+    chains: BTreeMap<super::ChainLink, EntityMaterialChain>,
+}
 
 impl MaterialProvenance {
     /// The recorded materials, sorted by name.
     pub(crate) fn finish(self) -> Box<[EntityMaterialProvenance]> {
-        self.0.into_values().collect()
+        self.materials.into_values().collect()
     }
 }
 
@@ -36,15 +40,15 @@ impl MaterialStates {
         table: &mut MaterialTable,
         provenance: &mut MaterialProvenance,
     ) {
-        if provenance.0.contains_key(target) {
+        if provenance.materials.contains_key(target) {
             return;
         }
         let name = material_name(target);
         let Some(resolved) = self.resolve_with(name, &builtin, &mut table.chains) else {
             return;
         };
-        let (source, chain) = self.chain(name);
-        provenance.0.insert(
+        let (source, chain) = self.chain(name, &mut provenance.chains);
+        provenance.materials.insert(
             target.into(),
             describe(target, definition, source, chain, &resolved),
         );
@@ -59,17 +63,20 @@ impl MaterialStates {
         table: &mut MaterialTable,
         provenance: &mut MaterialProvenance,
     ) {
-        if provenance.0.contains_key(name) {
+        if provenance.materials.contains_key(name) {
             return;
         }
         let Some((material, resolved)) = self.extension_material(name, &mut table.chains) else {
             return;
         };
-        let mut chain = vec![Box::<str>::from(name)];
-        if let Some(base) = &material.base {
-            chain.extend(self.chain(material_name(base)).1);
-        }
-        provenance.0.insert(
+        let parent = material
+            .base
+            .as_deref()
+            .map_or_else(EntityMaterialChain::default, |base| {
+                self.chain(material_name(base), &mut provenance.chains).1
+            });
+        let chain = EntityMaterialChain::prepend(name.into(), parent);
+        provenance.materials.insert(
             name.into(),
             describe(
                 name,
@@ -81,43 +88,64 @@ impl MaterialStates {
         );
     }
 
-    /// The file declaring `name` and its chain of parents, ending at a client-declared base.
-    fn chain(&self, name: &str) -> (Box<str>, Vec<Box<str>>) {
-        let mut chain = Vec::new();
-        let mut source = None;
-        let mut file = None;
-        let mut current = Some(name.to_owned());
-        // Callers pass resolved materials, whose chains are acyclic; a repeated link still ends
-        // the walk.
+    /// Returns the declaring file and shared ancestry, following the resolver's file retries.
+    fn chain(
+        &self,
+        name: &str,
+        memo: &mut BTreeMap<super::ChainLink, EntityMaterialChain>,
+    ) -> (Box<str>, EntityMaterialChain) {
+        let source = self
+            .definitions
+            .get(name)
+            .and_then(|declaration| self.file_paths.get(declaration.file))
+            .cloned()
+            .unwrap_or_else(|| CLIENT_BASE.into());
+        let mut pending = Vec::new();
         let mut visited = std::collections::HashSet::new();
-        while let Some(name) = current.take() {
-            if !visited.insert((name.clone(), file)) {
-                break;
+        let (mut current, mut file) = (name, None);
+        let mut chain = loop {
+            let key = (Box::<str>::from(current), file);
+            if let Some(known) = memo.get(&key) {
+                break known.clone();
             }
-            match self
+            if !visited.insert((current, file)) {
+                break EntityMaterialChain::default();
+            }
+            let declaration = self
                 .definitions
-                .get(name.as_str())
-                .filter(|declaration| file.is_none_or(|file| declaration.file == file))
+                .get(current)
+                .filter(|declaration| file.is_none_or(|file| declaration.file == file));
+            if declaration.is_none()
+                && file.is_some()
+                && self.definitions.contains_key(current)
+                && builtin(current).is_some()
             {
-                Some(declaration) => {
-                    source.get_or_insert_with(|| {
-                        self.file_paths
-                            .get(declaration.file)
-                            .cloned()
-                            .unwrap_or_default()
-                    });
-                    file = Some(declaration.file);
-                    current = declaration.parent.as_deref().map(str::to_owned);
-                    chain.push(name.into());
-                }
-                None if builtin(&name).is_some() => {
-                    source.get_or_insert_with(|| CLIENT_BASE.into());
-                    chain.push(format!("{name} ({CLIENT_BASE})").into());
-                }
-                None => chain.push(name.into()),
+                pending.push((key, None));
+                file = None;
+                continue;
             }
+            let label = if declaration.is_none() && builtin(current).is_some() {
+                format!("{current} ({CLIENT_BASE})").into_boxed_str()
+            } else {
+                current.into()
+            };
+            pending.push((key, Some(label)));
+            let Some(declaration) = declaration else {
+                break EntityMaterialChain::default();
+            };
+            let Some(parent) = declaration.parent.as_deref() else {
+                break EntityMaterialChain::default();
+            };
+            file = Some(declaration.file);
+            current = parent;
+        };
+        for (key, label) in pending.into_iter().rev() {
+            if let Some(label) = label {
+                chain = EntityMaterialChain::prepend(label, chain);
+            }
+            memo.insert(key, chain.clone());
         }
-        (source.unwrap_or_else(|| CLIENT_BASE.into()), chain)
+        (source, chain)
     }
 }
 
@@ -126,7 +154,7 @@ fn describe(
     name: &str,
     definition: u32,
     source: Box<str>,
-    chain: Vec<Box<str>>,
+    chain: EntityMaterialChain,
     resolved: &Resolved,
 ) -> EntityMaterialProvenance {
     let drawn = resolved.actor_variant();
@@ -163,10 +191,79 @@ fn describe(
         name: name.into(),
         definition,
         source,
-        chain: chain.into(),
+        chain,
         variant: variant.into(),
         applied_defines: applied.into(),
         carried_defines: carried.into(),
         reason: (!reasons.is_empty()).then(|| reasons.join("; ").into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[global_allocator]
+    static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+    #[test]
+    fn reporting_every_link_of_a_long_chain_allocates_linear_space() {
+        const COUNT: usize = 1024;
+        let mut declarations = serde_json::Map::new();
+        declarations.insert("m0000:entity_alphatest".into(), json!({}));
+        for index in 1..COUNT {
+            declarations.insert(format!("m{index:04}:m{:04}", index - 1), json!({}));
+        }
+        declarations.insert("version".into(), json!("1.0.0"));
+        let mut states = MaterialStates::default();
+        states.read(&json!({"materials": declarations}));
+        let (report, allocations) = test_alloc::measure(|| {
+            let mut table = MaterialTable::default();
+            let mut provenance = MaterialProvenance::default();
+            for index in (0..COUNT).rev() {
+                let name = format!("m{index:04}");
+                let (_, definition) = states.resolve(&name, &mut table).unwrap();
+                states.record_provenance(&name, definition, &mut table, &mut provenance);
+            }
+            provenance.finish()
+        });
+        assert_eq!(report.len(), COUNT);
+        assert_eq!(report.last().unwrap().chain.iter().count(), COUNT + 1);
+        assert!(allocations.bytes < COUNT * 8192, "{allocations:?}");
+    }
+
+    #[test]
+    fn provenance_follows_a_builtin_base_overridden_in_another_file() {
+        let mut states = MaterialStates::default();
+        states.read_with(
+            &json!({"materials": {"version": "1.0.0",
+            "child:entity_alphatest": {}}}),
+            &Default::default(),
+            "materials/child.material",
+        );
+        states.read_with(
+            &json!({"materials": {"version": "1.0.0",
+            "entity_alphatest:entity": {"+defines": ["USE_EMISSIVE"]}}}),
+            &Default::default(),
+            "materials/base.material",
+        );
+        let mut table = MaterialTable::default();
+        let mut provenance = MaterialProvenance::default();
+        for name in ["child", "entity_alphatest"] {
+            let (_, definition) = states.resolve(name, &mut table).unwrap();
+            states.record_provenance(name, definition, &mut table, &mut provenance);
+        }
+        let report = provenance.finish();
+        assert_eq!(report[0].source.as_ref(), "materials/child.material");
+        assert_eq!(
+            report[0].chain.iter().collect::<Vec<_>>(),
+            ["child", "entity_alphatest", "entity (client base)"]
+        );
+        assert_eq!(report[1].source.as_ref(), "materials/base.material");
+        assert_eq!(
+            report[1].chain.iter().collect::<Vec<_>>(),
+            ["entity_alphatest", "entity (client base)"]
+        );
     }
 }

@@ -32,8 +32,14 @@ pub(super) fn entity_materials(world: &World) -> Value {
             let state = render
                 .layers
                 .iter()
-                .find(|layer| layer.material_definition == Some(material.definition))
-                .and_then(|layer| layer.material_state);
+                .filter(|layer| layer.material_definition == Some(material.definition))
+                .filter_map(|layer| layer.material_state)
+                .chain(render.material_selections.iter().filter_map(|node| match node {
+                    assets::EntityRenderMaterialSelection::Raster { definition, state, .. }
+                        if *definition == Some(material.definition) => *state,
+                    _ => None,
+                }))
+                .next();
             let slots = std::iter::once(0)
                 .chain(
                     state
@@ -46,7 +52,13 @@ pub(super) fn entity_materials(world: &World) -> Value {
                 .layers
                 .iter()
                 .filter(|layer| layer.material_definition == Some(material.definition))
-                .find_map(|layer| layer.material_masks)
+                .filter_map(|layer| layer.material_masks)
+                .chain(render.material_selections.iter().filter_map(|node| match node {
+                    assets::EntityRenderMaterialSelection::Raster { definition, masks, .. }
+                        if *definition == Some(material.definition) => *masks,
+                    _ => None,
+                }))
+                .next()
                 .and_then(|index| render.material_masks.get(index as usize))
                 .map(|masks| mask_report(pack, masks));
             json!({
@@ -140,6 +152,15 @@ mod tests {
 
     /// A one-entity server pack whose controller draws `example:glow` deriving a client base.
     fn pack() -> Arc<assets::SessionEntityPack> {
+        pack_with_material(
+            json!({"geometry":"Geometry.default",
+            "materials":[{"*":"Material.default"}], "textures":["Texture.default"]}),
+            &["USE_EMISSIVE", "FANCY"],
+        )
+    }
+
+    /// Compiles the inspector fixture with the supplied controller and material defines.
+    fn pack_with_material(controller: Value, defines: &[&str]) -> Arc<assets::SessionEntityPack> {
         let png = {
             let image = image::RgbaImage::from_pixel(16, 16, image::Rgba([90, 90, 90, 255]));
             let mut bytes = std::io::Cursor::new(Vec::new());
@@ -169,15 +190,14 @@ mod tests {
             (
                 "render_controllers/moth.json",
                 json!({"format_version":"1.8.0","render_controllers":{
-                "controller.render.moth":{"geometry":"Geometry.default",
-                    "materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}})
+                "controller.render.moth": controller}})
                 .to_string()
                 .into_bytes(),
             ),
             (
                 "materials/entity.material",
                 json!({"materials":{"version":"1.0.0",
-                "example:glow:entity_alphatest":{"+defines":["USE_EMISSIVE","FANCY"]}}})
+                "example:glow:entity_alphatest":{"+defines": defines}}})
                 .to_string()
                 .into_bytes(),
             ),
@@ -247,6 +267,44 @@ mod tests {
         assert_eq!(glow["reason"], "defines not drawn: FANCY");
         let text = report.to_string();
         assert!(!text.contains("rgba8"), "no pixel payloads");
+    }
+
+    #[test]
+    fn the_inspector_reads_shading_from_ternary_and_array_leaves() {
+        for expression in [
+            "query.is_invisible ? Material.default : Material.default",
+            "Array.choices[query.is_invisible]",
+        ] {
+            let pack = pack_with_material(
+                json!({
+                    "geometry":"Geometry.default",
+                    "arrays":{"materials":{"Array.choices":["Material.default","Material.default"]}},
+                    "materials":[{"*":expression}],
+                    "textures":["Texture.default","Texture.default","Texture.default"]
+                }),
+                &["USE_MULTITEXTURE"],
+            );
+            assert!(
+                pack.assets
+                    .render_data()
+                    .layers
+                    .iter()
+                    .all(|layer| layer.material_definition.is_none())
+            );
+            let mut client = ClientWorld::new(Arc::new(assets::RuntimeAssets::diagnostic()));
+            client.pack_entities = Some(pack);
+            let mut world = World::new();
+            world.insert_resource(client);
+            let report = entity_materials(&world);
+            let material = report["materials"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|material| material["name"] == "example:glow")
+                .unwrap();
+            assert!(!material["shading"].is_null(), "{expression}");
+            assert_eq!(material["texture_slots"], json!([0, 1, 2]));
+        }
     }
 
     /// A raster of `side` square texels of one colour, as PNG bytes.

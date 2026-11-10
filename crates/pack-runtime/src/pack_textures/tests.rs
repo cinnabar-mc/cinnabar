@@ -128,6 +128,28 @@ fn layered(lower: &[(&str, &[u8])], higher: &[(&str, &[u8])]) -> LayeredPackView
 }
 
 #[test]
+fn texture_set_lookup_reads_images_from_its_own_pack() {
+    let lower = red_png();
+    let higher = png(2, 2);
+    let view = layered(
+        &[
+            (
+                "textures/test.texture_set.json",
+                br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"color"}}"#,
+            ),
+            ("textures/color.png", &lower),
+        ],
+        &[("textures/color.png", &higher)],
+    );
+    let set = PackTextureSet::find(&view, "./textures/test").unwrap();
+    assert_eq!(set.definition.color, TextureSetLayer::Image("color".into()));
+    let (path, bytes) = set.image_file("color").unwrap();
+    assert_eq!(path, "textures/color.png");
+    assert_eq!(bytes, lower);
+    assert_eq!(set.image("color").unwrap(), bytes);
+}
+
+#[test]
 fn large_strips_and_particle_atlases_retain_every_source_pixel() {
     let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
     for (width, height, strip) in [

@@ -103,12 +103,14 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
         Node::Raster {
             material: EntityRenderMaterial::Default,
             state: Some(EntityRenderMaterialState::default()),
             definition: Some(0),
             masks: None,
+            uv_anim: true,
         },
     ]
     .into();
@@ -143,6 +145,7 @@ fn material_choices_share_the_multitexture_page_when_any_choice_multitextures() 
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
         Node::Raster {
             material: EntityRenderMaterial::Default,
@@ -152,6 +155,7 @@ fn material_choices_share_the_multitexture_page_when_any_choice_multitextures() 
             }),
             definition: None,
             masks: None,
+            uv_anim: true,
         },
     ]
     .into();
@@ -161,6 +165,7 @@ fn material_choices_share_the_multitexture_page_when_any_choice_multitextures() 
         state: None,
         definition: None,
         masks: None,
+        uv_anim: true,
     }]
     .into();
     assert!(!assets::actor_multitexture_sources(&compiled.render).contains(&source));

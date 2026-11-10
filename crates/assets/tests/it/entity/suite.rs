@@ -1120,6 +1120,7 @@ fn material_selection_graph_is_optional_and_validated() {
         state: None,
         definition: None,
         masks: None,
+        uv_anim: true,
     }]
     .into();
     compiled.render.layers[0].material_selection = Some(0);

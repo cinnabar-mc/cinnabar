@@ -70,12 +70,14 @@ fn material_assets(query: MolangQuery, threshold: f32, indirect: bool) -> Arc<Ru
             state: Some(EntityRenderMaterialState::default()),
             definition: Some(0),
             masks: None,
+            uv_anim: true,
         },
         EntityRenderMaterialSelection::Raster {
             material: EntityRenderMaterial::Default,
             state: Some(EntityRenderMaterialState::default()),
             definition: Some(1),
             masks: None,
+            uv_anim: true,
         },
     ]
     .into();

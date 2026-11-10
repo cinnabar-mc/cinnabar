@@ -13,6 +13,9 @@ pub enum EntityRenderMaterialSelection {
         /// Index into [`EntityRenderData::material_masks`] for a Cinnabar material with masks.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         masks: Option<u32>,
+        /// Whether this material applies the controller's UV animation.
+        #[serde(default = "default_uv_anim")]
+        uv_anim: bool,
     },
     Branch {
         condition: u32,
@@ -23,6 +26,11 @@ pub enum EntityRenderMaterialSelection {
         index: u32,
         choices: Box<[u32]>,
     },
+}
+
+/// Older selection leaves keep the controller's UV animation enabled.
+fn default_uv_anim() -> bool {
+    true
 }
 
 impl EntityRenderMaterialSelection {

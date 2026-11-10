@@ -491,15 +491,23 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
             state: None,
             definition: None,
             masks: None,
+            uv_anim: false,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
     ]
     .into();
+    let uv = expression(
+        &mut compiled,
+        &[MolangOp::Push(crate::test_support::scalar(0.25))],
+        1,
+    );
+    compiled.render.layers[0].uv_anim = Some([uv; 4]);
     compiled.render.layers[0].material_selection = Some(0);
     let (store, actors) = fixture_with(compiled, 0.0, Default::default());
     for (alpha, expected) in [
@@ -511,6 +519,14 @@ fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
             .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
             .unwrap();
         assert_eq!(layers.render.len(), 1);
+        assert_eq!(
+            layers.render[0].uv_anim,
+            if alpha == 0.0 {
+                [0.25; 4]
+            } else {
+                [0.0, 0.0, 1.0, 1.0]
+            }
+        );
         assert_eq!(
             layers
                 .render
@@ -544,6 +560,7 @@ fn selected_material_decides_whether_textures_group_into_one_draw() {
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Default,
@@ -553,6 +570,7 @@ fn selected_material_decides_whether_textures_group_into_one_draw() {
             }),
             definition: None,
             masks: None,
+            uv_anim: true,
         },
     ]
     .into();
@@ -670,12 +688,14 @@ fn material_decisions_preserve_one_controller_execution_with_script_effects() {
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
         Node::Raster {
             material: assets::EntityRenderMaterial::Dragon,
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
     ]
     .into();

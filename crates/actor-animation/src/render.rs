@@ -520,6 +520,7 @@ fn evaluate_layer_into(
         state: material_state,
         definition: material_definition,
         masks: material_masks,
+        uv_anim: material_uv_anim,
     } = selected_material(evaluator, variables, layer, budget)?;
     let mut samplers = material_state.map_or(
         &[] as &[usize],
@@ -612,7 +613,7 @@ fn evaluate_layer_into(
     let uv_anim = color(
         evaluator,
         variables,
-        layer.uv_anim,
+        layer.uv_anim.filter(|_| material_uv_anim),
         IDENTITY_UV_ANIM,
         budget,
     )?;
@@ -722,6 +723,7 @@ struct SelectedMaterial {
     definition: Option<u32>,
     /// Index into the carrier's Cinnabar mask table.
     masks: Option<u32>,
+    uv_anim: bool,
 }
 
 /// Evaluates one whole-model material decision before executing the controller body once.
@@ -738,6 +740,7 @@ fn selected_material(
             state: layer.material_state,
             definition: layer.material_definition,
             masks: layer.material_masks,
+            uv_anim: true,
         });
     };
     let nodes = &evaluator.assets.render_data().material_selections;
@@ -749,12 +752,14 @@ fn selected_material(
                 state,
                 definition,
                 masks,
+                uv_anim,
             } => {
                 return Ok(SelectedMaterial {
                     material: *material,
                     state: *state,
                     definition: *definition,
                     masks: *masks,
+                    uv_anim: *uv_anim,
                 });
             }
             Node::Branch { condition, yes, no } => {

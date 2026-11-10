@@ -91,13 +91,23 @@ fn material_word(name: &str) -> u32 {
 
 /// Resolves the raster words that actually draw one named bone for a fixture query value.
 fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value: f32) -> Vec<u32> {
-    use assets::EntityRenderMaterialSelection as Node;
-    let (data, molang) = fixture;
-    let read = |index| {
+    let (_, molang) = fixture;
+    drawn_with(&fixture.0, bone, &mut |index| {
         molang
             .evaluate_query(index, "query.is_invisible", value)
             .unwrap()
-    };
+    })
+}
+
+/// Resolves a bone with an evaluator that may change its result between reads.
+fn drawn_with(
+    data: &assets::EntityRenderData,
+    bone: &str,
+    read: &mut dyn FnMut(u32) -> f32,
+) -> Vec<u32> {
+    use assets::EntityRenderMaterialSelection as Node;
+    let read = RefCell::new(read);
+    let read = |index| (read.borrow_mut())(index);
     data.layers
         .iter()
         .filter(|layer| layer.condition.is_none_or(|index| read(index) != 0.0))
@@ -262,4 +272,74 @@ fn static_single_material_needs_no_literal_bone_mask() {
     .unwrap();
     assert_eq!(groups.len(), 1);
     assert!(groups[0].hidden.is_empty());
+}
+
+#[test]
+fn per_bone_selectors_read_each_decision_once() {
+    for expression in [
+        "query.is_invisible ? Material.blend : Material.solid",
+        "Array.states[query.is_invisible]",
+        "query.is_invisible ? (query.is_invisible ? Material.blend : Material.solid) : Material.solid",
+    ] {
+        let fixture = compile(json!({
+            "arrays": {"materials": {"Array.states": ["Material.solid", "Material.blend"]}},
+            "materials": [{"*": "Material.solid"}, {"eye": expression}]
+        }));
+        for first in [0.0, 1.0] {
+            let mut reads = 0;
+            let drawn = drawn_with(&fixture.0, "eye", &mut |index| {
+                let molang = &fixture.1;
+                let zero = molang
+                    .evaluate_query(index, "query.is_invisible", 0.0)
+                    .unwrap();
+                let one = molang
+                    .evaluate_query(index, "query.is_invisible", 1.0)
+                    .unwrap();
+                let value = if zero == one {
+                    first
+                } else {
+                    let value = if reads % 2 == 0 { first } else { 1.0 - first };
+                    reads += 1;
+                    value
+                };
+                molang
+                    .evaluate_query(index, "query.is_invisible", value)
+                    .unwrap()
+            });
+            assert_eq!(drawn.len(), 1, "{expression}, first={first}");
+            let expected = if expression.starts_with("Array") && first == 1.0
+                || !expression.starts_with("Array")
+                    && !expression.contains("(query")
+                    && first == 1.0
+            {
+                "entity_alphablend"
+            } else {
+                "entity_alphatest"
+            };
+            assert_eq!(drawn, [material_word(expected)]);
+            let expected_reads = if expression.contains("(query") && first == 1.0 {
+                2
+            } else {
+                1
+            };
+            assert_eq!(reads, expected_reads, "{expression}");
+        }
+    }
+}
+
+#[test]
+fn random_per_bone_selectors_compile_one_random_call() {
+    let fixture = compile(json!({
+        "materials": [{"*": "Material.solid"},
+            {"eye": "math.random(0, 1) > 0.5 ? Material.blend : Material.solid"}]
+    }));
+    let program = fixture.1.finish().unwrap();
+    assert_eq!(
+        program
+            .ops
+            .iter()
+            .filter(|op| matches!(op, assets::MolangOp::Call(_)))
+            .count(),
+        1
+    );
 }

@@ -17,7 +17,6 @@ use super::{
     super::selection::Selection,
     Selector,
     materials::{MaterialStates, MaterialTable, provenance::MaterialProvenance},
-    selection_condition,
 };
 use crate::entity::{invalid, molang::MolangCompiler};
 
@@ -51,21 +50,28 @@ impl Default for Raster {
 
 pub(super) struct Group {
     raster: Raster,
-    hidden: Vec<Hide>,
-    /// A whole-model selector evaluated once per frame in place of `raster`.
+    hidden: Vec<Box<str>>,
+    /// A rule's selector evaluated once per frame for all of its assigned bones.
     selection: Option<Arc<Selection<Raster>>>,
 }
 
-/// A bone the group's layer hides: always, or whenever `unless` (the material-expression
-/// choices that give the bone this group's material) does not hold.
-struct Hide {
-    pattern: Box<str>,
-    unless: Option<String>,
+/// A rule's fixed raster or shared decision tree, kept whole while assigning bones.
+#[derive(Clone)]
+struct Choice {
+    raster: Raster,
+    selection: Option<Arc<Selection<Raster>>>,
 }
 
-/// Each material one controller rule can select, with the Molang condition selecting it;
-/// a fixed material is one unconditional choice. Choices are mutually exclusive.
-type Choices = Vec<(Option<String>, Raster)>;
+impl PartialEq for Choice {
+    fn eq(&self, other: &Self) -> bool {
+        self.raster == other.raster
+            && match (&self.selection, &other.selection) {
+                (None, None) => true,
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+                _ => false,
+            }
+    }
+}
 
 /// The shader kind, shading features and interned definition one controller material selects.
 fn raster(
@@ -104,25 +110,6 @@ pub(super) fn resolve(
     selected: impl IntoIterator<Item = u32>,
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
-    // A whole-model selector draws one layer; extension bindings partition bones instead.
-    let extended = materials
-        .extension_rules(entity, controller_name)
-        .next()
-        .is_some();
-    if !extended
-        && let Some(selection) = uniform_selection(
-            description,
-            controller,
-            materials,
-            (&mut *table, &mut *provenance),
-        )?
-    {
-        return Ok(vec![Group {
-            raster: Raster::default(),
-            hidden: Vec::new(),
-            selection: Some(selection),
-        }]);
-    }
     let selected = selected.into_iter().collect::<Vec<_>>();
     let aliases = super::lowercase_map(description.get("materials"));
     let arrays = controller
@@ -143,7 +130,12 @@ pub(super) fn resolve(
             )
         })
         .collect();
-    let resolve_alias = |alias: &str| aliases.get(alias).cloned();
+    let state = RefCell::new((&mut *table, &mut *provenance));
+    let resolve_alias = |alias: &str| {
+        let target = aliases.get(alias)?;
+        let (table, provenance) = &mut *state.borrow_mut();
+        Some(raster(Some(target), materials, table, provenance))
+    };
     let selector = Selector {
         prefix: "material.",
         arrays,
@@ -158,30 +150,23 @@ pub(super) fn resolve(
         .filter_map(Value::as_object)
         .flatten()
     {
-        let Some(leaves) = value.as_str().and_then(|text| selector.leaves(text)) else {
+        let Some(selection) = value.as_str().and_then(|text| selector.tree(text)) else {
             continue;
         };
-        let pattern = pattern.to_ascii_lowercase();
-        match leaves.as_slice() {
-            [] => {}
-            [(path, target)] if path.is_empty() => {
-                rules.push((
-                    pattern,
-                    vec![(None, raster(Some(target), materials, table, provenance))],
-                ));
-            }
-            _ => {
-                let mut choices = Vec::with_capacity(leaves.len());
-                for (path, target) in &leaves {
-                    choices.push((
-                        selection_condition(path),
-                        raster(Some(target), materials, table, provenance),
-                    ));
-                }
-                rules.push((pattern, choices));
-            }
-        }
+        let choice = match selection.as_ref() {
+            Selection::Empty => continue,
+            Selection::Leaf(raster) => Choice {
+                raster: *raster,
+                selection: None,
+            },
+            _ => Choice {
+                raster: Raster::default(),
+                selection: Some(selection),
+            },
+        };
+        rules.push((pattern.to_ascii_lowercase(), choice));
     }
+    drop(state);
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
         if let Some((state, definition, masks)) = materials.resolve_extension(material, true, table)
         {
@@ -194,43 +179,43 @@ pub(super) fn resolve(
                 required_textures: table.required_textures(definition),
                 uv_anim: materials.extension_applies_uv_anim(material, table),
             };
-            rules.push((pattern.to_owned(), vec![(None, raster)]));
+            rules.push((
+                pattern.to_owned(),
+                Choice {
+                    raster,
+                    selection: None,
+                },
+            ));
         }
     }
     partition(&rules, geometries, &selected, parents)
 }
 
-/// Partitions bones by material, the last matching rule deciding each bone. Every material a
-/// rule can select gets one group; a bone whose material an expression chooses is visible in
-/// each candidate group only while that group's choice holds, so the groups grow with the
-/// number of choices rather than with their combinations.
+/// Assigns each bone to its last matching rule, preserving each selector as one decision.
 fn partition(
-    rules: &[(String, Choices)],
+    rules: &[(String, Choice)],
     geometries: &[EntityGeometry],
     selected: &[u32],
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
-    let unmatched: Choices = vec![(None, Raster::default())];
+    let unmatched = Choice {
+        raster: Raster::default(),
+        selection: None,
+    };
     let fallback = rules
         .iter()
         .rev()
         .find(|(pattern, _)| pattern == "*")
-        .map_or(&unmatched, |(_, choices)| choices);
-    let single = |raster| {
+        .map_or(&unmatched, |(_, choice)| choice);
+    let single = |choice: &Choice| {
         Ok(vec![Group {
-            raster,
+            raster: choice.raster,
             hidden: Vec::new(),
-            selection: None,
+            selection: choice.selection.clone(),
         }])
     };
-    let first = fallback[0].1;
-    if rules
-        .iter()
-        .flat_map(|(_, choices)| choices)
-        .chain(fallback)
-        .all(|(_, raster)| *raster == first)
-    {
-        return single(first);
+    if rules.iter().all(|(_, choice)| choice == fallback) {
+        return single(fallback);
     }
     if parents.is_none() {
         *parents = Some(validate_entity_geometry_inheritance(geometries)?);
@@ -251,35 +236,31 @@ fn partition(
         }
     }
     if names.is_empty() {
-        return single(first);
+        return single(fallback);
     }
     let assignments: Vec<_> = names
         .into_iter()
         .map(|name| {
-            let choices = rules
+            let choice = rules
                 .iter()
                 .rev()
                 .find(|(pattern, _)| entity_render_pattern_matches(pattern, &name))
-                .map_or(fallback, |(_, choices)| choices);
-            (name, choices)
+                .map_or(fallback, |(_, choice)| choice);
+            (name, choice)
         })
         .collect();
-    let mut order: Vec<Raster> = Vec::new();
-    for (_, raster) in rules
+    let mut order: Vec<&Choice> = Vec::new();
+    for choice in rules
         .iter()
-        .flat_map(|(_, choices)| choices)
-        .chain(fallback)
+        .map(|(_, choice)| choice)
+        .chain(std::iter::once(fallback))
     {
-        if !order.contains(raster)
-            && assignments
-                .iter()
-                .any(|(_, choices)| choices.iter().any(|(_, assigned)| assigned == raster))
-        {
-            order.push(*raster);
+        if !order.contains(&choice) && assignments.iter().any(|(_, assigned)| *assigned == choice) {
+            order.push(choice);
         }
     }
-    if let [raster] = order.as_slice() {
-        return single(*raster);
+    if let [choice] = order.as_slice() {
+        return single(choice);
     }
     if order.len() > MAX_ENTITY_RENDER_LAYERS {
         return Err(invalid(
@@ -294,110 +275,24 @@ fn partition(
             "entity material bone mask exceeds admitted pattern bounds",
         ));
     }
-    let mut hidden_total = 0usize;
     let groups: Vec<_> = order
         .into_iter()
-        .map(|raster| {
-            let hidden: Vec<_> = assignments
+        .map(|choice| Group {
+            raster: choice.raster,
+            hidden: assignments
                 .iter()
-                .filter_map(|(name, choices)| {
-                    let selecting: Vec<_> = choices
-                        .iter()
-                        .filter(|(_, assigned)| *assigned == raster)
-                        .map(|(condition, _)| condition.as_deref())
-                        .collect();
-                    let unless = if selecting.is_empty() {
-                        None
-                    } else if selecting.len() == choices.len() || selecting.contains(&None) {
-                        return None;
-                    } else {
-                        Some(
-                            selecting
-                                .iter()
-                                .flatten()
-                                .map(|condition| format!("({condition})"))
-                                .collect::<Vec<_>>()
-                                .join(" || "),
-                        )
-                    };
-                    Some(Hide {
-                        pattern: name.as_str().into(),
-                        unless,
-                    })
-                })
-                .collect();
-            hidden_total = hidden_total.saturating_add(hidden.len());
-            Group {
-                raster,
-                hidden,
-                selection: None,
-            }
+                .filter(|(_, assigned)| *assigned != choice)
+                .map(|(name, _)| name.as_str().into())
+                .collect(),
+            selection: choice.selection.clone(),
         })
         .collect();
-    if hidden_total > MAX_ENTITY_RENDER_VISIBILITY {
+    if groups.iter().map(|group| group.hidden.len()).sum::<usize>() > MAX_ENTITY_RENDER_VISIBILITY {
         return Err(invalid(
             "entity material bone masks exceed admitted render bounds",
         ));
     }
     Ok(groups)
-}
-
-/// Expands a whole-model material selector without rewriting authored part visibility.
-/// Choices resolve and intern their complete definitions as the selector reaches them.
-fn uniform_selection(
-    description: &Map<String, Value>,
-    controller: &Map<String, Value>,
-    materials: &MaterialStates,
-    (table, provenance): (&mut MaterialTable, &mut MaterialProvenance),
-) -> Result<Option<Arc<Selection<Raster>>>, AssetError> {
-    use super::super::selection::Selector;
-    let Some(expression) = controller
-        .get("materials")
-        .and_then(Value::as_array)
-        .and_then(|rules| match rules.as_slice() {
-            [rule] => rule.as_object().filter(|rule| rule.len() == 1),
-            _ => None,
-        })
-        .and_then(|rule| rule.get("*")?.as_str())
-    else {
-        return Ok(None);
-    };
-    let aliases = super::lowercase_map(description.get("materials"));
-    let state = RefCell::new((table, provenance));
-    let resolve_alias = |alias: &str| {
-        let target = aliases.get(alias)?;
-        let (table, provenance) = &mut *state.borrow_mut();
-        Some(raster(Some(target), materials, table, provenance))
-    };
-    let selector = Selector {
-        prefix: "material.",
-        arrays: controller
-            .get("arrays")
-            .and_then(|arrays| arrays.get("materials"))
-            .and_then(Value::as_object)
-            .into_iter()
-            .flatten()
-            .map(|(name, values)| {
-                (
-                    name.to_ascii_lowercase(),
-                    values
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|value| value.as_str().map(str::to_owned))
-                        .collect(),
-                )
-            })
-            .collect(),
-        resolve: &resolve_alias,
-    };
-    let selection = selector.tree(expression);
-    Ok(selection.filter(|selection| {
-        matches!(
-            selection.as_ref(),
-            Selection::Branch(..) | Selection::Array(..)
-        )
-    }))
 }
 
 pub(super) struct Records<'a> {
@@ -505,15 +400,12 @@ pub(super) fn append(
             layer.first_visibility = visibility.len() as u32;
             visibility.extend_from_slice(&authored_visibility);
         }
-        // Material ownership only hides parts; authored visibility can never be undone. A
-        // chosen bone hides while its choice does not hold; one whose choice does not compile
-        // stays hidden, as vanilla evaluates it as 0.0.
-        for hide in group.hidden {
-            let choice = hide.unless.and_then(|text| molang.compile(&text).ok());
+        // Material ownership only hides parts; authored visibility can never be undone.
+        for pattern in group.hidden {
             visibility.push(EntityRenderVisibility {
-                pattern: hide.pattern,
-                condition: choice.unwrap_or(hidden_condition),
-                hide_only: choice.is_some(),
+                pattern,
+                condition: hidden_condition,
+                hide_only: true,
             });
         }
         layer.visibility_count = (visibility.len() - layer.first_visibility as usize) as u16;
@@ -564,6 +456,7 @@ fn compile_selection(
         state: None,
         definition: None,
         masks: None,
+        uv_anim: true,
     });
     let node = match selection.as_ref() {
         Selection::Empty => Node::Raster {
@@ -571,12 +464,14 @@ fn compile_selection(
             state: None,
             definition: None,
             masks: None,
+            uv_anim: true,
         },
         Selection::Leaf(raster) => Node::Raster {
             material: raster.material,
             state: raster.state,
             definition: raster.definition,
             masks: raster.masks,
+            uv_anim: raster.uv_anim,
         },
         Selection::Branch(condition, yes, no) => Node::Branch {
             condition: compile_or_zero(molang, condition)?,

@@ -1252,12 +1252,13 @@ vertex transforms cannot separate their depth surfaces. Paired dissolve material
 retain their dedicated renderer contracts; applying their generated states to held
 and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the default
-branch. Whole-model material arrays and ternaries retain one controller layer and
-evaluate each material decision once, after activation and before authored part
-visibility. Render-controller expressions share frame dependency analysis, keeping
-camera-driven choices live between ticks. Dynamic per-bone material rules, selector
-admission and in-world qualification remain incomplete. The samples omit the iron
-golem's body controller; it is completed from the pack's default controller until a
+branch. Material arrays and ternaries retain one decision tree per authored rule;
+last-match bone ownership partitions layers without repeating selector expressions.
+Whole-model selectors retain one controller layer and evaluate each decision once,
+after activation and before authored part visibility. Render-controller expressions
+share frame dependency analysis, keeping camera-driven choices live between ticks.
+Per-bone selector admission and in-world qualification remain incomplete. The samples
+omit the iron golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
 Thrown tridents draw their pack model placed by the native flight rotation, with the
 item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
