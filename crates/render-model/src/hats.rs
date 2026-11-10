@@ -1,5 +1,5 @@
 //! Catalog attachments shared by world players and wardrobe previews.
-use crate::{ActorRigGeometry, ActorVertex, RenderBoneTransform};
+use crate::{ActorRigGeometry, ActorVertex, EntityRigId, RenderBoneTransform};
 use cosmetics::Item;
 use glam::{Quat, Vec3};
 use render_api::{CapeImage, SkinRgba8};
