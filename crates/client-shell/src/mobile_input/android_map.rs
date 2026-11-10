@@ -2,7 +2,7 @@
 
 use bevy::prelude::{GamepadAxis, GamepadButton};
 
-use super::gamepads::NativeGamepadEvent;
+use super::gamepads::{GamepadInput as Target, NativeGamepadEvent, changed_inputs};
 
 /// `AINPUT_SOURCE_KEYBOARD`'s device bit, above the button class.
 const SOURCE_KEYBOARD_BIT: u32 = 0x0100;
@@ -69,13 +69,6 @@ pub(super) struct JoystickSample {
     pub hat_y: f32,
 }
 
-/// A joystick value's Bevy destination.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Target {
-    Axis(GamepadAxis),
-    Button(GamepadButton),
-}
-
 const TARGETS: [Target; 10] = [
     Target::Axis(GamepadAxis::LeftStickX),
     Target::Axis(GamepadAxis::LeftStickY),
@@ -134,19 +127,8 @@ impl ControllerState {
     fn joystick(&mut self, id: u64, sample: JoystickSample) -> Vec<NativeGamepadEvent> {
         let values = target_values(sample);
         self.analog_triggers |= values[4] != 0.0 || values[5] != 0.0;
-        let previous = self.joystick.replace(values);
-        TARGETS
-            .iter()
-            .zip(values)
-            .enumerate()
-            .filter(|(index, (_, value))| {
-                previous.map_or(*value != 0.0, |previous| previous[*index] != *value)
-            })
-            .map(|(_, (target, value))| match *target {
-                Target::Axis(axis) => NativeGamepadEvent::Axis { id, axis, value },
-                Target::Button(button) => NativeGamepadEvent::Button { id, button, value },
-            })
-            .collect()
+        self.joystick.get_or_insert([0.0; TARGETS.len()]);
+        changed_inputs(id, &TARGETS, &mut self.joystick, values)
     }
 
     /// The event for a controller key edge, or none when trigger axes already report it.

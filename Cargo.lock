@@ -2713,6 +2713,7 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "objc2-game-controller",
  "objc2-metal 0.3.2",
  "pack-runtime",
  "player-state",
@@ -3772,7 +3773,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 [[package]]
 name = "dpi"
 version = "0.1.1"
-source = "git+https://github.com/cinnabar-mc/winit?rev=a4a4057505022effee163c4f2fd548b967297f29#a4a4057505022effee163c4f2fd548b967297f29"
+source = "git+https://github.com/cinnabar-mc/winit?rev=b1e59b0d5a63628cd4946575765a6c35d53d90df#b1e59b0d5a63628cd4946575765a6c35d53d90df"
 
 [[package]]
 name = "dragonfly-extension-client"
@@ -6499,6 +6500,7 @@ checksum = "1962c1882c5abcedb18e5f01acffeaad7b3cbd0a9d4cd8f5ca259ba8a64cb9a3"
 dependencies = [
  "block2 0.6.2",
  "objc2 0.6.4",
+ "objc2-core-foundation",
  "objc2-foundation 0.3.2",
 ]
 
@@ -11142,7 +11144,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 [[package]]
 name = "winit"
 version = "0.30.13"
-source = "git+https://github.com/cinnabar-mc/winit?rev=a4a4057505022effee163c4f2fd548b967297f29#a4a4057505022effee163c4f2fd548b967297f29"
+source = "git+https://github.com/cinnabar-mc/winit?rev=b1e59b0d5a63628cd4946575765a6c35d53d90df#b1e59b0d5a63628cd4946575765a6c35d53d90df"
 dependencies = [
  "ahash",
  "android-activity",
