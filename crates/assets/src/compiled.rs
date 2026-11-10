@@ -94,6 +94,8 @@ pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
 pub const MATERIAL_FLAG_UV_ROTATE_270: u32 = 3;
 /// The rotation code within `MATERIAL_FLAG_UV_MASK`; the remaining bits reflect U and V.
 pub const MATERIAL_FLAG_UV_ROTATION_MASK: u32 = 0x0000_0003;
+/// Reflects both UV axes, keeping a half-turn independent of positional rotation.
+pub const MATERIAL_FLAG_UV_INVERT: u32 = MATERIAL_FLAG_UV_MASK & !MATERIAL_FLAG_UV_ROTATION_MASK;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;

@@ -419,7 +419,8 @@ impl Builder<'_> {
             let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
                 && source == assets::BlockFace::Down as usize
             {
-                render_scene::MATERIAL_UV_ROTATE_180
+                // Both reflections preserve the bottom orientation alongside positional turns.
+                assets::MATERIAL_FLAG_UV_INVERT
             } else {
                 0
             };
