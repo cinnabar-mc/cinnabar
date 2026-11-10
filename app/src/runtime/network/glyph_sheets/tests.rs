@@ -65,6 +65,39 @@ fn empty_stack_records_missing_sheets_for_later_activation() {
     }
 }
 
+/// Packs that leave out the emoticon page keep the built-in emoticons beneath their own pages;
+/// a pack's own emoticon page replaces the built-in one wholesale, as vanilla's would.
+#[test]
+fn the_builtin_emoticon_page_sits_below_pack_pages() {
+    let a = assets::emoticons::EmoticonList::builtin()
+        .get("xbox_face_button_down")
+        .unwrap();
+    let cell = |sheets: &super::SessionGlyphSheets, codepoint: char| {
+        sheets
+            .cells()
+            .iter()
+            .find(|cell| cell.codepoint == codepoint)
+            .map(|cell| cell.size)
+    };
+    let other_page = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[("font/glyph_E1.png", sheet_png(8, 2))],
+    )]))
+    .expect("sheets");
+    assert_eq!(cell(&other_page, '\u{e102}'), Some([8, 8]));
+    let builtin = assets::emoticons::builtin_emoticon_cells();
+    let drawn = builtin.iter().find(|cell| cell.codepoint == a).unwrap();
+    assert_eq!(cell(&other_page, a), Some(drawn.size));
+
+    let own_page = compile_session_glyphs(&view(vec![archive(
+        1,
+        &[("font/glyph_E0.png", sheet_png(8, 3))],
+    )]))
+    .expect("sheets");
+    assert_eq!(cell(&own_page, a), Some([0, 0]));
+    assert_eq!(cell(&own_page, '\u{e003}'), Some([8, 8]));
+}
+
 // The first server pack replaces a sheet wholesale; missing sheets use lower packs.
 #[test]
 fn the_first_server_pack_wins_per_sheet() {
@@ -178,7 +211,11 @@ fn default8_maps_ascii_keeps_unicode_and_restores_the_lower_sheet() {
         (assets::texel_size_64(0, 1) / 2) as i16
     );
     let restored = compile_session_glyphs(&view(vec![lower()])).unwrap();
-    assert_eq!(restored.cells().len(), 256);
+    // The default8 cells, plus the built-in emoticon page that no pack replaced.
+    assert_eq!(
+        restored.cells().len(),
+        256 + assets::emoticons::builtin_emoticon_cells().len()
+    );
     assert_eq!(
         restored
             .cells()

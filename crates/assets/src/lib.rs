@@ -20,6 +20,7 @@ pub mod compiled;
 pub mod door;
 pub mod dye;
 mod effects;
+pub mod emoticons;
 mod encoding;
 pub mod entity;
 mod environment_settings;

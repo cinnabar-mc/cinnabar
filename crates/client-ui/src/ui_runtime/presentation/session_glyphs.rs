@@ -41,6 +41,17 @@ impl SessionGlyphSheets {
         Self::with_named(cells, Default::default())
     }
 
+    /// The built-in emoticon glyphs alone, for sessions whose packs carry no glyph sheets.
+    pub fn builtin() -> &'static Arc<Self> {
+        static BUILTIN: std::sync::LazyLock<Arc<SessionGlyphSheets>> =
+            std::sync::LazyLock::new(|| {
+                Arc::new(SessionGlyphSheets::new(
+                    assets::emoticons::builtin_emoticon_cells(),
+                ))
+            });
+        &BUILTIN
+    }
+
     /// Returns the immutable source cells used to prepare this font.
     pub fn cells(&self) -> &[CellGlyph] {
         &self.cells

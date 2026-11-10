@@ -37,7 +37,7 @@ pub use command_macros::{
     COMMAND_MACRO_COUNT, MAX_COMMAND_MACRO_BYTES, macro_message, macro_row, macro_row_index,
     macro_title,
 };
-pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
+pub use control_bindings::{GAMEPAD_OFFSET, control_emoticon, gamepad_icon};
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, BEDROCK_HOTBAR_OPTION,
     CINNABAR_VISIBILITY_OPTION, DISCORD_ALLOW_JOINS_OPTION, DISCORD_PARTY_SIZE_OPTION,
