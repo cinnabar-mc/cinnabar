@@ -38,7 +38,7 @@ pub(super) fn configure(app: &mut App) {
     app.add_systems(
         PreUpdate,
         scan_devices
-            .before(gamepads::NativeGamepadInput)
+            .in_set(gamepads::NativeGamepadDeviceScan)
             .before(bevy::input::InputSystems),
     )
     .add_systems(Last, sync_pointer_capture);
@@ -65,23 +65,33 @@ fn filter(event: &InputEvent<'_>) -> bool {
                 return false;
             }
             let pointer = motion.pointer_at_index(0);
-            let sample = JoystickSample {
-                x: pointer.axis_value(Axis::X),
-                y: pointer.axis_value(Axis::Y),
-                z: pointer.axis_value(Axis::Z),
-                rz: pointer.axis_value(Axis::Rz),
-                ltrigger: pointer.axis_value(Axis::Ltrigger),
-                rtrigger: pointer.axis_value(Axis::Rtrigger),
-                brake: pointer.axis_value(Axis::Brake),
-                gas: pointer.axis_value(Axis::Gas),
-                hat_x: pointer.axis_value(Axis::HatX),
-                hat_y: pointer.axis_value(Axis::HatY),
-            };
             let id = device(motion.device_id());
-            with_controller(id, |state| gamepads::queue(state.joystick(id, sample)));
+            with_controller(id, |state| {
+                let history = pointer
+                    .history()
+                    .map(|past| joystick_sample(|axis| past.axis_value(axis)));
+                let current = joystick_sample(|axis| pointer.axis_value(axis));
+                gamepads::queue(state.motion(id, history, current));
+            });
             true
         }
         _ => false,
+    }
+}
+
+/// Reads the same controller axes from a current or historical pointer.
+fn joystick_sample(axis_value: impl Fn(Axis) -> f32) -> JoystickSample {
+    JoystickSample {
+        x: axis_value(Axis::X),
+        y: axis_value(Axis::Y),
+        z: axis_value(Axis::Z),
+        rz: axis_value(Axis::Rz),
+        ltrigger: axis_value(Axis::Ltrigger),
+        rtrigger: axis_value(Axis::Rtrigger),
+        brake: axis_value(Axis::Brake),
+        gas: axis_value(Axis::Gas),
+        hat_x: axis_value(Axis::HatX),
+        hat_y: axis_value(Axis::HatY),
     }
 }
 
@@ -90,6 +100,7 @@ fn device(id: i32) -> u64 {
     u64::from(id.cast_unsigned())
 }
 
+/// Applies one input event while holding its controller's state lock.
 fn with_controller(id: u64, apply: impl FnOnce(&mut ControllerState)) {
     let mut controllers = CONTROLLERS.lock().unwrap_or_else(PoisonError::into_inner);
     let state = controllers
@@ -147,7 +158,7 @@ fn scan_devices(
     }
     *listed = controllers.iter().map(|controller| controller.id).collect();
     let connected = gamepads.ids().collect::<Vec<_>>();
-    let mut events = controllers
+    let connections = controllers
         .into_iter()
         .filter(|controller| !connected.contains(&controller.id))
         .map(|controller| NativeGamepadEvent::Connected {
@@ -155,16 +166,8 @@ fn scan_devices(
             name: controller.name,
             vendor_id: Some(controller.vendor_id),
             product_id: Some(controller.product_id),
-        })
-        .chain(
-            removed
-                .into_iter()
-                .map(|id| NativeGamepadEvent::Disconnected { id }),
-        )
-        .collect::<Vec<_>>();
-    // Connections precede input the filter queued for the same devices.
-    events.append(&mut pending.0);
-    pending.0 = events;
+        });
+    pending.update_connections(connections, removed);
 }
 
 /// Physical input devices with gamepad or joystick sources.

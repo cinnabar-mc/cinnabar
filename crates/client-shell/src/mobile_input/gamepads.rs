@@ -61,6 +61,24 @@ pub(crate) fn queue(events: impl IntoIterator<Item = NativeGamepadEvent>) {
 #[derive(Resource, Default)]
 pub(crate) struct PendingNativeGamepadEvents(pub(crate) Vec<NativeGamepadEvent>);
 
+impl PendingNativeGamepadEvents {
+    /// Names new devices before their queued input and removes devices after it.
+    pub(super) fn update_connections(
+        &mut self,
+        connected: impl IntoIterator<Item = NativeGamepadEvent>,
+        removed: impl IntoIterator<Item = u64>,
+    ) {
+        let mut events = connected.into_iter().collect::<Vec<_>>();
+        events.append(&mut self.0);
+        events.extend(
+            removed
+                .into_iter()
+                .map(|id| NativeGamepadEvent::Disconnected { id }),
+        );
+        self.0 = events;
+    }
+}
+
 /// Maps platform device ids to their gamepad entities while they stay connected.
 #[derive(Resource, Default)]
 pub(crate) struct NativeGamepads {
@@ -80,7 +98,10 @@ pub(crate) fn configure(app: &mut App) {
         .init_resource::<NativeGamepads>()
         .add_systems(
             PreUpdate,
-            (take_queued_events, forward_native_gamepad_events)
+            (
+                take_queued_events.before(NativeGamepadDeviceScan),
+                forward_native_gamepad_events.after(NativeGamepadDeviceScan),
+            )
                 .chain()
                 .in_set(NativeGamepadInput)
                 .before(bevy::input::InputSystems),
@@ -90,6 +111,10 @@ pub(crate) fn configure(app: &mut App) {
 /// Platform controller events reach Bevy's raw gamepad messages in this set.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct NativeGamepadInput;
+
+/// Device scans run after queued input is taken and before it is forwarded.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct NativeGamepadDeviceScan;
 
 fn take_queued_events(mut pending: ResMut<PendingNativeGamepadEvents>) {
     let mut queued = QUEUED
@@ -241,6 +266,50 @@ mod tests {
         send(&mut app, [NativeGamepadEvent::Disconnected { id: 3 }]);
         assert!(pads(&mut app).is_empty());
         assert_eq!(app.world().resource::<NativeGamepads>().ids().count(), 0);
+    }
+
+    #[test]
+    fn device_scan_names_queued_input_and_removes_pads_after_their_last_sample() {
+        let mut app = App::new();
+        app.add_plugins(InputPlugin);
+        configure(&mut app);
+        app.add_systems(
+            PreUpdate,
+            (|mut pending: ResMut<PendingNativeGamepadEvents>, mut scan: Local<u32>| {
+                match *scan {
+                    0 => pending.update_connections(
+                        [NativeGamepadEvent::Connected {
+                            id: 7,
+                            name: "Pad".to_owned(),
+                            vendor_id: None,
+                            product_id: None,
+                        }],
+                        [],
+                    ),
+                    1 => pending.update_connections([], [7]),
+                    _ => {}
+                }
+                *scan += 1;
+            })
+            .in_set(NativeGamepadDeviceScan),
+        );
+        queue([NativeGamepadEvent::Button {
+            id: 7,
+            button: GamepadButton::South,
+            value: 1.0,
+        }]);
+        app.update();
+        assert_eq!(pads(&mut app), [("Pad".to_owned(), true, false)]);
+        queue([NativeGamepadEvent::Axis {
+            id: 7,
+            axis: GamepadAxis::LeftStickX,
+            value: 0.75,
+        }]);
+        app.update();
+        assert!(pads(&mut app).is_empty());
+        assert_eq!(app.world().resource::<NativeGamepads>().ids().count(), 0);
+        app.update();
+        assert!(pads(&mut app).is_empty());
     }
 
     #[test]
