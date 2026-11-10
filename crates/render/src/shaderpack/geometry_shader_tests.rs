@@ -194,6 +194,8 @@ fn render_emission(packed: bool, cpu_indices: bool) {
         outputs: vec![Some(0)],
         layout: None,
         alpha_test: None,
+        prepass: None,
+        behind_terrain: None,
     }];
     let mut scratch = Scratch::new(&gpu.device, &draws).unwrap();
     let origin = super::geometry::draw_origin([0; 3], [0; 3]);

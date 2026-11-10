@@ -30,6 +30,7 @@ pub(crate) mod actors;
 mod alpha_test;
 pub(crate) mod atlas;
 mod center_depth;
+mod depth_prepass;
 mod dispatch;
 mod draw_pipelines;
 mod draws;
