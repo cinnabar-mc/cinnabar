@@ -111,6 +111,28 @@ impl InstalledMod {
                 )
             })
     }
+    /// Host capability indices the component requests but its grants do not yet fully allow.
+    pub fn awaiting_approval(&self) -> impl Iterator<Item = usize> + '_ {
+        self.permissions
+            .iter()
+            .enumerate()
+            .filter(|(_, permission)| {
+                permission.applicable
+                    && permission.requested == Some(true)
+                    && !permission.requested_allowed
+            })
+            .map(|(index, _)| index)
+    }
+    /// Names requests awaiting approval that `previous`, an earlier revision of the same
+    /// registration, did not leave waiting: capabilities or values a replacement newly requests.
+    /// Requests the player already left off are not repeated.
+    pub fn new_requests(&self, previous: &InstalledMod) -> Vec<&str> {
+        let waiting: Vec<_> = previous.awaiting_approval().collect();
+        self.awaiting_approval()
+            .filter(|index| !waiting.contains(index))
+            .map(|index| self.permissions[index].name.as_str())
+            .collect()
+    }
     /// Supplies stable host capability indices, with requested permissions first.
     pub fn permission_order(&self, show_all: bool) -> Vec<usize> {
         let mut indices: Vec<_> = self
@@ -436,6 +458,40 @@ mod tests {
         assert_eq!(item.permission_order(true), [3, 0, 2]);
         assert_eq!(item.permission_order(false), [3]);
         assert_eq!(item.requested_counts(), (0, 1));
+    }
+
+    #[test]
+    fn only_requests_a_revision_newly_leaves_waiting_are_new() {
+        /// Builds one capability row from its request and allowance.
+        fn row(name: &str, requested: bool, allowed: bool) -> Permission {
+            Permission {
+                applicable: true,
+                name: name.into(),
+                description: String::new(),
+                enabled: allowed,
+                requested: Some(requested),
+                requested_allowed: requested && allowed,
+                sensitive: false,
+            }
+        }
+        let mut previous = installed(1);
+        previous.permissions = vec![
+            row("Camera", true, true),
+            row("Audio", true, false),
+            row("Render material", false, false),
+            row("Commands", true, true),
+        ];
+        let mut next = previous.clone();
+        assert!(next.new_requests(&previous).is_empty());
+        next.permissions[2] = row("Render material", true, false);
+        next.permissions[3].requested_allowed = false;
+        assert_eq!(next.awaiting_approval().collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(
+            next.new_requests(&previous),
+            ["Render material", "Commands"]
+        );
+        next.permissions[2].applicable = false;
+        assert_eq!(next.new_requests(&previous), ["Commands"]);
     }
 
     #[test]

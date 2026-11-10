@@ -1921,7 +1921,8 @@ acceptance, including device-loss recovery on affected hardware, remains incompl
   full stamped commit and supported mod API revisions. New capabilities append a revision
   while retaining older supported revisions; unsupported APIs and catalogue failures
   do not fall back to latest;
-  bounded digest-checked downloads retain registration, settings and grants. Live published
+  bounded digest-checked downloads retain registration, settings and grants; newly requested
+  permissions stay off and are flagged on the card for explicit approval. Live published
   catalogue and reload acceptance remain open. Mod installation uses a
   no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin
   chosen documents into app cache storage before importing them. Mod installation and resource-pack
