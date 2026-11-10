@@ -11,6 +11,7 @@ mod animation_conflicts;
 mod animation_loading;
 mod held_scale;
 mod legacy_scales;
+mod partial_roots;
 mod player_attack;
 mod render_visibility;
 

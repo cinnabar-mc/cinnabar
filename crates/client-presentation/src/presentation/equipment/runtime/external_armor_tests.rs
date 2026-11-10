@@ -125,6 +125,7 @@ fn custom_content_wearables_resolve_external_models_for_their_owner() {
         let input = ActorEquipmentInput {
             armor: [
                 Some(WornItem {
+                    trim: None,
                     identifier: "fixture:custom".into(),
                     kind: HeldKind::Other,
                     ..fixture_item()
@@ -259,6 +260,7 @@ fn custom_content_external_armor_uses_stack_enchantment_and_unmatched_authored_p
         let input = ActorEquipmentInput {
             armor: [
                 Some(WornItem {
+                    trim: None,
                     identifier: "fixture:custom".into(),
                     enchanted,
                     ..fixture_item()
@@ -305,6 +307,7 @@ fn custom_content_external_armor_keeps_startup_draw_when_family_rejects_owner() 
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: "fixture:custom".into(),
                 ..fixture_item()
             }),
@@ -350,6 +353,7 @@ fn custom_content_external_armor_keeps_ordinary_pack_model_when_family_rejects_o
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: "fixture:custom".into(),
                 ..fixture_item()
             }),
@@ -393,6 +397,7 @@ fn custom_content_external_armor_uses_controller_geometry_and_registers_its_mesh
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 identifier: "fixture:custom".into(),
                 ..fixture_item()
             }),

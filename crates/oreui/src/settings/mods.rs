@@ -191,13 +191,20 @@ fn mod_card(
         (true, Some(Status::Failed(_))) => "Failed",
         (true, Some(Status::Starting) | None) => "Starting…",
     };
+    // The collapsed face is all a player sees, so flag requests that still await approval,
+    // such as permissions an update newly requests.
+    let state = if active && item.awaiting_approval().next().is_some() {
+        format!("{state} · Review permissions")
+    } else {
+        state.to_owned()
+    };
     let metadata = &item.metadata;
     let subtitle = match &metadata.version {
         Some(version) => {
             let version = version.strip_prefix(['v', 'V']).unwrap_or(version);
             format!("{state} · v{version}")
         }
-        None => state.to_owned(),
+        None => state,
     };
     let icon = item.icon_key();
     let face = Face {

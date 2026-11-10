@@ -41,6 +41,7 @@ pub(super) fn worn_item(
         return None;
     }
     Some(WornItem {
+        trim: item.trim.clone(),
         map_id: item.map_id,
         shield_pattern: item.shield_pattern.clone(),
         charged_projectile: item
@@ -240,6 +241,7 @@ pub(super) fn canonical_fixture(
     intrinsic: bool,
 ) -> CanonicalItemStack {
     CanonicalItemStack {
+        trim: None,
         identity: assets::ItemStackIdentity {
             network_id: 1,
             count: 1,
@@ -299,6 +301,7 @@ mod tests {
     #[test]
     fn local_attachable_input_retains_other_hand_and_render_timing() {
         let item = |identifier: &str| WornItem {
+            trim: None,
             map_id: None,
             shield_pattern: None,
             charged_projectile: None,
@@ -366,6 +369,7 @@ mod tests {
     #[test]
     fn worn_glint_combines_intrinsic_dispositions_and_enchantment_facts() {
         let mut item = CanonicalItemStack {
+            trim: None,
             use_animation: assets::item_use::ItemUseAnimation::None,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: assets::item::grip::ItemGrip::Unresolved,

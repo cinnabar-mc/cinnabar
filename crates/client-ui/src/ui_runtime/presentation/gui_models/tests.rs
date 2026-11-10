@@ -6,6 +6,21 @@ mod short_models;
 mod world_models;
 
 #[test]
+fn emissive_cube_faces_keep_their_texture_brightness() {
+    let identifier = "minecraft:sea_lantern";
+    let (mut presentation, entities) = cubes::catalog_for(identifier, 255, 255);
+    let world = short_models::world(entities.source_manifest_sha256(), 256, 255);
+    presentation.set_gui_models(&world, &entities).unwrap();
+    let icon = presentation.item_icon(identifier, 0).unwrap();
+    let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+    assert!(
+        mesh.vertices()
+            .iter()
+            .all(|vertex| vertex.color == [255; 4])
+    );
+}
+
+#[test]
 fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
     let pixels: Vec<u8> = (0..16 * 16)
         .flat_map(|pixel| [pixel as u8, 20, 40, 255])
@@ -25,6 +40,28 @@ fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
                 &pages[0].pixels()[target..target + 4],
                 &pixels[source..source + 4]
             );
+        }
+    }
+}
+
+#[test]
+fn minified_source_edges_do_not_pick_up_neighboring_textures() {
+    let mut atlas = atlas::Atlas::new(8, MODEL_PAGES);
+    let sources = [[255, 0, 0, 255], [0, 0, 255, 255]].map(|color| {
+        let pixels = color.repeat(16 * 16);
+        (atlas.insert([16; 2], &pixels).unwrap(), color)
+    });
+    let (pages, _) = atlas.finish().unwrap();
+    for (icon, color) in sources {
+        for (level, (dimensions, pixels)) in pages[0].mip_levels().enumerate() {
+            let [left, top, right, bottom] =
+                icon.uv.map(|coordinate| usize::from(coordinate) >> level);
+            for y in top..bottom {
+                for x in left..right {
+                    let offset = (y * dimensions[0] as usize + x) * 4;
+                    assert_eq!(&pixels[offset..offset + 4], &color);
+                }
+            }
         }
     }
 }
@@ -66,12 +103,13 @@ fn mesh_modulation_preserves_geometry_and_adds_glint_without_baking() {
         uv: [0, 0, 16, 16],
         glint: false,
     };
-    let mesh = item_gui::cube([icon; 6]).unwrap();
+    let mesh = item_gui::cube([icon; 6], Default::default()).unwrap();
     assert!(Arc::ptr_eq(
         &mesh,
         &modulated(&mesh, [255; 4], false).unwrap()
     ));
     let faded = modulated(&mesh, [255, 255, 255, 127], true).unwrap();
+    assert!(faded.uses_compact_block_vertices());
     for (original, result) in mesh.vertices().iter().zip(faded.vertices()) {
         assert_eq!(original.position, result.position);
         assert_eq!(result.color[3], 127);
@@ -90,7 +128,7 @@ fn geometry_replacement_preserves_json_control_state_and_flat_sprites() {
         uv: [0, 0, 16, 16],
         glint: false,
     };
-    let mesh = item_gui::cube([icon; 6]).unwrap();
+    let mesh = item_gui::cube([icon; 6], Default::default()).unwrap();
     presentation.gui_models.enabled = true;
     presentation
         .gui_models
@@ -146,7 +184,7 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
         uv: [0, 0, 16, 16],
         glint: false,
     };
-    let mesh = item_gui::cube([other; 6]).unwrap();
+    let mesh = item_gui::cube([other; 6], Default::default()).unwrap();
     let bounds = UiRect::new(
         UiPoint::new(0.0, 0.0).unwrap(),
         UiPoint::new(16.0, 16.0).unwrap(),
@@ -272,7 +310,12 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
     presentation.gui_models.enabled = true;
     presentation.gui_models.sources.models.insert(
         icon_key(icon),
-        item_gui::block_model(&quads, assets::gui_item::GuiShading::Inventory).unwrap(),
+        item_gui::block_model(
+            &quads,
+            assets::gui_item::GuiShading::Inventory,
+            Default::default(),
+        )
+        .unwrap(),
     );
     presentation
         .gui_models

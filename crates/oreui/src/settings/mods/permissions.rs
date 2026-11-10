@@ -70,9 +70,15 @@ fn consent(
     item: &InstalledMod,
     available: bool,
 ) -> Result<(), PaintError> {
-    if item.declares_permissions() {
+    // After earlier consent, name only what is still waiting, such as an update's new request.
+    let waiting = item.permissions.iter().any(|permission| permission.enabled)
+        && item.awaiting_approval().next().is_some();
+    if waiting {
+        caption(content, "Waiting for your approval:")?;
+        chips(content, item, true)?;
+    } else if item.declares_permissions() {
         caption(content, "This mod requests:")?;
-        chips(content, item)?;
+        chips(content, item, false)?;
     } else {
         caption(content, "This mod doesn't declare its permissions")?;
     }
@@ -95,12 +101,22 @@ fn consent(
 }
 
 /// Wraps the existing tags into rows without treating unrequested capabilities as requests.
-fn chips(content: &mut Content<'_, '_>, item: &InstalledMod) -> Result<(), PaintError> {
+/// `waiting` limits them to requests the grants do not yet allow.
+fn chips(
+    content: &mut Content<'_, '_>,
+    item: &InstalledMod,
+    waiting: bool,
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let gap = content.canvas.r(0.8);
     let mut x = left;
     let mut any = false;
-    for index in item.permission_order(false) {
+    let awaiting: Vec<_> = item.awaiting_approval().collect();
+    for index in item
+        .permission_order(false)
+        .into_iter()
+        .filter(|index| !waiting || awaiting.contains(index))
+    {
         let label = item.permissions[index].label();
         let width = content.canvas.measure(&label, theme::BODY)? + gap;
         if x > left && x + width > right {

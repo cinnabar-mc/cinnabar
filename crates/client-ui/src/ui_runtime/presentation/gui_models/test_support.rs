@@ -2,10 +2,12 @@
 use super::*;
 
 mod cosmetic_particles;
+mod trims;
 use crate::test_support::fixture_hud;
 pub use cosmetic_particles::cosmetic_particle_preview;
 #[cfg(test)]
 pub(super) use cosmetic_particles::particle_fixture_assets;
+pub use trims::trim_gallery;
 use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.
@@ -19,6 +21,13 @@ pub fn assert_installed_geometry(
         UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).unwrap();
     presentation.set_equipment_catalog(equipment);
     presentation.set_gui_models(world, entities).unwrap();
+    let flame = assets::ParticleTexture {
+        path: assets::ACTOR_FLAME_TEXTURE.into(),
+        width: 16,
+        height: 32,
+        rgba8: [31, 47, 59, 255].repeat(16 * 32).into(),
+    };
+    presentation.set_gui_fire_texture(Some(&flame)).unwrap();
     let icons = presentation.icon_catalog.as_deref().unwrap();
     for identifier in ["minecraft:dirt", "minecraft:grass_block"] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
@@ -102,6 +111,7 @@ pub fn assert_installed_geometry(
                 .get(&icon_key(icon))
                 .unwrap_or_else(|| panic!("{identifier} draws at the control's size"));
             assert!(mesh.batches().iter().all(|batch| batch.depth_test));
+            assert!(mesh.vertices().iter().all(|vertex| vertex.terrain_mips));
         }
     }
     assert_installed_blended_thumbnails(&presentation, world, entities, icons);

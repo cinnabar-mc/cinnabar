@@ -49,6 +49,7 @@ impl UiPresentationRuntime {
         }
         self.gui_models.clear_selected_hands();
         self.gui_models.shield_icons.clear();
+        self.gui_models.trim_icons.clear();
         self.inventory_cache = Some(Default::default());
         self.gui_models.pack_equipment = PackEquipment {
             source: catalog,
