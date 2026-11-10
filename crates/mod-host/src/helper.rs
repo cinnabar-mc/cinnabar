@@ -309,10 +309,8 @@ pub struct Helper {
 }
 
 impl Helper {
-    /// Returns a pending restricted helper: on Linux the process is contained before `exec`
-    /// and locks itself down before reading the component (see [`restricted`]); other
-    /// platforms refuse. Nothing in the client calls this yet, so production Experiences stay
-    /// closed until restricted launch passes independent review on every platform.
+    /// Returns a pending restricted helper, contained and locked down before it reads the
+    /// component (see [`restricted`]); other platforms refuse.
     pub fn spawn_restricted(
         executable: &Path,
         bytes: &[u8],

@@ -3,17 +3,12 @@
 //! TCP or UDP socket and signal or reach no process outside itself. The rights are probed from
 //! the running kernel, so those a newer ABI adds are denied too.
 
-use super::Lockdown;
 use anyhow::{Result, bail, ensure};
 
 /// `LANDLOCK_CREATE_RULESET_VERSION`: query the ABI instead of creating a ruleset.
 const CREATE_RULESET_VERSION: u32 = 1;
 /// The 13 filesystem rights of ABI 1, which every Landlock kernel knows.
 const FS_ABI1: u64 = (1 << 13) - 1;
-/// `LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP` (ABI 4).
-const NET_TCP: u64 = 0b11;
-/// `LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL` (ABI 6).
-const SCOPES: u64 = 0b11;
 
 /// `struct landlock_ruleset_attr` up to its last field of denials; older kernels read only its
 /// leading fields, and the later fields only quiet logging.
@@ -122,7 +117,7 @@ pub(super) fn abi() -> std::io::Result<u32> {
 }
 
 /// Restricts the calling thread, and the threads it creates, to no filesystem access.
-pub(super) fn restrict() -> Result<Lockdown> {
+pub(super) fn restrict() -> Result<()> {
     let abi = match abi() {
         Ok(abi) => abi,
         Err(error) => {
@@ -153,17 +148,17 @@ pub(super) fn restrict() -> Result<Lockdown> {
         "restriction refused: {}",
         std::io::Error::last_os_error()
     );
-    Ok(Lockdown {
-        landlock_abi: abi,
-        network_denied: attr.handled_access_net & NET_TCP == NET_TCP,
-        scoped: attr.scoped & SCOPES == SCOPES,
-    })
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// `LANDLOCK_ACCESS_NET_BIND_TCP | LANDLOCK_ACCESS_NET_CONNECT_TCP` (ABI 4).
+    const NET_TCP: u64 = 0b11;
+    /// `LANDLOCK_SCOPE_ABSTRACT_UNIX_SOCKET | LANDLOCK_SCOPE_SIGNAL` (ABI 6).
+    const SCOPES: u64 = 0b11;
     /// `LANDLOCK_ACCESS_FS_REFER` (ABI 2).
     const FS_REFER: u64 = 1 << 13;
     /// `LANDLOCK_ACCESS_FS_TRUNCATE` (ABI 3).

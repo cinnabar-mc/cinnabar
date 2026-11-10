@@ -1,13 +1,6 @@
-//! A seccomp filter that leaves the helper the system calls a compiler and a sandboxed
-//! runtime use and fails the rest of the kernel's attack surface with `EPERM`: running
-//! programs, creating processes (threads remain), sockets, tracing or reading other
-//! processes, signalling, renicing, rescheduling or changing the resource limits of any
-//! process but the helper itself, changing file modes, owners, times, extended attributes or
-//! lengths (which Landlock does not cover, or covers only from ABI 3), System V IPC and POSIX
-//! message queues, namespaces and mounts, BPF, performance counters, keys, legacy AIO,
-//! io_uring, modules and system administration. Calls numbered above the newest one reviewed,
-//! which later kernels add, report `ENOSYS`, so new kernel surface stays closed until reviewed.
-//! A foreign architecture or the x32 ABI kills the process.
+//! The helper's seccomp filter: [`DENIED`] calls, process creation and calls aimed at another
+//! process fail with `EPERM`; calls past [`NEWEST_REVIEWED`] report `ENOSYS`, so new kernel
+//! surface stays closed until reviewed; a foreign architecture or x32 call kills the process.
 
 use anyhow::{Result, ensure};
 use libc::{
@@ -206,12 +199,7 @@ const _: () = {
 
 /// A BPF statement.
 const fn statement(code: u32, k: u32) -> sock_filter {
-    sock_filter {
-        code: code as u16,
-        jt: 0,
-        jf: 0,
-        k,
-    }
+    jump(code, k, 0, 0)
 }
 
 /// A BPF jump: `jt` or `jf` instructions forward.
