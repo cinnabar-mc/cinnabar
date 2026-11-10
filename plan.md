@@ -817,7 +817,8 @@ held equipment independently of worn armor in the actor's world or UI render con
 Tick, frame-sampled and retained outputs carry these policies. Every passing controller draws
 its chosen model in list order, posed by bone name from the rig. A player's own rig keeps its
 default model, which the skin replaces, so a pack's cosmetic controllers listed ahead of the
-body draw beside it with their catalog textures. Attachable roots take the first passing
+body draw beside it with their catalog textures; when only such models pass, the body slot
+keeps its skeleton for attachments but is not drawn. Attachable roots take the first passing
 controller model that has the parent bone, then the body, as native
 `attemptToSetParentBoneMapping` does. A player's body layer keeps
 the body slot and draws before controller models listed ahead of it, which differs from native

@@ -435,7 +435,18 @@ pub fn apply_render_layers_cached<'a>(
         if resolved.is_empty() {
             continue;
         }
-        for (layer_index, layer) in resolved.iter().enumerate() {
+        // A player whose passing controllers all draw other models keeps its body slot, whose
+        // skeleton and pose capes, hats and equipment read, but does not draw it.
+        let hidden_body = player_skin && resolved.iter().all(|layer| layer.model.is_some());
+        if hidden_body {
+            batch.submissions[index].route = render_model::ActorRigRoute::NoDraw;
+        }
+        for (layer_index, layer) in resolved
+            .iter()
+            .take(MAX_TEXTURE_LAYERS - usize::from(hidden_body))
+            .enumerate()
+        {
+            let layer_index = layer_index + usize::from(hidden_body);
             let submission = layered(&pristine, layer, layer_index, cache);
             if let Some(location) = layer.location {
                 batch.artwork.insert(submission.input.identity, location);
@@ -805,6 +816,89 @@ mod tests {
             location.multitexture.is_some(),
             "the second sampler is kept"
         );
+    }
+
+    /// A player whose passing controllers all draw other models draws only those, keeping its
+    /// undrawn body slot's skeleton and pose for the passes that attach to it.
+    #[test]
+    fn runtime_skin_bodies_hide_when_only_other_controller_models_pass() {
+        let presentation = super::super::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        let mut batch =
+            super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+        let original = batch.submissions[0].clone();
+        let pose: Arc<[BoneTransform]> = Arc::from([BoneTransform {
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            translation_scale: [0.0, 0.0, 0.0, 1.0],
+            axis_scale: [1.0; 3],
+        }]);
+        let morph = RenderTextureLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_state: None,
+            source: 23,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry: Some(7),
+            previous_pose: Arc::clone(&pose),
+            pose,
+            ignore_lighting: false,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin: false,
+            pack: true,
+        };
+        let artwork = ActorArtworkPages::default().with_pack_artwork(
+            &[assets::ActorTexture {
+                source: 23,
+                width: 2,
+                height: 2,
+                pixel_sha256: [1; 32],
+                rgba8: vec![255; 16].into(),
+            }],
+            &[],
+        );
+        let layers = [morph];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert_eq!(batch.submissions.len(), 2);
+        let [body, model] = [&batch.submissions[0], &batch.submissions[1]];
+        assert_eq!(body.route, render_model::ActorRigRoute::NoDraw);
+        assert_eq!(body.input.rig, original.input.rig);
+        assert!(Arc::ptr_eq(
+            &body.input.current_bones,
+            &original.input.current_bones
+        ));
+        assert!(!batch.artwork.contains_key(&body.input.identity));
+        assert_eq!(model.route, original.route);
+        assert_eq!(
+            model.input.rig,
+            layer_geometry_rig_id(render_model::pack_rig_id(0), 7)
+        );
+        assert_eq!(model.input.identity.layer, ACTOR_LAYER_TEXTURE_BASE);
     }
 
     #[test]
