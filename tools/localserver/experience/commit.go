@@ -94,13 +94,12 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 }
 
 // apply checks snap against the world in tx and validates every op before it applies any. Then
-// it applies the block and state ops in their order, the data writes, the slots and drops, and
-// last the tells, and
-// returns the client messages for commit to send. A position's data write follows its last block
-// op, as validate checks, so applying the data writes after every block op changes nothing; a
-// state op keeps the block's data and generation. Writes that shrink data go before those that
-// grow it, so the Experience's total only falls and then rises to the net that validate checked,
-// and no single write exceeds the quota.
+// it applies the block and state ops in their order, the data writes, the slots and drops, the
+// entity ops, damage, and last the tells, and returns the client messages for commit to send.
+// A position's data write follows its last block op, as validate checks, so applying the data
+// writes after every block op changes nothing; a state op keeps the block's data and generation.
+// Writes that shrink data go before those that grow it, so the Experience's total only falls
+// and then rises to the net that validate checked, and no single write exceeds the quota.
 func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op) ([]*SendClientOp, error) {
 	actor, err := h.current(tx, exp, ev, snap)
 	if err != nil {
@@ -204,6 +203,10 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
 	h.applyEntities(tx, exp, ev, actor, ops)
+	// Death can dismount the actor, so entity operations must finish first.
+	if plan.damage != nil {
+		plan.damage.apply(actor)
+	}
 	if plan.pass {
 		passInteraction(actor, ev)
 	}
@@ -297,6 +300,8 @@ type commitPlan struct {
 	containers []containerWrite
 	// powers are the validated set_redstone_power ops, in their order.
 	powers []powerWrite
+	// damage is the validated damage op, if any.
+	damage *damageHit
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -553,6 +558,12 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
 			}
 			plan.powers = append(plan.powers, w)
+		case op.Damage != nil:
+			hit, err := damageOf(exp, op.Damage, actorID, plan.damage)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
+			}
+			plan.damage = hit
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}
