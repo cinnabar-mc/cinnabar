@@ -147,11 +147,11 @@ fn fence_geometry_satisfies_the_installed_paint_order_contract() {
             quad_count: quads.len() as u32,
             flags,
         }];
-        let mesh = shaped(
-            &stair(&quads, &templates, &materials, &pages),
-            &mut Atlas::new(7, 1),
-        )
-        .expect("a fence item becomes paint-ordered GUI geometry");
+        let mut shape = stair(&quads, &templates, &materials, &pages);
+        // Fences draw their face material; material 0 is the diagnostic material.
+        shape.faces = [1; 6];
+        let mesh = shaped(&shape, &mut Atlas::new(7, 1))
+            .expect("a fence item becomes paint-ordered GUI geometry");
         super::super::test_support::assert_block_model_order(
             &mesh,
             assets::gui_item::BlockModelOrder::Paint,
