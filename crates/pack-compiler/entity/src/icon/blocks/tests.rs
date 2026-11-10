@@ -1,6 +1,113 @@
 use super::*;
 
 #[test]
+fn redstone_torch_icons_use_lit_artwork_independently_of_placement_power() {
+    let root = tempfile::tempdir().unwrap();
+    write_pack(
+        root.path(),
+        r#"{
+            "redstone_torch":{"textures":"on"},
+            "unlit_redstone_torch":{"textures":"off"},
+            "torch":{"textures":"ordinary"}
+        }"#,
+        r#"{"texture_data":{
+            "on":{"textures":"textures/blocks/lit"},
+            "off":{"textures":"textures/blocks/unlit"},
+            "ordinary":{"textures":"textures/blocks/ordinary"}
+        }}"#,
+        "[]",
+    );
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut states = 0;
+    for record in blocks.records.iter() {
+        let expected = match record.name.as_ref() {
+            "minecraft:unlit_redstone_torch" => {
+                states += 1;
+                assert_eq!(
+                    resolve_texture_key(
+                        &blocks.pack.as_ref().unwrap().blocks,
+                        record,
+                        BlockFace::Down,
+                    )
+                    .key
+                    .as_deref(),
+                    Some("off"),
+                    "placement state retains unlit artwork"
+                );
+                "textures/blocks/lit"
+            }
+            "minecraft:redstone_torch" => "textures/blocks/lit",
+            "minecraft:torch" => "textures/blocks/ordinary",
+            _ => continue,
+        };
+        assert_eq!(
+            blocks
+                .texture_path(BlockVisualId(record.sequential_id))
+                .as_deref(),
+            Some(expected),
+            "{} {}",
+            record.name,
+            record.canonical_state
+        );
+    }
+    assert!(states > 0);
+}
+
+#[test]
+fn redstone_torch_icons_use_diagnostic_artwork_when_lit_material_is_absent() {
+    for has_lit_block in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let mut catalog = serde_json::json!({
+            "unlit_redstone_torch": {"textures": "off"},
+        });
+        if has_lit_block {
+            catalog["redstone_torch"] = serde_json::json!({
+                "textures": "off", "carried_textures": "absent",
+            });
+        }
+        let terrain = serde_json::json!({"texture_data": {
+            "off": {"textures": "textures/blocks/unlit"},
+            (pack_compile_input::pack::MISSING_TILE_TEXTURE_KEY): {
+                "textures": "textures/blocks/unlisted",
+            },
+            (PackTexture::Missing.key()): {"textures": "textures/blocks/missing"},
+        }});
+        write_pack(
+            root.path(),
+            &catalog.to_string(),
+            &terrain.to_string(),
+            "[]",
+        );
+        let blocks = IconBlocks::read(root.path()).unwrap();
+        let expected = if has_lit_block {
+            "textures/blocks/missing"
+        } else {
+            "textures/blocks/unlisted"
+        };
+        for name in ["minecraft:redstone_torch", "minecraft:unlit_redstone_torch"] {
+            let mut states = 0;
+            for record in blocks
+                .records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+            {
+                states += 1;
+                assert_eq!(
+                    blocks
+                        .texture_path(BlockVisualId(record.sequential_id))
+                        .as_deref(),
+                    Some(expected),
+                    "{} {} (lit block present: {has_lit_block})",
+                    record.name,
+                    record.canonical_state,
+                );
+            }
+            assert!(states > 0, "{name}");
+        }
+    }
+}
+
+#[test]
 fn glass_panes_are_models_while_metal_bars_remain_flat() {
     let blocks = IconBlocks::read(tempfile::tempdir().unwrap().path()).unwrap();
     let world = RuntimeAssets::diagnostic();
