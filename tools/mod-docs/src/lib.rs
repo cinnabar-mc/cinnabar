@@ -42,7 +42,6 @@ const APPENDICES: &[(&str, &str)] = &[
     ("Entity masks", "entity-masks"),
     ("Native packet frames", "native-frame"),
     ("Packet panel capabilities", "packet-panels"),
-    ("Shared mod list (Mods Core)", "mods-core"),
 ];
 
 /// Locates the source checkout independently of the caller's working directory.
