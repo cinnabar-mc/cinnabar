@@ -589,6 +589,16 @@ impl ModUi {
                     &frame.report,
                     std::mem::take(&mut panel.carried_scroll),
                 );
+                if !panel.held
+                    && panel
+                        .frame
+                        .as_ref()
+                        .is_some_and(|old| scrolling::moved(&old.report, &frame.report))
+                {
+                    // Hover came from the old geometry; resolve it again even if the pointer
+                    // stays still.
+                    panel.pointer = None;
+                }
                 panel.frame = Some(frame);
             }
             result => {

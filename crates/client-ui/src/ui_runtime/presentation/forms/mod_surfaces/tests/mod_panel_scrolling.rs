@@ -492,6 +492,35 @@ fn a_release_past_the_drawn_box_hovers_the_moved_box() {
     );
 }
 
+/// A still pointer over where an auto-hidden box appears hovers the box once it is shown.
+#[test]
+fn a_revealed_box_under_a_still_pointer_is_hovered() {
+    let mut presentation = mini_engine_presentation();
+    let panel = styled_panel(json!({"cinnabar_scrollbar_auto_hide":true}));
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    build_at(&mut presentation, 1_000);
+    assert_eq!(thumb_centre(&presentation), None, "hidden at rest");
+    let pointer = at(&presentation, [115., 25.]);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(pointer, false, false);
+    build_at(&mut presentation, 1_100);
+    let centre = thumb_centre(&presentation).expect("the pointer on the bar reveals the box");
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(pointer, false, false);
+    let shown = build_at(&mut presentation, 1_200);
+    assert_colour(
+        colour(&presentation, &shown, centre),
+        LIT,
+        "hovered revealed box",
+    );
+}
+
 /// A builder that renders the presentation at `millis` on the caller's clock.
 fn build_at(presentation: &mut UiPresentationRuntime, millis: u64) -> render_model::UiRenderInput {
     presentation

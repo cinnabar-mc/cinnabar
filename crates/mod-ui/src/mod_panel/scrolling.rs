@@ -107,9 +107,6 @@ impl ModPanel {
                 self.view.pressed = None;
                 self.view.hovered =
                     json_ui::hit_test(&frame.hits, point).map(|hit| hit.key.clone());
-                // These hits predate the release offset; the next sample, even a stationary
-                // one, resolves hover against the moved box.
-                self.pointer = None;
             }
             return true;
         }
@@ -162,6 +159,19 @@ impl ModPanel {
         }
         false
     }
+}
+
+/// Whether any scroll view's offset or drawn scrollbar box differs between two layouts, which
+/// moves what lies under a still pointer.
+pub(super) fn moved(old: &json_ui::LayoutReport, new: &json_ui::LayoutReport) -> bool {
+    let geometry = |report: &json_ui::LayoutReport| {
+        report
+            .scrolls
+            .iter()
+            .map(|(key, metrics)| (key.clone(), metrics.offset, metrics.thumb))
+            .collect::<Vec<_>>()
+    };
+    geometry(old) != geometry(new)
 }
 
 /// Reads the pointer along the scroll view's declared axis.
