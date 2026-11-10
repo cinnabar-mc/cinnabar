@@ -10,26 +10,35 @@ use serde_json::{Map, Value};
 
 /// Rejects a malformed or out-of-range scrollbar property on a control of `kind`.
 pub(super) fn validate(kind: &str, object: &Map<String, Value>) -> Result<(), String> {
-    let number = |name: &str| object.get(name).map(|value| value.as_f64());
+    // A `#name` value reads a binding; the engine clamps whatever that binding supplies.
+    let bound = |value: &Value| value.as_str().is_some_and(super::binding_name);
+    let number = |name: &str| {
+        object
+            .get(name)
+            .filter(|value| !bound(value))
+            .map(|value| value.as_f64())
+    };
     if let Some(value) = number(MIN_THUMB_PROPERTY)
         && !value.is_some_and(accepts_min_thumb)
     {
         return Err(format!(
-            "surface {MIN_THUMB_PROPERTY} must be a number from 0 to 1"
+            "surface {MIN_THUMB_PROPERTY} must be a number from 0 to 1 or a binding"
         ));
     }
     if let Some(value) = number(WHEEL_SECONDS_PROPERTY)
         && !value.is_some_and(accepts_wheel_seconds)
     {
         return Err(format!(
-            "surface {WHEEL_SECONDS_PROPERTY} must be a number from 0 to {MAX_WHEEL_SECONDS}"
+            "surface {WHEEL_SECONDS_PROPERTY} must be a number from 0 to {MAX_WHEEL_SECONDS} or a binding"
         ));
     }
     if object
         .get(AUTO_HIDE_PROPERTY)
-        .is_some_and(|value| !value.is_boolean())
+        .is_some_and(|value| !value.is_boolean() && !bound(value))
     {
-        return Err(format!("surface {AUTO_HIDE_PROPERTY} must be a boolean"));
+        return Err(format!(
+            "surface {AUTO_HIDE_PROPERTY} must be a boolean or a binding"
+        ));
     }
     if kind != "scroll_view"
         && [
@@ -114,6 +123,14 @@ mod tests {
         surface(json!({"cinnabar_scroll_seconds":1}), json!({}), json!({}))
             .validate()
             .unwrap();
+        surface(
+            json!({"cinnabar_min_thumb_fraction":"#thumb","cinnabar_scroll_seconds":"#seconds",
+                "cinnabar_scrollbar_auto_hide":"#auto_hide"}),
+            json!({}),
+            json!({}),
+        )
+        .validate()
+        .unwrap();
     }
 
     #[test]
@@ -144,6 +161,12 @@ mod tests {
                 json!({}),
                 json!({}),
             ),
+            (
+                json!({"cinnabar_scrollbar_auto_hide":"yes"}),
+                json!({}),
+                json!({}),
+            ),
+            (json!({"cinnabar_scroll_seconds":"#"}), json!({}), json!({})),
             (
                 json!({}),
                 json!({"cinnabar_scrollbar_auto_hide":true}),

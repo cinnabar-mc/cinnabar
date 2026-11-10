@@ -151,8 +151,8 @@ JSON-UI never see:
   panel `motion` off or reduced motion set, the box shows and hides at once instead,
   staying shown for that second.
 
-Panel and HUD surfaces reject values outside these bounds; values a binding supplies
-are clamped.
+The three `scroll_view` settings also accept a `#name` binding reference. Panel and HUD
+surfaces reject literal values outside these bounds; values a binding supplies are clamped.
 
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
