@@ -363,6 +363,7 @@ impl ScrollFrame {
                 == Some(true),
             touch_mode,
             auto_hide,
+            thumb_travel_drag: scrollbar::declares_min_thumb(view),
             wheel_seconds: scrollbar::wheel_seconds(view),
             allow_scroll_when_fits: widgets::bound_bool(
                 view,

@@ -456,6 +456,42 @@ fn scrollbar_states_follow_hover_and_drag_with_a_declared_minimum() {
     );
 }
 
+/// A release that carries the box past its last drawn rectangle hovers the box once the moved
+/// box is laid out, even if the pointer then stays still.
+#[test]
+fn a_release_past_the_drawn_box_hovers_the_moved_box() {
+    let mut presentation = mini_engine_presentation();
+    let panel = styled_panel(json!({"cinnabar_min_thumb_fraction":0.4}));
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    frame(&mut presentation, [1280, 720]);
+    let centre = thumb_centre(&presentation).unwrap();
+    let grab = at(&presentation, centre);
+    presentation.mod_ui_mut().mod_panel_events(grab, true, true);
+    let release = at(&presentation, [centre[0], centre[1] + 15.]);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(release, false, false);
+    frame(&mut presentation, [1280, 720]);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(release, false, false);
+    let settled = frame(&mut presentation, [1280, 720]);
+    let moved = thumb_centre(&presentation).unwrap();
+    assert!(
+        (moved[1] - centre[1] - 15.).abs() <= 1.,
+        "the box follows the pointer: {centre:?} -> {moved:?}"
+    );
+    assert_colour(
+        colour(&presentation, &settled, moved),
+        LIT,
+        "hovered moved box",
+    );
+}
+
 /// A builder that renders the presentation at `millis` on the caller's clock.
 fn build_at(presentation: &mut UiPresentationRuntime, millis: u64) -> render_model::UiRenderInput {
     presentation

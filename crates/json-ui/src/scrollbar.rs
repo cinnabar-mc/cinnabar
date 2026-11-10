@@ -57,6 +57,11 @@ pub(crate) fn min_thumb(view: &ResolvedControl) -> f64 {
     bound_number(view, MIN_THUMB_PROPERTY).map_or(DEFAULT_MIN_THUMB, |value| value.clamp(0.0, 1.0))
 }
 
+/// Whether the view declares a minimum box length, literal or bound.
+pub(crate) fn declares_min_thumb(view: &ResolvedControl) -> bool {
+    bound_number(view, MIN_THUMB_PROPERTY).is_some()
+}
+
 /// The view's wheel easing in seconds, clamped into `0..=MAX_WHEEL_SECONDS`, when it declares one.
 pub(crate) fn wheel_seconds(view: &ResolvedControl) -> Option<f64> {
     bound_number(view, WHEEL_SECONDS_PROPERTY).map(|value| value.clamp(0.0, MAX_WHEEL_SECONDS))
@@ -88,6 +93,26 @@ pub(crate) fn shown_state(control: &ResolvedControl, hovered: bool, pressed: boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A box lengthened by a declared minimum still spans the whole range over its own travel.
+    #[test]
+    fn a_declared_minimum_keeps_the_dragged_box_under_the_pointer() {
+        let metrics = crate::ScrollMetrics {
+            content: 200.0,
+            viewport: 50.0,
+            track: Some([0.0, 0.0, 4.0, 100.0]),
+            thumb: Some([0.0, 0.0, 4.0, 40.0]),
+            thumb_travel_drag: true,
+            ..Default::default()
+        };
+        assert_eq!(metrics.thumb_drag_target(30.0), 75.0);
+        assert_eq!(metrics.thumb_drag_target(60.0), 150.0);
+        let undeclared = crate::ScrollMetrics {
+            thumb_travel_drag: false,
+            ..metrics
+        };
+        assert_eq!(undeclared.thumb_drag_target(30.0), 60.0);
+    }
 
     fn control(states: &[&str]) -> ResolvedControl {
         ResolvedControl {

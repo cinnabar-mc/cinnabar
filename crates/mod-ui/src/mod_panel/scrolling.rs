@@ -107,6 +107,9 @@ impl ModPanel {
                 self.view.pressed = None;
                 self.view.hovered =
                     json_ui::hit_test(&frame.hits, point).map(|hit| hit.key.clone());
+                // These hits predate the release offset; the next sample, even a stationary
+                // one, resolves hover against the moved box.
+                self.pointer = None;
             }
             return true;
         }
