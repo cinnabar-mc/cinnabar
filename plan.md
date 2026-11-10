@@ -1599,8 +1599,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
   obsolete saved typeface values are ignored. Chat and mention colors apply to decoded
   message labels without changing server pack inputs. Mention tokens preserve surrounding
-  formatting and match the current local display name or the all-player mention. Full
-  live mention acceptance remains incomplete.
+  formatting and completion name spellings. The target setting colors all names or only
+  the current local display name and the all-player mention. Full live mention acceptance
+  remains incomplete.
   Emote filtering and narration remain unavailable and store preferences only.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
@@ -1892,6 +1893,11 @@ Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain and actor
 fragment interfaces fit the fifteen inter-stage variables V3DV exposes, including
 front-facing. Clean-install and displayed-frame acceptance across supported Pi
 models remain incomplete.
+
+Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
+updates to Flatpak only in its own sandbox. Clean-install, login, rendering, local-world,
+import, Discord integration and update acceptance inside the sandbox, and a stable-release
+Flathub submission remain incomplete.
 
 ## Experimental hosts and extensions
 
@@ -2257,6 +2263,10 @@ models remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
+- Gameplay wheel observations preserve line/pixel axes under Controls authority.
+  Transactional physical-chord reservations follow mod load order and suppress both
+  hotbar input paths. UI and unfocused input stay outside the guest. Targeted regression
+  checks are included; physical-device and multi-platform acceptance remain incomplete.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
 - Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on

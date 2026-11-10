@@ -14,6 +14,89 @@ fn state(grants: ModGrants) -> State {
     State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
+#[test]
+fn scroll_requires_controls_and_a_frame_callback_and_claims_commit_transactionally() {
+    let mut state = state(ModGrants::default());
+    assert!(state.read_scroll().unwrap().is_err());
+    assert!(state.reserve_scroll(vec!["KeyC".into()]).unwrap().is_err());
+    state.grants.controls = true;
+    state.controls.scroll = crate::ScrollFrame {
+        line_x: 0.5,
+        line_y: 2.0,
+        pixel_x: 0.0,
+        pixel_y: -12.0,
+    };
+    state.controls.frame.focused = true;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state.controls.begin_text_frame();
+    let first = state.read_scroll().unwrap().unwrap();
+    assert_eq!(first.line_y, 2.0);
+    assert_eq!(state.read_scroll().unwrap().unwrap(), first);
+    state.controls.frame.panel_open = true;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state.controls.frame.panel_open = false;
+    state.controls.frame.focused = false;
+    assert_eq!(state.read_scroll().unwrap().unwrap(), crate::empty_scroll());
+    state
+        .reserve_scroll(vec!["KeyC".into(), "KeyC".into()])
+        .unwrap()
+        .unwrap();
+    assert!(state.controls.scroll_keys.is_empty());
+    state.controls.commit();
+    assert_eq!(state.controls.scroll_keys, ["KeyC"]);
+    assert!(
+        state
+            .reserve_scroll(vec!["../bad".into()])
+            .unwrap()
+            .is_err()
+    );
+    state.reserve_scroll(Vec::new()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(state.controls.scroll_keys.is_empty());
+    state.reserve_scroll(vec!["KeyC".into()]).unwrap().unwrap();
+    state.controls.revoke();
+    state.controls.commit();
+    assert!(state.controls.scroll_keys.is_empty());
+    assert_eq!(state.controls.scroll, crate::empty_scroll());
+}
+
+#[test]
+fn scroll_transactions_keep_observations_and_commit_only_successful_reservations() {
+    let grants = ModGrants {
+        controls: true,
+        ..Default::default()
+    };
+    let mut native = state(grants.clone());
+    native.controls.frame.focused = true;
+    native.controls.begin_text_frame();
+    native.controls.scroll = crate::ScrollFrame {
+        line_y: 1.0,
+        ..crate::empty_scroll()
+    };
+    native.reserve_scroll(vec!["KeyC".into()]).unwrap().unwrap();
+    native.controls.commit();
+
+    let mut callback = state(grants);
+    callback.controls = native.controls.transaction();
+    native.controls.scroll = crate::empty_scroll();
+    assert_eq!(callback.read_scroll().unwrap().unwrap().line_y, 1.0);
+    assert_eq!(callback.controls.scroll_keys, ["KeyC"]);
+    callback
+        .reserve_scroll(vec!["KeyR".into()])
+        .unwrap()
+        .unwrap();
+    assert_eq!(native.controls.scroll_keys, ["KeyC"]);
+    native.controls.accept(callback.controls, true, true);
+    native.controls.commit();
+    assert_eq!(native.controls.scroll_keys, ["KeyR"]);
+    assert_eq!(native.controls.scroll, crate::empty_scroll());
+
+    native.reserve_scroll(vec!["KeyA".into()]).unwrap().unwrap();
+    native.controls.rollback();
+    native.controls.commit();
+    assert_eq!(native.controls.scroll_keys, ["KeyR"]);
+}
+
 /// A minimal surface panel with the `controls` JSON array.
 fn panel_json(controls: &str) -> String {
     format!(

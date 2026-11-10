@@ -232,6 +232,12 @@ pub(super) fn drive_mod(
         clear_touch_buttons(&mut presentation);
         return;
     }
+    // Screen authority and cursor capture may change after wheel input was staged.
+    if absorbed || !captured {
+        for host in extension.hosts.iter_mut() {
+            host.observe_scroll(mod_host::empty_scroll());
+        }
+    }
     // Taps completed this frame reach their owners before frame callbacks read them.
     for (owner, id) in presentation.take_mod_touch_taps() {
         extension.hosts.queue_touch_press(owner, &id);

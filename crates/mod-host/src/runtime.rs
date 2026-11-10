@@ -392,6 +392,7 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.scroll = crate::empty_scroll();
         state.controls.native_editing = false;
         state.controls.native_editing_next = false;
         state.pressed = false;
