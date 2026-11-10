@@ -347,6 +347,7 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
         glint: true,
     };
     let held_model = super::super::PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: held,
         vertices: render_model::held_sprite_vertices(
             16,
@@ -357,7 +358,7 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
         .unwrap()
         .into(),
         placements: [super::super::PreviewHeldPlacement::Sprite {
-            hand_equipped: false,
+            grip: render_model::equipment::SpriteGrip::Flat,
         }; 2],
         hand_pivots: [
             [6.0 / 16.0, 15.0 / 16.0, 1.0 / 16.0],

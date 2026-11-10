@@ -5,6 +5,7 @@ use mod_host::ModGrants;
 
 const PLAYERS_ENV: &str = "CINNABAR_MOD_PLAYERS";
 const PLAYER_STATE_ENV: &str = "CINNABAR_MOD_PLAYER_STATE";
+const CLOCK_ENV: &str = "CINNABAR_MOD_CLOCK";
 const ITEM_USE_ENV: &str = "CINNABAR_MOD_ITEM_USE";
 const CAMERA_ENV: &str = "CINNABAR_MOD_CAMERA";
 const CONTROLS_ENV: &str = "CINNABAR_MOD_CONTROLS";
@@ -13,6 +14,7 @@ const MOVEMENT_ENV: &str = "CINNABAR_MOD_MOVEMENT";
 const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
+const RENDER_MATERIAL_ENV: &str = "CINNABAR_MOD_RENDER_MATERIAL";
 const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
 const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
@@ -56,6 +58,7 @@ pub fn environment_grants() -> ModGrants {
         terrain: std::env::var("CINNABAR_MOD_TERRAIN").is_ok_and(|value| value == "1"),
         players: std::env::var(PLAYERS_ENV).is_ok_and(|value| value == "1"),
         player_state: std::env::var(PLAYER_STATE_ENV).is_ok_and(|value| value == "1"),
+        clock: std::env::var(CLOCK_ENV).is_ok_and(|value| value == "1"),
         item_use: std::env::var(ITEM_USE_ENV).is_ok_and(|value| value == "1"),
         camera: std::env::var(CAMERA_ENV).is_ok_and(|value| value == "1"),
         controls: std::env::var(CONTROLS_ENV).is_ok_and(|value| value == "1"),
@@ -64,6 +67,7 @@ pub fn environment_grants() -> ModGrants {
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
         render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
+        render_material: std::env::var(RENDER_MATERIAL_ENV).is_ok_and(|value| value == "1"),
         block_highlights: std::env::var(BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1"),
         fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
         render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),

@@ -2,8 +2,11 @@
 
 use bevy::{
     app::{App, SubApp},
-    ecs::schedule::{MainThreadExecutor, MultiThreadedExecutor, Schedules, SingleThreadedExecutor},
-    render::{Render, RenderApp},
+    ecs::schedule::{
+        MainThreadExecutor, MultiThreadedExecutor, Schedules, SingleThreadedExecutor,
+        SystemExecutor,
+    },
+    render::{Render, RenderApp, renderer::SerialRenderExecutor},
 };
 
 /// Minimizes schedule task wake-ups while preserving Apple surface work's UI-thread dispatch.
@@ -11,9 +14,11 @@ use bevy::{
 pub(super) fn configure_frame_schedule_executors(app: &mut App) {
     let needs_ui_dispatch = cfg!(any(target_os = "macos", target_os = "ios"))
         && app.world().contains_resource::<MainThreadExecutor>();
-    run_schedules_on_one_thread(app.main_mut());
+    run_schedules_on_one_thread(app.main_mut(), SingleThreadedExecutor::new);
     if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-        run_schedules_on_one_thread(render_app);
+        // The serial render executor is single-threaded too, and also lets render systems record
+        // into the frame's one command encoder instead of finishing an encoder each.
+        run_schedules_on_one_thread(render_app, SerialRenderExecutor::new);
         // Pipelined rendering moves Render to its own thread. Only the parallel
         // executor sends NonSend surface systems back through MainThreadExecutor.
         if needs_ui_dispatch && let Some(schedule) = render_app.get_schedule_mut(Render) {
@@ -22,13 +27,16 @@ pub(super) fn configure_frame_schedule_executors(app: &mut App) {
     }
 }
 
-/// Sets schedules to execute directly on their calling thread.
-fn run_schedules_on_one_thread(app: &mut SubApp) {
+/// Sets schedules to execute directly on their calling thread with `executor`.
+fn run_schedules_on_one_thread<E: SystemExecutor + 'static>(
+    app: &mut SubApp,
+    executor: impl Fn() -> E,
+) {
     let Some(mut schedules) = app.world_mut().get_resource_mut::<Schedules>() else {
         return;
     };
     for (_, schedule) in schedules.iter_mut() {
-        schedule.set_executor(SingleThreadedExecutor::new());
+        schedule.set_executor(executor());
     }
 }
 
@@ -40,7 +48,7 @@ mod tests {
             schedule::{Schedule, ScheduleLabel},
             system::NonSendMarker,
         },
-        prelude::{ResMut, Resource},
+        prelude::{IntoScheduleConfigs, ResMut, Resource},
     };
     use std::thread::{self, ThreadId};
 
@@ -100,6 +108,39 @@ mod tests {
             world.resource::<SubmissionThreads>().0,
             [thread::current().id()]
         );
+    }
+
+    /// Records an empty compute pass through the system's render context.
+    fn record_pass(mut context: bevy::render::renderer::RenderContext) {
+        context
+            .command_encoder()
+            .begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+    }
+
+    #[test]
+    fn render_systems_record_into_one_command_buffer() {
+        use bevy::render::renderer::{PendingCommandBuffers, RenderDevice};
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) = bevy::tasks::block_on(instance.request_adapter(&Default::default()))
+        else {
+            eprintln!("missing fixture: headless GPU adapter for render command recording");
+            return;
+        };
+        let (device, _queue) = bevy::tasks::block_on(adapter.request_device(&Default::default()))
+            .expect("render command recording device");
+        let mut app = App::new();
+        let mut render_app = SubApp::new();
+        render_app.update_schedule = Some(Render.intern());
+        render_app
+            .add_schedule(Schedule::new(Render))
+            .insert_resource(RenderDevice::from(device))
+            .init_resource::<PendingCommandBuffers>()
+            .add_systems(Render, (record_pass, record_pass).chain());
+        app.insert_sub_app(RenderApp, render_app);
+        configure_frame_schedule_executors(&mut app);
+        app.update();
+        let world = app.sub_app(RenderApp).world();
+        assert_eq!(world.resource::<PendingCommandBuffers>().len(), 1);
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]

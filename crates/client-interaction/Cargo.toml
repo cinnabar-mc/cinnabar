@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
+developer-control = ["client-presentation/developer-control"]
 test-support = []
 
 [dependencies]

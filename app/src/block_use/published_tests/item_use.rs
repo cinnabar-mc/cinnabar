@@ -93,7 +93,7 @@ pub(super) fn hold_air_stack(
 /// Supplies a throwable, both mouse buttons, and an attack accepted in this frame.
 fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPackets) {
     let (mut world, captured) = fixture();
-    let scope = hold_snowball(&mut world);
+    hold_snowball(&mut world);
     let mut input = crate::semantic_controls::SemanticInputRuntime::default();
     let snapshot = input
         .route_and_finalize(semantic_input::DeviceFrame {
@@ -111,10 +111,11 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
     ));
     world.insert_resource(input);
     if enabled {
-        world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
+        world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });
     }
     let press = PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick: 101,
         player_position: [4.5, 2.620_01, 8.5],
         input_mode: protocol::PlayerInputMode::Mouse,
@@ -145,7 +146,7 @@ fn attack_and_throw_fixture(enabled: bool) -> (World, client_session::CapturedPa
 }
 
 #[test]
-fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
+fn a_use_pulse_throws_while_attacking_without_changing_native_timing() {
     for enabled in [false, true] {
         let (mut world, mut captured) = attack_and_throw_fixture(enabled);
         world.run_system_cached(produce_block_use).unwrap();

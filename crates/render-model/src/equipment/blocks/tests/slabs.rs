@@ -48,7 +48,7 @@ fn static_carried_slabs_are_centered_between_their_caps() {
         let half_height = if doubles.contains(name) { 0.5 } else { 0.25 };
         if doubles.contains(name) {
             let (_, prior) = cube_model(&world, block_visual.0)
-                .or_else(|| template_model(&world, block_visual.0))
+                .or_else(|| template_model(&world, block_visual.0, false))
                 .unwrap();
             assert_eq!(vertices.len(), prior.len(), "{name}");
             for (actual, expected) in vertices.iter().zip(prior) {

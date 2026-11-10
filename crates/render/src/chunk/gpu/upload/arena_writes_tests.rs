@@ -1,31 +1,21 @@
 use super::*;
 use crate::chunk::gpu::arena::{ChunkRangePlan, plan_chunk_range_update};
+use meshing::ChunkMesh;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
-/// Exercises every terrain stream with nonzero relocation bases and distinct records.
-fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
-    let instance = ChunkRenderInstance {
-        key: SubChunkKey::new(0, 0, 0, 0),
-        cube_quads: (0..256)
+/// Builds every worker stream with distinct records for publication and upload checks.
+fn mixed_mesh() -> ChunkMesh {
+    ChunkMesh::try_from_streams_with_cube_lighting(
+        (0..256)
             .map(|i| PackedQuad::new([i as u8 % 16, 2, 3], Face::PositiveY, 1, 1, i))
-            .collect::<Vec<_>>()
-            .into(),
-        cube_lighting: vec![PackedQuadLighting::new([1, 2, 3, 4]); 256].into(),
-        cube_layout: CubeQuadLayout::default(),
-        model_refs: (0..64)
+            .collect(),
+        vec![PackedQuadLighting::new([1, 2, 3, 4]); 256],
+        (0..64)
             .map(|i| PackedModelRef::new(i, i + 1, i * 2, !i))
-            .collect::<Vec<_>>()
-            .into(),
-        model_lighting: vec![PackedQuadLighting::new([5, 6, 7, 8]); 128].into(),
-        model_draw_refs: (0..64)
-            .map(|i| PackedModelDrawRef::new(i, i + 2))
-            .collect::<Vec<_>>()
-            .into(),
-        transparent_model_draw_refs: (0..32)
-            .map(|i| PackedModelDrawRef::new(i, i + 3))
-            .collect::<Vec<_>>()
-            .into(),
-        liquid_quads: (0..128)
+            .collect(),
+        vec![PackedQuadLighting::new([5, 6, 7, 8]); 128],
+        (0..64).map(|i| PackedModelDrawRef::new(i, i + 2)).collect(),
+        (0..128)
             .map(|i| {
                 PackedLiquidQuad::try_pack(
                     [i as u8 % 16, 4, 5],
@@ -38,20 +28,42 @@ fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
                 )
                 .unwrap()
             })
-            .collect::<Vec<_>>()
-            .into(),
-        liquid_lighting: vec![PackedQuadLighting::new([9, 10, 11, 12]); 128].into(),
-        has_depth_liquid: false,
-        has_transparent_liquid: true,
-        depth_liquid_start: None,
-        biome: PackedBiomeRecord::fallback(),
-        tint_identity: ChunkBiomeTintIdentity::default(),
-        generation: 1,
-        priority: ChunkUploadPriority::new(0.0),
-        token: None,
-        publication_permit: None,
-        origin: [16, 32, 48],
-    };
+            .collect(),
+        vec![PackedQuadLighting::new([9, 10, 11, 12]); 128],
+        meshing::FaceConnectivity::all(),
+    )
+    .unwrap()
+    .with_transparent_model_draw_refs((0..32).map(|i| PackedModelDrawRef::new(i, i + 3)).collect())
+}
+
+/// Publishes worker output through the main queue without a render device.
+fn publish_mesh(mesh: ChunkMesh) -> (App, Entity) {
+    let key = SubChunkKey::new(0, 1, 2, 3);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkRenderQueue>()
+        .try_insert_with_biome(
+            key,
+            mesh,
+            PackedBiomeRecord::fallback(),
+            ChunkUploadPriority::new(0.0),
+        )
+        .unwrap();
+    app.update();
+    let entity = app.world().resource::<ChunkEntities>().0[&key];
+    (app, entity)
+}
+
+/// Exercises the published streams with nonzero relocation bases.
+fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
+    let (app, entity) = publish_mesh(mixed_mesh());
+    let instance = app
+        .world()
+        .get::<ChunkRenderInstance>(entity)
+        .unwrap()
+        .clone();
     let plan = plan_chunk_range_update(
         16,
         &[],
@@ -92,6 +104,81 @@ fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
     (instance, fresh_ranges(&plan), origin)
 }
 
+/// Checks both allocation identity and the exact records after an ownership handoff.
+fn assert_shared_stream<T: std::fmt::Debug + PartialEq>(expected: &[T], actual: &[T]) {
+    assert!(
+        !expected.is_empty(),
+        "the fixture must exercise a real allocation"
+    );
+    assert_eq!(expected.as_ptr(), actual.as_ptr());
+    assert_eq!(expected, actual);
+}
+
+/// Covers every payload retained by extraction, including both model partitions.
+fn assert_shared_mesh(mesh: &ChunkMesh, instance: &ChunkRenderInstance) {
+    assert_shared_stream(mesh.cube_quads(), &instance.cube_quads);
+    assert_shared_stream(mesh.cube_lighting(), &instance.cube_lighting);
+    assert_shared_stream(mesh.model_refs(), &instance.model_refs);
+    assert_shared_stream(mesh.model_lighting(), &instance.model_lighting);
+    assert_shared_stream(mesh.model_draw_refs(), &instance.model_draw_refs);
+    assert_shared_stream(
+        mesh.transparent_model_draw_refs(),
+        &instance.transparent_model_draw_refs,
+    );
+    assert_shared_stream(mesh.liquid_quads(), &instance.liquid_quads);
+    assert_shared_stream(mesh.liquid_lighting(), &instance.liquid_lighting);
+}
+
+#[test]
+fn worker_streams_survive_publication_extraction_and_retirement_without_payload_copies() {
+    use bevy::render::extract_component::ExtractComponent;
+
+    let mesh = mixed_mesh();
+    let (mut app, entity) = publish_mesh(mesh.clone());
+    let instance = app.world().get::<ChunkRenderInstance>(entity).unwrap();
+    assert_shared_mesh(&mesh, instance);
+    let extracted =
+        <ChunkRenderInstance as ExtractComponent<bevy::render::RenderApp>>::extract_component(
+            instance,
+        )
+        .unwrap();
+    assert_shared_mesh(&mesh, &extracted);
+    let replacement_mesh =
+        mixed_mesh().with_transparent_model_draw_refs(vec![PackedModelDrawRef::new(0, 0)]);
+    let replacement = instance.clone().with_resource_mesh(
+        replacement_mesh.clone(),
+        PackedBiomeRecord::fallback(),
+        ChunkBiomeTintIdentity::default(),
+    );
+    assert_shared_mesh(&replacement_mesh, &replacement);
+    assert_ne!(mesh.cube_quads().as_ptr(), replacement.cube_quads.as_ptr());
+    assert_ne!(
+        mesh.transparent_model_draw_refs(),
+        replacement.transparent_model_draw_refs()
+    );
+    app.world_mut().entity_mut(entity).insert(replacement);
+    drop(replacement_mesh);
+    drop(mesh);
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkRenderQueue>()
+        .reset_session();
+    app.update();
+    assert!(app.world().get::<ChunkRenderInstance>(entity).is_none());
+    drop(app);
+    let expected = mixed_mesh();
+    assert_eq!(expected.cube_quads(), extracted.quads());
+    assert_eq!(expected.cube_lighting(), extracted.cube_lighting());
+    assert_eq!(expected.model_refs(), extracted.model_refs());
+    assert_eq!(expected.model_lighting(), extracted.model_lighting());
+    assert_eq!(expected.model_draw_refs(), extracted.model_draw_refs());
+    assert_eq!(
+        expected.transparent_model_draw_refs(),
+        extracted.transparent_model_draw_refs()
+    );
+    assert_eq!(expected.liquid_quads(), extracted.liquid_quads());
+    assert_eq!(expected.liquid_lighting(), extracted.liquid_lighting());
+}
+
 /// Counts payload materialized by collection before it reaches mapped staging.
 fn materialized_bytes(writes: &ArenaWrites) -> usize {
     writes.encoded.len()
@@ -110,7 +197,7 @@ fn warm_mixed_terrain_collection_reuses_storage_and_borrows_unchanged_streams() 
     };
     let mut writes = ArenaWrites::default();
     writes.collect_chunk(&instance, &plan, 7, instance.biome.words(), origin);
-    writes.issue(&arena, uploads);
+    writes.issue(&arena, uploads).unwrap();
     let (_, allocations) = test_alloc::measure(|| {
         writes.collect_chunk(&instance, &plan, 7, instance.biome.words(), origin);
     });
@@ -284,12 +371,13 @@ fn mixed_streams_match_word_encoder_with_and_without_migration_and_staging() {
                         new_capacity: (bytes / stride) as usize * 2,
                         gpu_copy_bytes: bytes,
                     },
+                    crate::gpu_allocation::Requirement::Required,
                 ));
                 advance_arena_migration(&mut arena, uploads, 128);
             }
             let mut writes = ArenaWrites::default();
             writes.collect_chunk(&instance, &plan, 7, instance.biome.words(), origin);
-            writes.issue(&arena, uploads);
+            writes.issue(&arena, uploads).unwrap();
             assert!(writes.is_empty());
             end_frame(&device, &queue, &staging);
             if let Some(migration) = &arena.migration {
@@ -350,13 +438,14 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
                 new_capacity,
                 gpu_copy_bytes: 0,
             },
+            crate::gpu_allocation::Requirement::Required,
         ));
         let mut writes = ArenaWrites::default();
         // Deliberately append in chunk order; stream order still places models before lights.
         writes.encode(Part::CubeLighting, 0, std::iter::once([3_u32; 4]));
         writes.encode(Part::Model, 2, std::iter::once([1_u32; 4]));
         writes.encode(Part::Model, 1, std::iter::once([2_u32; 4]));
-        writes.issue(&arena, uploads);
+        writes.issue(&arena, uploads).unwrap();
         end_frame(&device, &queue, &staging);
         let expected = [3_u32, 3, 3, 3, 2, 1];
         for buffer in [

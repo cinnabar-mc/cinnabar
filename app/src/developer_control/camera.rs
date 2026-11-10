@@ -13,9 +13,10 @@ use {
 #[derive(Resource)]
 pub(super) struct ScriptedCamera {
     path: CameraPath,
-    /// Game time at the first sampled frame.
-    started: Option<f32>,
+    /// Selected clock at the first sampled frame.
+    started: Option<f64>,
     elapsed: f32,
+    realtime: bool,
     /// The hand is hidden by an in-memory override, lifted on release.
     hid_hand: bool,
 }
@@ -62,6 +63,16 @@ pub(super) fn configure(app: &mut App) {
 }
 
 pub(super) fn start(world: &mut World, path: CameraPath) -> Result<Value, String> {
+    start_with_clock(world, path, false)
+}
+
+/// Starts a camera-only benchmark route using unclamped real elapsed time.
+pub(super) fn start_realtime(world: &mut World, path: CameraPath) -> Result<Value, String> {
+    start_with_clock(world, path, true)
+}
+
+/// Shares camera ownership and cleanup between game-clock captures and real-time routes.
+fn start_with_clock(world: &mut World, path: CameraPath, realtime: bool) -> Result<Value, String> {
     path.validate()?;
     let duration = path.duration();
     let previously_hid = world
@@ -76,10 +87,12 @@ pub(super) fn start(world: &mut World, path: CameraPath) -> Result<Value, String
     {
         view.reanchor_camera();
     }
+    set_scripted_view(world, true);
     world.insert_resource(ScriptedCamera {
         path,
         started: None,
         elapsed: 0.0,
+        realtime,
         hid_hand,
     });
     Ok(json!({ "duration": duration }))
@@ -97,7 +110,17 @@ pub(super) fn release(world: &mut World) -> Result<Value, String> {
     if scripted.hid_hand {
         set_hand_hidden(world, false);
     }
+    set_scripted_view(world, false);
     Ok(json!({ "released": true }))
+}
+
+/// Draws the local body while the scripted camera films it from outside; the perspective is unchanged.
+fn set_scripted_view(world: &mut World, active: bool) {
+    if let Some(mut settings) =
+        world.get_resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
+    {
+        settings.set_scripted_view(active);
+    }
 }
 
 /// Never saved: the override lives only in this process's settings snapshot.
@@ -107,9 +130,11 @@ fn set_hand_hidden(world: &mut World, hidden: bool) {
     }
 }
 
-/// Game time drives sampling, so a fixed-clock recording plays the path frame-exactly.
+/// Preserves game-clock recordings and uses unclamped real time only for explicit benchmark paths.
 fn drive_camera(
     time: Res<Time>,
+    real: Option<Res<Time<Real>>>,
+    profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
     scripted: Option<ResMut<ScriptedCamera>>,
     view: Option<ResMut<client_presentation::local_player::LocalViewPose>>,
     mut cameras: Query<&mut Transform, With<FlyCamera>>,
@@ -117,10 +142,25 @@ fn drive_camera(
     let Some(mut scripted) = scripted else {
         return;
     };
-    let now = time.elapsed_secs();
+    let now = if scripted.realtime {
+        if let Some(profiler) = profiler {
+            if scripted.started.is_none() {
+                profiler.trace_marker("benchmark_path_start")
+            } else {
+                profiler.elapsed()
+            }
+            .as_secs_f64()
+        } else if let Some(real) = real {
+            real.elapsed_secs_f64()
+        } else {
+            return;
+        }
+    } else {
+        f64::from(time.elapsed_secs())
+    };
     let started = *scripted.started.get_or_insert(now);
     let previous = scripted.elapsed;
-    scripted.elapsed = now - started;
+    scripted.elapsed = (now - started) as f32;
     let Some(pose) = sampled_pose(&scripted) else {
         return;
     };

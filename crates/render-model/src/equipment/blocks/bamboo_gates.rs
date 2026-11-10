@@ -63,7 +63,7 @@ pub(super) fn model(
             });
         }
     }
-    template_quads(&quads)
+    template_quads(&quads, false)
 }
 
 /// Measures a cuboid from all its outward-facing surfaces.

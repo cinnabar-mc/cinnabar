@@ -147,6 +147,32 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
     }
 }
 
+/// Full cubes declared through the versioned geometry turn their bottom face's UVs, and that
+/// must reach a held cube's tile rather than cost the block its sheet.
+#[test]
+fn a_rotated_face_material_turns_its_held_tile() {
+    const MARK: [u8; 4] = [250, 10, 10, 255];
+    let side = usize::from(BLOCK_ITEM_FACE_SIDE);
+    let mut source = overlay(
+        BlockFlags::CUBE_GEOMETRY,
+        assets::MATERIAL_FLAG_UV_ROTATE_180,
+        16,
+    );
+    let mip = &mut source.textures[0].mips[0];
+    let mut pixels = mip.rgba8.to_vec();
+    let layer_one = 16 * 16 * 4;
+    pixels[layer_one..layer_one + 4].copy_from_slice(&MARK);
+    mip.rgba8 = pixels.into();
+    let sheet = overlay_sheet(&source, 0, None).expect("a rotated face keeps its held sheet");
+    let width = usize::from(sheet.width);
+    let pixel = |x: usize, y: usize| {
+        let start = (y * width + x) * 4;
+        <[u8; 4]>::try_from(&sheet.rgba8[start..start + 4]).unwrap()
+    };
+    assert_eq!(pixel(side - 1, side - 1), MARK);
+    assert_ne!(pixel(0, 0), MARK);
+}
+
 #[test]
 fn world_isotropy_preserves_carried_cube_face_pixels() {
     for flags in [
@@ -885,6 +911,92 @@ fn custom_content_carried_tints_are_baked_without_changing_alpha() {
 }
 
 #[test]
+fn pinned_glass_panes_keep_a_plate_instead_of_flat_artwork() {
+    let Some((world, entities, icons)) = pinned_carriers() else {
+        return;
+    };
+    let held = collect_held(&world, &entities, &icons);
+    for definition in entities.item_visuals() {
+        let name = definition.key.identifier.as_ref();
+        let glass = name == assets::facts::pack::PackBlock::GlassPane.identifier()
+            || assets::facts::block_render_fact(name).kind
+                == assets::facts::BlockRenderKind::StainedPane;
+        if !glass {
+            continue;
+        }
+        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
+            panic!("{name} has no block route");
+        };
+        let vertices = held
+            .models
+            .get(&block_visual.0)
+            .unwrap_or_else(|| panic!("{name} must hold a three-dimensional glass plate"));
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| vertex.back_uv == crate::ONE_SIDED_BACK_UV),
+            "{name} culls the far face through transparent holes"
+        );
+        assert_eq!(vertices.len(), 36, "{name} has six plate faces");
+        for axis in 0..3 {
+            let bound = if axis == 0 { 0.07501221 } else { 0.60009766 };
+            let min = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::INFINITY, f32::min);
+            let max = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert_eq!([min, max], [-bound, bound], "{name} axis {axis}");
+        }
+    }
+    let bars = entities
+        .item_visuals()
+        .iter()
+        .find(|definition| definition.key.identifier.as_ref() == "minecraft:iron_bars")
+        .unwrap();
+    let ItemVisualDefinitionRoute::BlockItem { block_visual } = bars.route else {
+        panic!("iron bars have no block route")
+    };
+    assert!(
+        !held.models.contains_key(&block_visual.0),
+        "iron bars keep their extruded sprite"
+    );
+}
+
+/// One whole-tile quad per listed material.
+fn quads_of(materials: impl IntoIterator<Item = u32>) -> Vec<assets::gui_item::GuiBlockQuad> {
+    materials
+        .into_iter()
+        .map(|material| assets::gui_item::GuiBlockQuad {
+            corners: [[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]],
+            uvs: [[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+            material,
+            two_sided: false,
+        })
+        .collect()
+}
+
+#[test]
+fn a_seventh_material_keeps_a_retained_shape_on_the_first_tile() {
+    let quads = quads_of(1..=7);
+    assert!(
+        super::template_quads(&quads, false).is_none(),
+        "other models keep their sprite"
+    );
+
+    let (slots, vertices) = super::template_quads(&quads, true).unwrap();
+    assert_eq!(slots, [1, 2, 3, 4, 5, 6]);
+    assert_eq!(vertices.len(), 7 * 6, "every quad stays in the model");
+    let first_tile = &vertices[..6];
+    let extra = &vertices[6 * 6..];
+    for (a, b) in first_tile.iter().zip(extra) {
+        assert_eq!(a.uv, b.uv, "the extra material draws with the first tile");
+    }
+}
+
+#[test]
 fn carried_buttons_use_their_unpressed_ceiling_panel() {
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;
@@ -971,59 +1083,4 @@ fn pinned_trapdoors_hold_a_centered_thin_panel() {
         checked += 1;
     }
     assert!(checked > 0, "the available carriers contain trapdoor items");
-}
-
-#[test]
-fn pinned_glass_panes_keep_a_plate_instead_of_flat_artwork() {
-    let Some((world, entities, icons)) = pinned_carriers() else {
-        return;
-    };
-    let held = collect_held(&world, &entities, &icons);
-    for definition in entities.item_visuals() {
-        let name = definition.key.identifier.as_ref();
-        let glass = name == "minecraft:glass_pane"
-            || assets::facts::block_render_fact(name).kind
-                == assets::facts::BlockRenderKind::StainedPane;
-        if !glass {
-            continue;
-        }
-        let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
-            panic!("{name} has no block route");
-        };
-        let vertices = held
-            .models
-            .get(&block_visual.0)
-            .unwrap_or_else(|| panic!("{name} must hold a three-dimensional glass plate"));
-        assert!(
-            vertices
-                .iter()
-                .all(|vertex| vertex.back_uv == crate::ONE_SIDED_BACK_UV),
-            "{name} culls the far face through transparent holes"
-        );
-        assert_eq!(vertices.len(), 36, "{name} has six plate faces");
-        for axis in 0..3 {
-            let bound = if axis == 0 { 0.07501221 } else { 0.60009766 };
-            let min = vertices
-                .iter()
-                .map(|vertex| vertex.position[axis])
-                .fold(f32::INFINITY, f32::min);
-            let max = vertices
-                .iter()
-                .map(|vertex| vertex.position[axis])
-                .fold(f32::NEG_INFINITY, f32::max);
-            assert_eq!([min, max], [-bound, bound], "{name} axis {axis}");
-        }
-    }
-    let bars = entities
-        .item_visuals()
-        .iter()
-        .find(|definition| definition.key.identifier.as_ref() == "minecraft:iron_bars")
-        .unwrap();
-    let ItemVisualDefinitionRoute::BlockItem { block_visual } = bars.route else {
-        panic!("iron bars have no block route")
-    };
-    assert!(
-        !held.models.contains_key(&block_visual.0),
-        "iron bars keep their extruded sprite"
-    );
 }

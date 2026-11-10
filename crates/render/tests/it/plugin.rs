@@ -30,7 +30,7 @@ fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAsset
     compile_pack_with_lights(root, records, &lights)
 }
 use bevy::{
-    camera::primitives::Aabb,
+    camera::visibility::NoCpuCulling,
     prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
 use image::{ExtendedColorType, codecs::png::PngEncoder};
@@ -227,7 +227,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                         rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                     })
                     .collect::<Vec<_>>()
-                    .into_boxed_slice(),
+                    .into(),
             })]
             .into_boxed_slice(),
             biomes: CompiledBiomeAssets::diagnostic(),

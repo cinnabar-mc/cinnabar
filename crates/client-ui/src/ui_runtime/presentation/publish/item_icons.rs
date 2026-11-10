@@ -43,11 +43,29 @@ pub(super) fn stack_icon(
                 )
             })
     };
-    let icon = runtime
-        .stack_facts(stack)
-        .custom_color
-        .and_then(|rgb| presentation.color_mask_icon(icon_identifier, variant, rgb))
-        .or_else(|| presentation.item_icon(icon_identifier, variant))?;
+    let icon = item
+        .trim
+        .as_ref()
+        .and_then(|trim| {
+            presentation.trim_icon(
+                identifier,
+                stack.metadata,
+                trim,
+                runtime.stack_facts(stack).custom_color,
+            )
+        })
+        .or_else(|| {
+            item.shield_pattern
+                .as_deref()
+                .and_then(|pattern| presentation.shield_icon(pattern))
+                .or_else(|| {
+                    runtime
+                        .stack_facts(stack)
+                        .custom_color
+                        .and_then(|rgb| presentation.color_mask_icon(icon_identifier, variant, rgb))
+                        .or_else(|| presentation.item_icon(icon_identifier, variant))
+                })
+        })?;
     Some(icon.with_glint(runtime.item_glint(stack, item.glint)))
 }
 
@@ -55,7 +73,7 @@ pub(super) fn stack_icon(
 pub(super) struct ItemResolver<'a> {
     pub runtime: &'a UiRuntime,
     pub presentation: &'a UiPresentationRuntime,
-    pub authority: Option<&'a client_world::WorldAuthority>,
+    pub authority: Option<client_world::ui_read::InventoryUi<'a>>,
 }
 
 impl ItemResolver<'_> {

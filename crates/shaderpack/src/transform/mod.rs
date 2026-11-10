@@ -13,7 +13,8 @@ mod dot;
 mod interface;
 pub(crate) mod items;
 mod legacy;
-pub(crate) use legacy::interface_identifier;
+pub use legacy::ALPHA_TESTED_OUTPUT;
+pub(crate) use legacy::{interface_identifier, original_identifier};
 mod local_constants;
 mod math;
 mod missing;
@@ -82,6 +83,8 @@ pub(crate) struct StageDraft {
 
 /// Pack-level facts about resource names, from `shaders.properties`.
 pub(crate) struct ResourceNames<'a> {
+    /// Use integer arithmetic for the fused steps in runtime dot products.
+    pub software_fused_dot: bool,
     /// Image name → GLSL format qualifier from `image.<name>`.
     pub image_formats: &'a HashMap<String, String>,
     pub sampler_classes: &'a SamplerClasses,
@@ -91,6 +94,10 @@ pub(crate) struct ResourceNames<'a> {
     pub geometry: bool,
     /// Convert a raster vertex to wgpu clip space; emulated vertex pre-passes retain GL coordinates.
     pub vertex_clip: bool,
+    /// Declared core-profile vertex inputs (`vaPosition`, …) read vertex data, as Iris's
+    /// core-profile transformer binds them. Its compatibility-profile transformers leave them
+    /// unbound unless they have explicit locations.
+    pub bound_core_inputs: bool,
 }
 
 /// Transforms one preprocessed stage.
@@ -100,8 +107,16 @@ pub(crate) fn transform(
     iface: &mut ProgramInterface,
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
-    validate_delimiters(&pp.tokens)?;
-    let lg = stage_tokens(&pp.tokens, stage, pp.version)?;
+    items::validate_delimiters(&pp.tokens)?;
+    let unbound_core_inputs = stage == StageKind::Vertex && !names.bound_core_inputs;
+    let lg = stage_tokens(
+        &pp.tokens,
+        stage,
+        pp.version,
+        names.normalize_legacy,
+        names.software_fused_dot,
+        unbound_core_inputs,
+    )?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
@@ -259,41 +274,25 @@ pub(crate) fn transform(
 }
 
 /// Applies the type, expression and legacy-name rewrites shared by stage compilation and repair.
+/// `unbound_core_inputs`: implicitly located core-profile inputs read GL's unbound default.
 fn stage_tokens(
     tokens: &[Tok],
     stage: StageKind,
     version: u32,
+    compatibility: bool,
+    software_fused_dot: bool,
+    unbound_core_inputs: bool,
 ) -> Result<legacy::Legacy, TransformError> {
     let wide = narrow::lower(tokens);
     let wide = wide.as_deref().unwrap_or(tokens);
-    let fused = dot::order(wide);
-    legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, version)
-}
-
-/// Rejects unbalanced token groups before a compatibility parser inspects their contents.
-fn validate_delimiters(tokens: &[Tok]) -> Result<(), TransformError> {
-    let mut delimiters = Vec::new();
-    for token in tokens {
-        if token.is("(") || token.is("[") || token.is("{") {
-            delimiters.push(token);
-        } else if token.is(")") || token.is("]") || token.is("}") {
-            let expected = match token.text() {
-                ")" => "(",
-                "]" => "[",
-                _ => "{",
-            };
-            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
-                return Err(TransformError::new(
-                    "unmatched closing delimiter",
-                    token.line,
-                ));
-            }
-        }
-    }
-    if let Some(open) = delimiters.last() {
-        return Err(TransformError::new("unclosed delimiter", open.line));
-    }
-    Ok(())
+    let fused = dot::order(wide, software_fused_dot);
+    legacy::rewrite(
+        fused.as_deref().unwrap_or(wide),
+        stage,
+        version,
+        compatibility,
+        unbound_core_inputs,
+    )
 }
 
 #[cfg(test)]

@@ -6,8 +6,12 @@ include!("flight_replay_tests.rs");
 mod flight_boundary_tests;
 #[path = "flight_toggle_tests.rs"]
 mod flight_toggle_tests;
+#[path = "jump_tap_tests.rs"]
+mod jump_tap_tests;
 #[path = "sneak_sprint_tests.rs"]
 mod sneak_sprint_tests;
+#[path = "swim_surface_tests.rs"]
+mod swim_surface_tests;
 
 use std::time::Duration;
 

@@ -113,8 +113,21 @@ pub struct GpuReservation {
     /// Allocation tags into the containing output's admitted primitives, never a separate list.
     pub primitives: crate::PrimitiveRanges,
     pub passes: Vec<u64>,
+    /// Retained triangle work left after this bundle's legacy objects and immediate primitives.
+    pub retained_triangle_limit: Option<usize>,
 }
 impl GpuReservation {
+    /// Checks completed grid work together with static placements and intersecting mask chains.
+    pub fn retained_triangles_exceeded(
+        &self,
+        resources: &[Arc<crate::retained::Resources>],
+    ) -> bool {
+        self.retained_triangle_limit.is_some_and(|limit| {
+            resources.iter().fold(0usize, |sum, resources| {
+                sum.saturating_add(resources.triangle_work_for(&self.owners))
+            }) > limit
+        })
+    }
     /// Finds the common bundle ledger for a remapped drawing or mask owner.
     pub fn ledger_for(reservations: &[Self], owner: u64) -> Option<&GpuLedger> {
         reservations

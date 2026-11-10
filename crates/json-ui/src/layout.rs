@@ -301,7 +301,7 @@ fn lay_out<'a>(
         key,
         rect,
         screen,
-        (0, true, false, true),
+        (0, true, false, true, false),
         &Inherited::default(),
         &mut ctx,
     );
@@ -420,7 +420,7 @@ fn place_subtree<'a>(
     key: String,
     rect: Rect,
     parent_clip: Rect,
-    (parent_layer, shown, packed, parent_allows): (i32, bool, bool, bool),
+    (parent_layer, shown, packed, parent_allows, replaced): (i32, bool, bool, bool, bool),
     inherited: &Inherited,
     ctx: &mut PlaceCtx<'a, '_, '_>,
 ) -> LaidOut<'a> {
@@ -454,6 +454,7 @@ fn place_subtree<'a>(
             layer: parent_layer,
             shown,
             packed,
+            replaced,
             allows: parent_allows,
             enabled: enabled_above,
             emitting: reuse.emitting,
@@ -533,7 +534,15 @@ fn place_subtree<'a>(
     if !enabled {
         ctx.disabled += 1;
     }
-    let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
+    let own_anims = control_anims(
+        control,
+        &key,
+        rect,
+        parent_rect,
+        inherited,
+        (packed, replaced),
+        ctx.env,
+    );
     let mut space = inherited.space;
     if let Some(region) = control
         .properties
@@ -694,6 +703,7 @@ fn place_subtree<'a>(
     }
     let mut in_view: Option<std::ops::Range<usize>> = None;
     for (child, mut child_rect) in placed {
+        let mut replaced = false;
         let child_shown = !ctx.hidden_names.contains(&child.name)
             && !priority
                 .get(measure::child_index(control, child))
@@ -712,6 +722,7 @@ fn place_subtree<'a>(
                 placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
             child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
+            replaced = true;
             clip_for_child = *area_clip;
         }
         let mut child_shown = child_shown;
@@ -720,8 +731,14 @@ fn place_subtree<'a>(
             match frame.adjust(child, child_rect) {
                 Adjusted::Kept => continue,
                 Adjusted::Moved(moved) => child_rect = moved,
-                Adjusted::Box(moved, fade) => (child_rect, box_fade) = (moved, fade),
-                Adjusted::Hidden => child_shown = false,
+                Adjusted::Box(moved, fade) => {
+                    (child_rect, box_fade) = (moved, fade);
+                    replaced = true;
+                }
+                Adjusted::Hidden => {
+                    child_shown = false;
+                    replaced = true;
+                }
             }
             break;
         }
@@ -734,6 +751,7 @@ fn place_subtree<'a>(
         // Stack items and grid cells have no offset delta term.
         if !packs {
             if place::follows_pointer(child) {
+                replaced = true;
                 ctx.report.tracks_pointer = true;
                 ctx.taint();
             }
@@ -750,6 +768,7 @@ fn place_subtree<'a>(
             && frame.names[0].as_deref() == Some(child.name.as_str())
         {
             child_rect = frame.place_box(child_rect);
+            replaced = true;
         }
         let cull_clip = if inherit.space.transform.is_some() {
             bounds::local_clip(
@@ -812,7 +831,7 @@ fn place_subtree<'a>(
             next_key,
             child_rect,
             clip_for_child,
-            (absolute_layer, child_shown, packs, allows),
+            (absolute_layer, child_shown, packs, allows, replaced),
             &inherit,
             ctx,
         );
@@ -930,34 +949,6 @@ fn progress_clip(control: &ResolvedControl, sliders: &[widgets::SliderFrame]) ->
         return Some((1.0 - fraction) as f32);
     }
     widgets::bound_number(control, "clip_ratio").map(|ratio| ratio.clamp(0.0, 1.0) as f32)
-}
-
-/// Resolve the rects of `parent`'s direct children within `parent_rect`.
-fn layout_children<'a>(
-    parent: &'a ResolvedControl,
-    parent_rect: Rect,
-    env: &LayoutEnv,
-) -> Vec<(&'a ResolvedControl, Rect)> {
-    if grid::is_grid(parent) {
-        return grid::grid_children(parent, parent_rect, env);
-    }
-    if stack::orientation(parent).is_some() {
-        return stack::stack_children(parent, parent_rect, env);
-    }
-    let extent = [Some(parent_rect.w), Some(parent_rect.h)];
-    let sizes = measure::sizes(parent, extent, env);
-    let siblings = measure::sibling_maxima(parent, &sizes);
-    parent
-        .children
-        .iter()
-        .zip(sizes.iter())
-        .map(|(child, own)| {
-            (
-                child,
-                place_by_anchor(child, parent_rect, *own, siblings, env),
-            )
-        })
-        .collect()
 }
 
 // --- property readers -------------------------------------------------------

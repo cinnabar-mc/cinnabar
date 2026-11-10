@@ -257,7 +257,7 @@ fn consume_refuses_every_nonzero_typed_item_lock() {
                     aux: 0,
                     count: 1,
                     block_runtime_id: 0,
-                    empty_envelope: true,
+                    user_data: protocol::RecipeOutputData::Empty,
                 },
             });
         if lock == 0 {
@@ -280,7 +280,7 @@ fn consume_refuses_every_nonzero_typed_item_lock() {
 fn binding(level: i16) -> NetworkItemStack {
     let mut held = locked(0, 1);
     held.count = 1;
-    let id = i16::from(protocol_ids::Enchantment::Curseofbinding.wire_value());
+    let id = i16::from(protocol_ids::Enchantment::CurseOfBinding.wire_value());
     held.extra_data = edit_item_extra(
         &held.extra_data,
         &ItemNbtEdit {

@@ -21,6 +21,8 @@ struct BuildPlan {
     server_selection: FrozenMiningSelection,
     inventory_revision: u64,
     local_use: LocalUse,
+    /// The clicked block's own use owns the press, so the held item's use skips it.
+    takes_press: bool,
     destination: [i32; 3],
     predicted: Option<Vec<([i32; 3], u32, u32)>>,
     local_runtime_id: u64,
@@ -28,6 +30,9 @@ struct BuildPlan {
     block_network_id: u32,
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
+    repeats_while_held: bool,
+    /// The door or bed a non-block item places, when it is not a block item.
+    paired: Option<u32>,
 }
 
 impl BuildInput {
@@ -86,6 +91,19 @@ fn prepare(
         .item_use_profile(observed.selection.item.network_id())
         .cooldown;
     let ready = cooldown.is_none_or(|cooldown| item_use.cooldown_ready(cooldown, tick));
+    let identifier = stream
+        .authority()
+        .item_identifier(observed.selection.item.network_id());
+    let bucket = identifier
+        .as_deref()
+        .is_some_and(assets::facts::has_bucket_name);
+    let brush = identifier.as_deref() == Some(assets::facts::BRUSH_IDENTIFIER);
+    let traits = context
+        .ui
+        .inventory_ledger(player_runtime)
+        .item_facts()
+        .get(observed.selection.item.network_id())
+        .traits;
     let prepared = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(stream.network_id_mode()),
@@ -105,30 +123,86 @@ fn prepare(
         if !ready && local_use != LocalUse::Interact {
             local_use = LocalUse::Nothing;
         }
+        // Door and bed items are not block items; native `DoorItem` and `BedItem` place through
+        // the item's own use and report the same success, which starts the repeat delay.
+        let paired = paired_item_block(&context.collisions, stream, &observed.selection.item);
+        let placed_block = paired
+            .or_else(|| held_block_store_id(stream, observed.selection.item.block_runtime_id()));
         let placement = (ready && caps.can_build && local_use != LocalUse::Interact)
-            .then(|| {
+            .then_some(placed_block)
+            .flatten()
+            .and_then(|block| {
                 predicted_placement(
                     &context.collisions,
                     stream,
                     world,
-                    observed.selection.item.block_runtime_id(),
+                    block,
                     &observed,
                     &surroundings,
                     attempt.view,
                 )
-            })
-            .flatten();
+            });
         if placement.is_some() && observed.selection.item.count() > 0 {
             local_use = LocalUse::Place;
         }
-        let destination = placement.as_ref().map_or_else(
-            || {
-                surroundings
-                    .destination(observed.target.position, observed.target.face)
-                    .0
-            },
-            |placement| placement.position,
-        );
+        // Without a verified state, such as any bed, the server's block update draws the cells.
+        if let Some(block) = paired
+            && ready
+            && caps.can_build
+            && local_use == LocalUse::Nothing
+            && observed.selection.item.count() > 0
+            && paired_item_fits(
+                &context.collisions,
+                stream,
+                world,
+                block,
+                &observed,
+                &surroundings,
+                attempt.view,
+            )
+        {
+            local_use = LocalUse::Place;
+        }
+        // A predicted placement can become the next ray hit before the release edge reaches
+        // this thread. Do not turn that same press into a container interaction with the block
+        // we just placed; adjacent held placements remain eligible for bridging.
+        if attempt.trigger == ItemUseTrigger::SimulationTick
+            && local_use == LocalUse::Interact
+            && runtime
+                .intention
+                .suppress_post_place_interaction(observed.target.position)
+        {
+            local_use = LocalUse::Nothing;
+        }
+        // Seed items plant through their own use rather than as block items.
+        let planted = (ready
+            && caps.can_build
+            && local_use == LocalUse::Nothing
+            && placement.is_none()
+            && observed.selection.item.block_runtime_id() == 0
+            && observed.selection.item.count() > 0)
+            .then(|| {
+                predicted_seed_planting(&context.collisions, stream, world, &context.ui, &observed)
+            })
+            .flatten();
+        if planted.is_some() {
+            local_use = LocalUse::Place;
+        }
+        if ready {
+            // An unreadable cell counts as air, so the brush predicts nothing there.
+            let clicked_air = world.is_air(observed.target.position).unwrap_or(true);
+            local_use = local_use.or_brush(brush, clicked_air, &observed.selection.item, &caps);
+        }
+        let destination = planted.map(|(cell, _)| cell).unwrap_or_else(|| {
+            placement.as_ref().map_or_else(
+                || {
+                    surroundings
+                        .destination(observed.target.position, observed.target.face)
+                        .0
+                },
+                |placement| placement.position,
+            )
+        });
         let predicted = placement
             .filter(|_| local_use == LocalUse::Place)
             .map(|placement| {
@@ -140,7 +214,8 @@ fn prepare(
                             .map(|(position, block)| (position, 0, block)),
                     )
                     .collect::<Vec<_>>()
-            });
+            })
+            .or_else(|| planted.map(|(cell, crop)| vec![(cell, 0, crop)]));
         let predicted = predicted.or_else(|| {
             (local_use == LocalUse::Interact)
                 .then(|| {
@@ -158,10 +233,25 @@ fn prepare(
         for (position, _, _) in predicted.iter().flatten() {
             world.primary_runtime_id(*position).ok()?;
         }
-        Some((local_use, destination, predicted))
+        let repeats_while_held = gameplay::block_use::repeats_while_held(
+            &observed.selection.item,
+            bucket,
+            local_use,
+            surroundings.clicked,
+            traits,
+        );
+        Some((
+            local_use,
+            gameplay::block_use::block_takes_use_press(surroundings.clicked, state.sneaking),
+            destination,
+            predicted,
+            repeats_while_held,
+            paired,
+        ))
     })
     .ok()?;
-    let (local_use, destination, predicted) = prepared.value?;
+    let (local_use, takes_press, destination, predicted, repeats_while_held, paired) =
+        prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
@@ -184,6 +274,7 @@ fn prepare(
             server_selection,
             inventory_revision,
             local_use,
+            takes_press,
             destination,
             predicted,
             local_runtime_id,
@@ -191,6 +282,8 @@ fn prepare(
             block_network_id,
             change,
             cooldown,
+            repeats_while_held,
+            paired,
         },
     })
 }
@@ -202,7 +295,7 @@ pub(crate) fn advance(
     runtime: &mut BlockUseRuntime,
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     swings: &mut SwingTracker,
-    movement: &MovementTicker,
+    movement: &mut MovementTicker,
     attempt: &mut BuildInput,
 ) -> bool {
     let Some(plan) = prepare(
@@ -232,22 +325,24 @@ pub(crate) fn advance(
     let Some(stream) = context.client_world.stream.as_ref() else {
         return false;
     };
-    let bucket = stream
-        .authority()
-        .item_identifier(observed.selection.item.network_id())
-        .as_deref()
-        .is_some_and(assets::facts::has_bucket_name);
-    if trigger == ItemUseTrigger::SimulationTick
-        && !gameplay::block_use::repeats_while_held(
-            &observed.selection.item,
-            bucket,
-            plan.local_use,
-        )
-    {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
+    if trigger == ItemUseTrigger::SimulationTick && !plan.repeats_while_held {
+        runtime.record(trigger, due, tick, LocalUse::Nothing, false, clock);
         return false;
     }
-    if !runtime.may_attempt(tick, plan.local_use, swings) {
+    // Ordered presses can precede block maintenance. Refresh the authority and selected-item
+    // history before admission so stale publication cannot reject the new placement.
+    swings.sync_ticks_for_item(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+        crate::melee::selected_attack_timing(player_runtime, &context.client_world)
+            .and_then(|timing| timing.swing_duration_ticks),
+    );
+    let target = gameplay::block_use::PlacementTarget {
+        position: observed.target.position,
+        face: observed.target.face,
+    };
+    if !runtime.may_attempt(tick, plan.local_use, target, swings) {
         return false;
     }
     let start_destination = runtime
@@ -274,7 +369,11 @@ pub(crate) fn advance(
             plan.destination,
             plan.local_use,
             plan.local_use != LocalUse::Interact
-                && held_block_store_id(stream, observed.selection.item.block_runtime_id())
+                && plan
+                    .paired
+                    .or_else(|| {
+                        held_block_store_id(stream, observed.selection.item.block_runtime_id())
+                    })
                     .is_some_and(|block| {
                         context
                             .collisions
@@ -284,7 +383,15 @@ pub(crate) fn advance(
             observed.target.hit_world,
         );
     }
-    if !runtime.admit(trigger, due, tick, plan.local_use, clock, sent) {
+    if !runtime.admit(
+        trigger,
+        due,
+        tick,
+        plan.local_use,
+        plan.takes_press,
+        clock,
+        sent,
+    ) {
         runtime.refuse_transport(
             tick,
             plan.local_use,
@@ -294,11 +401,31 @@ pub(crate) fn advance(
         *swings = before_swing;
         return false;
     }
-    if plan.local_use == LocalUse::Place
-        && plan
-            .change
-            .as_ref()
-            .is_none_or(|change| !change.to.is_empty())
+    if trigger == ItemUseTrigger::SimulationTick && plan.local_use == LocalUse::Nothing {
+        runtime.record_failed_repeat(tick, target);
+    }
+    // The use starts on its build tick, before physics simulates it, so that tick moves
+    // at the use's speed and its input carries the start.
+    if plan.local_use == LocalUse::UseItem {
+        let profile = stream
+            .authority()
+            .item_use_profile(observed.selection.item.network_id());
+        if item_use.start_use_on(
+            observed.selection.clone(),
+            profile.ticks.unwrap_or_default(),
+            profile.movement,
+            tick,
+        ) {
+            movement.mark_started_using_item(tick);
+        }
+    }
+    // Vanilla's `GameMode::useItemOn` starts the item's cooldown after any successful use on.
+    if (plan.local_use == LocalUse::UseItem
+        || plan.local_use == LocalUse::Place
+            && plan
+                .change
+                .as_ref()
+                .is_none_or(|change| !change.to.is_empty()))
         && let Some(cooldown) = plan.cooldown
     {
         item_use.start_cooldown(cooldown, tick);
@@ -314,17 +441,7 @@ pub(crate) fn advance(
             change.clone(),
         );
     }
-    if plan.local_use == LocalUse::Place {
-        let position = plan.destination;
-        context
-            .audio_cues
-            .write(client_audio::audio::LocalBlockCue::Place {
-                position,
-                block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
-                    observed.selection.item.block_runtime_id().to_ne_bytes(),
-                )) as i32,
-            });
-    }
+    // Vanilla voices placement only from the server's level sound event, never locally.
     // Java re-equips the held item after each placement.
     if plan.local_use == LocalUse::Place
         && let Some(stream) = context.client_world.stream.as_mut()

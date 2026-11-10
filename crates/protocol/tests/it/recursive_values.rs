@@ -1,6 +1,6 @@
 //! Recursive value limits at the public batch decoder boundary.
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     packets::ClientboundDataStore,
     types::{BedrockDDUI, DynamicValue},
     wire::{self, Encode},

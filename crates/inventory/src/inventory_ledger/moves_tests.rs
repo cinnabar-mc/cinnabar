@@ -15,6 +15,35 @@ mod storage_tests;
 
 mod world_drop;
 
+#[test]
+fn gathered_stacks_can_be_dropped_before_the_server_reply() {
+    let mut ledger = open_ledger(&[
+        (0, stack(6, 10, 2)),
+        (1, stack(6, 11, 3)),
+        (2, stack(6, 12, 4)),
+    ]);
+    let pickup = ledger.begin_click(0).unwrap();
+    let gather = ledger.begin_gather().unwrap();
+    let actions = &ledger.newest_request().unwrap().actions;
+    assert_eq!(actions.len(), 2);
+    for (index, action) in actions.iter().enumerate() {
+        let StackRequestAction::Take { destination, .. } = action else {
+            panic!("expected gathered items");
+        };
+        assert_eq!(
+            destination.stack_network_id,
+            if index == 0 { pickup } else { gather }
+        );
+    }
+    ledger.begin_drop(DropSource::Cursor, Some(1)).unwrap();
+    let Some(StackRequestAction::Drop { source, amount, .. }) = ledger.newest_action() else {
+        panic!("expected a cursor drop");
+    };
+    assert_eq!((source.stack_network_id, amount), (gather, 1));
+    assert_eq!(ledger.cursor_stack().unwrap().count, 8);
+    assert_eq!(ledger.pending_batch().unwrap().unwrap().1, 3);
+}
+
 /// Reads the reserved wire identity of a drop still awaiting transport.
 fn drop_legacy_id(ledger: &PlayerInventoryLedger, request_id: i32) -> i32 {
     ledger
@@ -114,6 +143,52 @@ fn hotbar_swap_uses_swap_or_place() {
         ledger.begin_hotbar_swap(InventoryTarget::Player(3), 3),
         Err(InventoryGestureError::InvalidRequest)
     );
+}
+
+/// The hotbar stack joins a matching hovered stack instead of trading places with it.
+#[test]
+fn hotbar_key_merges_a_matching_stack_into_the_hovered_cell() {
+    let mut ledger = open_ledger(&[(6, stack(6, 100, 24)), (5, stack(6, 101, 16))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(6), 5)
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_action(),
+        Some(StackRequestAction::Place { amount: 16, source, destination })
+            if source.slot == 5 && destination.slot == 6 && destination.stack_network_id == 100
+    ));
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 40);
+    assert!(ledger.displayed_stack(5).is_none());
+}
+
+/// A merge stops at the hovered stack's capacity and leaves the rest in the hotbar.
+#[test]
+fn hotbar_key_merge_leaves_what_does_not_fit() {
+    let mut ledger = open_ledger(&[(6, stack(6, 100, 60)), (5, stack(6, 101, 16))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(6), 5)
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_action(),
+        Some(StackRequestAction::Place { amount: 4, .. })
+    ));
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 12);
+}
+
+/// A full hovered stack has no room, so the two stacks trade places.
+#[test]
+fn hotbar_key_swaps_with_a_full_matching_stack() {
+    let mut ledger = open_ledger(&[(6, stack(6, 100, 64)), (5, stack(6, 101, 16))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(6), 5)
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_action(),
+        Some(StackRequestAction::Swap { .. })
+    ));
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 16);
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 64);
 }
 
 /// Drops send one Drop action and shrink the source; rejection restores it.

@@ -48,7 +48,7 @@ pub(super) fn model(
             }
         });
     }
-    template_quads(&quads)
+    template_quads(&quads, false)
 }
 
 /// Retains active carried gate geometry and material regions for artwork placement.

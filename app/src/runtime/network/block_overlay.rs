@@ -238,6 +238,7 @@ pub(super) fn compile_block_overlay_with_textures(
         let _zone = bevy::log::info_span!("pack.blocks.vanilla_overrides").entered();
         builder.override_vanilla_materials(keys);
         builder.override_vanilla_bindings(keys, &legacy);
+        builder.override_marker_bindings(keys, &legacy);
     }
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
@@ -489,6 +490,12 @@ impl Builder<'_> {
                     face_quad.uvs = face_quad.uvs.map(|uv| {
                         std::array::from_fn(|axis| geometry.texture_size[axis] - uv[axis])
                     });
+                }
+                if components.geometry_needs_legacy_top_rotation
+                    && cube.per_face_uv
+                    && face_quad.face == assets::BlockFace::Up as usize
+                {
+                    face_quad.uvs.rotate_left(2);
                 }
                 let (material, _, two_sided) =
                     self.face_material(components, FACE_NAMES[face_quad.face], instance, false, 0);
@@ -807,7 +814,10 @@ impl Builder<'_> {
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            textures.push(TextureArray { layers, mips });
+            textures.push(TextureArray {
+                layers,
+                mips: mips.into(),
+            });
         }
         self.overlay.texture_source_sizes = sizes;
         self.overlay.texture_source_grids = grids;

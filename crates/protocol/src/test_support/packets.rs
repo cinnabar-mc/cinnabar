@@ -1,16 +1,16 @@
 //! Observations of outbound packets other than transactions and recipes, and world-packet
 //! fixtures normalized through the real decoder.
 
-use bedrock_protocol_1_26_51::enums::{DataItemType, PlayStatusType};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{DataItemType, PlayStatusType};
+use bedrock_protocol_1_26_60::packets::{
     self, AddActor, ChunkRadiusUpdated, ItemRegistry, ModalFormRequest, MoveActorAbsolute,
     MoveActorDelta, PlayStatus,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ActorUniqueID, DataItemEntry, DataItemEntryValue, MoveActorAbsoluteData,
     MoveActorDeltaData, SynchedActorDataCopyableDataList,
 };
-use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 
 use crate::{Packet, WorldEvent, WorldPacketError, into_world_event};
 
@@ -200,7 +200,7 @@ pub fn chunk_radius_updated_packet(chunk_radius: i32) -> Packet {
 #[must_use]
 pub fn player_spawn_packet() -> Packet {
     crate::Packet::new(PlayStatus {
-        status: PlayStatusType::Playerspawn,
+        status: PlayStatusType::PlayerSpawn,
     })
 }
 
@@ -273,7 +273,7 @@ pub fn add_painting_event(
     position: [f32; 3],
 ) -> Result<Option<WorldEvent>, WorldPacketError> {
     into_world_event(
-        crate::Packet::new(bedrock_protocol_1_26_51::packets::AddPainting {
+        crate::Packet::new(bedrock_protocol_1_26_60::packets::AddPainting {
             target_actor_id: ActorUniqueID(unique_id),
             target_runtime_id: ActorRuntimeID(runtime_id),
             position: position.into(),
@@ -321,9 +321,9 @@ fn round_trip<T: Encode + Decode>(packet: T) -> T {
 /// A successful acknowledgement with no corrections, in either optional-list encoding.
 pub fn empty_stack_response(request_id: i32, list_present: bool) -> Packet {
     Packet::new(round_trip(packets::ItemStackResponse {
-        responses: vec![bedrock_protocol_1_26_51::types::ItemStackResponseInfo {
-            result: bedrock_protocol_1_26_51::enums::ItemStackNetResult::Success,
-            client_request_id: bedrock_protocol_1_26_51::types::ItemStackRequestID(request_id),
+        responses: vec![bedrock_protocol_1_26_60::types::ItemStackResponseInfo {
+            result: bedrock_protocol_1_26_60::enums::ItemStackNetResult::Success,
+            client_request_id: bedrock_protocol_1_26_60::types::ItemStackRequestID(request_id),
             containers: list_present.then(Vec::new),
         }],
     }))
@@ -368,7 +368,7 @@ pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
     let packets::Packet::Interact(interact) = &*packet.data else {
         return None;
     };
-    (interact.action == bedrock_protocol_1_26_51::enums::InteractAction::Interactupdate).then(
+    (interact.action == bedrock_protocol_1_26_60::enums::InteractAction::InteractUpdate).then(
         || {
             (
                 interact.target_runtime_id.0,
@@ -412,7 +412,7 @@ pub fn swing(packet: &Packet) -> Option<(u64, Option<String>)> {
     let packets::Packet::Animate(animate) = &*packet.data else {
         return None;
     };
-    (animate.action == bedrock_protocol_1_26_51::enums::AnimateAction::Swing).then(|| {
+    (animate.action == bedrock_protocol_1_26_60::enums::AnimateAction::Swing).then(|| {
         (
             animate.target_actor_runtime_id.0,
             animate

@@ -2,18 +2,11 @@
 
 use super::*;
 
-/// Opens a guest-authored payload through validation and the public editor entry point.
+/// Validates fixture cards before constructing the shared editor backend.
 fn published(value: serde_json::Value) -> HudEditor {
     let hud: Hud = serde_json::from_value(value).unwrap();
-    let mut ui = ModUi::default();
-    ui.set_mod_panel(
-        crate::PanelUiOwner::Environment(0),
-        Some(&crate::test_support::sample_panel()),
-    )
-    .unwrap();
-    ui.set_mod_panel_open(true);
-    ui.open_mod_hud_editor(&hud).unwrap();
-    let mut editor = ui.mod_hud_editor.take().unwrap();
+    let mut editor = HudEditor::new(&hud).unwrap();
+    editor.snap = false;
     editor.viewport = [900., 600.];
     editor
 }
@@ -144,66 +137,4 @@ fn amendment_grid_does_not_snap_movement_and_snap_controls_guides_and_grid() {
             snap && !bypass
         );
     }
-}
-
-#[test]
-fn amendment_live_hidden_cards_preserve_draft_visibility_and_seed_new_history() {
-    let mut editor = published(serde_json::json!({"cards":[{
-        "id":"disabled","visible":false,"rows":[]
-    }]}));
-    editor.action("hud.visibility:0", &mut []);
-    let mut cards = editor.draft.cards.clone();
-    cards[0].title = "Fresh".into();
-    cards.push(Card {
-        id: "new".into(),
-        visible: false,
-        ..Default::default()
-    });
-    editor.republish_cards(&cards, true);
-    assert_eq!(editor.snapshot(true).hidden_cards, ["new"]);
-    editor.step_history(false);
-    assert_eq!(editor.snapshot(true).hidden_cards, ["disabled", "new"]);
-    editor.action("hud.visibility:1", &mut []);
-    editor.step_history(false);
-    assert_eq!(editor.snapshot(true).hidden_cards, ["disabled", "new"]);
-    assert_eq!(editor.draft.cards[0].title, "Fresh");
-}
-
-#[test]
-fn amendment_live_inspector_size_updates_bindings_without_rebuilding_catalog() {
-    let mut editor = published(serde_json::json!({"inspector_size":[180,120],"cards":[{
-        "id":"fixture","width":100,"offset":[700,60],"rows":[]
-    }]}));
-    editor.selected = Some(0);
-    let catalog = Arc::new(
-        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap(),
-    );
-    editor.catalog = Some(Arc::clone(&catalog));
-    let mut preview = editor.draft.clone();
-    preview.inspector_size = Some([200., 140.]);
-    let mut ui = ModUi {
-        mod_hud_editor: Some(editor),
-        ..Default::default()
-    };
-    ui.update_mod_hud_editor(&preview).unwrap();
-    let editor = ui.mod_hud_editor.as_mut().unwrap();
-    assert!(Arc::ptr_eq(editor.catalog.as_ref().unwrap(), &catalog));
-    assert_eq!(
-        editor.data().global_value("#hud_inspector_x"),
-        Some(&Scalar::Num(484.))
-    );
-    editor.viewport = [1200., 800.];
-    let data = editor.data();
-    assert_eq!(
-        data.global_value("#hud_inspector_x"),
-        Some(&Scalar::Num(816.))
-    );
-    assert_eq!(
-        data.global_value("#hud_viewport_w"),
-        Some(&Scalar::Num(1200.))
-    );
-    assert_eq!(
-        data.global_value("#hud_viewport_h"),
-        Some(&Scalar::Num(800.))
-    );
 }

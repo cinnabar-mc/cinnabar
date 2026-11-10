@@ -11,6 +11,7 @@ mod inside;
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
+mod piston;
 mod powder_snow;
 mod riptide;
 pub use riptide::RiptideLaunch;
@@ -167,6 +168,8 @@ impl Simulator {
         world: &impl CollisionWorld,
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
+        // Arms stand where the preceding tick left them until this tick's update moves them.
+        world.begin_tick(state.tick);
         let start = state.climber;
         let mut next = state.clone();
         let mut output = self.advance(&mut next, input, world)?;
@@ -196,6 +199,7 @@ impl Simulator {
             // The descent action and block climber still run in place; see
             // `scaffolding::finish_tick`. Without a move request, there is no fall check.
             let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
+            world.begin_tick(state.tick);
             riptide::launch(state, input, false);
             return Ok(output);
         }
@@ -218,6 +222,14 @@ impl Simulator {
             next.velocity = Vec3::ZERO;
         }
 
+        // Native `_moveCollidedEntitiesHelper` stops at an actor whose
+        // `canInteractWithOtherEntitiesInGame` is false, which for a player means a spectator.
+        let pushed = if input.spectator {
+            None
+        } else {
+            piston::push(world, &mut next, input)?
+        };
+        world.begin_tick(next.tick);
         if input.spectator {
             return spectator::tick(next, state, input, world.registry_identity());
         }
@@ -233,6 +245,9 @@ impl Simulator {
             next.hitbox_height(input),
             input.liquid_contact_height,
         )?;
+        if let Some(pushed) = pushed {
+            sampled.identity = sampled.identity.merge(&pushed)?;
+        }
         fall::sense_liquid(&mut next.fall_distance, &sampled.movement);
         let shallow_water = if input.riptide.is_some_and(RiptideLaunch::is_supported)
             && next.on_ground

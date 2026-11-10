@@ -118,6 +118,32 @@ fn changing_dependencies_and_component_writes_match_cold_baking() {
     );
 }
 
+/// A removed global binds as one never set does, warm or cold.
+#[test]
+fn removed_globals_bind_as_never_set() {
+    let mut root = label();
+    root.properties
+        .insert("bindings".into(), json!([{"binding_name":"#text"}]));
+    let root = Arc::new(root);
+    let unset = bind_shared(&root, &DataSource::new(), &EmptyLibrary);
+    let mut data = DataSource::new();
+    data.set_global("#text", Scalar::Text("bound".into()));
+    assert_eq!(
+        bind_shared(&root, &data, &EmptyLibrary).properties["text"],
+        json!("bound")
+    );
+    assert_eq!(
+        data.remove_global("#text"),
+        Some(Scalar::Text("bound".into()))
+    );
+    assert_eq!(data, DataSource::new());
+    let warm = bind_shared(&root, &data, &EmptyLibrary);
+    assert_eq!(warm, unset);
+    CACHE.with(|cache| cache.borrow_mut().clear());
+    assert_eq!(bind_shared(&root, &data, &EmptyLibrary), unset);
+    assert_eq!(data.remove_global("#text"), None);
+}
+
 #[test]
 fn many_live_instances_keep_the_cache_bounded() {
     CACHE.with(|cache| cache.borrow_mut().clear());
