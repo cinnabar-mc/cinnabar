@@ -269,7 +269,9 @@ fn resolve(
     );
     // A player's body keeps its runtime skin, so player passes such as capes still admit it;
     // catalog textures apply to its further controller layers. The first layer drawing the
-    // body leads, ahead of controllers that draw their own models.
+    // body takes the body slot, which capes, equipment and admission read and which draws
+    // before every other layer. Native draws controllers in list order, so a blended model
+    // listed ahead of the body composites differently where they overlap.
     if player_skin {
         if let Some(body) = resolved.iter().position(|layer| layer.model.is_none()) {
             resolved[..=body].rotate_right(1);
