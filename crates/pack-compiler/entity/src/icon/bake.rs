@@ -21,14 +21,15 @@ mod pane_tests;
 
 #[derive(Default)]
 struct SpriteBindings {
-    models: BTreeMap<u32, BlockVisualId>,
+    /// Reserved sprites, with a world state only when they also bind a held model.
+    isolated: BTreeMap<u32, Option<BlockVisualId>>,
     unshaded: BTreeSet<u32>,
 }
 
 impl SpriteBindings {
-    /// Allows pixel reuse only for thumbnails with the same lighting and no model binding.
+    /// Allows pixel reuse only for unreserved thumbnails with the same lighting.
     fn can_reuse(&self, sprite: u32, lighting: CubeLighting) -> bool {
-        !self.models.contains_key(&sprite)
+        !self.isolated.contains_key(&sprite)
             && self.unshaded.contains(&sprite) == (lighting == CubeLighting::Unshaded)
     }
 
@@ -155,6 +156,7 @@ pub(super) fn run(
                         tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
                         cube_blending(world, BlockVisualId(visual)),
                     )
+                    .with_render_kind(gui_kind(blocks, BlockVisualId(visual)))
                     .raster(),
                     // GUI-only cube artwork keeps the world model binding for held rendering.
                     (!carried_tiles.contains_key(&visual)).then(|| {
@@ -193,9 +195,17 @@ pub(super) fn run(
                     *model_sprites_by_state.entry(state.0).or_insert_with(|| {
                         let sprite = sprites.len() as u32;
                         sprites.push(raster);
-                        bindings.models.insert(sprite, state);
+                        bindings.isolated.insert(sprite, Some(state));
                         sprite
                     })
+                } else if assets::gui_item::forces_covered_gui_alpha(gui_kind(
+                    blocks,
+                    BlockVisualId(visual),
+                )) {
+                    let sprite = sprites.len() as u32;
+                    sprites.push(raster);
+                    bindings.isolated.insert(sprite, None);
+                    sprite
                 } else {
                     insert_sprite(sprites, raster, &mut bindings, lighting_for_visual(visual))
                 };
@@ -223,7 +233,7 @@ pub(super) fn run(
     let mut baked: BTreeMap<[u8; 32], Vec<(&cube::Cube<'_>, u32)>> = BTreeMap::new();
     let mut output_hashes: BTreeMap<[u8; 32], Vec<u32>> = BTreeMap::new();
     for (index, sprite) in sprites.iter().enumerate() {
-        if !bindings.models.contains_key(&(index as u32)) {
+        if !bindings.isolated.contains_key(&(index as u32)) {
             output_hashes
                 .entry(Sha256::digest(&sprite.rgba8).into())
                 .or_default()
@@ -298,12 +308,14 @@ pub(super) fn run(
         block_sheets,
         gui_block_sheets,
         block_models: bindings
-            .models
+            .isolated
             .into_iter()
-            .map(|(sprite, visual)| IconBlockModel {
-                sprite,
-                visual,
-                held_sprite: held_sprites.get(&sprite).copied(),
+            .filter_map(|(sprite, visual)| {
+                Some(IconBlockModel {
+                    sprite,
+                    visual: visual?,
+                    held_sprite: held_sprites.get(&sprite).copied(),
+                })
             })
             .collect(),
     })
@@ -414,15 +426,7 @@ fn model_raster(
         return Ok(super::shapes::raster(root, blocks, visual)?.map(|raster| (raster, None)));
     }
     let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
-    if let Ok(model) = model::Model::read(
-        world,
-        state,
-        blocks
-            .and_then(|blocks| blocks.name(state))
-            .map(assets::facts::block_render_fact)
-            .map(|fact| fact.kind)
-            .unwrap_or_default(),
-    ) {
+    if let Ok(model) = model::Model::read(world, state, gui_kind(blocks, state)) {
         return Ok(Some((model.raster(), Some(state))));
     }
     Ok(
@@ -449,6 +453,7 @@ fn fallback_raster(
                 tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
                 [false; 6],
             )
+            .with_render_kind(gui_kind(Some(blocks), visual))
             .raster(),
         ));
     }
@@ -462,8 +467,18 @@ fn fallback_raster(
             tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
             cube_blending(world, visual),
         )
+        .with_render_kind(gui_kind(Some(blocks), visual))
         .raster()
     }))
+}
+
+/// Resolves the inventory sampling family from the retained block identity.
+fn gui_kind(blocks: Option<&IconBlocks>, visual: BlockVisualId) -> assets::facts::BlockRenderKind {
+    blocks
+        .and_then(|blocks| blocks.name(visual))
+        .map(assets::facts::block_render_fact)
+        .map(|fact| fact.kind)
+        .unwrap_or_default()
 }
 
 fn cube_blending(world: &RuntimeAssets, visual: BlockVisualId) -> [bool; 6] {

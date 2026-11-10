@@ -326,7 +326,7 @@ fn inventory_quads_keep_the_full_resolution_regions() {
     let visual = &compiled.visuals[record.sequential_id as usize];
     let tiled = template_quads(&compiled, visual.model_template);
     let gui = assets::gui_item::block_gui_quads(
-        Default::default(),
+        assets::facts::block_render_fact(&record.name).kind,
         visual.kind,
         visual.faces,
         Some(visual.model_template),

@@ -10,7 +10,7 @@ use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
 use super::{
     GuiModelPreparation, MODEL_PAGES, PreparedGuiModels, UiPresentationError, atlas, block_models,
     held, icon_key, item_gui, player_preview, shield_icons,
-    sources::{gui_cube_sheet, ordinary_cube_sheet, sheet_faces},
+    sources::{self, gui_cube_sheet, ordinary_cube_sheet, sheet_faces},
 };
 
 /// A sheet can become a cube only when an existing carried model spans the full cube.
@@ -209,7 +209,12 @@ impl GuiModelPreparation {
                 let opaque = ordinary_cube_sheet(&sprite.rgba8);
                 // Normalize alpha-tested faces using their material mode. Fractional blended
                 // faces retain the thumbnail's composited texels.
-                let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {
+                let Some(sprite) = gui_cube_sheet(
+                    world,
+                    block_visual,
+                    sprite,
+                    assets::facts::block_render_fact(&entry.identifier).kind,
+                ) else {
                     continue;
                 };
                 // Optional sources follow required textures so discarding their meshes can
@@ -272,6 +277,31 @@ impl GuiModelPreparation {
                     models.insert(icon_key(*icon), mesh);
                     optional_models.insert(icon_key(*icon));
                     faded_thumbnails.insert(icon_key(*icon));
+                }
+            }
+        }
+        if let Some(refs) = self.icon_refs.as_deref() {
+            for entry in icons.entries() {
+                if !assets::gui_item::forces_covered_gui_alpha(
+                    assets::facts::block_render_fact(&entry.identifier).kind,
+                ) {
+                    continue;
+                }
+                let Some(icon) = refs.get(entry.sprite as usize) else {
+                    continue;
+                };
+                let key = icon_key(*icon);
+                if let Some(covered) = models.get(&key).and_then(sources::covered_alpha) {
+                    models.insert(key, covered);
+                    // These outward cube faces do not overlap, so the mesh can fade once.
+                    if entities.item_visuals().iter().any(|definition| {
+                        definition.key.identifier == entry.identifier
+                            && definition.key.metadata == entry.metadata
+                            && matches!(definition.route, ItemVisualDefinitionRoute::BlockItem { block_visual }
+                                if world.resolve(assets::NetworkIdMode::Sequential, block_visual.0).kind() == assets::VisualKind::Cube)
+                    }) {
+                        faded_thumbnails.remove(&key);
+                    }
                 }
             }
         }
