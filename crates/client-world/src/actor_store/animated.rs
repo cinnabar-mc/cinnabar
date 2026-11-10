@@ -120,6 +120,10 @@ impl AnimatedActor for ActorSnapshot {
         ActorSnapshot::render_scale(self)
     }
 
+    fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
+        ActorSnapshot::bounding_box(self)
+    }
+
     fn creeper_swell_amount(&self, partial_tick: f32) -> f32 {
         ActorSnapshot::creeper_swell_amount(self, partial_tick)
     }

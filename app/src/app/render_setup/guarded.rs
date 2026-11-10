@@ -114,7 +114,7 @@ pub(super) fn render_plugin(
                 let failed = guard.recovery.failed_backends();
                 let order = candidates(&allowed, &allowed, environment.as_deref(), video, failed);
                 log(format_args!(
-                    "Renderer trying {order:?} (allowed {allowed:?}; excluded after interrupted startups: {failed:?})"
+                    "Renderer trying {order:?} (allowed {allowed:?}; excluded after renderer failures: {failed:?})"
                 ));
                 let mut adapters = Vec::new();
                 let mut failures = Vec::new();
@@ -124,16 +124,7 @@ pub(super) fn render_plugin(
                         log(format_args!(
                             "Renderer probing {backend:?}; DX12 shader compiler: {compiler:?}"
                         ));
-                        let create = |compiler| {
-                            let display = app
-                                .world()
-                                .get_resource::<bevy::winit::DisplayHandleWrapper>()
-                                .map(|display| {
-                                    Box::new(display.0.clone())
-                                        as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
-                                });
-                            instance(backend, &settings, compiler, display)
-                        };
+                        let create = |compiler| backend_instance(app, backend, &settings, compiler);
                         let mut instance = create(compiler.clone());
                         if dxc_failed(backend, &compiler, &instance) {
                             log(format_args!(
@@ -200,7 +191,8 @@ pub(super) fn render_plugin(
                 rank(&mut adapters, platform, settings.power_preference);
                 try_candidates(adapters, guard, explicit, |candidate| {
                     let backend = candidate.backend;
-                    let (instance, adapter) = candidate.native;
+                    let compiler = dx12_shader_compiler.borrow().clone();
+                    let (instance, adapter) = fxc_on_warp(app, &settings, &compiler, candidate)?;
                     bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
                         .map(|creation| (creation, backend))
                 })
@@ -232,17 +224,57 @@ pub(super) fn render_plugin(
     })
 }
 
+/// Builds one API's instance on the display winit opened, so surfaces share its connection.
+fn backend_instance(
+    app: &App,
+    backend: Backend,
+    settings: &WgpuSettings,
+    compiler: wgpu::Dx12Compiler,
+) -> wgpu::Instance {
+    let display = app
+        .world()
+        .get_resource::<bevy::winit::DisplayHandleWrapper>()
+        .map(|display| Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>);
+    instance(backend, settings, compiler, display)
+}
+
+/// Returns the candidate's instance and adapter, first rebuilding the instance with FXC and
+/// finding the same adapter again when the candidate is WARP, which faults compiling DXC's output.
+fn fxc_on_warp(
+    app: &App,
+    settings: &WgpuSettings,
+    compiler: &wgpu::Dx12Compiler,
+    candidate: Candidate<(wgpu::Instance, wgpu::Adapter)>,
+) -> Result<(wgpu::Instance, wgpu::Adapter)> {
+    let (instance, adapter) = candidate.native;
+    let info = adapter.get_info();
+    if !render::device_settings::software_adapter_requires_fxc(compiler, &info) {
+        return Ok((instance, adapter));
+    }
+    log(format_args!(
+        "Renderer DX12 shader compiler: FXC, since {} faults compiling DXC's output",
+        info.name
+    ));
+    drop((adapter, instance));
+    let instance = backend_instance(app, candidate.backend, settings, wgpu::Dx12Compiler::Fxc);
+    let adapter = bevy::tasks::block_on(instance.enumerate_adapters(flags(candidate.backend)))
+        .into_iter()
+        .find(|rebuilt| identity(rebuilt) == candidate.identity)
+        .with_context(|| format!("{} is missing after rebuilding DX12 with FXC", info.name))?;
+    Ok((instance, adapter))
+}
+
 /// A failed saved Graphics API, shown once the menu is on screen.
 #[derive(Resource)]
 struct FallbackNotice(String);
 
 /// Tells the player which API replaced their saved choice and why.
 fn notice(fallback: &VideoFallback, chosen: Backend, platform: Platform) -> String {
-    format!(
-        "{} could not start, so this launch uses {}. Update your graphics driver or choose another Graphics API in Video settings. Reason: {}",
-        fallback.requested.label(platform),
-        chosen.label(platform),
-        fallback.reason
+    launcher::graphics_backend::fallback_notice(
+        fallback.requested,
+        chosen,
+        platform,
+        &fallback.reason,
     )
 }
 
@@ -266,11 +298,28 @@ fn show_fallback_notice(
     }
 }
 
-/// Tracks presentation and cancels startup on a controlled exit before window teardown.
+/// Tracks presentation and device loss before cancelling controlled exits during teardown.
 fn install_guard(app: &mut App, guard: StartupGuard) {
     app.insert_resource(RendererGuard::new(guard))
-        .add_systems(Update, mark_presented)
+        .add_systems(Update, (mark_presented, record_device_loss).chain())
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
+}
+
+/// Persists confirmed device loss before orderly shutdown clears a pending startup.
+fn record_device_loss(
+    failure: Option<Res<render::GpuFailure>>,
+    mut guard: ResMut<RendererGuard>,
+    mut recorded: Local<bool>,
+) {
+    if *recorded || !failure.is_some_and(|failure| failure.is_device_lost()) {
+        return;
+    }
+    *recorded = true;
+    if let Err(error) = guard.settled(StartupGuard::device_lost) {
+        log(format_args!(
+            "Renderer could not save device-loss recovery: {error:#}"
+        ));
+    }
 }
 
 /// Cancels this app's pending presentation marker after an orderly pre-loop failure.

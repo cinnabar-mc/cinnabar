@@ -21,7 +21,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/room"
-	"github.com/sandertv/gophertunnel/minecraft/service/signaling/messaging"
+	gtsignaling "github.com/sandertv/gophertunnel/minecraft/service/signaling"
 )
 
 // FriendWorldMaxPlayers is the hosted world's player limit, shared with the launcher's local servers.
@@ -142,7 +142,7 @@ func newFriendHost(xuid string, log *slog.Logger, open func(context.Context) (*f
 // openFriendEndpoint dials signaling and publishes the session before any friend can connect,
 // so every admission check has nonces to consult.
 func openFriendEndpoint(ctx context.Context, cfg FriendHostConfig, log *slog.Logger) (*friendEndpoint, error) {
-	signaling, err := messaging.Dialer{Log: log}.DialContext(ctx, cfg.Account)
+	signaling, err := gtsignaling.Dialer{Log: log}.DialContext(ctx, cfg.Account)
 	if err != nil {
 		return nil, fmt.Errorf("friends: signaling: %w", err)
 	}
@@ -219,7 +219,7 @@ func friendNetwork(signaling nethernet.Signaling, log *slog.Logger) minecraft.Ne
 }
 
 // friendStatus is the world card vanilla shows in friends' lists.
-func friendStatus(cfg FriendHostConfig, signaling *messaging.Conn) room.Status {
+func friendStatus(cfg FriendHostConfig, signaling *gtsignaling.Conn) room.Status {
 	return room.Status{
 		Joinability:             p2p.JoinabilityFriends,
 		HostName:                cfg.Gamertag,

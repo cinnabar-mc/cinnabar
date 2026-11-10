@@ -1,6 +1,24 @@
 //! Per-rig runtime state and the evaluation budget shared by every pose pass.
 use super::*;
 
+/// Leaves ordinary pose work its allowance after large authored scripts finish.
+pub(super) fn molang_tick_budget(assets: &RuntimeEntityAssets, rig_binding: usize) -> usize {
+    let Some(rig) = assets.rig_bindings().get(rig_binding) else {
+        return MAX_MOLANG_OPS_PER_ACTOR_TICK;
+    };
+    let script_ops: usize = [rig.initialize, rig.pre_animation]
+        .into_iter()
+        .flatten()
+        .filter_map(|index| assets.molang_expressions().get(index as usize))
+        .map(|expression| usize::from(expression.op_count))
+        .sum();
+    if script_ops > MAX_MOLANG_OPS_PER_ACTOR_TICK {
+        script_ops + MAX_MOLANG_OPS_PER_ACTOR_TICK
+    } else {
+        MAX_MOLANG_OPS_PER_ACTOR_TICK
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct ActorRigState {
     pub(super) placement_frame: assets::placement::EntityPlacementFrame,
@@ -17,6 +35,7 @@ pub(super) struct ActorRigState {
     pub(super) channel_bindings: Arc<pose::ChannelBindings>,
     /// This tick's render-controller result.
     pub(super) render: Vec<RenderTextureLayer>,
+    pub(super) visibility: RenderVisibility,
     /// Includes dormant controller layers, so admission need not sample ordinary rigs.
     pub(super) may_use_always_depth_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
@@ -142,6 +161,7 @@ pub(super) struct EvaluatedState {
     pub(super) skin_layers: Vec<SkinRenderLayer>,
     /// `None` when artwork is unavailable or render evaluation cannot supply fresh layers.
     pub(super) render: Option<Vec<RenderTextureLayer>>,
+    pub(super) visibility: RenderVisibility,
     pub(super) scale: Option<[f32; 4]>,
     pub(super) held_item_scale: Option<f32>,
     pub(super) controllers: Vec<ControllerState>,

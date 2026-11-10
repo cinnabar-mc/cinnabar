@@ -91,6 +91,43 @@ mod tests {
     }
 
     #[test]
+    fn lookup_without_through_walls_follows_the_published_observation_set() {
+        let mut render = RenderState::new();
+        let near = mod_api::drawing::MaskEntity {
+            connection: 1,
+            dimension: 0,
+            runtime_id: 7,
+            spawn_revision: 1,
+        };
+        let far = mod_api::drawing::MaskEntity {
+            runtime_id: 8,
+            ..near
+        };
+        render.masks.bind(mod_api::drawing::DrawingSession {
+            connection: near.connection,
+            dimension: near.dimension,
+            local: false,
+            permissions: mod_api::drawing::DrawingPermissions {
+                entity_observe: true,
+                entity_highlight: true,
+                ..Default::default()
+            },
+        });
+        render.masks.publish_targets(&[(near, 36), (far, 36)]);
+        render.update_entities(vec![near.into()], &[]).unwrap();
+        assert!(render.masks.entity(near.runtime_id).is_ok());
+        assert_eq!(
+            render.masks.entity(far.runtime_id),
+            Err(mod_render::masks::MaskError::StaleHandle)
+        );
+        render.update_entities(Vec::new(), &[]).unwrap();
+        assert_eq!(
+            render.masks.entity(near.runtime_id),
+            Err(mod_render::masks::MaskError::StaleHandle)
+        );
+    }
+
+    #[test]
     fn primitive_admission_preserves_identity_across_differently_partitioned_imports() {
         let mut render = RenderState::new();
         render.append_primitives(primitives(&[1., 2.])).unwrap();

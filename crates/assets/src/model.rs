@@ -69,6 +69,58 @@ pub(crate) fn covered_grass_variant_is_valid(
         && (material as usize) < material_count
 }
 
+/// The conditional terrain layer of an otherwise invisible block, held in its visual's variant.
+///
+/// Vanilla tessellates barriers and light blocks as camera-facing sprites and structure voids as
+/// boxes, each into its own terrain layer that is drawn only while that layer is shown.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TerrainMarker {
+    Barrier = 1,
+    Light = 2,
+    StructureVoid = 3,
+}
+
+impl TerrainMarker {
+    pub const ALL: [Self; 3] = [Self::Barrier, Self::Light, Self::StructureVoid];
+
+    /// The marker an invisible visual's `variant` names; other kinds and variant zero name none.
+    #[must_use]
+    pub const fn from_variant(kind: VisualKind, variant: u32) -> Option<Self> {
+        match (kind, variant) {
+            (VisualKind::Invisible, 1) => Some(Self::Barrier),
+            (VisualKind::Invisible, 2) => Some(Self::Light),
+            (VisualKind::Invisible, 3) => Some(Self::StructureVoid),
+            _ => None,
+        }
+    }
+
+    /// The visual variant that stores this marker.
+    #[must_use]
+    pub const fn variant(self) -> u32 {
+        self as u32
+    }
+
+    /// This marker's bit in a set of shown layers, as vanilla's render-block flags order them.
+    #[must_use]
+    pub const fn layer(self) -> u8 {
+        1 << (self as u32 - 1)
+    }
+
+    /// Whether the marker is a sprite facing the camera rather than a box.
+    #[must_use]
+    pub const fn is_camera_facing(self) -> bool {
+        !matches!(self, Self::StructureVoid)
+    }
+}
+
+/// An invisible visual names no marker or one marker class; its art may be missing.
+pub(crate) const fn terrain_marker_variant_is_valid(kind: VisualKind, variant: u32) -> bool {
+    !matches!(kind, VisualKind::Invisible)
+        || variant == 0
+        || TerrainMarker::from_variant(kind, variant).is_some()
+}
+
 /// Template selects its body or head quads from the primary block above it.
 pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
 /// Template belongs to a contiguous five-shape stair topology group.
@@ -122,6 +174,9 @@ pub const MODEL_TEMPLATE_FLAG_SHELF: u32 = 1 << 22;
 pub const MODEL_TEMPLATE_FLAG_AZALEA: u32 = 1 << 23;
 /// First of a chorus plant's template bank, indexed by `chorus::template_offset`.
 pub const MODEL_TEMPLATE_FLAG_CHORUS_PLANT: u32 = 1 << 28;
+/// The item GUI draws this shape through its world tessellator, so its faces take flat world
+/// directional shading instead of the inventory cube's.
+pub const MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE: u32 = 1 << 31;
 /// Pointed dripstone and sulfur spike crosses slide around their column by a narrower offset.
 pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
 /// Downward-growing vine: two stem planes then two tip planes, chosen by the cell below.
@@ -263,6 +318,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_WEEPING_VINE
             | MODEL_TEMPLATE_FLAG_TWISTING_VINE
             | MODEL_TEMPLATE_FLAG_PISTON_BODY
+            | MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
         || flags == MODEL_TEMPLATE_FLAG_SHEET_TILES
@@ -439,10 +495,34 @@ pub const MODEL_QUAD_FLAG_CULL_FACE_MASK: u32 = 0x70;
 /// vertex colour or light. It keeps the shade and final vertex light of the last face that
 /// cuboid drew; the cuboid is the run of distinct faced quads just before the detail quads.
 pub const MODEL_QUAD_FLAG_INHERITED_SHADE: u32 = 1 << 7;
+/// Down or up quad whose UVs stay aligned to the world axes when its template is turned about
+/// y: renderers undo the model's quarter turns on the UVs with [`world_aligned_uv`].
+pub const MODEL_QUAD_FLAG_WORLD_ALIGNED_UV: u32 = 1 << 8;
 pub(crate) const MODEL_QUAD_FLAGS_MASK: u32 = MODEL_QUAD_FLAG_FACE_MASK
     | MODEL_QUAD_FLAG_TWO_SIDED
     | MODEL_QUAD_FLAG_CULL_FACE_MASK
-    | MODEL_QUAD_FLAG_INHERITED_SHADE;
+    | MODEL_QUAD_FLAG_INHERITED_SHADE
+    | MODEL_QUAD_FLAG_WORLD_ALIGNED_UV;
+
+/// The UV a template corner samples once its template is turned `turns` quarter turns about y,
+/// as `model.wesl::rotate_cross` turns positions.
+///
+/// Quads without [`MODEL_QUAD_FLAG_WORLD_ALIGNED_UV`] keep their authored UV. Flagged down and
+/// up quads author the native cube UV of their unturned position (down `+x/-z`, up `+x/+z`)
+/// and get the native UV of their turned position.
+#[must_use]
+pub fn world_aligned_uv(flags: u32, turns: u32, [u, v]: [f32; 2]) -> [f32; 2] {
+    if flags & MODEL_QUAD_FLAG_WORLD_ALIGNED_UV == 0 {
+        return [u, v];
+    }
+    let up = flags & MODEL_QUAD_FLAG_FACE_MASK == 2;
+    match (turns & 3, up) {
+        (1, true) | (3, false) => [1.0 - v, u],
+        (1, false) | (3, true) => [v, 1.0 - u],
+        (2, _) => [1.0 - u, 1.0 - v],
+        _ => [u, v],
+    }
+}
 
 pub(crate) const fn model_quad_flags_are_valid(flags: u32) -> bool {
     flags & !MODEL_QUAD_FLAGS_MASK == 0

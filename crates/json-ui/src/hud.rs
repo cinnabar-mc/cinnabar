@@ -21,6 +21,8 @@ pub struct HudModel {
     pub touch_inventory: bool,
     /// The classic experience bar shows (else the hotbar stands alone).
     pub xp_bar: bool,
+    /// Server locations replace the experience artwork while retaining its level label.
+    pub locator_bar: bool,
     pub exp_progress: f64,
     pub level: u32,
     pub hotbar: Vec<HudSlot>,
@@ -328,8 +330,12 @@ fn status_data(data: &mut DataSource, model: &HudModel) {
         ),
         ("#hotbar_elipses_left_visible", false),
         ("#hotbar_with_xp_bar", model.xp_bar),
-        ("#hotbar_no_xp_bar", !model.xp_bar),
-        ("#level_number_visible", model.xp_bar && model.level > 0),
+        ("#hotbar_with_locator_bar", model.locator_bar),
+        ("#hotbar_no_xp_bar", !model.xp_bar && !model.locator_bar),
+        (
+            "#level_number_visible",
+            (model.xp_bar || (model.locator_bar && model.survival_ui)) && model.level > 0,
+        ),
         ("#is_spectator_mode", model.spectator),
         ("#survival_horse_hearts", model.riding_hearts),
         (

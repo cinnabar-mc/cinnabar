@@ -20,6 +20,7 @@ macro_rules! domain {
 }
 
 domain!(PackTexture {
+    Missing,
     PaleMossCarpetSide,
     BambooFenceGate,
     BeaconCore,
@@ -56,6 +57,7 @@ domain!(PackBlock {
     Beacon,
     Obsidian,
     Glass,
+    GlassPane,
     BeeNest,
     Beehive,
     ChiseledBookshelf,

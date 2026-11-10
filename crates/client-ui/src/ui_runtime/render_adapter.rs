@@ -461,6 +461,7 @@ mod tests {
         let mesh = ui::UiMesh::new(
             [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0]]
                 .map(|position| ui::UiMeshVertex {
+                    terrain_mips: false,
                     alpha_test: false,
                     position,
                     clip_z: 0.75,

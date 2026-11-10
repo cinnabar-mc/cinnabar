@@ -206,9 +206,7 @@ animated rig remotes use. All three below flow from that.
   SpawnParticleEffect triggers, critical hits. Provisional *(measure)*: break/crack piece
   counts and radii, particle size as half-extent, `particles_alpha` treated as blended
   with a low alpha cutoff, collision-drag model, light mapping, spawn/draw distance caps,
-  Molang variable wire layout. Missing:
-  local-player eating crumbs (needs the animation lane's item-use state; remote and server
-  Feed notices work), fireworks, particle sound playback (queued via
+  Molang variable wire layout. Missing: fireworks, particle sound playback (queued via
   `ParticleSystem::take_sounds`), actor-bound emitters follow position only, not rotation
   (HIGH until measured).
 - Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
@@ -223,7 +221,7 @@ animated rig remotes use. All three below flow from that.
   terrain model and exact bell/lectern/pot dimensions remain open (MED-HIGH). Hopper terrain now
   has a state-selected provisional model route; its matched live dimensions and lighting remain unverified.
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
-  custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; no custom materials, cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
+  custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; custom materials apply authored raster states and the `USE_COLOR_MASK` define but no other custom shader defines; no cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 - Terrain blocks (uncompiled): ice, slime, honey, tinted glass, powder snow, snow layers, named opaque cubes, amethyst

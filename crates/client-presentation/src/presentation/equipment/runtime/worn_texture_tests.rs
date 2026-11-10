@@ -287,6 +287,7 @@ fn helmet() -> ActorEquipmentInput {
     ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                trim: None,
                 variant: Default::default(),
                 map_id: None,
                 shield_pattern: None,
@@ -466,3 +467,176 @@ mod review_tests;
 
 #[path = "worn_texture_tests/artwork_state_tests.rs"]
 mod artwork_state_tests;
+
+#[test]
+fn worn_trim_preserves_authored_color_and_opacity() {
+    for material in ["entity_alphablend", "entity_alphablend_color_mask"] {
+        let item = "minecraft:iron_chestplate";
+        let mut files = owner_armour_pack(item, false);
+        let mut definition: serde_json::Value = serde_json::from_slice(&files[0].1).unwrap();
+        definition["minecraft:attachable"]["description"]["materials"]["default"] = material.into();
+        files[0].1 = serde_json::to_vec(&definition).unwrap();
+        let mut controller: serde_json::Value = serde_json::from_slice(&files[2].1).unwrap();
+        let color = [0.5, 0.75, 1.0, 0.25];
+        controller["render_controllers"]["controller.render.test_coat"]["color"] =
+            serde_json::json!({"r":color[0], "g":color[1], "b":color[2], "a":color[3]});
+        files[2].1 = serde_json::to_vec(&controller).unwrap();
+        files[3].1 = texture([170, 170, 170, 64]);
+        if material.ends_with("color_mask") {
+            files.push(("materials/fixture.material".into(), br#"{"materials":{"version":"1.0.0","entity_alphablend_color_mask:entity_alphablend":{"defines":["USE_COLOR_MASK"]}}}"#.to_vec()));
+        }
+        let pixel = |color| {
+            let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(color));
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+            bytes.into_inner()
+        };
+        let mask = image::RgbaImage::from_fn(2, 1, |x, _| {
+            image::Rgba([100, 100, 100, if x == 0 { 0 } else { 255 }])
+        });
+        let mut mask_bytes = std::io::Cursor::new(Vec::new());
+        mask.write_to(&mut mask_bytes, image::ImageFormat::Png)
+            .unwrap();
+        files.push(("textures/trims/sentry.png".into(), mask_bytes.into_inner()));
+        for (path, color) in [
+            (
+                "textures/trims/color_palettes/trim_palette.png",
+                [100, 100, 100, 255],
+            ),
+            ("textures/trims/color_palettes/gold.png", [20, 220, 30, 255]),
+        ] {
+            files.push((path.into(), pixel(color)));
+        }
+        let (mut runtime, pages) = pack_runtime(files);
+        let body = player_body(&mut runtime);
+        let mut equipment = worn_armour(item, 1);
+        let stack = equipment.armor[1].as_mut().unwrap();
+        stack.trim = Some(protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        });
+        let owner = owner();
+        let names = [Box::<str>::from("body")];
+        let rig = owner_rig(&owner, &names, 1);
+        let drawn = runtime
+            .layers_for_profile(
+                &body,
+                &equipment,
+                render_api::CombatVisuals::Legacy112,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 1.0,
+                    delta_seconds: 0.025,
+                }),
+            )
+            .layers
+            .to_vec();
+        assert_eq!(drawn.len(), 1);
+        let mut draw = drawn[0].submission.clone();
+        assert!(draw.material.state.unwrap().blend, "{material}");
+        assert_eq!(draw.tint, render_model::pack_overlay_rgba8(color));
+        let (raster, _) = runtime
+            .trim_draw(
+                equipment.armor[1].as_ref().unwrap(),
+                &pages,
+                drawn[0].location,
+                &mut draw,
+                true,
+            )
+            .unwrap();
+        assert_eq!(raster.rgba8[3], 64, "{material}: uncovered base opacity");
+        assert_eq!(&raster.rgba8[8 * 4..9 * 4], &[20, 220, 30, 255]);
+        assert_eq!(
+            draw.tint >> 24,
+            64,
+            "{material}: trim must preserve controller opacity"
+        );
+        if material == "entity_alphablend" {
+            assert_eq!(
+                draw.tint,
+                render_model::pack_overlay_rgba8(color),
+                "ordinary controller color belongs to the complete draw"
+            );
+        } else {
+            assert_eq!(
+                draw.tint & 0xffffff,
+                0xffffff,
+                "mask RGB is baked beneath the trim"
+            );
+        }
+    }
+}
+
+#[test]
+fn worn_trim_uses_the_owner_admitted_palette() {
+    let item = "minecraft:iron_chestplate";
+    let mut files = owner_armour_pack(item, false);
+    files.extend(
+        owner_armour_pack(item, true)
+            .into_iter()
+            .filter(|(path, _)| !path.starts_with("render_controllers/")),
+    );
+    for (path, bytes) in &mut files {
+        if !path.starts_with("attachables/") {
+            continue;
+        }
+        let mut definition: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        let description = &mut definition["minecraft:attachable"]["description"];
+        let stand = description.get("item").is_some();
+        if stand {
+            description["identifier"] = "z_fixture:stand_armour".into();
+        }
+        description["textures"]["gold_palette"] = if stand {
+            "textures/fixture/stand_palette"
+        } else {
+            "textures/fixture/player_palette"
+        }
+        .into();
+        *bytes = serde_json::to_vec(&definition).unwrap();
+    }
+    let pixel = |color| {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(color));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    };
+    let admitted = [20, 220, 30, 255];
+    for (path, color) in [
+        ("textures/trims/sentry.png", [100, 100, 100, 255]),
+        (
+            "textures/trims/color_palettes/trim_palette.png",
+            [100, 100, 100, 255],
+        ),
+        ("textures/fixture/player_palette.png", admitted),
+        ("textures/fixture/stand_palette.png", [220, 20, 30, 255]),
+    ] {
+        files.push((path.into(), pixel(color)));
+    }
+    let (mut runtime, pages) = startup_runtime(files);
+    let body = player_body(&mut runtime);
+    let mut equipment = worn_armour(item, 1);
+    let stack = equipment.armor[1].as_mut().unwrap();
+    stack.trim = Some(protocol::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    });
+    let drawn = layers(&mut runtime, &body, &owner(), &equipment, 1);
+    assert_eq!(drawn.len(), 1);
+    let draw = &drawn[0];
+    let (decorated, _) = runtime
+        .trim_raster(
+            equipment.armor[1].as_ref().unwrap(),
+            &pages,
+            draw.location,
+            draw.submission.input.rig,
+            None,
+            Some(draw.submission.input.identity),
+        )
+        .unwrap();
+    assert_eq!(
+        &decorated.rgba8[..4],
+        &admitted,
+        "trim aliases must retain the definition admitted for the player"
+    );
+}

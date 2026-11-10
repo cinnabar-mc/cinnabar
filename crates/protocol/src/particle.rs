@@ -11,7 +11,7 @@ pub const MAX_PARTICLE_NAME_BYTES: usize = 256;
 pub const MAX_PARTICLE_VARIABLES_BYTES: usize = 16 * 1024;
 
 /// Level events at or above this bit carry a legacy particle type in the low bits.
-const LEVEL_EVENT_PARTICLE_FLAG: i32 = 0x4000;
+const LEVEL_EVENT_PARTICLE_FLAG: i32 = protocol_ids::LevelEvent::ParticleLegacyEvent.wire_value();
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParticleEvent {

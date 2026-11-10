@@ -1,4 +1,4 @@
-//! Selected player-controller geometry and artwork for level-view paper dolls.
+//! Selected player-controller geometry and artwork for live actors and level-view paper dolls.
 
 use super::{
     super::UiPresentationRuntime,
@@ -20,9 +20,28 @@ pub(in super::super) struct PlayerLayers {
     pub(in super::super) pages: Vec<UiTexturePage>,
     icons: BTreeMap<u32, IconRef>,
     pub(super) layers: Vec<(ModelGeometry, actor_animation::RenderTextureLayer, IconRef)>,
+    pub(super) live: Vec<LiveLayer>,
+    pub(super) visibility: actor_animation::RenderVisibility,
+    pub(super) held_item_scale: Option<f32>,
+}
+
+/// One UI-context controller draw, retaining authored order across body and alternate geometry.
+pub(super) struct LiveLayer {
+    pub(super) model: Option<ModelGeometry>,
+    pub(super) layer: actor_animation::RenderTextureLayer,
+    pub(super) icon: Option<IconRef>,
 }
 
 impl PlayerLayers {
+    /// Drops only frame observations; immutable artwork and geometry remain reusable.
+    pub(super) fn clear_capture(&mut self) {
+        self.layers.clear();
+        self.live.clear();
+        self.visibility = Default::default();
+        self.held_item_scale = None;
+    }
+
+    /// Whether the level-view doll has any drawable additional controller geometry.
     pub(super) fn has_layers(&self) -> bool {
         !self.layers.is_empty()
     }
@@ -51,18 +70,46 @@ impl UiPresentationRuntime {
         self.gui_models.player_layers.source.is_some()
     }
 
+    /// Captures both completed controller contexts without advancing either animation.
     pub(super) fn capture_player_layers(
         &mut self,
         local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
     ) {
+        self.capture_player_layers_with_output(local, local.and_then(|local| local.layers()));
+    }
+
+    /// Captures already evaluated controller layers and their catalog artwork.
+    pub(super) fn capture_player_layers_with_output(
+        &mut self,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
+        ui_output: Option<actor_animation::ActorRenderLayers<'_>>,
+    ) {
         let layers = &mut self.gui_models.player_layers;
-        layers.layers.clear();
-        let Some(source) = layers.source.as_ref() else {
-            return;
-        };
+        layers.clear_capture();
         let Some(local) = local else { return };
         let Some(rig) = local.rig() else { return };
-        let Some(output) = local.paper_doll_layers() else {
+        if let Some(output) = &ui_output {
+            layers.visibility = output.visibility;
+            layers.held_item_scale = output.held_item_scale;
+            layers.live.extend(
+                output
+                    .render
+                    .iter()
+                    .filter(|layer| {
+                        layer.texture_slot == 0
+                            || layer.geometry.is_some()
+                            || rig.skin_geometry.is_none()
+                    })
+                    .cloned()
+                    .map(|layer| LiveLayer {
+                        model: None,
+                        layer,
+                        icon: None,
+                    }),
+            );
+        }
+
+        let Some(source) = layers.source.as_ref() else {
             return;
         };
         // Source indices belong to this exact entity catalog, including after a live pack reload.
@@ -72,10 +119,22 @@ impl UiPresentationRuntime {
         if catalog.source_manifest_sha256() != source.assets.source_manifest_sha256() {
             return;
         }
-        let wanted: Vec<_> = output
-            .render
+        let paper_output = local.paper_doll_layers();
+        let outputs = [(false, paper_output.as_ref()), (true, ui_output.as_ref())];
+        let wanted: Vec<_> = outputs
             .iter()
-            .filter(|layer| layer.geometry.is_some())
+            .flat_map(|(is_live, output)| {
+                output
+                    .iter()
+                    .flat_map(|output| output.render.iter())
+                    .filter(move |layer| {
+                        if *is_live {
+                            layer.geometry.is_some() || rig.skin_geometry.is_none()
+                        } else {
+                            layer.geometry.is_some()
+                        }
+                    })
+            })
             .map(|layer| layer.source)
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -126,38 +185,30 @@ impl UiPresentationRuntime {
                 * Vec3::from_array(rig.axis_scale)
                 * (rig.scale / super::super::player_preview::PLAYER_MODEL_SCALE),
         );
-        for layer in output.render.iter() {
-            let Some(id) = layer.geometry else { continue };
-            let Some(icon) = layers.icons.get(&layer.source).copied() else {
-                continue;
-            };
-            if let std::collections::btree_map::Entry::Vacant(entry) = layers.geometries.entry(id) {
-                let Ok(geometry) = render_model::entity_geometry(
-                    &source.assets,
-                    id as usize,
-                    EntityRigId(rig.rig.0),
-                ) else {
+        for live in &mut layers.live {
+            if live.layer.geometry.is_some() || rig.skin_geometry.is_none() {
+                live.icon = layers.icons.get(&live.layer.source).copied();
+            }
+            if live.layer.geometry.is_some() && live.icon.is_some() {
+                live.model = capture_layer(
+                    &mut layers.geometries,
+                    source,
+                    &live.layer,
+                    rig.rig.0,
+                    self.gui_models.live_player.frame,
+                );
+            }
+        }
+        if let Some(output) = paper_output {
+            for layer in output.render.iter() {
+                let Some(icon) = layers.icons.get(&layer.source).copied() else {
                     continue;
                 };
-                entry.insert(geometry);
-            }
-            let Some(pose) = layer
-                .pose
-                .iter()
-                .map(render_bone)
-                .collect::<Option<Vec<_>>>()
-            else {
-                continue;
-            };
-            let mut model = ModelGeometry::default();
-            model.capture(&layers.geometries[&id], &pose, frame);
-            for bone in layer.hidden_bones.iter().copied() {
-                if let Some(transform) = model.transforms.get_mut(bone as usize) {
-                    *transform = Affine3A::from_scale(Vec3::ZERO);
+                if let Some(model) =
+                    capture_layer(&mut layers.geometries, source, layer, rig.rig.0, frame)
+                {
+                    layers.layers.push((model, layer.clone(), icon));
                 }
-            }
-            if model.geometry.is_some() {
-                layers.layers.push((model, layer.clone(), icon));
             }
         }
         if changed {
@@ -172,11 +223,45 @@ impl UiPresentationRuntime {
             });
             if !admitted {
                 layers.layers.clear();
+                for live in &mut layers.live {
+                    live.icon = None;
+                    live.model = None;
+                }
                 layers.icons.clear();
                 layers.selected.clear();
             }
         }
     }
+}
+
+/// Resolves and poses controller-owned geometry through the same catalog cache for both views.
+fn capture_layer(
+    geometries: &mut BTreeMap<u32, ActorRigGeometry>,
+    source: &assets::SessionEntityPack,
+    layer: &actor_animation::RenderTextureLayer,
+    rig: u32,
+    frame: Affine3A,
+) -> Option<ModelGeometry> {
+    let id = layer.geometry?;
+    if let std::collections::btree_map::Entry::Vacant(entry) = geometries.entry(id) {
+        entry.insert(
+            render_model::entity_geometry(&source.assets, id as usize, EntityRigId(rig)).ok()?,
+        );
+    }
+    let pose = layer
+        .pose
+        .iter()
+        .map(render_bone)
+        .collect::<Option<Vec<_>>>()?;
+    let mut model = ModelGeometry::default();
+    model.capture(&geometries[&id], &pose, frame);
+    for bone in layer.hidden_bones.iter().copied() {
+        if let Some(transform) = model.transforms.get_mut(bone as usize) {
+            *transform = Affine3A::from_scale(Vec3::ZERO);
+        }
+    }
+    model.geometry.as_ref()?;
+    Some(model)
 }
 
 #[cfg(test)]

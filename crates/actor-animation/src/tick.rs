@@ -689,8 +689,11 @@ pub(super) fn evaluate_state(
     let local = pose::sample_clips_reused(
         &evaluator,
         &mut variables,
-        &state.bones,
-        pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+        state.animated_skeleton().0,
+        {
+            let (_, names, channels) = state.animated_skeleton();
+            pose::ChannelBones::bound(names, channels)
+        },
         &weighted_clips,
         budget,
     )?
@@ -707,7 +710,7 @@ pub(super) fn evaluate_state(
         .and_then(|_| super::head_rotation::angles(&state.bones, &state.bone_names, &local));
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
-    let render = super::render::evaluate_render(
+    let render = super::render::evaluate_posed_render(
         &evaluator,
         &mut variables,
         super::render::RenderRig {
@@ -720,31 +723,21 @@ pub(super) fn evaluate_state(
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         },
+        &weighted_clips,
+        samples_motion.then_some(&mut motion_layers),
+        !state.initialized,
         budget,
-    )
-    .and_then(|layers| {
-        let Some(mut layers) = layers else {
-            return Ok(None);
-        };
-        let posed = super::render::pose_layers(
-            &evaluator,
-            &mut variables,
-            &state.layer_skeletons,
-            &weighted_clips,
-            &mut layers,
-            samples_motion.then_some(&mut motion_layers),
-            budget,
-        );
-        if !state.initialized {
-            posed?;
-        }
-        Ok(Some(layers))
-    });
+    );
     let render = match render {
         Ok(layers) => layers,
         Err(error) if !state.initialized => return Err(error),
-        Err(_) => None,
+        Err(_) => super::render::RenderEvaluation {
+            layers: None,
+            visibility: state.visibility,
+        },
     };
+    let visibility = render.visibility;
+    let render = render.layers;
     let skin_layers = super::skin_layers::evaluate(
         state,
         &evaluator,
@@ -759,7 +752,8 @@ pub(super) fn evaluate_state(
             current: local,
             mask: state.motion_sampling.as_ref().unwrap().mask(
                 assets,
-                &state.bone_names,
+                state.animated_skeleton().1,
+                Some(state.animated_skeleton().2),
                 weighted_clips.iter().copied(),
                 None,
             ),
@@ -776,6 +770,7 @@ pub(super) fn evaluate_state(
                         mask: state.motion_sampling.as_ref().unwrap().mask(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            None,
                             weighted_clips.iter().copied(),
                             Some(geometry),
                         ),
@@ -789,6 +784,7 @@ pub(super) fn evaluate_state(
         head_angles,
         skin_layers,
         render,
+        visibility,
         scale,
         held_item_scale,
         controllers,
@@ -835,6 +831,8 @@ pub(super) fn apply_engine_variables(
     let (brandishing, charge) = super::brandish::brandish_spear(actor, context, input);
     variables.set(engine.is_brandishing_spear, truth(brandishing));
     variables.set(engine.charge_amount, charge);
+    let brushing = super::brush::using_brush(actor, context, input);
+    variables.set(engine.is_using_brush, truth(brushing));
     variables.set(
         engine.damage_nearby_mobs,
         flag(ActorFlag::DamageNearbyMobs.wire_value()),

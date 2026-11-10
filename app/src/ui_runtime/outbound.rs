@@ -8,13 +8,27 @@ use client_runtime::network::NetworkHandle;
 use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::interaction::{ChatFlushError, flush_chat_sends, flush_inventory_send};
 
+/// Reconciles revoked destroy carriers before inventory gestures read their backing stacks.
+pub(crate) fn reconcile_mining_inventory(
+    mut movement: ResMut<client_interaction::movement::MovementTicker>,
+    mut player_runtime: ResMut<client_state::PlayerRuntime>,
+) {
+    if let Some(revoked) = movement.take_revoked_mining() {
+        revoked.settle_inventory(player_runtime.inventory.ledger_mut());
+    }
+}
+
 /// Flushes committed inventory intent through the session FIFO, retaining backpressured packets.
 pub(crate) fn flush_inventory_network(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     time: Res<Time<Real>>,
     mut runtime: ResMut<UiRuntimeResource>,
     network: Res<NetworkHandle<PackApplication>>,
+    mut movement: ResMut<client_interaction::movement::MovementTicker>,
 ) {
+    if let Some(revoked) = movement.take_revoked_mining() {
+        revoked.settle_inventory(player_runtime.inventory.ledger_mut());
+    }
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     match flush_inventory_send(&mut player_runtime, &mut runtime, now_millis, |packet| {
         network.send_inventory_packet(packet)

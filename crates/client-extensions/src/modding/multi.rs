@@ -822,6 +822,8 @@ pub struct Merged {
     /// The earliest active, granted mod supplies the complete control vector.
     pub movement_input: Option<mod_host::GameplayMovementInput>,
     pub rig: Option<GameplayCameraRig>,
+    pub yaw_offset: Option<f32>,
+    pub perspective: Option<mod_api::native_camera::Perspective>,
     pub view_scale: Option<[f32; 2]>,
     pub view_tilt: Option<mod_api::native_camera::ViewTilt>,
     pub delta: Option<CameraDelta>,
@@ -883,6 +885,8 @@ impl Merged {
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());
+        self.yaw_offset = self.yaw_offset.or(host.camera_yaw_offset());
+        self.perspective = self.perspective.or(host.camera_perspective());
         self.view_scale = self.view_scale.or(host.camera_view_scale());
         self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
         self.time_override = self.time_override.or(host.time_override());

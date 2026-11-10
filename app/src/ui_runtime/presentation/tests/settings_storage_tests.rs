@@ -16,7 +16,7 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     let layout = launcher::test_support::scratch("storage-ui");
     std::fs::create_dir_all(layout.resource_pack_cache_dir()).unwrap();
     std::fs::write(
-        layout.resource_pack_cache_dir().join("fixture-pack"),
+        layout.resource_pack_cache_dir().join("fixture-pack.mcpack"),
         [0; 1024],
     )
     .unwrap();

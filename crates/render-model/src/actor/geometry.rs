@@ -18,6 +18,9 @@ const ENTITY_FACES: [[usize; 4]; 6] = [
     [0, 1, 5, 4], // down, with the texture's V reversed relative to up
 ];
 
+/// Faces of [`ENTITY_FACES`] in the order a cube draws them: down, then up, then east and west.
+const ENTITY_FACE_DRAW_ORDER: [usize; 6] = [0, 1, 5, 4, 2, 3];
+
 /// Emits a cube in the rig frame: authored X is mirrored so the model's right side is +X,
 /// matching the renderer's right-handed actor space.
 /// Extra mirror/inflate are caller adjustments; carrier/skin cubes already resolve bone defaults.
@@ -137,11 +140,13 @@ fn append_cube_vertices(
     } else {
         [0, 3, 2, 0, 2, 1]
     };
+    // A solid cube draws down, then up, then its east and west faces, as vanilla does; that
+    // decides what a material skipping the depth test shows where the faces overlap.
     let faces: &[usize] = match zero_axes.first() {
         Some(0) => &[3, 2],
         Some(1) => &[4, 5],
         Some(2) => &[0, 1],
-        _ => &[0, 1, 2, 3, 4, 5],
+        _ => &ENTITY_FACE_DRAW_ORDER,
     };
     // Coincident faces remain independent: a nocull quad can show through a transparent
     // opposite quad. Choosing its UV by view direction would implicitly cull that face.

@@ -33,10 +33,9 @@ pub(crate) fn observe_mount_jump_input(
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.set_mount_jump_held(input.phase(semantic_input::Action::Jump).held, now_millis);
     runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
-}
-
-pub(crate) fn platform_safe_area_insets() -> SafeArea {
-    SafeArea::ZERO
+    if let Some(snapshot) = input.snapshot() {
+        runtime.set_input_mode(snapshot.input_mode);
+    }
 }
 
 /// Resources beyond Bevy's sixteen-parameter limit.
@@ -163,6 +162,7 @@ pub(crate) fn prepare_ui_runtime(
     runtime.advance_item_activation(now_millis);
     runtime.advance_form_handoff(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
+    runtime.set_control_settings(Arc::clone(&settings_snapshot.0));
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -192,18 +192,7 @@ pub(crate) fn prepare_ui_runtime(
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let bottom =
-            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
-        let safe = platform_safe_area_insets();
-        presentation.set_safe_area(
-            SafeArea::new(
-                safe.left(),
-                safe.top(),
-                safe.right(),
-                safe.bottom().max(bottom),
-            )
-            .unwrap_or(safe),
-        );
+        presentation.set_safe_area(client_shell::platform_text::safe_area_insets(dpi_scale));
     }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
@@ -364,7 +353,7 @@ pub(crate) fn prepare_ui_runtime(
     let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.perspective(),
+        Some(&*camera_settings),
         server_camera.as_deref(),
     );
     let java_held_item = camera_settings.feel().java_animations
@@ -433,7 +422,7 @@ pub(crate) fn prepare_ui_runtime(
             .stream
             .as_ref()
             .map(|stream| stream.authority().inventory_ui()),
-        camera_settings.perspective(),
+        camera_settings.rendered_perspective(),
         now_millis,
         icon_frames,
     );
@@ -451,12 +440,35 @@ pub(crate) fn prepare_ui_runtime(
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame_mut().locator_view =
+        cameras
+            .single()
+            .ok()
+            .and_then(|(_, transform, projection)| {
+                let Projection::Perspective(projection) = projection else {
+                    return None;
+                };
+                Some(ui_screens::hud_renderers::LocatorView {
+                    position: transform.translation.to_array(),
+                    forward: transform.forward().to_array(),
+                    right: transform.right().to_array(),
+                    vertical_fov: projection.fov,
+                })
+            });
     presentation.hud_frame_mut().death_screen =
         menu_visible && menu_scene == Some(launcher::menu::MenuScreen::Death);
     presentation.hud_frame_mut().dimension = client_world
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
+    runtime.observe_locator_actors(presentation.hud_frame().dimension, |id| {
+        client_world
+            .stream
+            .as_ref()?
+            .authority()
+            .actor_by_unique_id(id)?
+            .interpolated_position(actor_partial.0.clamp(0.0, 1.0))
+    });
     presentation.hud_frame_mut().world_time = Some(
         client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
     );

@@ -15,6 +15,7 @@ reads = [
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/launcher-host/src/marketplace/fixtures/*.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
@@ -161,6 +162,9 @@ wgpu = { workspace = true, features = ["gles"] }
 libc = "0.2"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
+
 # The display link that requests full ProMotion and window refresh rates.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
@@ -177,6 +181,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+base64 = "0.22"
 resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }

@@ -240,8 +240,9 @@ impl Fixture {
     fn new(name: &str) -> Option<Self> {
         let gpu = Gpu::for_fixture(name)?;
         let storage = wgpu::BufferUsages::STORAGE;
-        let mut atmosphere = [0.0; 32];
+        let mut atmosphere = [0.0; 40];
         atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
+        atmosphere[36..39].copy_from_slice(&render_model::celestial::rgb_to_gamma([0.6, 0.7, 0.9]));
         atmosphere[19] = 1.0e6;
         atmosphere[20] = 2.0e6;
         let table = render_model::LightmapInputs::default().build();
