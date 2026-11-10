@@ -373,6 +373,10 @@ pub(super) fn prepare_actor_pipelines(
         let counts = std::iter::once(*msaa).chain(requested);
         for msaa in counts.flat_map(crate::pipeline_warmup::sample_modes) {
             let view = (msaa, camera.hdr, enhanced.is_some());
+            if pipeline.prewarm(&cache, view.0, view.1, view.2).is_none() {
+                ready = false;
+                continue;
+            }
             // A session's authored materials compile once per view, when its pack loads.
             if !pipeline.session_rasters.1.contains(&view) {
                 let session = std::sync::Arc::clone(&pipeline.session_rasters.0);
@@ -387,12 +391,9 @@ pub(super) fn prepare_actor_pipelines(
                     pipeline.session_rasters.1.push(view);
                 }
             }
-            ready &= pipeline
-                .prewarm(&cache, msaa, camera.hdr, enhanced.is_some())
-                .is_some()
-                && changed
-                    .as_ref()
-                    .is_none_or(|frame| pipeline.prewarm_frame(&cache, view, &frame.rig).is_some())
+            ready &= changed
+                .as_ref()
+                .is_none_or(|frame| pipeline.prewarm_frame(&cache, view, &frame.rig).is_some())
                 && pipeline.ready(&cache, msaa, camera.hdr, enhanced.is_some());
         }
     }

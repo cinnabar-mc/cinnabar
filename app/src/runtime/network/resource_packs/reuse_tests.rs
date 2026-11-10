@@ -560,7 +560,10 @@ fn the_post_join_reload_publishes_the_join_outputs() {
     let ui = app
         .world()
         .resource::<client_shell::ui_resources::UiRuntimeResource>();
-    assert!(same(&ui.session_glyphs().cloned(), &joined.glyph_sheets));
+    assert!(same(
+        &Some(ui.session_glyphs().clone()),
+        &joined.glyph_sheets
+    ));
     assert!(same(&ui.server_ui().cloned(), &joined.server_ui));
     let world = app.world().resource::<crate::runtime::world::ClientWorld>();
     assert!(same(&world.pack_entities, &joined.entities));

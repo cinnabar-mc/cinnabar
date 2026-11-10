@@ -1246,7 +1246,9 @@ and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the default
 branch. Whole-model material arrays and ternaries retain one controller layer and
 evaluate each material decision once, after activation and before authored part
-visibility. Render-controller expressions share frame dependency analysis, keeping
+visibility. Bone material bindings preserve that selection on unbound bones; material-only
+bindings load installed entity definitions and their referenced resources.
+Render-controller expressions share frame dependency analysis, keeping
 camera-driven choices live between ticks. Dynamic per-bone material rules, selector
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a
@@ -1429,11 +1431,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   once when their queued presentation begins. Native sound timing and matched live
   achievement notification acceptance remain incomplete.
   Titles, subtitles, the action bar and non-raw chat replace `:_input_<binding>:` with the
-  bound control's controls-screen label when they arrive. Vanilla draws mouse-button, gamepad
-  and touch controls as icons through its emoticon list (`font/emoticons`) and glyph sheets,
-  which the fetched pack lacks; Cinnabar shows the controls-screen text instead, and touch
-  reads the keyboard bindings. `:_gamepad_<button>:` names, other `:name:` emoticons and the
-  vanilla key-name table are not implemented. These remain incomplete.
+  bound control when they arrive, and `:_gamepad_<button>:` with the Xbox emoticon after the
+  A/B and X/Y swap options; then listed `:name:` emoticons become private-use glyphs. Keys
+  keep their controls-screen names, while mouse buttons and gamepad controls use their
+  emoticons. Vanilla reads its emoticon list from the game's own `font/emoticons` file and
+  draws it from built-in glyph pages, neither of which the fetched pack has. Cinnabar lists
+  only the 16 Xbox and 3 mouse emoticons and draws them with original art on page E0 beneath
+  pack glyph pages. Named label faces draw private-use glyphs they lack from the default
+  font at its size; whether vanilla's named fonts do is unverified. The code points follow
+  community documentation and are unverified against the game's list. Other vanilla emoticons, a pack's own `font/emoticons.json` (its
+  code-point key is unverified), left-stick direction tokens, the light-variant tokens, touch
+  icons (touch still names the keyboard bindings with text) and the vanilla key-name table
+  are not implemented. These remain incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.

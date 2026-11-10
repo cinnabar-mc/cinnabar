@@ -27,7 +27,7 @@ struct Binding {
 }
 
 /// Mask textures matching bindings assign to one block state's material instances.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct StateMasks(Vec<(Option<Box<str>>, pack_entity_compiler::BlockMaskPaths)>);
 
 impl StateMasks {
@@ -139,8 +139,8 @@ struct VanillaBinding {
 impl Builder<'_> {
     /// Rebinds vanilla blocks that bindings name, in the bound states, to copies of their
     /// materials drawn with the binding's render method and masks: full cubes through their
-    /// faces, model blocks through a copy of their template span. Tinted cubes keep their base
-    /// materials.
+    /// faces, blended cubes through a full-block model, and model blocks through a copy of
+    /// their template span. Tinted cubes keep their base materials.
     pub(super) fn bind_vanilla_blocks(&mut self, keys: &MaterialKeys, bindings: &MaterialBindings) {
         let Some(base) = self.base_assets else {
             return;
@@ -215,16 +215,33 @@ impl Builder<'_> {
                 continue;
             }
             let mut faces = [None; 6];
+            let effective = self
+                .overlay
+                .face_overrides
+                .iter()
+                .find(|(visual, _)| *visual == source.visual)
+                .map(|(_, faces)| *faces)
+                .unwrap_or([None; 6]);
             for face in assets::BlockFace::ALL {
                 let id = block.face(face).material_id();
                 if base.material(id).flags & assets::MATERIAL_FLAG_TINT_MASK != 0 {
                     faces = [None; 6];
                     break;
                 }
-                faces[face as usize] = self.bound_material(keys, base, id, bound);
+                faces[face as usize] = match effective[face as usize] {
+                    Some(id) => self.bound_overlay_material(id, bound),
+                    None => self.bound_material(keys, base, id, bound),
+                };
             }
             if faces.iter().all(Option::is_none) {
                 continue;
+            }
+            if bound.method.blends() {
+                self.bind_cube_model(
+                    source.visual,
+                    faces.map(|material| material.unwrap_or(DIAGNOSTIC_MATERIAL)),
+                    bound.method,
+                );
             }
             match self
                 .overlay
@@ -242,6 +259,54 @@ impl Builder<'_> {
                 None => self.overlay.face_overrides.push((source.visual, faces)),
             }
         }
+    }
+
+    /// Draws a bound cube's six effective faces through the model transparency path.
+    fn bind_cube_model(&mut self, visual: u32, faces: [u32; 6], method: BlockRenderMethod) {
+        let geometry = super::Geometry::full_block();
+        let template = self.overlay.model_templates.len() as u32;
+        self.overlay.model_templates.push(assets::ModelTemplate {
+            quad_start: self.overlay.model_quads.len() as u32,
+            quad_count: faces.len() as u32,
+            flags: 0,
+        });
+        for (quad, _) in geometry.cubes[0].quads() {
+            self.overlay.model_quads.push(
+                super::quantize(
+                    &quad,
+                    &geometry,
+                    &CustomVisualComponents::default(),
+                    faces[quad.face],
+                    method.two_sided(),
+                )
+                .expect("unit cube fits model coordinates"),
+            );
+        }
+        self.overlay.template_overrides.push((visual, template));
+    }
+
+    /// Copies an already rebound face and its positional choices, keeping its art and timing.
+    fn bound_overlay_material(&mut self, id: u32, bound: VanillaBinding) -> Option<u32> {
+        let mut material = self.overlay.materials[id as usize];
+        let flags = self.bound_flags(material.flags, bound.method)?;
+        if !self.can_admit_materials(material.variation_count as usize + 1) {
+            return None;
+        }
+        if material.variation_count != 0 {
+            let start = material.variation_start as usize;
+            let leaves =
+                self.overlay.materials[start..][..material.variation_count as usize].to_vec();
+            material.variation_start = self.overlay.materials.len() as u32;
+            self.overlay.materials.extend(
+                leaves
+                    .into_iter()
+                    .map(|leaf| assets::Material { flags, ..leaf }),
+            );
+        }
+        material.flags = flags;
+        let id = self.overlay.materials.len() as u32;
+        self.overlay.materials.push(material);
+        Some(self.masked_material(id, bound.masks, bound.strength))
     }
 
     /// An overlay copy of base material `id`'s terrain art drawn with `bound`'s render method

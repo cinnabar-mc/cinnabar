@@ -149,6 +149,19 @@ pub fn validate(value: &Value) -> Result<(), Box<str>> {
     parse(value).map(|_| ())
 }
 
+/// Entity identifiers targeted by a valid document; invalid documents target nothing.
+pub fn entity_targets(value: &Value) -> Vec<Box<str>> {
+    parse(value)
+        .map(|extension| {
+            extension
+                .entity_bindings
+                .into_iter()
+                .map(|binding| binding.entity)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Validates a document, or says why it is ignored.
 pub(crate) fn parse(value: &Value) -> Result<Extension, Box<str>> {
     let document = Document::deserialize(value)

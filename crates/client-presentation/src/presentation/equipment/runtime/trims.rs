@@ -110,19 +110,15 @@ impl EquipmentRuntime {
         draw: &mut render_model::ActorRigSubmission,
         worn: bool,
     ) -> Option<(EquipmentRaster, EntityRigId)> {
-        let page = artwork
-            .pages()
-            .get(usize::from(location.page()).checked_sub(1)?)?;
-        let color_mask = page.color_mask
-            || draw.material.color_mask
-            || draw.material.state.is_some_and(|state| state.color_mask);
+        let color_mask =
+            draw.material.color_mask || draw.material.state.is_some_and(|state| state.color_mask);
         let dye = (color_mask && draw.tint != 0).then(|| {
             let [r, g, b, _] = draw.tint.to_le_bytes();
             let coverage = (draw.material.color_mask || draw.material.state.is_none())
                 && !draw
                     .material
                     .state
-                    .is_some_and(|state| state.blend || state.emissive);
+                    .is_some_and(|state| draw.material.raster().blend.is_some() || state.emissive);
             Dye {
                 rgb: [r, g, b],
                 alpha: if coverage {

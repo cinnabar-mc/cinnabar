@@ -789,6 +789,36 @@ fn geometry_collection_bounds_parallel_parse_input() {
 }
 
 #[test]
+fn material_merges_match_declarations_by_name_across_large_files() {
+    const COUNT: usize = 20_000;
+    let lower = (0..COUNT)
+        .map(|index| {
+            (
+                format!("m{index}:base"),
+                json!({"lower": index, "kept": true}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let upper = (0..COUNT)
+        .map(|index| (format!("m{index}:other"), json!({"upper": index})))
+        .chain([("new".to_owned(), json!({"upper": "new"}))])
+        .collect::<serde_json::Map<_, _>>();
+    let mut merged = serde_json::Value::Object(lower);
+    super::patch_material_json(&mut merged, &serde_json::Value::Object(upper));
+    let merged = merged.as_object().unwrap();
+    assert_eq!(merged.len(), COUNT + 1);
+    for index in [0, COUNT / 2, COUNT - 1] {
+        assert!(!merged.contains_key(&format!("m{index}:base")));
+        assert_eq!(
+            merged[&format!("m{index}:other")],
+            json!({"lower": index, "kept": true, "upper": index}),
+            "the higher spelling keeps the lower fields it does not replace"
+        );
+    }
+    assert_eq!(merged["new"], json!({"upper": "new"}));
+}
+
+#[test]
 fn declared_entity_images_use_pack_relative_paths_with_base_definitions() {
     macro_rules! source {
         ($path:literal) => {
@@ -1152,6 +1182,23 @@ fn inert_overrides_find_installed_entities_by_identifier_and_compatible_version(
             );
         }
     }
+}
+
+#[test]
+fn the_highest_material_bindings_file_shadows_lower_copies_even_when_invalid() {
+    let path = pack_entity_compiler::MATERIAL_BINDINGS_PATH;
+    let lower = archive_with(1, path, json!({"format_version":"1.0.0"}));
+    let upper = archive_with(2, path, json!({"format_version":"9.9.9"}));
+    let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+        protocol::ResourcePackHandoff::from_archives(vec![upper, lower]),
+    ));
+    let files = super::collect_files(&view, None, None);
+    let collected = files
+        .iter()
+        .filter(|(file, _)| file.as_ref() == path)
+        .map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(bytes).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(collected, [json!({"format_version":"9.9.9"})]);
 }
 
 #[path = "material_tests.rs"]

@@ -243,12 +243,14 @@ impl ActorArtworkPages {
                 [width, height],
                 multitexture,
                 |_| None,
-                |indices| {
+                |indices, limit| {
+                    let [page_width, page_height] = crate::fitted_dimensions(width, height, limit);
                     let page = ActorTexturePage {
-                        width,
-                        height,
+                        width: page_width,
+                        height: page_height,
                         layers: indices.len() as u32,
-                        rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
+                        rgba8: multitexture::page_pixels(catalog, indices, width, height, limit)
+                            .into(),
                         multitexture,
                     };
                     (page, ())
@@ -402,7 +404,7 @@ impl ActorArtworkPages {
                 [width, height],
                 false,
                 |_| None,
-                |indices| {
+                |indices, _| {
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());
                     hasher.update((indices.len() as u32).to_le_bytes());
@@ -500,7 +502,8 @@ impl ActorArtworkPages {
                 [width, height],
                 multitexture,
                 companion,
-                |indices| {
+                |indices, limit| {
+                    let [page_width, page_height] = crate::fitted_dimensions(width, height, limit);
                     hasher.update(width.to_le_bytes());
                     hasher.update(height.to_le_bytes());
                     hasher.update((indices.len() as u32).to_le_bytes());
@@ -512,12 +515,14 @@ impl ActorArtworkPages {
                     hasher.update([u8::from(multitexture)]);
                     let layers: Vec<_> = indices
                         .iter()
-                        .map(|index| multitexture::replicated(&textures[*index], width, height))
+                        .map(|index| {
+                            multitexture::replicated(&textures[*index], width, height, limit)
+                        })
                         .collect();
                     let (key, pixels) = pixel_cache::pack(layers.iter(), &mut hasher);
                     let page = ActorTexturePage {
-                        width,
-                        height,
+                        width: page_width,
+                        height: page_height,
                         layers: indices.len() as u32,
                         rgba8: pixels,
                         multitexture,

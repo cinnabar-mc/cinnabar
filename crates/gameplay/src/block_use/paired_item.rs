@@ -47,8 +47,9 @@ pub fn paired_item_fits(
     let replaceable = |cell| read(cell).is_some_and(|fact| fact.traits.contains(T::REPLACEABLE));
     let supported = |cell: [i32; 3]| {
         build_height.contains(&(cell[1] - 1))
+            // Native liquid blocks, bubble columns included, provide no top support.
             && read([cell[0], cell[1] - 1, cell[2]]).is_some_and(|fact| {
-                !fact.traits.contains(T::AIR)
+                !fact.traits.intersects(T::AIR | T::WATER | T::LAVA)
                     && !matches!(
                         fact.support,
                         SupportKind::Air
