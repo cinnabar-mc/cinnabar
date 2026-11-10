@@ -95,8 +95,11 @@ fn each_kind_keeps_its_nearest_rows_behind_nearer_actors_of_the_other_kind() {
             vec![],
         );
     }
+    // Beyond every player, yet within range, so only a per-kind selection keeps them.
+    let beyond_players = (2 + players) as f32 + 8.;
+    assert!(beyond_players + 1. <= mod_api::OBSERVED_ACTOR_RANGE_BLOCKS);
     for (index, runtime_id) in [100_u64, 101].into_iter().enumerate() {
-        let position = [0., 0., 60. + index as f32];
+        let position = [0., 0., beyond_players + index as f32];
         let id = (runtime_id, runtime_id as i64);
         spawn(&mut authority, runtime_id, id, zombie(), position, vec![]);
     }

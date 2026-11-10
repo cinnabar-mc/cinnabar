@@ -827,7 +827,7 @@ mod tests {
     fn nearest_observations_allocation_benchmark() {
         let template = actor_template();
         let mut bounded_bytes = None;
-        for count in [16, 100, 1000] {
+        for count in [mod_api::MAX_OBSERVED_ACTORS, 100, 1000] {
             let actors = crowd(&template, count);
             let (old, before) = test_alloc::measure(|| full_sort_nearest(actors.iter(), [0.; 3]));
             let (new, after) =
