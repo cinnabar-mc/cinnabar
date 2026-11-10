@@ -212,6 +212,9 @@ impl InventorySession {
         if cells.iter().all(Option::is_none) {
             return crate::CraftGridMatch::NoMatch;
         }
+        if let Some(recipe) = ledger.shield_craft(catalog) {
+            return crate::CraftGridMatch::Shield(recipe);
+        }
         let items: Vec<_> = cells
             .iter()
             .map(|cell| {
@@ -249,20 +252,29 @@ impl InventorySession {
                 crate::CraftGridMatch::NoMatch => "no_match",
                 crate::CraftGridMatch::Ambiguous => "ambiguous",
                 crate::CraftGridMatch::Unique(_) => "unique",
+                crate::CraftGridMatch::Shield(_) => "shield",
             }, "manual crafting requested");
-        let crate::CraftGridMatch::Unique(recipe) = matched else {
-            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
-        };
-        self.ledger_mut().begin_craft_into(&recipe, 1, sink)
+        match matched {
+            crate::CraftGridMatch::Unique(recipe) => {
+                self.ledger_mut().begin_craft_into(&recipe, 1, sink)
+            }
+            crate::CraftGridMatch::Shield(recipe) => {
+                self.ledger_mut().begin_shield_craft(&recipe, sink)
+            }
+            _ => Err(super::inventory_ledger::InventoryGestureError::InvalidRequest),
+        }
     }
 
     /// Crafts the grid's unique recipe as many times as it fits, shift-click style.
     pub fn begin_crafting_all(
         &mut self,
     ) -> Result<i32, super::inventory_ledger::InventoryGestureError> {
-        let crate::CraftGridMatch::Unique(recipe) = self.crafting_match() else {
-            return Err(super::inventory_ledger::InventoryGestureError::InvalidRequest);
-        };
-        self.ledger_mut().begin_craft_all(&recipe)
+        match self.crafting_match() {
+            crate::CraftGridMatch::Unique(recipe) => self.ledger_mut().begin_craft_all(&recipe),
+            crate::CraftGridMatch::Shield(recipe) => self
+                .ledger_mut()
+                .begin_shield_craft(&recipe, super::inventory_ledger::CraftSink::Inventory),
+            _ => Err(super::inventory_ledger::InventoryGestureError::InvalidRequest),
+        }
     }
 }

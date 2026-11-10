@@ -9,6 +9,8 @@ mod java_grip_facts_tests;
 #[path = "runtime/held_animation_tests.rs"]
 pub(super) mod held_animation_tests;
 
+#[path = "runtime/armor_geometry_tests.rs"]
+mod armor_geometry_tests;
 #[path = "runtime/legacy_combat_tests.rs"]
 mod legacy_combat_tests;
 #[path = "runtime/worn_texture_tests.rs"]
@@ -16,7 +18,6 @@ mod worn_texture_tests;
 
 use std::sync::Arc;
 
-use assets::IconSprite;
 use bevy::math::{Quat, Vec3};
 use render_model::{
     ACTOR_LAYER_BODY, ActorArtworkPages, ActorRenderIdentity, ActorRigRenderInput, ActorRigRoute,
@@ -27,20 +28,11 @@ use render_model::{EntityRigId, RenderBoneTransform};
 use {
     super::{
         armor::{bone_map, hidden_bone, pack_tint, remap_pose},
-        atlas::{ATLAS_SIDE, SpriteAtlas},
         display::{FirstPersonHand, FirstPersonShape, first_person_display},
         runtime::{FirstPersonArms, layer_presentation},
     },
     render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display},
 };
-
-fn sprite(side: u16, fill: u8) -> IconSprite {
-    IconSprite {
-        width: side,
-        height: side,
-        rgba8: vec![fill; usize::from(side) * usize::from(side) * 4].into(),
-    }
-}
 
 fn bone(translation: [f32; 3], scale: f32) -> RenderBoneTransform {
     RenderBoneTransform {
@@ -48,54 +40,6 @@ fn bone(translation: [f32; 3], scale: f32) -> RenderBoneTransform {
         translation_scale: [translation[0], translation[1], translation[2], scale],
         axis_scale: render_model::UNIT_AXIS_SCALE,
     }
-}
-
-#[test]
-fn atlas_places_sprites_without_overlap_and_copies_their_pixels() {
-    let sprites = [sprite(16, 1), sprite(32, 2), sprite(16, 3)];
-    let atlas = SpriteAtlas::pack(&sprites);
-    assert_eq!(atlas.layers.len(), 1);
-    let placements = atlas
-        .placements
-        .iter()
-        .map(|placement| placement.expect("every sprite fits"))
-        .collect::<Vec<_>>();
-    for (index, placement) in placements.iter().enumerate() {
-        let offset =
-            (usize::from(placement.y) * usize::from(ATLAS_SIDE) + usize::from(placement.x)) * 4;
-        assert_eq!(
-            atlas.layers[placement.layer].rgba8[offset],
-            sprites[index].rgba8[0]
-        );
-        for other in &placements[..index] {
-            let disjoint = placement.x + placement.width <= other.x
-                || other.x + other.width <= placement.x
-                || placement.y + placement.height <= other.y
-                || other.y + other.height <= placement.y;
-            assert!(disjoint);
-        }
-    }
-    let rect = placements[1].uv_rect();
-    assert!(rect[0] >= 0.0 && rect[2] <= 1.0 && rect[2] > rect[0] && rect[3] > rect[1]);
-}
-
-#[test]
-fn atlas_spills_into_extra_layers_and_skips_invalid_sprites() {
-    let size = ATLAS_SIDE.min(32);
-    let count = usize::from(ATLAS_SIDE).pow(2) / usize::from(size).pow(2) + 1;
-    let mut sprites = (0..count).map(|_| sprite(size, 9)).collect::<Vec<_>>();
-    sprites.push(IconSprite {
-        width: 4,
-        height: 4,
-        rgba8: Arc::from([0u8; 3]),
-    });
-    let atlas = SpriteAtlas::pack(&sprites);
-    assert!(
-        atlas.layers.len() > 1,
-        "sprites exceed a single atlas layer"
-    );
-    assert!(atlas.placements[..count].iter().all(Option::is_some));
-    assert!(atlas.placements[count].is_none());
 }
 
 #[test]
@@ -334,7 +278,9 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         overlay_rgba8: 0,
     };
     let worn = |identifier: &str| WornItem {
+        trim: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -404,8 +350,10 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
     ] {
         let input = ActorEquipmentInput {
             main: Some(WornItem {
+                trim: None,
                 variant: Default::default(),
                 map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip(identifier),
@@ -627,7 +575,9 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let (mut runtime, _) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let crown = WornItem {
+        trim: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:crown"),
@@ -662,7 +612,9 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        trim: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -728,8 +680,10 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let body = player_body(&mut runtime);
     let held = |identifier: &str| ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: if identifier == "test:blade" {
@@ -793,7 +747,9 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        trim: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:controller"),
@@ -961,8 +917,10 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
     body.overlay_rgba8 = 0x6600_00ff;
     let input = ActorEquipmentInput {
         main: Some(WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -1003,7 +961,9 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
     let mut body = player_body(&mut runtime);
     body.overlay_rgba8 = 0x6600_00ff;
     let item = WornItem {
+        trim: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -1037,6 +997,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         off: Some(item.clone()),
         armor: [
             Some(WornItem {
+                trim: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip("test:crown"),
                 identifier: Arc::from("test:crown"),
@@ -1089,7 +1050,9 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let plain = WornItem {
+        trim: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -1107,6 +1070,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let (_, locations) = pages.with_equipment_rasters(staged.rasters());
     runtime.set_session_items(Some(&items), Some(staged), locations);
     let glinting = WornItem {
+        trim: None,
         enchanted: true,
 
         glint: Default::default(),

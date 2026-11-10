@@ -6,7 +6,9 @@ impl HudEditor {
         preview.validate()?;
         let mut preview = preview.clone();
         for card in &mut preview.cards {
-            publication::prepare_card(card);
+            card.reset_anchor.get_or_insert(card.anchor);
+            card.reset_offset.get_or_insert(card.offset);
+            card.reset_scale.get_or_insert(card.scale);
         }
         let hidden: std::collections::HashSet<_> = preview
             .cards
@@ -23,7 +25,6 @@ impl HudEditor {
             toast: Default::default(),
             anchor_motion: None,
             committed: preview,
-            close_requested: false,
             reset: false,
             history_buttons: true,
             grid: false,
@@ -31,14 +32,11 @@ impl HudEditor {
             bypass_snap: false,
             data_dirty: true,
             snap_dirty: false,
-            row_icons: Vec::new(),
-            icons: Vec::new(),
             keep_out: Vec::new(),
             selected: None,
             hovered: None,
             drag: None,
             slider: None,
-            control_fills: Vec::new(),
             open: true,
             result: None,
             viewport: [0.; 2],

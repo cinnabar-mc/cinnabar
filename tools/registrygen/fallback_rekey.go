@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-// The protocol-2193 fallback rekey re-keys the provisional vanilla-fallback
-// identity table from protocol-1001 network hashes to protocol-2193 network
+// The protocol-2225 fallback rekey re-keys the provisional vanilla-fallback
+// identity table from protocol-1001 network hashes to protocol-2225 network
 // hashes without touching any visual payload. Entries join across the two
 // checked-in registries by the exact canonical name+state key the projection
 // pipeline uses, every entry must carry the identity fingerprint its joined
-// record derives, and an entry landing on a cinnabar:reserved v2193 record is
+// record derives, and an entry landing on a cinnabar:reserved v2225 record is
 // defensively excluded and counted. Network hashes are content-derived from
 // the canonical identity, so a vanilla identity that survives a protocol bump
 // keeps its hash while a genuinely re-keyed one moves; joining through the
@@ -65,7 +65,7 @@ type fallbackRekeyStats struct {
 }
 
 // rekeyedFallbackEntry is one emitted inventory row keyed by its new
-// protocol-2193 network hash with the source payload preserved verbatim.
+// protocol-2225 network hash with the source payload preserved verbatim.
 type rekeyedFallbackEntry struct {
 	networkHash uint32
 	bytes       [fallbackEntryBytes]byte
@@ -181,11 +181,15 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	if err != nil {
 		return fallbackRekeyStats{}, err
 	}
-	_, currentRecords, err := decodeBREGRecords(currentBytes, v2193BlockProtocol)
+	_, currentRecords, err := decodeBREGRecords(currentBytes, v2225BlockProtocol)
 	if err != nil {
 		return fallbackRekeyStats{}, err
 	}
-	output, stats, err := rekeyFallbackInventory(input, legacyRecords, currentRecords)
+	sourceRecords, err := v2225SourceRecords()
+	if err != nil {
+		return fallbackRekeyStats{}, err
+	}
+	output, stats, err := rekeyFallbackInventory(input, legacyRecords, currentRecords, sourceRecords)
 	if err != nil {
 		return fallbackRekeyStats{}, err
 	}
@@ -204,7 +208,7 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	}
 	manifest := vanillaFallbackSourceManifest{
 		Schema:              fallbackRekeySchema,
-		Protocol:            v2193BlockProtocol,
+		Protocol:            v2225BlockProtocol,
 		States:              stats.OutputEntries,
 		Names:               stats.DistinctNames,
 		ZeroVolumeEnvelopes: stats.ZeroVolume,
@@ -252,13 +256,42 @@ func writeRekeyedFallback(inputPath, legacyBREGPath, newBREGPath, outputPath, ma
 	return stats, nil
 }
 
-// rekeyFallbackInventory rewrites every input entry under its protocol-2193
+// reservedFallbackKeys resolves reserved target rows to their catalog identities.
+// Both exact and connection-reduced keys stay unavailable to the visual fallback.
+func reservedFallbackKeys(current, source []Record) (map[string]struct{}, error) {
+	byHash := make(map[uint32]Record, len(source))
+	for _, record := range source {
+		byHash[record.NetworkHash] = record
+	}
+	keys := make(map[string]struct{})
+	for _, record := range current {
+		if record.Name != retailReservedName {
+			continue
+		}
+		original, ok := byHash[record.NetworkHash]
+		if !ok {
+			continue
+		}
+		if original.SequentialID != record.SequentialID {
+			return nil, fmt.Errorf("reserved fallback record %d does not match its source", record.SequentialID)
+		}
+		reduced, err := v2225ReducedState(original.StateJSON)
+		if err != nil {
+			return nil, err
+		}
+		keys[canonicalRecordKey(original.Name, original.StateJSON)] = struct{}{}
+		keys[canonicalRecordKey(original.Name, reduced)] = struct{}{}
+	}
+	return keys, nil
+}
+
+// rekeyFallbackInventory rewrites every input entry under its protocol-2225
 // network hash. It fails closed naming each entry whose stored fingerprint
 // disagrees with its joined identity, or whose legacy or current identity is
 // unmatched, and excludes entries that land on reserved records while counting
 // them. Output entries are strictly sorted by the new network hash so the
 // runtime binary search stays valid.
-func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords []Record) ([]byte, fallbackRekeyStats, error) {
+func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords, sourceRecords []Record) ([]byte, fallbackRekeyStats, error) {
 	inputCount, err := parseFallbackInventoryHeader(input)
 	if err != nil {
 		return nil, fallbackRekeyStats{}, err
@@ -272,6 +305,10 @@ func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords []Record
 		}
 		legacyByHash[record.NetworkHash] = record
 	}
+	unavailable, err := reservedFallbackKeys(currentRecords, sourceRecords)
+	if err != nil {
+		return nil, fallbackRekeyStats{}, err
+	}
 	currentByKey := make(map[string]Record, len(currentRecords))
 	connectedByReducedKey := make(map[string][]Record)
 	for _, record := range currentRecords {
@@ -283,7 +320,7 @@ func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords []Record
 		if record.Name == retailReservedName {
 			continue
 		}
-		reduced, err := v2193ReducedState(record.StateJSON)
+		reduced, err := v2225ReducedState(record.StateJSON)
 		if err != nil {
 			return nil, fallbackRekeyStats{}, fmt.Errorf("current fallback BREG record %d: %w", record.SequentialID, err)
 		}
@@ -312,10 +349,14 @@ func rekeyFallbackInventory(input []byte, legacyRecords, currentRecords []Record
 		legacyKey := canonicalRecordKey(legacy.Name, legacy.StateJSON)
 		current, ok := currentByKey[legacyKey]
 		if !ok {
-			// A state that gained only 1.26.50 connection keys fans out to every
+			// A state that gained only 1.26.60 connection keys fans out to every
 			// connected variant, each re-fingerprinted for its own identity.
 			connected := connectedByReducedKey[legacyKey]
 			if len(connected) == 0 {
+				if _, reserved := unavailable[legacyKey]; reserved {
+					stats.ReservedExcluded++
+					continue
+				}
 				unmatched = append(unmatched, fmt.Sprintf("%s %s", legacy.Name, legacy.StateJSON))
 				continue
 			}

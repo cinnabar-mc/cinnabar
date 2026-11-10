@@ -1,6 +1,6 @@
 use bevy::{prelude::Resource, render::extract_resource::ExtractResource};
 use mod_api::MAX_BLOCK_HIGHLIGHTS;
-use mod_render::{RenderOutput, block_highlights, geometry::ModVertex, position_box};
+use mod_render::{RenderOutput, block_highlights, geometry::ModVertex};
 use std::sync::Arc;
 
 /// Requests host-owned skin preparation for a selected actor even when its main body is hidden.
@@ -47,11 +47,7 @@ pub struct ModRenderScene {
     pub vertices: Arc<[ModVertex]>,
     pub bundle_vertices: Vec<(mod_render::GpuLedger, Arc<[ModVertex]>)>,
     primitives: Arc<mod_render::Primitives>,
-    pub marker_vertices: Arc<[ModVertex]>,
-    position_box: Option<[[f32; 3]; 2]>,
     pub block_vertices: Arc<[ModVertex]>,
-    block_positions: Arc<[[i32; 3]]>,
-    block_color: [f32; 4],
     drawn_blocks: Arc<[mod_api::native_render::BlockHighlight]>,
 }
 
@@ -144,39 +140,7 @@ impl ModRenderScene {
         self.masks = Arc::clone(&output.masks);
     }
 
-    /// Publishes a host-owned own-position box independently of guest render output.
-    pub fn set_position_box(&mut self, bounds: Option<[[f32; 3]; 2]>) {
-        let bounds = bounds.filter(position_box::valid);
-        if self.position_box == bounds {
-            return;
-        }
-        self.position_box = bounds;
-        self.marker_vertices = match bounds {
-            Some(bounds) => {
-                let mut vertices = Vec::with_capacity(position_box::VERTICES);
-                position_box::append(&mut vertices, bounds);
-                vertices.into()
-            }
-            None => Arc::from([]),
-        };
-    }
-
-    /// Highlights loaded unit blocks through world geometry, independently of guest primitives.
-    pub fn set_block_highlights(&mut self, positions: &[[i32; 3]], color: [f32; 4]) {
-        let positions = &positions[..positions.len().min(MAX_BLOCK_HIGHLIGHTS)];
-        let valid = color
-            .iter()
-            .all(|v| v.is_finite() && (0.0..=1.0).contains(v));
-        let positions = if valid { positions } else { &[] };
-        if self.block_positions.as_ref() == positions && self.block_color == color {
-            return;
-        }
-        self.block_positions = Arc::from(positions);
-        self.block_color = color;
-        self.rebuild_block_highlights();
-    }
-
-    /// Adopts validated drawing highlights alongside host-discovered loaded-block selections.
+    /// Adopts a packet mod's validated block highlights, drawn through world geometry.
     pub fn set_drawn_block_highlights(
         &mut self,
         blocks: &[mod_api::native_render::BlockHighlight],
@@ -186,21 +150,10 @@ impl ModRenderScene {
             return;
         }
         self.drawn_blocks = Arc::from(blocks);
-        self.rebuild_block_highlights();
-    }
-
-    /// Both producers share geometry, depth and the existing combined vertex budget.
-    fn rebuild_block_highlights(&mut self) {
         self.block_vertices = block_highlights::build_styled(
-            self.block_positions
+            self.drawn_blocks
                 .iter()
-                .map(|position| (*position, self.block_color, None))
-                .chain(
-                    self.drawn_blocks
-                        .iter()
-                        .map(|block| (block.position, block.colour, block.outline.as_ref())),
-                )
-                .take(MAX_BLOCK_HIGHLIGHTS),
+                .map(|block| (block.position, block.colour, block.outline.as_ref())),
         )
         .into();
     }
@@ -226,7 +179,6 @@ impl ModRenderScene {
 
     pub fn vertex_count(&self) -> usize {
         self.vertices.len()
-            + self.marker_vertices.len()
             + self.block_vertices.len()
             + self
                 .bundle_vertices
@@ -240,8 +192,6 @@ impl ModRenderScene {
 mod block_highlights_tests;
 #[cfg(test)]
 mod layers_tests;
-#[cfg(test)]
-mod position_box_tests;
 
 /// Same-frame placement and GPU inputs for retained world drawing.
 pub mod retained;

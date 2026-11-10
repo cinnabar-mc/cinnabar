@@ -21,7 +21,7 @@ fn sword_pack_resolution_preserves_first_and_third_person_placement_in_both_mode
     let native = [
         first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Legacy112),
         first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Modern),
-        held_sprite_display(true),
+        held_sprite_display(render_model::equipment::SpriteGrip::HandEquipped),
     ]
     .map(|display| {
         Mat4::from_scale_rotation_translation(
@@ -105,7 +105,7 @@ fn sprite_idle_uses_a_camera_pose_not_the_third_person_grip() {
     assert!(idle.translation_scale[2] < -0.4);
     assert_ne!(
         idle.rotation,
-        render_model::equipment::held_sprite_display(false)
+        render_model::equipment::held_sprite_display(render_model::equipment::SpriteGrip::Flat)
             .rotation
             .to_array()
     );

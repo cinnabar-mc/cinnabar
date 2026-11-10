@@ -1,5 +1,5 @@
 //! Shared native GUI item coordinates for offline fallback baking and runtime model drawing.
-//! The matching 1.26.50.26 witnesses are recorded in docs/reference/inventory-gui-geometry.md.
+//! The matching 1.26.60.26 witnesses are recorded in docs/reference/inventory-gui-geometry.md.
 
 use crate::{BlockFace, EntityGeometryCube, EntityGeometryUv};
 
@@ -12,10 +12,11 @@ mod lighting;
 pub use lighting::{CubeLighting, cube_lighting};
 mod sculk_sensor;
 mod sculk_shrieker;
+mod shading;
 pub use block_model::{
-    GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
-    block_item_quads, carried_bamboo_fence_quads, carried_fence_quads, cube_face, face_brightness,
-    material_tile,
+    BlockModelOrder, GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE,
+    block_gui_quads, block_item_quads, carried_bamboo_fence_quads, carried_fence_quads, cube_face,
+    face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
 pub use dried_ghast::{DRIED_GHAST_TENTACLES, dried_ghast_quads};
@@ -23,6 +24,7 @@ pub use sculk_sensor::{
     SENSOR_CRYSTAL_MATERIAL, SENSOR_TENDRIL_BRIGHTNESS, SENSOR_TENDRIL_MATERIAL, sculk_sensor_quads,
 };
 pub use sculk_shrieker::sculk_shrieker_quads;
+pub use shading::{GuiShading, WORLD_SHADE_DOWN, WORLD_SHADE_UP, WORLD_SHADE_X, WORLD_SHADE_Z};
 
 /// Block items with an inventory bitmap whose held presentation retains the world model.
 #[must_use]
@@ -43,8 +45,14 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
 /// Glass panes hold a solid plate; other pane-family blocks retain their sprite artwork.
 #[must_use]
 pub fn has_carried_glass_plate(name: &str) -> bool {
-    name == "minecraft:glass_pane"
+    name == crate::facts::pack::PackBlock::GlassPane.identifier()
         || crate::facts::block_render_fact(name).kind == crate::facts::BlockRenderKind::StainedPane
+}
+
+/// Keeps accepted copper-grate GUI samples opaque independently of control fades.
+#[must_use]
+pub fn forces_covered_gui_alpha(kind: crate::facts::BlockRenderKind) -> bool {
+    kind == crate::facts::BlockRenderKind::CopperGrate
 }
 
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.

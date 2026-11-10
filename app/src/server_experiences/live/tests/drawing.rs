@@ -527,6 +527,7 @@ fn retained_scene(count: usize) -> mod_host::presentation::Output {
     let instance = retained::Instance {
         geometry,
         material: None,
+        clip: None,
         params: [0.; mod_api::materials::PARAMS],
         anchor: Anchor::Camera,
         transform: Default::default(),

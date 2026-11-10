@@ -14,17 +14,23 @@ use presentation::{
 pub(super) fn capture(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     window_icons: &mut WindowIcons,
 ) -> WindowText {
     let runtime = items.runtime;
     let inventory_screen = InventoryScreen::of_runtime(player_runtime, runtime);
     let mut window_text = WindowText::default();
+    if items
+        .presentation
+        .inventory_preparation_needed(player_runtime, runtime)
+    {
+        super::recipes::recipe_entries(player_runtime, items, inventory_screen, window_icons);
+    }
     if runtime.inventory_open() {
         capture_titles(
             player_runtime,
             runtime,
-            stream,
+            world,
             inventory_screen,
             &mut window_text,
         );
@@ -47,7 +53,7 @@ pub(super) fn capture(
 fn capture_titles(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     inventory_screen: InventoryScreen,
     window_text: &mut WindowText,
 ) {
@@ -64,16 +70,17 @@ fn capture_titles(
         .or_else(|| {
             ledger
                 .window_actor()
-                .and_then(|actor| stream?.authority().actor_container_name(actor))
+                .and_then(|actor| world?.actor_container_name(actor))
                 .map(|name| name.to_string())
                 .or_else(|| {
                     ledger
                         .window_position()
-                        .and_then(|position| stream?.block_entity_custom_name(position))
+                        .and_then(|position| world?.block_entity_custom_name(position.into()))
                 })
         });
     window_text.custom_title.clone_from(&stated_title);
     window_text.block_entity = runtime
+        .session
         .storage_block
         .as_ref()
         .map(|(_, block_entity)| block_entity.to_string());
@@ -135,7 +142,7 @@ fn capture_titles(
     }
 }
 
-/// Adds the hovered item's tooltip, optional nutrition, and bundle contents in display order.
+/// Adds the hovered item's tooltip, mod tooltip lines, and bundle contents in display order.
 fn capture_tooltip(
     player_runtime: &player_state::PlayerState,
     items: &ItemResolver<'_>,
@@ -169,24 +176,17 @@ fn capture_tooltip(
                 name.as_deref(),
             )
         };
-        if presentation
-            .mod_ui()
-            .mod_hunger_overlay()
-            .is_some_and(|style| style.tooltips)
-            && let Some(food) = identifier
-                .as_deref()
-                .and_then(|identifier| runtime.food_properties(identifier))
-        {
-            window_text
-                .tooltip
-                .push(presentation::hud_layout::TooltipLine {
-                    text: format!(
-                        "Nutrition: {}  Saturation: {:.1}",
-                        food.nutrition(),
-                        food.nutrition() as f32 * food.saturation_modifier() * 2.
-                    ),
-                    color: [255, 170, 0, 255],
-                });
+        if let Some(identifier) = identifier.as_deref() {
+            window_text.tooltip.extend(
+                presentation
+                    .mod_ui()
+                    .mod_presentation()
+                    .tooltip_lines(identifier, stack.metadata)
+                    .map(|line| presentation::hud_layout::TooltipLine {
+                        text: line.text.clone(),
+                        color: line.color.map(|channel| (channel * 255.).round() as u8),
+                    }),
+            );
         }
         if let Some(contents) = protocol::item_bundle_id(&stack.extra_data)
             .and_then(|id| runtime.inventory_ledger(player_runtime).bundle_contents(id))
@@ -208,10 +208,13 @@ fn capture_tooltip(
 
 /// Resolves empty-slot artwork only while an inventory screen is open.
 pub(super) fn ghost_icons(
-    presentation: &UiPresentationRuntime,
+    presentation: &mut UiPresentationRuntime,
     inventory_open: bool,
 ) -> WindowIcons {
-    let mut window_icons = WindowIcons::default();
+    let mut window_icons = WindowIcons {
+        book_entries: std::mem::take(&mut presentation.hud_frame.window_icons.book_entries),
+        ..WindowIcons::default()
+    };
     if inventory_open {
         for (row, name) in ["helmet", "chestplate", "leggings", "boots"]
             .iter()
@@ -225,4 +228,30 @@ pub(super) fn ghost_icons(
             presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
     }
     window_icons
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_inventory_capture_retains_prepared_book_artwork() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        let icon = ui::IconRef {
+            page: 0,
+            uv: [1; 4],
+            color_mask: None,
+            glint: false,
+        };
+        let expected = vec![Some(icon); 2048];
+        let _ = ghost_icons(&mut presentation, false);
+        presentation.hud_frame_mut().window_icons.book_entries = expected.clone();
+        let (captured, allocations) = test_alloc::count(|| ghost_icons(&mut presentation, false));
+        assert_eq!(captured.book_entries.len(), expected.len());
+        assert_eq!(captured.book_entries, expected);
+        assert!(
+            allocations < 2,
+            "closed capture copied prepared artwork {allocations} times"
+        );
+    }
 }

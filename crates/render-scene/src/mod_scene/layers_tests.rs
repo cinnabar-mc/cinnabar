@@ -24,6 +24,7 @@ fn bundle_primitives_render_only_the_admitted_shared_budget() {
                     ledger: mod_render::GpuLedger::new(u64::MAX),
                     primitives: mod_render::PrimitiveRanges::all(&primitives),
                     passes: Vec::new(),
+                    retained_triangle_limit: None,
                 }],
                 primitives,
                 ..Default::default()
@@ -74,6 +75,7 @@ fn bundle_gpu_reservations_survive_merging_extraction_and_revocation() {
                 ledger: mod_render::GpuLedger::new(owner * 64),
                 primitives: Default::default(),
                 passes: Vec::new(),
+                retained_triangle_limit: Some(owner as usize * 8),
             }],
             ..Default::default()
         })

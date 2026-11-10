@@ -19,6 +19,12 @@ impl Content<'_, '_> {
                 "options.invertYAxis.Mouse.description".to_owned()
             }
             SettingId::ControllerInvertYAxis => "options.invertYAxis.description".to_owned(),
+            SettingId::TouchControlMode => {
+                launcher::menu::settings_options::touch_control_mode::description_key(
+                    self.view.settings_options.touch_control_mode(),
+                )
+                .to_owned()
+            }
             _ => format!("{base_key}.description"),
         };
         let description = super::localization::locale_text(

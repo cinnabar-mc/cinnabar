@@ -242,13 +242,17 @@ fn projected_item_vertices_use_half_precision_before_rasterization() {
         actual == expected,
         "projected item coordinates must round before triangle interpolation: first delta {:?}, differing pixels {}",
         actual
-            .chunks_exact(4)
-            .zip(expected.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(expected.as_chunks::<4>().0)
             .enumerate()
             .find(|(_, (a, b))| a != b),
         actual
-            .chunks_exact(4)
-            .zip(expected.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(expected.as_chunks::<4>().0)
             .filter(|(a, b)| a != b)
             .count(),
     );

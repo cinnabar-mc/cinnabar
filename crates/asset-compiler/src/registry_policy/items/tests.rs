@@ -171,6 +171,41 @@ fn committed_item_carrier_and_expansion_regenerate_byte_for_byte() {
 }
 
 #[test]
+fn item_use_compatibility_exception_keeps_exact_scope() {
+    let scratch = inputs();
+    let path = scratch.path().join(INPUTS[10]);
+    let original: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let index = original["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|entry| entry["reference"]["file"] == "item-use-profiles.json")
+        .unwrap();
+    assert!(compile(scratch.path()).is_ok());
+    for mutation in ["file", "domain", "identifier", "location", "reason"] {
+        let mut changed = original.clone();
+        let entry = &mut changed["entries"][index];
+        match mutation {
+            "file" | "domain" | "identifier" => entry["reference"][mutation] = "unknown".into(),
+            "location" => {
+                entry["reference"]["location"] = serde_json::json!({
+                    "rule": { "collection": "item_rules", "id": "retained", "field": "/members" }
+                })
+            }
+            "reason" => entry["reason"] = "  ".into(),
+            _ => unreachable!(),
+        }
+        std::fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
+        let error = compile(scratch.path()).unwrap_err().to_string();
+        assert!(
+            error.contains("unknown item-use source identity"),
+            "{mutation}: {error}"
+        );
+    }
+}
+
+#[test]
 fn item_facts_source_path_and_preparation_output_agree() {
     assert_eq!(
         Path::new(ITEM_FACTS_SOURCE_PATH).file_name().unwrap(),

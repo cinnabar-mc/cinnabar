@@ -36,7 +36,8 @@ func cellStack(t *testing.T, exp string, data []byte) item.Stack {
 }
 
 // The probe's item is a custom item of the finalized registries, one to a stack, with its icon,
-// in the probe's creative group; "other"'s copy is another item.
+// left out of the creative inventory as its content rules unlist it; "other"'s copy is another
+// item.
 func TestItemsRegistered(t *testing.T) {
 	reg := registered(t)
 	cell, ok := reg.LookupItem(probeCell)
@@ -49,10 +50,10 @@ func TestItemsRegistered(t *testing.T) {
 	if cell.MaxCount() != 1 || cell.Name() != "Probe Cell" || cell.Texture() == nil {
 		t.Errorf("cell stacks to %d, is named %q, has texture %v", cell.MaxCount(), cell.Name(), cell.Texture() != nil)
 	}
-	if !slices.ContainsFunc(creative.Items(), func(i creative.Item) bool {
-		return i.Group == "probe" && i.Stack.Item() == world.Item(cell)
+	if slices.ContainsFunc(creative.Items(), func(i creative.Item) bool {
+		return i.Stack.Item() == world.Item(cell)
 	}) {
-		t.Error("the cell is not in the probe's creative group")
+		t.Error("the unlisted cell is in the creative inventory")
 	}
 	if other, ok := reg.LookupItem("other:cell"); !ok || other == cell {
 		t.Errorf("other:cell = %v, %v; want an item of its own", other, ok)

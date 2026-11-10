@@ -1,31 +1,23 @@
 use json_ui::{DataSource, Scalar};
 use serde_json::json;
-use ui::mod_panel::{Control, Panel, Theme};
-
-use super::widgets::Palette;
+use ui::mod_panel::{Control, Panel};
 
 /// Compares mutable binding inputs after the caller proves both panels use the same template.
 pub(super) fn same_values(a: &Panel, b: &Panel) -> bool {
     a.controls == b.controls
         && a.motion == b.motion
-        && match (&a.surface, &b.surface) {
-            (Some(a), Some(b)) => {
-                a.bindings == b.bindings
-                    && a.transitions == b.transitions
-                    && a.collections.iter().all(|(name, collection)| {
-                        b.collections
-                            .get(name)
-                            .is_some_and(|other| collection.order == other.order)
-                    })
-            }
-            (None, None) => true,
-            _ => false,
-        }
+        && a.surface.bindings == b.surface.bindings
+        && a.surface.transitions == b.surface.transitions
+        && a.surface.collections.iter().all(|(name, collection)| {
+            b.surface
+                .collections
+                .get(name)
+                .is_some_and(|other| collection.order == other.order)
+        })
 }
 
 pub(super) fn control_data(panel: &Panel) -> DataSource {
     let mut data = DataSource::new();
-    let palette = Palette::for_panel(panel);
     for (index, control) in panel.controls.iter().enumerate() {
         let value = match control {
             Control::Toggle { value, .. } => if *value { "On" } else { "Off" }.to_owned(),
@@ -72,26 +64,6 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                     Scalar::Num(f64::from(u8::from(!*value))),
                 );
                 data.set_global(
-                    format!("#row_{index}_toggle_color"),
-                    Scalar::Json(json!(if *value {
-                        palette.accent
-                    } else {
-                        palette.raised
-                    })),
-                );
-                data.set_global(
-                    format!("#row_{index}_knob_color"),
-                    Scalar::Json(json!(if panel.theme == Theme::Monochrome {
-                        if *value {
-                            palette.background
-                        } else {
-                            palette.text
-                        }
-                    } else {
-                        [1.; 4]
-                    })),
-                );
-                data.set_global(
                     format!("#row_{index}_knob_offset"),
                     Scalar::Json(json!([if *value { 12.0 } else { 2.0 }, 2.0])),
                 );
@@ -99,9 +71,7 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
             _ => {}
         }
     }
-    if let Some(surface) = &panel.surface {
-        super::surface::bind(surface, &mut data);
-    }
+    super::surface::bind(&panel.surface, &mut data);
     super::surface::collections(panel, &mut data);
     data
 }

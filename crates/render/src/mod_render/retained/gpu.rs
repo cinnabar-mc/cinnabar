@@ -39,6 +39,8 @@ pub(super) struct Batch {
     pub blend: Blend,
     pub material: Option<DrawingHandle>,
     pub key: pipeline::Key,
+    pub clip: Option<DrawingHandle>,
+    pub mask: bool,
 }
 pub(super) struct ViewGpu {
     pub bindings: BTreeMap<DrawingHandle, BindGroup>,
@@ -169,14 +171,21 @@ pub(super) fn queue(
     // a failure retries next frame.
     let mut attempted = BTreeSet::new();
     for resources in &resources {
-        for instance in resources.instances.values() {
-            let handle = instance.geometry;
+        for handle in resources
+            .instances
+            .values()
+            .map(|i| i.geometry)
+            .chain(resources.clips.values().map(|c| c.geometry))
+        {
             if gpu.meshes.contains_key(&handle) || !attempted.insert(handle) {
                 continue;
             }
             let Some(geometry) = resources.geometry.get(&handle) else {
                 continue;
             };
+            if geometry.blocks().is_some() {
+                continue;
+            }
             let count = geometry.mesh_vertices();
             let bytes = count.max(1) * std::mem::size_of::<GpuVertex>();
             let storage = mod_render::GpuAllocation::new(
@@ -230,6 +239,9 @@ pub(super) fn queue(
                 let Some(geometry) = resources.geometry.get(&instance.geometry) else {
                     continue;
                 };
+                if geometry.blocks().is_some() {
+                    continue;
+                }
                 if !visible(geometry, &resolved, &camera, view.clip_from_view) {
                     continue;
                 }
@@ -241,6 +253,7 @@ pub(super) fn queue(
                         && last.depth == instance.depth
                         && last.blend == instance.blend
                         && last.material == instance.material
+                        && last.clip == instance.clip
                 }) {
                     last.instances.end = slot + 1;
                 } else {
@@ -250,12 +263,37 @@ pub(super) fn queue(
                         depth: instance.depth,
                         blend: instance.blend,
                         material: instance.material,
+                        clip: instance.clip,
+                        mask: false,
                         key: pipeline::Key {
                             msaa: *msaa,
                             hdr: extracted_camera.hdr,
                             always: instance.depth == Depth::Always,
                             additive: instance.blend == Blend::Additive,
+                            clipped: instance.clip.is_some(),
                         },
+                    });
+                }
+            }
+            for (&id, clip) in &resources.clips {
+                if let Some(resolved) = resolve(&clip.instance(), &frame, &camera) {
+                    let slot = instances.len() as u32;
+                    instances.push(resolved);
+                    batches.push(Batch {
+                        geometry: clip.geometry,
+                        instances: slot..slot + 1,
+                        depth: Depth::Test,
+                        blend: Blend::Premultiplied,
+                        material: None,
+                        key: pipeline::Key {
+                            msaa: *msaa,
+                            hdr: extracted_camera.hdr,
+                            always: false,
+                            additive: false,
+                            clipped: true,
+                        },
+                        clip: Some(id),
+                        mask: true,
                     });
                 }
             }
@@ -379,6 +417,9 @@ pub(super) fn queue(
                 let Ok(pipeline) = pipeline.variants.specialize(&cache, key) else {
                     continue;
                 };
+                if batch.clip.is_some() {
+                    continue;
+                }
                 crate::transparent_phase::add(
                     phase,
                     Transparent3d {

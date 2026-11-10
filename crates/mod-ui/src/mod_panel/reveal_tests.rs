@@ -29,9 +29,7 @@ fn render(ui: &mut ModUi) -> &FormRender {
     let panel = ui.mod_panel.as_mut().unwrap();
     if panel.catalog.is_none() {
         panel.catalog = Some(Arc::new(
-            template::catalog(&panel.panel, [452., 289.], 0, 0, 1, None)
-                .unwrap()
-                .0,
+            template::catalog(&panel.panel, [452., 289.], None).unwrap(),
         ));
     }
     let catalog = panel.catalog.as_ref().unwrap();
@@ -61,8 +59,13 @@ fn render(ui: &mut ModUi) -> &FormRender {
             &panel.view,
         )
         .unwrap();
+    scrolling::reconcile_scroll(
+        &mut panel.view,
+        &rendered.report,
+        std::mem::take(&mut panel.carried_scroll),
+    );
     let mut hits = rendered.hits.to_vec();
-    surface::resolve_collection_hits(panel.panel.surface.as_ref().unwrap(), &mut hits);
+    surface::resolve_collection_hits(&panel.panel.surface, &mut hits);
     panel.frame = Some(EngineFrame {
         hits: hits.into(),
         report: rendered.report.clone(),
@@ -257,13 +260,7 @@ fn collection_reveal_uses_effective_grid_geometry() {
         (Some([100, 60]), 180.),
     ] {
         let mut panel = catalogue();
-        let collection = panel
-            .surface
-            .as_mut()
-            .unwrap()
-            .collections
-            .get_mut("modules")
-            .unwrap();
+        let collection = panel.surface.collections.get_mut("modules").unwrap();
         let definition = Arc::make_mut(&mut collection.definition);
         definition.columns = 1;
         if let Some(size) = size {
@@ -335,7 +332,7 @@ fn collection_reveal_matches_indexed_sibling_keys() {
                 group["collection_index"] = json!(index);
             }
         }
-        panel.surface.as_mut().unwrap().document = json!({"namespace":"list",
+        panel.surface.document = json!({"namespace":"list",
             "root":{"type":"panel","size":[452,289],"controls":[
                 {"group":groups[0]},{"group":groups[1]}]}})
         .to_string();
@@ -346,4 +343,121 @@ fn collection_reveal_matches_indexed_sibling_keys() {
         assert_eq!(offset(&ui), 99., "indices: {indices:?}");
         visible(&ui, 12);
     }
+}
+
+/// Changes the registered surface shape while keeping the collection's layout identity.
+fn route(mut panel: Panel, revision: u32) -> Panel {
+    let mut document: serde_json::Value = serde_json::from_str(&panel.surface.document).unwrap();
+    document["root"]["controls"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({format!("decoration_{revision}"): {"type":"panel", "size":[1,1]}}));
+    panel.surface.document = document.to_string();
+    panel
+}
+
+/// Route replacement retains offsets alone, and layout clamps them to shorter content.
+#[test]
+fn route_scroll_retains_offsets_and_clamps_shorter_content() {
+    let mut ui = grid(true);
+    render(&mut ui);
+    assert!(ui.scroll_mod_panel([10., 10.], -500., true));
+    render(&mut ui);
+    assert_eq!(offset(&ui), 500.);
+    let next = route(four_column_catalogue(), 1);
+    assert!(!template::same_shape(
+        &ui.mod_panel.as_ref().unwrap().panel,
+        &next
+    ));
+    {
+        let panel = ui.mod_panel.as_mut().unwrap();
+        panel.view.focused = Some("old_focus".into());
+        panel.view.drags.insert("old_drag".into(), [1., 2.]);
+        panel
+            .view
+            .scroll_state
+            .insert("old_scroll".into(), Default::default());
+    }
+    assert!(ui.scroll_mod_panel([10., 10.], -1., false));
+    ui.set_mod_panel(OWNER, Some(&next)).unwrap();
+    let panel = ui.mod_panel.as_ref().unwrap();
+    assert!(panel.view.focused.is_none());
+    assert!(panel.view.drags.is_empty());
+    assert!(panel.view.scroll_state.is_empty());
+    assert!(!panel.motion.active());
+    render(&mut ui);
+    assert_eq!(offset(&ui), 500.);
+
+    let mut shorter = route(four_column_catalogue(), 2);
+    shorter
+        .surface
+        .collections
+        .get_mut("modules")
+        .unwrap()
+        .order
+        .truncate(16);
+    ui.set_mod_panel(OWNER, Some(&shorter)).unwrap();
+    render(&mut ui);
+    assert_eq!(offset(&ui), 99.);
+    let panel = ui.mod_panel.as_ref().unwrap();
+    assert_eq!(
+        panel.view.scroll.values().copied().collect::<Vec<_>>(),
+        vec![99.]
+    );
+}
+
+/// An absent scroll key cannot revive when returning, and ownership and close reset it.
+#[test]
+fn route_scroll_drops_missing_keys_and_resets_for_other_owners_and_close() {
+    let mut ui = grid(false);
+    render(&mut ui);
+    assert!(ui.scroll_mod_panel([10., 10.], -500., true));
+    let mut empty = four_column_catalogue();
+    empty.surface.document =
+        json!({"namespace":"list", "root":{"type":"panel", "size":[452,289]}}).to_string();
+    empty.surface.collections.clear();
+    ui.set_mod_panel(OWNER, Some(&empty)).unwrap();
+    render(&mut ui);
+    assert!(ui.mod_panel.as_ref().unwrap().view.scroll.is_empty());
+    ui.set_mod_panel(OWNER, Some(&four_column_catalogue()))
+        .unwrap();
+    render(&mut ui);
+    assert_eq!(offset(&ui), 0.);
+    assert!(ui.scroll_mod_panel([10., 10.], -500., true));
+    ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&four_column_catalogue()))
+        .unwrap();
+    render(&mut ui);
+    assert_eq!(offset(&ui), 0.);
+    assert!(ui.scroll_mod_panel([10., 10.], -500., true));
+    ui.set_mod_panel_open(false);
+    ui.set_mod_panel_open(true);
+    render(&mut ui);
+    assert_eq!(offset(&ui), 0.);
+    assert!(ui.scroll_mod_panel([10., 10.], -500., true));
+    ui.set_mod_panel(PanelUiOwner::Environment(1), None)
+        .unwrap();
+    ui.set_mod_panel(PanelUiOwner::Environment(1), Some(&four_column_catalogue()))
+        .unwrap();
+    ui.set_mod_panel_open(true);
+    render(&mut ui);
+    assert_eq!(offset(&ui), 0.);
+}
+
+/// A reveal accompanying a route change moves minimally from the retained position.
+#[test]
+fn route_scroll_reveal_starts_from_carried_offset() {
+    let mut ui = grid(false);
+    render(&mut ui);
+    assert!(ui.scroll_mod_panel([10., 10.], -500., true));
+    let next = route(four_column_catalogue(), 1);
+    let next = PanelPatch::parse(
+        &json!({"collection_reveal":{"collection":"modules","item":24}}).to_string(),
+    )
+    .unwrap()
+    .apply(&next, &Default::default())
+    .unwrap();
+    ui.set_mod_panel(OWNER, Some(&next)).unwrap();
+    render(&mut ui);
+    assert_eq!(offset(&ui), 500.);
+    visible(&ui, 24);
 }

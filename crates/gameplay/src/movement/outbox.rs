@@ -273,6 +273,22 @@ pub fn flush_player_auth_inputs_guarded<E>(
                         action.face,
                     ));
                 }
+                if let Some(mining) = &sample.mining {
+                    for request in &mining.requested_destroys {
+                        // Requests were validated when attached; replay only changes position.
+                        let packet = protocol::destroy_block_packet(request.clone())
+                            .expect("validated block destruction request");
+                        guard = guard.with_preceding_packet(packet);
+                    }
+                    for action in &mining.requested_creative_destroys {
+                        guard =
+                            guard.with_preceding_packet(protocol::creative_destroy_block_packet(
+                                action.local_runtime_id,
+                                action.position,
+                                action.face,
+                            ));
+                    }
+                }
                 Ok::<_, PlayerAuthInputError>(guard)
             })
             .transpose()
@@ -372,7 +388,8 @@ impl MovementTicker {
             && !self.has_unresolved_position_authority_change()
     }
 
-    /// Unsent ticks newer than `after`, oldest first, with their post-tick motion.
+    /// Unsent ticks newer than `after`, oldest first, with the distance each moved and
+    /// its ground contact before moving.
     pub fn unstepped_interaction_ticks(
         &self,
         after: Option<u64>,
@@ -388,7 +405,8 @@ impl MovementTicker {
                     .map(|axis| axis * axis)
                     .sum::<f32>();
                 let motion = crate::survival_mining::TickMotion {
-                    on_ground: sample.evidence.grounded_after_tick,
+                    // Destroying runs before movement, so a landing tick still mines airborne.
+                    on_ground: sample.evidence.grounded_before_tick,
                     moved: if moved.is_finite() { moved.sqrt() } else { 0.0 },
                 };
                 (sample.snapshot.tick, motion)
@@ -588,6 +606,15 @@ impl MovementTicker {
         self.held_release.is_some()
     }
 
+    /// Whether a held release waits only on its facing tick's write: the tick already exists,
+    /// so the release goes out without further ticks. One whose facing tick is still to come
+    /// needs physics to produce it.
+    pub fn held_release_awaits_written_tick(&self) -> bool {
+        self.held_release
+            .as_ref()
+            .is_some_and(|held| held.tick <= self.completed_tick())
+    }
+
     /// Sends a held release once its facing tick was written; a full queue keeps the fence.
     pub fn send_held_release(
         &mut self,
@@ -702,6 +729,9 @@ impl MovementTicker {
         let (interactions, mining_request) = payload.into_interactions(sample.snapshot.position);
         sample.mining = Some(crate::mining::QueuedMiningInteraction {
             creative_destroy,
+            requested_breaks: false,
+            requested_destroys: Vec::new(),
+            requested_creative_destroys: Vec::new(),
             interactions,
             mining_request,
         });
@@ -735,18 +765,6 @@ impl MovementTicker {
         self.physics_is_authorized()
             && !self.terminal_drain
             && self.has_unresolved_position_authority_change()
-    }
-
-    /// Drops every unsent block interaction and revokes admitted ones.
-    fn invalidate_mining(&mut self) {
-        let next = self.mining_epoch_publisher.borrow().wrapping_add(1);
-        self.mining_epoch_publisher.send_replace(next);
-        self.outbox
-            .iter_mut()
-            .for_each(|queued| queued.mining = None);
-        self.pending_sends
-            .iter_mut()
-            .for_each(|pending| pending.sample.mining = None);
     }
 
     /// A correction keeps the player's pending action flags. A snap revokes in-flight

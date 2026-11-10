@@ -6,11 +6,11 @@
 
 use std::time::Duration;
 
-use bedrock_protocol_1_26_51::enums::PlayStatusType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::PlayStatusType;
+use bedrock_protocol_1_26_60::packets::{
     self, Disconnect, ItemRegistry, PacketId, SetLocalPlayerAsInitialized, StartGame,
 };
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
 
 use crate::codec::SessionFailure;
 use crate::disconnect::{delivered_texts, disconnect_reason, join_disconnect, packet_texts};
@@ -122,7 +122,7 @@ pub(super) async fn await_spawn<R: bridge::FrameRead>(
                 let packets::Packet::PlayStatus(status) = *raw.decode()?.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
-                if status.status == PlayStatusType::Playerspawn {
+                if status.status == PlayStatusType::PlayerSpawn {
                     if !received_player_spawn {
                         profile.mark("player_spawn");
                     }

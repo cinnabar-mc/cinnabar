@@ -9,7 +9,7 @@ const STARTUP: [u8; 4] = [70, 100, 210, 255];
 const DYE: u32 = 0x00d0_3040;
 
 #[test]
-fn preview_atlas_fallback_keeps_the_selected_chest_category() {
+fn missing_pack_chest_art_keeps_the_startup_chest_category() {
     let base = catalog(&[Definition {
         name: ITEM,
         condition: None,
@@ -35,11 +35,6 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     ));
     let world = owner(Arc::clone(&base.assets));
     let mut presentation = material_tests::presentation(base.equipment.as_ref().unwrap());
-    let side = render_model::UI_MODEL_ATLAS_SIDE;
-    let full =
-        UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES];
-    presentation.gui_models.sources.required_pages = MODEL_PAGES;
     presentation.set_preview_equipment_assets(Some(base.assets), Some(pack.assets));
     presentation.set_preview_pack_equipment(pack.equipment);
     let cape_page = 100;
@@ -55,15 +50,17 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     );
     presentation.gui_models.live_player.cape_vertices =
         player_preview::cape::rest_vertices().to_vec();
-    presentation.set_player_preview_gear_with_owner(
-        [None, Some((ITEM, None, false)), None, None],
-        None,
-        PreviewEquipmentOwner {
-            actor: world.authority().actor(1).unwrap(),
-            rig: world.authority().actor_rig(1).unwrap(),
-            input: Default::default(),
-        },
-    );
+    let context = PreviewEquipmentOwner {
+        actor: world.authority().actor(1).unwrap(),
+        rig: world.authority().actor_rig(1).unwrap(),
+        input: Default::default(),
+    };
+    let gear = [None, Some((ITEM, None, false)), None, None];
+    presentation.set_player_preview_gear_with_owner(gear, None, context);
+    // Pack art that found no page keeps its texture without a region.
+    presentation.gui_models.pack_equipment.pages.clear();
+    presentation.gui_models.pack_equipment.regions.clear();
+    presentation.set_player_preview_gear_with_owner(gear, None, context);
     let mesh = presentation.gui_player_mesh().unwrap();
     let draw_cape = mesh
         .batches()
@@ -206,6 +203,15 @@ struct Definition<'a> {
 
 /// Compiles original player and worn-item resources with independently identifiable artwork.
 fn catalog(definitions: &[Definition<'_>]) -> assets::SessionEntityPack {
+    catalog_for_item(definitions, ITEM, false)
+}
+
+/// Includes per-definition trim palettes when the fixture exercises decorated armor.
+fn catalog_for_item(
+    definitions: &[Definition<'_>],
+    item: &str,
+    trims: bool,
+) -> assets::SessionEntityPack {
     let mut files = vec![
         ("models/fixture.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":64,"texture_height":32},"bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[16,16]}]}]}]}"#.to_vec()),
         ("render_controllers/fixture.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.fixture":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#.to_vec()),
@@ -223,7 +229,20 @@ fn catalog(definitions: &[Definition<'_>]) -> assets::SessionEntityPack {
             "render_controllers":["controller.render.fixture"]
         });
         if let Some(condition) = definition.condition {
-            description["item"] = serde_json::json!({(ITEM):condition});
+            description["item"] = serde_json::json!({(item):condition});
+        }
+        if trims {
+            let palette = format!(
+                "textures/fixture/{}_palette",
+                definition.name.replace(':', "_")
+            );
+            description["textures"]["gold_palette"] = serde_json::json!(palette);
+            textures.push(assets::EquipmentTexture {
+                identifier: palette.into(),
+                width: 1,
+                height: 1,
+                rgba8: Arc::from(definition.color),
+            });
         }
         files.push((
             format!("attachables/{}.json", definition.name.replace(':', "_")).into(),
@@ -238,6 +257,19 @@ fn catalog(definitions: &[Definition<'_>]) -> assets::SessionEntityPack {
             height: 32,
             rgba8: definition.color.repeat(64 * 32).into(),
         });
+    }
+    if trims {
+        for path in [
+            "textures/trims/sentry",
+            "textures/trims/color_palettes/trim_palette",
+        ] {
+            textures.push(assets::EquipmentTexture {
+                identifier: path.into(),
+                width: 1,
+                height: 1,
+                rgba8: Arc::from([100, 100, 100, 255]),
+            });
+        }
     }
     let compiled = pack_entity_compiler::compile_entity_pack(files)
         .unwrap()
@@ -504,10 +536,11 @@ fn check_stack_enchantment_selection(condition: &str) {
         presentation.dress_player_preview(
             &player,
             &runtime,
-            Some(&world),
+            Some(world.authority().inventory_ui()),
             Default::default(),
             |stack| {
                 Some(client_world::CanonicalItemStack {
+                    trim: None,
                     identifier: Some(ITEM.into()),
                     identity: assets::ItemStackIdentity::empty(),
                     visual: assets::ItemVisualRoute::Missing,
@@ -516,6 +549,7 @@ fn check_stack_enchantment_selection(condition: &str) {
                     use_animation: assets::item_use::ItemUseAnimation::None,
                     grip: assets::item::grip::ItemGrip::Unresolved,
                     map_id: None,
+                    shield_pattern: None,
                     charged_projectile: None,
                     charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                     damage: None,
@@ -583,4 +617,69 @@ fn owner_context_preview_predicates_observe_ui_while_world_selection_stays_ordin
     );
     check_preview(pack, PLAYER, false, "armour-owner-context-ui");
     check_stack_enchantment_selection("q.is_in_ui && v.is_enchanted && c.item_slot == 'torso'");
+}
+
+#[test]
+fn trimmed_preview_uses_the_owner_admitted_palette() {
+    const ARMOR: &str = "minecraft:diamond_chestplate";
+    let base = catalog_for_item(
+        &[Definition {
+            name: ARMOR,
+            condition: None,
+            color: STARTUP,
+            dyed: false,
+        }],
+        ARMOR,
+        true,
+    );
+    let pack = catalog_for_item(
+        &[
+            Definition {
+                name: "fixture:a_player",
+                condition: Some("q.owner_identifier == 'minecraft:player'"),
+                color: PLAYER,
+                dyed: false,
+            },
+            Definition {
+                name: "fixture:z_stand",
+                condition: Some("q.owner_identifier == 'minecraft:armor_stand'"),
+                color: STAND,
+                dyed: false,
+            },
+        ],
+        ARMOR,
+        true,
+    );
+    assert_eq!(
+        pack.equipment
+            .as_ref()
+            .unwrap()
+            .binding(ARMOR)
+            .unwrap()
+            .attachable_identifier(),
+        "fixture:z_stand"
+    );
+    let world = owner(Arc::clone(&base.assets));
+    let mut presentation = material_tests::presentation(base.equipment.as_ref().unwrap());
+    presentation.set_preview_equipment_assets(Some(base.assets), Some(pack.assets));
+    presentation.set_preview_pack_equipment(pack.equipment);
+    let trim = protocol::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    };
+    presentation.set_preview_gear(
+        [None, Some((ARMOR, None, false, Some(&trim))), None, None],
+        [None, None],
+        Some(PreviewEquipmentOwner {
+            actor: world.authority().actor(1).unwrap(),
+            rig: world.authority().actor_rig(1).unwrap(),
+            input: Default::default(),
+        }),
+    );
+    let output = presentation.player_preview_gear.armor[1].as_ref().unwrap();
+    assert_eq!(
+        &output.rgba[..4],
+        &PLAYER,
+        "trim aliases must belong to the admitted player definition"
+    );
 }
