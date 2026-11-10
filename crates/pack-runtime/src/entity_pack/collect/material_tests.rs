@@ -110,6 +110,57 @@ fn every_packs_material_list_resolves_into_one_list_naming_its_files() {
 }
 
 #[test]
+fn material_list_casing_aliases_retain_one_document_and_the_first_defines() {
+    let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
+    for extension in ["json", "material"] {
+        let entries = (0..4096)
+            .map(|variant| {
+                let name = "abcdefghijkl"
+                    .bytes()
+                    .enumerate()
+                    .map(|(bit, byte)| {
+                        char::from(if variant & (1 << bit) == 0 {
+                            byte
+                        } else {
+                            byte.to_ascii_uppercase()
+                        })
+                    })
+                    .collect::<String>();
+                json!({
+                    "path": format!("materials/{name}.{extension}"),
+                    "+defines": [if variant == 0 { "FIRST" } else { "LATER" }]
+                })
+            })
+            .collect::<Vec<_>>();
+        let path = format!("materials/ABCDEFGHIJKL.{extension}");
+        let document = json!({"shared": {"payload": "x".repeat(4096)}});
+        let pack = archive_files(1, vec![(list, json!(entries)), (&path, document.clone())]);
+        let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(vec![pack]),
+        ));
+        let (files, report) = super::super::material_files(&view, true);
+        let files = files
+            .into_iter()
+            .map(|(path, bytes)| {
+                (
+                    path,
+                    serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let key = if extension == "material" {
+            "materials/abcdefghijkl.material"
+        } else {
+            "materials/:listed/0.material"
+        };
+        assert_eq!(files.len(), 2, "aliases share one retained payload");
+        assert_eq!(files[key], document);
+        assert_eq!(files[list], json!([{"path": key, "defines": ["FIRST"]}]));
+        assert_eq!(report.repeated_paths, 4095);
+    }
+}
+
+#[test]
 fn collection_reports_material_list_entries_it_read_in_part() {
     let list = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
     let pack = archive_files(

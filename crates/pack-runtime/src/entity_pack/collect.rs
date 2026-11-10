@@ -435,6 +435,11 @@ fn material_files(
     let mut listed = Vec::new();
     let mut listed_paths = BTreeSet::new();
     for mut entry in entries {
+        // Pack reads resolve casing aliases to the same file.
+        if !listed_paths.insert(entry.path.to_ascii_lowercase()) {
+            report.repeated_paths += 1;
+            continue;
+        }
         let Some(document) = merged_layers(view.read_layers(&entry.path)) else {
             continue;
         };
@@ -445,7 +450,7 @@ fn material_files(
         } else {
             format!("{LISTED_MATERIAL_PREFIX}{}.material", listed.len())
         };
-        listed_paths.insert(std::mem::replace(&mut entry.path, key.as_str().into()));
+        entry.path = key.as_str().into();
         files.insert(key, document);
         listed.push(entry);
     }
@@ -455,7 +460,7 @@ fn material_files(
             .into_iter()
             .filter(|path| is_material_file(path))
         {
-            if listed_paths.contains(path) {
+            if listed_paths.contains(&path.to_ascii_lowercase()) {
                 continue;
             }
             let Ok(Some(bytes)) = layer.read_file(path) else {
