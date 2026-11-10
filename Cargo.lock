@@ -5990,6 +5990,8 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "assets",
+ "brotli",
+ "brotli-decompressor",
  "bytes",
  "chrono",
  "criterion",
