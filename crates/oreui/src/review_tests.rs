@@ -206,7 +206,7 @@ fn review_short_world_settings_are_scrollable() {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
-        backend: Backend::Dragonfly,
+        backend: Backend::LegacyDragonfly,
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,

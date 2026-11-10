@@ -83,13 +83,7 @@ impl Fixture {
     }
 
     fn import(&self, archive: &Path) -> Result<World, WorldError> {
-        import(
-            &self.store,
-            archive,
-            Backend::Dragonfly,
-            &WORLD_LIMITS,
-            &|| false,
-        )
+        import(&self.store, archive, Backend::Bds, &WORLD_LIMITS, &|| false)
     }
 
     /// Everything in the worlds folder, so a refused import is seen to leave nothing.
@@ -287,14 +281,8 @@ fn refused_archives_leave_nothing_behind() {
         let fixture = fixture();
         let archive = fixture.archives.join("bad.mcworld");
         fs::write(&archive, bytes).expect("archive");
-        let error = import(
-            &fixture.store,
-            &archive,
-            Backend::Dragonfly,
-            limits,
-            &|| false,
-        )
-        .expect_err(case);
+        let error =
+            import(&fixture.store, &archive, Backend::Bds, limits, &|| false).expect_err(case);
         assert!(
             matches!(&error, WorldError::Rejected(text) if text.contains(message)),
             "{case}: {error:?}"
@@ -358,13 +346,7 @@ fn a_kill_while_publishing_leaves_no_invisible_world() {
         false
     };
     let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        import(
-            &fixture.store,
-            &archive,
-            Backend::Dragonfly,
-            &WORLD_LIMITS,
-            &kill,
-        )
+        import(&fixture.store, &archive, Backend::Bds, &WORLD_LIMITS, &kill)
     }));
     assert!(killed.is_err());
     assert_only_listed_worlds(&fixture);
@@ -378,7 +360,7 @@ fn a_cancelled_import_publishes_nothing_and_a_retry_makes_one_world() {
     let cancelled = import(
         &fixture.store,
         &archive,
-        Backend::Dragonfly,
+        Backend::Bds,
         &WORLD_LIMITS,
         &|| true,
     );
@@ -420,29 +402,16 @@ fn an_import_with_oversized_level_data_reports_options_unavailable() {
     assert!(!fixture.import(&small).expect("import").options_unavailable);
 }
 
-/// Unsupported imports leave no saved world and can be retried with BDS.
+/// Natural imports use BDS without a generator fallback.
 #[test]
-fn natural_import_requires_bds_before_publishing() {
+fn natural_imports_keep_their_generator_and_archive() {
     for level in [level_dat_with_generator(1), level_dat()[..20].to_vec()] {
         let fixture = fixture();
         let archive = fixture.archive("Natural.mcworld", &[("level.dat", &level)]);
         let original = fs::read(&archive).expect("archive");
-        let error = fixture
-            .import(&archive)
-            .expect_err("natural terrain requires BDS");
-        assert!(matches!(error, WorldError::Invalid(_)), "{error}");
-        assert!(fixture.store.list().expect("list").is_empty());
-        assert!(fixture.leftovers().is_empty());
-        assert_eq!(fs::read(&archive).expect("archive"), original);
-        let world = import(
-            &fixture.store,
-            &archive,
-            Backend::Bds,
-            &WORLD_LIMITS,
-            &|| false,
-        )
-        .expect("retry with BDS");
+        let world = fixture.import(&archive).expect("import on BDS");
         assert_eq!(world.backend, Backend::Bds);
         assert_eq!(world.generator, Generator::Normal);
+        assert_eq!(fs::read(&archive).expect("archive"), original);
     }
 }

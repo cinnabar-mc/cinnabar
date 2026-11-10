@@ -124,6 +124,12 @@ impl UiPresentationRuntime {
                 nametag_atlas::font_page(font, page).or_else(|| glyphs.page(dynamic_start, page))
             },
         );
+        let opacity = self
+            .gameplay_settings()
+            .value(launcher::menu::settings_options::SettingId::NametagBackgroundOpacity)
+            as f32
+            / 100.0;
+        nametags::style::background_opacity(&mut scene, opacity);
         if let Some(style) = style {
             nametags::style::style_scene(&mut scene, style, self.nametag_local_actor);
         }
@@ -133,7 +139,7 @@ impl UiPresentationRuntime {
     /// Installs this session's font before label bounds reserve presentation resources.
     pub fn prepare_nametag_layout(&mut self, runtime: &UiRuntime) {
         dynamic_textures::observe_session(self, runtime.session_id());
-        session_glyphs::observe(self, runtime.session_glyphs());
+        session_glyphs::observe(self, Some(runtime.session_glyphs()));
         self.nametag_bounds.begin_frame();
     }
 

@@ -8,6 +8,19 @@ fn menu() -> MenuView {
     MenuView::new(true, "Player".into())
 }
 
+/// Shows the loaded Profile card with an anonymous account and no featured screenshot.
+pub(super) fn profile_loaded() -> Fixture {
+    let mut view = MenuView::new(true, "ExamplePlayer".into());
+    view.screen = MenuScreen::Profile;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    view.feeds.profile.loaded = true;
+    view.feeds.profile.avatar_loaded = true;
+    view.feeds.profile.featured_screenshot_loaded = true;
+    view.feeds.profile.gamertag = "ExamplePlayer".into();
+    view.feeds.profile.xuid = "0".into();
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows invalid-cache failure or the fresh sign-in prompt with anonymous credentials.
 pub(super) fn sign_in_recovery(recovered: bool) -> Fixture {
     use launcher::menu::{auth::AuthState, sign_in::BrowserState};
@@ -405,14 +418,13 @@ pub(super) fn world_create(tab: usize) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Shows validation when natural terrain is requested on the built-in server.
-pub(super) fn world_create_dragonfly_natural() -> Fixture {
-    let Fixture::Menu(mut view) = world_create(0) else {
-        unreachable!()
-    };
-    view.local.create.backend = bridge::Backend::Dragonfly;
-    view.local.form_error = view.local.create.build().err().map(|error| error.message());
-    Fixture::Menu(view)
+/// Shows the preserved-save error without starting a server.
+pub(super) fn world_legacy_conversion() -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Play;
+    view.local.screen = launcher::local_worlds::Screen::Error;
+    view.local.error = Some(launcher::local_worlds::world::LEGACY_WORLD_REQUIRES_CONVERSION.into());
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows saved BDS generation settings beside editable advanced rules.
@@ -447,10 +459,10 @@ pub(super) fn world_edit_advanced() -> Fixture {
 /// Create and edit world-form states, one per tab plus the tall full-advanced view.
 pub(super) const WORLD_FORM_STATES: &[State] = &[
     State {
-        name: "world-create-dragonfly-natural",
+        name: "world-legacy-conversion",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: world_create_dragonfly_natural,
+        fixture: world_legacy_conversion,
     },
     State {
         name: "world-create-general",

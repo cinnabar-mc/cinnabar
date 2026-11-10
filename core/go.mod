@@ -11,8 +11,12 @@ require (
 	github.com/go-gl/mathgl v1.2.0
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/uuid v1.6.0
+	github.com/pion/datachannel v1.6.3
+	github.com/pion/dtls/v3 v3.1.15
+	github.com/pion/ice/v4 v4.4.8
 	github.com/pion/logging v0.2.4
 	github.com/pion/sctp v1.12.0
+	github.com/pion/sdp/v3 v3.0.20
 	github.com/pion/webrtc/v4 v4.2.26
 	github.com/quic-go/quic-go v0.62.0
 	github.com/quic-go/webtransport-go v0.13.0
@@ -33,15 +37,11 @@ require (
 	github.com/df-mc/jsonc v1.0.5 // indirect
 	github.com/dunglas/httpsfv v1.1.1 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
-	github.com/pion/datachannel v1.6.3 // indirect
-	github.com/pion/dtls/v3 v3.1.15 // indirect
-	github.com/pion/ice/v4 v4.4.8 // indirect
 	github.com/pion/interceptor v0.1.51 // indirect
 	github.com/pion/mdns/v2 v2.2.2 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/rtcp v1.2.20 // indirect
 	github.com/pion/rtp v1.10.6 // indirect
-	github.com/pion/sdp/v3 v3.0.20 // indirect
 	github.com/pion/srtp/v3 v3.1.3 // indirect
 	github.com/pion/stun/v4 v4.0.1 // indirect
 	github.com/pion/transport/v5 v5.1.4 // indirect
@@ -62,4 +62,10 @@ replace (
 
 replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f
 
-replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261109191637-91b4a4064d77
+// cinnabar-v4.2 keeps a DTLS transport connected when the peer negotiates no SRTP profile, as
+// data-channel-only NetherNet servers do; upstream fails the transport.
+replace github.com/pion/webrtc/v4 => github.com/cinnabar-mc/webrtc/v4 v4.0.0-20261110082859-ca6ad8c9ad75
+
+// cinnabar-v1.12 bundles a SACK still owed to the peer with outgoing DATA, as vanilla does, so a
+// server's SCTP round trip no longer includes the 200 ms delayed-ack timer.
+replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f

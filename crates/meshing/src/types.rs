@@ -725,6 +725,7 @@ pub struct ChunkMesh {
     pub(crate) model_draw_refs: Box<ModelDrawRefs>,
     pub(crate) liquid_quads: Arc<[PackedLiquidQuad]>,
     pub(crate) liquid_lighting: Arc<[PackedQuadLighting]>,
+    pub(crate) terrain_markers: Arc<[crate::PackedTerrainMarker]>,
     pub(crate) connectivity: FaceConnectivity,
 }
 
@@ -835,6 +836,7 @@ impl ChunkMesh {
             }),
             liquid_quads: liquid_quads.into(),
             liquid_lighting: liquid_lighting.into(),
+            terrain_markers: Arc::from([]),
             connectivity,
         })
     }
@@ -896,11 +898,18 @@ impl ChunkMesh {
         &self.liquid_lighting
     }
 
+    /// Barrier, light-block and structure-void cells, drawn apart from the terrain geometry.
+    #[must_use]
+    pub const fn terrain_markers(&self) -> &Arc<[crate::PackedTerrainMarker]> {
+        &self.terrain_markers
+    }
+
     #[must_use]
     pub fn quad_count(&self) -> usize {
         self.cube_streams.cube_quads.len()
     }
 
+    /// Whether the mesh has no terrain geometry; its [`Self::terrain_markers`] may remain.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.cube_streams.cube_quads.is_empty()

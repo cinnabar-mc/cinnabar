@@ -8,7 +8,7 @@ use ui::{BossBarView, IconRef, TimedText};
 use ui_screens::text::bounded_text;
 
 use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
-use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES};
+use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES, popups_allowed};
 use crate::ui_runtime::{Translator, UiRuntime};
 
 mod components;
@@ -300,19 +300,21 @@ impl SemanticHud {
         frame: &HudFrame,
     ) -> bool {
         let now = frame.now_millis;
+        let popups = popups_allowed(player.facts.player_game_mode());
         let title = runtime.hud().title().filter(|text| text.visible_at(now));
         let subtitle = runtime.hud().subtitle().filter(|text| text.visible_at(now));
         let mut changed = refresh_title(&mut self.model.title, title, subtitle);
         changed |= refresh_controller_text(&mut self.model.title_text, runtime.hud().title_text());
         changed |=
             refresh_controller_text(&mut self.model.subtitle_text, runtime.hud().subtitle_text());
+        let actionbar = runtime.hud().actionbar_request();
+        changed |= replace(
+            &mut self.model.actionbar_creation_id,
+            actionbar.map(|text| text.fifo_sequence),
+        );
         changed |= refresh_timed(
             &mut self.model.actionbar,
-            runtime
-                .hud()
-                .actionbar()
-                .filter(|text| text.visible_at(now))
-                .map(|text| (text.text.as_ref(), text.started_millis)),
+            actionbar.map(|text| (text.text.as_ref(), text.started_millis)),
         );
         changed |= refresh_timed(
             &mut self.model.tip,
@@ -322,13 +324,35 @@ impl SemanticHud {
                 .filter(|text| text.visible_at(now))
                 .map(|text| (text.text.as_ref(), text.started_millis)),
         );
+        changed |= refresh_timed(
+            &mut self.model.jukebox_popup,
+            runtime
+                .hud()
+                .jukebox_popup()
+                .filter(|text| popups && text.visible_at(now))
+                .map(|text| (text.text.as_ref(), text.started_millis)),
+        );
         let item_name = runtime
             .selected_item_changed_millis()
             .filter(|changed| now.saturating_sub(*changed) < ITEM_NAME_MILLIS)
             .zip(frame.selected_item_name.as_deref())
             .filter(|_| self.model.hotbar_visible && player.selected_hotbar_slot().is_some())
             .map(|(changed, name)| (bounded_visible_text(name), changed));
-        changed |= refresh_timed(&mut self.model.item_name, item_name);
+        let popup = runtime
+            .hud()
+            .popup()
+            .filter(|text| popups && text.visible_at(now))
+            .filter(|text| {
+                runtime
+                    .selected_item_changed_millis()
+                    .is_none_or(|changed| text.started_millis >= changed)
+            })
+            .map(|text| (text.text.as_ref(), text.started_millis));
+        changed |= refresh_timed(&mut self.model.popup, popup);
+        changed |= refresh_timed(
+            &mut self.model.item_name,
+            item_name.filter(|_| popup.is_none()),
+        );
         changed
     }
 
@@ -368,6 +392,10 @@ impl SemanticHud {
         );
         changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         changed |= replace(
+            &mut self.model.chat_mentions_only_self,
+            settings.mentions_only_self(),
+        );
+        changed |= replace(
             &mut self.model.chat_local_player,
             Arc::clone(&runtime.session.local_player_display_name),
         );
@@ -382,7 +410,7 @@ impl SemanticHud {
                     self.chat_rows.push(id);
                     let text = resolve_chat_line(line, |key| runtime.translation(key));
                     Timed {
-                        text: bounded_visible_text(text.as_ref()).to_owned(),
+                        text: text.into_owned(),
                         born: seconds(born),
                     }
                 })

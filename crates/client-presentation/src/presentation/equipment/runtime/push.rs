@@ -457,7 +457,7 @@ impl EquipmentRuntime {
             .as_ref()
             .map(|selected| selected.texture.as_ref())
             .unwrap_or(&binding.texture.identifier);
-        let Some((_, _, location)) = self.draw_artwork(texture, &source) else {
+        let Some((artwork, texture_index, location)) = self.draw_artwork(texture, &source) else {
             return;
         };
         let geometry_identifier = selected
@@ -617,6 +617,17 @@ impl EquipmentRuntime {
             super::style::LayerStyle::from_layer(&selected.layer)
                 .apply(&mut presentation.submission);
         }
+        if item.trim.is_some() {
+            self.trims.remember_worn(
+                presentation.submission.input.identity,
+                trims::WornSource {
+                    catalog: Arc::clone(catalog),
+                    binding: index,
+                    artwork,
+                    texture: texture_index,
+                },
+            );
+        }
         layers.push(presentation);
     }
 
@@ -676,6 +687,7 @@ impl EquipmentRuntime {
                     assets: &assets,
                     bones,
                     owner_names: animation.rig.bone_names,
+                    owner_layers: animation.rig.render,
                     geometry: (geometry_index, evaluated.geometry),
                     local,
                     paired: false,
@@ -683,6 +695,7 @@ impl EquipmentRuntime {
                     scale: evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     alpha: placement_cache::alpha(
                         body,
+                        animation.rig.render,
                         &evaluated,
                         geometry_index,
                         local.len(),
@@ -709,9 +722,12 @@ impl EquipmentRuntime {
                         return Some(hidden_bone());
                     }
                     let Some(parent) = actor_animation::attachment::parent_for_root(
-                        &body.input.previous_bones,
-                        &body.input.current_bones,
-                        &bones.names,
+                        actor_animation::attachment::OwnerSkeleton::body(
+                            &body.input.previous_bones,
+                            &body.input.current_bones,
+                            &bones.names,
+                        )
+                        .with_layers(animation.rig),
                         input,
                         root,
                         evaluated.axis_scale.map(|axis| axis * evaluated.scale),

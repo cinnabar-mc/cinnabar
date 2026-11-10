@@ -1,14 +1,39 @@
 //! Spawn eggs resolve icons by actor identifier, not item-atlas key spelling.
 //!
 //! 26.50.26 reads the actor icon map. Vanilla reads description.spawn_egg texture/texture_index; spawn eggs accept
-//! only aux zero.
+//! only aux zero on named eggs. Legacy egg auxiliaries name actor types,
+//! independently of the shared texture atlas's variant indices.
 //! The pinned pack supplies precolored raster variants, including legacy eggs.
 
 use serde_json::Map;
 
+#[cfg(test)]
+mod tests;
+
 use super::*;
 
 type Definitions = BTreeMap<ItemVisualKey, (u32, ItemVisualDefinitionRoute)>;
+
+/// Generated from the pinned protocol actor identifiers, not texture atlas positions.
+const GENERIC_EGG_SOURCE: &[u8] = include_bytes!("../../../data/spawn-egg-selectors-v2225.json");
+
+#[derive(serde::Deserialize)]
+struct GenericEggActors {
+    wire_protocol: u32,
+    selectors: Vec<(u32, Box<str>)>,
+}
+
+/// Reads the generated selector facts for the active item protocol.
+fn generic_egg_actors() -> Result<Vec<(u32, Box<str>)>, AssetError> {
+    let facts: GenericEggActors = serde_json::from_slice(GENERIC_EGG_SOURCE)
+        .map_err(|_| invalid("invalid generated spawn egg selectors"))?;
+    if facts.wire_protocol != assets::active_content_registry_protocol() {
+        return Err(invalid(
+            "spawn egg selectors do not match the active protocol",
+        ));
+    }
+    Ok(facts.selectors)
+}
 
 struct ActorEgg {
     source: u32,
@@ -24,6 +49,7 @@ pub(super) fn compile(
     texture_data: &Map<String, Value>,
     definitions: &mut Definitions,
 ) -> Result<(), AssetError> {
+    let generic_actors = generic_egg_actors()?;
     let supported_version = version(assets::vanilla_source().tag.trim_start_matches('v'))?;
     let registry = assets::item::names::identifiers().collect::<BTreeSet<_>>();
     let mut actors = BTreeMap::<Box<str>, ActorEgg>::new();
@@ -45,7 +71,10 @@ pub(super) fn compile(
             assets::facts::pack::rules()
                 .egg_identifier(identifier)
                 .as_str(),
-        ) {
+        ) && !generic_actors
+            .iter()
+            .any(|(_, actor)| actor.as_ref() == identifier)
+        {
             continue;
         }
         let minimum_version = version(
@@ -88,6 +117,8 @@ pub(super) fn compile(
                 .into(),
             metadata: 0,
         };
+        // Servers may announce a named egg absent from the retained item registry.
+        // Actor admission above still requires a registered egg or reviewed legacy selector.
         let route = resolve(actor.egg.as_ref(), texture_data, source_indices)?;
         if definitions
             .get(&key)
@@ -98,6 +129,26 @@ pub(super) fn compile(
             ));
         }
         definitions.insert(key, (actor.source, route));
+    }
+    // The retained generic item uses ActorType auxiliaries, not atlas positions.
+    // Compatibility selectors use their declared replacement actor when available.
+    // These reviewed selectors share the target guard in this module's tests.
+    for (auxiliary, identifier) in &generic_actors {
+        let Some(actor) = assets::facts::pack::rules()
+            .superseding_egg(identifier)
+            .and_then(|current| actors.get(current))
+            .or_else(|| actors.get(identifier.as_ref()))
+        else {
+            continue;
+        };
+        let route = resolve(actor.egg.as_ref(), texture_data, source_indices)?;
+        definitions.insert(
+            ItemVisualKey {
+                identifier: assets::facts::SPAWN_EGG_IDENTIFIER.into(),
+                metadata: *auxiliary,
+            },
+            (actor.source, route),
+        );
     }
     Ok(())
 }

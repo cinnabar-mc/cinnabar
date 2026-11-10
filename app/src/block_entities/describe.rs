@@ -1,7 +1,7 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
 mod item;
-use item::held_item;
+use item::{held_item, map_id};
 
 use assets::{
     banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
@@ -28,6 +28,8 @@ pub(super) struct HeldItem {
     pub(super) identifier: Arc<str>,
     pub(super) metadata: u32,
     pub(super) shield_pattern: Option<Arc<render_api::ShieldPattern>>,
+    /// The stack's armor trim, which selects its trimmed icon wherever it is drawn.
+    pub(super) trim: Option<render_api::ItemTrim>,
 }
 
 /// A retained plant block with all typed state selectors used to resolve its world identity.
@@ -403,10 +405,7 @@ pub(super) fn describe(
                     map: None,
                 },
                 item: nbt.compound("Item").and_then(held_item),
-                map_id: nbt
-                    .compound("Item")
-                    .and_then(|stack| stack.compound("tag"))
-                    .and_then(|tag| tag.integer("map_uuid")),
+                map_id: nbt.compound("Item").and_then(map_id),
                 rotation_degrees: frame_rotation(nbt),
             })
         }

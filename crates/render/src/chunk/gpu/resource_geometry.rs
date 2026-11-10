@@ -20,12 +20,25 @@ impl PreparedResourceGeometry {
         queue: RenderQueue,
         view: Option<super::resource_sorts::ResourceView>,
     ) -> Option<Self> {
+        crate::gpu_allocation::isolated_terrain(|| {
+            Self::build_generation(instances, assets, device, queue, view)
+        })
+    }
+
+    /// Rejects the whole candidate when any allocation, geometry upload or sort upload fails.
+    fn build_generation(
+        instances: &[ChunkRenderInstance],
+        assets: ChunkTextureAssets,
+        device: RenderDevice,
+        queue: RenderQueue,
+        view: Option<super::resource_sorts::ResourceView>,
+    ) -> Option<Self> {
         let mut app = App::new();
         let mut tints = ChunkBiomeTints::default();
         if let Some(instance) = instances.first() {
             tints.identity = instance.tint_identity;
         }
-        app.insert_resource(ChunkGpuArena::new(&device))
+        app.insert_resource(ChunkGpuArena::try_new(&device)?)
             .insert_resource(device)
             .insert_resource(queue)
             .insert_resource(assets)

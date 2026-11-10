@@ -48,3 +48,8 @@ pub(crate) fn is_elytra_layer(layer: u8) -> bool {
 pub(crate) fn is_armor_layer(layer: u8) -> bool {
     (display::LAYER_HELMET..=display::LAYER_BOOTS).contains(&layer)
 }
+
+/// Converts an armor layer identity to the corresponding equipment-array index.
+pub(crate) fn armor_slot_index(layer: u8) -> Option<usize> {
+    is_armor_layer(layer).then(|| usize::from(layer - display::LAYER_HELMET))
+}

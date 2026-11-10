@@ -48,6 +48,7 @@ pub mod screen_state;
 pub mod session;
 pub mod session_data;
 pub mod sign_editor;
+mod toast_audio;
 pub mod use_on_identity_evidence;
 
 pub use forms::{
@@ -137,6 +138,10 @@ pub struct UiRuntime {
     pub session: session::SessionUi,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
     toast_display_millis: u64,
+    /// The player's bindings and active input mode, which name the controls in
+    /// `:_input_<binding>:` placeholders when server text arrives.
+    control_settings: Arc<launcher::menu::settings_options::SettingsOptions>,
+    input_mode: semantic_input::InputMode,
     /// Developer captures never draw toasts.
     hide_toasts: bool,
     chat_history: ChatHistory,
@@ -169,6 +174,8 @@ impl UiRuntime {
             loading_screen: None,
             resource_pack_loading: false,
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
+            control_settings: Arc::default(),
+            input_mode: semantic_input::InputMode::default(),
             hide_toasts: false,
             chat_history: ChatHistory::default(),
             dropped_unsent_chat_messages: 0,
@@ -272,6 +279,11 @@ impl UiRuntime {
 
     pub const fn chat(&self) -> &ChatStore {
         &self.session.chat
+    }
+
+    /// Clears displayed chat while preserving server ordering, input and pending sends.
+    pub fn clear_chat_messages(&mut self) {
+        self.session.chat.clear_messages();
     }
 
     pub const fn scoreboards(&self) -> &ScoreboardStore {
@@ -788,6 +800,19 @@ impl UiRuntime {
         self.toast_display_millis = lifetime;
     }
 
+    /// Names controls in server text received from now on with these bindings.
+    pub fn set_control_settings(
+        &mut self,
+        settings: Arc<launcher::menu::settings_options::SettingsOptions>,
+    ) {
+        self.control_settings = settings;
+    }
+
+    /// Names controls in server text received from now on for this input mode.
+    pub fn set_input_mode(&mut self, mode: semantic_input::InputMode) {
+        self.input_mode = mode;
+    }
+
     /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue
     /// and expire as usual, so nothing else changes.
     pub fn set_hide_toasts(&mut self, hide: bool) {
@@ -796,10 +821,5 @@ impl UiRuntime {
 
     pub fn hides_toasts(&self) -> bool {
         self.hide_toasts
-    }
-
-    /// Expires retained HUD output when the app has admitted a valid viewport.
-    pub fn expire_hud(&mut self, now: u64) {
-        self.session.hud.expire(now);
     }
 }

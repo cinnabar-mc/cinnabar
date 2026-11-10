@@ -172,6 +172,7 @@ pub fn mesh_output_byte_len(mesh: &ChunkMesh, biome: &PackedBiomeRecord) -> u64 
         + bytes::<PackedLiquidQuad>(mesh.liquid_quads().len() as u64)
         + bytes::<PackedQuadLighting>(mesh.liquid_lighting().len() as u64)
         + bytes::<DiagnosticGeometryCount>(mesh.diagnostic_geometry().entries().len() as u64)
+        + bytes::<crate::PackedTerrainMarker>(mesh.terrain_markers().len() as u64)
         + biome.byte_len()
 }
 
@@ -194,6 +195,7 @@ fn plain_bound() -> u64 {
         + shared_stream_counters()
         + bytes::<DiagnosticGeometryCount>(MAX_DIAGNOSTIC_IDENTITIES_PER_MESH as u64)
         + bytes::<u32>(MAX_PACKED_BIOME_RECORD_WORDS as u64)
+        + bytes::<crate::PackedTerrainMarker>(BLOCKS_PER_SUB_CHUNK as u64)
         + BLOCKS_PER_SUB_CHUNK as u64
             * Face::ALL.len() as u64
             * (bytes::<PackedQuad>(1)
@@ -204,7 +206,7 @@ fn plain_bound() -> u64 {
 /// Reserves strong and weak counters for every shared slice in the publication tuple.
 const fn shared_stream_counters() -> u64 {
     // Each slice handle and its two reference counters both occupy two pointer-sized words.
-    bytes::<crate::ChunkMeshStreams>(1)
+    bytes::<crate::ChunkMeshStreams>(1) + bytes::<std::sync::Arc<[crate::PackedTerrainMarker]>>(1)
 }
 
 /// Converts a stream length to bytes without depending on wire layout literals.

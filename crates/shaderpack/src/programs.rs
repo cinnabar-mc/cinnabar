@@ -114,10 +114,14 @@ pub struct ProgramSource {
     pub stages: Vec<(StageKind, String)>,
 }
 
+/// The program that draws Java's lines. Iris compiles it with its core-profile transformer
+/// whatever its `#version`.
+pub(crate) const LINE_PROGRAM: &str = "gbuffers_line";
+
 /// Iris's geometry programs and the program each falls back to when the pack lacks it.
 pub const GEOMETRY_FALLBACKS: &[(&str, Option<&str>)] = &[
     ("gbuffers_basic", None),
-    ("gbuffers_line", Some("gbuffers_basic")),
+    (LINE_PROGRAM, Some("gbuffers_basic")),
     ("gbuffers_textured", Some("gbuffers_basic")),
     ("gbuffers_textured_lit", Some("gbuffers_textured")),
     ("gbuffers_skybasic", Some("gbuffers_basic")),

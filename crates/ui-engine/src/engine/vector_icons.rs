@@ -195,6 +195,7 @@ fn mesh(key: Key) -> Option<UiMesh> {
             let mut color = key.color;
             color[3] = (f32::from(color[3]) * coverage).round() as u8;
             vertices.push(UiMeshVertex {
+                terrain_mips: false,
                 position,
                 clip_z: 0.,
                 clip_w: 1.,

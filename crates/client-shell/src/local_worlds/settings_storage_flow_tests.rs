@@ -30,7 +30,7 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
-        backend: Backend::Dragonfly,
+        backend: Backend::LegacyDragonfly,
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,

@@ -22,6 +22,12 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 /// Presents app preferences and worker actions only when this window owns the updater.
 fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
+    if view.updates.managed {
+        return content.label_text(
+            &installed_version(&view.updates.running),
+            "Updates are managed by Flatpak. Use your software store or run flatpak update.",
+        );
+    }
     if !view.updates.active {
         let message = if view.updates.manual_pending {
             view.updates.status_text()

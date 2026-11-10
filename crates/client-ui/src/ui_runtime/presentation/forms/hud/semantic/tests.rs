@@ -210,6 +210,256 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 }
 
 #[test]
+fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
+    let mut fixture = Fixture::default();
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(Some((0, 1, 0)), 50);
+    fixture.frame.selected_item_name = Some(Arc::from("Item"));
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Action"), 1, 100);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from("Popup"), 2, 100);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_jukebox_popup(Arc::from("Jukebox"), 3, 100);
+    fixture.frame.now_millis = 125;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+    assert_eq!(cache.model.popup.as_ref().unwrap().text, "\nPopup");
+    assert!(cache.model.item_name.is_none(), "the popup takes the field");
+    assert_eq!(
+        cache.model.jukebox_popup.as_ref().unwrap().text,
+        "Jukebox\n"
+    );
+
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(Some((1, 2, 0)), 150);
+    fixture.frame.selected_item_name = Some(Arc::from("New item"));
+    fixture.frame.now_millis = 150;
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.item_name.as_ref().unwrap().text, "New item");
+    assert!(cache.model.popup.is_none());
+    fixture.frame.now_millis = 2_500;
+    fixture.check(&mut cache);
+    assert!(
+        cache.model.item_name.is_none() && cache.model.popup.is_none(),
+        "the superseded popup cannot return"
+    );
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+}
+
+#[test]
+fn superseded_popups_stay_dismissed_after_selecting_an_empty_slot() {
+    let mut fixture = Fixture::default();
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from("Old popup"), 1, 100);
+    fixture.frame.now_millis = 100;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert!(cache.model.popup.is_some());
+
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(Some((0, 1, 0)), 150);
+    fixture.frame.selected_item_name = Some(Arc::from("Item"));
+    fixture.frame.now_millis = 150;
+    fixture.check(&mut cache);
+    assert!(cache.model.popup.is_none());
+    assert_eq!(cache.model.item_name.as_ref().unwrap().text, "Item");
+
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(None, 200);
+    fixture.frame.selected_item_name = None;
+    for now in [200, 250] {
+        fixture.frame.now_millis = now;
+        fixture.check(&mut cache);
+        assert!(cache.model.popup.is_none());
+        assert!(cache.model.item_name.is_none());
+    }
+
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from("New popup"), 2, 300);
+    fixture.frame.now_millis = 300;
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.popup.as_ref().unwrap().text, "\nNew popup");
+}
+
+#[test]
+fn popups_preserve_formatted_text_up_to_the_hud_text_budget() {
+    let mut fixture = Fixture::default();
+    let line = "§aStatus 世界\n";
+    let payload_bytes = protocol::MAX_UI_TEXT_BYTES - "\n".len();
+    let mut text = line.repeat(payload_bytes / line.len());
+    text.push_str(&"x".repeat(payload_bytes - text.len()));
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from(text.as_str()), 1, 100);
+    fixture.frame.now_millis = 100;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    let popup = cache.model.popup.as_ref().unwrap();
+    assert_eq!(popup.text, format!("\n{text}"));
+    assert_eq!(popup.text.len(), protocol::MAX_UI_TEXT_BYTES);
+}
+
+#[test]
+fn spectators_receive_the_action_bar_but_no_popups() {
+    let mut fixture = Fixture::default();
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Spectator);
+    let hud = &mut fixture.runtime.session.hud;
+    hud.set_actionbar(Arc::from("Action"), 1, 100);
+    hud.set_popup(Arc::from("Popup"), 2, 100);
+    hud.set_jukebox_popup(Arc::from("Jukebox"), 3, 100);
+    fixture.frame.now_millis = 125;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+    assert!(cache.model.popup.is_none());
+    assert!(cache.model.jukebox_popup.is_none());
+}
+
+#[test]
+fn actionbar_controller_input_outlives_default_animation_until_explicit_clear() {
+    let mut fixture = Fixture::default();
+    let mut cache = SemanticHud::default();
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Persistent status"), 1, 100);
+    fixture.frame.now_millis = 100;
+    fixture.check(&mut cache);
+    fixture.runtime.session.hud.expire(30_000);
+    fixture.frame.now_millis = 30_000;
+    fixture.check(&mut cache);
+    assert!(
+        fixture.runtime.hud().actionbar().is_none(),
+        "the default timed view expired"
+    );
+    assert_eq!(
+        cache.model.actionbar.as_ref().unwrap().text,
+        "Persistent status",
+        "an unanimated server control retains the request"
+    );
+    fixture.runtime.session.hud.clear_titles();
+    fixture.check(&mut cache);
+    assert!(cache.model.actionbar.is_none());
+}
+
+#[test]
+fn actionbar_requests_reset_stateful_server_labels_after_default_expiry() {
+    let mut fixture = Fixture::default();
+    Arc::make_mut(&mut fixture.catalog).overlay_text(
+        "ui/server_hud.json",
+        r##"{"namespace":"hud",
+        "hud_screen":{"type":"panel","size":["100%","100%"],"factory":{
+            "name":"hud_actionbar_text_factory","control_ids":{"hud_actionbar_text":"hud.message"}
+        }},
+        "message":{"type":"label","size":[180,12],"text":"#text",
+            "property_bag":{"#text":"$actionbar_text"},"bindings":[
+                {"binding_name":"#text","binding_condition":"once"}
+            ]}
+        }"##,
+    );
+    let catalog = Arc::clone(&fixture.catalog);
+    let context = json_ui::Context::desktop();
+    let root = Arc::new(
+        json_ui::resolve(&catalog, "hud.hud_screen", &context)
+            .control
+            .unwrap(),
+    );
+    let mut cache = SemanticHud::default();
+    let mut state = json_ui::BindState::new();
+    let mut resolve_cache = json_ui::ResolveCache::default();
+    let mut render = |fixture: &mut Fixture, state: &mut json_ui::BindState| {
+        fixture.check(&mut cache);
+        let bound = json_ui::bind_incremental(
+            &root,
+            &fixture.bindings.update(&cache.model, HudChanges::default()),
+            &json_ui::CachedLibrary {
+                library: json_ui::CatalogLibrary {
+                    catalog: &catalog,
+                    context: &context,
+                },
+                cache: &mut resolve_cache,
+            },
+            state,
+        );
+        let frame = json_ui::render_bound(
+            bound,
+            [480.0, 270.0],
+            &json_ui::LayoutEnv {
+                text: &ui_screens::test_support::FixedText,
+                textures: &ui_screens::test_support::NoTextures,
+            },
+            &json_ui::ViewState::default(),
+        );
+        frame
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.draw {
+                json_ui::Draw::Text { text, .. } => Some((node.key.clone(), text.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    for (request, now, expected) in [
+        (Some((1, "First", 100)), 100, "First"),
+        (None, 30_000, "First"),
+        (Some((2, "Second", 30_000)), 30_000, "Second"),
+        (Some((3, "Third", 30_000)), 30_000, "Third"),
+    ] {
+        if let Some((sequence, text, started)) = request {
+            fixture
+                .runtime
+                .session
+                .hud
+                .set_actionbar(Arc::from(text), sequence, started);
+        }
+        fixture.frame.now_millis = now;
+        fixture.runtime.session.hud.expire(now);
+        if request.is_none() {
+            assert!(fixture.runtime.hud().actionbar().is_none());
+        }
+        let labels = render(&mut fixture, &mut state);
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].1, expected);
+    }
+    let key = render(&mut fixture, &mut state)[0].0.clone();
+    state.publish(&key, "#text", json_ui::Scalar::Text("Retained".into()));
+    assert_eq!(render(&mut fixture, &mut state)[0].1, "Retained");
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Third"), 4, 30_000);
+    assert_eq!(render(&mut fixture, &mut state)[0].1, "Third");
+}
+
+#[test]
 fn creative_hides_hud_durability_bars_until_the_mode_changes_back() {
     let mut fixture = Fixture::default();
     fixture.frame.hotbar_stacks[0] = Some(stack(1));
@@ -619,6 +869,53 @@ fn stale_local_offhand_echo_keeps_the_inventory_offhand() {
 }
 
 #[test]
+fn long_multiline_chat_hud_preserves_raw_and_translated_message_tails() {
+    let text = ui_screens::test_support::long_chat_message();
+    assert!(text.len() > ui_screens::text::MAX_PRESENTED_TEXT_BYTES);
+    for kind in [ChatMessageKind::System, ChatMessageKind::Translation] {
+        let mut fixture = Fixture::default();
+        fixture.runtime.session.chat.push_local(ChatMessage {
+            fifo_sequence: 0,
+            received_millis: 0,
+            kind,
+            source: None,
+            message: if kind == ChatMessageKind::Translation {
+                "test.guide".into()
+            } else {
+                text.as_str().into()
+            },
+            parameters: if kind == ChatMessageKind::Translation {
+                Arc::from([Arc::from(text.as_str())])
+            } else {
+                Arc::from([])
+            },
+        });
+        let bytes = assets::encode_lang_catalog(
+            [3; 32],
+            [4; 32],
+            &[assets::LangEntry {
+                key: "test.guide".into(),
+                value: "%s".into(),
+            }],
+        )
+        .unwrap();
+        fixture.runtime.set_active_language(Some(Arc::new(
+            assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+        )));
+        let mut cache = SemanticHud::default();
+        fixture.check(&mut cache);
+        assert_eq!(cache.model.chat[0].text, text, "{kind:?}");
+        let before = cache.constructions;
+        fixture.frame.now_millis = 100;
+        assert!(!fixture.check(&mut cache).chat);
+        assert_eq!(
+            cache.constructions, before,
+            "unchanged long rows stay retained"
+        );
+    }
+}
+
+#[test]
 fn chat_translation_and_duration_refresh_without_rebuilding_hotbar() {
     let mut fixture = Fixture::default();
     fixture.runtime.session.chat.push_local(ChatMessage {
@@ -744,6 +1041,15 @@ fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
             .set_local_player_display_name(Arc::from(name));
         assert!(fixture.check(&mut cache).chat);
         assert_eq!(cache.model.chat_local_player.as_ref(), name);
+        assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
+        assert!(!fixture.check(&mut cache).chat);
+    }
+    for only_self in [true, false] {
+        fixture
+            .settings
+            .set(SettingId::MentionsTarget.index(), i32::from(only_self));
+        assert!(fixture.check(&mut cache).chat);
+        assert_eq!(cache.model.chat_mentions_only_self, only_self);
         assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
         assert!(!fixture.check(&mut cache).chat);
     }

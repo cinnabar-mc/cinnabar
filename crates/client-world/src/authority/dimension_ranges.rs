@@ -1,12 +1,27 @@
 use super::*;
 
 impl WorldAuthority {
-    /// Reads the server's admitted range, falling back to the built-in dimension range.
+    /// Reads the server's admitted range, falling back to StartGame's overworld or the
+    /// built-in dimension range.
     pub fn dimension_range(&self, dimension: i32) -> Option<DimensionRange> {
         self.dimension_ranges
             .get(&dimension)
             .map(|(_, range)| *range)
+            .or_else(|| {
+                (dimension == OVERWORLD_DIMENSION_ID).then_some(self.start_game_overworld_range)
+            })
             .or_else(|| vanilla_dimension_range(dimension))
+    }
+
+    /// Sets the overworld range StartGame's generator selects. A server overworld
+    /// definition still replaces it, and a range already used by terrain stays frozen.
+    pub fn set_start_game_overworld_range(&mut self, range: DimensionRange) {
+        if !self
+            .frozen_dimension_ranges
+            .contains(&OVERWORLD_DIMENSION_ID)
+        {
+            self.start_game_overworld_range = range;
+        }
     }
 
     /// Freezes the effective range when terrain first uses the dimension.
@@ -157,6 +172,30 @@ mod tests {
             }),
         );
         assert_eq!(authority.dimension_range_skip_count(), 0);
+    }
+
+    #[test]
+    fn legacy_generator_overworld_keeps_the_pocket_edition_height_until_defined() {
+        let mut authority = authority();
+        authority.set_start_game_overworld_range(protocol::LEGACY_OVERWORLD_RANGE);
+        assert_eq!(
+            authority.dimension_range(0),
+            Some(DimensionRange {
+                base_sub_chunk_y: 0,
+                sub_chunk_count: 8,
+            }),
+        );
+        assert_eq!(authority.dimension_range(1), vanilla_dimension_range(1));
+        authority.apply_dimension_heights(&[definition("minecraft:overworld", 3, -64, 320)]);
+        assert_eq!(authority.dimension_range(0), vanilla_dimension_range(0));
+    }
+
+    #[test]
+    fn start_game_overworld_range_never_moves_terrain_already_admitted() {
+        let mut authority = authority();
+        let admitted = authority.admit_dimension_range(0);
+        authority.set_start_game_overworld_range(protocol::LEGACY_OVERWORLD_RANGE);
+        assert_eq!(authority.dimension_range(0), admitted);
     }
 
     #[test]

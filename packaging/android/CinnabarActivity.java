@@ -21,6 +21,7 @@ public final class CinnabarActivity extends NativeActivity {
     private volatile boolean startupActive;
     private volatile long startupGeneration;
     private ImmersiveMode immersiveMode;
+    private volatile boolean pointerCaptureWanted;
     private final Set<Integer> physicalMice = new HashSet<>();
     private final Set<Integer> physicalKeyboards = new HashSet<>();
     private int lastReportedMice = -1;
@@ -118,6 +119,35 @@ public final class CinnabarActivity extends NativeActivity {
         super.onResume();
         immersiveMode.restore();
         notifyDeviceStateChanged();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Android releases pointer capture when the window loses focus.
+        if (hasFocus) {
+            applyPointerCapture();
+        } else {
+            clearHeldMouseButtons();
+        }
+    }
+
+    /**
+     * Native gameplay asks for mouse capture while it owns the pointer, so the mouse reports
+     * relative motion for looking around and its cursor stays hidden.
+     */
+    public void setPointerCaptureWanted(boolean wanted) {
+        pointerCaptureWanted = wanted;
+        runOnUiThread(this::applyPointerCapture);
+    }
+
+    private void applyPointerCapture() {
+        if (isFinishing() || isDestroyed()) return;
+        View decor = getWindow().getDecorView();
+        if (pointerCaptureWanted && hasWindowFocus()) {
+            decor.requestPointerCapture();
+        } else if (decor.hasPointerCapture()) {
+            decor.releasePointerCapture();
+        }
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -265,13 +295,6 @@ public final class CinnabarActivity extends NativeActivity {
             } catch (UnsatisfiedLinkError e) {
                 // In case activity starts before native library methods are bound
             }
-        }
-    }
-
-    @Override public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus) {
-            clearHeldMouseButtons();
         }
     }
 

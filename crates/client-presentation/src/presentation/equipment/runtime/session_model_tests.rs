@@ -108,6 +108,56 @@ fn held_session_artwork_precedes_startup_carried_cubes() {
     assert_eq!(restored, base);
 }
 
+#[test]
+fn session_sprites_and_block_sheets_require_their_declared_identifiers() {
+    let (mut runtime, _, _) = block_fixture();
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    let icons = SessionIcons {
+        icons: [
+            ("custom:diamond_sword", [240, 120, 60, 255]),
+            ("diamond_sword", [20, 40, 80, 255]),
+        ]
+        .into_iter()
+        .map(|(identifier, color)| SessionIcon {
+            identifier: Arc::from(identifier),
+            metadata: 0,
+            width: 1,
+            height: 1,
+            rgba8: Box::new(color),
+        })
+        .collect(),
+        block_sheets: vec![SessionIcon {
+            identifier: "crate".into(),
+            metadata: 0,
+            width,
+            height,
+            rgba8: vec![255; (width * height * 4) as usize].into(),
+        }],
+        ..Default::default()
+    };
+    let staged = StagedSessionIcons::stage_icons(&icons).unwrap();
+    let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(None, Some(staged), locations);
+    assert!(
+        runtime
+            .session_sprite("minecraft:diamond_sword", 7)
+            .is_none()
+    );
+    assert!(runtime.session_sprite("other:diamond_sword", 0).is_none());
+    for (identifier, color) in [
+        ("custom:diamond_sword", [240, 120, 60, 255]),
+        ("diamond_sword", [20, 40, 80, 255]),
+    ] {
+        let (index, _, _) = runtime.session_sprite(identifier, 7).unwrap();
+        assert_eq!(
+            runtime.session_sprite_pixels(index).unwrap().rgba8.as_ref(),
+            &color
+        );
+    }
+    assert!(runtime.session_held_block("crate").is_some());
+    assert!(runtime.session_held_block("minecraft:crate").is_none());
+}
+
 /// Installs `icons` as the session's artwork.
 fn install_session_icons(runtime: &mut EquipmentRuntime, icons: SessionIcons) {
     let items = crate::session_assets::SessionItems {

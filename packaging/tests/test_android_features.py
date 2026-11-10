@@ -20,7 +20,7 @@ class AndroidFeatureTests(unittest.TestCase):
         """Build the client and both compilers on the available Bash versions without optional features."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ["Cargo.toml", "packaging/android/build-apk.sh",
+            for name in ["Cargo.toml", "packaging/android/build-apk.sh", "packaging/android/profiling.sh",
                          "packaging/android/runtime.json", "packaging/android/client/Cargo.toml",
                          "packaging/common/stage-payload.sh", "packaging/common/runtime-binaries.txt",
                          "crates/launcher/src/lib.rs"]:

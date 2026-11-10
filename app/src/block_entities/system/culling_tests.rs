@@ -198,6 +198,7 @@ fn extended_effects_and_unknown_item_bounds_fail_open_behind_the_camera() {
 
     let item = HeldItem {
         shield_pattern: None,
+        trim: None,
         identifier: Arc::from("minecraft:apple"),
         metadata: 0,
     };

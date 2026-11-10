@@ -10,7 +10,7 @@ use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use super::MeleeContext;
 use crate::{
-    interaction_authority::{BlockRayUnavailable, observe_block_ray_using, ray_is_current},
+    interaction_authority::{BlockRayUnavailable, observe_nearest_block_ray, ray_is_current},
     interaction_override::{block_pick_reach, effective_reach},
 };
 use client_interaction::mining::hand_interaction_selection;
@@ -388,23 +388,19 @@ fn resolve_frame(
         },
         None => normal(),
     };
-    let observed = match observe_block_ray_using(
+    let observed = match observe_nearest_block_ray(
         &obstruction_origin,
         &context.ui,
         &context.client_world,
         &context.collisions,
         selection,
         player.facts.player_game_mode(),
-        false,
         (
             input_mode,
             block_pick_reach(reach.block, actor_reach),
             identity,
             frame.position_authority,
         ),
-        |world, origin, direction, reach| {
-            world.block_interaction_ray_current(origin, direction, reach)
-        },
     ) {
         Ok(observed) => Some(observed),
         Err(BlockRayUnavailable) => {

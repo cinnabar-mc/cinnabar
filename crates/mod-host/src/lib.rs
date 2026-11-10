@@ -75,7 +75,7 @@ pub use runtime::cinnabar::extension::player_state::{
 };
 pub use runtime::cinnabar::extension::{
     camera::DamageShake, events::Cue as ModCue, input::Controls as ControlFrame,
-    panel::Event as ControlEvent,
+    input::Scroll as ScrollFrame, panel::Event as ControlEvent,
 };
 
 pub use runtime::cinnabar::extension::terrain::{
@@ -225,6 +225,16 @@ pub fn empty_controls() -> ControlFrame {
         events: Vec::new(),
         pointer: None,
         wheel: 0.0,
+    }
+}
+
+/// No wheel input for an unowned or already consumed native frame.
+pub fn empty_scroll() -> ScrollFrame {
+    ScrollFrame {
+        line_x: 0.0,
+        line_y: 0.0,
+        pixel_x: 0.0,
+        pixel_y: 0.0,
     }
 }
 

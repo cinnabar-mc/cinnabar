@@ -2,7 +2,7 @@
 
 use actor_animation::{
     ActorRigSnapshot, AttachableAnimationInput,
-    attachment::{compose_parent, parent_for_root},
+    attachment::{OwnerSkeleton, compose_parent, parent_for_root},
 };
 use client_world::ActorSnapshot;
 
@@ -125,6 +125,16 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
+        // First person samples only the hand's body pose, not its controller models, so roots
+        // bind to and follow the body alone there.
+        let owner_rig = &ActorRigSnapshot {
+            render: if input.first_person {
+                &[]
+            } else {
+                owner_rig.render
+            },
+            ..*owner_rig
+        };
         let (_, body_bones) = self.body_bones_for(body.input.rig)?;
         let pack::BindingSource {
             ref catalog,
@@ -188,6 +198,7 @@ impl EquipmentRuntime {
                 assets: &assets,
                 bones: &body_bones,
                 owner_names: owner_rig.bone_names,
+                owner_layers: owner_rig.render,
                 geometry: (geometry_index, evaluated.geometry),
                 local: pose,
                 paired: !input.first_person,
@@ -198,6 +209,7 @@ impl EquipmentRuntime {
                     .then(|| {
                         placement_cache::alpha(
                             body,
+                            owner_rig.render,
                             &evaluated,
                             geometry_index,
                             pose.len(),
@@ -212,9 +224,12 @@ impl EquipmentRuntime {
                 }
                 compose_parent(
                     parent_for_root(
-                        &body.input.previous_bones,
-                        &body.input.current_bones,
-                        &body_bones.names,
+                        OwnerSkeleton::body(
+                            &body.input.previous_bones,
+                            &body.input.current_bones,
+                            &body_bones.names,
+                        )
+                        .with_layers(owner_rig),
                         if input.first_person {
                             input
                         } else {
@@ -309,6 +324,7 @@ impl EquipmentRuntime {
             presentation: super::push::attachable_glint(presentation, item),
             camera_space: java_camera.is_some(),
             alpha_mode: render_model::HandItemAlphaMode::Cutout,
+            emitted_light: 0,
             java_camera,
             java_normal_axis,
         })

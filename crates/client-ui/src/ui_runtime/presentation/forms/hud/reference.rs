@@ -92,6 +92,15 @@ pub(super) fn hud_model(
             text: bounded_visible_text(name).to_owned(),
             born: seconds(changed),
         });
+    let popups = popups_allowed(mode);
+    let popup = visible(runtime.hud().popup(), now)
+        .filter(|_| popups)
+        .filter(|text| {
+            runtime
+                .selected_item_changed_millis()
+                .is_none_or(|changed| text.started_millis >= changed)
+        })
+        .map(timed);
     let chat_visible = !runtime.chat_focused() && !runtime.inventory_open();
     let horizon = seconds(now) - settings.chat_lifetime() - 1.0;
     let messages = runtime.chat().messages();
@@ -102,7 +111,7 @@ pub(super) fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: bounded_visible_text(text.as_ref()).to_owned(),
+                text: text.into_owned(),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
@@ -148,14 +157,23 @@ pub(super) fn hud_model(
         subtitle_text: Some(
             bounded_text(runtime.hud().subtitle_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
         ),
-        actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        actionbar: runtime.hud().actionbar_request().map(timed),
+        actionbar_creation_id: runtime
+            .hud()
+            .actionbar_request()
+            .map(|text| text.fifo_sequence),
         tip: visible(runtime.hud().tip(), now).map(timed),
-        item_name,
+        item_name: item_name.filter(|_| popup.is_none()),
+        popup,
+        jukebox_popup: visible(runtime.hud().jukebox_popup(), now)
+            .filter(|_| popups)
+            .map(timed),
         chat,
         chat_visible,
         chat_color: ui_screens::settings_chat::default_color(settings),
         chat_mention_color: Some(settings.mentions_color_code()),
         chat_local_player: Arc::clone(&runtime.session.local_player_display_name),
+        chat_mentions_only_self: settings.mentions_only_self(),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         chat_text: ui_screens::settings_chat::chat_text(settings),

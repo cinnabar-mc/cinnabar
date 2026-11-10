@@ -54,4 +54,4 @@ replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.1
 
 replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f
 
-replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261109191637-91b4a4064d77
+replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f

@@ -46,3 +46,14 @@ recorded in [the correction acceptance record](../reviews/inventory-hud-crafting
 Partial server HUD definitions retain this built-in placement unless they author
 a replacement. The native controller's `#item_name_text_offset` binding remains
 incomplete; server templates that explicitly use it still need parity work.
+
+Ordinary `TextPacket` popups feed this item-text role as a `popup_item_text` control
+instead of replacing the `SetTitle` action bar. A popup supersedes an older
+selected-item label; a newer selection prevents the old popup from returning after
+that selection's label fades. Jukebox popups bind `#jukebox_text` through the separate
+`jukebox_text` factory role as a `popup_jukebox_text` control with its own clock.
+Both hold two lines: a popup's message is the second line and a jukebox message the
+first, with the other line blank. Spectators do not see either. Exact native popup
+lifetimes and selection precedence still need a matched gameplay comparison, and the
+`ItemText` HUD element gate and native popup background are not implemented; the popup
+change does not inherit the earlier selected-item framebuffer acceptance.

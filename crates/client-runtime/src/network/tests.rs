@@ -145,6 +145,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
             server_authoritative_block_breaking: false,
             rewind_history_size: 0,
             base_game_version: protocol::BaseGameVersion::Any,
+            overworld_range: protocol::MODERN_OVERWORLD_RANGE,
             hardcore: false,
             hud_rules: Default::default(),
             death_rules: Default::default(),

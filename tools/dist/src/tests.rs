@@ -189,9 +189,9 @@ fn top_level_alias_resolution_preserves_nested_link_rejection() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// Local bundles must ship the verifier as a sibling of the local server on every platform.
+/// Local bundles stage the declared runtimes and require the verifier on every platform.
 #[test]
-fn stages_the_server_and_verifier_together_and_refuses_a_missing_verifier() {
+fn stages_declared_runtimes_and_refuses_a_missing_verifier() {
     for platform in [Platform::Linux, Platform::Macos, Platform::Windows] {
         let (root, options) = fixture(platform);
         let suffix = if platform == Platform::Windows {
@@ -200,7 +200,9 @@ fn stages_the_server_and_verifier_together_and_refuses_a_missing_verifier() {
             ""
         };
         stage(&options).unwrap();
-        for name in ["bedrock-local-server", "cinnabar-cxb"] {
+        for (name, _) in
+            layout::runtime_binaries().filter(|(_, key)| !matches!(*key, "CLIENT" | "CORE"))
+        {
             let destination = options
                 .output
                 .join(format!("{}{name}{suffix}", layout::binary_root(platform)));
@@ -209,6 +211,15 @@ fn stages_the_server_and_verifier_together_and_refuses_a_missing_verifier() {
                 format!("synthetic {name}").as_bytes()
             );
         }
+        assert!(
+            !options
+                .output
+                .join(format!(
+                    "{}bedrock-local-server{suffix}",
+                    layout::binary_root(platform)
+                ))
+                .exists()
+        );
         fs::remove_dir_all(&options.output).unwrap();
         fs::remove_file(options.binaries.join(format!("cinnabar-cxb{suffix}"))).unwrap();
         assert!(matches!(stage(&options), Err(DistError::Io { .. })));

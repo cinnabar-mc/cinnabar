@@ -349,6 +349,65 @@ fn consent_offers_only_declared_requests_and_metadata_drives_warnings() {
 }
 
 #[test]
+fn a_request_left_waiting_after_earlier_consent_is_flagged_and_approved_in_one_step() {
+    let mut item = installed(1, "zoom");
+    item.permissions[0].enabled = true;
+    item.permissions[0].requested_allowed = true;
+    let mut added = item.permissions[0].clone();
+    added.name = "Render material".into();
+    added.enabled = false;
+    added.requested_allowed = false;
+    added.sensitive = false;
+    item.permissions.push(added);
+    let snapshot = Snapshot {
+        library: Library {
+            installed: vec![item],
+            active: vec![ActiveMod {
+                id: 1,
+                status: Status::Running,
+            }],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (_, labels) = render(snapshot.clone());
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Running · Review permissions")
+    );
+    let expanded = Snapshot {
+        details_expanded: Some(1),
+        ..snapshot
+    };
+    let (hits, labels) = render(expanded.clone());
+    assert!(hits.contains(&command(Action::AllowRequested(1))));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Waiting for your approval:")
+    );
+    assert!(labels.iter().any(|label| label == "Render material"));
+    assert!(!labels.iter().any(|label| label == "⚠ camera"));
+    let mut approved = expanded;
+    approved.library.installed[0].permissions[1].enabled = true;
+    approved.library.installed[0].permissions[1].requested_allowed = true;
+    let (hits, labels) = render(approved);
+    assert!(!hits.contains(&command(Action::AllowRequested(1))));
+    assert!(labels.iter().any(|label| label == "Running"));
+    assert!(
+        !labels
+            .iter()
+            .any(|label| label.contains("Review permissions"))
+    );
+    assert!(
+        !labels
+            .iter()
+            .any(|label| label == "Waiting for your approval:")
+    );
+}
+
+#[test]
 fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
     let mut item = installed(1, "zoom");
     let mut extra = item.permissions[0].clone();
@@ -605,7 +664,7 @@ fn the_enabled_mod_is_the_active_card_with_its_status_and_controls() {
     for label in [
         "Active mods (1)",
         "My mods (1)",
-        "Running",
+        "Running · Review permissions",
         "Ready to enable",
     ] {
         assert!(labels.iter().any(|found| found == label), "{label}");
@@ -650,9 +709,8 @@ fn each_active_card_exposes_its_own_reload_permissions_and_reorder_direction() {
         assert!(labels.iter().any(|label| label == "Active mods (2)"));
         if id == 2 {
             assert!(
-                labels
-                    .iter()
-                    .any(|label| label == "Reload failed · previous instance running")
+                labels.iter().any(|label| label
+                    == "Reload failed · previous instance running · Review permissions")
             );
             assert!(labels.iter().any(|label| label == "invalid component"));
         }

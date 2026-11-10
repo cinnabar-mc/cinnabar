@@ -1,8 +1,8 @@
 # Packaging
 
-Release installers ship the client, the Go core, the dragonfly local-world server and its
-`cinnabar-cxb` verifier beside it, the shader-pack compiler, the Cinnangles Sans font and a prep
-kit, never Mojang-derived carriers. A packaged launch whose carriers are missing or stale runs
+Release installers ship the client, the Go core, the `cinnabar-cxb` verifier, the shader-pack
+compiler, the Cinnangles Sans font and a prep kit, never Mojang-derived carriers. A packaged
+launch whose carriers are missing or stale runs
 `crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
 window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
@@ -25,6 +25,7 @@ in a fresh file, and the newest 10 archives up to 64 MiB are kept.
 | macOS `.app` + DMG | `make package-macos` | `CODESIGN_IDENTITY`, `NOTARY_PROFILE` or `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_APP_PASSWORD` |
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
+| Linux Flatpak (x86-64) | See [Flatpak](flatpak/README.md) | none |
 
 All native builds include the local mod host and Settings › Mods. Release targets use
 `--no-default-features` to exclude the acceptance harness. Developer defaults stay enabled for `make play`, live
@@ -133,7 +134,7 @@ device requirements and installation.
 
 `packaging/release-assets.json` is the canonical list of downloadable release artifacts and
 their repository. `assets` lists desktop updater platforms; `manual_assets` lists downloads such
-as Android APKs that are installed separately and have no desktop update payload or symbol archive.
+as Android APKs and iOS IPAs that are installed separately and have no desktop update payload or symbol archive.
 Publication requires every platform installer, every desktop platform's symbol archive
 and the generated Linux install script before writing checksums for the native downloads. A new tagged Beta release
 stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep
@@ -172,8 +173,8 @@ Installers ship only the stripped binaries: packagers stage binaries by name and
 rejects any other file. Each package job zips its Rust binaries with their debug files and a
 `manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
-the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
-print symbolized tracebacks themselves and have no symbol files. Android release APKs use the
+the release carries it beside the installers. The Go core (`bedrock-core`)
+prints symbolized tracebacks itself and have no symbol files. Android release APKs use the
 `release` profile with split debug info disabled and have no symbol archive; the separate Android
 CI workflow uses `play`. Releasing an older source branch without debug info publishes no archives
 when run without those overrides, with a workflow warning; `release-symbols.py has-symbols` checks

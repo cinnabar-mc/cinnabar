@@ -10,24 +10,22 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PINS = json.loads((ROOT / "packaging/android/runtime.json").read_text())
 
 
 class AndroidDiagnosticsTests(unittest.TestCase):
-    def test_failed_exits_and_bounded_log_tails_remain_readable(self):
-        """Unexpected exits produce diagnostics; normal exits and missing logs remain harmless."""
+    def compile_activities(self, output):
+        """Compile rendered production activities and any Java fixture in the output directory."""
         sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
-        if not sdk or not shutil.which("javac") or not shutil.which("java"):
+        if not sdk or not shutil.which("javac"):
             self.skipTest("missing fixture: Android SDK and Java toolchain")
-        pins = json.loads((ROOT / "packaging/android/runtime.json").read_text())
-        android_jar = Path(sdk) / "platforms" / f'android-{pins["target_sdk"]}' / "android.jar"
+        android_jar = Path(sdk) / "platforms" / f'android-{PINS["target_sdk"]}' / "android.jar"
         if not android_jar.is_file():
             self.skipTest("missing fixture: pinned Android SDK platform")
-        with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory)
-            classes = output / "classes"
-            classes.mkdir()
-            rendered = subprocess.run([
-                "bash", "-euc", '''
+        classes = output / "classes"
+        classes.mkdir()
+        rendered = subprocess.run([
+            "bash", "-euc", '''
 repo_root="$1"
 out="$2"
 pin() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$repo_root/packaging/android/runtime.json" "$1"; }
@@ -40,10 +38,28 @@ for file in "$repo_root"/packaging/android/*.java; do
     render "$file" "$out/$(basename "$file")"
 done
 ''', "android-java-test", str(ROOT), str(output),
-            ], text=True, capture_output=True)
-            self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        ], text=True, capture_output=True)
+        self.assertEqual(rendered.returncode, 0, rendered.stderr)
+        compiled = subprocess.run([
+            "javac", "--release", "8", "-nowarn", "-classpath", str(android_jar),
+            "-d", str(classes), *map(str, output.glob("*.java")),
+        ], text=True, capture_output=True)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        return classes, android_jar
+
+    def test_activities_compile(self):
+        """Production activities must compile together, including their lifecycle overrides."""
+        with tempfile.TemporaryDirectory() as directory:
+            self.compile_activities(Path(directory))
+
+    def test_failed_exits_and_bounded_log_tails_remain_readable(self):
+        """Unexpected exits produce diagnostics; normal exits and missing logs remain harmless."""
+        if not shutil.which("java"):
+            self.skipTest("missing fixture: Java runtime")
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
             fixture = output / "DiagnosticsFixture.java"
-            fixture.write_text("package " + pins["application_id"] + ";\n" + '''
+            fixture.write_text("package " + PINS["application_id"] + ";\n" + '''
 import android.app.ApplicationExitInfo;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -165,14 +181,10 @@ public final class DiagnosticsFixture {
     }
 }
 ''')
-            compiled = subprocess.run([
-                "javac", "--release", "8", "-nowarn", "-classpath", str(android_jar),
-                "-d", str(classes), *map(str, output.glob("*.java")),
-            ], text=True, capture_output=True)
-            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            classes, android_jar = self.compile_activities(output)
             result = subprocess.run([
                 "java", "-classpath", os.pathsep.join((str(classes), str(android_jar))),
-                pins["application_id"] + ".DiagnosticsFixture", str(output / "client.log"),
+                PINS["application_id"] + ".DiagnosticsFixture", str(output / "client.log"),
             ], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 

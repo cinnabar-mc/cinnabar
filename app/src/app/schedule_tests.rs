@@ -76,7 +76,7 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
 /// registrations dispatch every `Update` and `PostUpdate`. Each one costs executor and parameter
 /// work on every frame even when it finds nothing to do, so growth must be deliberate: change
 /// these with the registrations, and prefer one set condition over a condition per system.
-const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 150, 8), ("PostUpdate", 1, 0)];
+const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 151, 8), ("PostUpdate", 1, 0)];
 
 #[test]
 fn client_frame_dispatch_stays_within_its_budget() {
@@ -131,5 +131,16 @@ fn shared_world_wiring_installs_vehicle_look_following() {
     assert!(
         app.world()
             .contains_resource::<client_presentation::camera::VehicleLookFollow>()
+    );
+}
+
+/// Every host shares the world wiring, so native and browser clients both show marker layers.
+#[test]
+fn shared_world_wiring_publishes_terrain_marker_layers() {
+    let mut app = App::new();
+    crate::game_frame::configure_world(&mut app);
+    assert!(
+        app.world()
+            .contains_resource::<render_scene::TerrainMarkerLayers>()
     );
 }

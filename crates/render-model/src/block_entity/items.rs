@@ -12,6 +12,8 @@ pub struct StaticItemPlacement {
     pub metadata: u32,
     /// Cloth colors and masks retained from the contained shield stack.
     pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
+    /// The contained armor's trim, drawn over its icon as every item drawer shows it.
+    pub trim: Option<render_api::ItemTrim>,
     /// A retained sequential block identity whose dedicated pot-content model is drawn.
     /// `None` selects the ordinary carried model or item sprite.
     pub potted_block: Option<u32>,

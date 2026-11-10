@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
-    unit_cube_quad_geometry_is_valid,
+    terrain_marker_variant_is_valid, unit_cube_quad_geometry_is_valid,
 };
 use crate::{
     AssetError, BlockFlags, CompiledAssets, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
@@ -338,6 +338,11 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         if !covered_grass_variant_is_valid(visual.kind, visual.variant, compiled.materials.len()) {
             return Err(invalid(format!(
                 "visual {index} has invalid covered-grass material"
+            )));
+        }
+        if !terrain_marker_variant_is_valid(visual.kind, visual.variant) {
+            return Err(invalid(format!(
+                "visual {index} has an invalid terrain marker"
             )));
         }
         if BlockFlags::from_bits(visual.flags.bits())

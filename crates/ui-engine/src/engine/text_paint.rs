@@ -4,7 +4,7 @@
 
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use assets::RuntimeFontCatalog;
+use assets::{FontLineMetrics, RuntimeFontCatalog};
 use json_ui::{LabelShape, TextAlign, TextMeasure, TextOptions};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TextLayoutCache, TextLayoutRequest, TextLineAlign, TextShadow,
@@ -40,6 +40,23 @@ pub(super) struct LabelMetrics<'a> {
     frame_scale: UiScale,
     authored_factor: f32,
     shadow_factor: f32,
+}
+
+/// Line metrics for a fallback face of default-font texel glyphs, such as private-use sheet
+/// glyphs, behind a label face with `face` metrics. [`label_metrics`] then draws each fallback
+/// texel at the same size as in a default-font label, or `None` when the face has no height.
+pub fn default_texel_fallback_metrics(face: FontLineMetrics) -> Option<FontLineMetrics> {
+    let height = u64::from(face.ascent_64) + u64::from(face.descent_64);
+    if height == 0 {
+        return None;
+    }
+    let label_64 = u64::from(FONT_DESIGN_PIXEL_TEXELS) * OUTLINE_LABEL_HEIGHT_GUI as u64 * 64;
+    let scale = |value: u32| u32::try_from(u64::from(value) * label_64 / height).ok();
+    Some(FontLineMetrics {
+        em_64: scale(face.em_64)?,
+        ascent_64: scale(face.ascent_64)?,
+        descent_64: scale(face.descent_64)?,
+    })
 }
 
 /// Keeps bitmap spacing and resolves native sizes and effects in the selected face's units.
@@ -153,6 +170,7 @@ impl<'a> LabelMetrics<'a> {
         let mut request = self.metrics.request(text, width_64(width), self.font);
         request.wrap = TextWrap {
             effect_scale_1024: self.effect_scale_1024(),
+            allow_vertical_overflow: true,
             line_padding_64: (shape.line_padding * f64::from(px) * 64.0).round() as i32,
             chop: if shape.hide_hyphen {
                 WordChop::Bare

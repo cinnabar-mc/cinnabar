@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
+use assets::facts::pack::PackTexture;
 use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
@@ -106,11 +107,24 @@ impl IconBlocks {
             ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// Selects canonical inventory poses for walls and directional blocks.
+    /// Selects canonical carried model states for walls and directional blocks.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if record.model_family == ModelFamily::Torch
+            && let Some(lit_name) = record.name.strip_prefix("minecraft:unlit_")
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.model_family == ModelFamily::Torch
+                        && candidate.name.strip_prefix("minecraft:") == Some(lit_name)
+                        && candidate.canonical_state == record.canonical_state
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if pack_compile_input::lightning_rod::is_record(record) {
             return self
                 .records
@@ -118,6 +132,21 @@ impl IconBlocks {
                 .find(|candidate| {
                     candidate.name == record.name
                         && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if assets::facts::pack::face_slots(&record.name)
+            == Some(assets::facts::pack::FaceSlots::Pumpkin)
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && matches!(
+                            candidate.property(assets::facts::BlockProperty::MinecraftCardinalDirection),
+                            Some(assets::facts::StateValue::String(direction)) if direction.as_ref() == "south"
+                        )
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -283,6 +312,56 @@ impl IconBlocks {
         self.tiles(root, self.icon_state(visual), true, true)
     }
 
+    /// Loads cube artwork for the GUI independently of the held sheet.
+    pub(super) fn gui_cube_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        let Some(record) = self.records.get(visual.0 as usize) else {
+            return Ok(None);
+        };
+        let bookshelf =
+            record.name.as_ref() == assets::facts::pack::PackBlock::ChiseledBookshelf.identifier();
+        if !bookshelf
+            && assets::facts::pack::face_slots(&record.name)
+                != Some(assets::facts::pack::FaceSlots::Pumpkin)
+        {
+            return Ok(None);
+        }
+        let Some(pack) = self.pack.as_ref() else {
+            return Ok(None);
+        };
+        let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
+        for face in BlockFace::ALL {
+            let source_face = if bookshelf {
+                match face {
+                    BlockFace::North => BlockFace::South,
+                    BlockFace::South => BlockFace::North,
+                    BlockFace::West => BlockFace::East,
+                    BlockFace::East => BlockFace::West,
+                    BlockFace::Up | BlockFace::Down => face,
+                }
+            } else {
+                face
+            };
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, source_face)
+                .map(String::into_boxed_str)
+                .or_else(|| resolve_carried_fallback_key(&pack.blocks, record, source_face))
+            else {
+                return Ok(None);
+            };
+            let Some((path, overlay)) = pack.terrain.get_carried_for_record(&key, record) else {
+                return Ok(None);
+            };
+            let Some(tile) = super::carried::tile(root, path, overlay, false)? else {
+                return Ok(None);
+            };
+            tiles.push(tile);
+        }
+        Ok(tiles.try_into().ok())
+    }
+
     /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
     pub(super) fn carried_tiles(
         &self,
@@ -399,7 +478,7 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    /// Retains flat pane artwork as a fallback for carried models.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
         if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
             return None;
@@ -409,7 +488,7 @@ impl IconBlocks {
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let material = self.carried_material(visual, None)?;
+        let material = self.carried_material(self.icon_state(visual), None)?;
         material.overlay.is_none().then(|| material.path.into())
     }
 
@@ -435,6 +514,13 @@ impl IconBlocks {
         let record = self.records.get(visual.0 as usize)?;
         let icon_face = if assets::facts::block_render_fact(&record.name).kind
             == assets::facts::BlockRenderKind::TripwireHook
+            || record.traits.contains(BlockTraits::DRIPSTONE_OFFSET)
+            || [
+                assets::facts::BlockProperty::TwistingVinesAge,
+                assets::facts::BlockProperty::WeepingVinesAge,
+            ]
+            .iter()
+            .any(|property| record.property(*property).is_some())
         {
             BlockFace::North
         } else {
@@ -450,7 +536,16 @@ impl IconBlocks {
                     })?
                     .into()
             }
-            None => resolve_carried_down_key(&pack.blocks, record)?,
+            None => resolve_carried_down_key(&pack.blocks, record).or_else(|| {
+                resolve_texture_key(&pack.blocks, record, icon_face)
+                    .key
+                    .map(|key| Cow::Owned(key.into_string()))
+            })?,
+        };
+        let key = if pack.terrain.get(&key).is_some() {
+            key
+        } else {
+            PackTexture::Missing.key().into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
@@ -674,3 +769,7 @@ mod lectern_tests;
 #[cfg(test)]
 #[path = "blocks/pumpkin_tests.rs"]
 mod pumpkin_tests;
+
+#[cfg(test)]
+#[path = "blocks/bookshelf_tests.rs"]
+mod bookshelf_tests;

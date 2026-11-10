@@ -1,11 +1,11 @@
 # Android (experimental)
 
 The Android client is the desktop client built for arm64-v8a Android 8+ devices with Vulkan.
-The APK holds the client library, the Go core, the Dragonfly local server, `assetc` and the
-shader-pack compiler, plus the prep kit. It ships no game assets: first launch asks you to accept
-the Minecraft EULA, then downloads Mojang's sample resource pack and compiles the carriers into
-the app's private storage. Consent, progress and any failure appear on the startup screen. Keep
-the app open until setup finishes.
+The APK holds the client library, the Go core, `assetc` and the shader-pack compiler, plus
+the prep kit. It ships no game assets: first launch asks you to accept the Minecraft EULA,
+then downloads Mojang's sample resource pack and compiles the carriers into the app's private
+storage. Consent, progress and any failure appear on the startup screen. Keep the app open
+until setup finishes.
 
 ## Release APKs
 
@@ -39,6 +39,32 @@ Without `CINNABAR_ANDROID_KEYSTORE` the script signs with a test key in `target/
 Android CI workflow builds a test APK for pull requests that change `packaging/android/` or the
 release workflow, every six hours and on manual runs, and attaches it to the run. Each run uses its own key, so
 uninstall an earlier build (which clears its data) before installing a newer one.
+
+## Profile an optimized APK
+
+For native CPU attribution on Android 10+, build an opt-in release APK that permits local
+shell profilers and retains Rust line tables and symbol names:
+
+```sh
+ANDROID_HOME=/path/to/sdk CINNABAR_ANDROID_PROFILEABLE=true \
+  bash packaging/android/build-apk.sh
+```
+
+This writes `target/android/Cinnabar-<version>-profileable-arm64-v8a.apk`. It keeps release
+optimization settings and does not enable Android's `debuggable` flag. The extra debug sections
+make this diagnostic APK larger; normal builds keep their existing symbol settings and disable
+shell profiling. Other Cargo profiles are rejected in this mode.
+
+Keep the exact APK with the capture. Its `lib/arm64-v8a/` directory contains the matching
+unstripped Rust libraries, including line tables and ELF build IDs; extract them for simpleperf's
+binary cache when symbolizing the recording. Record the source commit and APK SHA-256 alongside
+the trace. Rebuilding the same source is not a substitute for preserving the sampled binaries.
+Go and third-party library symbol settings are unchanged. A test-signed APK cannot update an
+installation signed with a different key; use the existing signing identity to preserve app data.
+
+See Android's [profileable manifest documentation](https://developer.android.com/guide/topics/manifest/profileable-element)
+and [simpleperf application guide](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/android_application_profiling.md).
+This build mode still needs full APK and device capture acceptance.
 
 ## Local terrain checks
 
@@ -118,11 +144,11 @@ Back button.
 
 ## Local worlds
 
-Dragonfly is bundled for local worlds with Flat terrain. The server runs from the
-APK's native-library directory and saves worlds in private app storage. Android creation,
-reopening, offline play and suspend/resume still need device acceptance.
+All local worlds use BDS through the bundled translated runtime. Legacy Dragonfly saves
+remain in private app storage and cannot open in this version. Export and conversion are
+not available in the app yet.
 
-BDS is the default for new worlds. Android APK builds include the Box64 runtime and require
+Android APK builds include the Box64 runtime and require
 CMake, Ninja and a Linux ARM64 GCC/G++ cross-toolchain. The tested native runtime package
 is preserved in a project-owned dependency release, with the same content hash and matching
 sources; its URLs are in `packaging/android/runtime.json`. Set `CINNABAR_ANDROID_BDS_CC`
@@ -146,14 +172,14 @@ Minecraft EULA acceptance. It prepares reusable startup code before starting the
 an isolated temporary world and the installed server binary. Saved worlds are never opened by
 setup. The first saved-world open and later starts load the prepared code without rewriting it
 at every stop. A changed server or packaged runtime needs preparation again. Preparation failures
-are recorded in the setup log and leave remote play and Dragonfly available. BDS world opens
+are recorded in the setup log and leave remote play available. BDS world opens
 continue without cached code when it is unavailable; they never run another scratch preparation.
 No server binaries or game assets ship in the APK. The guest runtime downloads only the required library, checks
 its size and SHA-256, and reuses verified cached copies. An older source-archive cache is removed
 after the library is verified. Cache writes are skipped before creating a file if they would
 exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone startup,
 shutdown, storage and executable-cache acceptance remain incomplete.
-Dragonfly remains available as an alternative. Login, offline play, lifecycle and
+Login, offline play, lifecycle and
 performance acceptance remain incomplete across supported Android versions, CPU vendors and
 4/16 KB page devices.
 The Android runtime supplies a route over the existing loopback interface so an installed world

@@ -15,6 +15,9 @@ use launcher::menu::MenuScreen;
 const BED_SCREEN: &str = "bed.in_bed_screen";
 const SERVER_FORM_SCREEN: &str = "server_form.third_party_server_screen";
 
+/// User-selected distance for entity-backed storage screens.
+const ENTITY_STORAGE_CLOSE_DISTANCE: f64 = 11.5;
+
 /// A screen the host can have up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
@@ -166,6 +169,33 @@ impl ScreenSettingsTable {
 }
 
 impl UiRuntime {
+    /// Closes an entity-backed storage window beyond the configured distance from its owner.
+    pub fn close_distant_entity_storage(
+        &mut self,
+        player: &mut player_state::PlayerState,
+        player_position: [f64; 3],
+        entity_position: Option<[f32; 3]>,
+    ) {
+        let ledger = player.inventory.ledger();
+        if !self.inventory_open()
+            || ledger.window_kind() != Some(protocol::WindowKind::Storage)
+            || ledger.window_actor().is_none()
+        {
+            return;
+        }
+        let Some(entity_position) = entity_position else {
+            return;
+        };
+        let distance_squared: f64 = player_position
+            .into_iter()
+            .zip(entity_position)
+            .map(|(player, entity)| (player - f64::from(entity)).powi(2))
+            .sum();
+        if distance_squared > ENTITY_STORAGE_CLOSE_DISTANCE.powi(2) {
+            self.close_inventory(player);
+        }
+    }
+
     #[cfg(test)]
     pub fn set_screen_settings(&mut self, table: Arc<ScreenSettingsTable>) {
         self.screen_settings = table;
@@ -386,8 +416,7 @@ fn form_screen(entry: &super::ServerFormEntry) -> &'static str {
 }
 
 impl UiRuntime {
-    /// Closes the top scene when the player is hurt and its screen asks for it. Chat stays
-    /// open: vanilla keeps typing uninterrupted when hit, though its chat screen sets the flag.
+    /// Closes eligible top scenes when the player is hurt. Chat and containers stay open.
     pub fn close_scenes_on_player_hurt(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -398,9 +427,6 @@ impl UiRuntime {
         }
         let host = SceneHost::of(menu, self);
         match self.scenes(player_runtime, host).closes_on_hurt() {
-            Some(Scene::Container) => {
-                self.close_inventory(player_runtime);
-            }
             Some(Scene::SignEditor) => self.sign_editor_mut().close_on_hurt(),
             Some(Scene::MobEffects) => self.close_mob_effect_screen(),
             _ => {}

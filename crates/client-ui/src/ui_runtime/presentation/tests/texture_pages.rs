@@ -420,13 +420,32 @@ fn resize_and_session_reset_do_not_reload_static_pixels_or_retain_dynamic_owners
         reset.textures.static_identity(),
         first.textures.static_identity()
     );
-    // Session pages clear; the art pages keep the launcher's title logo.
+    // Session pages clear, except that the glyph pages keep the built-in emoticons; the art
+    // pages keep the launcher's title logo.
     let dynamic = reset.textures.dynamic_start();
-    assert!(
-        reset.textures.pages()[dynamic..dynamic + render_model::MAX_UI_DYNAMIC_PAGES]
-            .iter()
-            .all(|p| p.pixels().iter().all(|&v| v == 0))
+    let builtin = assets::pack_cells(
+        &assets::emoticons::builtin_emoticon_cells(),
+        0,
+        render_model::UI_SESSION_GLYPH_PAGE_SIDE,
+        ui_engine::pages::GLYPH_PAGES,
     );
+    assert!(!builtin.pages.is_empty());
+    for (index, page) in reset.textures.pages()
+        [dynamic..dynamic + render_model::MAX_UI_DYNAMIC_PAGES]
+        .iter()
+        .enumerate()
+    {
+        match index
+            .checked_sub(ui_engine::pages::FIRST_GLYPH_PAGE)
+            .and_then(|glyph_page| builtin.pages.get(glyph_page))
+        {
+            Some(emoticons) => assert_eq!(page.pixels(), &emoticons[..], "glyph page {index}"),
+            None => assert!(
+                page.pixels().iter().all(|&v| v == 0),
+                "dynamic page {index} is cleared"
+            ),
+        }
+    }
     assert!(presentation.player_preview_icon.is_none());
     assert!(reset.revision > resized.revision);
     let stats = UiRenderStats::default();
@@ -589,7 +608,10 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     assert_ne!(before.records[1].rect, changed.records[1].rect);
     let glyph = *presentation.font.glyph('\u{e005}').expect("sheet glyph");
     let dynamic_start = presentation.textures.dynamic_start();
-    assert_eq!(usize::from(glyph.page), dynamic_start + 10);
+    assert_eq!(
+        usize::from(glyph.page),
+        dynamic_start + ui_engine::pages::FIRST_GLYPH_PAGE
+    );
     assert_eq!(glyph.advance_64, 18 * 64);
     let page = &presentation.textures.pages()[usize::from(glyph.page)];
     let [left, top, ..] = glyph.uv;
@@ -789,7 +811,8 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
     session_glyphs::observe(&mut presentation, Some(&sheets));
     assert!(presentation.font.glyph('\u{e005}').is_some());
     assert_icon_drawable(&presentation, &sample);
-    let installed = presentation.textures.pages()[presentation.textures.dynamic_start() + 10]
+    let installed = presentation.textures.pages()
+        [presentation.textures.dynamic_start() + ui_engine::pages::FIRST_GLYPH_PAGE]
         .pixels()
         .iter()
         .any(|byte| *byte != 0);
@@ -869,6 +892,71 @@ fn multiple_coverage_families_use_their_actual_bytes_during_startup_admission() 
         assert_eq!(
             plan.buckets()[location.bucket].format,
             render_model::UiTextureFormat::Coverage
+        );
+    }
+}
+
+/// A server HUD label in a named outline face still draws built-in emoticons, in their own
+/// colours and at the size a default-font label gives them.
+#[test]
+fn named_label_faces_draw_builtin_emoticons_like_the_default_font() {
+    let face = (*independent_font(&[32]))
+        .clone()
+        .with_rendering(assets::FontRendering::NativeCoverage)
+        .with_line_metrics(assets::FontLineMetrics {
+            em_64: 40 * 64,
+            ascent_64: 30 * 64,
+            descent_64: 10 * 64,
+        })
+        .unwrap();
+    let startup = Arc::new(
+        independent_font(&[64])
+            .with_named_font("MinecraftTen", &face)
+            .unwrap(),
+    );
+    let mut presentation = UiPresentationRuntime::new(startup).unwrap();
+    session_glyphs::observe(&mut presentation, Some(SessionGlyphSheets::builtin()));
+    let emoticon = assets::emoticons::EmoticonList::builtin()
+        .get("xbox_face_button_down")
+        .unwrap();
+    let text = emoticon.to_string();
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let mut drawn = Vec::new();
+    for font_type in [None, Some("MinecraftTen")] {
+        let options = json_ui::TextOptions {
+            font_type: font_type.map(Into::into),
+            ..Default::default()
+        };
+        let font = Arc::clone(&presentation.font);
+        let request = ui_engine::engine::text_paint::painted_label_request(
+            metrics,
+            &text,
+            [0.0, 0.0, 400.0, 40.0],
+            &font,
+            1.0,
+            &options,
+            json_ui::TextAlign::Left,
+            metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32,
+        );
+        let layout = presentation.layouts.layout(request).unwrap();
+        let glyph = &layout.glyphs()[0];
+        assert_eq!(glyph.resolved_codepoint, emoticon, "{font_type:?}");
+        assert_eq!(glyph.rendering, assets::FontRendering::Coverage);
+        drawn.push([
+            glyph.bounds_64[2] - glyph.bounds_64[0],
+            glyph.bounds_64[3] - glyph.bounds_64[1],
+        ]);
+    }
+    for side in 0..2 {
+        assert!(
+            (drawn[0][side] - drawn[1][side]).abs() <= 64,
+            "named {:?} against default {:?}",
+            drawn[1],
+            drawn[0]
         );
     }
 }

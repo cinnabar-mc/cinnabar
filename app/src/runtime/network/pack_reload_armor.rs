@@ -270,6 +270,7 @@ fn equipped(dye_rgb: Option<u32>, enchanted: bool) -> ActorEquipmentInput {
         armor: [
             None,
             Some(WornItem {
+                trim: None,
                 variant: Default::default(),
                 map_id: None,
                 shield_pattern: None,

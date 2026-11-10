@@ -131,16 +131,30 @@ impl SessionIconPage {
         Some((source, vertices))
     }
 
-    /// Shares exact block geometry with the admitted material sheet for player previews.
+    /// Shares exact block geometry, its admitted sheet and material alpha mode for previews.
     pub(super) fn held_block(
         &self,
         identifier: &str,
         metadata: u32,
-    ) -> Option<(IconRef, Arc<[render_model::ActorRigVertex]>)> {
+    ) -> Option<(
+        IconRef,
+        Arc<[render_model::ActorRigVertex]>,
+        render_model::HandItemAlphaMode,
+    )> {
         let source = self.sheets.get(identifier)?;
         let source = *source.get(&metadata).or_else(|| source.get(&0))?;
-        let vertices = self.source.as_ref()?.block_models.get(identifier)?.clone();
-        Some((source, vertices))
+        let icons = self.source.as_ref()?;
+        let vertices = icons.block_models.get(identifier)?.clone();
+        let flags = icons
+            .block_material_flags
+            .get(identifier)
+            .copied()
+            .unwrap_or_default();
+        Some((
+            source,
+            vertices,
+            render_model::equipment::blocks::mode_for_material_flags(flags),
+        ))
     }
 
     /// How many consecutive variants from zero the session carries for `identifier`.
@@ -464,7 +478,7 @@ fn block_cubes(icons: &SessionIcons, packed: &PackedIcons) -> BTreeMap<IconKey, 
         {
             continue;
         }
-        if let Some(mesh) = item_gui::cube(sheet_faces(*placed)) {
+        if let Some(mesh) = item_gui::cube(sheet_faces(*placed), Default::default()) {
             models.insert(icon_key(*thumbnail), mesh);
         }
     }

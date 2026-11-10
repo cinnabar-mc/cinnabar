@@ -16,6 +16,8 @@ mod shields;
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum ModelKey {
     Shield(client_ui::ui_runtime::presentation::gui_models::WorldShieldArtwork),
+    /// A trimmed armor stack's sprite, which retains the catalogs its trim was composed from.
+    Trim(client_ui::ui_runtime::presentation::gui_models::WorldTrimArtwork),
     PottedBlock {
         id: u32,
     },
