@@ -714,3 +714,13 @@ pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Pa
         swing_source: Some(wire::Str::from_static(source.wire_name())),
     })
 }
+
+/// Builds an interact packet for opening an NPC dialogue on BDS/Endstone.
+#[must_use]
+pub fn interact_npc_packet(target_runtime_id: u64) -> crate::Packet {
+    crate::Packet::new(Interact {
+        action: InteractAction::NpcOpen,
+        target_runtime_id: ActorRuntimeID(target_runtime_id),
+        position: None,
+    })
+}

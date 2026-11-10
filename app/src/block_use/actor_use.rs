@@ -11,6 +11,7 @@ use {
 /// Current actor-use packet and the local effects committed on successful admission.
 pub(crate) struct ActorUse {
     packet: protocol::Packet,
+    extra_packet: Option<protocol::Packet>,
     actor_runtime_id: u64,
     local_use: LocalUse,
     tick: u64,
@@ -88,8 +89,22 @@ pub(super) fn prepare(
             .authority()
             .offered_use(runtime_id, &use_equipment(player, &selection.item)),
     );
+    let is_npc = match &actor.kind {
+        client_world::ActorKind::Entity { identifier } => {
+            identifier.as_ref() == "minecraft:npc"
+                || identifier.as_ref().ends_with(":npc")
+                || context.ui.gameplay_hud().has_interact_text()
+        }
+        _ => false,
+    };
+    let extra_packet = if is_npc {
+        Some(protocol::interact_npc_packet(runtime_id))
+    } else {
+        None
+    };
     Some(ActorUse {
         packet,
+        extra_packet,
         actor_runtime_id: runtime_id,
         local_use,
         tick: state.tick.saturating_add(1),
@@ -134,9 +149,13 @@ pub(crate) fn advance(
     runtime: &mut BlockUseRuntime,
     attempt: &mut ActorUse,
 ) -> bool {
+    let mut packets = vec![attempt.packet.clone()];
+    if let Some(extra) = &attempt.extra_packet {
+        packets.push(extra.clone());
+    }
     match context
         .network
-        .send_inventory_packets(vec![attempt.packet.clone()])
+        .send_inventory_packets(packets)
     {
         Ok(()) => {
             runtime.record_actor_use(

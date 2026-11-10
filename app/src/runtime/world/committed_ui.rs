@@ -121,8 +121,18 @@ pub(crate) fn drain_committed_ui_before_authority(
                     let authority = client_world.stream.as_ref().unwrap().authority();
                     authority
                         .actor_by_unique_id(npc.npc_unique_id)
-                        .and_then(|actor| authority.actor_lifetime(actor.runtime_id))
-                        .filter(|actor| actor.spawn_revision <= sequence)
+                        .or_else(|| authority.actor(npc.npc_unique_id as u64))
+                        .and_then(|actor| {
+                            authority
+                                .actor_lifetime(actor.runtime_id)
+                                .filter(|lifetime| lifetime.spawn_revision <= sequence)
+                                .or_else(|| {
+                                    Some(client_world::ActorLifetimeId {
+                                        runtime_id: actor.runtime_id,
+                                        generation: 0,
+                                    })
+                                })
+                        })
                 } else {
                     None
                 };

@@ -110,7 +110,7 @@ pub use interaction::{
     creative_destroy_block_packet, deny_destroy_block_packet, destroy_block_packet,
     entity_hover_packet, is_actor_attack, is_aim_assist_rotation_action, release_item_packet,
     start_item_use_on_packet, stop_item_use_on_packet, stop_riding_packet, stop_sleeping_packet,
-    swing_arm_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
+    swing_arm_packet, interact_npc_packet, use_actor_packet, use_item_as_attack_packet, writable_book_init_change,
 };
 pub use inventory::recipes::{
     BrewingItem, BrewingMix, BrewingMixItem, BrewingRecipe, MAX_RECIPE_INGREDIENTS, MultiRecipe,
