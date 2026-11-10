@@ -4,6 +4,9 @@ use super::*;
 use pack_compile_input::json::parse_unique_json;
 use std::cmp::Ordering;
 
+/// Selected entity documents and their source paths, keyed by identifier.
+type SelectedDefinitions = BTreeMap<Box<str>, (Box<str>, Value)>;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Version {
     parts: [u16; 3],
@@ -191,7 +194,7 @@ pub(super) fn select_vanilla_definitions(
 fn select_definitions(
     definitions: impl IntoIterator<Item = Result<(Box<str>, Value), AssetError>>,
     ceiling: Version,
-) -> Result<BTreeMap<Box<str>, (Box<str>, Value)>, AssetError> {
+) -> Result<SelectedDefinitions, AssetError> {
     let ceiling = Some(ceiling);
     let mut selected = BTreeMap::<Box<str>, (Option<Version>, Box<str>, Value, bool)>::new();
     for definition in definitions {
