@@ -1,8 +1,8 @@
-use bedrock_protocol_1_26_51::packets::UpdateAbilities as UpdateAbilitiesPacket;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::packets::UpdateAbilities as UpdateAbilitiesPacket;
+use bedrock_protocol_1_26_60::types::{
     SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer,
 };
-use bedrock_protocol_1_26_51::wire::{self, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Encode};
 use protocol::{
     AbilityLayersEvidence, MAX_ABILITY_LAYERS, decode_abilities_update, into_world_event,
 };
@@ -93,7 +93,7 @@ fn empty_max_and_over_policy_are_distinct_correctly_framed_evidence() {
 
 #[test]
 fn owned_and_raw_paths_preserve_identical_unknown_values_and_layer_order() {
-    use bedrock_protocol_1_26_51::enums::{CommandPermissionLevel, PlayerPermissionLevel};
+    use bedrock_protocol_1_26_60::enums::{CommandPermissionLevel, PlayerPermissionLevel};
     for count in [0, 32, 33] {
         let packet = UpdateAbilitiesPacket {
             data: SerializedAbilitiesData {

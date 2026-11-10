@@ -199,8 +199,11 @@ impl RuntimeAssets {
             model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
-            texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
-                .into_boxed_slice(),
+            texture_pages: vec![TexturePage::new(TextureArray {
+                layers: 1,
+                mips: mips.into(),
+            })]
+            .into_boxed_slice(),
             overlay_texture_source_sizes: Box::new([]),
             overlay_texture_source_grids: Box::new([]),
             overlay_page_layer_counts: Box::new([]),
@@ -439,9 +442,14 @@ impl RuntimeAssets {
             .ok()
             .map(|index| self.model_random_offsets[index].1)
             .or_else(|| {
-                let model = self.model_templates.get(template as usize)?;
-                (model.flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0)
-                    .then_some(block_transform::random_offset::SHORT_GRASS)
+                let flags = self.model_templates.get(template as usize)?.flags;
+                if flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0 {
+                    Some(block_transform::random_offset::SHORT_GRASS)
+                } else if flags & crate::model::MODEL_TEMPLATE_FLAG_SPELEOTHEM != 0 {
+                    Some(block_transform::random_offset::POINTED_DRIPSTONE)
+                } else {
+                    None
+                }
             })
     }
 

@@ -51,6 +51,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         clip: rect,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: pressed.map(str::to_owned),
         control_name: None,
         collection_index: None,
@@ -59,6 +60,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         checked: None,
         max_length: None,
         group_index: None,
+        radio_index: None,
         renderer: None,
         drag_axes: [false; 2],
         sound: None,
@@ -98,7 +100,7 @@ fn dressing_room_buttons_open_the_skin_library_and_preserve_profile_routes() {
 
 #[test]
 fn the_version_reads_as_the_release_client_shows_it() {
-    assert_eq!(version_label("1.26.50"), "v26.50");
+    assert_eq!(version_label("1.26.60"), "v26.60");
     assert_eq!(version_label("26.60"), "v26.60");
 }
 
@@ -234,33 +236,6 @@ fn pressed_buttons_map_to_menu_actions() {
         action_for(&view(MenuScreen::Servers), &edit),
         Some(MenuAction::EditSaved(3))
     );
-}
-
-#[test]
-fn java_blocking_bindings_and_clicks_share_the_animation_dependency() {
-    use launcher::menu::settings_options::{SettingId, layout::SettingPanel};
-    let mut view = view(MenuScreen::Settings);
-    for java in [false, true, false] {
-        std::sync::Arc::make_mut(&mut view.settings_options)
-            .set(SettingId::Animations.index(), i32::from(!java));
-        let mut data = DataSource::default();
-        crate::settings_controls::bind_values(
-            &view.settings_options,
-            None,
-            &mut data,
-            &str::to_owned,
-        );
-        for option in SettingPanel::VideoJavaCombat.options() {
-            assert_eq!(
-                data.global_value(&format!("#{}_enabled", option.name)),
-                Some(&Scalar::Bool(java))
-            );
-            let mut hit = region(HitKind::Toggle, None);
-            hit.control_name = Some(option.name.into());
-            let action = crate::settings_controls::action_values(&view.settings_options, &hit);
-            assert_eq!(action.is_some(), java);
-        }
-    }
 }
 
 #[test]
@@ -625,7 +600,7 @@ fn session_menu_bindings_keep_their_existing_root_families() {
         assert!(!shown.out_of_game());
         assert_eq!(
             screen_data(&shown, &|_| None, 0).map(|data| data.reference),
-            launcher::menu::menu_reference(screen)
+            launcher::menu::flow::menu_reference(screen)
         );
     }
 }

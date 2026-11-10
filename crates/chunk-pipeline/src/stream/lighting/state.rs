@@ -7,8 +7,8 @@ thread_local! {
 
 /// Light indexes, job scheduling and solver plumbing for resident sub-chunks.
 pub(in crate::stream) struct Lighting {
-    pub(in crate::stream) tx: Sender<LightCompletion>,
-    pub(in crate::stream) rx: Receiver<LightCompletion>,
+    pub(in crate::stream) tx: MailboxSender<LightCompletion>,
+    pub(in crate::stream) rx: Mailbox<LightCompletion>,
     /// Solves still executing, including ones whose keys were evicted meanwhile.
     pub(in crate::stream) running_jobs: Arc<AtomicUsize>,
     pub(in crate::stream) next_batch_id: u64,
@@ -34,7 +34,7 @@ pub(in crate::stream) struct Lighting {
 
 impl Lighting {
     pub(in crate::stream) fn new() -> Self {
-        let (tx, rx) = bounded(LIGHT_RESULT_CAPACITY);
+        let (tx, rx) = result_mailbox(LIGHT_RESULT_CAPACITY);
         Self {
             tx,
             rx,

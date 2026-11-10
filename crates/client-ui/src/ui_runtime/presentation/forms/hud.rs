@@ -141,6 +141,7 @@ impl UiPresentationRuntime {
                 sidebar_key,
                 options,
                 hidden.contains(VanillaElement::StatusEffects),
+                hidden.hides_position(),
                 renderer.catalog(),
             );
             let touch_inventory = self.screens.touch.enabled();
@@ -171,7 +172,7 @@ impl UiPresentationRuntime {
         // Packs may replace the native cursor renderer with ordinary image controls.
         // Gate the whole overlay so these controls obey the same camera and HUD settings.
         if crosshair && paint.crosshair.is_none() {
-            self.hud_elements.observe_crosshair(&[], false);
+            self.hud_elements.observe_crosshair(&[], false, [0., 0.]);
             return Ok(true);
         }
         let drawn_elements = Drawn::of(&paint, sidebar_shown);
@@ -217,7 +218,6 @@ impl UiPresentationRuntime {
         let drawn = self.screens.hud.paint(
             renderer,
             HudInput {
-                capture_keep_out: self.screens.mod_ui.mod_hud_editor_open(),
                 renderers_unchanged,
                 crosshair,
                 catalog: &catalog,
@@ -237,14 +237,18 @@ impl UiPresentationRuntime {
             *next = rollback.1;
         }
         if crosshair {
-            self.hud_elements
-                .observe_crosshair(self.screens.hud.crosshair.nodes(), true);
+            let px = metrics.scale.get() * ui::FONT_DESIGN_PIXEL_TEXELS as f32;
+            let hud_origin = [self.safe_area.left(), self.safe_area.top()].map(|inset| inset / px);
+            self.hud_elements.observe_crosshair(
+                self.screens.hud.crosshair.nodes(),
+                true,
+                hud_origin,
+            );
         } else {
             self.hud_elements
                 .observe_hud(self.screens.hud.hud.nodes(), &drawn_elements);
             // Touch selects hotbar slots through the HUD's own laid-out cells.
             self.screens.touch.hud_session = drawn.as_ref().map(|_| runtime.session_id());
-            self.screens.touch.hud_keep_out = self.screens.hud.editor_keep_out;
             self.screens.touch.hud = drawn;
         }
         // A reused paint ran no player renderer; the pose it asked for still holds.

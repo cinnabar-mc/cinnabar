@@ -1,4 +1,4 @@
-//! Bedrock 1.26.50 (protocol 2193) packets, coded by the generated contract crate.
+//! Bedrock 1.26.60 (protocol 2225) packets, coded by the generated contract crate.
 
 mod actor;
 mod audio;
@@ -82,7 +82,9 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, WeakClientBlobCache, client_blob_hash,
 };
-pub use block_edit::{map_info_request_packet, sign_edit_packet};
+pub use block_edit::{
+    CommandBlockFields, command_block_update_packet, map_info_request_packet, sign_edit_packet,
+};
 pub use boss::boss_registration_response;
 pub use camera::{
     CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
@@ -114,24 +116,23 @@ pub use inventory::recipes::{
     BrewingItem, BrewingMix, BrewingMixItem, BrewingRecipe, MAX_RECIPE_INGREDIENTS, MultiRecipe,
     RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition, RecipeHandle,
     RecipeIdentity, RecipeIdentityHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput,
-    RecipeUnlockOperation, RecipeUnlockState, RecipeUnlockUpdate, RecipeUnlockingContext,
-    RecipeUpdate, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
-    decode_recipe_unlocks, decode_recipe_update, empty_recipe_extra, recipe_binding_supported,
-    vanilla_tag_contains,
+    RecipeOutputData, RecipeUnlockOperation, RecipeUnlockState, RecipeUnlockUpdate,
+    RecipeUnlockingContext, RecipeUpdate, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
+    ScreenRecipes, decode_recipe_unlocks, decode_recipe_update, empty_recipe_extra,
+    recipe_binding_supported, vanilla_tag_contains,
 };
 pub use inventory::{
-    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, BookEdit, CONTAINER_NAME_CREATED_OUTPUT,
     CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MAX_STACK_REQUEST_AMOUNT,
-    MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem,
-    TradeOffer, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
+    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_BOOK_PAGE_BYTES, MAX_STACK_REQUEST_ACTIONS,
+    MAX_STACK_REQUEST_AMOUNT, MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor,
+    TradeEvent, TradeItem, TradeOffer, TrimRegistry, WINDOW_TYPE_TRADE, actor_pick_request_packet,
+    block_pick_request_packet, book_edit_packet, container_window, crafter_slot_toggle_packet,
+    is_personal_ui_inventory, lectern_update_packet,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
-    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
-};
-pub use inventory::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    ArmorDamage, ArmorDamageEvent, CONTAINER_NAME_ARMOR,
+    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
     ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, DYNAMIC_STORAGE_WINDOW_ID,
@@ -150,48 +151,44 @@ pub use inventory::{
     repeated_container_open_warning_packet, validate_item_nbt_size,
 };
 pub use inventory::{
-    CraftingRules, FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
-    furnace_options_packet,
+    CraftingRules, CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem,
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    MAX_CREATIVE_GROUPS, MAX_CREATIVE_ITEMS, furnace_options_packet,
 };
 pub use inventory::{
-    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
-    MAX_CREATIVE_ITEMS,
-};
-pub use inventory::{
-    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, MAX_GENERIC_STORAGE_SLOTS, OpenCells,
-    UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
-    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
+    EnchantOption, EnchantOptionsEvent, IngredientObservation, InventoryLayout, InventoryOptions,
+    InventoryRightTab, InventoryTab, MAX_ENCHANT_OPTIONS, MAX_GENERIC_STORAGE_SLOTS,
+    MAX_RECIPE_OBSERVATIONS, MineBlockRequest, MineBlockRequestError, OpenCells, RecipeObservation,
+    RecipeObservations, RecipeRegistryError, RecipeRegistrySnapshot, UI_SLOT_COUNT,
+    WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
+    WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_COMMAND_BLOCK, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
     WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
     WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
     WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
-    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
-    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
-    ui_slot_for_name, ui_slot_request_container,
-};
-pub use inventory::{
-    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
-};
-pub use inventory::{
-    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
-    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
+    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, inventory_options_packet, is_chest_like_name,
+    is_open_window_name, is_result_preview_name, open_cell_request, open_name_first_cell,
+    ui_slot_container_name, ui_slot_for_name, ui_slot_request_container,
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
-    DiggerSpeed, DiggerStates, EquipmentEvent, FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent,
-    ItemAnvilData, ItemAttackCooldown, ItemAttackTiming, ItemBannerPattern, ItemBlockList,
-    ItemBook, ItemComponents, ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError,
-    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, ItemShooter, ItemStackFacts,
-    ItemStackFactsCache, ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES,
-    MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, book_init_extra, book_needs_init, edit_item_extra,
-    held_items_match, item_anvil_data, item_banner_patterns, item_banner_type, item_block_list,
-    item_book, item_bundle_id, item_charged_projectile, item_custom_color, item_custom_name,
-    item_display, item_enchantment_level, item_enchantment_level_value, item_enchantment_mask,
-    item_extra_damage, item_extra_damage_integer, item_extra_damage_value, item_extra_lock,
-    item_extra_slot_locked, item_extra_unbreakable, item_filtered_custom_name,
+    DiggerSpeed, DiggerStates, EquipmentEvent, FireworkExplosion, FoodProperties,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAnvilData, ItemAttackCooldown, ItemAttackTiming,
+    ItemBlockList, ItemBook, ItemComponents, ItemDigger, ItemDisplay, ItemFireworks, ItemNbtEdit,
+    ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, ItemSeed,
+    ItemShooter, ItemStackFacts, ItemStackFactsCache, ItemTrim, ItemUseCooldown,
+    KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, apply_banner_to_shield, apply_item_trim,
+    book_init_extra, book_needs_init, edit_item_extra, held_items_match, item_anvil_data,
+    item_banner_patterns, item_banner_type, item_block_list, item_book, item_bundle_id,
+    item_charged_projectile, item_custom_color, item_custom_name, item_display,
+    item_enchantment_level, item_enchantment_level_value, item_enchantment_mask, item_extra_damage,
+    item_extra_damage_integer, item_extra_damage_value, item_extra_lock, item_extra_slot_locked,
+    item_extra_unbreakable, item_filtered_custom_name, item_firework_star, item_fireworks,
     item_has_enchantment_list, item_has_trim, item_id_aux, item_map_id, item_repair_cost,
-    item_stack_damage, item_use_progress_packet, item_user_data_equal, offhand_equipment_packet,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    item_shield_pattern, item_stack_damage, item_trim, item_use_progress_packet,
+    item_user_data_equal, offhand_equipment_packet, select_hotbar_slot_packet,
+    vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
@@ -207,8 +204,8 @@ pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, InteractionEncodeError,
     MovementPredictionSync, PlayerAuthInputError, PlayerAuthInputInteractions,
     PlayerAuthInputSnapshot, PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode,
-    PredictedVehicleInput, client_movement_prediction_sync, player_auth_input,
-    player_auth_input_trace_sample, player_auth_input_with_interactions,
+    PlayerInteractionModel, PredictedVehicleInput, client_movement_prediction_sync,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
 };
 pub use packet::{Packet, PacketKind};
@@ -243,34 +240,37 @@ pub use ui::{
     CommandSpec, CommandTreeEvent, CompletionContext, CustomForm, CustomFormElement,
     CustomFormValue, DeathInfoEvent, DeathRules, ElementMenuForm, FormButtonImage, FormControlLock,
     FormKind, FormNumber, FormRequestEvent, FormText, GameModeEvent, GameModeUpdate, HudEvent,
-    HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
-    MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES,
-    MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement,
-    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
-    NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
-    ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
-    TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
-    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
+    HudRules, LocatorEvent, LocatorWaypointUpdate, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
+    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
+    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
+    ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
+    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
+    ServerFormModel, SleepStatusEvent, TextCategory, TextEvent, TextKind, TextMenuForm,
+    TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm, chat_input_packet,
+    chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, quote_chat_player_name, server_settings_request_packet,
 };
 pub use world::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, CustomBlock, CustomBlockMining, CustomBlockPhysics,
-    CustomBlockVisuals, CustomBlocks, CustomBox, CustomCollision, CustomHashedState,
-    CustomMaterialInstance, CustomMiningItem, CustomMiningSpeed, CustomPermutation,
-    CustomPhysicalComponents, CustomPlacement, CustomSelection, CustomStateAxis, CustomStateValue,
-    CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
-    DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
-    LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
-    MAX_DIMENSION_DEFINITIONS, MapDataEvent, MovePlayerEvent, MovePlayerMode,
+    CLASSIC_OVERWORLD_RANGE, ChangeDimensionEvent, ChunkResyncEvent, CustomBlock,
+    CustomBlockMining, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks, CustomBox,
+    CustomCollision, CustomHashedState, CustomMaterialInstance, CustomMiningItem,
+    CustomMiningSpeed, CustomPermutation, CustomPhysicalComponents, CustomPlacement,
+    CustomSelection, CustomStateAxis, CustomStateValue, CustomTransformation,
+    CustomVisualComponents, DaylightCycleUpdateEvent, DimensionHeightDiagnostic, DimensionRange,
+    GameRulesEvent, HeightmapDiagnostic, LEGACY_OVERWORLD_RANGE, LevelChunkEvent, LevelChunkMode,
+    MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES, MAX_DIMENSION_DEFINITIONS,
+    MODERN_OVERWORLD_RANGE, MapDataEvent, MovePlayerEvent, MovePlayerMode,
     MovementCorrectionSubject, MovementEffectEvent, MovementEffectKind, NETHER_DIMENSION_ID,
-    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
-    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
+    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, OVERWORLD_DIMENSION_ID, OpenCommandBlockEvent,
+    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
+    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
+    SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
+    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
     WorldSpawnEvent, WorldWireError, air_network_id, block_name_sort_key, block_state_network_hash,
     into_world_event, request_sub_chunk_column, request_sub_chunks, vanilla_dimension_range,

@@ -164,13 +164,9 @@ fn stack_armor_beyond_the_model_atlas_still_dresses_every_slot_with_pack_art() {
 }
 
 #[test]
-fn worn_armor_keeps_gui_page_priority_when_hand_and_armor_textures_swap() {
+fn hand_and_armor_textures_stay_placed_when_they_trade_places() {
     let mut presentation = presentation();
     let side = render_model::UI_MODEL_ATLAS_SIDE;
-    let full =
-        UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES - 1];
-    presentation.gui_models.sources.required_pages = MODEL_PAGES - 1;
     let pack = RuntimeEquipmentCatalog::from_parts(
         [8; 32],
         Vec::new(),
@@ -185,96 +181,12 @@ fn worn_armor_keeps_gui_page_priority_when_hand_and_armor_textures_swap() {
     )
     .unwrap();
     presentation.set_preview_pack_equipment(Some(Arc::new(pack)));
-    presentation.wear_pack_equipment(
-        [None, Some("pack/z_chest"), None, None],
-        [Some("pack/a_held"), None],
-    );
-
-    assert!(presentation.gui_models.pack_equipment.region(1).is_some());
-    assert!(
-        !presentation
-            .gui_models
-            .pack_equipment
-            .regions
-            .contains_key("pack/a_held")
-    );
-
-    presentation.wear_pack_equipment(
-        [None, Some("pack/a_held"), None, None],
-        [Some("pack/z_chest"), None],
-    );
-    assert!(presentation.gui_models.pack_equipment.region(1).is_some());
-    assert!(
-        !presentation
-            .gui_models
-            .pack_equipment
-            .regions
-            .contains_key("pack/z_chest")
-    );
-}
-
-#[test]
-fn one_pack_texture_without_room_leaves_the_rest_of_the_pack_usable() {
-    let mut presentation = presentation();
-    let side = render_model::UI_MODEL_ATLAS_SIDE;
-    let full =
-        UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES - 1];
-    presentation.gui_models.sources.required_pages = MODEL_PAGES - 1;
-    let diamond = [40, 220, 210, 255];
-    let base = RuntimeEquipmentCatalog::from_parts(
-        [4; 32],
-        vec![binding(
-            "minecraft:diamond_boots",
-            ArmorSlot::Boots,
-            "textures/models/armor/diamond_1",
-            "armor",
-        )],
-        vec![texture(
-            "textures/models/armor/diamond_1",
-            [64, 32],
-            diamond,
-        )],
-    )
-    .unwrap();
-    presentation.set_equipment_catalog(Some(Arc::new(base)));
-    let (chest, boots) = ([90, 10, 10, 255], [10, 90, 10, 255]);
-    let pack = RuntimeEquipmentCatalog::from_parts(
-        [5; 32],
-        vec![
-            binding(
-                "fixture:chestplate",
-                ArmorSlot::Chestplate,
-                "pack/chest",
-                "armor",
-            ),
-            binding(
-                "minecraft:diamond_boots",
-                ArmorSlot::Boots,
-                "pack/boots",
-                "armor",
-            ),
-        ],
-        vec![
-            texture("pack/chest", [512, 512], chest),
-            texture("pack/boots", [128, 64], boots),
-        ],
-    )
-    .unwrap();
-    presentation.set_preview_pack_equipment(Some(Arc::new(pack)));
-    presentation.set_player_preview_gear(
-        [
-            None,
-            Some(("fixture:chestplate", None)),
-            None,
-            Some(("minecraft:diamond_boots", None)),
-        ],
-        None,
-    );
-    let gear = &presentation.player_preview_gear.armor;
-    assert_eq!(&gear[1].as_ref().unwrap().rgba[..4], &chest);
-    // The one free page holds the page-sized chestplate; the boots keep their vanilla diamond.
-    assert_eq!(&gear[3].as_ref().unwrap().rgba[..4], &diamond);
-    assert_eq!(gear[3].as_ref().unwrap().tint, None);
-    assert!(presentation.gui_models.pack_equipment.source.is_some());
+    for (worn, held) in [
+        ("pack/z_chest", "pack/a_held"),
+        ("pack/a_held", "pack/z_chest"),
+    ] {
+        presentation.wear_pack_equipment([None, Some(worn), None, None], [Some(held), None]);
+        let regions = &presentation.gui_models.pack_equipment.regions;
+        assert!(regions.contains_key(worn) && regions.contains_key(held));
+    }
 }

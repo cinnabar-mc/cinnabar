@@ -276,8 +276,6 @@ pub enum SimulationError {
     InvalidLiquidContactHeight,
     #[error("item-use movement modifier must be finite and within [0, 1]")]
     InvalidItemUseMovementModifier,
-    #[error("local input scale must be finite and between zero and one")]
-    InvalidLocalInputScale,
     #[error(transparent)]
     World(#[from] WorldQueryError),
     #[error("movement tick overflow")]

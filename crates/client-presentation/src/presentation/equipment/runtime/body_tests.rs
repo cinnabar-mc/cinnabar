@@ -38,6 +38,7 @@ fn files() -> Vec<(Box<str>, Vec<u8>)> {
 /// Supplies one non-humanoid wearable without a fallback sprite or built-in armor classification.
 fn item(name: &str) -> WornItem {
     WornItem {
+        trim: None,
         identifier: format!("fixture:{name}").into(),
         kind: HeldKind::Other,
         metadata: 0,
@@ -48,6 +49,7 @@ fn item(name: &str) -> WornItem {
         variant: Default::default(),
         charged_projectile: None,
         map_id: None,
+        shield_pattern: None,
         use_facts: Default::default(),
         grip: assets::item::grip::ItemGrip::Unresolved,
     }
@@ -160,6 +162,7 @@ fn harness_binding_draws_on_the_body_without_becoming_a_held_model() {
     let names = [Box::<str>::from("body")];
     let rig = super::elytra_tests::owner_rig(&owner, &names, 1);
     let stack = WornItem {
+        trim: None,
         identifier: identifier.as_ref().into(),
         ..item("a")
     };
@@ -239,6 +242,7 @@ fn body_slot_controller_reads_the_worn_stack_enchantment() {
         for (tick, enchanted, expected) in [(1, false, 40), (2, true, 210), (3, false, 40)] {
             let input = ActorEquipmentInput {
                 body: Some(WornItem {
+                    trim: None,
                     enchanted,
                     ..item("a")
                 }),

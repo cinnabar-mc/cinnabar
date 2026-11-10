@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn downscaling_weights_colors_by_alpha_coverage() {
+    for background in [[0, 0, 0, 0], [0, 255, 0, 0]] {
+        for alpha in [64, 255] {
+            let mut texture = DecodedTexture {
+                width: 2,
+                height: 2,
+                rgba8: [[240, 120, 60, alpha], background, background, background]
+                    .concat()
+                    .into(),
+            };
+            texture.downscale_to_max(1);
+            assert_eq!([texture.width, texture.height], [1, 1]);
+            assert_eq!(
+                texture.rgba8.as_ref(),
+                &[240, 120, 60, (f32::from(alpha) / 4.0).round() as u8]
+            );
+        }
+    }
+}
+
+#[test]
+fn downscaling_fully_transparent_colors_produces_clear_pixels() {
+    let mut texture = DecodedTexture {
+        width: 4,
+        height: 2,
+        rgba8: [240, 120, 60, 0].repeat(8).into(),
+    };
+    texture.downscale_to_max(2);
+    assert_eq!([texture.width, texture.height], [2, 1]);
+    assert_eq!(texture.rgba8.as_ref(), &[0; 8]);
+}
+
+#[test]
+fn downscaling_clears_colors_when_alpha_rounds_to_zero() {
+    let mut texture = DecodedTexture {
+        width: 2,
+        height: 2,
+        rgba8: [[240, 120, 60, 1], [0; 4], [0; 4], [0; 4]].concat().into(),
+    };
+    texture.downscale_to_max(1);
+    assert_eq!([texture.width, texture.height], [1, 1]);
+    assert_eq!(texture.rgba8.as_ref(), &[0; 4]);
+}
+
+#[test]
 fn pack_json_matches_previous_normalized_bytes() {
     for bytes in [
         br#"{"texture_data":{"a":{"textures":"textures/first"},"a":{"textures":"textures/last"}},"number":1.0000000000000002}"#.as_slice(),

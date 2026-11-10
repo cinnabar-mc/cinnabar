@@ -39,6 +39,7 @@ mod dials;
 mod lighting;
 mod preparation;
 mod source_cost;
+use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
 use preparation::DropPreparation;
@@ -208,7 +209,8 @@ fn block_template(
     if !block.is_known() || !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
         return None;
     }
-    template_model(assets, block.model_template()?, block.variant() & 3)
+    let template = assets::item_model_template(assets.model_templates(), block.model_template()?);
+    template_model(assets, template, block.variant() & 3)
 }
 
 /// Retains the authored quads and pixels for a selected world or pot-content template.
@@ -391,31 +393,6 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
-    /// The model an actor draws a carried block with. Cubes use their composed carried faces
-    /// (a grass block's tinted side overlay over dirt) unless a session pack retextured them;
-    /// other shapes, such as crossed plants, and retextured cubes use their world model. A
-    /// retextured cube whose world model cannot be built keeps its startup faces.
-    fn actor_carried_block_model(
-        cache: &mut ModelCache,
-        icons: &UiPresentationRuntime,
-        assets: &RuntimeAssets,
-        mode: NetworkIdMode,
-        id: u32,
-    ) -> Option<u32> {
-        let startup_art = match mode {
-            NetworkIdMode::Sequential => Some(id),
-            NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
-        }
-        .is_some_and(|visual| !assets.is_retextured(assets::BlockVisualId(visual)));
-        if startup_art {
-            Self::carried_block_model(cache, icons, assets, mode, id)
-                .or_else(|| Self::block_model(cache, assets, mode, id))
-        } else {
-            Self::block_model(cache, assets, mode, id)
-                .or_else(|| Self::carried_block_model(cache, icons, assets, mode, id))
-        }
-    }
-
     /// Shares a session block's admitted geometry and artwork across static and dropped items.
     fn session_block_model(
         cache: &mut ModelCache,
@@ -442,6 +419,13 @@ impl DroppedItemPublisher<'_, '_> {
         if let Some(id) = placement.potted_block {
             let model = assets.and_then(|assets| Self::potted_model(cache, assets, id));
             return cache.count_item(model);
+        }
+        if placement.allow_block_models
+            && placement.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(placement.shield_pattern.as_ref())
+            && let Some((_, model)) = cache.shield_model(artwork)
+        {
+            return cache.count_item(Some(model));
         }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -493,6 +477,14 @@ impl DroppedItemPublisher<'_, '_> {
     ) -> Option<preparation::PreparedDrop> {
         let view = preparation.view;
         let identifier = view.item.identifier.as_deref()?;
+        if identifier == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
+            && let Some((key, model)) = cache.shield_model(artwork)
+        {
+            let prepared =
+                preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
+            return cache.count_item(prepared);
+        }
         let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -698,7 +690,20 @@ impl DroppedItemPublisher<'_, '_> {
                     if cache.is_planning() {
                         continue;
                     }
-                    let rows = placement.world_from_item;
+                    let rows = match &cache.models[model as usize] {
+                        DroppedItemModel::Block(_)
+                            if placement.identifier.as_ref()
+                                == assets::gui_item::SHIELD_IDENTIFIER =>
+                        {
+                            render_model::equipment::shield::framed_transform(
+                                placement.world_from_item,
+                            )
+                        }
+                        DroppedItemModel::Block(_) | DroppedItemModel::Cube(_) => placement
+                            .world_from_block
+                            .unwrap_or(placement.world_from_item),
+                        _ => placement.world_from_item,
+                    };
                     let (block_level, sky_level) = placement.light.unwrap_or_else(|| {
                         stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]])
                     });
@@ -777,12 +782,18 @@ impl DroppedItemPublisher<'_, '_> {
                 }
                 let air = stream.air_block_id();
                 for carried in carried_blocks {
-                    let id = stream.resolve_block_network_id(carried.block_runtime_id);
-                    if id == air {
-                        continue;
-                    }
-                    let mode = stream.network_id_mode();
-                    let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
+                    let (mode, id) = match carried.block {
+                        CarriedBlockId::Wire(id) => {
+                            let id = stream.resolve_block_network_id(id);
+                            if id == air {
+                                continue;
+                            }
+                            (stream.network_id_mode(), id)
+                        }
+                        CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
+                    };
+                    let model =
+                        special::carried_block_model(cache, icons, assets, held_models, mode, id);
                     let Some(model) = cache.count_item(model) else {
                         continue;
                     };

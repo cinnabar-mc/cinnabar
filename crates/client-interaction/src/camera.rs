@@ -1,9 +1,11 @@
 //! Camera input adapters over the shared semantic frame and movement resources.
 use bevy::{prelude::*, window::PrimaryWindow};
+#[cfg(feature = "developer-control")]
+use client_presentation::camera::FlyCamera;
 use client_presentation::{
     camera::{
-        AutoFly, CameraSettingsAuthority, FlyCamera, FlyCameraUpdateSet, LocalPlayerDeath,
-        ServerCameraView, fov, look,
+        AutoFly, CameraSettingsAuthority, FlyCameraUpdateSet, LocalPlayerDeath, ServerCameraView,
+        fov, look,
     },
     local_player::LocalViewPose,
 };
@@ -27,7 +29,12 @@ impl Plugin for CameraInputPlugin {
                 apply_runtime_camera_settings
                     .after(ClientFrameSet::SemanticFinalize)
                     .before(FlyCameraUpdateSet),
-                (update_perspective, update_look, update_movement)
+                (
+                    update_perspective,
+                    update_look,
+                    #[cfg(feature = "developer-control")]
+                    update_movement,
+                )
                     .chain()
                     .in_set(FlyCameraUpdateSet),
             ),
@@ -36,9 +43,10 @@ impl Plugin for CameraInputPlugin {
             Update,
             ModCameraInputSet
                 .in_set(FlyCameraUpdateSet)
-                .after(update_look)
-                .before(update_movement),
+                .after(update_look),
         );
+        #[cfg(feature = "developer-control")]
+        app.configure_sets(Update, ModCameraInputSet.before(update_movement));
     }
 }
 
@@ -115,6 +123,7 @@ pub fn update_look(
 }
 
 /// Borrows current owner facts and forwards them at the existing system boundary.
+#[cfg(feature = "developer-control")]
 #[allow(clippy::too_many_arguments)]
 pub fn update_movement(
     player: Option<Res<client_state::PlayerRuntime>>,

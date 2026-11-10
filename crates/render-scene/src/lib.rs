@@ -39,6 +39,7 @@ pub mod skybox;
 pub mod startup_presentation;
 pub mod startup_timing;
 pub mod terrain_culling;
+pub mod terrain_markers;
 pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
@@ -125,7 +126,7 @@ pub use nametag::NametagSceneResource;
 pub use panorama::PanoramaScene;
 pub use particles::{ParticleGpuFrame, ParticleSimulation, particle_view, update_particle_frame};
 pub use primitive_shapes::PrimitiveShapesScene;
-pub use readiness::PipelineWarmupReadiness;
+pub use readiness::{PipelineWarmupReadiness, SampleCountPreflight, SampleCountRequest};
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
@@ -138,6 +139,7 @@ pub use screen_overlay::{
 };
 pub use skybox::SkyboxSettings;
 pub use terrain_culling::ChunkOcclusionCulling;
+pub use terrain_markers::TerrainMarkerLayers;
 pub use ui::{UiRenderSceneResource, UiRenderStatsResource};
 pub use ui_glint::{UiGlintSettings, UiItemGlintTexture};
 pub use viewmodel::{

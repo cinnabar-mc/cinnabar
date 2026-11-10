@@ -95,16 +95,8 @@ pub(super) fn results(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                     continue;
                 }
                 let (label, description) = content.option_text(option.id);
-                let dependency =
-                    if launcher::menu::settings_options::java_animations::requires_java_animations(
-                        option.id,
-                    ) {
-                        launcher::menu::settings_options::ANIMATION_CHOICES[0].label
-                    } else {
-                        ""
-                    };
                 let text = format!(
-                    "{title} {label} {description} {dependency} {}",
+                    "{title} {label} {description} {}",
                     option.name.replace('_', " ")
                 );
                 if matches(&terms, &text) {
@@ -112,14 +104,6 @@ pub(super) fn results(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                     options.push(option.id);
                 }
             }
-        }
-        let parent = launcher::menu::settings_options::SettingId::Animations;
-        if options.iter().any(|id| {
-            launcher::menu::settings_options::java_animations::requires_java_animations(*id)
-        }) && !options.contains(&parent)
-        {
-            options.insert(0, parent);
-            seen[parent.index()] = true;
         }
         let mut bindings = Vec::new();
         let gamepad = section.id == SettingSection::ControllerAndSwitch;

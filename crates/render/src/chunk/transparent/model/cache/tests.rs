@@ -606,3 +606,42 @@ fn cached_near_tests_match_the_order_camera_over_random_moves() {
         );
     }
 }
+
+#[test]
+fn surface_patch_sort_centres_follow_the_retained_geometry() {
+    let mut fixture = fixture(1);
+    fixture.quads[0].flags = 5;
+    let instance = &fixture.allocations[0].1;
+    let draw = PackedModelDrawRef::new(0, 0);
+    let centre = |draw| {
+        transparent_model_draw_candidate(
+            instance.key,
+            &instance.model_refs,
+            &instance.model_lighting,
+            draw,
+            &fixture.templates,
+            &fixture.quads,
+            0,
+        )
+        .unwrap()
+        .0
+    };
+    assert_eq!(
+        centre(draw.with_surface_tile(0, 16)),
+        Vec3::new(1. / 32., 1. / 32., 0.)
+    );
+    assert_eq!(
+        centre(draw.with_surface_tile(8, 16)),
+        Vec3::new(31. / 32., 31. / 32., 0.)
+    );
+    let camera = Vec3::ZERO;
+    let other = Vec3::new(0.5, 0.5, 0.);
+    assert!(
+        centre(draw.with_surface_tile(0, 16)).distance_squared(camera)
+            < other.distance_squared(camera)
+    );
+    assert!(
+        centre(draw.with_surface_tile(8, 16)).distance_squared(camera)
+            > other.distance_squared(camera)
+    );
+}

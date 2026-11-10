@@ -1,0 +1,58 @@
+{
+  "namespace": "hud",
+  "hud_screen": {
+    "type": "screen",
+    "controls": [
+      {
+        "sample_background": {
+          "type": "image",
+          "texture": "textures/ui/preview_frame",
+          "size": [
+            96,
+            40
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [
+            12,
+            20
+          ]
+        }
+      },
+      {
+        "sample_marker": {
+          "type": "image",
+          "texture": "textures/ui/preview_marker",
+          "size": [
+            6,
+            6
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [
+            57,
+            18
+          ]
+        }
+      },
+      {
+        "sample_player": {
+          "type": "custom",
+          "renderer": "paper_doll_renderer",
+          "size": [
+            40,
+            78
+          ],
+          "anchor_from": "top_left",
+          "anchor_to": "top_left",
+          "offset": [
+            -48,
+            18
+          ],
+          "rotation": 0,
+          "look_at_cursor": false
+        }
+      }
+    ]
+  }
+}

@@ -50,15 +50,18 @@ HUD_PACK_DIR ?= $(PACK_DIR)
 FONT_SOURCE_MANIFEST ?= assets/cinnangles-sans-source.json
 FONT_SOURCE ?= assets/fonts/CinnanglesSans.ttf
 BEDROCK_TARGET_MANIFEST ?= assets/bedrock-target.json
-REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json
-HUD_SOURCE_MANIFEST ?= assets/hud-source-v2193.json
+REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2225.json
+HUD_SOURCE_MANIFEST ?= assets/hud-source-v2225.json
 # Development-only outputs of explicitly selected local packs; the carrier table owns the rest.
 LOCAL_ASSET_DIR ?= .local/assets/compiled
-PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2193.bin
+PHYSICS_REGISTRY ?= $(LOCAL_ASSET_DIR)/block-physics-v2225.bin
 CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
 ASSET_COMPILER_BINARY = assetc
 ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin $(ASSET_COMPILER_BINARY) --
+# The isolated shader-pack compiler the client spawns beside the core, from the runtime table.
+SHADERPACK_WORKER_BINARY = $(shell awk '$$3 == "SHADERPACK_WORKER" {print $$1}' packaging/common/runtime-binaries.txt)
+SHADERPACK_WORKER_PACKAGE = $(shell awk '$$3 == "SHADERPACK_WORKER" {print $$2}' packaging/common/runtime-binaries.txt)
 VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --accept-eula
 # One in-process parallel pass over the carrier table; carriers whose fingerprint is unchanged are skipped.
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")
@@ -69,7 +72,7 @@ LOCAL_HUD_ASSET_COMPILE = $(ASSETC) hud-assets --pack "$(HUD_PACK_DIR)" --source
 .PHONY: registry-foundation-check jsonui-editor figma-plugin
 
 help:
-	@echo make registry-foundation-check - Validate the exact protocol-2193 registry foundation
+	@echo make registry-foundation-check - Validate the exact protocol-2225 registry foundation
 	@echo make vanilla-assets  - Acquire the pinned official Mojang sample resource pack
 	@echo make assets          - Build every stale carrier in one parallel pass, fetching the pack if needed
 	@echo make NAME-assets     - Build one carrier and what it reads, e.g. hud-assets or audio-bank-assets
@@ -140,6 +143,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
+	$(CARGO) build --profile $(PROFILE) -p $(SHADERPACK_WORKER_PACKAGE) --bin $(SHADERPACK_WORKER_BINARY) --locked
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/fetch-dxc.ps1 -Out "target/$(PROFILE_DIR)"
@@ -150,7 +154,7 @@ endif
 DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
 # The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
 DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
-DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
+DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(SHADERPACK_WORKER_BINARY)
 play: play-build
 ifneq ($(findstring Darwin,$(shell uname -s)),)
 	@mkdir -p "$(DEV_APP)/Contents/MacOS"

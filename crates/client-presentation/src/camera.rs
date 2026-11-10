@@ -49,9 +49,11 @@ mod vehicle_look;
 
 pub use bob::{ViewEffect, WalkBobState, walk_bob_effect};
 pub use controls::{
-    AutoFly, LocalPlayerDeath, auto_fly_offset, input_is_active, look_angles, look_at_target,
-    update_look, update_movement, update_perspective,
+    AutoFly, LocalPlayerDeath, input_is_active, look_angles, look_at_target, update_look,
+    update_perspective,
 };
+#[cfg(feature = "developer-control")]
+pub use controls::{auto_fly_offset, update_movement};
 pub use fov::{CameraFovInputs, CameraFovState, SPYGLASS_FOV_MODIFIER};
 pub use hurt::{CameraHurtState, LocalHurtEvent};
 pub use overlay::{
@@ -79,7 +81,9 @@ const MIN_FOV_RADIANS: f32 = PI / 180.0;
 const MAX_FOV_RADIANS: f32 = PI - MIN_FOV_RADIANS;
 const DEFAULT_ASPECT_RATIO: f32 = 16.0 / 9.0;
 
+#[cfg(feature = "developer-control")]
 pub const AUTO_FLY_PERIOD_SECONDS: f32 = 24.0;
+#[cfg(feature = "developer-control")]
 pub const AUTO_FLY_MAX_HORIZONTAL_BLOCKS: f32 = 128.0;
 
 /// Marks and configures the app's player-attached camera rig.
@@ -206,12 +210,22 @@ impl Plugin for CameraPresentationPlugin {
 #[cfg(test)]
 #[path = "camera/rig_tests.rs"]
 mod rig_tests;
+#[cfg(test)]
+#[path = "camera/yaw_offset_tests.rs"]
+mod yaw_offset_tests;
 
-/// CPU hand carriers follow the same camera capability as the animated hand rig.
+/// Whether first-person hands draw: the rendered perspective is first person and no server camera
+/// takes the view. The animated hand rig, the CPU hand carriers and hand particles all read this one
+/// decision, so they never disagree. Off-axis mod views also hide the body-aligned hand.
+/// Without settings, first person is assumed.
 pub fn hand_first_person(
-    perspective: semantic_input::PerspectiveMode,
+    settings: Option<&CameraSettingsAuthority>,
     server: Option<&ServerCameraView>,
 ) -> bool {
-    let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
-    server.map_or(fallback, |camera| camera.renders_first_person(fallback))
+    let fallback = settings.map_or(
+        semantic_input::PerspectiveMode::FirstPerson,
+        CameraSettingsAuthority::rendered_perspective,
+    ) == semantic_input::PerspectiveMode::FirstPerson;
+    settings.is_none_or(CameraSettingsAuthority::view_aligned)
+        && server.map_or(fallback, |camera| camera.renders_first_person(fallback))
 }

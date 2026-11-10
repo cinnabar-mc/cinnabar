@@ -35,13 +35,12 @@ pub(super) fn process(input: MovementInput) -> ProcessedControls {
     };
     let process_axis = |axis: f64| {
         let axis = axis as f32;
-        let processed = if input.move_vector_is_raw {
+        f64::from(if input.move_vector_is_raw {
             axis.clamp(-1.0, 1.0) * pose * item
         } else {
             let factor = item * pose;
             axis.clamp(-factor, factor)
-        };
-        f64::from(processed * input.local_input_scale.unwrap_or(1.0))
+        })
     };
     ProcessedControls {
         move_vector: [process_axis(input.strafe), process_axis(input.forward)],

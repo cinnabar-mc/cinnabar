@@ -1,7 +1,7 @@
 use super::{CustomSelection, Definition, block_name_sort_key};
 
 fn parse_definition(bytes: &[u8]) -> Option<Definition> {
-    super::parse_definition(&crate::nbt_tree::read_root(bytes)?)
+    super::parse_definition(crate::nbt_tree::read_root(bytes)?.root())
 }
 
 fn string(value: &str) -> Vec<u8> {
@@ -170,7 +170,7 @@ fn network_legacy_light_filter_retains_transparent_plant_dampening() {
 
 #[test]
 fn network_material_lighting_reads_typed_float_and_packed_byte() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let material = |fields: Vec<(&str, Nbt)>| {
         let components = Nbt::Compound(vec![(
             "minecraft:material_instances".into(),
@@ -187,7 +187,7 @@ fn network_material_lighting_reads_typed_float_and_packed_byte() {
                 )]),
             )]),
         )]);
-        super::visual_components(Some(&components))
+        super::visual_components(Some(components.view()))
             .materials
             .unwrap()[0]
             .clone()
@@ -224,8 +224,37 @@ fn network_material_lighting_reads_typed_float_and_packed_byte() {
 }
 
 #[test]
+fn network_material_lighting_choices_remain_distinct() {
+    use crate::nbt_tree::test_tree::Nbt;
+    let components = |ao, dimming| {
+        Nbt::Compound(vec![(
+            "minecraft:material_instances".into(),
+            Nbt::Compound(vec![(
+                "materials".into(),
+                Nbt::Compound(vec![(
+                    "*".into(),
+                    Nbt::Compound(vec![
+                        ("texture".into(), Nbt::String("test:plant".into())),
+                        ("ambient_occlusion".into(), Nbt::Float(ao)),
+                        ("packed_bools".into(), Nbt::Byte(dimming)),
+                    ]),
+                )]),
+            )]),
+        )])
+    };
+    let choices = [(0.0, 0), (0.0, 1), (1.0, 0), (1.0, 1)].map(|(ao, dimming)| {
+        super::visual_components(Some(components(ao, dimming).view())).materials
+    });
+    for (index, first) in choices.iter().enumerate() {
+        for second in &choices[index + 1..] {
+            assert_ne!(first, second);
+        }
+    }
+}
+
+#[test]
 fn scalar_light_components_remain_lenient_for_odd_values() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let components = |value| Nbt::Compound(vec![("minecraft:light_dampening".into(), value)]);
     for (value, expected) in [
         (Nbt::Int(0), Some(0)),
@@ -234,7 +263,7 @@ fn scalar_light_components_remain_lenient_for_odd_values() {
         (Nbt::Float(f64::NAN), None),
         (Nbt::String("unknown".into()), None),
     ] {
-        let visual = super::visual_components(Some(&components(value)));
+        let visual = super::visual_components(Some(components(value).view()));
         assert_eq!(visual.light_dampening, expected);
     }
 }
@@ -287,7 +316,7 @@ fn visual_components_and_permutations_are_retained() {
 // Origin is bottom-centre in sixteenths; a full 16-cube maps to the unit block.
 #[test]
 fn collision_box_maps_sixteenths_to_block_units() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let list = |values: [f64; 3]| Nbt::List(values.map(Nbt::Float).into());
     let boxed = |origin, size| {
         Nbt::Compound(vec![
@@ -295,25 +324,26 @@ fn collision_box_maps_sixteenths_to_block_units() {
             ("size".to_owned(), list(size)),
         ])
     };
-    let full = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0])).unwrap();
+    let full = super::box_component(boxed([-8.0, 0.0, -8.0], [16.0, 16.0, 16.0]).view()).unwrap();
     assert_eq!((full.min, full.max), ([0.0; 3], [1.0; 3]));
-    let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
+    let slab = super::box_component(boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0]).view()).unwrap();
     assert_eq!(slab.max, [1.0, 0.5, 1.0]);
-    let empty = super::box_component(&boxed([0.0; 3], [0.0; 3])).unwrap();
+    let empty = super::box_component(boxed([0.0; 3], [0.0; 3]).view()).unwrap();
     assert_eq!(empty.min, empty.max);
 }
 
 #[test]
 fn review_custom_box_rejects_nonfinite_narrowed_and_computed_coordinates() {
-    use super::{Nbt, box_component};
+    use super::box_component;
+    use crate::nbt_tree::test_tree::Nbt;
     let boxed = |origin: [f64; 3], size: [f64; 3]| {
         Nbt::Compound(vec![
             ("origin".into(), Nbt::List(origin.map(Nbt::Float).into())),
             ("size".into(), Nbt::List(size.map(Nbt::Float).into())),
         ])
     };
-    assert!(box_component(&boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0])).is_none());
-    assert!(box_component(&boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0])).is_none());
+    assert!(box_component(boxed([-1e100, 0.0, 0.0], [1e100, 16.0, 16.0]).view()).is_none());
+    assert!(box_component(boxed([3e38, 0.0, 0.0], [3e38, 16.0, 16.0]).view()).is_none());
 }
 
 // A disabled selection box makes the block untargetable; a box overrides the default.
@@ -406,7 +436,7 @@ fn compound_traits_with_enabled_state_lists_preserve_state_identities() {
 
 #[test]
 fn inventory_visual_descriptions_stay_separate_from_placed_components() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let geometry =
         |name: &str| Nbt::Compound(vec![("identifier".into(), Nbt::String(name.into()))]);
     let material = Nbt::Compound(vec![(
@@ -429,7 +459,7 @@ fn inventory_visual_descriptions_stay_separate_from_placed_components() {
             ),
         ]),
     )]);
-    let parsed = super::parse_definition(&root).unwrap();
+    let parsed = super::parse_definition(root.view()).unwrap();
     assert_eq!(
         parsed.visual.base.geometry.as_deref(),
         Some("geometry.placed")
@@ -442,7 +472,7 @@ fn inventory_visual_descriptions_stay_separate_from_placed_components() {
 
 #[test]
 fn network_material_tables_keep_every_entry() {
-    use crate::nbt_tree::Nbt;
+    use crate::nbt_tree::test_tree::Nbt;
     let materials = (0..100)
         .map(|index| {
             (
@@ -455,7 +485,7 @@ fn network_material_tables_keep_every_entry() {
         "minecraft:material_instances".into(),
         Nbt::Compound(vec![("materials".into(), Nbt::Compound(materials))]),
     )]);
-    let decoded = super::visual_components(Some(&components))
+    let decoded = super::visual_components(Some(components.view()))
         .materials
         .unwrap();
     assert_eq!(

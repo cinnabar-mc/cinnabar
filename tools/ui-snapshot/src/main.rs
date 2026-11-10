@@ -145,7 +145,12 @@ fn run() -> Result<(), String> {
             resource_pack.as_deref(),
         )
     } else {
-        render::png_at(state.expect("named state checked"), &dir, seconds)
+        render::png_at(
+            state.expect("named state checked"),
+            &dir,
+            seconds,
+            resource_pack.as_deref(),
+        )
     };
     let (name, size, gui_scale) = state.map_or(("mod-panel", size, gui_scale), |state| {
         (state.name, state.size, state.gui_scale)

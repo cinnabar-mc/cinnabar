@@ -40,11 +40,7 @@ impl Raster {
             }))
             .expect("motion blur raster device");
         Some(Self {
-            gpu: Gpu {
-                device,
-                queue,
-                backend: adapter.get_info().backend,
-            },
+            gpu: Gpu::from_device(device, queue, adapter.get_info().backend),
             depth_samples,
         })
     }

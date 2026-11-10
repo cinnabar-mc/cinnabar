@@ -8,7 +8,7 @@ use super::{CustomMaterialInstance, Nbt};
 
 /// Reads every entry of the `materials` table and applies its `mappings` aliases; `None` without
 /// a table. Missing or mistyped fields take the client's network defaults.
-pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialInstance]>> {
+pub(super) fn instances(component: Option<Nbt<'_>>) -> Option<Box<[CustomMaterialInstance]>> {
     component
         .and_then(|instances| match instances.field("materials") {
             Some(Nbt::Compound(fields)) => Some(fields),
@@ -18,7 +18,7 @@ pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialIn
             let mut instances: Vec<_> = fields
                 .iter()
                 .map(|(name, material)| CustomMaterialInstance {
-                    name: name.as_str().into(),
+                    name: name.into(),
                     texture: material
                         .field("texture")
                         .and_then(Nbt::as_str)
@@ -32,12 +32,12 @@ pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialIn
                         .and_then(Nbt::as_str)
                         .map(Into::into),
                     ambient_occlusion: match material.field("ambient_occlusion") {
-                        Some(Nbt::Float(value)) => *value as f32,
+                        Some(Nbt::Float(value)) => value as f32,
                         _ => 0.0,
                     },
                     packed_bools: match material.field("packed_bools") {
                         Some(Nbt::Byte(value)) => {
-                            *value as u8 & CustomMaterialInstance::PACKED_BOOLS_MASK
+                            value as u8 & CustomMaterialInstance::PACKED_BOOLS_MASK
                         }
                         _ => 0,
                     },
@@ -52,19 +52,19 @@ pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialIn
 /// name, as the client builds its material table; an alias to a missing instance is ignored.
 /// Mappings apply in order, so a later alias may name an earlier one. Every entry is kept, and
 /// a name index keeps the work linear in the server-controlled table sizes.
-fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Option<&Nbt>) {
+fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Option<Nbt<'_>>) {
     let Some(Nbt::Compound(mappings)) = component.and_then(|component| component.field("mappings"))
     else {
         return;
     };
     // The first instance of a repeated name is the one a lookup finds.
-    let mut index = HashMap::with_capacity(instances.len() + mappings.len());
+    let mut index = HashMap::with_capacity(instances.len());
     for (position, instance) in instances.iter().enumerate() {
         index
             .entry(std::sync::Arc::clone(&instance.name))
             .or_insert(position);
     }
-    for (alias, mapping) in mappings {
+    for (alias, mapping) in mappings.iter() {
         let Some(target) = mapping.field("value").and_then(Nbt::as_str) else {
             continue;
         };
@@ -72,10 +72,10 @@ fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Optio
             continue;
         };
         let aliased = CustomMaterialInstance {
-            name: alias.as_str().into(),
+            name: alias.into(),
             ..instances[source].clone()
         };
-        match index.get(alias.as_str()) {
+        match index.get(alias) {
             Some(&existing) => instances[existing] = aliased,
             None => {
                 index.insert(std::sync::Arc::clone(&aliased.name), instances.len());
@@ -88,7 +88,9 @@ fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt_tree::test_tree::Nbt;
 
+    /// Builds an owned compound for material-table fixtures.
     fn compound(fields: impl IntoIterator<Item = (String, Nbt)>) -> Nbt {
         Nbt::Compound(fields.into_iter().collect())
     }
@@ -125,7 +127,7 @@ mod tests {
                 })),
             ),
         ]);
-        let instances = instances(Some(&component)).unwrap();
+        let instances = instances(Some(component.view())).unwrap();
         assert_eq!(instances.len(), COUNT + COUNT / 2);
         let texture = |name: &str| {
             instances

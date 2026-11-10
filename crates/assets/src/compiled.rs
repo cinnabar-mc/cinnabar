@@ -85,8 +85,15 @@ pub const MAX_CARRIER_TEXTURE_PAGES: usize = 2;
 /// Layer bits shared by carrier references and GPU shader encoders.
 pub const TEXTURE_LAYER_MASK: u32 = MAX_TEXTURE_LAYERS as u32 - 1;
 pub const MAX_MATERIALS: usize = 65_536;
+/// The value within `MATERIAL_FLAG_UV_ROTATION_MASK` that turns a face's UVs by a quarter turn.
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by 180 degrees.
+pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by three quarter turns.
+pub const MATERIAL_FLAG_UV_ROTATE_270: u32 = 3;
+/// The rotation code within `MATERIAL_FLAG_UV_MASK`; the remaining bits reflect U and V.
+pub const MATERIAL_FLAG_UV_ROTATION_MASK: u32 = 0x0000_0003;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
@@ -175,12 +182,19 @@ const _: () = assert!(MATERIAL_FLAGS_MASK == u32::MAX);
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
-            || flags
+            || (flags
                 & (MATERIAL_FLAG_TINT_MASK
-                    | MATERIAL_LEAF_METADATA_MASK
+                    | (MATERIAL_LEAF_METADATA_MASK & !crate::redstone_wire::SIGNAL_MASK)
                     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
                     | MATERIAL_FLAG_CAULDRON_WATER)
-                == 0)
+                == 0
+                && match crate::redstone_wire::encoded_signal(flags) {
+                    Some(signal) => {
+                        signal <= crate::redstone_wire::MAX_SIGNAL
+                            && flags & crate::stem::GROWTH_MASK == 0
+                    }
+                    None => true,
+                }))
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
@@ -231,6 +245,44 @@ impl Material {
 }
 
 const _: () = assert!(std::mem::size_of::<Material>() == 24);
+
+/// Native's wrapping position mix that picks a cell's weighted texture alternative; the
+/// terrain shaders' `material_position_random` computes the same value on the GPU.
+#[must_use]
+pub const fn material_position_random(position: [i32; 3]) -> u32 {
+    let [x, y, z] = [position[0] as u32, position[1] as u32, position[2] as u32];
+    let hash = z.wrapping_mul(0x06eb_fff5) ^ x.wrapping_mul(0x002f_c20f) ^ y;
+    hash.wrapping_mul(0x0285_b825)
+        .wrapping_add(11)
+        .wrapping_mul(hash)
+}
+
+/// The weighted alternative material `id` draws at `position`, or `id` itself when it has
+/// none, exactly as the terrain shaders' `positional_material_id` selects it.
+#[must_use]
+pub fn positional_material_id(materials: &[Material], id: u32, position: [i32; 3]) -> u32 {
+    let Some(base) = materials.get(id as usize) else {
+        return id;
+    };
+    match base.variation_count {
+        0 => id,
+        1 => base.variation_start,
+        count => {
+            let mut sample = (material_position_random(position) >> 16) as f32 / 65535.0;
+            for index in 0..count {
+                let candidate = base.variation_start + index;
+                let weight = materials
+                    .get(candidate as usize)
+                    .map_or(0.0, |material| f32::from_bits(material.variation_weight));
+                if sample <= weight || index + 1 == count {
+                    return candidate;
+                }
+                sample -= weight;
+            }
+            id
+        }
+    }
+}
 
 /// Per-face material IDs and registry facts for one sequential block ID.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -319,3 +371,7 @@ pub struct CompiledAssets {
     /// incomplete identity, so serialized output always names its inputs.
     pub provenance: BlobProvenance,
 }
+
+#[cfg(test)]
+#[path = "compiled/tests.rs"]
+mod tests;

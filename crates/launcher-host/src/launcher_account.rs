@@ -17,7 +17,9 @@ use bridge::{
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
 
-use super::account_control::{AccountControl, AccountEvent, RealmMembershipResponse};
+use super::account_control::{
+    AccountControl, AccountEvent, RealmLeaveResponse, RealmMembershipResponse,
+};
 use launcher::menu::view::{
     ButtonArt, InboxItem, JoinStage, LiveEventCard, MenuGameCard, MenuHome, MenuProfile, PingInfo,
     ServerDetails, ServerTrustPrompt,
@@ -38,6 +40,7 @@ use feeds::{CoreFeeds, catalog_round};
 mod invites;
 mod message_reports;
 pub mod profile_worker;
+mod realm_leave;
 mod realm_membership;
 
 #[cfg(all(test, unix))]
@@ -103,6 +106,7 @@ struct Snapshot {
     /// The invite screen's friends list, delivered once per request.
     people: Option<Result<Vec<bridge::Person>, ()>>,
     realm_membership: Option<RealmMembershipResponse>,
+    realm_leave: Option<RealmLeaveResponse>,
 }
 
 impl Snapshot {
@@ -116,6 +120,7 @@ impl Snapshot {
         self.profile = None;
         self.people = None;
         self.realm_membership = None;
+        self.realm_leave = None;
         self.home = None;
         if let Some(wake) = &self.catalog_wake {
             // A queued wake already covers the newest snapshot; never block a frame.
@@ -153,6 +158,7 @@ pub struct LauncherAccount {
     message_reports: Sender<MessageEvent>,
     invites: Sender<invites::Request>,
     realm_membership: tokio::sync::mpsc::UnboundedSender<realm_membership::Request>,
+    realm_leave: tokio::sync::mpsc::UnboundedSender<realm_leave::Request>,
     cinnabar_rosters: Sender<cinnabar_players::Roster>,
     /// Dropping it stops the catalog and feed workers.
     _alive: Sender<()>,
@@ -185,6 +191,7 @@ impl LauncherAccount {
             stop.clone(),
         );
         let realm_membership = realm_membership::start(socket_dir.clone(), Arc::clone(&snapshot));
+        let realm_leave = realm_leave::start(socket_dir.clone(), Arc::clone(&snapshot));
         let cinnabar_rosters = cinnabar_players::start(socket_dir.clone(), Arc::clone(&snapshot));
         let shared = Arc::clone(&snapshot);
         let dir = socket_dir.clone();
@@ -211,6 +218,7 @@ impl LauncherAccount {
             message_reports,
             invites,
             realm_membership,
+            realm_leave,
             cinnabar_rosters,
             _alive: alive,
             socket_dir,
@@ -881,6 +889,12 @@ impl AccountControl for LauncherAccount {
     }
     fn realm_membership(&mut self) -> Option<RealmMembershipResponse> {
         self.realm_membership_control()
+    }
+    fn request_realm_leave(&mut self, ticket: u64, realm_id: u32) -> bool {
+        self.request_realm_leave_control(ticket, realm_id)
+    }
+    fn realm_leave(&mut self) -> Option<RealmLeaveResponse> {
+        self.realm_leave_control()
     }
 
     fn request_people(&mut self) {

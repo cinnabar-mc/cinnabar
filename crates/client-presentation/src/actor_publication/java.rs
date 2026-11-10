@@ -14,7 +14,9 @@ use render_model::{
     },
 };
 
-use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_hand_source};
+use super::hand::{
+    HandInputs, HandSource, decorated_item_atlas, hand_progress, vanilla_hand_source,
+};
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, convert_bones_with, lerp_degrees, wrap_degrees},
     equipment::{
@@ -84,7 +86,7 @@ pub(super) fn java_bow_frame(use_ticks: u32) -> u32 {
 }
 
 /// Java's first-person hand, using the physics clock for local item use and the actor clock
-/// for equip progress. Sword blocking follows the visual preference without changing actor use.
+/// for equip progress. Sword blocking keeps the actor's use flag.
 pub(super) fn first_person_hand(
     rig: &ActorRigSnapshot<'_>,
     main: Option<&str>,
@@ -92,7 +94,6 @@ pub(super) fn first_person_hand(
     consume_ticks: Option<u32>,
     alpha: f32,
     item_animation: Option<&actor_animation::AttachableAnimationInput<'_>>,
-    item_blocking: bool,
 ) -> JavaHand {
     let [previous, current] = rig.java.equip;
     let (use_ticks, use_alpha) = use_clock(rig.hand[1].use_ticks, alpha, item_animation);
@@ -100,9 +101,6 @@ pub(super) fn first_person_hand(
         swing: rig.java.swing_progress(alpha),
         equip: previous + (current - previous) * alpha,
         using: main.and_then(|item| {
-            if is_java_sword(item) && !item_blocking {
-                return None;
-            }
             let ticks = if is_java_sword(item) {
                 rig.hand[1].use_ticks
             } else {
@@ -248,7 +246,6 @@ pub(super) struct Posed {
     pub(super) cape: JavaCapeInput,
 }
 
-/// Samples Java's third-person pose with an explicit sword-blocking visual preference.
 pub(super) fn third_person<'a>(
     stream: &WorldStream,
     rig: &ActorRigSnapshot<'a>,
@@ -256,7 +253,6 @@ pub(super) fn third_person<'a>(
     local: Option<&ActorEquipmentInput>,
     alpha: f32,
     scratch: &mut PoseScratch,
-    item_blocking: bool,
 ) -> Option<ThirdPerson<'a>> {
     if rig.java.vanilla_posture
         || render_model::is_pack_rig_id(render_model::EntityRigId(rig.rig.0))
@@ -289,7 +285,6 @@ pub(super) fn third_person<'a>(
         main.as_deref(),
         alpha,
         local.is_some(),
-        item_blocking,
     ));
     let parts = [0, 1, 2, 3, 4, 5];
     let bones = scratch.retargeted(stream, &java_rig, &pose, &parts, alpha)?;
@@ -381,14 +376,13 @@ pub(super) fn local_death_tilt(
     }
 }
 
-/// Java's pose inputs with an explicit sword-blocking visual preference.
+/// Java's pose inputs at the frame for a player holding `main_hand`.
 fn third_person_input(
     rig: &ActorRigSnapshot<'_>,
     actor: &ActorSnapshot,
     main_hand: Option<&str>,
     alpha: f32,
     local: bool,
-    item_blocking: bool,
 ) -> JavaBipedInput {
     let motion = rig.java;
     let (limb_swing, limb_amount) = motion.limb_motion(alpha);
@@ -406,7 +400,7 @@ fn third_person_input(
         riding: motion.riding,
         held_right: match main_hand {
             None => 0,
-            Some(item) if item_blocking && using && is_java_sword(item) => 3,
+            Some(item) if using && is_java_sword(item) => 3,
             Some(_) => 1,
         },
         aimed_bow: using && main_hand == Some(BOW),
@@ -536,7 +530,6 @@ pub(super) fn hand_source(
     mut inputs: HandInputs<'_>,
     equipment: &mut EquipmentRuntime,
     cache: &mut HandCache,
-    item_blocking: bool,
 ) -> Option<HandSource> {
     let stream = inputs.stream;
     let equipment_input = inputs.equipment_input;
@@ -569,7 +562,6 @@ pub(super) fn hand_source(
         consume_ticks,
         alpha,
         item_animation.as_ref(),
-        item_blocking,
     );
     let retained_equipment = ActorEquipmentInput {
         main: main.clone(),
@@ -591,6 +583,7 @@ pub(super) fn hand_source(
             stream.authority().actor(runtime_id)?,
             &rig,
             main_attachable_input,
+            true,
         ))
     });
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |item| {
@@ -655,7 +648,7 @@ pub(super) fn hand_source(
                 Some(hand),
             )
         });
-        let layer = attachable.flatten().or_else(|| {
+        let mut layer = attachable.flatten().or_else(|| {
             let input = item_animation
                 .map(|input| {
                     super::hand::attachable_hand_input(
@@ -689,7 +682,7 @@ pub(super) fn hand_source(
                 )
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     let off_layer = equipment_input.off.as_ref().and_then(|item| {
@@ -699,7 +692,7 @@ pub(super) fn hand_source(
             let input =
                 super::hand::attachable_hand_input(equipment_input, owner_equipment, input, true);
             let actor = stream.authority().actor(runtime_id)?;
-            let selected = equipment.select_held_item(item, actor, &rig, input);
+            let selected = equipment.select_held_item(item, actor, &rig, input, true);
             icon_fallback = selected.uses_icon_fallback();
             if icon_fallback {
                 return None;
@@ -715,14 +708,14 @@ pub(super) fn hand_source(
                 None,
             )
         });
-        let layer = attachable.or_else(|| {
+        let mut layer = attachable.or_else(|| {
             if icon_fallback {
                 equipment.first_person_offhand_icon(&inputs.presentation.submission, item)
             } else {
                 equipment.first_person_offhand(&inputs.presentation.submission, item)
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     // A missing held-item image does not make the hand empty. The empty arm's fixed pose is
@@ -754,6 +747,7 @@ pub(super) fn hand_source(
         None => (None, None),
     };
     Some(HandSource {
+        visibility: Default::default(),
         presentation: inputs.presentation,
         body,
         items: [main_layer, off_layer],

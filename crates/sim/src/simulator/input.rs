@@ -47,9 +47,6 @@ pub struct MovementInput {
     /// preserves consumable flags; explicit zero and one are meaningful.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub item_use_movement_modifier: Option<f64>,
-    /// Optional local travel scale, independent of native item use and sprint admission.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_input_scale: Option<f32>,
     /// Effective non-sprinting `minecraft:movement` value captured for this
     /// fixed tick, retaining custom/effect speed. Sprint is applied separately
     /// once. Absence selects the vanilla default; zero is valid.
@@ -118,7 +115,7 @@ pub struct MovementInput {
 }
 
 impl MovementInput {
-    /// Returns the item-, pose- and locally adjusted controls used by the simulator.
+    /// Returns the item- and pose-adjusted controls used by the simulator for this input.
     #[must_use]
     pub fn processed_controls(self) -> super::ProcessedControls {
         super::controls::process(self)
@@ -176,12 +173,6 @@ pub(super) fn validate(input: MovementInput) -> Result<(), SimulationError> {
         .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
     {
         return Err(SimulationError::InvalidItemUseMovementModifier);
-    }
-    if input
-        .local_input_scale
-        .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
-    {
-        return Err(SimulationError::InvalidLocalInputScale);
     }
     if [
         input.movement_speed,
