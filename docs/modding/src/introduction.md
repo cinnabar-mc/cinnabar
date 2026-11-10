@@ -9,7 +9,7 @@ Depending on the grants it holds, a mod can:
 - read observations of the local player and the world around them: inventory, effects, position, nearby actors, combat and chat events, the server clock;
 - look up item, food, potion and effect facts;
 - react to local input, reserve keys, and show touch buttons;
-- change local presentation: HUD labels and surfaces, nametag style, visibility and annotations, actor tints including the hurt flash, tooltip lines, clickable chat actions, visual time and weather;
+- change local presentation: HUD labels and surfaces, nametag style, visibility rules and annotations, actor tints including the hurt flash, tooltip lines, clickable chat actions, visual time and weather;
 - move the camera, submit movement and item-use intents, and request granted commands;
 - draw in the world with bounded primitives, retained geometry and sandboxed post-process passes, and read nearby terrain;
 - store its own settings in a small companion file.

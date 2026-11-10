@@ -91,12 +91,14 @@ fn drawn(visibility: NametagVisibility, actor: &ActorFacts, own_native: bool) ->
 
 /// Every actor shape the selectors distinguish.
 fn actors() -> impl Iterator<Item = ActorFacts> {
-    (0..8_u8).filter(|bits| bits & 1 != 0 || bits & 2 == 0).map(|bits| ActorFacts {
-        runtime_id: 7,
-        player: bits & 1 != 0,
-        local: bits & 2 != 0,
-        riding: bits & 4 != 0,
-    })
+    (0..8_u8)
+        .filter(|bits| bits & 1 != 0 || bits & 2 == 0)
+        .map(|bits| ActorFacts {
+            runtime_id: 7,
+            player: bits & 1 != 0,
+            local: bits & 2 != 0,
+            riding: bits & 4 != 0,
+        })
 }
 
 /// Every combination of the former flags is a rule list drawing exactly the same tags.
@@ -182,8 +184,8 @@ fn former_hurt_overlay_and_actor_tints_are_tint_rules() {
                     ..actor
                 })
             }) {
-                for (hurt, armor_layer, native) in (0..8_u8)
-                    .map(|bits| (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0))
+                for (hurt, armor_layer, native) in
+                    (0..8_u8).map(|bits| (bits & 1 != 0, bits & 2 != 0, bits & 4 != 0))
                 {
                     // The former selection: damage colours while hurt, else the actor's tint.
                     let former = if hurt {

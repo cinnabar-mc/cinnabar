@@ -152,7 +152,7 @@ fn loading_gap_clears_actor_presentation_before_deferred_destination_callbacks()
         host.frame(false).unwrap();
         let (output, revision) = host.instance.store.data().presentation.output();
         assert!(host.is_active());
-        assert!(output.tints.is_empty());
+        assert!(output.tint_rules.is_empty());
         assert!(output.annotations.is_empty());
         assert!(output.is_empty());
         assert_ne!(revision, before);

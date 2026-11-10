@@ -83,18 +83,15 @@ fn assert_own_policy(world: &World) {
         .mod_nametag_style()
         .expect("self-tag cosmetic policy must remain published");
     assert_eq!(
-        presentation
-            .mod_ui()
-            .mod_presentation()
-            .nametag_visibility(
-                &ui::mod_presentation::ActorFacts {
-                    runtime_id: 1,
-                    player: true,
-                    local: true,
-                    riding: false,
-                },
-                false
-            ),
+        presentation.mod_ui().mod_presentation().nametag_visibility(
+            &ui::mod_presentation::ActorFacts {
+                runtime_id: 1,
+                player: true,
+                local: true,
+                riding: false,
+            },
+            false
+        ),
         NametagVisibility::Shown
     );
     assert_eq!(style.own_text_color, Some(OWN_COLOR));
@@ -710,7 +707,11 @@ fn mod_nametag_rules_select_tags_by_actor_and_hud_state() {
         (has(OWN_COLOR), has(REMOTE_COLOR))
     };
     publish_with(&mut world, false, shown_players());
-    assert_eq!(tags(&mut world), (true, true), "a shown local player draws its own tag");
+    assert_eq!(
+        tags(&mut world),
+        (true, true),
+        "a shown local player draws its own tag"
+    );
     publish_with(&mut world, false, with_rules(Vec::new()));
     assert_eq!(tags(&mut world), (false, true), "native has no own tag");
     let mut hide_remote = shown_players();
@@ -719,7 +720,11 @@ fn mod_nametag_rules_select_tags_by_actor_and_hud_state() {
         .1
         .push(rule(ActorSelector::Actor(2), NametagVisibility::Hidden));
     publish_with(&mut world, false, hide_remote);
-    assert_eq!(tags(&mut world), (true, false), "a later rule for one actor decides");
+    assert_eq!(
+        tags(&mut world),
+        (true, false),
+        "a later rule for one actor decides"
+    );
     let mut hide_players = shown_players();
     hide_players
         .nametag_rules
@@ -728,7 +733,11 @@ fn mod_nametag_rules_select_tags_by_actor_and_hud_state() {
     publish_with(&mut world, false, hide_players);
     assert_eq!(tags(&mut world), (false, false));
     publish_with(&mut world, true, with_rules(Vec::new()));
-    assert_eq!(tags(&mut world), (false, false), "the client hides tags with the HUD");
+    assert_eq!(
+        tags(&mut world),
+        (false, false),
+        "the client hides tags with the HUD"
+    );
     publish_with(&mut world, true, shown_players());
     assert_eq!(
         tags(&mut world),
@@ -744,5 +753,9 @@ fn mod_nametag_rules_select_tags_by_actor_and_hud_state() {
         .1
         .push(rule(ActorSelector::LocalPlayer, NametagVisibility::Shown));
     publish_with(&mut world, true, with_hidden_hud);
-    assert_eq!(tags(&mut world), (true, true), "a hidden-HUD rule draws tags then");
+    assert_eq!(
+        tags(&mut world),
+        (true, true),
+        "a hidden-HUD rule draws tags then"
+    );
 }

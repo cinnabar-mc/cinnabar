@@ -188,7 +188,7 @@ it to spread large work, such as encoding a document, over later callbacks.
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
 status effects, sidebar, hunger row or position line; `hud.read-elements` reports whether
 vanilla draws each element this frame, ignoring hiding, and its bounds in GUI units when
-laid out. `hud.read-hud-hidden` reports whether the player hid the HUD.
+laid out.
 
 ## Gameplay wheel input
 

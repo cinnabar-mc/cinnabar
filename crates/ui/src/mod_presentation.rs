@@ -485,7 +485,11 @@ mod tests {
             }],
             tint_rules: vec![
                 tint_rule(ActorSelector::All, TintState::Hurt, [0., 0., 1., 1.]),
-                tint_rule(ActorSelector::Actor(7), TintState::NotHurt, [0., 1., 0., 1.]),
+                tint_rule(
+                    ActorSelector::Actor(7),
+                    TintState::NotHurt,
+                    [0., 1., 0., 1.],
+                ),
             ],
             tooltip_lines: vec![TooltipLine {
                 identifier: "minecraft:apple".into(),
@@ -584,16 +588,8 @@ mod tests {
         assert!(merged.nametag(3, true).is_none());
         assert!(merged.nametag(3, false).is_some());
         assert!(merged.roster.is_empty());
-        assert!(
-            merged
-                .tint(&actor(3, true), TintState::NotHurt)
-                .is_none()
-        );
-        assert!(
-            merged
-                .tint(&actor(3, false), TintState::NotHurt)
-                .is_some()
-        );
+        assert!(merged.tint(&actor(3, true), TintState::NotHurt).is_none());
+        assert!(merged.tint(&actor(3, false), TintState::NotHurt).is_some());
         let none = Presentation::merge([(ActorGrants::default(), &output)]);
         assert!(none.nametags.is_empty());
         assert!(none.tint(&actor(3, false), TintState::NotHurt).is_none());

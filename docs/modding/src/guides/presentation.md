@@ -1,6 +1,6 @@
 # Presentation
 
-The `presentation` interface restyles native presentation: how nametags read, what clings to actors, how items describe themselves, and which chat text is clickable. It needs the `hud` grant, and per-actor rows need more: a row for a player needs the `players` grant, a row for any other actor needs `entities`. Policies for every actor, such as a kind's default nametag visibility or an every-actor tint, need only `hud`. Rows your grants do not admit never apply.
+The `presentation` interface restyles native presentation: how nametags read, what clings to actors, how items describe themselves, and which chat text is clickable. It needs the `hud` grant, and per-actor rows need more: a row for a player needs the `players` grant, a row for any other actor needs `entities`. Nametag and tint rules need only `hud` unless they name an actor by runtime id. Rows your grants do not admit never apply.
 
 Every successful call is retained: it replaces your mod's previous value of that kind once the callback succeeds, and stays until you replace it, clear it, or the mod is unloaded or quarantined. A dimension transfer also clears these world-scoped policies. A callback may make at most 8 presentation calls; one more traps it.
 
@@ -18,13 +18,23 @@ Types below are the generated Rust names for the WIT records in the [presentatio
 
 ## Nametag visibility
 
-`set_nametag_visibility` decides which tags draw. It takes a default `nametag-visibility` for players' tags, the local player's own included, another for every other actor's tags, and a list of per-actor overrides by runtime id that replace their kind's default. Each visibility is one of:
+`set_nametag_rules` decides which tags draw, for every actor a rule covers. Each `nametag-rule` has an `actor-selector` — `all`, `players` (the local player included), `non-players`, `local-player`, `riding` (actors riding another actor) or `actor` with one nonzero runtime id — an optional `hud_hidden` condition (true: only while the player hides the HUD; false: only while it shows), and a `nametag-visibility`:
 
-- `native`: as the client draws it. The local player's own tag shows only when the player's settings or an annotation show it, and no tag draws while the player hides the HUD.
-- `shown`: also the local player's own tag outside first person, and the tag while the HUD is hidden and no menu is open.
-- `hidden`: never drawn.
+- `native`: as the client draws it; the local player's own tag shows only when the player's settings or an annotation show it.
+- `shown`: also the local player's own tag.
+- `hidden`: not drawn.
 
-No visibility draws a tag the actor lacks or the player's own name settings remove. The defaults need only `hud`; overrides follow the per-actor grant rules. Build features from these and the observations: hide every player's tag with a `hidden` players default; show your own tag with a `shown` players default; hide passengers' tags by reading `player_state::read_actors` and overriding each actor whose `vehicle` is set, and your own through `read_world`'s `vehicle`; show tags with the HUD hidden by switching to `shown` while `hud::read_hud_hidden` reports it. Overrides can only name actors you observe — the nearest 16 within 128 blocks at a time — so an override reaches farther actors only while you retain it.
+Each tag starts at the client's own rule — `hidden` while the HUD is hidden, `native` otherwise — and every rule covering the actor then applies in list order, so the last match decides. Tags never draw while the HUD is hidden and a menu is open, your own tag never draws in first person, and no rule draws a tag the actor lacks or the player's name settings remove. Rules naming an `actor` need the grant for that actor's kind and apply only to kinds your grants admit; the others need only `hud`.
+
+| Behaviour | Rules, in order |
+| --- | --- |
+| Show your own tag | `local-player` → `shown` |
+| Show tags while the HUD is hidden | `all`, `hud_hidden: true` → `native` |
+| Hide passengers' tags | `riding` → `hidden` |
+| Hide players' tags | `players` → `hidden` |
+| Hide every tag | `all` → `hidden` |
+
+Put hiding rules after showing ones. To show your own tag only while the HUD shows, follow `local-player` → `shown` with `all`, `hud_hidden: true` → `hidden`.
 
 ## Annotations
 
@@ -37,8 +47,8 @@ A span is plain single-line text with an `rgba` colour — no style codes. Spans
 | Annotated actors per mod | 128 | `MAX_ANNOTATIONS` |
 | Spans per surface | 4 | `MAX_ANNOTATION_SPANS` |
 | Bytes per span | 32 | `MAX_ANNOTATION_SPAN_BYTES` |
-| Actors with a nametag visibility override per mod | 128 | `MAX_NAMETAG_OVERRIDES` |
-| Actors with their own tints per mod | 64 | `MAX_ACTOR_TINTS` |
+| Nametag rules per mod | 128 | `MAX_NAMETAG_RULES` |
+| Tint rules per mod | 128 | `MAX_TINT_RULES` |
 | Tooltip lines per mod | 256 | `MAX_TOOLTIP_LINES` |
 | Mod lines on one item's tooltip | 8 | `MAX_ITEM_TOOLTIP_LINES` |
 | Bytes per tooltip line | 96 | `MAX_TOOLTIP_LINE_BYTES` |
@@ -50,7 +60,7 @@ All in `mod_api::presentation`. An empty span list leaves that surface native, s
 
 ## Tints
 
-`set_actor_tints` replaces your retained tints. Each `actor-tint` names a `target` — `every-actor`, or one `actor` by runtime id — a `state`, `hurt` or `not-hurt`, and optional `body` and `armor` colours, at least one set; an absent colour keeps that part native. The `hurt` state lasts exactly as long as the native damage flash, whose timing the client keeps. While hurt, the body colour replaces the native damage overlay only where that overlay draws, so items the flash skips stay untinted. In each state an actor's own tint replaces the every-actor tint, both colours together. Recolouring the damage flash for every actor is one `every-actor` `hurt` tint; a per-actor overlay is a `not-hurt` tint for that actor with the same body and armour colour.
+`set_actor_tints` replaces your retained tint rules. Each `actor-tint` has an `actor-selector` as nametag rules do, a `state`, `hurt` or `not-hurt`, and optional `body` and `armor` colours, at least one set; an absent colour keeps that part native. The `hurt` state lasts exactly as long as the native damage flash, whose timing the client keeps. While hurt, the body colour replaces the native damage overlay only where that overlay draws, so items the flash skips stay untinted. For an actor in a state, the last tint in the list that covers it and names that state decides, both colours together. Recolouring the damage flash for every actor is one `all` `hurt` tint; an overlay on one actor is a `not-hurt` tint for that `actor` with the same body and armour colour.
 
 ## Tooltip lines
 
@@ -64,8 +74,8 @@ All in `mod_api::presentation`. An empty span list leaves that surface native, s
 
 The client merges loaded mods in load order:
 
-- The earliest mod with a nonempty nametag style or a nonempty chat-action list owns that policy outright. For each actor kind, the earliest mod whose default visibility is not `native` owns that default; for each tint state, the earliest mod with an every-actor tint owns it. Later mods' values for the same policy are ignored while the owner's stand; clearing it lets a later mod take over.
-- For each runtime id and surface, the earliest mod whose grants admit the actor's kind owns the annotation, visibility override and tint rows for that actor; tint rows are owned per state.
+- The earliest mod with a nonempty nametag style, nametag rule list or chat-action list owns that policy outright, and for each tint state the earliest mod with a tint for that state owns every tint for it. Later mods' values for the same policy are ignored while the owner's stand; clearing it lets a later mod take over.
+- For each runtime id and surface, the earliest mod whose grants admit the actor's kind owns the annotation for that actor.
 - Tooltip lines append in load order, up to the per-item cap.
 
 So a mod loaded later cannot restyle what an earlier mod owns, but its tooltip lines still show. Design for coexistence: set only the policies your feature needs, because claiming the nametag style to change one colour also blocks every later mod's style.

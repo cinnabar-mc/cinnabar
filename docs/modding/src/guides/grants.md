@@ -32,7 +32,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `fullbright` | Fullbright | `environment.set-fullbright`, separately from `environment` |
 | `players` | Player poses | Remote player rows in actor reads and gameplay frames; per-actor presentation rows for players |
 | `entities` | Entities | Non-player actor rows and `gameplay.read-mobs` |
-| `hud` | HUD | HUD surfaces, nametag style and visibility defaults, annotation policy, every-actor tints, tooltip lines, chat actions |
+| `hud` | HUD | HUD surfaces, nametag style and rules, annotation policy, actor tints, tooltip lines, chat actions |
 | `controls` | Controls | Key edges, reserved keys, text input, touch buttons, the panel, chat-action clicks |
 | `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport handlers |
 | `interaction` | Attack reach | Bounded attack reach, held-attack press pulses and ordinary crosshair mining holds |

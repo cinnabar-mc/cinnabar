@@ -56,7 +56,8 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | `mod_api::presentation::MAX_ANNOTATIONS` | 128 | Actor annotations. |
 | `mod_api::presentation::MAX_ANNOTATION_SPANS` | 4 | Spans per annotation surface. |
 | `mod_api::presentation::MAX_ANNOTATION_SPAN_BYTES` | 32 | Bytes per annotation span. |
-| `mod_api::presentation::MAX_ACTOR_TINTS` | 64 | Actor tints. |
+| `mod_api::presentation::MAX_NAMETAG_RULES` | 128 | Nametag visibility rules. |
+| `mod_api::presentation::MAX_TINT_RULES` | 128 | Actor tint rules. |
 | `mod_api::presentation::MAX_TOOLTIP_LINES` | 256 | Retained tooltip lines. |
 | `mod_api::presentation::MAX_ITEM_TOOLTIP_LINES` | 8 | Extra tooltip lines shown for one item. |
 | `mod_api::presentation::MAX_TOOLTIP_LINE_BYTES` | 96 | Bytes per tooltip line. |

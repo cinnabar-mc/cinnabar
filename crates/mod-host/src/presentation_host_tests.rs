@@ -69,13 +69,7 @@ fn presentation_requires_hud_and_actor_grants() {
         ..Default::default()
     });
     assert!(denied.set_nametag_style(None).unwrap().is_err());
-    let all_hurt = || {
-        vec![tint(
-            wit::ActorSelector::All,
-            wit::TintState::Hurt,
-            WHITE,
-        )]
-    };
+    let all_hurt = || vec![tint(wit::ActorSelector::All, wit::TintState::Hurt, WHITE)];
     let hide_players = || {
         vec![rule(
             wit::ActorSelector::Players,
@@ -144,7 +138,10 @@ fn presentation_commits_transactionally_with_fresh_revisions() {
     state.set_actor_tints(hurt()).unwrap().unwrap();
     state
         .set_nametag_rules(vec![
-            rule(wit::ActorSelector::LocalPlayer, wit::NametagVisibility::Shown),
+            rule(
+                wit::ActorSelector::LocalPlayer,
+                wit::NametagVisibility::Shown,
+            ),
             wit::NametagRule {
                 hud_hidden: Some(true),
                 ..rule(wit::ActorSelector::Riding, wit::NametagVisibility::Hidden)
@@ -263,7 +260,11 @@ fn presentation_rejects_unbounded_or_malformed_rows() {
     let all = wit::ActorSelector::All;
     let invalid_tints = [
         vec![tint(all, wit::TintState::Hurt, bad)],
-        vec![tint(wit::ActorSelector::Actor(0), wit::TintState::Hurt, WHITE)],
+        vec![tint(
+            wit::ActorSelector::Actor(0),
+            wit::TintState::Hurt,
+            WHITE,
+        )],
         vec![wit::ActorTint {
             body: None,
             ..tint(all, wit::TintState::NotHurt, WHITE)
@@ -277,10 +278,7 @@ fn presentation_rejects_unbounded_or_malformed_rows() {
     state.presentation.begin();
     assert!(
         state
-            .set_actor_tints(vec![
-                tint(all, wit::TintState::Hurt, WHITE);
-                MAX_TINT_RULES
-            ])
+            .set_actor_tints(vec![tint(all, wit::TintState::Hurt, WHITE); MAX_TINT_RULES])
             .unwrap()
             .is_ok(),
         "repeated selectors are ordered rules, not duplicates"
