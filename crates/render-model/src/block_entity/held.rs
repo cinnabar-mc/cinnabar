@@ -208,7 +208,7 @@ impl HeldBlockEntity {
                     },
                 );
             }
-            Self::Lectern => super::book::emit_lectern(builder, atlas, block, 0.0, false),
+            Self::Lectern => super::book::emit_lectern_stand(builder, atlas, block),
             Self::Skull(kind) => skull::emit(
                 builder,
                 atlas,

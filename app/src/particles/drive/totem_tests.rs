@@ -85,6 +85,7 @@ fn route(system: &mut ParticleSystem, stream: &WorldStream, runtime_id: u64) {
             position: [0.0; 3],
             height: None,
             eating_position: [0.0; 3],
+            fishing: None,
         },
     );
 }
@@ -168,6 +169,7 @@ fn totem_emission_follows_the_actor_without_moving_already_born_particles() {
         on_ground: true,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,

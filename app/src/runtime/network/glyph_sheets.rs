@@ -47,9 +47,12 @@ fn bitmap(view: &LayeredPackView, ascii: Option<&str>, unicode: Option<&str>) ->
             .into_iter()
             .find_map(|name| read_named_sheet(view, high_byte, &name));
             if let Some(sheet) = sheet {
-                for cell in extract_cells(&sheet) {
+                for mut cell in extract_cells(&sheet) {
                     if mapped.contains(&cell.codepoint) {
                         continue;
+                    }
+                    if cell.codepoint == ' ' {
+                        blank_space(&mut cell);
                     }
                     bytes += cell.rgba8.len();
                     if cells.len() >= MAX_CELLS || bytes > assets::MAX_FONT_SOURCE_BYTES as usize {
@@ -111,6 +114,17 @@ fn decode_sheet(high_byte: u8, bytes: &[u8]) -> Option<GlyphSheet> {
     })
 }
 
+/// Makes `cell` vanilla's space: an advance only, whatever the sheet draws in its cell.
+/// Packs derived from Unicode pages often label that cell `SP`, which vanilla never draws.
+fn blank_space(cell: &mut CellGlyph) {
+    cell.size = [0, 0];
+    cell.rgba8 = Box::default();
+    cell.bearing = [0, 0];
+    cell.draw_size_64 = [0, 0];
+    // Vanilla's space is half the normalized eight-pixel cell.
+    cell.advance_64 = (texel_size_64(0, 1) / 2) as i16;
+}
+
 /// The bitmap's cells use ASCII_CHAR_INDICES, not a Latin-1 byte mapping.
 fn default_cells(sheet: &GlyphSheet) -> Vec<CellGlyph> {
     let cell_width = sheet.width / SHEET_GRID;
@@ -121,11 +135,7 @@ fn default_cells(sheet: &GlyphSheet) -> Vec<CellGlyph> {
         let index = u32::from(cell.codepoint);
         cell.codepoint = char::from_u32(mapping::DEFAULT_CODEPOINTS[index as usize]).unwrap();
         if cell.codepoint == ' ' {
-            cell.size = [0, 0];
-            cell.rgba8 = Box::default();
-            cell.draw_size_64 = [0, 0];
-            // Vanilla's space is half the normalized eight-pixel cell.
-            cell.advance_64 = (texel_size_64(0, 1) / 2) as i16;
+            blank_space(cell);
             continue;
         }
         let origin = [

@@ -5,7 +5,10 @@ use super::{
     status::write_json,
 };
 use launcher::mods::Status;
-use launcher_host::mod_library::paths::{resolved_component, same_path};
+use launcher_host::{
+    marketplace::managed,
+    mod_library::paths::{resolved_component, same_path},
+};
 use mod_host::ModGrants;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -125,6 +128,65 @@ pub(in crate::modding) fn select(
     .map(|_| ())
 }
 
+/// Stops admission while preserving enabled state, order and grants on disk.
+pub(in crate::modding) fn pause_marketplace(
+    directory: &Path,
+    previous: &Path,
+    request: String,
+) -> Result<Receipt, String> {
+    edit(directory, request, |registration| {
+        registration.suspended = Some(resolved_component(previous));
+        Ok(())
+    })
+}
+
+/// Restores admission only if the migration still owns the exact persisted selection.
+pub(in crate::modding) fn resume_marketplace(
+    directory: &Path,
+    receipt: &Receipt,
+) -> Result<(), String> {
+    receipt.confirm(directory)?;
+    let mut request = format!("resume-{:x}", Sha256::digest(receipt.fingerprint));
+    request.truncate(super::MAX_REQUEST_BYTES);
+    edit(directory, request, |registration| {
+        registration.suspended = None;
+        Ok(())
+    })
+    .map(drop)
+}
+
+/// Atomically replaces an unchanged marketplace entry, preserving position and bounded authority.
+pub(in crate::modding) fn replace_marketplace(
+    directory: &Path,
+    old: &Registered,
+    next: &Path,
+    ceiling: &ModGrants,
+    request: String,
+) -> Result<(), String> {
+    edit(directory, request, |registration| {
+        if registration
+            .mods
+            .iter()
+            .any(|entry| same_path(&entry.component, next))
+        {
+            return Err("The marketplace successor is already selected.".into());
+        }
+        let current = registration
+            .mods
+            .iter_mut()
+            .find(|entry| same_path(&entry.component, &old.entry.component))
+            .filter(|entry| **entry == old.entry)
+            .ok_or("The marketplace selection changed before replacement.")?;
+        let mut entry = old.entry.clone();
+        entry.component = resolved_component(next);
+        entry.grants.cap(ceiling);
+        *current = entry;
+        registration.suspended = None;
+        Ok(())
+    })
+    .map(drop)
+}
+
 /// Disables exactly the currently active card, rejecting an obsolete selection.
 pub(in crate::modding) fn disable(
     directory: &Path,
@@ -216,6 +278,9 @@ pub(in crate::modding) fn move_entry(
 }
 
 /// Updates one capability generated from the grant declaration, preserving every other mod.
+///
+/// A marketplace component can only enable capabilities it requests; its request already
+/// matched the signed release.
 pub(in crate::modding) fn permission(
     directory: &Path,
     component: &Path,
@@ -227,6 +292,12 @@ pub(in crate::modding) fn permission(
         let descriptor = ModGrants::CAPABILITIES
             .get(capability)
             .ok_or("Unknown capability.")?;
+        if enabled && descriptor.packet_only {
+            let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+            if !mod_host::is_packet_source(&bytes) {
+                return Err("This permission requires a packet component.".into());
+            }
+        }
         let requested = if enabled {
             mod_host::declarations(component)
                 .and_then(|declared| declared.requested)
@@ -234,6 +305,9 @@ pub(in crate::modding) fn permission(
         } else {
             None
         };
+        if enabled && managed(component) && !requested.as_ref().is_some_and(descriptor.enabled) {
+            return Err("This marketplace mod did not request this permission.".into());
+        }
         (descriptor.set)(grants, enabled, requested.as_ref());
         if enabled && !(descriptor.enabled)(grants) {
             return Err("This component does not declare requested command names.".into());
@@ -248,12 +322,39 @@ pub(in crate::modding) fn allow_requested(
     component: &Path,
     request_id: String,
 ) -> Result<(), String> {
-    let requested = mod_host::declarations(component)
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::is_packet_source(&bytes);
+    let mut requested = mod_host::declarations_snapshot(&bytes)
         .and_then(|declared| declared.requested)
         .map_err(|error| error.to_string())?
         .ok_or("This mod doesn't declare its permissions.")?;
+    requested.retain_applicable(packet);
     change_grants(directory, component, request_id, |grants| {
         *grants = requested;
+        Ok(())
+    })
+}
+
+/// Grants all applicable capabilities and declared commands without changing the source's host.
+///
+/// A marketplace component receives only the capabilities it requests.
+pub(in crate::modding) fn grant_all(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::is_packet_source(&bytes);
+    let requested = mod_host::declarations_snapshot(&bytes)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?;
+    change_grants(directory, component, request_id, |grants| {
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(grants, capability.applies_to(packet), requested.as_ref());
+        }
+        if managed(component) {
+            grants.cap(&requested.unwrap_or_default());
+        }
         Ok(())
     })
 }
@@ -312,6 +413,9 @@ pub(in crate::modding) fn forget(
 fn write_selection(path: &Path, registration: Registration) -> Result<Receipt, String> {
     registration.validate()?;
     let bytes = serde_json::to_vec(&registration).map_err(|error| error.to_string())?;
+    if bytes.len() > super::MAX_BYTES {
+        return Err("The mod list is too large to save.".into());
+    }
     let fingerprint = Sha256::digest(&bytes).into();
     write_json(path, &registration)
         .map_err(|error| format!("Could not save the mod selection: {error}"))?;

@@ -143,6 +143,8 @@ pub enum CommittedControlEvent {
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,
+        /// Whether the riding ID resolved to an actor at this packet's ordered commit.
+        riding_actor_resolved: bool,
         resolved: ResolvedServerPosition,
         source_cohort: Option<ViewCohort>,
     },
@@ -248,6 +250,11 @@ pub enum CommittedUiEvent {
         sequence: u64,
         dimension_epoch: u64,
         event: protocol::FormRequestEvent,
+    },
+    /// A request for the block command block editor, with the same dimension fence as a form.
+    OpenCommandBlock {
+        dimension_epoch: u64,
+        position: [i32; 3],
     },
     Ui {
         sequence: u64,

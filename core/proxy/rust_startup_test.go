@@ -72,7 +72,7 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimed := device.New(protocol.DeviceAndroid)
+	claimed := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	server := &sessionServer{listener: listener, prepared: connections, transfers: new(TransferState), logger: slog.New(slog.DiscardHandler), device: &claimed}
 	server.start(ctx)
 	defer connections.finishShutdown()
@@ -105,7 +105,8 @@ func rustStartupPacks(t *testing.T, scenario string) []*resource.Pack {
 		}
 		packs = append(packs, pack)
 	}
-	packs[0] = packs[0].WithContentKey("fixture-content-key")
+	// The key is not valid UTF-8, as servers may send: it must reach the client byte for byte.
+	packs[0] = packs[0].WithContentKey("\xfffixture-content-key\x80")
 	return packs
 }
 

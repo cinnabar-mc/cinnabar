@@ -16,8 +16,6 @@ mod result;
 pub use allocator::{BudgetAllocator, disable_for_host};
 use result::Decoder;
 
-/// Internal compiler entry point; it starts no window, renderer or account services.
-pub const FLAG: &str = "--shaderpack-compiler-worker";
 /// Maximum elapsed time for CPU translation; hosts also supply elapsed time to [`Running::poll`].
 pub const TIME_LIMIT: Duration = Duration::from_secs(60);
 /// Maximum live heap in a compiler process, also checked cooperatively across the iOS app.
@@ -40,6 +38,9 @@ pub struct Request {
     pub options: Option<PathBuf>,
     pub dimension: String,
     pub environment: Environment,
+    /// Whether this backend needs integer-backed fused dot accumulation.
+    #[serde(default)]
+    pub software_fused_dot: bool,
     pub purpose: Purpose,
 }
 
@@ -149,7 +150,7 @@ fn request_bytes(request: &Request) -> Result<Vec<u8>, String> {
 }
 
 impl Process {
-    /// Starts `executable` in compiler mode and transfers the bounded request over stdin.
+    /// Starts the compiler `executable` and transfers the bounded request over stdin.
     fn start(executable: &Path, input: &[u8]) -> Result<Self, String> {
         let output = tempfile::tempfile().map_err(|error| error.to_string())?;
         let mut command = Command::new(executable);
@@ -159,7 +160,6 @@ impl Process {
             command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
         }
         let child = command
-            .arg(FLAG)
             .stdin(Stdio::piped())
             .stdout(output.try_clone().map_err(|error| error.to_string())?)
             .stderr(Stdio::null())
@@ -243,7 +243,7 @@ impl Drop for Process {
     }
 }
 
-/// Runs compiler mode before normal host startup; every failure exits unsuccessfully.
+/// Translates the request on stdin within the compiler limits; every failure exits unsuccessfully.
 /// Executables that call this must install [`BudgetAllocator`] as their global allocator.
 pub fn run_stdio() -> i32 {
     let result = (|| -> Result<(), String> {
@@ -305,6 +305,7 @@ fn translate(request: Request, cancelled: &(impl Fn() -> bool + Sync)) -> Result
         folder: pack.dimension_folder(&request.dimension, &request.environment),
         options: crate::normalize_values(pack.options(), &saved),
         environment: request.environment,
+        software_fused_dot: request.software_fused_dot,
         ..Default::default()
     };
     let translation = pack

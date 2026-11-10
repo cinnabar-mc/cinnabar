@@ -2,8 +2,8 @@
 
 use super::*;
 
-// Java Gui geometry: hotbar flush at the bottom centre, selection 1 px out,
-// status rows from H-39, the outlined level from H-40, and the XP bar at H-29.
+// Java Gui geometry, with the Bedrock hotbar setting off: hotbar flush at the bottom centre,
+// selection 1 px out, status rows from H-39, the outlined level from H-40, and the XP bar at H-29.
 #[test]
 fn java_pack_geometry_on_a_real_viewport() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -20,7 +20,8 @@ fn java_pack_geometry_on_a_real_viewport() {
         .publish_player_game_mode(PlayerGameMode::Survival);
     select_slot(&mut player_runtime, &mut runtime);
     full_stats(&mut player_runtime, &mut runtime, 1);
-    runtime.hud.set_experience(7, 0.4);
+    runtime.session.hud.set_experience(7, 0.4);
+    presentation.set_chat_settings_snapshot((std::sync::Arc::new(java_hotbar_settings()), None));
     let input = build_at(
         &player_runtime,
         &mut presentation,
@@ -32,7 +33,7 @@ fn java_pack_geometry_on_a_real_viewport() {
     let nodes = presentation.hud_draw_nodes();
     // 1280x750 at scale 3: a 426.67x250 GUI-px screen.
     let centre = 1280.0 / 3.0 / 2.0;
-    let slots = customs(nodes, "hotbar_renderer");
+    let slots = customs(nodes, HOTBAR_SLOTS);
     assert!(
         (slots[0].dest.x - (centre - 90.0)).abs() < 1e-3,
         "{:?} vs centre {centre}",
@@ -114,7 +115,7 @@ fn bedrock_hotbar_setting_raises_the_painted_hud_and_focused_chat() {
         build(&player_runtime, &mut presentation, &runtime, 10);
         let nodes = presentation.hud_draw_nodes();
         let hud = [
-            customs(nodes, "hotbar_renderer")[0].dest.y,
+            customs(nodes, HOTBAR_SLOTS)[0].dest.y,
             customs(nodes, "heart_renderer")[0].dest.y,
             text(nodes, "hotbar proof").expect("HUD chat").dest.y,
         ];
@@ -135,4 +136,37 @@ fn bedrock_hotbar_setting_raises_the_painted_hud_and_focused_chat() {
         assert_eq!(raised, flush - lift, "{flush:?} -> {raised:?}");
     }
     assert_eq!(placed(false), flush);
+}
+
+// A player who never changed the setting gets vanilla Bedrock's hotbar height, not Java's flush
+// hotbar.
+#[test]
+fn default_settings_place_the_painted_hotbar_at_bedrock_height() {
+    let Some(mut presentation) = engine_presentation() else {
+        eprintln!(
+            "skipping default_settings_place_the_painted_hotbar_at_bedrock_height: missing local UI carrier (make assets)"
+        );
+        return;
+    };
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    player_runtime
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
+    select_slot(&mut player_runtime, &mut runtime);
+    let mut slot_y = |settings: launcher::menu::settings_options::SettingsOptions| {
+        presentation.set_chat_settings_snapshot((std::sync::Arc::new(settings), None));
+        build(&player_runtime, &mut presentation, &runtime, 10);
+        customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS)[0]
+            .dest
+            .y
+    };
+    let java = slot_y(java_hotbar_settings());
+    let default = slot_y(Default::default());
+    let gui_height = 720.0 / ui::gui_scale([1280, 720], presentation.gui_scale_preference) as f64;
+    assert_eq!(java, gui_height - 22.0, "Java's hotbar is flush");
+    assert!(
+        default < java,
+        "the default hotbar sits above Java's: {default} vs {java}"
+    );
 }

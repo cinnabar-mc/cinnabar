@@ -3,6 +3,7 @@ mod armour_tests;
 mod bodies;
 #[cfg(test)]
 mod cape_tests;
+pub(crate) mod carried_blocks;
 mod cloth_contacts;
 mod commit;
 mod companions;
@@ -114,16 +115,21 @@ pub struct ActorPresentationState<'w, 's> {
     server_camera: Option<Res<'w, crate::camera::ServerCameraView>>,
     view: Res<'w, LocalViewPose>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
+    pack_cameras: Query<
+        'w,
+        's,
+        (),
+        (
+            With<FlyCamera>,
+            With<render_scene::shaderpack::ShaderPackRendering>,
+        ),
+    >,
 }
 
-/// Optional validated cosmetic tint of already active native actor damage overlays.
+/// Mod colours for native actor damage overlays and mod-chosen per-actor overlay tints.
 #[derive(Resource, Default)]
 pub struct ActorPresentationStyle {
-    pub hurt_color: Option<[f32; 4]>,
-    pub hurt_armor_color: Option<[f32; 4]>,
-    /// Native admitted ray target; never a guest-provided actor identity.
-    pub attackable_actor: Option<u64>,
-    pub attackable_color: Option<[f32; 4]>,
+    pub presentation: std::sync::Arc<ui::mod_presentation::Presentation>,
 }
 
 /// The frame fraction the actor rigs interpolate at, for overlays anchored to actors.
@@ -189,11 +195,6 @@ pub fn prepare_actor_render_frame(
         .step
         .expect("actor preparation precedes final rendering");
     let artwork = state.session_artwork.as_ref().unwrap_or(&params.artwork);
-    if let Some(equipment) = params.equipment.as_deref_mut() {
-        equipment.set_show_custom_item_models(
-            params.presentation.settings.feel().show_custom_item_models,
-        );
-    }
     let view = state.captured_view;
     let pose_view = bodies::PoseView {
         partial_tick: step.partial_tick,
@@ -206,7 +207,7 @@ pub fn prepare_actor_render_frame(
     views::refresh_interpolation(
         client_world.stream.as_deref_mut(),
         swing_progress,
-        view.camera_rotation(),
+        view.camera_rotation(&params.presentation.settings),
     );
     let stream = client_world.stream.as_deref();
     let authoritative_subject_eye = authoritative_local_actor_eye(
@@ -269,7 +270,10 @@ pub fn prepare_actor_render_frame(
             equipment: params.equipment.as_deref_mut(),
         },
     );
-    let coverage_local = coverage.contains(&bodies.local_runtime_id);
+    // Iris's shadow pass draws the player in first person too, so a pack camera keeps the
+    // hidden local body as a shadow-only submission.
+    let shadow_local = state.first_person && params.presentation.shader_pack_rendering();
+    let coverage_local = coverage.contains(&bodies.local_runtime_id) || shadow_local;
     if state.first_person
         && coverage_local
         && let Some(stream) = stream
@@ -292,6 +296,10 @@ pub fn prepare_actor_render_frame(
     let hidden_companion_body = (!local_visible && !coverage_local)
         .then(|| local.as_ref().map(|local| local.submission.clone()))
         .flatten();
+    // Mod coverage keeps the local cosmetics; a shadow-only body keeps only companions and
+    // anchors no fishing line.
+    let shadow_only_local =
+        !local_visible && shadow_local && !coverage.contains(&bodies.local_runtime_id);
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible || coverage_local,
@@ -343,6 +351,7 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     if let Some(equipment) = params.equipment.as_deref_mut() {
+        equipment.finish_shield_frame();
         new_geometries.extend(equipment.take_pending_geometries());
     }
     state.hat_state.attach(
@@ -354,6 +363,7 @@ pub fn prepare_actor_render_frame(
         hats::AttachmentFrame {
             collisions: client_world.collisions,
             hidden_local: hidden_companion_body.as_ref(),
+            shadow_only_local,
             geometries: &new_geometries,
             equipment: params.equipment.as_deref(),
             local_emote: bodies.local_emote_pose.as_ref(),
@@ -410,10 +420,19 @@ pub fn prepare_actor_render_frame(
     });
     let mut fishing_line_anchors =
         fishing_line::fishing_line_anchors_for(&batch, step.partial_tick, owner_holds_rod);
+    if shadow_only_local {
+        fishing_line_anchors.retain(|known| known.runtime_id != bodies.local_runtime_id);
+    }
     if let Some(anchor) = first_person_fishing_line_anchor {
         fishing_line_anchors.retain(|known| known.runtime_id != anchor.runtime_id);
         fishing_line_anchors.push(anchor);
     }
+    let carried_blocks = match (stream, bodies.render_frame.as_mut()) {
+        (Some(stream), Some(frame)) => {
+            carried_blocks::carried_blocks_for(&batch, stream, frame, step.partial_tick)
+        }
+        _ => Vec::new(),
+    };
     drop(preparation);
     register_geometries(
         &mut params.hand_builder.0,
@@ -457,14 +476,14 @@ pub fn prepare_actor_render_frame(
         client_world.collisions,
         (
             camera_position.map(|position| {
-                let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
-                (position, (180.0 - yaw.to_degrees()).rem_euclid(360.0))
+                views::dropped_item_camera(position, &view, &params.presentation.settings)
             }),
             cull_view,
         ),
         crate::dropped_items::DroppedItemFrame {
             partial_tick: step.partial_tick,
             fishing_line_anchors: &fishing_line_anchors,
+            carried_blocks: &carried_blocks,
             prepared_blocks: params
                 .equipment
                 .as_deref()

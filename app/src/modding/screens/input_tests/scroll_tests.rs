@@ -50,6 +50,7 @@ fn scroll_app(directory: &Path) -> (App, Entity) {
         .insert_resource(crate::environment::VisualTimeOverride(None))
         .insert_resource(client_state::DrivenInput)
         .init_resource::<ModInteraction>()
+        .init_resource::<crate::modding::pointer::Pending>()
         .add_systems(
             Update,
             (

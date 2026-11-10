@@ -1,4 +1,4 @@
-//! Bounded, transactional mod controls. No import exposes arbitrary files or input injection.
+//! Bounded, transactional mod controls. No import exposes arbitrary files or synthetic button presses.
 
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{ControlFrame, InteractionOutput, ModHost, empty_controls};
@@ -38,6 +38,16 @@ impl ModHost {
         Ok(())
     }
 
+    /// Last committed opening request, comparable across admitted runtimes.
+    pub fn panel_open_order(&self) -> u64 {
+        self.instance.panel_open_order()
+    }
+
+    /// Consumes an explicit committed guest request to open this owner's panel.
+    pub fn take_panel_open_request(&mut self) -> bool {
+        self.instance.take_panel_open_request()
+    }
+
     /// Reports whether the retained panel is open.
     pub fn panel_open(&self) -> bool {
         self.instance.panel_open()
@@ -46,6 +56,11 @@ impl ModHost {
     /// Changes the retained panel's open state without entering the guest.
     pub fn set_panel_open(&mut self, open: bool) {
         self.instance.set_panel_open(open);
+    }
+
+    /// Supplies whether a native editor on this mod's open panel owns the next frame's keys.
+    pub fn set_native_editing(&mut self, editing: bool) {
+        self.instance.set_native_editing(editing);
     }
 
     /// Returns the physical keys reserved by the last successful callback.
@@ -70,15 +85,26 @@ impl ModHost {
 }
 
 pub(super) struct ControlState {
+    pub pointer: super::input_host::PointerState,
     pub frame: ControlFrame,
     pub scroll: crate::ScrollFrame,
     pub scroll_keys: Vec<String>,
+    pub bindings: Option<Arc<crate::InputBindings>>,
     pub text_events: Vec<ui::mod_panel::TextEvent>,
     pub field_events: Vec<ui::mod_panel::FieldEvent>,
     in_frame_callback: bool,
     pub panel: Option<Panel>,
     pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
+    pub open_requested: bool,
+    pub open_order: u64,
+    /// A native field or editor on this mod's open panel owns this frame's key input.
+    pub native_editing: bool,
+    /// The supplied editor state, applied when the next frame's controls are staged.
+    pub native_editing_next: bool,
+    /// Where the host last laid out this mod's panel; none while another mod's panel or no
+    /// panel is up.
+    pub layout: Option<ui::mod_hud::PanelLayout>,
     pub keys: Vec<String>,
     pub interaction: InteractionOutput,
     pub dirty_settings: Option<String>,
@@ -94,20 +120,129 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            pointer: self.pointer.transaction(),
+            frame: self.frame.clone(),
+            scroll: self.scroll,
+            scroll_keys: self.scroll_keys.clone(),
+            bindings: self.bindings.clone(),
+            text_events: self.text_events.clone(),
+            field_events: self.field_events.clone(),
+            in_frame_callback: self.in_frame_callback,
+            panel: self.panel.clone(),
+            bundle: self.bundle.clone(),
+            open: self.open,
+            open_requested: false,
+            open_order: 0,
+            native_editing: self.native_editing,
+            native_editing_next: false,
+            layout: self.layout,
+            keys: Vec::new(),
+            interaction: Default::default(),
+            dirty_settings: None,
+            settings: self.settings.clone(),
+            pending_panel: None,
+            pending_open: None,
+            pending_keys: None,
+            pending_scroll_keys: None,
+            pending_settings: None,
+            pending_interaction: Default::default(),
+            reads: 0,
+            writes: 0,
+        }
+    }
+
+    /// Applies guest writes without restoring consumed input or overwriting native UI ownership.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, same_ui: bool) {
+        if same_ui {
+            self.pending_panel = transaction.pending_panel;
+        }
+        self.pending_settings = transaction.pending_settings;
+        self.pending_keys = transaction.pending_keys;
+        self.pending_scroll_keys = transaction.pending_scroll_keys;
+        if current_frame && same_ui {
+            self.pending_open = transaction.pending_open;
+            self.pending_interaction = transaction.pending_interaction;
+            self.pointer.accept(transaction.pointer);
+        }
+    }
+
+    /// Retains panel preferences while removing references into the departed world.
+    pub(super) fn clear_world_projections(&mut self) {
+        self.pointer = Default::default();
+        for panel in self
+            .panel
+            .iter_mut()
+            .chain(self.pending_panel.iter_mut().flatten())
+        {
+            super::world_lifecycle::clear_surface_world(&mut panel.surface);
+        }
+    }
+
+    /// Discards failed guest writes while retaining committed preferences and native input.
+    pub(super) fn rollback(&mut self) {
+        let Self {
+            pointer,
+            frame: _,
+            scroll: _,
+            scroll_keys: _,
+            bindings: _,
+            text_events: _,
+            field_events: _,
+            in_frame_callback: _,
+            panel: _,
+            bundle: _,
+            open: _,
+            open_requested: _,
+            open_order: _,
+            native_editing: _,
+            native_editing_next: _,
+            layout: _,
+            keys: _,
+            interaction: _,
+            dirty_settings: _,
+            settings: _,
+            pending_panel,
+            pending_open,
+            pending_keys,
+            pending_scroll_keys,
+            pending_settings,
+            pending_interaction,
+            reads: _,
+            writes: _,
+        } = self;
+        pointer.rollback();
+        *pending_panel = None;
+        *pending_open = None;
+        *pending_keys = None;
+        *pending_scroll_keys = None;
+        *pending_settings = None;
+        *pending_interaction = InteractionOutput::default();
+    }
+
     pub(super) fn settings(&self) -> &str {
         &self.settings
     }
     pub fn new(settings: String) -> Self {
         Self {
+            pointer: Default::default(),
             frame: empty_controls(),
             scroll: crate::empty_scroll(),
             scroll_keys: Vec::new(),
+            bindings: None,
             text_events: Vec::new(),
             field_events: Vec::new(),
             in_frame_callback: false,
             panel: None,
             bundle: None,
             open: false,
+            open_requested: false,
+            open_order: 0,
+            native_editing: false,
+            native_editing_next: false,
+            layout: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
             dirty_settings: None,
@@ -138,6 +273,7 @@ impl ControlState {
     }
 
     pub fn commit(&mut self) {
+        self.pointer.commit();
         if let Some(panel) = self.pending_panel.take() {
             self.panel = panel;
             if self.panel.is_none() {
@@ -146,6 +282,10 @@ impl ControlState {
         }
         if let Some(open) = self.pending_open.take() {
             self.open = open && self.panel.is_some();
+            if self.open {
+                self.open_requested = true;
+                self.open_order = crate::panel_order::next_panel_open_order();
+            }
         }
         if let Some(keys) = self.pending_keys.take() {
             self.keys = keys;
@@ -161,6 +301,7 @@ impl ControlState {
     }
 
     pub fn revoke(&mut self) {
+        self.pointer = Default::default();
         self.text_events.clear();
         self.field_events.clear();
         self.in_frame_callback = false;
@@ -179,7 +320,7 @@ impl ControlState {
         self.frame = empty_controls();
     }
 
-    fn budget(&mut self, read: bool) -> Result<()> {
+    pub(super) fn budget(&mut self, read: bool) -> Result<()> {
         let count = if read {
             &mut self.reads
         } else {
@@ -214,7 +355,7 @@ pub(super) fn queue_text_events(
 ) -> Result<()> {
     ensure!(state.grants.controls, "controls capability denied");
     ensure!(
-        state.controls.text_events.len() + events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
+        events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
         "too many native text events"
     );
     if events.is_empty() {
@@ -225,6 +366,15 @@ pub(super) fn queue_text_events(
         .panel
         .as_mut()
         .context("native text events require a retained panel")?;
+    let mut pending = state.controls.text_events.clone();
+    for event in &events {
+        pending.retain(|old| old.id != event.id);
+        ensure!(
+            pending.len() < ui::mod_panel::MAX_PANEL_EVENTS,
+            "too many native text events"
+        );
+        pending.push(event.clone());
+    }
     for event in &events {
         let Some(ui::mod_panel::Control::Text {
             min_chars,
@@ -244,7 +394,7 @@ pub(super) fn queue_text_events(
             value.clone_from(&event.value);
         }
     }
-    state.controls.text_events.extend(events);
+    state.controls.text_events = pending;
     Ok(())
 }
 
@@ -285,7 +435,9 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
         frame.keys_pressed.len() <= mod_api::MAX_CONTROL_KEYS
             && frame.keys_pressed.iter().all(|key| key_valid(key))
             && frame.keys_held.len() <= mod_api::MAX_CONTROL_KEYS
-            && frame.keys_held.iter().all(|key| key_valid(key)),
+            && frame.keys_held.iter().all(|key| key_valid(key))
+            && frame.keys_admitted.len() <= mod_api::MAX_CONTROL_KEYS
+            && frame.keys_admitted.iter().all(|key| key_valid(key)),
         "invalid controls key edges"
     );
     ensure!(
@@ -298,6 +450,13 @@ pub(super) fn validate_frame(frame: &ControlFrame) -> Result<()> {
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
                 && event.value.is_finite()),
         "invalid panel events"
+    );
+    ensure!(
+        frame
+            .pointer
+            .is_none_or(|(x, y)| x.is_finite() && y.is_finite())
+            && frame.wheel.is_finite(),
+        "invalid panel pointer"
     );
     Ok(())
 }
@@ -322,6 +481,7 @@ pub(super) fn read_selected(
     if ![
         selection.keys_pressed.as_deref(),
         selection.keys_held.as_deref(),
+        selection.keys_admitted.as_deref(),
     ]
     .into_iter()
     .all(|names| {
@@ -339,11 +499,14 @@ pub(super) fn read_selected(
         panel_open: frame.panel_open,
         keys_pressed: selected_keys(&frame.keys_pressed, selection.keys_pressed.as_deref()),
         keys_held: selected_keys(&frame.keys_held, selection.keys_held.as_deref()),
+        keys_admitted: selected_keys(&frame.keys_admitted, selection.keys_admitted.as_deref()),
         events: if selection.events {
             frame.events.clone()
         } else {
             Vec::new()
         },
+        pointer: frame.pointer,
+        wheel: frame.wheel,
     }))
 }
 
@@ -409,8 +572,9 @@ pub(super) fn reserve_scroll(
     Ok(Ok(()))
 }
 
-impl cinnabar::extension::panel::Host for State {
-    fn set_open(&mut self, open: bool) -> Result<Result<(), String>> {
+impl State {
+    /// Stages visibility after authority and retained-content validation.
+    fn request_panel_open(&mut self, open: bool) -> Result<Result<(), String>> {
         self.controls.budget(false)?;
         if !self.grants.controls {
             return Ok(Err("controls capability denied".into()));
@@ -425,6 +589,19 @@ impl cinnabar::extension::panel::Host for State {
         }
         self.controls.pending_open = Some(open);
         Ok(Ok(()))
+    }
+}
+
+impl cinnabar::extension::panel::Host for State {
+    fn open(&mut self) -> Result<Result<(), String>> {
+        self.request_panel_open(true)
+    }
+    fn close(&mut self) -> Result<Result<(), String>> {
+        self.request_panel_open(false)
+    }
+    fn toggle(&mut self) -> Result<Result<(), String>> {
+        let open = self.controls.pending_open.unwrap_or(self.controls.open);
+        self.request_panel_open(!open)
     }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         self.controls.budget(false)?;
@@ -447,8 +624,8 @@ impl cinnabar::extension::panel::Host for State {
             Ok(panel) => panel,
             Err(error) => return Ok(Err(format!("invalid mod panel: {error}"))),
         };
-        if !key_valid(&panel.toggle_key) {
-            return Ok(Err("invalid panel toggle key".into()));
+        if let Err(error) = super::hud::surface::actor_authority(self, &panel.surface) {
+            return Ok(Err(error));
         }
         self.controls.pending_panel = Some(Some(panel));
         Ok(Ok(()))
@@ -474,16 +651,33 @@ impl cinnabar::extension::panel::Host for State {
                 "panel update schema differs from the registered bundle".into(),
             ));
         }
-        match PanelPatch::parse(&json).and_then(|patch| match &self.controls.bundle {
-            Some(bundle) => patch.apply_bundle(current, bundle),
-            None => patch.apply(current, &std::collections::BTreeMap::new()),
-        }) {
+        match PanelPatch::parse(&json)
+            .and_then(|patch| match &self.controls.bundle {
+                Some(bundle) => patch.apply_bundle(current, bundle),
+                None => patch.apply(current, &std::collections::BTreeMap::new()),
+            })
+            .and_then(|panel| {
+                super::hud::surface::actor_authority(self, &panel.surface).map(|()| panel)
+            }) {
             Ok(panel) => {
                 self.controls.pending_panel = Some(Some(panel));
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(format!("invalid panel update: {error}"))),
         }
+    }
+
+    fn read_layout(&mut self) -> Result<Option<cinnabar::extension::panel::PanelLayout>> {
+        Ok(self
+            .controls
+            .layout
+            .filter(|_| self.grants.controls && self.controls.open)
+            .map(|layout| cinnabar::extension::panel::PanelLayout {
+                width: layout.size[0],
+                height: layout.size[1],
+                scale: layout.scale,
+                offset: (layout.offset[0], layout.offset[1]),
+            }))
     }
 }
 
@@ -493,7 +687,12 @@ impl cinnabar::extension::settings::Host for State {
         if !self.grants.settings {
             return Ok(Err("settings capability denied".into()));
         }
-        Ok(Ok(self.controls.settings.clone()))
+        Ok(Ok(self
+            .controls
+            .pending_settings
+            .as_ref()
+            .unwrap_or(&self.controls.settings)
+            .clone()))
     }
 
     fn save(&mut self, json: String) -> Result<Result<(), String>> {
@@ -669,3 +868,7 @@ pub(super) fn read_field_events(
         })
         .collect()))
 }
+
+#[cfg(test)]
+#[path = "controls_admission_tests.rs"]
+mod admission_tests;

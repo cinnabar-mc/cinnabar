@@ -1,44 +1,175 @@
 package cinnabar:extension@0.1.0;
 
-/// A retained, plain-text label drawn by the host's JSON-UI engine.
+/// The mod's retained gameplay HUD layer and the vanilla HUD elements around it.
+/// Every function except `set-label` requires hud authority.
+/// Grants: `hud`, except set-label, which needs no grant.
 interface hud {
     /// Replaces this mod's label. Empty text removes it; invalid text is rejected.
     set-label: func(text: string) -> result<_, string>;
-    /// Bounded host-rendered HUD cards; requires hud authority. Empty clears them.
-    set-content: func(json: string) -> result<_, string>;
-    /// Atomically replaces named HUD cards, removes named cards, and optionally replaces
-    /// presentation metadata while retaining other cards. Uses the bounded HudUpdate schema.
-    update-content: func(json: string) -> result<_, string>;
-    /// Replaces only a normally visible crosshair; requires hud authority. Empty restores it.
-    set-crosshair: func(json: string) -> result<_, string>;
-    /// Adds one bounded local-only system chat line after a successful callback; requires hud.
+    /// Adds one bounded local-only system chat line after a successful callback.
     local-message: func(text: string) -> result<_, string>;
-    record point { x: f32, y: f32 }
-    record placement { id: string, position: option<point> }
-    record editor-result { saved: bool, reset: bool, placements: list<placement> }
-    record layout-placement { id: string, position: option<point>, scale: f32 }
-    record layout-result { saved: bool, reset: bool, placements: list<layout-placement> }
-    enum anchor { top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right }
-    record anchored-placement { id: string, anchor: anchor, offset: point, scale: f32 }
-    record anchored-layout-result { saved: bool, reset: bool, placements: list<anchored-placement> }
-    record visibility-result { saved: bool, hidden-cards: list<string> }
-    /// Opens a host-owned layout editor from an input-owning panel. Requires hud and controls.
-    /// JSON is bounded HUD preview data, including cards disabled during normal gameplay.
-    open-editor: func(json: string) -> result<_, string>;
-    /// Stable for this callback; consumed after a successful callback that reads it.
-    /// Save carries normalized placements; cancel carries no placements.
-    read-editor-result: func() -> result<option<editor-result>, string>;
-    /// Reads positions and uniform scales; shares consumption with the legacy result.
-    read-editor-layout: func() -> result<option<layout-result>, string>;
-    /// Reads GUI-pixel offsets inward from edges, or right/down from centered axes.
-    /// Shares stable callback lifetime and consumption with both normalized reads.
-    read-editor-anchored-layout: func() -> result<option<anchored-layout-result>, string>;
-    /// Reads hidden card IDs; shares stable callback lifetime and consumption with layout reads.
-    read-editor-visibility: func() -> result<option<visibility-result>, string>;
+    /// Replaces the mod's JSON-UI layer, drawn over gameplay below vanilla screens and never
+    /// hit-tested. The JSON is a bounded surface: `screen`, `document`, `bindings`,
+    /// `collections` and `transitions`, as panel surfaces. Empty text removes the layer.
+    set-surface: func(json: string) -> result<_, string>;
+    /// Sparse patch of the current layer; omitted names keep their values. `remove_bindings`
+    /// lists bound names to unbind first, each once, none also set by the patch and at most
+    /// the binding limit; a removed name the document still reads draws as never bound.
+    /// `bindings` then replaces every binding, `binding_changes` sets the named ones and
+    /// `collection_order` reorders collections. `controls` maps top-level control names of
+    /// the document, without namespace and optionally with an `@` base as a document key, to
+    /// a replacement control object, or to null to remove one. The patched document is
+    /// validated as `set-surface` validates a whole one, and only the controls whose
+    /// resolution reads a replaced definition, embedded ones included, are laid out again.
+    update-surface: func(json: string) -> result<_, string>;
+    /// The gameplay HUD root in GUI units and the GUI scale.
+    record viewport { width: f32, height: f32, scale: f32 }
+    /// None before the first laid-out frame.
+    read-viewport: func() -> option<viewport>;
+    /// Fonts a surface label can use.
+    enum font { native, sans }
+    /// Width of one line of text in GUI units at text scale 1, as a surface label lays it out.
+    measure-text: func(text: string, font: font) -> result<f32, string>;
+    /// Vanilla HUD elements a mod may read and hide.
+    enum vanilla-element { crosshair, status-effects, sidebar, hunger }
+    /// A rectangle in GUI units from the top left of the HUD root.
+    record rect { x: f32, y: f32, width: f32, height: f32 }
+    /// Whether vanilla draws the element this frame, ignoring hiding, and where. `bounds`
+    /// covers what vanilla draws: the drawn row of shanks for `hunger`, not its renderer
+    /// node; the effect icons for `status-effects`; the cursor for `crosshair`; the sidebar's
+    /// rows for `sidebar`. None while vanilla lays the element out nowhere.
+    record element-state { element: vanilla-element, visible: bool, bounds: option<rect> }
+    /// Retained; the listed elements are not drawn. An empty list restores them all.
+    set-hidden-elements: func(elements: list<vanilla-element>) -> result<_, string>;
+    /// Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
+    /// a held filled map) is not drawn. Independent of `set-hidden-elements`.
+    set-position-hidden: func(hidden: bool) -> result<_, string>;
+    /// The current state of every vanilla element, in enum order.
+    read-elements: func() -> result<list<element-state>, string>;
+}
+
+/// Native item and effect facts from the pinned tables and the installation's food definitions.
+/// Requires player-state authority. A callback may make `MAX_FACT_READS` reads, counted apart
+/// from player-state reads; one more traps it.
+/// Grants: `player_state`.
+interface facts {
+    /// Food attributes from an installed item definition; saturation is a modifier, not current saturation.
+    record food { nutrition: u32, saturation-modifier: f32 }
+    /// Amplifier is zero-based; duration none is instant.
+    record potion-effect { effect-id: s32, amplifier: s32, duration-ticks: option<u64> }
+    /// Known item properties; absent properties must not be treated as zero.
+    record item-facts {
+        /// The pinned maximum; none for items that take no damage or whose maximum is unknown.
+        max-durability: option<u32>,
+        /// The installation's food definition for the identifier or its pinned legacy name.
+        /// Server item components are not consulted; `vitals.held-food` reports those.
+        food: option<food>,
+        /// The effects of the potion that potions, splash and lingering potions carry by
+        /// metadata, and tipped arrows by metadata minus one. Durations are the potion's own, a
+        /// quarter of them for lingering potions; tipped arrows report the carried potion's.
+        potion-effects: list<potion-effect>,
+    }
+    /// None when neither the pinned item facts nor the installed food know the identifier.
+    read-item: func(identifier: string, metadata: u32) -> result<option<item-facts>, string>;
+    /// One installed food definition; metadata none applies to every variant of the item.
+    record food-item { identifier: string, metadata: option<u32>, food: food }
+    /// Every item the installation's food table defines, by the identifiers `read-item`
+    /// resolves: a pinned legacy name is listed as the items that alias it. The table defines
+    /// food per identifier, so metadata is none. Sorted by identifier, at most
+    /// `facts::MAX_FOOD_ITEMS`, keeping the first; identifiers over `MAX_ITEM_IDENTIFIER_BYTES`
+    /// are left out. Empty while no food table is installed. One read.
+    read-foods: func() -> result<list<food-item>, string>;
+    /// A status effect's localization key and HUD icon texture as JSON-UI names it, without an
+    /// extension; the texture is empty for effects without a HUD icon.
+    record effect-facts { name-key: string, texture: string }
+    /// None for an unknown effect id.
+    read-effect: func(effect-id: s32) -> result<option<effect-facts>, string>;
+}
+
+/// Local wall-clock time; requires the clock grant.
+/// Grants: `clock`.
+interface clock {
+    /// Milliseconds since the Unix epoch and the local zone's current offset from UTC.
+    record local-time { unix-ms: u64, utc-offset-seconds: s32 }
+    /// Reads the local clock snapshot captured when this invocation started.
+    /// The time and UTC offset stay frozen across suspension. Requires clock authority.
+    read-local-time: func() -> result<local-time, string>;
+}
+
+/// Mod-supplied parameters of native world presentation; requires hud authority, and nonempty
+/// per-actor lists also players or entities. Each call replaces this mod's retained value once
+/// the callback succeeds; a callback may make 8 presentation calls, and one more traps it.
+/// Limits are the constants in `mod_api::presentation`.
+///
+/// The client merges loaded mods in load order. The earliest mod that sets a nametag style, a
+/// hurt overlay or chat actions owns that policy. For each runtime ID and surface, the earliest
+/// mod whose grants admit the actor's kind owns the row: players need the players grant, other
+/// actors the entities grant, and rows a mod's grants do not admit never apply. Tooltip lines
+/// append in load order.
+/// Grants: `hud`; actor rows additionally require `players` or `entities` for their kind.
+interface presentation {
+    use render.{rgba};
+    /// Parameters of the native nametag renderer: opacity 0–1, scale 0.5–3, border width 0–8.
+    /// Text colours replace the native ones when present; annotation spans keep their own.
+    record nametag-style {
+        hide: bool, hide-players: bool, hide-passengers: bool,
+        show-self: bool, show-when-hud-hidden: bool,
+        opacity: f32, scale: f32, shadow: bool, border-width: f32,
+        text-color: option<rgba>, own-text-color: option<rgba>,
+        border-color: option<rgba>, background-color: option<rgba>,
+    }
+    /// Retained; none restores native nametags.
+    set-nametag-style: func(style: option<nametag-style>) -> result<_, string>;
+    /// Plain single-line text of at most `MAX_ANNOTATION_SPAN_BYTES`, without style codes.
+    record text-span { text: string, color: rgba }
+    /// Where annotation spans go relative to the native name. Spans draw end to end in list
+    /// order, with nothing inserted between them. `before` and `after` extend the name's first
+    /// line, and the host inserts exactly one space between the name and the spans; any other
+    /// separator belongs in the spans. `above` and `below` draw the spans on their own centred
+    /// line above the name's first line or below its last. A player-list row has one line, so
+    /// roster spans placed `above` or `below` follow the name as `after` does.
+    enum annotation-position { before, after, above, below }
+    /// Text attached to one actor's eligible nametag and, for a player whose actor the client
+    /// knows, that player's player-list row. Each surface holds up to `MAX_ANNOTATION_SPANS`
+    /// spans; an empty list leaves that surface native. Nametag spans on the local player also
+    /// show its own tag. Runtime IDs are nonzero and distinct within one call.
+    record annotation {
+        runtime-id: u64,
+        nametag: list<text-span>,
+        nametag-position: annotation-position,
+        roster: list<text-span>,
+        roster-position: annotation-position,
+    }
+    /// Retained; replaces every annotation from this mod, at most `MAX_ANNOTATIONS`.
+    set-annotations: func(annotations: list<annotation>) -> result<_, string>;
+    /// Native damage overlay colours for actor bodies and their armour, while an actor is hurt;
+    /// none keeps native. One policy: the earliest mod setting either colour owns both.
+    set-hurt-overlay: func(body: option<rgba>, armor: option<rgba>) -> result<_, string>;
+    /// An overlay tint drawn while the actor is not hurt.
+    record actor-tint { runtime-id: u64, color: rgba }
+    /// Retained; replaces every tint from this mod, at most `MAX_ACTOR_TINTS` distinct nonzero
+    /// runtime IDs.
+    set-actor-tints: func(tints: list<actor-tint>) -> result<_, string>;
+    /// One extra item tooltip line of plain text, at most `MAX_TOOLTIP_LINE_BYTES`; metadata
+    /// none matches every variant. One item's tooltip shows at most `MAX_ITEM_TOOLTIP_LINES`.
+    record tooltip-line { identifier: string, metadata: option<u32>, text: string, color: rgba }
+    /// Retained; replaces every tooltip line from this mod, at most `MAX_TOOLTIP_LINES`.
+    set-tooltip-lines: func(lines: list<tooltip-line>) -> result<_, string>;
+    /// A clickable span: a primary click or tap on `text` inside a message of the open chat
+    /// history closes the chat and reports `action`, with value 1, among `input.read-controls`
+    /// events on the owning mod's next frame; reading it requires controls authority. `text` is
+    /// at most `MAX_CHAT_ACTION_TEXT_BYTES`; `action` is at most `MAX_CHAT_ACTION_ID_BYTES` of
+    /// `[A-Za-z0-9_.-]`.
+    record chat-action { text: string, action: string }
+    /// Retained; replaces every chat action from this mod, at most `MAX_CHAT_ACTIONS`. The
+    /// earliest mod with chat actions owns every clickable span and receives every click.
+    set-chat-actions: func(actions: list<chat-action>) -> result<_, string>;
 }
 
 /// Read-only, session-bound facts about the local player's presented inventory and effects.
+/// Grants: `player_state` for local observations; actor reads instead require `players` or `entities` for their kind.
 interface player-state {
+    /// One presented item stack, retaining wire identity when a name is unavailable.
     record item {
         /// None when the negotiated registry cannot resolve the item.
         identifier: option<string>,
@@ -52,11 +183,13 @@ interface player-state {
         /// None for items without a known durability maximum, including custom components.
         max-durability: option<u32>,
     }
+    /// Preserves whether a cell is known separately from whether it contains an item.
     record slot {
         /// False until this inventory cell has authoritative or selected-equipment evidence.
         known: bool,
         item: option<item>,
     }
+    /// One currently presented status effect; amplifier and duration keep their wire units.
     record effect {
         effect-id: s32,
         /// The wire amplifier is zero-based and is not a display level.
@@ -66,6 +199,7 @@ interface player-state {
         ambient: bool,
         particles: bool,
     }
+    /// Inventory and effects from one session and dimension; unknown cells stay in place.
     record snapshot {
         session: u64,
         dimension: s32,
@@ -78,6 +212,7 @@ interface player-state {
         /// Currently visible status effects, sorted by effect id, without expired entries.
         effects: list<effect>,
     }
+    /// Local feet and life state fenced to a connected destination and dimension.
     record world-observation {
         session: u64,
         /// Stable, host-selected destination identity; never a session generation.
@@ -85,18 +220,26 @@ interface player-state {
         dimension: s32,
         position: tuple<f32, f32, f32>,
         alive: bool,
+        /// The local player's actor runtime ID, as actor observations and annotations use it.
+        runtime-id: u64,
     }
+    /// Presented local motion, readable without owning gameplay input.
     record motion {
         session: u64, dimension: s32,
         /// Actor YXZ degrees: yaw left and pitch up. Velocity is blocks per simulation tick.
         yaw: f32, pitch: f32, velocity: tuple<f32, f32, f32>, on-ground: bool,
     }
+    /// Food values associated with the held item, including server item components.
     record food {nutrition: u32, saturation-modifier: f32}
+    /// Authoritative food attributes; unavailable attributes remain absent.
     record vitals {
         session: u64, dimension: s32,
+        /// Hunger, its maximum and saturation are attribute points: 20 is full vanilla hunger.
         hunger: option<f32>, max-hunger: option<f32>, saturation: option<f32>, held-food: option<food>,
     }
+    /// An axis-aligned box in world coordinates, with minimum and maximum corners.
     record bounds { min: tuple<f32, f32, f32>, max: tuple<f32, f32, f32> }
+    /// An admitted actor in the presented world; optional targeting facts are not estimates.
     record actor {
         session: u64, dimension: s32, runtime-id: u64, player: bool,
         position: tuple<f32, f32, f32>, boxes: list<bounds>, name: string,
@@ -107,12 +250,17 @@ interface player-state {
         look-origin: option<tuple<f32,f32,f32>>, look-direction: option<tuple<f32,f32,f32>>,
         invisible: bool, sneaking: bool, hurt: bool, health: option<f32>,
     }
+    /// An actor observation with its independently replicated health maximum.
     record observed-actor {
         actor: actor,
         /// Replicated health attribute maximum; absent when the server has supplied none.
         max-health: option<f32>,
     }
-    enum combat-kind { attack-admitted, hurt, death }
+    /// `totem` is a totem-of-undying activation on `runtime-id`, local or remote, and `death` a
+    /// server death notice. Read event lives with `read-combat-lives` and current actor lives
+    /// with `read-actor-lives`.
+    enum combat-kind { attack-admitted, hurt, death, totem }
+    /// Retained combat evidence scoped to a session and dimension; it does not identify an attacker.
     record combat-event {
         sequence: u64, session: u64, dimension: s32, kind: combat-kind,
         local: bool, player: bool,
@@ -129,14 +277,38 @@ interface player-state {
     /// Reads a smaller prefix of the same authorized observations to bound guest copying work.
     /// limit is 1 through MAX_OBSERVED_ACTORS; filtering and session authority are unchanged.
     read-actors-limited: func(limit: u32) -> result<list<observed-actor>, string>;
+    /// An admitted actor's current life: `life` changes whenever the actor spawns again or dies,
+    /// and `dead` is its current death state. Compare lives within one session.
+    record actor-life { life: u64, dead: bool }
+    /// One entry per requested runtime ID, in order, regardless of distance or the actor reads'
+    /// limit: none when the session has no such admitted actor in the current dimension, or the
+    /// caller lacks the grant for its kind. Player rows require players, other rows entities.
+    /// At most MAX_ACTOR_LIFE_READS IDs; shares the actor reads' callback allowance.
+    read-actor-lives: func(runtime-ids: list<u64>) -> result<list<option<actor-life>>, string>;
     /// Incremental retained evidence, at most 4 entries per read. Requires player-state authority.
     /// Attack admission is outbound intent, NOT server confirmation; hurt carries NO attacker attribution.
     read-combat: func(after: u64, limit: u32) -> result<list<combat-event>, string>;
+    /// The actor's `read-actor-lives` life when each combat event was recorded, in request order.
+    /// Death events carry the life after the death. Compare lives within one session.
+    /// None when the event is no longer retained, belongs to another session or dimension, or
+    /// the caller cannot read it. Requires the same grants as `read-combat` and shares its
+    /// callback allowance. At most MAX_COMBAT_LIFE_READS sequences.
+    read-combat-lives: func(sequences: list<u64>) -> result<list<option<u64>>, string>;
+    /// One retained received chat message, addressed by a monotonic sequence.
     record chat-message { sequence: u64, text: string }
     /// Newest 32 retained received messages, filtered by sequence > after, in FIFO order.
     /// limit is 1 through 4; individual text fields are at most 256 UTF-8 bytes.
     read-chat: func(after: u64, limit: u32) -> result<list<chat-message>, string>;
+    /// The server world clock: `time` is the absolute ticks the server last set, advanced at 20
+    /// per second while its daylight cycle runs, 24000 per day. `daylight-cycle` is the server's
+    /// daylight-cycle rule. Visual time overrides never apply.
+    record world-time { session: u64, time: s64, daylight-cycle: bool }
+    /// Requires player-state authority; none outside a connected session or before the server
+    /// sets a time.
+    read-world-time: func() -> result<option<world-time>, string>;
+    /// A resolved sidebar label paired with its server-provided score.
     record sidebar-row { label: string, score: s32 }
+    /// The currently resolved sidebar title and ordered rows.
     record sidebar { title: string, rows: list<sidebar-row> }
     /// Session-fenced feet position and life state, readable while menus own input.
     read-world: func() -> result<option<world-observation>, string>;
@@ -151,83 +323,221 @@ interface player-state {
     /// None outside a current snapshot. Shares the read-snapshot grant and read budget.
     /// Contents equal to the last full read reuse its token, even after unimported changes.
     read-revision: func() -> result<option<u64>, string>;
+    /// The equipment family of a snapshot, without copying status effects.
     record equipment {
         session: u64, dimension: s32, selected-slot: option<u8>,
         inventory: list<slot>, armor: list<slot>, offhand: slot,
     }
+    /// The effect family of a snapshot, without copying equipment.
     record effects { session: u64, dimension: s32, effects: list<effect> }
+    /// Independent exact-content tokens for equipment and effects within an instance.
     record revisions { session: u64, dimension: s32, equipment: u64, effects: u64 }
     /// Independent exact observation tokens. Equipment is unaffected by ticking effects.
     /// Tokens advance on observed changes and never repeat within an instance, including reconnects.
     /// These three reads share read-snapshot's grant, bounds, and callback read allowance.
     read-revisions: func() -> result<option<revisions>, string>;
+    /// The selected hotbar slot, 0 through 8, from the current session and dimension.
+    record selected-slot { session: u64, dimension: s32, slot: u8 }
+    /// Requires the player-state grant. None outside the current connected session or while the
+    /// selection is unknown. A local hotbar selection is visible no later than the next frame
+    /// callback: unordered selections in the frame that admits them, and selections admitted
+    /// through ordered desktop input, which apply after that frame's callback, in the next.
+    /// Server selections appear once applied.
+    /// Copies no inventory cells. Its call allowance, MAX_SELECTED_SLOT_READS, renews for every
+    /// callback and is separate from read-snapshot's, so it cannot exhaust the snapshot reads.
+    read-selected-slot: func() -> result<option<selected-slot>, string>;
+    /// Compact exact-identifier equipment query, without copying unrelated item strings.
+    record equipment-matches {
+        revisions: revisions,
+        /// Known matching player cells in ascending order, hotbar first.
+        inventory: list<u8>,
+        /// None for an unknown offhand cell or unresolved item identifier; false for empty
+        /// or a known different item, true for a matching item.
+        offhand: option<bool>,
+    }
+    /// Requires player-state authority and shares its read budget. None outside a session.
+    /// Identifier must contain 1..MAX_ITEM_IDENTIFIER_BYTES bytes.
+    read-equipment-matches: func(identifier: string) -> result<option<equipment-matches>, string>;
+    /// Reads only equipment under the snapshot grant and shared read allowance.
     read-equipment: func() -> result<option<equipment>, string>;
+    /// Reads only effects under the snapshot grant and shared read allowance.
     read-effects: func() -> result<option<effects>, string>;
 }
 
 /// An opt-in retained settings panel, rendered and hit-tested by the host.
+/// Grants: `controls`.
 interface panel {
+    /// One numeric control event routed to its owning mod by control ID.
     record event { id: string, value: f32 }
-    /// Changes this instance's panel input ownership on successful callback return.
-    /// Requires controls authority and a retained or pending panel when opening.
-    set-open: func(open: bool) -> result<_, string>;
-    /// Bounded panel JSON; empty text removes the panel and releases its input.
+    /// Opens this instance's panel on successful callback return. Requires controls
+    /// authority and retained or pending panel content. Repeated opens keep it open.
+    /// The latest opener owns input and closes other owners. Opening keys belong to the mod.
+    open: func() -> result<_, string>;
+    /// Closes this instance's panel on successful callback return. Requires controls authority.
+    /// Repeated closes keep it closed; content remains available for a later open.
+    close: func() -> result<_, string>;
+    /// Flips this instance's requested visibility, including earlier requests in this callback.
+    /// Uses the same authority, content and successful-return rules as open and close.
+    toggle: func() -> result<_, string>;
+    /// Bounded panel JSON; empty text removes the panel and releases its input. A
+    /// `cinnabar_hud_control` node draws a named control of this mod's HUD surface, centred:
+    /// its laid-out box fitted to the node, or at `scale` times its HUD size, or with `fit`,
+    /// its painted ink filling that fraction of the node, at most `max_scale` times its HUD
+    /// size.
     set-content: func(json: string) -> result<_, string>;
     /// Applies a bounded sparse control patch and registered surface route atomically.
+    /// A route change keeps the offset of each scroll view the new surface shares by layout key, clamped to its content.
     /// Omitting controls preserves them; bindings, when present, replace custom scalars.
     /// The JSON record optionally accepts collection_reveal: {collection: string, item: u32}.
     /// The item is its immutable published index, resolved through the accepted collection_order.
     /// Each request is consumed once; a filtered-out item is ignored.
+    /// Optional show_gameplay_hud: bool changes whether the gameplay HUD and mods' HUD
+    /// surfaces stay drawn under the open panel; it lasts until changed again or until
+    /// set-content replaces the panel.
     update-content: func(json: string) -> result<_, string>;
+    /// Where this mod's panel lies over the HUD root as last laid out: the panel root's
+    /// `width` and `height` in panel units, `scale`, the HUD GUI units one panel unit spans,
+    /// which follows the GUI scale and a `reference_size` fitted to a small window, and
+    /// `offset`, the panel root's top left in HUD GUI units from the HUD root's top left. The
+    /// pointer of `input.read-controls` at `p` lies at `(p - offset) / scale` in panel units.
+    record panel-layout { width: f32, height: f32, scale: f32, offset: tuple<f32, f32> }
+    /// Requires controls authority; none without it and while this mod's panel is not open.
+    read-layout: func() -> option<panel-layout>;
+}
+
+/// Read-only introspection of this instance's explicitly granted capabilities.
+/// Grants: None; querying does not change authority.
+interface permissions {
+    /// One named capability on this instance; granted does not describe command-name scope.
+    record permission { name: string, label: string, granted: bool }
+    /// Reads this instance's permission status, including denied capabilities, without a grant.
+    read: func() -> list<permission>;
+}
+
+/// Introspection of the running callback's own execution allowance. It reads no game state
+/// and grants no game capability, so it needs no grant.
+/// Grants: None; only the current callback allowance is exposed.
+interface budget {
+    /// Fuel left in the running callback, about the WebAssembly instructions it may still
+    /// execute before it traps. Mods use it to spread large work over later callbacks.
+    /// Fuel carries across suspension and is never refilled. Time yields are not overruns.
+    /// Frame and world-entry allowances are FRAME_FUEL and WORLD_ENTRY_FRAME_FUEL in mod-host;
+    /// the shared pool is TOTAL_MOD_FRAME_FUEL in mod-api. See the generated limits reference.
+    remaining-fuel: func() -> u64;
 }
 
 /// Settings belong to the selected component's fixed companion file.
+/// Grants: `settings`.
 interface settings {
+    /// Returns this component's bounded companion JSON; no guest-selected path is accepted.
     load: func() -> result<string, string>;
     /// Stages bounded JSON for persistence after a successful callback.
     save: func(json: string) -> result<_, string>;
 }
 
 /// Local control edges, available only with explicit controls authority.
+/// Grants: `controls`, except demo-pressed, which needs no grant.
 interface input {
     use panel.{event};
+    /// A committed native field value addressed by its declared control ID.
     record text-event { id: string, value: string }
+    /// A field navigation key with modifiers sampled at the key edge.
     record field-key {
         id: string, key: string,
         shift: bool, control: bool, alt: bool, super-key: bool,
     }
+    /// A native edit, submission or navigation edge; composition remains host-owned.
     variant field-event {
         change(text-event),
         submit(text-event),
         key(field-key),
     }
+    /// One focused input sample; keys and pointer use the host's coordinate and naming contracts.
     record controls {
         seconds: f32,
         focused: bool,
         gameplay: bool,
         panel-open: bool,
-        /// Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle.
+        /// Physical non-repeat edges, including while this owner edits a native field;
+        /// pointer buttons use MouseLeft/MouseRight/MouseMiddle.
         keys-pressed: list<string>,
-        /// Physical keys held this frame, including reserved ones.
+        /// Physical keys held this frame, including reserved ones, in physical-name order.
+        /// Truncated to MAX_CONTROL_KEYS when more are held.
         keys-held: list<string>,
+        /// Held desktop keys/buttons admitted by the finalized gameplay router, including
+        /// modifiers. Uses keys-held names and bounds; excludes consumed, quarantined,
+        /// reserved and ineligible-device controls. Empty outside gameplay input ownership.
+        /// Match read-bindings chords against this list, respecting modifier precedence.
+        /// This is physical admission, never a resolved action or permission to act.
+        /// Same physical-name order as keys-held, independently truncated to MAX_CONTROL_KEYS.
+        /// Above that held-key cap, chord resolution can differ from the host's gate.
+        keys-admitted: list<string>,
         events: list<event>,
+        /// Pointer position in the gameplay HUD root's GUI units from its top left, the space of
+        /// `hud.read-viewport`, while this mod's open panel owns input; none otherwise. A panel's
+        /// own fitting, such as a `reference_size` scaled to a small window, does not change it.
+        pointer: option<tuple<f32, f32>>,
+        /// Wheel notches this frame while this mod's panel owns input; positive scrolls up.
+        wheel: f32,
     }
+    /// Current open container screen identity, requiring controls permission.
+    /// None outside containers. Observation does not grant pointer ownership.
+    read-container-screen: func() -> result<option<string>, string>;
+    /// Requests one pointer move in normalized window coordinates (0..1 on each axis).
+    /// Requires controls permission and a focused container. Staged until callback success;
+    /// consumed once, discarded if the screen changed. Does not press buttons or capture input.
+    position-pointer: func(x: f32, y: f32) -> result<_, string>;
+    /// Selects which fields to copy without changing the underlying frame or its event ordering.
     record selection {
         /// None selects all keys; some(empty) selects none; names select exact matches.
         keys-pressed: option<list<string>>,
         keys-held: option<list<string>>,
+        keys-admitted: option<list<string>>,
         events: bool,
     }
-    /// Legacy compatibility API; new modules should export filter-actions.
-    /// Retained attack/use press caps, each 1–100 per second; none restores ordinary input.
-    /// Only removes excess presses; never generates input. Requires controls authority.
-    set-click-limits: func(attack: option<u32>, item-use: option<u32>) -> result<_, string>;
+    /// The context in which the player assigned a physical chord.
+    enum binding-context { gameplay, ui }
+    /// Modifier groups required in addition to the key; either side satisfies a group.
+    record binding-modifiers { shift: bool, control: bool, alt: bool, super-key: bool }
+    /// One player-assigned keyboard or observable mouse-button chord. Multiple rows are
+    /// alternative bindings. More specific satisfied chords on the same key and context
+    /// take precedence. Keys use exactly the controls.keys-held naming contract.
+    record action-binding {
+        /// Stable input Action names in kebab-case: move-forward, move-backward, move-left,
+        /// move-right, look-up, look-down, look-left, look-right, jump, sneak, sprint, attack,
+        /// use, cycle-perspective, menu, back, hotbar-1 through hotbar-9, hotbar-previous,
+        /// hotbar-next, ui-up, ui-down, ui-left, ui-right, ui-accept, ui-cancel, ui-tab-next,
+        /// ui-tab-previous, player-list, freelook, interact-with-toast, pick-item.
+        action: string,
+        context: binding-context,
+        key: string,
+        modifiers: binding-modifiers,
+    }
+    /// A page of the player's current chords, in settings order. Total is at most
+    /// MAX_INPUT_BINDINGS; entries has at most MAX_INPUT_BINDINGS_PER_READ rows.
+    /// Only keyboard keys and MouseLeft/MouseRight/MouseMiddle are observable here; mouse
+    /// axes, additional buttons, gamepads and built-in touch controls are not in keys-held.
+    record bindings { revision: u64, total: u32, entries: list<action-binding> }
+    /// Requires controls authority and shares read-controls' callback read allowance.
+    /// Offset is 0 through total, and limit is 1 through MAX_INPUT_BINDINGS_PER_READ.
+    /// Pass the last complete revision to receive none while unchanged. To collect pages,
+    /// pass none, advance offset by each page's length and restart at zero if revision changes.
+    /// Discard old assignments while collecting a changed revision; apply complete revisions.
+    /// Revisions are host-local: clear guest caches on reinitialization. Returns an error
+    /// until settings are sampled or for invalid page bounds. Does not resolve actions.
+    read-bindings: func(after: option<u64>, offset: u32, limit: u32) -> result<option<bindings>, string>;
     /// True only for the current frame's host-assigned action edge.
     demo-pressed: func() -> bool;
+    /// Reads this callback's control sample with controls authority and the shared read allowance.
     read-controls: func() -> result<controls, string>;
     /// Reads selected fields from the same current frame, preserving native key order.
     /// Requires controls authority and shares the read-controls callback read budget.
     read-selected-controls: func(selection: selection) -> result<controls, string>;
+    /// Whether a native field or numeric editor on this mod's open panel owns key input in
+    /// the current frame, including IME composition. The keys it consumes still appear in
+    /// keys-pressed and keys-held; skip panel key handling of your own while this is true.
+    /// False while the panel is closed or another mod owns input. Requires controls authority.
+    read-native-editing: func() -> result<bool, string>;
     /// Committed single-line native text edits, separate from legacy numeric control events.
     /// Requires controls authority; repeated reads see the same bounded batch in a frame callback.
     read-text-events: func() -> result<list<text-event>, string>;
@@ -236,6 +546,7 @@ interface input {
     read-field-events: func() -> result<list<field-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
+    /// Native wheel deltas with line and pixel units kept separate.
     record scroll {
         line-x: f32, line-y: f32,
         pixel-x: f32, pixel-y: f32,
@@ -250,10 +561,52 @@ interface input {
     reserve-scroll: func(keys: list<string>) -> result<_, string>;
 }
 
+/// Requested sound playback before it starts, for `handle-sound`.
+/// Grants: `audio` to run handle-sound; this interface only defines handler types.
+interface sound-handling {
+    /// World coordinates in blocks; absent for non-positional playback.
+    record position { x: f32, y: f32, z: f32 }
+    /// One new playback request after event routing to an exact sound definition. Only
+    /// `cancelled` is changeable.
+    record sound-context {
+        /// Exact definition name, at most 128 UTF-8 bytes.
+        name: string,
+        /// Requested world location; none is non-positional playback.
+        position: option<position>,
+        /// Whether this request starts a repeating voice.
+        looping: bool,
+        /// Whether the request is discarded; false unless an earlier handler cancelled it.
+        cancelled: bool,
+    }
+}
+
+/// Local-player MovePlayer rotations before they apply, for `handle-teleport`.
+/// Grants: `camera` to run handle-teleport; this interface only defines handler types.
+interface teleport-handling {
+    /// Bedrock degrees: yaw turns clockwise from south; positive pitch looks down.
+    record rotation { yaw: f32, pitch: f32 }
+    /// How the server moved the local player, as MovePlayer reports it.
+    enum teleport-mode { normal, reset, teleport, rotation, other }
+    /// One committed MovePlayer for the local player. Only `rotation` is changeable; position,
+    /// physics and acknowledgments always follow the server.
+    record teleport-context {
+        mode: teleport-mode,
+        /// The rotation the server sent.
+        server: rotation,
+        /// The local view immediately before this move.
+        presented: rotation,
+        /// The rotation the view takes: the server's, or an earlier handler's replacement.
+        /// Set it to `presented` to keep the current view.
+        rotation: rotation,
+    }
+}
+
 /// Local presentation only; no world mutation or outbound packets.
+/// Grants: `environment` for weather and time; `fullbright` for lighting.
 interface environment {
     /// Local visual weather target; none restores tracked server weather.
     enum weather { clear, rain, thunder }
+    /// Retains a local weather target after success; none resumes tracked server weather.
     set-weather-override: func(value: option<weather>) -> result<_, string>;
     /// Fixes visual time to 0–23999 ticks; none restores the tracked server clock.
     set-time-override: func(ticks: option<u32>) -> result<_, string>;
@@ -262,8 +615,12 @@ interface environment {
 }
 
 /// Explicit local gameplay capabilities; no raw packet access.
+/// Grants: Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `entities`, `commands` or `packet_delay`; see each function.
 interface gameplay {
+    /// Three coordinates; the containing record or function specifies their units and frame.
     record vector3 { x: f32, y: f32, z: f32 }
+    /// Integer world coordinates of one block.
+    record block-position { x: s32, y: s32, z: s32 }
     /// Remote player feet in world coordinates, without names or network access.
     record player { runtime-id: u64, position: vector3 }
     /// Current input-owned frame only. Angles are actor YXZ radians: yaw left, pitch up.
@@ -273,7 +630,6 @@ interface gameplay {
         eye: vector3,
         yaw: f32,
         pitch: f32,
-        attack-held: bool,
         frame-seconds: f32,
         players: list<player>,
     }
@@ -286,7 +642,6 @@ interface gameplay {
         tick: u64,
         velocity: vector3,
         on-ground: bool,
-        jump-held: bool,
         eligible: bool,
         knockback-sequence: u64,
     }
@@ -296,23 +651,78 @@ interface gameplay {
     pulse-jump: func() -> result<_, string>;
     /// Cancels pending local jump input after a successful callback, even outside gameplay.
     cancel-jump: func() -> result<_, string>;
-    record movement-toggles { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
-    /// Renews ordinary input toggle modes for this focused gameplay frame. Omission restores saved settings.
-    /// Requires movement authority; server movement, hunger and item-use restrictions still apply.
-    set-movement-toggles: func(policy: option<movement-toggles>) -> result<_, string>;
+    /// True holds the control as if its binding were held; false adds nothing to physical input.
+    record movement-intents { sprint: bool, sneak: bool }
+    /// A local control vector: right and forward axes are finite and bounded to -1..1.
+    /// Buttons hold their controls as if bound; axes replace walking input for this frame.
+    record movement-input { right: f32, forward: f32, jump: bool, sneak: bool, sprint: bool }
+    /// Reads admitted controls before any mod output is applied. Requires movement authority.
+    /// None means focused gameplay does not own input.
+    read-movement-input: func() -> result<option<movement-input>, string>;
+    /// Replaces walking axes and holds buttons as if bound, so the player's toggle and
+    /// always-sprint modes still apply. Requires movement authority and focused gameplay. Renew
+    /// every frame; none restores input. A frame whose callback the host defers keeps the last
+    /// vector. Sprint applies to the supplied direction; hunger, item use, collision, input
+    /// locks and server authority still apply. A complete vector belongs to the earliest
+    /// supplying mod.
+    set-movement-input: func(input: option<movement-input>) -> result<_, string>;
+    /// Renew every focused gameplay frame; omission releases both intents, and a frame whose
+    /// callback the host defers keeps them. Requires movement authority; server movement,
+    /// hunger and item-use restrictions still apply.
+    set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;
+    /// The game's own control modes, turned on in addition to the player's toggle sprint, toggle
+    /// sneak and always sprint settings while renewed; false leaves the player's own setting.
+    /// Always sprint applies only to keyboard and mouse.
+    record control-modes { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
+    /// Renew every focused gameplay frame; omission restores the player's own settings, and a
+    /// frame whose callback the host defers keeps the modes. Requires movement authority. With
+    /// several mods, a mode is on when any of them sets it.
+    set-control-modes: func(modes: option<control-modes>) -> result<_, string>;
     /// Requires the camera grant and a current frame; commits only after frame returns.
     rotate: func(yaw-delta: f32, pitch-delta: f32) -> result<_, string>;
-    /// Bounded local actor attack range; none restores ordinary game-mode rules.
+    /// Requires interaction authority; a non-none range also requires a current gameplay frame.
+    /// Overrides local actor pick and attack range up to MAX_ENTITY_REACH_BLOCKS; none restores
+    /// ordinary mode and input limits. Attack eligibility, obstruction and server validation
+    /// still apply. Does not change mining or block-use reach.
     set-attack-reach: func(blocks: option<f32>) -> result<_, string>;
     /// One attack-press edge, only while the physical attack control is held.
-    /// An active action filter receives it as a repeat; legacy click caps apply afterwards.
+    /// An active action filter receives it as a repeat.
     pulse-attack: func() -> result<_, string>;
+    /// Holds ordinary mining on the crosshair block for one successful gameplay frame.
+    /// Requires interaction authority and a current gameplay frame when true; false releases
+    /// only this mod's request. Renew every frame. Omission, focus loss, unload and failed
+    /// callbacks release it. Does not press attack or select targets; normal block reach,
+    /// obstruction, game mode, tool timing, item use and server checks still apply.
+    set-block-mining: func(held: bool) -> result<_, string>;
+    /// Center of the current crosshair block in world coordinates. Requires terrain and focused gameplay.
+    read-block-target: func() -> result<option<vector3>, string>;
+    /// Redirects held physical block mining toward a world point for one successful frame.
+    /// Requires interaction, terrain and focused gameplay. Does not hold attack or rotate the
+    /// view. Renew every frame; none or omission restores the crosshair. The first supplying
+    /// mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
+    set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
+    /// Requests immediate destruction of explicit block positions on the next movement tick.
+    /// Requires interaction, terrain and focused gameplay. At most MAX_BLOCK_BREAKS per frame,
+    /// within MAX_BLOCK_BREAK_DISTANCE of the eye. Duplicate positions are coalesced.
+    /// This explicit override bypasses local mining time, reach and obstruction, but retains
+    /// game-mode permissions, loaded terrain and server validation. The host supplies held
+    /// item and wire identities. Requests commit only after a successful callback and are
+    /// discarded on focus loss or world changes. No camera or physical input is changed.
+    /// The cells change only when the server updates them; a rejected cell simply stays.
+    break-blocks: func(positions: list<block-position>) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.
     set-packet-delay: func(delay-ms: u32) -> result<_, string>;
-    /// Requires packet-delay authority; opts into the host's last-relayed position witness.
-    set-show-real-position: func(enabled: bool) -> result<_, string>;
+    /// Requires packet-delay authority: the local feet position last relayed to the server, which
+    /// trails the presented position while packets are delayed. None outside gameplay or while no
+    /// delay is active.
+    read-relayed-position: func() -> result<option<vector3>, string>;
+    /// The last rendered camera, including third-person and rig offsets. Angles are actor YXZ
+    /// radians.
+    record camera-pose { position: vector3, yaw: f32, pitch: f32 }
+    /// Requires players or terrain, as read-frame. None means gameplay does not own input.
+    read-camera: func() -> result<option<camera-pose>, string>;
 
     /// A nearby non-player actor; health comes from its replicated health attribute.
     record mob {
@@ -336,7 +746,9 @@ interface gameplay {
 }
 
 /// Local presentation cues shared by loaded mods; they carry no authority.
+/// Grants: None; cues carry no game authority.
 interface events {
+    /// A presentation-only signal with bounded scalar values, shared on the following frame.
     record cue { name: string, values: list<f32> }
     /// Published to the host and every loaded mod after frame returns.
     emit: func(name: string, values: list<f32>) -> result<_, string>;
@@ -345,17 +757,20 @@ interface events {
 }
 
 /// Local custom rendering: sandboxed WGSL post-process passes and bounded world-space primitives.
+/// Grants: `render` or `world_draw` for primitives; `render` or `render_post` for post passes; `render_depth` additionally for scene depth.
 interface render {
     use gameplay.{vector3};
     /// Linear colour; alpha scales coverage.
     record rgba { r: f32, g: f32, b: f32, a: f32 }
     /// Procedural ground styles animated by `progress` in 0–1.
     enum decal-style { telegraph, disc, crater, shockwave, dust }
+    /// A procedural ground primitive whose progress selects its current animated appearance.
     record decal { center: vector3, radius: f32, color: rgba, progress: f32, style: decal-style }
     /// Camera-facing strip that tapers and fades from the first point (head) to the last.
     record ribbon { points: list<vector3>, width: f32, color: rgba }
     /// Glowing animated strip from start to end; intensity scales its white-hot core.
     record beam { start: vector3, end: vector3, width: f32, color: rgba, intensity: f32 }
+    /// The host's procedural coverage patterns for a billboard quad.
     enum billboard-pattern { solid, soft-disc, ring, spark, silhouette, sphere, aura }
     /// Camera-facing quad; upright quads keep their vertical axis.
     record billboard {
@@ -366,10 +781,7 @@ interface render {
         pattern: billboard-pattern,
         upright: bool,
     }
-    /// Retained full-block highlights for matching blocks already loaded by the host.
-    record block-highlight-spec { identifiers: list<string>, range: f32, color: rgba }
-    /// Requires block-highlights authority; none clears this instance's selection.
-    set-block-highlights: func(spec: option<block-highlight-spec>) -> result<_, string>;
+    /// The world primitives appended by one call; successful callbacks replace prior frame output.
     record primitives {
         decals: list<decal>,
         ribbons: list<ribbon>,
@@ -380,11 +792,13 @@ interface render {
     record pass-spec { name: string, order: s32, source: string, depth: bool }
     /// Validates a pass; passes run after the scene and before the HUD, by order then name.
     register-pass: func(spec: pass-spec) -> result<_, string>;
+    /// Removes this mod's named post pass after the callback succeeds.
     remove-pass: func(name: string) -> result<_, string>;
     /// Retained enable flag and up to 16 floats exposed to the shader as `param(i)`.
     update-pass: func(name: string, enabled: bool, params: list<f32>) -> result<_, string>;
     /// Appends to this callback's primitives; each successful callback replaces the drawn set.
     draw: func(primitives: primitives) -> result<_, string>;
+    /// Procedural line coverage; width and phase remain host-rendered.
     enum line-pattern { solid, dashed, dotted }
     /// Camera-facing line with width in physical pixels and an original procedural pattern.
     record line { points: list<vector3>, width: f32, color: rgba, pattern: line-pattern }
@@ -394,8 +808,9 @@ interface render {
 
 /// The mod's JSON-UI templates beside the vanilla container screens. Templates are the
 /// `ui/<name>.json` files `mod.toml` indexes, in the mod's own namespace; they resolve only
-/// against the vanilla catalog, as a client part's modal templates do. Every function but
-/// `layout` errs when the `screen` permission is denied.
+/// against the vanilla catalog, as a client part's modal templates do. Every
+/// mutation errs when the `screen` permission is denied.
+/// Grants: `screen` for mutations; layout, held-modifiers and elapsed-seconds need no grant.
 interface screen {
     use cinnabar:server-experience/ui@1.5.0.{value, gui-size};
 
@@ -456,8 +871,15 @@ interface screen {
 /// Vanilla inventory requests a player mod asks for; each is one the vanilla screens can make,
 /// and the server checks it. Every function errs without the `inventory` permission. Requests
 /// are sent after the callback returns, at most `MAX_INVENTORY_REQUESTS` per callback.
+/// Grants: `inventory`.
 interface inventory {
     use cinnabar:session/items@0.1.0.{item-key};
+
+    /// Exchanges player inventory cell `slot` (0..35, hotbar first) with the offhand.
+    /// Requires focused gameplay and inventory authority; occupied equipment must admit the
+    /// incoming item. The cursor is untouched. Committed after a successful callback and
+    /// resolved against the current inventory ledger; server validation still applies.
+    swap-offhand: func(slot: u8) -> result<_, string>;
 
     /// Takes `count` of creative item `key` into the first free inventory slot, else the
     /// cursor, as a click on the creative catalog does. Errs outside Creative or when the
@@ -469,48 +891,93 @@ interface inventory {
 }
 
 /// Opt-in local camera policy; requires the explicit camera grant.
+/// Grants: `camera`.
 interface camera {
-    /// Damage shake only; death rotation and ordinary view bob remain independent.
-    record hurt-camera-style { intensity: f32, old-tilt: bool }
-    /// Current-frame damage presentation, with finite intensity from zero through two.
-    /// Presentation remains available while a menu owns input. None, omission, unload,
-    /// and failed callbacks restore current player settings; this does not change look or movement.
-    set-hurt-camera-style: func(style: option<hurt-camera-style>) -> result<_, string>;
-    /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
-    /// Omission, no gameplay frame, or a failed callback restores server rotation.
-    set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
+    /// Presentation-only world-up yaw, in finite degrees -180..180; 0 is neutral.
+    /// Requires camera authority and focused gameplay; renew for every successful frame.
+    /// Eye position, player aim, interaction rays and movement are unchanged. Off-axis
+    /// views hide the first-person viewmodel. Omission, menus, focus loss, traps and
+    /// unload restore the aligned view. Body visibility follows the selected perspective.
+    set-view-yaw-offset: func(degrees: f32) -> result<_, string>;
+    /// The ordinary local view modes, without changing the player's saved choice.
+    enum perspective { first-person, third-person-back, third-person-front }
+    /// Requires camera authority. Current focused gameplay frame only; renew while needed.
+    /// None, omission, UI focus, unload and failed callbacks restore the player's own view.
+    set-perspective: func(view: option<perspective>) -> result<_, string>;
+    /// Degrees, each at most `MAX_VIEW_TILT_DEGREES`, added to the first-person view where the
+    /// native damage shake applies; suppress-hurt-shake removes that shake. Positive pitch turns
+    /// the view up. Positive roll turns it the way a native shake without direction does: the
+    /// view's right edge rises, so the world appears to turn clockwise. A native shake of angle
+    /// `a` from hurt direction `d` is approximately roll `a cos d` and pitch `-a sin d`.
+    /// Death rotation, view bob, look and movement are unchanged.
+    record view-tilt { roll: f32, pitch: f32, suppress-hurt-shake: bool }
+    /// Current frame only, including while a menu owns input. None, omission, unload and failed
+    /// callbacks restore the native view.
+    set-view-tilt: func(tilt: option<view-tilt>) -> result<_, string>;
     /// Current-frame FOV and look multipliers, independently bounded to 0.1..1 and 0.05..1.
     /// Renew only during focused, input-owned gameplay; 1/1 restores the player's view.
     /// Omission, UI focus, unload, and failed callbacks restore both scales without changing saved settings or perspective.
     set-view-scale: func(fov-scale: f32, look-scale: f32) -> result<_, string>;
+    /// The native damage shake of the local player's last presented view, at full strength:
+    /// before the player's damage-shake setting, any mod `view-tilt`, or suppression. Degrees,
+    /// using the `view-tilt` sign convention: a tilt of these angles that suppresses the native
+    /// shake presents the same view. None while no shake is active, in third person, or outside
+    /// gameplay. Like a tilt, it continues while a menu owns input.
+    record damage-shake { roll: f32, pitch: f32 }
+    /// Requires the camera grant.
+    read-damage-shake: func() -> result<option<damage-shake>, string>;
 }
 
 /// Opt-in item-use policy; requires the explicit item-use grant.
+/// Grants: `item_use`.
 interface item-use {
-    /// Renew each gameplay frame. Allows one immediate air use after each slot change and air use while attacking.
-    /// Repeat timing, item cooldowns and tick admission remain intact.
-    /// Omission, no gameplay frame, and failed callbacks restore vanilla timing.
-    set-delay-fix: func(enabled: bool) -> result<_, string>;
+    /// One item-use press edge for the next gameplay tick, only while the physical use control
+    /// is held. It skips only the client's use repeat delays: the rearm after an air use and the
+    /// hold-off after an attack. Block interaction, item cooldowns and tick admission, at most
+    /// one air use per tick from a hotbar slot, still apply. Requires a gameplay frame. An active
+    /// action filter receives it as a repeat.
+    pulse-use: func() -> result<_, string>;
 }
 
 /// Bounded local terrain reads. The queries a callback reads become its subscriptions, which the
 /// client samples before later frames, so a new query reads `pending` first. A deferred callback
 /// keeps its subscriptions. Unknown terrain is never reported as air.
+/// Grants: `terrain`.
 interface terrain {
+    /// Face-local U/V/normal offset; every component is -1..=1, not all zero.
+    record surface-condition { offset: tuple<s8, s8, s8>, present: bool }
+    /// Adds tiles when all neighbour conditions hold. Missing terrain keeps the face.
+    record surface-clause { conditions: list<surface-condition>, tiles: u16 }
+    /// Identifiers form one connection group. Border is 1..127 in 1/256 block units.
+    /// Tiles are a 3x3 bit mask along positive physical U, then V; centre is bit 4.
+    /// Each group connects independently; groups share the same coverage clauses.
+    /// Only non-occluding faces with alpha cutout/blend materials are eligible.
+    record surface-rule { groups: list<list<string>>, border: u8, clauses: list<surface-clause> }
+    /// Replaces this owner's retained full-cell model-face coverage. Empty restores defaults.
+    /// Requires render-material. Original textures, physics and destruction overlays remain.
+    /// First matching rule in mod load order wins. Successful callback publication only.
+    set-surface-rules: func(rules: list<surface-rule>) -> result<_, string>;
+
+    /// An integer block position in the current dimension.
     record position { x: s32, y: s32, z: s32 }
+    /// Selects which block shapes to request; an empty set requests neither family.
     flags geometry { collision, selection }
     /// Inclusive minimum and exclusive maximum; each extent is 1 to `MAX_TERRAIN_EXTENT` blocks.
     record region-query { min: position, max: position, geometry: geometry }
     /// Identifies one sample of one query; an equal stamp means identical contents.
     record stamp { session: u64, dimension: s32, registry: u64, revision: u64 }
+    /// Available block contact properties; missing physics remains absent on the block state.
     flags physics-flags { climbable, water, lava, cobweb, powder-snow, scaffolding, passable }
+    /// The resolved contact response associated with the block's physics.
     enum surface-response { none, slime, bed, honey, soul-sand, bubble-up, bubble-down }
+    /// Resolved movement and fluid properties, when the registry supplies them.
     record physics {
         friction: f64, horizontal-speed-factor: f64, vertical-speed-factor: f64,
         fluid-height: f64, %flags: physics-flags, surface: surface-response,
     }
     /// An index into the region's shapes; shape 0 is known-empty.
     variant resolved-shape { unavailable, known(u32) }
+    /// Distinguishes unrequested, shared and position-dependent geometry without guessing boxes.
     variant shape-binding {
         not-requested,
         fixed(resolved-shape),
@@ -546,18 +1013,33 @@ interface terrain {
         /// Sorted by slot.
         overrides: list<shape-override>,
     }
+    /// A deferred sample, an unchanged stamp or a complete changed region.
     variant read-result { pending, unchanged(stamp), changed(region) }
+    /// Admission or availability failures; shrink a query when its response exceeds a limit.
     enum read-error { denied, unavailable, invalid-query, out-of-range, budget-exhausted, limit-exceeded }
     /// Requires terrain authority and a gameplay frame; the query lies within
     /// `MAX_TERRAIN_DISTANCE` blocks of the player's feet on each axis. Pass the stamp last received
     /// for this query to skip unchanged data. Limits are `mod-api`'s `MAX_TERRAIN_*` constants.
     read-region: func(query: region-query, after: option<stamp>) -> result<read-result, read-error>;
+    /// Positions of loaded blocks whose identifier matches one of 1 to
+    /// `MAX_FOUND_BLOCK_IDENTIFIERS` namespaced names, nearest first, within `range` blocks of
+    /// the player's feet (1 to `MAX_TERRAIN_DISTANCE`) and at most `limit` results (1 to
+    /// `MAX_FOUND_BLOCKS`). Like a region query, a search becomes a subscription that the client
+    /// scans incrementally between frames, so a new search returns none and results fill in as
+    /// loaded terrain is scanned. Searches and region queries share `MAX_TERRAIN_QUERIES` and
+    /// the callback's terrain call budget. Requires terrain authority and a gameplay frame.
+    find-blocks: func(identifiers: list<string>, range: f32, limit: u32) -> result<list<position>, read-error>;
 }
 
 /// Mod-owned on-screen buttons drawn in the built-in touch control style while touch controls
-/// are shown. Players move them in the touch layout editor. Requires controls authority.
+/// are shown. Players move and resize them in the touch layout editor. Requires controls authority.
+/// Grants: `controls`.
 interface touch {
-    use hud.{anchor, point};
+    /// A GUI-pixel pair.
+    record point { x: f32, y: f32 }
+    /// The screen edge or centre a placement measures from.
+    enum anchor { top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right }
+    /// A retained mod-owned touch control with player-adjustable default placement.
     record button {
         /// 1–32 bytes of lowercase ASCII letters, digits, `_` and `-`. A player's saved
         /// placement is keyed by it, so prefix it with the mod's name; when two mods use one
@@ -583,13 +1065,17 @@ interface touch {
 
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
-    import cinnabar:world-draw/masks@0.1.0;
-    import cinnabar:world-draw/assets@0.1.0;
+    import cinnabar:world-draw/masks@0.2.0;
+    import cinnabar:world-draw/assets@0.2.0;
     import terrain;
     import player-state;
+    import inventory;
     import item-use;
     import camera;
     import hud;
+    import clock;
+    import facts;
+    import presentation;
     import input;
     import touch;
     import environment;
@@ -598,26 +1084,35 @@ world extension {
     import panel;
     import settings;
     import render;
-    import cinnabar:world-draw/drawing@0.1.0;
+    import budget;
+    import permissions;
+    import cinnabar:world-draw/drawing@0.2.0;
     /// Creates the initial retained UI state.
     export init: func();
-    /// Bounded frame callback used to measure the spike's crossing cost.
+    /// Runs a frame transaction with frozen input, session and clock observations.
+    /// The host may suspend it without refilling fuel; time only schedules work.
+    /// Output publishes after successful post-return. Late input actions are dropped.
+    /// Instances exporting decision handlers keep synchronous frame execution.
     export frame: func();
 }
 
 /// Policy-free decisions on resolved, source-backed button actions.
+/// Grants: `controls` to run the optional filter-actions export; this interface defines its shared types.
 interface action-filter {
     /// Closed in this version; additional actions require a new optional export.
     enum filtered-action { attack, item-use }
     /// Repeat is an authorized pulse on physically held attack, not another device press.
     enum transition-kind { press, release, repeat }
+    /// One resolved edge, with the physical held state immediately after it.
     record transition {
         action: filtered-action,
         kind: transition-kind,
         /// Resolved physical hold after this edge; another binding may still hold the action.
         held-after: bool,
     }
+    /// Independent Attack and Use holds, interpreted as physical or logical by the parent field.
     record held { attack: bool, item-use: bool }
+    /// One ordered action batch with continuity and real-time evidence for guest policy.
     record action-frame {
         /// Changes on owner replacement, callback failure or input-authority interruption.
         /// Clear guest policy state on a change. Suppressed gestures stay suppressed until
@@ -630,6 +1125,7 @@ interface action-filter {
         logical: held,
         transitions: list<transition>,
     }
+    /// One decision per transition plus explicit completion of retained releases.
     record action-verdict {
         /// Exactly one decision per transition, in order. False suppresses the edge.
         accepted: list<bool>,
@@ -647,7 +1143,6 @@ interface action-filter {
 world player-mod {
     include extension;
     import screen;
-    import inventory;
     import cinnabar:session/items@0.1.0;
     import cinnabar:session/recipes@0.1.0;
 
@@ -695,7 +1190,8 @@ world filtered-player-mod {
     use action-filter.{action-frame, action-verdict};
     /// Optional and explicitly exported by filtering modules; requires controls authority.
     /// The earliest active exporting module is the sole owner. Runs after ordinary frame
-    /// callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+    /// callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+    /// host-import calls. Called for transitions and every
     /// frame with a retained hold. No callback is needed for an idle physical hold.
     /// Suppressing a release retains its hold. Suppressing its following press joins that
     /// hold; accepting that press completes the outstanding release before a fresh press.
@@ -711,6 +1207,7 @@ world filtered-player-mod {
 /// Every session packet, relayed through one trusted mod. A batch is the session contract's batch
 /// body: each packet as a varuint32 byte length followed by the encoded packet, header included,
 /// in the session's protocol.
+/// Grants: `packets` to run packet-mod callbacks; `wasi` separately enables the restricted WASI runtime.
 interface packet-relay {
     /// The way a batch travels.
     enum direction { from-client, from-server }
@@ -753,4 +1250,39 @@ world packet-mod {
     export tick: func() -> result<outbound, string>;
     /// Ends the session.
     export stop: func();
+}
+
+/// The optional event handlers. Each receives a context of the event's facts and changeable
+/// values and returns it; the host applies only the changeable values. Handlers run in load
+/// order, each receiving the previous handler's changes. They cannot call host imports and
+/// each call has full callback fuel within a shared per-event allowance; handlers without a
+/// full allowance are skipped. Denial and absence pass the event through unchanged. Traps and
+/// invalid values quarantine the component and keep the context it received.
+/// A component exporting a handler world must implement every handler in it; include only
+/// the handlers a component uses.
+world sound-handler {
+    use sound-handling.{sound-context};
+    /// One call per new playback request, at most 256 per audio frame; excess and oversized
+    /// requests play unhandled. Approved starts waiting for decoding are not offered again.
+    /// Playing voices are not retroactively stopped; managed loops are offered again when they
+    /// next need a start.
+    export handle-sound: func(ctx: sound-context) -> sound-context;
+}
+
+/// See `sound-handler` for the shared handler contract.
+world teleport-handler {
+    use teleport-handling.{teleport-context};
+    /// One call per committed local-player MovePlayer with a finite rotation, before it applies.
+    /// The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+    /// incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
+    export handle-teleport: func(ctx: teleport-context) -> teleport-context;
+}
+
+/// A personal component with the action filter, every event handler, and ordinary frame and
+/// UI callbacks. A component needing fewer composes its own world from `player-mod` or
+/// `filtered-player-mod` and the handler worlds it implements.
+world handled-player-mod {
+    include filtered-player-mod;
+    include sound-handler;
+    include teleport-handler;
 }

@@ -3,6 +3,7 @@
 use super::{
     Backend, Command, Retirement, Selection,
     files::{import, installed, remove},
+    marketplace,
     paths::same_path,
     scan::{include_active, scan_cached},
     update,
@@ -27,8 +28,27 @@ pub fn run<B: Backend>(
     let mut reloads = Vec::<update::PendingReload>::new();
     let mut library = scan_cached::<B>(mods, registration, String::new(), &mut metadata);
     let _ = outgoing.send(library.clone());
+    let mut authority = std::sync::Arc::new(crate::marketplace::Guard::default());
     loop {
         let message = match incoming.recv_timeout(interval) {
+            Ok(Command::MarketplaceGuard(guard)) => {
+                authority = guard;
+                continue;
+            }
+            Ok(Command::Marketplace(download)) => {
+                library.busy = true;
+                library.message = "Verifying marketplace component compatibility…".into();
+                let _ = outgoing.send(library.clone());
+                requests += 1;
+                let request = format!("marketplace-install-{}-{requests}", std::process::id());
+                marketplace::install::<B>(
+                    *download,
+                    registration,
+                    request,
+                    crate::marketplace::now_ms(),
+                    &mut retire,
+                )
+            }
             Ok(Command::Message(message)) => message,
             Ok(Command::Update(download, finished)) => {
                 library.busy = true;
@@ -36,7 +56,13 @@ pub fn run<B: Backend>(
                     vec![UpdateProgress::stage(download.id, UpdatePhase::Installing)];
                 let _ = outgoing.send(library.clone());
                 match update::install::<B>(mods, &download) {
-                    Ok(installed) => {
+                    Ok(mut installed) => {
+                        if let Some(previous) =
+                            library.installed.iter().find(|item| item.id == download.id)
+                        {
+                            installed.review_new_requests::<B>(previous, registration);
+                        }
+                        let completed = installed.message.clone();
                         let message = format!(
                             "Installed update {}. Reloading enabled mods…",
                             download.version
@@ -55,16 +81,7 @@ pub fn run<B: Backend>(
                                 reloads.push(pending);
                                 message
                             }
-                            Ok(None) => format!(
-                                "Updated {} to {}.",
-                                library
-                                    .installed
-                                    .iter()
-                                    .find(|item| item.id == download.id)
-                                    .map(|item| item.file.as_str())
-                                    .unwrap_or("mod"),
-                                download.version
-                            ),
+                            Ok(None) => completed,
                             Err(error) => error,
                         }
                     }
@@ -79,15 +96,31 @@ pub fn run<B: Backend>(
                     library.busy = true;
                     let _ = outgoing.send(library.clone());
                 }
-                perform::<B>(
-                    action,
-                    mods,
-                    registration,
-                    &mut requests,
-                    &mut pick,
-                    &mut retire,
-                )
-                .unwrap_or_else(|error| error)
+                if let Action::Enable(id) = action {
+                    requests += 1;
+                    match installed(mods).into_iter().find(|(item, _)| item.id == id) {
+                        Some((_, path)) => marketplace::enable::<B>(
+                            &path,
+                            registration,
+                            format!("marketplace-enable-{requests}"),
+                            &authority,
+                            crate::marketplace::now_ms(),
+                            &mut retire,
+                        ),
+                        None => Err("That mod is no longer installed.".into()),
+                    }
+                    .unwrap_or_else(|error| error)
+                } else {
+                    perform::<B>(
+                        action,
+                        mods,
+                        registration,
+                        &mut requests,
+                        &mut pick,
+                        &mut retire,
+                    )
+                    .unwrap_or_else(|error| error)
+                }
             }
             Err(RecvTimeoutError::Timeout) => library.message.clone(),
             Err(RecvTimeoutError::Disconnected) => return,
@@ -158,6 +191,7 @@ pub fn perform<B: Backend>(
         | Action::MoveDown(id)
         | Action::Permission(id, _, _)
         | Action::AllowRequested(id)
+        | Action::GrantAll(id)
         | Action::RevokeAll(id) => {
             B::apply(action, registration, Some(&path(id)?), request()).map(|()| String::new())
         }

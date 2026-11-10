@@ -35,9 +35,15 @@ impl Retirement for removal::Permit {
 
 impl Backend for AppBackend {
     type Registered = selection::Registered;
-    type Declarations = (Option<mod_host::ModGrants>, ui::mod_metadata::ModMetadata);
+    type Declarations = (
+        Option<mod_host::ModGrants>,
+        ui::mod_metadata::ModMetadata,
+        bool,
+    );
     type Receipt = selection::Receipt;
     type Permit = removal::Permit;
+    const MOD_API_REVISIONS_JSON: &'static str = mod_api::COMPATIBILITY_REVISIONS_JSON;
+    const HOST_REVISION: &'static str = diagnostics::session::COMMIT;
     const MAX_SOURCE_BYTES: usize = mod_host::packet_mod::MAX_PACKET_MOD_BYTES;
 
     /// Uses the same schema and matched statuses as the registration watcher.
@@ -46,23 +52,40 @@ impl Backend for AppBackend {
     }
     /// Keeps declarations opaque to the service and uses the canonical parser.
     fn declarations(path: &Path) -> Self::Declarations {
-        match mod_host::declarations(path) {
-            Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
-            Err(_) => (None, Default::default()),
+        let bytes = mod_host::read_source(path).ok();
+        let packet = bytes.as_deref().is_some_and(mod_host::is_packet_source);
+        match bytes.as_deref().map(mod_host::declarations_snapshot) {
+            Some(Ok(declared)) => (declared.requested.ok().flatten(), declared.metadata, packet),
+            _ => (None, Default::default(), packet),
         }
     }
     /// Builds permissions from the grant declaration without maintaining another capability list.
+    ///
+    /// A marketplace card offers only its requested capabilities and shows the grants the host
+    /// leaves after capping them to that request.
     fn describe(
         item: &mut InstalledMod,
         declared: &Self::Declarations,
         current: Option<&Self::Registered>,
     ) {
-        let (requested, metadata) = declared;
-        let grants = current.map(|current| &current.entry.grants);
+        let (requested, metadata, packet) = declared;
+        let ceiling = item
+            .marketplace()
+            .then(|| requested.clone().unwrap_or_default());
+        let grants = current.map(|current| {
+            let mut grants = current.entry.grants.clone();
+            if let Some(ceiling) = &ceiling {
+                grants.cap(ceiling);
+            }
+            grants
+        });
+        let grants = grants.as_ref();
         item.metadata = metadata.clone();
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {
+                applicable: capability.applies_to(*packet)
+                    && ceiling.as_ref().is_none_or(capability.enabled),
                 name: capability.label.into(),
                 description: capability.description.trim().into(),
                 enabled: grants.is_some_and(capability.enabled),
@@ -81,6 +104,51 @@ impl Backend for AppBackend {
     /// Retains validation for every supported frame and packet package format.
     fn validate_source(bytes: &[u8]) -> Result<(), String> {
         mod_host::validate_source(bytes).map_err(|error| format!("{error:#}"))
+    }
+    /// Keeps signed permission/version comparisons in their native schema owner.
+    fn validate_marketplace(
+        bytes: &[u8],
+        manifest: &launcher_host::marketplace::Manifest,
+    ) -> Result<(), String> {
+        crate::modding::marketplace::declarations(bytes, manifest).map(drop)
+    }
+    /// Compares signed capabilities through the canonical grant cap operation.
+    fn marketplace_subset(
+        old: &launcher_host::marketplace::Manifest,
+        next: &launcher_host::marketplace::Manifest,
+    ) -> Result<bool, String> {
+        let old: mod_host::ModGrants =
+            serde_json::from_value(old.grants.clone()).map_err(|e| e.to_string())?;
+        let next: mod_host::ModGrants =
+            serde_json::from_value(next.grants.clone()).map_err(|e| e.to_string())?;
+        Ok(next.is_subset_of(&old))
+    }
+    /// Publishes a runtime stop request without changing the player's retained consent.
+    fn pause_marketplace(
+        directory: &Path,
+        previous: &Path,
+        request: String,
+    ) -> Result<Self::Receipt, String> {
+        selection::pause_marketplace(directory, previous, request)
+    }
+    /// Releases a failed migration's fence without overwriting a newer selection.
+    fn resume_marketplace(directory: &Path, receipt: &Self::Receipt) -> Result<(), String> {
+        selection::resume_marketplace(directory, receipt)
+    }
+    /// Preserves the player's enabled state, order and choices in one registration write.
+    fn replace_marketplace(
+        directory: &Path,
+        old: Option<&Self::Registered>,
+        next: &Path,
+        manifest: &launcher_host::marketplace::Manifest,
+        request: String,
+    ) -> Result<(), String> {
+        let ceiling: mod_host::ModGrants =
+            serde_json::from_value(manifest.grants.clone()).map_err(|e| e.to_string())?;
+        match old {
+            Some(old) => selection::replace_marketplace(directory, old, next, &ceiling, request),
+            None => Ok(()),
+        }
     }
     /// Parses exact download bytes and rejects invalid new permission declarations.
     fn update_metadata(
@@ -120,6 +188,7 @@ impl Backend for AppBackend {
                 selection::permission(directory, component, capability, enabled, request)
             }
             Action::AllowRequested(_) => selection::allow_requested(directory, component, request),
+            Action::GrantAll(_) => selection::grant_all(directory, component, request),
             Action::RevokeAll(_) => selection::revoke_all(directory, component, request),
             _ => Err("Unsupported mod selection action.".into()),
         }

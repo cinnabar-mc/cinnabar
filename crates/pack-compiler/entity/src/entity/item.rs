@@ -18,11 +18,11 @@ mod armour;
 mod spawn_eggs;
 
 pub(super) const BLOCK_ITEM_ROUTES: &[u8] =
-    include_bytes!("../../../../assets/data/block-item-routes-v2193.json");
+    include_bytes!("../../../../assets/data/block-item-routes-v2225.json");
 
 const BLOCK_REGISTRY: &[u8] = assets::pinned_block_registry_bytes();
 const ROUTE_SCHEMA: u32 = 1;
-const ROUTE_PROTOCOL: u32 = 2193;
+const ROUTE_PROTOCOL: u32 = 2225;
 const DRAGONFLY_VERSION: &str = "v0.11.5";
 const DRAGONFLY_MODULE_SUM: &str = "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=";
 
@@ -104,7 +104,7 @@ pub(super) fn compile(
         .get(item_bindings::SOURCE_PATH)
         .ok_or_else(|| invalid("reviewed default sprite binding source is absent"))?;
     let route_source = *source_indices
-        .get("registry/block-item-routes-v2193.json")
+        .get("registry/block-item-routes-v2225.json")
         .ok_or_else(|| invalid("reviewed block item authority source is absent"))?;
     let mut definitions = BTreeMap::<ItemVisualKey, (u32, ItemVisualDefinitionRoute)>::new();
     definitions.insert(
@@ -236,11 +236,12 @@ pub(super) fn compile(
             if block_wins(&key) {
                 continue;
             }
-            // Exact atlas keys stay authoritative; a legacy icon replaces a block route.
+            // Explicit aux routes replace automatic atlas-array indices. Exact default atlas
+            // keys stay authoritative; a legacy icon also replaces a block route.
             let exact_sprite = definitions.get(&key).is_some_and(|(_, route)| {
                 !matches!(route, ItemVisualDefinitionRoute::BlockItem { .. })
             });
-            if exact_sprite {
+            if exact_sprite && legacy.metadata == 0 {
                 continue;
             }
             let Some(definition) = texture_data.get(legacy.atlas_key) else {
@@ -344,7 +345,7 @@ struct ReviewedRoutes {
 fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
     let table: BlockItemRouteTable =
         serde_json::from_slice(BLOCK_ITEM_ROUTES).map_err(|source| AssetError::Json {
-            path: "crates/assets/data/block-item-routes-v2193.json".into(),
+            path: "crates/assets/data/block-item-routes-v2225.json".into(),
             source,
         })?;
     let expected_hash = format!("{:x}", Sha256::digest(BLOCK_REGISTRY));

@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{PacketId, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{PacketId, SetTime};
+use bedrock_protocol_1_26_60::wire;
 
 use super::*;
 
@@ -7,7 +7,7 @@ use super::*;
 pub(crate) mod unix {
     use std::path::PathBuf;
 
-    use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
+    use bedrock_protocol_1_26_60::packets::{self, ScriptMessage};
     use futures::task::noop_waker;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
@@ -526,10 +526,20 @@ pub(crate) mod unix {
         let Pair {
             transport, peer, ..
         } = &mut tapped_pair("tap-batch", &[], Some(tap.clone())).await;
-        // The entry declares five bytes but carries one.
-        write_frame(peer, &[bridge::contract::KIND_BATCH, 5, 1]).await;
-        assert!(transport.recv().await.is_err());
-        assert_eq!(tap.events(), [TapEvent::RejectBatch(2)]);
+        let mut frame = batch_frame(&vec![
+            Packet::new(SetTime {
+                time: wire::ZigZag32(0),
+            });
+            4_096
+        ])
+        .unwrap()
+        .to_vec();
+        // The last entry declares five bytes but carries one.
+        frame.extend_from_slice(&[5, 1]);
+        // The frame exceeds small default socket buffers, so read while it is written.
+        let ((), received) = tokio::join!(write_frame(peer, &frame), transport.recv());
+        assert!(received.is_err());
+        assert_eq!(tap.events(), [TapEvent::RejectBatch(frame.len() - 1)]);
     }
 }
 
@@ -628,7 +638,7 @@ fn startup_batches_stay_within_the_packet_and_byte_bounds() {
             else {
                 unreachable!("a Batch frame decodes as a batch")
             };
-            assert!(inner.len() <= MAX_RAW_BATCH_PACKETS);
+            assert!(inner.len() <= STARTUP_BATCH_PACKETS);
             decoded.extend(inner);
         }
         assert_eq!(decoded, packets);
@@ -644,9 +654,53 @@ fn startup_packets_keep_their_headers() {
     let batches = startup_batches(&[bytes]);
     let raw = decode_batch_body(batches[0].clone(), MAX_SESSION_BATCH_BYTES)
         .unwrap()
-        .remove(0);
+        .next()
+        .unwrap();
     assert_eq!(raw.id, PacketId::SetTime);
     assert_eq!(raw.decode().unwrap(), packet);
+}
+
+/// Many tiny entries cannot expand unbounded metadata before the first packet is delivered.
+#[tokio::test]
+async fn large_batches_expand_in_bounded_windows_without_losing_order() {
+    const COUNT: usize = 65_536;
+    let (reader, frames, _writer) = bridge::tasks::prepare_connection(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        bridge::MAX_FRAME_LEN,
+    );
+    let tap = Arc::new(RecordingTap::default());
+    let mut transport = SessionTransport::new(reader, frames, &[]).with_tap(Some(tap.clone()));
+    let mut body = Vec::new();
+    for time in 0..COUNT {
+        crate::codec::encode_entry(
+            &Packet::new(SetTime {
+                time: wire::ZigZag32(time as i32),
+            }),
+            &mut body,
+        )
+        .unwrap();
+    }
+    let (result, allocations) =
+        test_alloc::measure(|| transport.receive_server_batch(body.into(), 7));
+    result.unwrap();
+    assert!(allocations.bytes < 256 * 1024, "{allocations:?}");
+    for index in 0..COUNT {
+        let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("all batch entries precede the next frame");
+        };
+        assert_eq!(raw.trace_position, (7, index as u32));
+        assert_eq!(raw.record, Some(PacketRecordId(index as u64)));
+        assert!(matches!(
+            *raw.decode().unwrap().data,
+            bedrock_protocol_1_26_60::packets::Packet::SetTime(time) if time.time.0 == index as i32
+        ));
+    }
+    assert_eq!(tap.events().len(), COUNT);
+    assert!(matches!(
+        transport.recv().await,
+        Err(SessionError(SessionFailure::ConnectionClosed))
+    ));
 }
 
 /// A packet the codec refuses is left out; the rest of the batch still goes, in order.
@@ -657,14 +711,18 @@ fn an_unencodable_packet_does_not_lose_its_batch() {
             time: wire::ZigZag32(time),
         })
     };
-    // The manifest bounds a LevelChunk at 64 sub-chunks, so the encoder refuses 65.
-    let refused = Packet::new(bedrock_protocol_1_26_51::packets::LevelChunk {
-        sub_chunks_count: wire::VarUInt(65),
-        ..Default::default()
-    });
+    let refused = unencodable_packet();
     assert_eq!(
         batch_frame(&[time(1), refused.clone(), time(2)]),
         batch_frame(&[time(1), time(2)])
     );
     assert_eq!(batch_frame(&[refused]), None);
+}
+
+/// Supplies a packet beyond the generated encoder's sub-chunk limit for batch-failure tests.
+pub(crate) fn unencodable_packet() -> Packet {
+    Packet::new(bedrock_protocol_1_26_60::packets::LevelChunk {
+        sub_chunks_count: wire::VarUInt(65),
+        ..Default::default()
+    })
 }

@@ -319,7 +319,11 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
             },
             1,
         );
-        scene.set_block_highlights(&[[2, 3, 4]], [1.0, 0.1, 0.5, 1.0]);
+        scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
+            position: [2, 3, 4],
+            colour: [1.0, 0.1, 0.5, 1.0],
+            outline: None,
+        }]);
         app.insert_resource(scene);
         app.world_mut().run_system_once(primitives::queue).unwrap();
         let pipelines: Vec<_> = fixture::items(&app, view)
@@ -343,7 +347,7 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
         fixture::clear(&mut app, view);
         app.world_mut()
             .resource_mut::<ModRenderScene>()
-            .set_block_highlights(&[], [1.0; 4]);
+            .set_drawn_block_highlights(&[]);
         app.world_mut().run_system_once(primitives::queue).unwrap();
         assert_eq!(
             fixture::items(&app, view).len(),

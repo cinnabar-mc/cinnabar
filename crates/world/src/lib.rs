@@ -5,7 +5,7 @@
 
 mod biome;
 mod block_entity;
-mod block_highlights;
+mod block_search;
 mod chunk;
 mod chunk_grid;
 mod collision_revision;
@@ -29,9 +29,9 @@ pub use block_entity::{
     DecodedSubChunk, MAX_BLOCK_ENTITIES_PER_CHUNK, MAX_BLOCK_ENTITIES_PER_SUB_CHUNK,
     MAX_BLOCK_ENTITY_BYTES_PER_CHUNK, MAX_BLOCK_ENTITY_NBT_BYTES, MAX_BLOCK_ENTITY_TAIL_BYTES,
     MAX_NBT_COLLECTION_LENGTH, MAX_NBT_DEPTH, MAX_NBT_STRING_BYTES, MAX_NBT_TAGS, OverlayItem,
-    OverlayLook, ResolvedCellOverlays, RootByteCandidate, ShapeActor,
+    OverlayLook, PistonMotion, PistonStep, ResolvedCellOverlays, RootByteCandidate, ShapeActor,
 };
-pub use block_highlights::BlockHighlightScan;
+pub use block_search::LoadedBlockScan;
 pub use chunk::{Chunk, ChunkKey, SubChunkKey};
 pub use chunk_grid::{CHUNK_VIEW_SLACK, chunk_in_view, chunk_view_distance};
 pub use dimension::dimension_loading_fallback_y;

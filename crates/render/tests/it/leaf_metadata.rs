@@ -37,10 +37,16 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
         rotations_seen[rotation as usize] = true;
         for flags in [
             native | isotropic | exponent,
-            isotropic,
+            isotropic | exponent,
             native | exponent,
-            0,
+            assets::redstone_wire::material_flags(if x % 2 == 0 {
+                0
+            } else {
+                assets::redstone_wire::MAX_SIGNAL
+            })
+            .unwrap(),
             native | isotropic | 1,
+            isotropic | exponent | assets::MATERIAL_FLAG_UV_INVERT,
         ] {
             let ao_face = [0.2_f32, 0.4, 0.6, 0.9][cases.len() % 4];
             let expected_rotation = if flags & isotropic != 0 && flags & 3 == 0 {
@@ -48,7 +54,9 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
             } else {
                 flags & 3
             };
-            let expected_shade = if flags & native != 0 && flags & exponent != 0 {
+            let expected_shade = if flags & assets::stem::MATERIAL_FLAG == 0
+                && flags & assets::MATERIAL_LEAF_AO_EXPONENT_MASK != 0
+            {
                 ao_face.powf(0.8)
             } else {
                 ao_face
@@ -64,9 +72,11 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
         words.extend([ao_face, 0.0, 0.0, 0.0]);
     }
     let buffer = gpu.buffer(&words, wgpu::BufferUsages::STORAGE);
-    let source = format!(
-        "{}\n{FIXTURE}",
-        shader_source::standalone(include_str!("../../src/material.wesl"), &[])
+    let source = shader_source::standalone(
+        &format!(
+            "import render::material::{{material_uv_flags, material_ao_shade}};\nimport render::chunk::greedy_uv;\n{FIXTURE}"
+        ),
+        &[],
     );
     let pixels = gpu.render(
         &source,
@@ -82,12 +92,23 @@ fn gpu_native_rotation_and_ao_exponent_follow_signed_world_positions_and_pack_fl
             write_depth: true,
         }],
     );
-    for (index, &(_, _, _, rotation, shade)) in cases.iter().enumerate() {
-        let offset = ((index / 8 * 32 + 16) * 256 + index % 8 * 32 + 16) * 4;
+    for (index, &(_, flags, _, rotation, shade)) in cases.iter().enumerate() {
+        let offset = ((index / 16 * 16 + 8) * 256 + index % 16 * 16 + 8) * 4;
         assert_eq!(pixels[offset], (rotation * 85) as u8, "case {index} UV");
         assert!(
             pixels[offset + 1].abs_diff((shade * 255.0).round() as u8) <= 1,
             "case {index} AO"
+        );
+        let turns = if flags & assets::MATERIAL_FLAG_UV_INVERT != 0 {
+            (rotation + 2) & 3
+        } else {
+            rotation
+        };
+        let expected_uv = [[0_u8, 255], [255, 255], [255, 0], [0, 0]][turns as usize];
+        assert_eq!(
+            &pixels[offset + 2..offset + 4],
+            &expected_uv,
+            "case {index} UV coordinates"
         );
     }
 }
@@ -100,10 +121,11 @@ struct LeafMetadataCase { position_flags: vec4<u32>, shade: vec4<f32>, }
     return vec4(p[index], 0.5, 1.0);
 }
 @fragment fn metadata_fragment(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let index = min(u32(position.y)/32u * 8u + u32(position.x)/32u, arrayLength(&cases)-1u);
+    let index = min(u32(position.y)/16u * 16u + u32(position.x)/16u, arrayLength(&cases)-1u);
     let witness = cases[index];
     let flags = witness.position_flags.w;
-    let rotation = material_uv_flags(flags, bitcast<vec3<i32>>(witness.position_flags.xyz)) & 3u;
-    return vec4(f32(rotation)/3.0, material_leaf_shade(witness.shade.x, flags), 0.0, 1.0);
+    let uv_flags = material_uv_flags(flags, bitcast<vec3<i32>>(witness.position_flags.xyz));
+    let uv = greedy_uv(2u, vec2(0.0), 1.0, 1.0, uv_flags);
+    return vec4(f32(uv_flags & 3u)/3.0, material_ao_shade(witness.shade.x, flags), uv);
 }
 "#;

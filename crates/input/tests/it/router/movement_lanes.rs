@@ -152,6 +152,43 @@ fn pending_tap_is_quarantined_when_authority_changes_before_finalize() {
     let next = router.finalize().unwrap();
     assert_eq!(next.phases[Action::Jump as usize], Default::default());
 }
+/// The D-pad moves the player at full strength, and a diagonal keeps a unit vector.
+#[test]
+fn dpad_directions_route_as_touch_movement() {
+    for (delta, expected) in [
+        ([0.0, 1.0], [0.0, 1.0]),
+        ([-1.0, 0.0], [-1.0, 0.0]),
+        (
+            [1.0, 1.0],
+            [std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2],
+        ),
+    ] {
+        let mut router = SemanticInputRouter::default();
+        router
+            .route(DeviceFrame {
+                touches: vec![semantic_input::TouchContact {
+                    contact_id: 1,
+                    activity_sequence: 1,
+                    position: [0.1, 0.8],
+                    delta,
+                    hit_id: Some(semantic_input::touch::DPAD),
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let input = router.finalize().unwrap();
+        assert!(
+            input
+                .raw_movement
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (actual - expected).abs() < 0.000_1),
+            "{delta:?}: {:?}",
+            input.raw_movement
+        );
+    }
+}
+
 /// Joystick and processed movement retain their separately rounded float products.
 #[test]
 fn touch_movement_normalization_keeps_float_product_rounding() {

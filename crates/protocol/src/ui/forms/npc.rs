@@ -6,12 +6,12 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{NpcDialogueActionType, RequestType};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{NpcDialogueActionType, RequestType};
+use bedrock_protocol_1_26_60::packets::{
     ModalFormRequest, NpcDialogue, NpcRequest, ServerSettingsRequest, ServerSettingsResponse,
 };
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 use serde_json::Value;
 
 use super::{FormKind, FormRequestEvent, ServerFormModel, UnsupportedForm, normalize_form};
@@ -141,9 +141,9 @@ pub fn npc_request_packet(
     kind: NpcRequestKind,
 ) -> crate::Packet {
     let (request_type, action_index) = match kind {
-        NpcRequestKind::ExecuteAction(index) => (RequestType::Executeaction, index),
-        NpcRequestKind::ExecuteOpeningCommands => (RequestType::Executeopeningcommands, 0),
-        NpcRequestKind::ExecuteClosingCommands => (RequestType::Executeclosingcommands, 0),
+        NpcRequestKind::ExecuteAction(index) => (RequestType::ExecuteAction, index),
+        NpcRequestKind::ExecuteOpeningCommands => (RequestType::ExecuteOpeningCommands, 0),
+        NpcRequestKind::ExecuteClosingCommands => (RequestType::ExecuteClosingCommands, 0),
     };
     crate::Packet::new(NpcRequest {
         npc_runtime_id: ActorRuntimeID(npc_runtime_id),

@@ -1,8 +1,9 @@
 //! Shared JSON-UI loading and scalar bindings for extension-authored surfaces.
 
+use crate::hud_surface::scalar;
 use json_ui::{Catalog, Context, DataSource, Scalar};
 use serde_json::json;
-use ui::mod_panel::{Panel, Surface, SurfaceValue};
+use ui::mod_panel::{CollectionItem, Panel, Surface};
 
 /// Loads the validated document in a private catalog and checks its root resolution.
 pub(in super::super) fn catalog(surface: &Surface) -> Result<Catalog, String> {
@@ -36,6 +37,12 @@ pub(in super::super) fn catalog(surface: &Surface) -> Result<Catalog, String> {
 pub(in super::super) fn bind(surface: &Surface, data: &mut DataSource) {
     for (name, value) in &surface.bindings {
         data.set_global(name, scalar(value));
+        if value.projection().is_some() {
+            data.set_global(
+                ui::mod_panel::projected_visible_name(name),
+                Scalar::Bool(false),
+            );
+        }
     }
 }
 
@@ -46,23 +53,14 @@ pub(in super::super) fn viewport(data: &mut DataSource, size: [f64; 2]) {
 }
 
 /// Reuses native control formatting in immutable tile metadata, only when panel values change.
-pub(super) fn collections(panel: &Panel, data: &mut DataSource) {
-    let Some(surface) = &panel.surface else {
-        return;
-    };
-    for (name, collection) in &surface.collections {
+pub(in super::super) fn collections(panel: &Panel, data: &mut DataSource) {
+    for (name, collection) in &panel.surface.collections {
         let items = collection
             .order
             .iter()
             .map(|index| {
                 let item = &collection.definition.items[*index];
-                let mut entry = json_ui::CollectionItem::default();
-                entry
-                    .values
-                    .insert("#item_exists".into(), Scalar::Bool(true));
-                for (key, value) in &item.values {
-                    entry.values.insert(key.clone(), scalar(value));
-                }
+                let mut entry = collection_item(item);
                 for (role, control) in &item.controls {
                     for field in [
                         "value",
@@ -76,18 +74,6 @@ pub(super) fn collections(panel: &Panel, data: &mut DataSource) {
                             format!("#item_{role}_{field}"),
                             format!("#row_{control}_{field}"),
                         );
-                    }
-                }
-                if let Some(art) = &item.art {
-                    for (key, value) in [
-                        ("paths", json!(art.paths)),
-                        ("view_box", json!(art.view_box)),
-                        ("stroke_width", json!(art.stroke_width)),
-                        ("closed", json!(art.closed)),
-                    ] {
-                        entry
-                            .values
-                            .insert(format!("#item_art_{key}"), Scalar::Json(value));
                     }
                 }
                 entry
@@ -108,14 +94,28 @@ pub(super) fn collections(panel: &Panel, data: &mut DataSource) {
     }
 }
 
-/// Converts an admitted scalar through the same representation in globals and tile fields.
-fn scalar(value: &SurfaceValue) -> Scalar {
-    match value {
-        SurfaceValue::Bool(value) => Scalar::Bool(*value),
-        SurfaceValue::Number(value) => Scalar::Num(*value),
-        SurfaceValue::Text(value) => Scalar::Text(value.clone()),
-        SurfaceValue::Vector(value) => Scalar::Json(json!(value)),
+/// Converts shared tile values and artwork into the bindings both surface paths render.
+pub(crate) fn collection_item(item: &CollectionItem) -> json_ui::CollectionItem {
+    let mut entry = json_ui::CollectionItem::default();
+    entry
+        .values
+        .insert("#item_exists".into(), Scalar::Bool(true));
+    for (key, value) in &item.values {
+        entry.values.insert(key.clone(), scalar(value));
     }
+    if let Some(art) = &item.art {
+        for (key, value) in [
+            ("paths", json!(art.paths)),
+            ("view_box", json!(art.view_box)),
+            ("stroke_width", json!(art.stroke_width)),
+            ("closed", json!(art.closed)),
+        ] {
+            entry
+                .values
+                .insert(format!("#item_art_{key}"), Scalar::Json(value));
+        }
+    }
+    entry
 }
 
 /// Captures item actions against the exact catalogue order used to paint these hit regions.

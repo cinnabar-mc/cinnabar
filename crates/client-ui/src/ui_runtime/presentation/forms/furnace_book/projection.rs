@@ -53,10 +53,10 @@ pub fn projection(player: &player_state::PlayerState, runtime: &UiRuntime) -> Ar
         Arc::ptr_eq(&previous.supplied, supplied.shared_indices())
             && previous.tab == tab
             && previous.query == state.search
-            && same(&previous.components, &runtime.session_items)
+            && same(&previous.components, &runtime.session.session_items)
             && same(&previous.base, &runtime.lang_catalog)
             && same(&previous.active, &runtime.active_lang)
-            && same(&previous.server, &runtime.server_lang)
+            && same(&previous.server, &runtime.session.server_lang)
     });
     if !reusable {
         let query = state.search.to_lowercase();
@@ -91,10 +91,10 @@ pub fn projection(player: &player_state::PlayerState, runtime: &UiRuntime) -> Ar
             supplied: Arc::clone(supplied.shared_indices()),
             tab,
             query: state.search.clone(),
-            components: runtime.session_items.clone(),
+            components: runtime.session.session_items.clone(),
             base: runtime.lang_catalog.clone(),
             active: runtime.active_lang.clone(),
-            server: runtime.server_lang.clone(),
+            server: runtime.session.server_lang.clone(),
         });
     }
     Arc::clone(&cache.positions)
