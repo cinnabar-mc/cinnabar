@@ -192,7 +192,6 @@ fn chat_settings_retains_the_editor_and_completion_when_returning() {
                 1,
             ));
             menu.activate(MenuAction::AddBack);
-            menu.activate(MenuAction::PauseResume);
         }
         app.update();
         assert!(!app.world().resource::<MenuRuntime>().is_visible());

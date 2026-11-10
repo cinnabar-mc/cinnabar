@@ -152,13 +152,7 @@ pub(crate) fn drive_chat_ui_actions(
             Some(ChatHit::SettingsOpen) => {
                 if let Some(menu) = menu.as_deref_mut() {
                     // The menu covers chat, retaining its draft and completions for the return.
-                    menu.open_pause();
-                    menu.activate(launcher::menu::MenuAction::PauseSettings);
-                    menu.activate(launcher::menu::MenuAction::SettingsSection(
-                        launcher::menu::settings_sections::SettingSection::Chat
-                            .definition()
-                            .index,
-                    ));
+                    menu.open_chat_settings();
                     if let Some(focus) = focus.as_deref_mut() {
                         focus.authorize_screen_return();
                     }

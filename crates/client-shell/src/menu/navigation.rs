@@ -45,6 +45,21 @@ impl MenuRuntime {
         self.visible = true;
     }
 
+    /// Opens Chat settings over chat so Back returns directly to the retained editor.
+    pub fn open_chat_settings(&mut self) {
+        if self.visible || self.is_connecting() {
+            return;
+        }
+        self.navigation_focus = NavigationFocus::default();
+        self.history.reset(MenuScreen::Settings);
+        self.show_top();
+        self.activate(MenuAction::SettingsSection(
+            launcher::menu::settings_sections::SettingSection::Chat
+                .definition()
+                .index,
+        ));
+    }
+
     /// The session is live: the menu gives way to the world.
     pub fn show_world(&mut self) {
         self.apply_global_resources_on_leave();
@@ -110,12 +125,12 @@ impl MenuRuntime {
     }
 
     /// Whether a visible menu opened over the session's world (its history
-    /// starts at pause or death) rather than the launcher; true while hidden.
+    /// starts at pause, death or chat settings) rather than the launcher; true while hidden.
     pub fn over_world(&self) -> bool {
         !self.visible
             || matches!(
                 self.history.screens().first(),
-                Some(MenuScreen::Pause | MenuScreen::Death)
+                Some(MenuScreen::Pause | MenuScreen::Death | MenuScreen::Settings)
             )
     }
 
@@ -315,6 +330,11 @@ impl MenuRuntime {
                 self.show_top();
             }
             MenuScreen::Pause => self.set_visible(false),
+            MenuScreen::Settings => {
+                self.history.pop();
+                self.show_top();
+                self.set_visible(false);
+            }
             _ => {}
         }
     }
