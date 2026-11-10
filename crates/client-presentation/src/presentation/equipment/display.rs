@@ -1,11 +1,11 @@
 //! Composition of an item's display placement with the hand bone's pose.
 
-use bevy::math::{Mat4, Quat, Vec3};
+use bevy::math::{Mat4, Vec3};
 use render_model::RenderBoneTransform;
 use render_model::equipment::ItemDisplay;
 use render_model::equipment::sprite_item_transform;
 
-pub(super) const LAYER_OFF_HAND: u8 = 2;
+pub(crate) const LAYER_OFF_HAND: u8 = 2;
 pub(super) const LAYER_HELMET: u8 = 3;
 pub(super) const LAYER_CHESTPLATE: u8 = 4;
 pub(super) const LAYER_LEGGINGS: u8 = 5;
@@ -121,6 +121,23 @@ pub(super) fn first_person_display_for_profile(
     })
 }
 
+/// Camera-space placement of a first-person item with render offsets, whose `table` follows the
+/// swing and equip lead instead of the retail anchor and hand scale. An eat or drink use replaces
+/// the swing with its own raise.
+pub(super) fn first_person_offset_display(
+    table: ItemDisplay,
+    hand: FirstPersonHand,
+) -> ItemDisplay {
+    let lead = match hand.consume {
+        Some((elapsed, duration)) if duration > 0.0 => {
+            eating_lead(elapsed, duration, hand.aspect)
+                * render_model::equipment::offset_first_person_lead(0.0, hand.equip)
+        }
+        _ => render_model::equipment::offset_first_person_lead(hand.swing, hand.equip),
+    };
+    table.under(lead)
+}
+
 /// The eat or drink raise and bob `elapsed` ticks into a `duration`-tick use: the food bobs from
 /// the first tick and wider viewports pull it back toward the centre.
 fn eating_lead(elapsed: f32, duration: f32, aspect: f32) -> Mat4 {
@@ -151,24 +168,64 @@ pub fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
             display.translation.z,
             display.scale,
         ],
-        axis_scale: render_model::UNIT_AXIS_SCALE,
+        axis_scale: [
+            display.axis_scale.x,
+            display.axis_scale.y,
+            display.axis_scale.z,
+            1.0,
+        ],
     };
     bone.is_finite().then_some(bone)
 }
 
-/// A block worn on the head, facing along the head after vanilla's half-turn.
-/// The existing cube size and vertical placement remain provisional.
-pub(super) fn head_block_display() -> ItemDisplay {
-    ItemDisplay {
-        rotation: Quat::from_rotation_y(std::f32::consts::PI),
-        translation: Vec3::new(0.0, 0.25, 0.0),
-        scale: 0.5625,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use {super::*, render_model::equipment::attach_to_bone};
+    use {
+        super::*,
+        bevy::math::Quat,
+        render_model::equipment::{attach_to_bone, head_block_display},
+    };
+
+    const IDENTITY_TABLE: ItemDisplay = ItemDisplay {
+        rotation: Quat::IDENTITY,
+        translation: Vec3::ZERO,
+        scale: 1.0,
+        axis_scale: Vec3::ONE,
+    };
+
+    /// Regression: mid-swing, an offset item follows its own arc rather than the 1.12 or modern
+    /// retail hand stack, which pulled a server pick across the view centre.
+    #[test]
+    fn offset_items_keep_their_swing_arc_for_every_combat_profile() {
+        let hand = FirstPersonHand {
+            swing: 0.25,
+            equip: 1.0,
+            consume: None,
+            aspect: 1.0,
+        };
+        let display = first_person_offset_display(IDENTITY_TABLE, hand);
+        let peak = (0.5 * std::f32::consts::PI).sin() * -0.8;
+        assert!((display.translation.x - peak).abs() < 1e-5);
+        assert!(display.translation.y.abs() < 1e-5);
+    }
+
+    #[test]
+    fn eating_an_offset_item_replaces_the_swing_with_the_raise() {
+        let (elapsed, duration, aspect) = (10.0, 32.0, 1.0);
+        let hand = FirstPersonHand {
+            swing: 0.25,
+            equip: 1.0,
+            consume: Some((elapsed, duration)),
+            aspect,
+        };
+        let display = first_person_offset_display(IDENTITY_TABLE, hand);
+        let expected = eating_lead(elapsed, duration, aspect);
+        assert!(
+            display
+                .translation
+                .abs_diff_eq(expected.w_axis.truncate(), 1e-5)
+        );
+    }
 
     #[test]
     fn block_quarter_turn_keeps_the_anchor_and_rotates_the_authored_faces() {

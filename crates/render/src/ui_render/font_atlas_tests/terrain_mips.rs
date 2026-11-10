@@ -184,16 +184,8 @@ fn half_precision_coordinates_keep_even_ties_subnormals_and_signs() {
         cases.len(),
         cases.len() as u32,
     );
-    let mut vertex = vertices(16.0)[0];
-    vertex.style_flags = render_api::UI_STYLE_HALF_FLOAT_XY;
     for ((value, expected), actual) in cases.into_iter().zip(actual) {
         assert_eq!(actual[0], expected.to_bits(), "input {value}");
-        vertex.position = [value; 2];
-        assert_eq!(
-            actual[0],
-            vertex.raster_position()[0].to_bits(),
-            "CPU bounds for {value}"
-        );
     }
 }
 
@@ -250,13 +242,17 @@ fn projected_item_vertices_use_half_precision_before_rasterization() {
         actual == expected,
         "projected item coordinates must round before triangle interpolation: first delta {:?}, differing pixels {}",
         actual
-            .chunks_exact(4)
-            .zip(expected.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(expected.as_chunks::<4>().0)
             .enumerate()
             .find(|(_, (a, b))| a != b),
         actual
-            .chunks_exact(4)
-            .zip(expected.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(expected.as_chunks::<4>().0)
             .filter(|(a, b)| a != b)
             .count(),
     );

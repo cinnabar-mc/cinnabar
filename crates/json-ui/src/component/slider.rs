@@ -1,4 +1,4 @@
-//! The slider component as the 1.26.50 factory reads it, and its value
+//! The slider component as the 1.26.60 factory reads it, and its value
 //! arithmetic from pointer position and step size.
 
 use std::collections::BTreeMap;

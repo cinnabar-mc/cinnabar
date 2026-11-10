@@ -25,6 +25,7 @@ tracing.workspace = true
 [dev-dependencies]
 bytes.workspace = true
 protocol = { path = "../protocol", features = ["test-support"] }
+test-alloc = { path = "../test-alloc" }
 
 [lints]
 workspace = true

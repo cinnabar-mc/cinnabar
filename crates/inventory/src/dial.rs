@@ -8,6 +8,41 @@ pub const COMPASS_FRAMES: u32 = 32;
 /// Frames in the native clock strip; the calculator wraps its frame index at this count.
 pub const CLOCK_FRAMES: u32 = 64;
 
+/// Frames in the native strip of a dial of `kind`.
+#[must_use]
+pub const fn strip_frames(kind: assets::icon::dial::DialKind) -> u32 {
+    match kind {
+        assets::icon::dial::DialKind::Compass | assets::icon::dial::DialKind::RecoveryCompass => {
+            COMPASS_FRAMES
+        }
+        assets::icon::dial::DialKind::Clock => CLOCK_FRAMES,
+    }
+}
+
+/// The side of each square frame when a `width` by `height` texture is a vertical strip holding
+/// a dial's native frames, or `None` for any other texture. `exact` demands precisely the native
+/// frame count, as for a strip under a plain item name; an atlas may carry more frames, of which
+/// only the native count is shown.
+#[must_use]
+pub fn strip_frame_side(
+    kind: assets::icon::dial::DialKind,
+    width: u32,
+    height: u32,
+    exact: bool,
+) -> Option<u32> {
+    let frames = strip_frames(kind);
+    if width == 0 || !height.is_multiple_of(width) {
+        return None;
+    }
+    let held = height / width;
+    (if exact {
+        held == frames
+    } else {
+        held >= frames
+    })
+    .then_some(width)
+}
+
 /// Share of the angle error added to the needle's velocity each update.
 const NEEDLE_PULL: f32 = 0.1;
 /// Velocity kept after each update.
@@ -304,5 +339,20 @@ mod tests {
             None
         );
         assert_eq!(frames.icon_key("minecraft:compass", &catalog(4)), None);
+    }
+
+    #[test]
+    fn strips_are_recognised_by_their_native_frame_count() {
+        use assets::icon::dial::DialKind::{Clock, Compass};
+        assert_eq!(strip_frame_side(Compass, 16, 16 * 32, true), Some(16));
+        assert_eq!(strip_frame_side(Clock, 16, 16 * 64, true), Some(16));
+        assert_eq!(strip_frame_side(Clock, 16, 16 * 32, true), None);
+        // A named strip must hold exactly the native count; an atlas may hold more.
+        assert_eq!(strip_frame_side(Compass, 16, 16 * 64, true), None);
+        assert_eq!(strip_frame_side(Compass, 16, 16 * 64, false), Some(16));
+        assert_eq!(strip_frame_side(Compass, 16, 16 * 31, false), None);
+        // Frames are square, so a height that is no whole number of them is no strip.
+        assert_eq!(strip_frame_side(Compass, 16, 16 * 32 + 1, false), None);
+        assert_eq!(strip_frame_side(Compass, 0, 0, false), None);
     }
 }

@@ -27,6 +27,13 @@ pub(in crate::render_mode) struct ShaderPackReloadReport {
     pending: Option<u64>,
 }
 
+/// Whether an accepted key reload still needs to publish its outcome.
+pub(super) fn work_pending(world: &World) -> bool {
+    world
+        .get_resource::<ShaderPackReloadReport>()
+        .is_some_and(|report| report.pending.is_some())
+}
+
 /// The gameplay input the reload key needs; absent resources mean no world to reload in.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(in crate::render_mode) struct ReloadKey<'w> {

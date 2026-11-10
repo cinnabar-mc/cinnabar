@@ -468,3 +468,46 @@ fn complete_static_attachable_draws_reuse_their_committed_pose() {
         next.completed_tick
     );
 }
+
+/// Static reuse may not hide the owner's damage from a constant `is_hurt_color`.
+#[test]
+fn static_attachable_draws_follow_the_owners_damage_state() {
+    const HURT: [f32; 4] = [0.75, 0.0, 0.0, 0.5];
+    let mut compiled = crate::test_support::compiled_fixture();
+    compiled.rig_geometries[0].animation_count = 0;
+    compiled.rig_animations = Box::new([]);
+    compiled.rig_bindings[0].initialize = None;
+    compiled.rig_bindings[0].pre_animation = None;
+    let first = compiled.molang_expressions.len() as u32;
+    let mut ops = compiled.molang_ops.into_vec();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    for value in [HURT[0], HURT[1], HURT[3]] {
+        expressions.push(CompiledMolangExpression {
+            first_op: ops.len() as u32,
+            op_count: 1,
+            max_stack: 1,
+        });
+        ops.push(MolangOp::Push(EntityGeometryScalar::new(value).unwrap()));
+    }
+    compiled.molang_ops = ops.into();
+    compiled.molang_expressions = expressions.into();
+    compiled.render.layers[0].hurt_color = Some([first, first + 1, first + 1, first + 2]);
+    let mut runtime = AttachablesRuntime::new(Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled).unwrap(),
+    ));
+    let mut owner = crate::tests::actor_with_metadata(HashMap::new());
+    let rig = owner_rig();
+    let mut overlay = |owner: &TestActor| {
+        runtime
+            .evaluate("minecraft:test_item", owner, &rig, Default::default())
+            .unwrap()
+            .render[0]
+            .overlay
+    };
+
+    assert_eq!(overlay(&owner), [0.0; 4]);
+    owner.status.overlay_alpha = 0.6;
+    assert_eq!(overlay(&owner), HURT);
+    owner.status.overlay_alpha = 0.0;
+    assert_eq!(overlay(&owner), [0.0; 4]);
+}

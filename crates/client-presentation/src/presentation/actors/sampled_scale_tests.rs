@@ -543,6 +543,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         assert!(admit_frame_bounds(
             &mut presentation,
             &rig,
+            world.actor(1).unwrap(),
             view,
             Some(&mut frame)
         ));
@@ -603,7 +604,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
 }
 
 #[test]
-fn camera_inside_remote_player_skips_scale_and_layer_preparation() {
+fn camera_inside_remote_player_keeps_scale_and_layer_preparation() {
     let world = world("1", false, [0.0; 3]);
     let rig = world.actor_rig(1).unwrap();
     let mut actor = world.actor(1).unwrap().clone();
@@ -612,12 +613,15 @@ fn camera_inside_remote_player_skips_scale_and_layer_preparation() {
         username: "overlap fixture".into(),
     };
     let view = Some(overlap_view(Vec3::new(0.0, 1.5, 0.0)));
+    let sampled = std::cell::Cell::new(false);
     assert!(
-        sample_candidate_scale(rig, &actor, 0.5, view, |_| {
-            panic!("a player containing the camera must not sample its model")
+        sample_candidate_scale(rig, &actor, 0.5, view, |rig| {
+            sampled.set(true);
+            rig
         })
-        .is_none()
+        .is_some()
     );
+    assert!(sampled.get());
     let mut layers = rig.render.to_vec();
     layers[0].material_state = Some(assets::EntityRenderMaterialState {
         depth_always: true,
@@ -627,37 +631,37 @@ fn camera_inside_remote_player_skips_scale_and_layer_preparation() {
         render: &layers,
         ..rig
     };
-    assert!(!rig_may_be_visible(
+    assert!(rig_may_be_visible(
         &layered,
         &actor,
         0.5,
         view,
         None,
-        |_, _| panic!("camera overlap must reject before terrain and layer checks"),
+        |_, _| true,
     ));
 }
 
 #[test]
-fn camera_overlap_tracks_interpolated_feet_and_resumes_sampling_after_exit() {
+fn camera_overlap_keeps_sampling_through_interpolated_motion() {
     let world = world("1", false, [0.0; 3]);
     let rig = world.actor_rig(1).unwrap();
     let mut actor = super::glide_tests::player([0.0; 3], 0);
     actor.previous_pose.position = [-2.0, 0.0, 0.0];
     actor.position = [2.0, 0.0, 0.0];
     let view = Some(overlap_view(Vec3::new(0.0, 1.5, 0.0)));
-    for (partial_tick, expected) in [(0.0, true), (0.5, false), (1.0, true)] {
+    for partial_tick in [0.0, 0.5, 1.0] {
         let sampled = std::cell::Cell::new(false);
         let candidate = sample_candidate_scale(rig, &actor, partial_tick, view, |rig| {
             sampled.set(true);
             rig
         });
-        assert_eq!(candidate.is_some(), expected);
-        assert_eq!(sampled.get(), expected);
+        assert!(candidate.is_some());
+        assert!(sampled.get());
     }
 }
 
 #[test]
-fn camera_overlap_uses_scaled_body_dimensions_instead_of_visibility_bounds() {
+fn player_collision_bounds_do_not_hide_render_candidates() {
     let mut actor = super::glide_tests::player([0.0; 3], 0);
     for scale in [1.0, 2.0] {
         actor.metadata.insert(
@@ -674,7 +678,7 @@ fn camera_overlap_uses_scaled_body_dimensions_instead_of_visibility_bounds() {
         );
         let (low, high) = actor.bounding_box().unwrap();
         let center = Vec3::from_array(std::array::from_fn(|axis| (low[axis] + high[axis]) * 0.5));
-        assert!(!actor_is_render_candidate(
+        assert!(actor_is_render_candidate(
             &actor,
             0.5,
             Some(overlap_view(center)),
@@ -683,7 +687,7 @@ fn camera_overlap_uses_scaled_body_dimensions_instead_of_visibility_bounds() {
             for edge in [low[axis], high[axis]] {
                 let mut camera = center;
                 camera[axis] = edge;
-                assert!(!actor_is_render_candidate(
+                assert!(actor_is_render_candidate(
                     &actor,
                     0.5,
                     Some(overlap_view(camera)),
@@ -696,6 +700,84 @@ fn camera_overlap_uses_scaled_body_dimensions_instead_of_visibility_bounds() {
                 ));
             }
         }
+    }
+}
+
+#[test]
+fn collision_bounds_keep_their_size_through_render_admission_and_placement() {
+    let world = world("1", false, [0.0, 0.0, -5.0]);
+    let mut actor = world.actor(1).unwrap().clone();
+    for (key, value) in [
+        (ActorDataKey::Scale, 4.0),
+        (ActorDataKey::Width, 0.6),
+        (ActorDataKey::Height, 1.8),
+    ] {
+        actor
+            .metadata
+            .insert(key.wire_value(), ActorMetadataValue::Float(value));
+    }
+    let (artwork, locations) =
+        ActorArtworkPages::default().with_equipment_rasters(&[render_model::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([255; 4]),
+        }]);
+    let mut poses = PoseConversions::default();
+    for (scale, axis_scale, height) in [
+        (1.0, [1.0; 3], 8.0),
+        (0.5, [1.0; 3], 7.2),
+        (1.0, [3.0, 1.0, 1.0], 24.0),
+        (0.125, [1.0; 3], 7.2),
+    ] {
+        let rig = ActorRigSnapshot {
+            scale,
+            axis_scale,
+            ..world.actor_rig(1).unwrap()
+        };
+        let view = Some(ActorCullView {
+            camera_position: Vec3::new(0.0, height + 2.0, 0.0),
+            clip_from_world: Mat4::from_translation(Vec3::new(0.0, -(height + 2.0), 0.0))
+                * Mat4::from_scale(Vec3::new(0.01, 1.0, -0.01)),
+            max_distance: 100.0,
+        });
+        assert!(!rig_may_be_visible(
+            &rig,
+            &actor,
+            0.5,
+            view,
+            None,
+            |_, _| false
+        ));
+        let mut presentation =
+            entity_rig_presentation_cached(&rig, &actor, &artwork, 0.5, Some(&mut poses)).unwrap();
+        let submission = &presentation.submission;
+        let (_, high) = submission.culling_bounds.at(
+            submission.world_from_actor.map(|row| row[3]),
+            submission.culling_scale(),
+        );
+        assert!((high[1] - height).abs() < 1e-4);
+        assert!(!actor_rig_submission_is_visible(submission, view));
+        assert!(!admit_frame_bounds(
+            &mut presentation,
+            &rig,
+            &actor,
+            view,
+            None,
+        ));
+        let mut layers = rig.render.to_vec();
+        layers[0].geometry = Some(rig.geometry_source().unwrap().1.try_into().unwrap());
+        let selected = ActorRigSnapshot {
+            render: &layers,
+            ..rig
+        };
+        presentation.artwork = locations[0];
+        assert!(!admit_frame_bounds(
+            &mut presentation,
+            &selected,
+            &actor,
+            view,
+            None,
+        ));
     }
 }
 

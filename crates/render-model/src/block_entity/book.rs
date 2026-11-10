@@ -1,8 +1,8 @@
 //! The open book on enchanting tables and lecterns, and the lectern stand.
 //!
 //! A table's book turns toward the nearest player within three blocks, opens while someone
-//! is near and leafs toward random pages, matching Bedrock 1.26.10. The lectern stand
-//! placement still needs native measurement.
+//! is near and leafs toward random pages, matching Bedrock 1.26.10. Terrain draws a placed
+//! lectern's stand; only a held stand is drawn here.
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -202,6 +202,10 @@ fn table_parts(pose: BookPose) -> PartPoses {
     ]
 }
 
+/// Where a north-facing lectern holds its book, in pixels from the block's base centre.
+const LECTERN_BOOK_OFFSET: [f32; 3] = [0.0, 1.01 * 16.0, -0.11 * 16.0];
+/// The lean of the book's spine from vertical, which rests it on the sloped board.
+const LECTERN_BOOK_LEAN_RADIANS: f32 = 1.1636;
 /// The lectern book lies nearly flat with its loose pages lifted.
 const LECTERN_COVER_RADIANS: f32 = FRAC_PI_2 - 0.15;
 const LECTERN_LOOSE_PAGE_RADIANS: f32 = FRAC_PI_2 - 0.45;
@@ -213,6 +217,16 @@ const LECTERN_PARTS: PartPoses = [
     (LECTERN_LOOSE_PAGE_RADIANS, [1.0, 0.0, 0.0]),
     (-LECTERN_LOOSE_PAGE_RADIANS, [1.0, 0.0, 0.0]),
 ];
+
+/// A native book box as a [`BoxSpec`] to draw under a half turn about Z. Native boxes sample
+/// their up art at minimum Y, which the half turn reproduces.
+const fn native_box(origin: [f32; 3], size: [f32; 3], uv: [f32; 2]) -> BoxSpec {
+    BoxSpec::new(
+        [-origin[0] - size[0], -origin[1] - size[1], origin[2]],
+        size,
+        uv,
+    )
+}
 
 /// Emits the book model in `matrix` space (pixels): the spine runs along Y, the closed book
 /// lies on +X, and the open pages face +X.
@@ -232,27 +246,28 @@ fn emit_book(builder: &mut MeshBuilder, atlas: &BlockEntityAtlas, matrix: Mat4, 
         [0.0; 3],
     ];
     let boxes = [
-        BoxSpec::new([-6.0, -5.0, 0.0], [6.0, 10.0, 0.0], [0.0, 0.0]),
-        BoxSpec::new([0.0, -5.0, 0.0], [6.0, 10.0, 0.0], [16.0, 0.0]),
-        BoxSpec::new([0.0, -4.0, -0.99], [5.0, 8.0, 1.0], [0.0, 10.0]),
-        BoxSpec::new([0.0, -4.0, -0.01], [5.0, 8.0, 1.0], [12.0, 10.0]),
-        BoxSpec::new([0.0, -4.0, 0.0], [5.0, 8.0, 0.0], [24.0, 10.0]),
-        BoxSpec::new([0.0, -4.0, 0.0], [5.0, 8.0, 0.0], [24.0, 10.0]),
+        native_box([-6.0, -5.0, 0.0], [6.0, 10.0, 0.0], [0.0, 0.0]),
+        native_box([0.0, -5.0, 0.0], [6.0, 10.0, 0.0], [16.0, 0.0]),
+        native_box([0.0, -4.0, -0.99], [5.0, 8.0, 1.0], [0.0, 10.0]),
+        native_box([0.0, -4.0, -0.01], [5.0, 8.0, 1.0], [12.0, 10.0]),
+        native_box([0.0, -4.0, 0.0], [5.0, 8.0, 0.0], [24.0, 10.0]),
+        native_box([0.0, -4.0, 0.0], [5.0, 8.0, 0.0], [24.0, 10.0]),
     ];
     for (((turn, offset), pivot), spec) in parts.into_iter().zip(pivots).zip(boxes) {
         let place = Mat4::from_translation(Vec3::from_array(pivot) + Vec3::from_array(offset))
-            * Mat4::from_rotation_y(turn);
+            * Mat4::from_rotation_y(turn)
+            * Mat4::from_rotation_z(PI);
         if spec.size[2] == 0.0 {
             builder.sheet(Layer::Solid, &texture, matrix * place, spec, THIN, WHITE);
         } else {
             builder.cuboid(Layer::Solid, &texture, matrix * place, spec, WHITE);
         }
     }
-    let seam = BoxSpec::new([-1.0, -5.0, 0.0], [2.0, 10.0, 0.0], [12.0, 0.0]);
+    let seam = native_box([-1.0, -5.0, 0.0], [2.0, 10.0, 0.0], [12.0, 0.0]);
     builder.sheet(
         Layer::Solid,
         &texture,
-        matrix * Mat4::from_rotation_y(FRAC_PI_2),
+        matrix * Mat4::from_rotation_y(FRAC_PI_2) * Mat4::from_rotation_z(PI),
         seam,
         THIN,
         WHITE,
@@ -281,27 +296,24 @@ pub(super) fn emit_enchant_table(
     emit_book(builder, atlas, table_matrix(block, pose), table_parts(pose));
 }
 
-/// Emits the lectern stand at `block` facing `facing_yaw_degrees`, with its book when it holds
-/// one.
-pub(super) fn emit_lectern(
+/// Emits a north-facing lectern stand at `block`, for the held item.
+pub(super) fn emit_lectern_stand(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
     block: [i32; 3],
-    facing_yaw_degrees: f32,
-    has_book: bool,
 ) {
-    let base = model_matrix(block, [0.5, 0.0, 0.5], facing_yaw_degrees);
-    let [Some(bottom), Some(sides), Some(top), Some(front)] =
-        geometry::LECTERN_TEXTURES.map(|name| atlas.texture(name, [16.0; 2]))
+    let base = model_matrix(block, [0.5, 0.0, 0.5], 0.0);
+    let Some(textures) = geometry::LECTERN_TEXTURES
+        .map(|name| atlas.texture(name, [16.0; 2]))
+        .into_iter()
+        .collect::<Option<Vec<_>>>()
     else {
         return;
     };
-    let textures = [bottom, sides, top, front];
     for (index, (texture_index, (corners, texels))) in
         geometry::lectern_faces().into_iter().enumerate()
     {
-        let texture = textures[texture_index];
-        let [u0, v0, u1, v1] = texture.rect_uv(texels);
+        let [u0, v0, u1, v1] = textures[texture_index].rect_uv(texels);
         let shade = super::mesh::tile_face_shade(index % 6);
         builder.quad_uv(
             Layer::Solid,
@@ -310,22 +322,25 @@ pub(super) fn emit_lectern(
             [shade, shade, shade, 1.0],
         );
     }
-    if has_book {
-        let board = base
-            * Mat4::from_translation(Vec3::from_array(geometry::LECTERN_BOARD_OFFSET))
-            * Mat4::from_translation(Vec3::from_array(geometry::LECTERN_BOARD_PIVOT))
-            * Mat4::from_rotation_x(-geometry::LECTERN_SLOPE_DEGREES.to_radians())
-            * Mat4::from_translation(-Vec3::from_array(geometry::LECTERN_BOARD_PIVOT));
-        let book = board
-            * Mat4::from_translation(Vec3::new(
-                0.0,
-                geometry::LECTERN_BOARD[1][1] + 0.5,
-                (geometry::LECTERN_BOARD[0][2] + geometry::LECTERN_BOARD[1][2]) * 0.5,
-            ))
-            * Mat4::from_rotation_x(-FRAC_PI_2)
-            * Mat4::from_rotation_y(-FRAC_PI_2);
-        emit_book(builder, atlas, book, LECTERN_PARTS);
-    }
+}
+
+/// Emits the open book on a lectern at `block` facing `facing_yaw_degrees`, in pixels.
+pub(super) fn emit_lectern_book(
+    builder: &mut MeshBuilder,
+    atlas: &BlockEntityAtlas,
+    block: [i32; 3],
+    facing_yaw_degrees: f32,
+) {
+    let matrix = lectern_book_matrix(block, facing_yaw_degrees);
+    emit_book(builder, atlas, matrix, LECTERN_PARTS);
+}
+
+/// The model-to-world matrix of a lectern's book.
+fn lectern_book_matrix(block: [i32; 3], facing_yaw_degrees: f32) -> Mat4 {
+    model_matrix(block, [0.5, 0.0, 0.5], facing_yaw_degrees)
+        * Mat4::from_translation(Vec3::from_array(LECTERN_BOOK_OFFSET))
+        * Mat4::from_rotation_y(FRAC_PI_2)
+        * Mat4::from_rotation_z(LECTERN_BOOK_LEAN_RADIANS)
 }
 
 #[cfg(test)]
@@ -459,84 +474,154 @@ mod tests {
         let far_edge = slope.transform_point3(Vec3::new(0.0, 0.0, 8.0));
         assert!(reader_edge.y < far_edge.y);
     }
-    #[test]
-    fn lectern_stand_uses_cropped_faces_and_the_sloped_board_dimensions() {
-        let mut placements: Vec<_> = [
-            "lectern_base",
-            "lectern_sides",
-            "lectern_top",
-            "lectern_front",
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, name)| assets::BlockEntityPlacement {
-            name: format!("textures/blocks/{name}").into(),
-            x: index as u32 * 16,
-            y: 0,
-            width: 16,
-            height: 16,
-        })
-        .collect();
+    /// An atlas holding `names` side by side in `size`-texel tiles.
+    fn atlas_of(names: &[&str], size: [u32; 2]) -> BlockEntityAtlas {
+        let width = names.len() as u32 * size[0];
+        let mut placements: Vec<_> = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| assets::BlockEntityPlacement {
+                name: (*name).into(),
+                x: index as u32 * size[0],
+                y: 0,
+                width: size[0],
+                height: size[1],
+            })
+            .collect();
         placements.sort_unstable_by(|left, right| left.name.cmp(&right.name));
         let encoded = assets::encode_block_entity_catalog(
             b"{}",
-            64,
-            16,
-            &vec![255; 64 * 16 * 4],
+            width,
+            size[1],
+            &vec![255; (width * size[1] * 4) as usize],
             &placements,
         )
         .unwrap();
-        let atlas = BlockEntityAtlas::from_assets(
-            &assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap(),
-        );
-        for yaw in [0.0, 90.0, 180.0, 270.0] {
-            let mut builder = MeshBuilder::new(atlas.size());
-            emit_lectern(&mut builder, &atlas, [0; 3], yaw, false);
-            let inverse = model_matrix([0; 3], [0.5, 0.0, 0.5], yaw).inverse();
-            let points: Vec<_> = builder
-                .solid
-                .iter()
-                .map(|vertex| inverse.transform_point3(Vec3::from_array(vertex.position)))
-                .collect();
-            let board = &points[72..];
-            assert!(((board[0] - board[1]).length() - 4.0).abs() < 1.0e-4);
-            assert!(((board[0] - board[2]).length() - 13.0).abs() < 1.0e-4);
-            let (min_x, max_x) = board
-                .iter()
-                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), point| {
-                    (min.min(point.x), max.max(point.x))
-                });
-            assert!((max_x - min_x - 15.8).abs() < 1.0e-4);
-            let front = &builder.solid[60..66];
-            for (vertex, point) in front.iter().zip(&points[60..66]) {
-                let expected = [
-                    if (point.y - geometry::LECTERN_POST[1][1]).abs() < 1.0e-4 {
-                        56.0
-                    } else {
-                        48.0
-                    },
-                    if point.x > 0.0 { 0.0 } else { 13.0 },
-                ];
-                let uv = [
-                    vertex.uv[0] * atlas.size()[0] as f32,
-                    vertex.uv[1] * atlas.size()[1] as f32,
-                ];
-                assert!(
-                    (uv[0] - expected[0]).abs() < 1.0e-4 && (uv[1] - expected[1]).abs() < 1.0e-4
-                );
-            }
-            let top = &builder.solid[90..96];
-            let min_v = top
-                .iter()
-                .map(|vertex| vertex.uv[1] * atlas.size()[1] as f32)
-                .reduce(f32::min)
-                .unwrap();
-            let max_v = top
-                .iter()
-                .map(|vertex| vertex.uv[1] * atlas.size()[1] as f32)
-                .reduce(f32::max)
-                .unwrap();
-            assert!((min_v - 1.0).abs() < 1.0e-4 && (max_v - 14.0).abs() < 1.0e-4);
+        BlockEntityAtlas::from_assets(&assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap())
+    }
+
+    #[test]
+    fn a_held_stand_reads_upright_art_and_the_sloped_board_dimensions() {
+        let atlas = atlas_of(&geometry::LECTERN_TEXTURES, [16, 16]);
+        let front_tile = geometry::LECTERN_TEXTURES
+            .iter()
+            .position(|name| name.ends_with("lectern_front"))
+            .unwrap() as f32
+            * 16.0;
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit_lectern_stand(&mut builder, &atlas, [0; 3]);
+        let inverse = model_matrix([0; 3], [0.5, 0.0, 0.5], 0.0).inverse();
+        let points: Vec<_> = builder
+            .solid
+            .iter()
+            .map(|vertex| inverse.transform_point3(Vec3::from_array(vertex.position)))
+            .collect();
+        let board = &points[72..];
+        assert!(((board[0] - board[1]).length() - 4.0).abs() < 1.0e-4);
+        assert!(((board[0] - board[2]).length() - 13.0).abs() < 1.0e-4);
+        let (min_x, max_x) = board
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), point| {
+                (min.min(point.x), max.max(point.x))
+            });
+        assert!((max_x - min_x - 15.8).abs() < 1.0e-4);
+        let front = &builder.solid[60..66];
+        for (vertex, point) in front.iter().zip(&points[60..66]) {
+            let expected = [
+                front_tile + if point.x > 0.0 { 0.0 } else { 8.0 },
+                if (point.y - geometry::LECTERN_POST[1][1]).abs() < 1.0e-4 {
+                    0.0
+                } else {
+                    13.0
+                },
+            ];
+            let uv = [
+                vertex.uv[0] * atlas.size()[0] as f32,
+                vertex.uv[1] * atlas.size()[1] as f32,
+            ];
+            assert!(
+                (uv[0] - expected[0]).abs() < 1.0e-4 && (uv[1] - expected[1]).abs() < 1.0e-4,
+                "{uv:?} at {point}, expected {expected:?}"
+            );
         }
+        let top = &builder.solid[90..96];
+        let v_of =
+            |vertex: &super::super::mesh::BlockEntityVertex| vertex.uv[1] * atlas.size()[1] as f32;
+        let min_v = top.iter().map(v_of).reduce(f32::min).unwrap();
+        let max_v = top.iter().map(v_of).reduce(f32::max).unwrap();
+        assert!((min_v - 1.0).abs() < 1.0e-4 && (max_v - 14.0).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn a_lectern_book_rests_on_the_board_each_direction_holds_it() {
+        for (yaw, position, normal, spine) in [
+            (0.0, [0.5, 1.01, 0.39], Vec3::NEG_Z, Vec3::Z),
+            (90.0, [0.39, 1.01, 0.5], Vec3::NEG_X, Vec3::X),
+            (180.0, [0.5, 1.01, 0.61], Vec3::Z, Vec3::NEG_Z),
+            (270.0, [0.61, 1.01, 0.5], Vec3::X, Vec3::NEG_X),
+        ] {
+            let matrix = lectern_book_matrix([0; 3], yaw);
+            let origin = matrix.transform_point3(Vec3::ZERO);
+            assert!(
+                origin.abs_diff_eq(Vec3::from_array(position), 1.0e-5),
+                "{origin}"
+            );
+            let pages = matrix.transform_vector3(Vec3::X).normalize();
+            assert!(
+                pages.y > 0.9 && pages.dot(normal) > 0.35,
+                "{pages} at {yaw}"
+            );
+            let up_the_spine = matrix.transform_vector3(Vec3::Y).normalize();
+            assert!(up_the_spine.dot(spine) > 0.9, "{up_the_spine} at {yaw}");
+        }
+    }
+
+    #[test]
+    fn book_boxes_read_their_art_from_the_native_box_corner() {
+        let texture = geometry::textures::AtlasTexture::EntityEnchantingTableBook.path();
+        let atlas = atlas_of(&[texture], [64, 32]);
+        let mut builder = MeshBuilder::new(atlas.size());
+        let flat = [(0.0, [0.0; 3]); 6];
+        emit_book(&mut builder, &atlas, Mat4::IDENTITY, flat);
+        // The first box is the left cover: both of its large sheets span x -6..0 at z -1, and
+        // its art starts at the box's minimum X and minimum Y corners.
+        let extent = |quad: &[super::super::mesh::BlockEntityVertex], axis: usize| {
+            let values = quad.iter().map(|vertex| vertex.position[axis]);
+            values.clone().fold(f32::MIN, f32::max) - values.fold(f32::MAX, f32::min)
+        };
+        // Each quad is two triangles; a sheet spans the cover's full width and height.
+        let cover = builder
+            .solid
+            .chunks(6)
+            .find(|quad| {
+                quad.iter().all(|vertex| {
+                    (vertex.position[2] + 1.0).abs() < 0.1 && vertex.position[0] < 0.01
+                }) && (extent(quad, 0) - 6.0).abs() < 1.0e-3
+                    && (extent(quad, 1) - 10.0).abs() < 1.0e-3
+            })
+            .expect("a cover sheet");
+        let corner = |x: f32, y: f32| {
+            cover
+                .iter()
+                .find(|vertex| {
+                    (vertex.position[0] - x).abs() < 1.0e-3
+                        && (vertex.position[1] - y).abs() < 1.0e-3
+                })
+                .map(|vertex| {
+                    [
+                        vertex.uv[0] * atlas.size()[0] as f32,
+                        vertex.uv[1] * atlas.size()[1] as f32,
+                    ]
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            corner(-6.0, -5.0)[1],
+            0.0,
+            "minimum Y starts the art's height"
+        );
+        assert_eq!(corner(-6.0, 5.0)[1], 10.0);
+        let across = corner(0.0, -5.0)[0] - corner(-6.0, -5.0)[0];
+        assert_eq!(across.abs(), 6.0);
     }
 }

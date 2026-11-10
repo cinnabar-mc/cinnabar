@@ -110,17 +110,23 @@ fn ready(world: &mut World) -> bool {
     })
 }
 
+/// Runs one owner's frame with the current-view readiness reset performed by collection.
+fn warm_frame(world: &mut World, owner: bevy::ecs::system::SystemId) {
+    world.resource_mut::<WarmupRegistry>().ids.clear();
+    world.run_system(owner).unwrap();
+}
+
 #[test]
 fn loading_waits_for_every_queued_variant_and_steady_frames_do_not_rewarm() {
     let mut world = world(Handle::default());
     let warm = world.register_system(prewarm_owner::<TwoModes>);
-    world.run_system(warm).unwrap();
+    warm_frame(&mut world, warm);
     assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
     assert!(!ready(&mut world), "queued pipelines are not usable yet");
     world.resource_mut::<PipelineCache>().process_queue();
     assert!(ready(&mut world));
     for _ in 0..3 {
-        world.run_system(warm).unwrap();
+        warm_frame(&mut world, warm);
     }
     assert_eq!(world.resource::<TwoModes>().calls, 1);
     assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
@@ -130,14 +136,14 @@ fn loading_waits_for_every_queued_variant_and_steady_frames_do_not_rewarm() {
 fn a_new_view_configuration_warms_again_and_closes_the_gate() {
     let mut world = world(Handle::default());
     let warm = world.register_system(prewarm_owner::<TwoModes>);
-    world.run_system(warm).unwrap();
+    warm_frame(&mut world, warm);
     world.resource_mut::<PipelineCache>().process_queue();
     assert!(ready(&mut world));
     world.resource_mut::<WarmupRegistry>().views.push(WarmView {
         msaa: Msaa::Sample4,
         ..VIEW
     });
-    world.run_system(warm).unwrap();
+    warm_frame(&mut world, warm);
     assert_eq!(world.resource::<TwoModes>().calls, 2);
     assert!(!ready(&mut world));
 }
@@ -147,15 +153,15 @@ fn loading_prepares_single_sample_coverage_before_msaa_is_disabled() {
     let mut world = world(Handle::default());
     world.resource_mut::<WarmupRegistry>().views[0].msaa = Msaa::Sample4;
     let warm = world.register_system(prewarm_owner::<TwoModes>);
-    world.run_system(warm).unwrap();
+    warm_frame(&mut world, warm);
     assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
     assert!(!ready(&mut world));
     world.resource_mut::<PipelineCache>().process_queue();
     assert!(ready(&mut world));
 
     world.resource_mut::<WarmupRegistry>().views[0].msaa = Msaa::Off;
-    world.run_system(warm).unwrap();
-    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
+    warm_frame(&mut world, warm);
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 2);
     assert!(
         ready(&mut world),
         "Performance coverage was already compiled"
@@ -166,11 +172,51 @@ fn loading_prepares_single_sample_coverage_before_msaa_is_disabled() {
 fn unloaded_shaders_hold_loading() {
     let mut world = world(UNLOADED_SHADER);
     let warm = world.register_system(prewarm_owner::<TwoModes>);
-    world.run_system(warm).unwrap();
+    warm_frame(&mut world, warm);
     for _ in 0..2 {
         world.resource_mut::<PipelineCache>().process_queue();
         assert!(!ready(&mut world));
     }
+}
+
+/// Cancelling a request must release readiness for the already compiled active view.
+#[test]
+fn cancelled_sample_requests_do_not_hold_ready_views() {
+    let mut app = App::new();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register::<TwoModes>(&mut app);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(cache());
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Off,
+        Camera3d::default(),
+    ));
+    world.run_schedule(Render);
+    world.resource_mut::<PipelineCache>().process_queue();
+    world.run_schedule(Render);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+
+    world.resource_mut::<TwoModes>().shader = UNLOADED_SHADER;
+    world
+        .resource_mut::<SampleCountPreflight>()
+        .request(Some(SampleCountRequest {
+            samples: Msaa::Sample8,
+            hdr: false,
+            enhanced: false,
+        }));
+    world.run_schedule(Render);
+    assert!(!world.resource::<PipelineWarmupReadiness>().is_ready());
+
+    world.resource_mut::<SampleCountPreflight>().request(None);
+    world.run_schedule(Render);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
 }
 
 #[test]

@@ -76,4 +76,22 @@ mod tests {
         }));
         assert!(Arc::ptr_eq(&font, &install(Arc::clone(&font)).unwrap()));
     }
+
+    #[test]
+    fn authored_sans_draws_the_degree_sign_rather_than_its_fallback() {
+        let source = assets::rasterize_outline_font(
+            include_bytes!("../../../assets/fonts/InterVariable.ttf"),
+            18.0,
+            2,
+            render_model::UI_LOCAL_FONT_PAGE_SIDE,
+        )
+        .unwrap();
+        let degree = source.glyph('\u{b0}').expect("degree sign in the atlas");
+        let fallback = source.glyph('?').expect("fallback in the atlas");
+        // A character missing from the face is rasterized from `?` under its own codepoint.
+        assert_ne!(
+            (degree.bearing, degree.advance_64),
+            (fallback.bearing, fallback.advance_64)
+        );
+    }
 }

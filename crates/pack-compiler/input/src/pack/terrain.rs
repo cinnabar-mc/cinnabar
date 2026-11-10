@@ -261,17 +261,14 @@ impl TerrainTextureMap {
             .map(|(path, overlay, _)| (path, overlay))
     }
 
-    /// Resolves carried class artwork without losing its index when a source array is short.
+    /// Resolves carried artwork with the model selector's missing-variant fallback.
     pub fn get_carried_for_record(
         &self,
         key: &str,
         record: &RegistryRecord,
     ) -> Option<(&str, Option<&str>)> {
-        let variant = match class_variant(record) {
-            Some(variant) => variant,
-            None => self.get_for_model_record(key, record)?.1 as usize,
-        };
-        self.get_clamped_carried(key, variant)
+        let (_, variant) = self.get_for_model_record(key, record)?;
+        self.get_clamped_carried(key, variant as usize)
     }
 
     /// Returns the admitted carried path, overlay color, and actual clamped array index.

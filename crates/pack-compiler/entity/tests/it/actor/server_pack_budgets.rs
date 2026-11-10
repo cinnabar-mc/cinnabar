@@ -106,3 +106,109 @@ fn a_pack_with_thousands_of_textures_keeps_every_entity_texture() {
         compiled.fallbacks
     );
 }
+
+#[test]
+fn a_pack_with_hundreds_of_thousands_of_keyframes_and_channels_keeps_them_all() {
+    // Baked server animations: long clips keyed every frame, and clips over many-boned models.
+    const BAKED_ANIMATIONS: usize = 60;
+    const BAKED_KEYFRAMES: usize = 10_000;
+    const POSED_ANIMATIONS: usize = 140;
+    const BONES: usize = 2_000;
+    let root = serde_json::json!({
+        "name": "root",
+        "cubes": [{"origin": [0, 0, 0], "size": [4, 4, 4], "uv": [0, 0]}]
+    });
+    let bones = std::iter::once(root)
+        .chain(
+            (0..BONES)
+                .map(|bone| serde_json::json!({"name": format!("bone_{bone}"), "parent": "root"})),
+        )
+        .collect::<Vec<_>>();
+    let baked = (0..BAKED_KEYFRAMES)
+        .map(|frame| {
+            (
+                format!("{:.2}", frame as f64 / 20.0),
+                serde_json::json!([0, frame % 360, 0]),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let posed = (0..BONES)
+        .map(|bone| {
+            (
+                format!("bone_{bone}"),
+                serde_json::json!({"rotation": [0, bone % 360, 0]}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let mut files = entity("baked", 16);
+    let mut aliases = serde_json::Map::new();
+    for (kind, count, bones) in [
+        (
+            "baked",
+            BAKED_ANIMATIONS,
+            serde_json::json!({"root": {"rotation": baked}}),
+        ),
+        ("posed", POSED_ANIMATIONS, serde_json::Value::from(posed)),
+    ] {
+        for index in 0..count {
+            let identifier = format!("animation.{kind}.{index}");
+            aliases.insert(format!("{kind}_{index}"), identifier.clone().into());
+            let animation = serde_json::json!({
+                "format_version": "1.8.0",
+                "animations": {identifier: {"loop": true, "bones": bones}}
+            });
+            files.push((
+                format!("animations/{kind}_{index}.animation.json").into(),
+                serde_json::to_vec(&animation).unwrap(),
+            ));
+        }
+    }
+    let mut definition: serde_json::Value = serde_json::from_slice(&files[0].1).unwrap();
+    let description = &mut definition["minecraft:client_entity"]["description"];
+    description["animations"] = serde_json::json!(aliases);
+    description["scripts"] = serde_json::json!({"animate": aliases.keys().collect::<Vec<_>>()});
+    files[0].1 = serde_json::to_vec(&definition).unwrap();
+    let mut geometry: serde_json::Value = serde_json::from_slice(&files[1].1).unwrap();
+    geometry["minecraft:geometry"][0]["bones"] = bones.into();
+    files[1].1 = serde_json::to_vec(&geometry).unwrap();
+
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .expect("the entity compiles");
+    assert!(compiled.fallbacks.is_empty(), "{:?}", compiled.fallbacks);
+    let entities = &compiled.entities;
+    let clips_of = |kind: &str| {
+        entities
+            .animation_clips
+            .iter()
+            .filter(|clip| {
+                entities.symbols[clip.symbol as usize]
+                    .identifier
+                    .starts_with(&format!("animation.{kind}."))
+            })
+            .map(|clip| {
+                &entities.animation_channels[clip.first_channel as usize..]
+                    [..clip.channel_count as usize]
+            })
+            .collect::<Vec<_>>()
+    };
+    let baked = clips_of("baked");
+    assert!(baked.len() >= BAKED_ANIMATIONS);
+    for channels in baked {
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].keyframe_count as usize, BAKED_KEYFRAMES);
+    }
+    let posed = clips_of("posed");
+    assert!(posed.len() >= POSED_ANIMATIONS);
+    for channels in posed {
+        assert_eq!(channels.len(), BONES);
+    }
+
+    let (runtime, blob) = assets::RuntimeEntityAssets::from_compiled_encoded(compiled.entities)
+        .expect("the catalog keeps every animation");
+    let decoded = assets::RuntimeEntityAssets::decode(&blob.expect("the catalog encodes"))
+        .expect("a cached catalog decodes again");
+    assert_eq!(decoded.animation_clips(), runtime.animation_clips());
+    assert_eq!(decoded.animation_channels(), runtime.animation_channels());
+    assert_eq!(decoded.animation_keyframes(), runtime.animation_keyframes());
+}

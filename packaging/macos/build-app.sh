@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Assembles an unsigned Cinnabar.app from release binaries. Usage: build-app.sh [out_dir]
-# Env: CLIENT, UPDATER, CORE, LOCAL_SERVER, CXB, BINARIES, ASSETC (default target/release/*), BUNDLE_ID.
+# Env: CLIENT, UPDATER, CORE, LOCAL_SERVER, CXB, SHADERPACK_WORKER, BINARIES, ASSETC (default target/release/*),
+# BUNDLE_ID.
 set -euo pipefail
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=../common/stage-payload.sh

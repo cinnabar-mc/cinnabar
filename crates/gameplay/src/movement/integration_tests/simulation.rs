@@ -605,7 +605,7 @@ fn frame_boundary_reanchor_discards_only_pre_anchor_elapsed() {
 
 /// Uses the compiled fixture so integration tests exercise runtime projection only.
 pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8> {
-    let preg = include_bytes!("../../../../assets/data/block-physics-v2193.bin");
+    let preg = include_bytes!("../../../../assets/data/block-physics-v2225.bin");
     assets::read_physics_registry_for_protocol(
         preg,
         breg,
@@ -618,8 +618,8 @@ pub(super) fn synthetic_preg(breg: &[u8], records: &[RegistryRecord]) -> Vec<u8>
 
 #[test]
 fn checked_in_registry_registers_every_preg_fact_in_both_id_modes() {
-    let breg = include_bytes!("../../../../assets/data/block-registry-v2193.bin");
-    let records = read_registry_for_protocol(breg, 2193).expect("checked-in protocol-2193 BREG");
+    let breg = include_bytes!("../../../../assets/data/block-registry-v2225.bin");
+    let records = read_registry_for_protocol(breg, 2225).expect("checked-in protocol-2225 BREG");
     let preg = synthetic_preg(breg, &records);
 
     let registries = PhysicsCollisionRegistries::from_assets(

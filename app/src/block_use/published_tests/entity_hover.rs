@@ -33,6 +33,41 @@ fn entity_hover_new_actor_reports_the_retained_world_point_once() {
 }
 
 #[test]
+fn entity_hover_retains_completed_geometry_after_catchup() {
+    let (mut app, mut captured) = hover_app();
+    app.world_mut()
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
+    let before = attack_hit_position_tests::picked_point(app.world());
+    attack_hit_position_tests::move_actor(app.world_mut(), [None, None, Some(6.66)], 2);
+    let completed = attack_hit_position_tests::picked_point(app.world());
+    assert_ne!(before, completed);
+    app.world_mut()
+        .run_system_cached(crate::melee::complete_melee_actor_frame)
+        .unwrap();
+    assert_eq!(
+        hover_tick(&mut app, &mut captured, 102),
+        [(99, Some(completed))]
+    );
+}
+
+#[test]
+fn entity_hover_retains_completed_geometry_while_hand_admission_waits() {
+    let (mut app, mut captured) = hover_app();
+    attack_hit_position_tests::defer_hand_admission(app.world_mut());
+    attack_hit_position_tests::move_actor(app.world_mut(), [None, None, Some(6.66)], 2);
+    let completed = attack_hit_position_tests::picked_point(app.world());
+    app.world_mut()
+        .run_system_cached(crate::melee::complete_melee_actor_frame)
+        .unwrap();
+    attack_hit_position_tests::resume_hand_admission(app.world_mut());
+    assert_eq!(
+        hover_tick(&mut app, &mut captured, 102),
+        [(99, Some(completed))]
+    );
+}
+
+#[test]
 fn entity_hover_held_item_change_reports_the_same_actor_again() {
     let (mut app, mut captured) = hover_app();
     assert_eq!(hover_tick(&mut app, &mut captured, 102).len(), 1);
@@ -44,6 +79,41 @@ fn entity_hover_held_item_change_reports_the_same_actor_again() {
     );
     // A different stack count does not change the held item identity.
     item_use_tests::hold_air_item(app.world_mut(), "minecraft:snowball", 8, [].into());
+    assert!(hover_tick(&mut app, &mut captured, 104).is_empty());
+}
+
+#[test]
+fn entity_hover_actor_data_update_reports_the_same_actor_again() {
+    let (mut app, mut captured) = hover_app();
+    assert_eq!(hover_tick(&mut app, &mut captured, 102).len(), 1);
+    {
+        let mut client = app
+            .world_mut()
+            .resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                    protocol::ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 99,
+                        metadata: std::sync::Arc::from([]),
+                        properties: std::sync::Arc::from([]),
+                        tick: 0,
+                    },
+                )),
+            )
+            .unwrap();
+        stream.poll([4.5, 2.620_01, 8.5], 0);
+        assert_eq!(stream.committed_sequence(), sequence);
+    }
+    let point = attack_hit_position_tests::picked_point(app.world());
+    assert_eq!(
+        hover_tick(&mut app, &mut captured, 103),
+        [(99, Some(point))]
+    );
     assert!(hover_tick(&mut app, &mut captured, 104).is_empty());
 }
 

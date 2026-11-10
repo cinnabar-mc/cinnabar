@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod android;
+mod ios;
 pub use android::configure_android;
+pub use ios::configure_ios;
 
 const APP_DIR: &str = crate::PRODUCT_NAME;
 
@@ -51,6 +53,10 @@ pub enum LayoutError {
     AndroidUnconfigured,
     #[error("the Android install layout cannot change within a process")]
     AndroidReconfigured,
+    #[error("the iOS app has not configured the install layout")]
+    IosUnconfigured,
+    #[error("the iOS install layout cannot change within a process")]
+    IosReconfigured,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -59,6 +65,8 @@ pub struct InstallLayout {
     pub compiled_assets: PathBuf,
     pub physics_registry: PathBuf,
     pub core_executable: PathBuf,
+    /// The isolated shader-pack compiler; where it runs in-process, the app executable.
+    pub shaderpack_worker: PathBuf,
     pub user_config_root: PathBuf,
     pub user_data_root: PathBuf,
     pub runtime_root: PathBuf,
@@ -86,6 +94,7 @@ impl InstallLayout {
                     .join("assets/compiled")
                     .join(assets::carriers::physics_registry_basename()),
                 core_executable: binary_dir.join(core_filename(platform)),
+                shaderpack_worker: binary_dir.join(shaderpack_worker_filename(platform)),
                 user_config_root: config,
                 user_data_root: data,
                 runtime_root: runtime.clone(),
@@ -142,6 +151,7 @@ impl InstallLayout {
         };
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
         Ok(Self {
+            shaderpack_worker: executable_dir.join(shaderpack_worker_filename(platform)),
             compiled_assets: resource_root.join("assets"),
             physics_registry: resource_root
                 .join("assets")
@@ -159,6 +169,9 @@ impl InstallLayout {
         if cfg!(target_os = "android") {
             return android::discover();
         }
+        if cfg!(target_os = "ios") {
+            return ios::discover();
+        }
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);
         let layout = Self::resolve(
@@ -170,7 +183,7 @@ impl InstallLayout {
                         .map(PathBuf::from)
                         .as_deref(),
                 ),
-                user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
+                user_root: std::env::var_os(render_api::USER_ROOT_ENV).map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
                 xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
@@ -322,6 +335,12 @@ impl InstallLayout {
         self.user_data_root.join("shaderpacks")
     }
 
+    /// Driver pipeline data reused across launches; safe to delete while the client is closed.
+    #[must_use]
+    pub fn pipeline_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("cache/pipelines")
+    }
+
     /// Translated shader-pack programs reused across launches; safe to delete.
     #[must_use]
     pub fn shader_pack_cache_dir(&self) -> PathBuf {
@@ -461,7 +480,7 @@ fn isolated_user_roots(
         Platform::Linux => "Linux",
         Platform::MacOs => "macOS",
     };
-    require_absolute(root, platform, "CINNABAR_USER_ROOT", name)?;
+    require_absolute(root, platform, render_api::USER_ROOT_ENV, name)?;
     Ok(Some((
         root.join("config"),
         root.join("data"),
@@ -584,6 +603,16 @@ const fn core_filename(platform: Platform) -> &'static str {
         Platform::Windows => "bedrock-core.exe",
         Platform::Linux | Platform::MacOs => "bedrock-core",
     }
+}
+
+/// The shader-pack compiler's packaged filename, from the release runtime table.
+fn shaderpack_worker_filename(platform: Platform) -> String {
+    let os = match platform {
+        Platform::Windows => "windows",
+        Platform::Linux => "linux",
+        Platform::MacOs => "macos",
+    };
+    update_manifest::runtime::executable("SHADERPACK_WORKER", os)
 }
 
 const fn home_variable(platform: Platform) -> &'static str {

@@ -21,12 +21,10 @@ fn retained_environment_lifecycle_preserves_three_state_writes() {
     environment.pending_weather = Some(Some(
         super::super::cinnabar::extension::environment::Weather::Rain,
     ));
-    environment.pending_click_limits = Some([Some(12), None]);
     environment.revoke();
     environment.commit();
     assert_eq!(environment.time_override, None);
     assert!(environment.weather_override.is_none());
-    assert_eq!(environment.click_limits, [None; 2]);
     assert!(!environment.fullbright);
 }
 

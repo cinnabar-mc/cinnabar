@@ -40,6 +40,11 @@ pub struct RuntimeSettings(pub ui::settings_state::SettingsState);
 #[derive(Clone, Debug, Default, Resource, Deref, DerefMut)]
 pub struct SemanticInputSnapshot(pub semantic_input::finalized::FinalizedInput);
 
+pub mod devices;
+pub use devices::{
+    ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,
+};
+
 /// Screen ownership published by the shell for the current gameplay frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
 pub struct ScreenFocus {

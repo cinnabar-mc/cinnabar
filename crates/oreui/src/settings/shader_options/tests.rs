@@ -73,9 +73,6 @@ fn grid_offset(scrolls: &MenuScrolls<MenuAction>) -> f32 {
 
 #[test]
 fn footer_buttons_leave_the_grid_scrolled_where_it_was() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(
         launcher::menu::settings_sections::SettingSection::Shaders
             .definition()
@@ -138,9 +135,6 @@ fn footer_buttons_leave_the_grid_scrolled_where_it_was() {
 
 #[test]
 fn hovered_option_help_remains_scrollable_after_the_pointer_leaves_the_option() {
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
     let mut view = settings_view(
         launcher::menu::settings_sections::SettingSection::Shaders
             .definition()

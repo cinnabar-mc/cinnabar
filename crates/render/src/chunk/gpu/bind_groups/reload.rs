@@ -16,9 +16,11 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     mut gpu_assets: ResMut<ChunkGpuTextureAssets>,
     mut stats: ResMut<ChunkTextureUploadStats>,
     reload: Res<ChunkTextureReload>,
+    admission: Option<Res<render_scene::startup_work::WorldWorkAdmission>>,
     mut coverage: Option<ResMut<TerrainCoverage>>,
 ) {
     let identity = assets.binding_identity();
+    poll_bootstrap_atlas(&assets, &mut gpu_assets, &mut stats, &render_device);
     if gpu_assets
         .pending
         .as_ref()
@@ -138,6 +140,25 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     {
         gpu_assets.attempted_identity = Some(identity);
         gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
+        #[cfg(not(target_arch = "wasm32"))]
+        if admission
+            .as_ref()
+            .is_some_and(|admission| admission.prepares_in_background())
+            && !authored_only
+        {
+            let assets = assets.clone();
+            let device = render_device.clone();
+            let queue = render_queue.clone();
+            let previous = gpu_assets.prepared.clone();
+            gpu_assets.bootstrap = Some(BootstrapTextures {
+                identity,
+                worker: std::thread::spawn(move || {
+                    build_carrier_texture_assets(&assets, previous.as_ref(), &device, &queue)
+                }),
+            });
+            return;
+        }
+        let _ = &admission;
         rebuild_bootstrap_atlas(
             &assets,
             &mut gpu_assets,
@@ -217,6 +238,51 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     std::thread::spawn(work);
     #[cfg(target_arch = "wasm32")]
     crate::browser_jobs::submit(crate::browser_jobs::Lane::Textures, work);
+}
+
+/// One finite bootstrap worker and the immutable atlas identity it is allowed to publish.
+pub(super) struct BootstrapTextures {
+    identity: ChunkTextureBindingIdentity,
+    worker: std::thread::JoinHandle<Option<(PreparedChunkTextureAssets, ChunkTextureUploadStats)>>,
+}
+
+/// Publishes a complete matching bootstrap atlas without waiting for its worker.
+fn poll_bootstrap_atlas(
+    assets: &ChunkTextureAssets,
+    gpu_assets: &mut ChunkGpuTextureAssets,
+    stats: &mut ChunkTextureUploadStats,
+    _device: &RenderDevice,
+) {
+    if !gpu_assets
+        .bootstrap
+        .as_ref()
+        .is_some_and(|pending| pending.worker.is_finished())
+    {
+        return;
+    }
+    let pending = gpu_assets.bootstrap.take().expect("finished atlas worker");
+    let result = pending
+        .worker
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    if pending.identity != assets.binding_identity() {
+        return;
+    }
+    if let Some((prepared, uploaded)) = result {
+        gpu_assets.prepared = Some(prepared);
+        *stats = uploaded;
+        #[cfg(feature = "enhanced")]
+        {
+            gpu_assets.authored_pending = AuthoredUpload::for_assets(
+                assets,
+                gpu_assets
+                    .prepared
+                    .as_ref()
+                    .expect("completed bootstrap atlas"),
+                _device,
+            );
+        }
+    }
 }
 
 /// Installs the current atlas without a reload transaction. Enhanced keeps an unchanged carrier
