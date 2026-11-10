@@ -3,6 +3,7 @@ use assets::{ContributorRole, NO_MODEL_TEMPLATE, TextureMip, TextureRef};
 
 mod fences;
 mod pressure_plates;
+mod slabs;
 
 fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
     let mut mips = Vec::new();
