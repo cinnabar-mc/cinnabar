@@ -37,6 +37,18 @@ pub struct UiRenderVertex {
     pub overlay_color: [f32; 4],
 }
 
+impl UiRenderVertex {
+    /// Returns homogeneous XY with the shader's compact-coordinate rounding.
+    pub fn raster_position(&self) -> [f32; 2] {
+        if self.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0 {
+            self.position
+                .map(|value| half::f16::from_f32(value).to_f32())
+        } else {
+            self.position
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Pod, Zeroable)]
 pub struct UiScissor {

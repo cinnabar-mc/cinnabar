@@ -181,6 +181,59 @@ fn positive_homogeneous_coordinates_are_divided_before_bounding() {
     );
 }
 
+/// A compact block icon whose edges round outward by two pixels before division.
+fn compact_quad(clip_w: f32) -> UiRenderInput {
+    let mut input = quad();
+    input.viewport_size = [6144; 2];
+    Arc::make_mut(&mut input.batches)[0].scissor = UiScissor::new(0, 0, 6144, 6144);
+    for (vertex, position) in Arc::make_mut(&mut input.vertices).iter_mut().zip([
+        [4098.0, 4098.0],
+        [4110.0, 4098.0],
+        [4110.0, 4110.0],
+        [4098.0, 4110.0],
+    ]) {
+        vertex.position = position;
+        vertex.clip_w = clip_w;
+        vertex.style_flags = render_api::UI_STYLE_HALF_FLOAT_XY | UI_STYLE_GLINT;
+    }
+    input
+}
+
+#[test]
+fn compact_coordinate_damage_covers_old_and_new_rounded_edges() {
+    for (clip_w, origin, side) in [(1.0, 4095, 34), (3.0, 1364, 13)] {
+        let previous = compact_quad(clip_w);
+        let next = moved(&previous, [16.0; 2]);
+        assert_eq!(
+            plan_segment(&previous, &next, 0..1),
+            UiDamage::Rect(UiScissor::new(origin, origin, side, side)),
+            "clip W {clip_w}"
+        );
+    }
+}
+
+#[test]
+fn compact_coordinate_glint_damage_covers_rounded_edges() {
+    for (clip_w, origin, side) in [(1.0, 4095, 18), (3.0, 1364, 8)] {
+        let input = compact_quad(clip_w);
+        assert_eq!(
+            animated_batches(&input),
+            [UiDamage::Rect(UiScissor::new(origin, origin, side, side))],
+            "clip W {clip_w}"
+        );
+    }
+}
+
+#[test]
+fn compact_coordinate_overflow_cannot_retain_geometry_or_glint() {
+    for position in [65520.0, -65520.0, f32::MAX, -f32::MAX] {
+        let mut input = compact_quad(1.0);
+        Arc::make_mut(&mut input.vertices)[0].position[0] = position;
+        assert_eq!(plan(&input, &input), UiDamage::Full);
+        assert_eq!(animated_batches(&input), [UiDamage::Full]);
+    }
+}
+
 #[test]
 fn invalid_coordinates_and_projected_content_never_retain() {
     for change in 0..10 {

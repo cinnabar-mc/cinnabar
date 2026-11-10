@@ -184,8 +184,16 @@ fn half_precision_coordinates_keep_even_ties_subnormals_and_signs() {
         cases.len(),
         cases.len() as u32,
     );
+    let mut vertex = vertices(16.0)[0];
+    vertex.style_flags = render_api::UI_STYLE_HALF_FLOAT_XY;
     for ((value, expected), actual) in cases.into_iter().zip(actual) {
         assert_eq!(actual[0], expected.to_bits(), "input {value}");
+        vertex.position = [value; 2];
+        assert_eq!(
+            actual[0],
+            vertex.raster_position()[0].to_bits(),
+            "CPU bounds for {value}"
+        );
     }
 }
 

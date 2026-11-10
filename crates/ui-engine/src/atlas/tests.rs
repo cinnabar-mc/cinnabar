@@ -82,6 +82,31 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     bytes
 }
 
+#[test]
+fn server_ui_keeps_eight_full_page_images_resident_in_one_frame() {
+    let keys: Vec<_> = (0..8)
+        .map(|index| format!("textures/ui/page{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .map(|key| (format!("{key}.png"), png(PAGE_SIDE, PAGE_SIDE)))
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(ImageWork::inline());
+
+    atlas.require(keys.iter().map(String::as_str));
+
+    for key in &keys {
+        let placement = atlas.placement(key).expect("all eight images fit together");
+        assert_eq!(placement.rect, [0, 0, PAGE_SIDE as u16, PAGE_SIDE as u16]);
+        assert!(
+            crate::pages::SERVER_UI_PAGE + usize::from(placement.page)
+                < crate::pages::MODAL_UI_PAGE
+        );
+    }
+    assert_eq!(atlas.pages.len(), keys.len());
+}
+
 /// Encodes a deterministic TGA fixture.
 fn tga(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = Vec::new();

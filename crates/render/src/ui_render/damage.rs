@@ -96,8 +96,9 @@ pub(super) fn plan_segment(
             for input in [previous, current] {
                 for &index in triangle {
                     let vertex = &input.vertices[index as usize];
+                    let position = vertex.raster_position();
                     for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
+                        let pixel = f64::from(position[axis]) / f64::from(vertex.clip_w);
                         bounds[axis] = bounds[axis].min(pixel);
                         bounds[axis + 2] = bounds[axis + 2].max(pixel);
                     }
@@ -161,8 +162,9 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
                     f64::NEG_INFINITY,
                 ];
                 for vertex in vertices {
+                    let position = vertex.raster_position();
                     for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
+                        let pixel = f64::from(position[axis]) / f64::from(vertex.clip_w);
                         bounds[axis] = bounds[axis].min(pixel);
                         bounds[axis + 2] = bounds[axis + 2].max(pixel);
                     }
@@ -259,6 +261,7 @@ fn supported(input: &UiRenderInput, segment: &Range<usize>) -> bool {
 
 /// Positive homogeneous W bounds clipped triangles by their projected vertices.
 fn supported_vertex(vertex: &UiRenderVertex, viewport: [u32; 2]) -> bool {
+    let position = vertex.raster_position();
     vertex.clip_w.is_normal()
         && vertex.clip_w > 0.0
         && vertex.clip_z.is_finite()
@@ -270,7 +273,7 @@ fn supported_vertex(vertex: &UiRenderVertex, viewport: [u32; 2]) -> bool {
         && vertex.model_light >= 0.0
         && vertex.overlay_color.iter().all(|value| value.is_finite())
         && (0..2).all(|axis| {
-            let position = vertex.position[axis];
+            let position = position[axis];
             let scaled = position / viewport[axis] as f32;
             let clip = scaled * 2.0 - vertex.clip_w;
             // Shaders may flush subnormal inputs or intermediates to zero.
