@@ -4,11 +4,11 @@ use std::mem::size_of;
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
-use bedrock_protocol_1_26_51::types::{DimensionType, MissingBlobData, SubChunkData};
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{self, ClientCacheMissResponse, LevelChunk, SubChunk};
+use bedrock_protocol_1_26_60::types::{DimensionType, MissingBlobData, SubChunkData};
 #[cfg(test)]
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 /// Unwraps the dimension ID 1.26.40 wraps in a `DimensionType` newtype.
@@ -24,6 +24,8 @@ static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 
 mod persistence;
 pub use persistence::{BlobCacheStore, WeakClientBlobCache};
+mod requested_hashes;
+use requested_hashes::RequestedBlobHashes;
 
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
@@ -58,9 +60,8 @@ const MAX_CLIENT_BLOB_PINNED_BYTES: usize = MAX_CLIENT_BLOB_PENDING_BYTES;
 /// pressure. `pop_ready` drains recovery ahead of cached output, and duplicate column recoveries
 /// coalesce, keeping the concrete queue bounded independently from the reservation count.
 pub const MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS: usize = 2_048;
-/// Ordinary decoded work is retained independently from cache transactions. The session receive
-/// loop stops reading as soon as any ordinary work is blocked, while this larger defensive ceiling
-/// keeps direct resolver users bounded too.
+/// Ordinary decoded work is retained independently from cache transactions. At its quota,
+/// bounded raw read-ahead receives missing bodies while retaining later ordinary packets.
 pub const MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS: usize = 64;
 /// The transport retains at most 16 MiB of deferred raw packet data. Two frames of headroom cover
 /// decoded container allocation overhead without coupling ordinary traffic to cache limits.
@@ -132,6 +133,7 @@ pub struct BlobCacheStats {
     pub cached_packet_reconstruction_pressure: u64,
     pub cached_packet_staged_pressure: u64,
     pub cached_packet_ready_pressure: u64,
+    /// Responses with unneeded blobs; useful entries in mixed responses may still be admitted.
     pub miss_response_unsolicited: u64,
     pub miss_response_integrity_rejection: u64,
     pub miss_response_cache_pressure: u64,
@@ -359,6 +361,13 @@ struct PendingTransaction {
     accounted_bytes: usize,
 }
 
+/// Live dependents of one missing body and whether an earlier status still owns its fetch.
+#[derive(Debug, Default)]
+struct PendingBlob {
+    transactions: HashSet<u64>,
+    status_outstanding: bool,
+}
+
 #[derive(Debug)]
 struct ReadyTransaction {
     value: ResolverReady,
@@ -475,9 +484,12 @@ impl RecoveryReady {
 #[derive(Debug)]
 pub struct BlobCacheResolver {
     cache: ClientBlobCache,
+    requested_hashes: RequestedBlobHashes,
     pending: HashMap<u64, PendingTransaction>,
     pending_order: BTreeSet<u64>,
-    pending_by_hash: HashMap<u64, HashSet<u64>>,
+    /// Only SubChunk replies can be fetched again through exact scheduler recovery.
+    retryable_pending: BTreeSet<u64>,
+    pending_by_hash: HashMap<u64, PendingBlob>,
     resolved_pending: BTreeSet<u64>,
     ready: BTreeMap<u64, ReadyTransaction>,
     immediate_ready: BTreeMap<u64, ImmediateReady>,
@@ -496,15 +508,15 @@ pub struct BlobCacheResolver {
     ready_accounted_bytes: usize,
     /// Sum of `columns.len()` across `pending` and `ready`, the recovery slots they reserve.
     retained_column_slots: usize,
-    trace_origins: Option<TraceOrigins>, // kept only while the latency trace runs
+    trace_origins: Option<TraceOrigins>, // optional latency and capture provenance
 }
 
-/// The core frame and slot that produced each retained item, for the latency trace.
+/// Numeric packet provenance for retained resolver items, released as each item leaves.
 #[derive(Debug, Default)]
 struct TraceOrigins {
-    current: (u64, u32),
-    by_sequence: HashMap<u64, (u64, u32)>,
-    popped: (u64, u32),
+    current: crate::packet_tap::PacketOrigin,
+    by_sequence: HashMap<u64, crate::packet_tap::PacketOrigin>,
+    popped: crate::packet_tap::PacketOrigin,
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {

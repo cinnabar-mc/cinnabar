@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::types::DynamicValue;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::DynamicValue;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 /// One data store property value: a JSON-like tree carried as a wire `DynamicValue`.
@@ -57,6 +57,30 @@ impl DataValue {
             Self::List(items) => items.get(index),
             Self::Map(entries) => entries.get(index.to_string().as_str()),
             _ => None,
+        }
+    }
+
+    /// The stored elements in index order with their indices: a list's items, or the decimal-keyed
+    /// members of an array-shaped map below its `length`. Missing indices are skipped, so the
+    /// work follows the stored entries rather than a claimed length.
+    #[must_use]
+    pub fn elements(&self) -> Vec<(usize, &Self)> {
+        match self {
+            Self::List(items) => items.iter().enumerate().collect(),
+            Self::Map(entries) => {
+                let length = self.array_len();
+                let mut elements: Vec<_> = entries
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        let index = key.parse::<usize>().ok()?;
+                        (index < length && index.to_string() == key.as_ref())
+                            .then_some((index, value))
+                    })
+                    .collect();
+                elements.sort_unstable_by_key(|(index, _)| *index);
+                elements
+            }
+            _ => Vec::new(),
         }
     }
 

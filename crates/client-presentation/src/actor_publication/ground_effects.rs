@@ -1,4 +1,4 @@
-//! Equipped ground effects remain independent of the visibility of the owner's body.
+//! Ground effects are admitted only for wearers exposed by the current actor frame.
 use super::{ActorFrameInput, RemoteHat};
 use bevy::prelude::Resource;
 use cosmetics::Item;
@@ -12,23 +12,35 @@ pub struct GroundEffectWearer {
     pub item: Item,
 }
 
-/// Ground items selected for the latest actor frame, including first-person wearers.
+/// Ground items selected for visible wearers in the latest actor frame.
 #[derive(Resource, Default)]
 pub struct GroundEffectWearers(pub Vec<GroundEffectWearer>);
 
 impl GroundEffectWearers {
-    /// Resolves current equipped selections against live actors before body culling.
+    /// Resolves selections after body admission, skipping hidden local and culled remote wearers.
     pub(super) fn capture(
         &mut self,
         input: &ActorFrameInput,
         stream: Option<&chunk_pipeline::WorldStream>,
+        batch: &crate::presentation::actors::ActorPresentationBatch,
+        local_visible: bool,
     ) {
         self.0.clear();
         let Some(stream) = stream else {
             return;
         };
+        let visible = |id| {
+            batch.submissions.iter().any(|draw| {
+                draw.input.identity.runtime_id == id
+                    && draw.input.identity.layer == render_model::ACTOR_LAYER_BODY
+                    && draw.route != render_model::ActorRigRoute::NoDraw
+            })
+        };
         let local = stream.local_player_runtime_id();
-        if let Some(actor) = stream.authority().actor(local) {
+        if local_visible
+            && visible(local)
+            && let Some(actor) = stream.authority().actor(local)
+        {
             for &item in &input.cosmetics {
                 self.push(local, actor.spawn_revision, item);
             }
@@ -40,6 +52,7 @@ impl GroundEffectWearers {
         } in &input.remote_hats
         {
             if runtime_id != local
+                && visible(runtime_id)
                 && stream
                     .authority()
                     .actor(runtime_id)

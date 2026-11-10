@@ -74,6 +74,9 @@ pub(crate) fn reflect(
                 .map(|(_, _, n)| n.clone())
                 .or_else(|| var.name.clone())
                 .unwrap_or_default();
+            if compiled.stage == StageKind::Geometry && rb.group == crate::GEOMETRY_GROUP {
+                continue;
+            }
             let res = resource(module, var, name, rb.group, rb.binding, compiled.stage)?;
             match resources.get_mut(&(rb.group, rb.binding)) {
                 Some(existing) => merge(existing, res, rb)?,
@@ -393,7 +396,9 @@ fn flatten_uniforms(
     match &module.types[ty].inner {
         TypeInner::Struct { members, .. } => {
             for m in members {
-                let name = m.name.clone().unwrap_or_default();
+                let name =
+                    crate::transform::original_identifier(m.name.as_deref().unwrap_or_default())
+                        .to_owned();
                 let p = if path.is_empty() {
                     name
                 } else {
@@ -571,6 +576,7 @@ mod tests {
                 lines: &lines,
             },
         )
+        .map_err(|failure| failure.diagnostics)
     }
 
     const FRAGMENT: &str = "#version 450

@@ -2,7 +2,7 @@ use super::RuntimeAssets;
 mod topology;
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
-    unit_cube_quad_geometry_is_valid,
+    terrain_marker_variant_is_valid, unit_cube_quad_geometry_is_valid,
 };
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFlags,
@@ -73,6 +73,7 @@ impl RuntimeAssets {
             overlay_page_layer_counts: Box::new([]),
             biomes,
             provenance,
+            retextured_visuals: Box::new([]),
             missing: AtomicU64::new(0),
         };
         // Prepare numeric block-entity routes before the carrier reaches the live world.
@@ -302,6 +303,9 @@ fn validate_fixed(
         if !covered_grass_variant_is_valid(kind, u32_at(record, 40), header.counts[2]) {
             return Err(invalid("visual has invalid covered-grass material"));
         }
+        if !terrain_marker_variant_is_valid(kind, u32_at(record, 40)) {
+            return Err(invalid("visual has an invalid terrain marker"));
+        }
         let contributor_role = ContributorRole::read(record[26])?;
         let support = VisualSupport::from_raw(record[28])?;
         crate::native_material::NativeMaterialFacts::from_raw(record[29])?;
@@ -467,11 +471,7 @@ fn validate_fixed(
                     .0
                     .get(index + 1)
                     .is_none_or(|next| {
-                        !matches!(
-                            u32_at(next, 8),
-                            0 | crate::MODEL_TEMPLATE_FLAG_BAMBOO
-                                | crate::MODEL_TEMPLATE_FLAG_SHORT_GRASS
-                        )
+                        !crate::model::potted_world_template_flags_are_valid(u32_at(next, 8))
                     }))
         {
             return Err(invalid(
@@ -481,6 +481,15 @@ fn validate_fixed(
         if u32_at(record, 0) as usize != quad
             || u32_at(record, 4) as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || !model_template_flags_are_valid(u32_at(record, 8))
+            || !crate::model::sheet_tile_template_pair_is_valid(
+                u32_at(record, 8),
+                u32_at(record, 4),
+                sections[3]
+                    .as_chunks::<TEMPLATE_BYTES>()
+                    .0
+                    .get(index + 1)
+                    .map(|next| (u32_at(next, 8), u32_at(next, 4))),
+            )
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_SNOW_LAYER && u32_at(record, 4) != 6)
@@ -632,11 +641,12 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
             continue;
         }
         let gate_axis = flags & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z);
-        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
-            || !matches!(
-                gate_axis,
-                0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
-            )
+        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | crate::MODEL_TEMPLATE_FLAG_SCAFFOLDING
+            && (flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
+                || !matches!(
+                    gate_axis,
+                    0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+                ))
         {
             return Err(invalid("compound template head has incompatible flags"));
         }
@@ -817,7 +827,7 @@ fn decode_pages(payload: &[u8], metas: &[PageMeta]) -> Result<Box<[TexturePage]>
             }
             Ok(TexturePage::new(TextureArray {
                 layers: m.layers as u32,
-                mips: mips.into_boxed_slice(),
+                mips: mips.into(),
             }))
         })
         .collect::<Result<Vec<_>, AssetError>>()

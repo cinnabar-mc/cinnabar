@@ -14,6 +14,14 @@ use crate::ui_runtime::{Translator, UiRuntime};
 mod components;
 use components::{boss_model, sidebar_model, world_text_input, world_text_lines};
 
+/// Vanilla's HUD binds `#item_durability_visible` false in Creative unless the item opts in
+/// (`Item::showsDurabilityInCreative`, which only chemistry sticks override); containers still
+/// show the bar. Chemistry sticks carry no durability maximum here, so no opt-in is reachable.
+fn hud_durability(player: &player_state::PlayerState, durability: Option<f32>) -> Option<f32> {
+    durability
+        .filter(|_| player.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative))
+}
+
 /// The current HUD model and the exact icon table its item references index.
 #[derive(Default)]
 pub(in crate::ui_runtime::presentation) struct SemanticHud {
@@ -45,6 +53,7 @@ impl SemanticHud {
         sidebar_key: (u64, u64, bool),
         settings: &SettingsOptions,
         hide_effects: bool,
+        hide_position: bool,
         catalog: &Arc<Catalog>,
     ) -> HudChanges {
         let reset = self.session != Some(runtime.session_id())
@@ -102,7 +111,7 @@ impl SemanticHud {
             self.model.boss_bars = self.bosses.iter().map(boss_model).collect();
             changes.boss_bars = true;
         }
-        let world_text = world_text_input(runtime, frame);
+        let world_text = world_text_input(runtime, frame, hide_position);
         if reset || language_changed || world_text != self.world_text {
             (self.model.player_position, self.model.days_played) =
                 world_text_lines(runtime, world_text);
@@ -143,6 +152,14 @@ impl SemanticHud {
                 .air()
                 .is_some_and(|air| air.current() < air.maximum());
         let mut changed = replace(&mut model.survival_ui, survival);
+        let locator = hotbar
+            && frame.mount_jump.is_none()
+            && frame.locator_view.is_some()
+            && runtime
+                .session
+                .locator
+                .visible(frame.dimension, frame.now_millis);
+        changed |= replace(&mut model.locator_bar, locator);
         changed |= replace(
             &mut model.armor_visible,
             runtime
@@ -156,7 +173,7 @@ impl SemanticHud {
         );
         changed |= replace(
             &mut model.xp_bar,
-            survival && experience.is_some() && frame.mount_jump.is_none(),
+            survival && experience.is_some() && frame.mount_jump.is_none() && !locator,
         );
         changed |= replace(
             &mut model.exp_progress,
@@ -167,7 +184,7 @@ impl SemanticHud {
         changed |= replace(&mut model.bubbles_visible, bubbles);
         changed |= replace(
             &mut model.paper_doll,
-            frame.paper_doll_visible && hotbar && settings.value(SettingId::HidePaperdoll) == 0,
+            frame.paper_doll_requested(player.facts.player_game_mode(), settings),
         );
         changed |= replace(
             &mut model.effects_visible,
@@ -195,7 +212,7 @@ impl SemanticHud {
                     slot,
                     frame.hotbar_stacks[index].as_ref(),
                     frame.hotbar_icons[index],
-                    frame.hotbar_durability[index],
+                    hud_durability(player, frame.hotbar_durability[index]),
                     player.selected_hotbar_slot() == Some(index as u8),
                 )
             })
@@ -206,7 +223,7 @@ impl SemanticHud {
                     slot,
                     Some(stack),
                     frame.offhand_icon,
-                    frame.offhand_durability,
+                    hud_durability(player, frame.offhand_durability),
                     false,
                 ),
                 _ => false,
@@ -252,7 +269,7 @@ impl SemanticHud {
                 id_aux: stack.map(|stack| facts.id_aux(stack)),
                 count: stack.map_or(0, |stack| u32::from(stack.count)),
                 selected,
-                durability: stack.and(durability).map(f64::from),
+                durability: stack.and(hud_durability(player, durability)).map(f64::from),
             }
         };
         self.model.hotbar = (0..frame.hotbar_stacks.len())
@@ -350,6 +367,10 @@ impl SemanticHud {
             ui_screens::settings_chat::default_color(settings),
         );
         changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
+        changed |= replace(
+            &mut self.model.chat_local_player,
+            Arc::clone(&runtime.session.local_player_display_name),
+        );
         if reset
             || self.chat_options != Some(options)
             || !rows().map(|(id, _)| id).eq(self.chat_rows.iter().copied())
@@ -484,5 +505,5 @@ pub(super) fn world_text_lines_for_frame(
     runtime: &UiRuntime,
     frame: &HudFrame,
 ) -> (Option<String>, Option<String>) {
-    world_text_lines(runtime, world_text_input(runtime, frame))
+    world_text_lines(runtime, world_text_input(runtime, frame, false))
 }

@@ -4,6 +4,8 @@ function Get-VineCoverageEvidence {
         [Parameter(Mandatory = $true)][string]$AssetsPath
     )
 
+    $targetRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
+    $target = Get-BedrockTargetManifest -ProjectRoot $targetRoot
     $registryBytes = [IO.File]::ReadAllBytes($RegistryPath)
     $reader = [IO.BinaryReader]::new([IO.MemoryStream]::new($registryBytes, $false))
     $utf8 = [Text.UTF8Encoding]::new($false, $true)
@@ -17,8 +19,9 @@ function Get-VineCoverageEvidence {
         $null = $reader.ReadUInt32()
         $recordCount = [int]$reader.ReadUInt32()
         foreach ($ignored in 1..4) { $null = $reader.ReadUInt32() }
-        if ($registryProtocol -ne 2193 -or $recordCount -ne 22091) {
-            throw "vine registry target changed: protocol=$registryProtocol records=$recordCount (expected 2193/22091)"
+        if ($registryProtocol -ne [uint32]$target.wire_protocol -or
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $RegistryPath).Hash.ToLowerInvariant() -cne [string]$target.hashes.block_registry) {
+            throw "vine registry target changed: protocol=$registryProtocol records=$recordCount (manifest identity mismatch)"
         }
         $entries = [Collections.Generic.List[object]]::new()
         for ($recordIndex = 0; $recordIndex -lt $recordCount; $recordIndex++) {

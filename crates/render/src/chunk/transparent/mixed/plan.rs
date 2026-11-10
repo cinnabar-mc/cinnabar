@@ -99,14 +99,21 @@ pub(super) fn collect_faces(
     Some(faces)
 }
 
-/// Orders one section’s model and water faces with the native metric and stable ties.
+/// Orders one section’s model and water faces far to near with the native metric and stable
+/// ties. Each face's distance is computed once rather than in every comparison.
 pub(crate) fn sort_faces(key: SubChunkKey, camera: Vec3, faces: &mut [MixedFace]) {
     let metric = TransparentFaceMetric::new(camera).for_chunk(key);
-    faces.sort_by(|left, right| {
-        metric
-            .distance(right.centroid)
-            .total_cmp(&metric.distance(left.centroid))
+    let mut keyed: Vec<(f32, MixedFace)> = faces
+        .iter()
+        .map(|face| (metric.distance(face.centroid), face.clone()))
+        .collect();
+    keyed.sort_by(|(left_distance, left), (right_distance, right)| {
+        right_distance
+            .total_cmp(left_distance)
             .then_with(|| left.stream.cmp(&right.stream))
             .then_with(|| left.stable.cmp(&right.stable))
     });
+    for (slot, (_, face)) in faces.iter_mut().zip(keyed) {
+        *slot = face;
+    }
 }

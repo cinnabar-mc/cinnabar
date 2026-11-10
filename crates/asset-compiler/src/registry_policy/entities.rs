@@ -8,8 +8,8 @@ use std::{
     path::Path,
 };
 
-pub const COMPONENTS_PATH: &str = "crates/asset-compiler/data/entity-components-1.26.50.json";
-const ACTORS_PATH: &str = "crates/protocol/data/retail_actors_1_26_50.txt";
+pub const COMPONENTS_PATH: &str = "crates/asset-compiler/data/entity-components-1.26.60.json";
+const ACTORS_PATH: &str = "crates/protocol/data/retail_actors_1_26_60.txt";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -216,11 +216,11 @@ pub fn compile(root: &Path, out: &Path, policy_bytes: &[u8]) -> Result<()> {
     }
     check(
         names.iter().all(|name| {
-            assigned
-                .get(name)
-                .is_some_and(|fields| fields.contains("interactions"))
+            assigned.get(name).is_some_and(|fields| {
+                fields.contains("interactions") && fields.contains("actor_use_resolver")
+            })
         }),
-        "every entity needs an explicit interaction disposition",
+        "every entity needs explicit targeting and use resolver dispositions",
     )?;
     let mut expansion = String::from(
         "identifier\tclass_key\tnative_class\tprojectile\tprovisional\trules\tfacts\n",

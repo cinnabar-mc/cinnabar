@@ -193,7 +193,11 @@ fn poplar_shelves_keep_the_recess_and_powered_front_through_the_carrier() {
                 .model_template(),
             visual.model_template()
         );
-        let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
+        let template = assets::whole_sheet_model_template(
+            runtime.model_templates(),
+            visual.model_template().unwrap(),
+        );
+        let template = runtime.model_templates()[template as usize];
         let quads =
             &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize];
         assert_eq!(
@@ -342,6 +346,11 @@ fn shelf_models_cover_all_woods_and_reject_invalid_selectors() {
             record.name,
             record.canonical_state
         );
+    }
+    for record in &shelves {
+        let visual = &compiled.visuals[record.sequential_id as usize];
+        let template = &compiled.model_templates[visual.model_template as usize];
+        assert_ne!(template.flags & assets::MODEL_TEMPLATE_FLAG_SHELF, 0);
     }
     let valid = shelves[0];
     for (key, replacement) in [

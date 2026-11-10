@@ -20,6 +20,7 @@ use super::{
 };
 
 pub(super) struct RigInputs<'a> {
+    pub animation_symbols: &'a BTreeMap<Box<str>, Option<u32>>,
     pub clip_indices: &'a ClipIndices,
     pub controllers: &'a [PendingController],
     pub geometry_selections: &'a GeometrySelections,
@@ -42,6 +43,7 @@ struct PendingRig {
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
     held_item_scale: Option<u32>,
+    hide_held_items: Option<u32>,
 }
 
 /// `(alias, target, weight, authored order)` of one root binding.
@@ -117,6 +119,7 @@ impl PendingRigPayload {
                 scale: rig.scale,
                 scale_expressions: rig.scale_expressions,
                 held_item_scale: rig.held_item_scale,
+                hide_held_items: rig.hide_held_items,
             });
         }
         Ok(FinalRigPayload {
@@ -143,7 +146,6 @@ pub(super) fn compile_rigs(
     molang: &mut MolangCompiler,
 ) -> Result<(PendingRigPayload, Vec<Box<str>>), AssetError> {
     let render_indices = unique_symbol_indices(&input, EntityAssetKind::RenderController)?;
-    let animation_symbols = unique_symbol_indices(&input, EntityAssetKind::Animation)?;
     let controller_symbols = unique_symbol_indices(&input, EntityAssetKind::AnimationController)?;
     let RigSources {
         root,
@@ -153,6 +155,7 @@ pub(super) fn compile_rigs(
         geometries,
     } = input;
     let RigInputs {
+        animation_symbols,
         clip_indices,
         controllers,
         geometry_selections,
@@ -221,6 +224,7 @@ pub(super) fn compile_rigs(
                 scale: EntityGeometryScalar::new(1.0).expect("unit scale is valid"),
                 scale_expressions: None,
                 held_item_scale: None,
+                hide_held_items: None,
             });
             index
         });
@@ -256,8 +260,9 @@ pub(super) fn compile_rigs(
             }
             Some(Some(render_controller)) => *render_controller,
         };
-        let mut rejected = false;
+        let mut ambiguous_animation = false;
         let mut static_fallback = false;
+        let mut dropped_animation_root = false;
         let mut geometry_candidates = vec![(geometry, None)];
         match geometry_selections.get(&(render_name.into(), entity_symbol as u32)) {
             Some(GeometrySelection::Supported(selectable)) => geometry_candidates.extend(
@@ -307,11 +312,11 @@ pub(super) fn compile_rigs(
                 let symbols = if is_controller {
                     &controller_symbols
                 } else {
-                    &animation_symbols
+                    animation_symbols
                 };
-                // Ambiguity rejects the rig even for an inactive alias a controller may reach.
+                // A conflicting alias can also be reached indirectly through a controller.
                 if symbols.get(target.as_ref()).is_some_and(Option::is_none) {
-                    rejected = true;
+                    ambiguous_animation = true;
                     continue;
                 }
                 if !is_root(name) {
@@ -323,7 +328,7 @@ pub(super) fn compile_rigs(
                     Some(condition) => match molang.compile(&condition) {
                         Ok(weight) => Some(weight),
                         Err(_) => {
-                            static_fallback = true;
+                            dropped_animation_root = true;
                             continue;
                         }
                     },
@@ -347,8 +352,8 @@ pub(super) fn compile_rigs(
                 {
                     animation_bindings.push((name.clone(), clip, weight, root_order(name)));
                 } else {
-                    // A reference the pack never defines leaves the rig static.
-                    static_fallback = true;
+                    // One missing root must not disable independently compiled roots.
+                    dropped_animation_root = true;
                 }
             }
             animation_bindings.sort_by(|left, right| (left.3, &left.0).cmp(&(right.3, &right.0)));
@@ -361,18 +366,31 @@ pub(super) fn compile_rigs(
                 controllers: controller_bindings,
             });
         }
-        if rejected {
-            outcomes.push(reject(RejectReason::AmbiguousAnimationReference));
-            continue;
+        static_fallback |= dropped_animation_root
+            && pending_geometries
+                .iter()
+                .all(|geometry| geometry.animations.is_empty() && geometry.controllers.is_empty());
+        if ambiguous_animation {
+            // Keep the body, but never select an arbitrary duplicate or run a controller
+            // that could indirectly read it. This remains an incomplete rest-pose fallback.
+            for geometry in &mut pending_geometries {
+                geometry.animations.clear();
+                geometry.controllers.clear();
+            }
+            static_fallback = true;
         }
         static_fallback |= optional_condition
             .is_some_and(|expression| MolangCompiler::default().compile(expression).is_err());
         let scripts = RigScripts::compile(description, molang)?;
-        if static_fallback || scripts.dropped > 0 {
+        if static_fallback || dropped_animation_root || scripts.dropped > 0 {
             outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
                 source: entity.source_index,
                 symbol: entity_symbol as u32,
-                reason: FallbackReason::UnsupportedOptionalExpression,
+                reason: if ambiguous_animation {
+                    FallbackReason::AmbiguousAnimationReference
+                } else {
+                    FallbackReason::UnsupportedOptionalExpression
+                },
             });
         }
         let rig_index = rigs.len() as u32;
@@ -385,7 +403,9 @@ pub(super) fn compile_rigs(
             entity_symbol: entity_symbol as u32,
             render_controller: Some(render_controller),
             geometries: pending_geometries,
-            fallback: if static_fallback {
+            // Empty animation bindings retain the rest pose while the ordinary schedule
+            // still evaluates authored scripts, scale and geometry selection.
+            fallback: if static_fallback && !ambiguous_animation {
                 EntityRigFallback::GeometryOnly
             } else {
                 EntityRigFallback::Skip
@@ -396,6 +416,7 @@ pub(super) fn compile_rigs(
             scale: scripts.scale,
             scale_expressions: scripts.scale_expressions,
             held_item_scale: scripts.held_item_scale,
+            hide_held_items: scripts.hide_held_items,
         };
         let rig_index = match selection_rig {
             Some(index) => {
@@ -418,6 +439,7 @@ struct RigScripts {
     scale: EntityGeometryScalar,
     scale_expressions: Option<[u32; 4]>,
     held_item_scale: Option<u32>,
+    hide_held_items: Option<u32>,
     dropped: usize,
 }
 
@@ -501,12 +523,27 @@ impl RigScripts {
                 compiled
             }
         };
+        let hide_held_items = match description.get("hide_held_items") {
+            None => None,
+            Some(value) => {
+                let expression = match value {
+                    Value::Bool(value) => Some(u8::from(*value).to_string()),
+                    Value::Number(number) => Some(number.to_string()),
+                    Value::String(text) => Some(text.clone()),
+                    _ => None,
+                };
+                let compiled = expression.and_then(|text| molang.compile(&text).ok());
+                dropped += usize::from(compiled.is_none());
+                compiled
+            }
+        };
         Ok(Self {
             initialize,
             pre_animation,
             scale,
             scale_expressions,
             held_item_scale,
+            hide_held_items,
             dropped,
         })
     }
@@ -536,7 +573,7 @@ fn select_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>
 }
 
 /// Indexes one named-map kind by identifier; only definitions that differ make it ambiguous.
-fn unique_symbol_indices(
+pub(super) fn unique_symbol_indices(
     input: &RigSources<'_>,
     kind: EntityAssetKind,
 ) -> Result<BTreeMap<Box<str>, Option<u32>>, AssetError> {

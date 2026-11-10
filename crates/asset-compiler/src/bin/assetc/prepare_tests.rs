@@ -129,7 +129,7 @@ fn a_changed_input_rebuilds_its_carrier_and_the_carriers_reading_it() {
     let registry = context(dir.path()).files(&WORLD)[0].clone();
     assert_eq!(
         registry,
-        root.resolve("crates/assets/data/block-registry-v2193.bin")
+        root.resolve("crates/assets/data/block-registry-v2225.bin")
     );
     fs::write(registry, b"changed").unwrap();
     assert_eq!(
@@ -302,9 +302,9 @@ fn world_recipe_passes_only_its_registries() {
             .find(|path| path.to_string_lossy().ends_with(suffix))
             .unwrap()
     };
-    assert_eq!(registry, named("block-registry-v2193.bin"));
-    assert_eq!(light_registry, named("block-light-registry-v2193.bin"));
-    assert_eq!(biome_registry, named("biome-registry-v2193.bin"));
+    assert_eq!(registry, named("block-registry-v2225.bin"));
+    assert_eq!(light_registry, named("block-light-registry-v2225.bin"));
+    assert_eq!(biome_registry, named("biome-registry-v2225.bin"));
 }
 
 fn run(root: &Path, only: &str) -> (Result<(), String>, Stamp) {
@@ -316,7 +316,13 @@ fn run(root: &Path, only: &str) -> (Result<(), String>, Stamp) {
     };
     let plan = plan(&context, COMPILER, &scope, &Stamp::default()).unwrap();
     fs::create_dir_all(&context.out).unwrap();
-    let result = execute(&context, &plan, Stamp::default(), &Reporter { json: true });
+    let result = execute(
+        &context,
+        &plan,
+        Stamp::default(),
+        &Reporter { json: true },
+        None,
+    );
     (result, read_stamp(&context.out))
 }
 
@@ -374,6 +380,33 @@ fn an_input_with_unchanged_size_and_mtime_is_not_rehashed() {
     assert_eq!(stale(dir.path(), COMPILER), [FONT.name]);
 }
 
+/// A kit built in one place and installed in another reuses its stamped digests.
+#[test]
+fn stamped_digests_follow_inputs_that_move() {
+    let dir = checkout();
+    let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1 << 30);
+    let set = |root: &Path, bytes: &[u8]| {
+        let font = root.join("assets/fonts/Font.ttf");
+        fs::write(&font, bytes).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&font)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    };
+    set(dir.path(), b"font-1");
+    build_all(dir.path());
+    let parent = tempfile::tempdir().unwrap();
+    let moved = parent.path().join("moved");
+    fs::rename(dir.path(), &moved).unwrap();
+    // Same size and mtime at the new path: only a reused digest leaves the changed bytes current.
+    set(&moved, b"font-2");
+    let current = stale(&moved, COMPILER).is_empty();
+    fs::rename(&moved, dir.path()).unwrap();
+    assert!(current);
+}
+
 #[test]
 fn physics_compiles_from_the_seed_and_is_reused_until_an_input_changes() {
     let dir = checkout();
@@ -381,7 +414,7 @@ fn physics_compiles_from_the_seed_and_is_reused_until_an_input_changes() {
     fs::write(&files[0], assets::pinned_block_registry_bytes()).unwrap();
     fs::write(
         &files[1],
-        include_bytes!("../../../../assets/data/block-physics-seed-v2193.bin"),
+        include_bytes!("../../../../assets/data/block-physics-seed-v2225.bin"),
     )
     .unwrap();
     let (result, _) = run(dir.path(), BLOCK_PHYSICS.name);
@@ -390,7 +423,7 @@ fn physics_compiles_from_the_seed_and_is_reused_until_an_input_changes() {
     let output = fs::read(ctx.out.join(BLOCK_PHYSICS.output)).unwrap();
     assert_eq!(
         format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&output)),
-        include_str!("../../../../assets/data/block-physics-v2193.sha256").trim(),
+        include_str!("../../../../assets/data/block-physics-v2225.sha256").trim(),
         "prepared physics must match the client's startup pin"
     );
     let protocol = assets::active_content_registry_protocol();
@@ -616,6 +649,7 @@ fn a_kit_staged_from_the_packaged_list_plans_and_builds_without_the_checkout() {
         &planned,
         Stamp::default(),
         &Reporter { json: true },
+        None,
     )
     .unwrap();
     let stamp = read_stamp(&context.out);
@@ -655,6 +689,7 @@ fn a_kit_staged_from_the_packaged_list_prepares_every_required_carrier_from_the_
         &planned,
         Stamp::default(),
         &Reporter { json: true },
+        None,
     )
     .unwrap();
     assert!(carriers::required_present(&context.out));

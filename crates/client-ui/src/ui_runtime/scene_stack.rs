@@ -15,6 +15,9 @@ use launcher::menu::MenuScreen;
 const BED_SCREEN: &str = "bed.in_bed_screen";
 const SERVER_FORM_SCREEN: &str = "server_form.third_party_server_screen";
 
+/// User-selected distance for entity-backed storage screens.
+const ENTITY_STORAGE_CLOSE_DISTANCE: f64 = 11.5;
+
 /// A screen the host can have up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
@@ -27,9 +30,16 @@ pub enum Scene {
     Container,
     Chat,
     Emote,
+    /// Vanilla's list of the local player's active effects.
+    MobEffects,
     Loading,
+    /// Client-owned cover while an in-session global resource-pack replacement publishes.
+    ResourcePackLoading,
     SignEditor,
+    CommandBlock,
     ServerForm,
+    /// A script form shown through data-driven UI.
+    DataDriven,
     Menu(MenuScreen),
     /// The server settings form, which opens over the settings menu.
     ServerSettingsForm,
@@ -44,8 +54,12 @@ impl Scene {
             Self::Bed
             | Self::Container
             | Self::Emote
+            | Self::MobEffects
+            | Self::ResourcePackLoading
             | Self::SignEditor
+            | Self::CommandBlock
             | Self::ServerForm
+            | Self::DataDriven
             | Self::ServerSettingsForm
             | Self::Credits => true,
             Self::Gameplay
@@ -57,9 +71,32 @@ impl Scene {
         }
     }
 
+    /// This scene's place in the stack, bottom first, which [`UiRuntime::scenes`] visits in order.
+    pub const fn layer(self) -> u8 {
+        match self {
+            Self::Gameplay => 0,
+            Self::Crosshair => 1,
+            Self::Hud => 2,
+            Self::Bed => 3,
+            Self::Container => 4,
+            Self::Chat => 5,
+            Self::Emote => 6,
+            Self::MobEffects => 7,
+            Self::Loading => 8,
+            Self::SignEditor => 9,
+            Self::CommandBlock => 10,
+            Self::ServerForm => 11,
+            Self::DataDriven => 12,
+            Self::Menu(_) => 13,
+            Self::ServerSettingsForm => 14,
+            Self::Credits => 15,
+            Self::ResourcePackLoading => 16,
+        }
+    }
+
     /// Whether both draw one vanilla screen (menu tabs share theirs).
     fn same_screen(self, other: Self) -> bool {
-        use launcher::menu::menu_reference;
+        use launcher::menu::flow::menu_reference;
         match (self, other) {
             (Self::Menu(a), Self::Menu(b)) => {
                 a == b || menu_reference(a).is_some_and(|r| menu_reference(b) == Some(r))
@@ -132,6 +169,33 @@ impl ScreenSettingsTable {
 }
 
 impl UiRuntime {
+    /// Closes an entity-backed storage window beyond the configured distance from its owner.
+    pub fn close_distant_entity_storage(
+        &mut self,
+        player: &mut player_state::PlayerState,
+        player_position: [f64; 3],
+        entity_position: Option<[f32; 3]>,
+    ) {
+        let ledger = player.inventory.ledger();
+        if !self.inventory_open()
+            || ledger.window_kind() != Some(protocol::WindowKind::Storage)
+            || ledger.window_actor().is_none()
+        {
+            return;
+        }
+        let Some(entity_position) = entity_position else {
+            return;
+        };
+        let distance_squared: f64 = player_position
+            .into_iter()
+            .zip(entity_position)
+            .map(|(player, entity)| (player - f64::from(entity)).powi(2))
+            .sum();
+        if distance_squared > ENTITY_STORAGE_CLOSE_DISTANCE.powi(2) {
+            self.close_inventory(player);
+        }
+    }
+
     #[cfg(test)]
     pub fn set_screen_settings(&mut self, table: Arc<ScreenSettingsTable>) {
         self.screen_settings = table;
@@ -187,6 +251,46 @@ impl UiRuntime {
             .all(|scene| !scene.settings.absorbs_input)
     }
 
+    /// The scene that takes keyboard and pointer input: the top of the stack. Gameplay stands for
+    /// its overlays, and for a stack with nothing up.
+    pub fn input_scene(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        host: SceneHost,
+    ) -> Scene {
+        let mut top = Scene::Gameplay;
+        self.visit_scenes_in(
+            player_runtime,
+            host,
+            &ScreenSettingsTable::default(),
+            |scene, _| top = scene,
+        );
+        top
+    }
+
+    /// Whether a screen other than `own` is up over the world, whatever its pack input policy:
+    /// any scene the stack pushes above gameplay and its HUD overlays, launcher menus aside.
+    /// Shortcuts that open a screen, and command macros, check it so screens never open
+    /// over one another.
+    pub fn screen_open_besides(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        own: Option<Scene>,
+    ) -> bool {
+        let mut open = false;
+        let table = ScreenSettingsTable::default();
+        self.visit_scenes_in(
+            player_runtime,
+            SceneHost::of(None, self),
+            &table,
+            |scene, _| {
+                open |= !matches!(scene, Scene::Gameplay | Scene::Crosshair | Scene::Hud)
+                    && Some(scene) != own;
+            },
+        );
+        open
+    }
+
     /// Whether the top scene is one a touchscreen drives through the mouse pointer.
     pub fn top_scene_reads_only_pointer(
         &self,
@@ -231,8 +335,19 @@ impl UiRuntime {
             .is_showing_menu
     }
 
+    /// Whether the command block editor, open or asked for earlier in the server's order, counts
+    /// as a menu, by the same rule as a container.
+    pub(super) fn command_block_shows_menu(&self) -> bool {
+        (self.command_block().is_open() || self.command_block().requested())
+            && self
+                .screen_settings
+                .get(ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN)
+                .unwrap_or_default()
+                .is_showing_menu
+    }
+
     pub fn note_player_hurt(&mut self) {
-        self.hurt_pending = true;
+        self.session.hurt_pending = true;
     }
 }
 
@@ -301,22 +416,19 @@ fn form_screen(entry: &super::ServerFormEntry) -> &'static str {
 }
 
 impl UiRuntime {
-    /// Closes the top scene when the player is hurt and its screen asks for it. Chat stays
-    /// open: vanilla keeps typing uninterrupted when hit, though its chat screen sets the flag.
+    /// Closes eligible top scenes when the player is hurt. Chat and containers stay open.
     pub fn close_scenes_on_player_hurt(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         menu: Option<&dyn MenuScene>,
     ) {
-        if !std::mem::take(&mut self.hurt_pending) {
+        if !std::mem::take(&mut self.session.hurt_pending) {
             return;
         }
         let host = SceneHost::of(menu, self);
         match self.scenes(player_runtime, host).closes_on_hurt() {
-            Some(Scene::Container) => {
-                self.close_inventory(player_runtime);
-            }
             Some(Scene::SignEditor) => self.sign_editor_mut().close_on_hurt(),
+            Some(Scene::MobEffects) => self.close_mob_effect_screen(),
             _ => {}
         }
     }

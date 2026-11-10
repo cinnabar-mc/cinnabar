@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::UpdateTrade;
+use bedrock_protocol_1_26_60::packets::UpdateTrade;
 
 use super::ContainerIdentity;
 

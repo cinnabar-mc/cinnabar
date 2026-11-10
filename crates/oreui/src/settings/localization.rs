@@ -85,6 +85,10 @@ pub(super) fn french_text(key: &str) -> Option<&'static str> {
         "options.cinnabar.shaderOptions.buttonLabel" => "Options du shader…",
 
         "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Visuel F5 immersif",
+        "options.showOtherPlayerCosmetics" => "Afficher les cosmétiques des autres joueurs",
+        "options.showOtherPlayerCosmetics.description" => {
+            "Affiche les cosmétiques équipés, compagnons et effets des autres joueurs. Vos propres cosmétiques restent visibles."
+        }
         "options.f5SelfVisuals.description" => {
             "Affiche le joueur complet en vue F5 (armure, cosmétiques, cape et pseudo tels que les autres joueurs vous voient)."
         }
@@ -370,11 +374,19 @@ pub(super) fn fallback(key: &str) -> &str {
         "color.dark_blue" => "Dark Blue",
         "color.black" => "Black",
         "options.f5SelfVisuals" | "options.f5SelfVisuals.name" => "Third-Person Self Visuals",
+        "options.showOtherPlayerCosmetics" => "Show Other Players' Cosmetics",
+        "options.showOtherPlayerCosmetics.description" => {
+            "Show other players' equipped cosmetics, companions, and effects. Your own cosmetics stay visible."
+        }
         "options.f5SelfVisuals.description" => {
             "Display nametag, score, badges, and status overhead on your own player in third-person view."
         }
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
+        "Chat Input" => "Chat Input",
+        "Chat Input.description" => {
+            "Type in Java's input line over the game, or in Bedrock's full chat screen"
+        }
         "hbui.Settings.category.general" => "General",
         "menu.accessibility.tab.title" | "options.accessibility" => "Accessibility",
         "menu.accessibility.tab.description" => "Minecraft is for everyone, including you",
@@ -491,6 +503,19 @@ pub(super) fn fallback(key: &str) -> &str {
         }
         "hudScreen.controlCustomization.tooltip.notouch" => {
             "Use a touch device to customize controls"
+        }
+        "options.controlMode.name" => "Control mode",
+        "options.controlMode.touchLabel" => "Joystick & tap to interact",
+        "options.controlMode.classicLabel" => "D-Pad & tap to interact",
+        "options.controlMode.crosshairLabel" => "Joystick & aim crosshair",
+        "options.controlMode.touch.description" => {
+            "Drag joystick to move. Drag anywhere else to look around. Tap and hold blocks to interact with them."
+        }
+        "options.controlMode.classic.description" => {
+            "Tap arrows to move. Drag anywhere else to look around. Tap and hold blocks to interact with them."
+        }
+        "options.controlMode.crosshair.description" => {
+            "Drag joystick to move. Drag anywhere else to look around. Aim crosshair and use buttons to interact with blocks."
         }
         "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => {
             "Global Resources"

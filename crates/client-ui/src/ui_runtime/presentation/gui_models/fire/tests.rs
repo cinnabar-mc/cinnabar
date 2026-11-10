@@ -19,7 +19,7 @@ fn flame_frames_retain_original_texels_and_animate_without_texture_rebuilds() {
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.gui_models.enabled = true;
     let source = texture();
-    presentation.set_gui_fire_texture(Some(&source)).unwrap();
+    presentation.set_gui_fire_texture(Some(&source));
     let textures = Arc::clone(&presentation.textures);
     let frames = presentation.gui_models.fire.frames.clone();
     assert_eq!(frames.len(), 2);
@@ -80,18 +80,18 @@ fn optional_flame_texture_can_be_replaced_removed_or_rejected_without_accumulati
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let mut texture = texture();
-    presentation.set_gui_fire_texture(Some(&texture)).unwrap();
-    let pages = presentation.gui_models.pages.len();
+    presentation.set_gui_fire_texture(Some(&texture));
+    let pages = presentation.gui_models.sources.pages.len();
     texture.rgba8 = vec![255; texture.rgba8.len()].into();
-    presentation.set_gui_fire_texture(Some(&texture)).unwrap();
-    assert_eq!(presentation.gui_models.pages.len(), pages);
+    presentation.set_gui_fire_texture(Some(&texture));
+    assert_eq!(presentation.gui_models.sources.pages.len(), pages);
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
     texture.height = 17;
-    presentation.set_gui_fire_texture(Some(&texture)).unwrap();
-    assert!(presentation.gui_models.pages.is_empty());
+    presentation.set_gui_fire_texture(Some(&texture));
+    assert!(presentation.gui_models.sources.pages.is_empty());
     assert!(presentation.gui_models.fire.frames.is_empty());
-    presentation.set_gui_fire_texture(None).unwrap();
-    assert!(presentation.gui_models.pages.is_empty());
+    presentation.set_gui_fire_texture(None);
+    assert!(presentation.gui_models.sources.pages.is_empty());
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn fire_playback_holds_when_extinguished_and_resets_when_actor_is_replaced() {
 
 #[test]
 fn review_actor_flames_reclaim_pages_from_optional_block_models() {
-    use super::super::{GuiModels, icon_key, item_gui};
+    use super::super::{GuiModels, PreparedGuiModels, icon_key, item_gui};
     use render_model::UiTexturePage;
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
@@ -121,6 +121,7 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     let required = IconRef {
+        color_mask: None,
         page: first,
         uv: [1, 1, 17, 17],
         glint: false,
@@ -129,44 +130,47 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
         page: first + 1,
         ..required
     };
-    let required_mesh = item_gui::cube([required; 6]).unwrap();
-    let optional_mesh = item_gui::cube([optional; 6]).unwrap();
+    let required_mesh = item_gui::cube([required; 6], Default::default()).unwrap();
+    let optional_mesh = item_gui::cube([optional; 6], Default::default()).unwrap();
     presentation.gui_models = GuiModels {
         enabled: true,
-        pages: vec![page; MODEL_PAGES],
-        required_pages: 1,
-        models: [
-            (icon_key(required), Arc::clone(&required_mesh)),
-            (icon_key(optional), optional_mesh),
-        ]
-        .into(),
-        optional_models: [icon_key(optional)].into(),
-        textures: [
-            (super::super::atlas::key([1; 2], &[1; 4]), required),
-            (super::super::atlas::key([1; 2], &[2; 4]), optional),
-        ]
-        .into(),
+        sources: PreparedGuiModels {
+            pages: vec![page; MODEL_PAGES],
+            required_pages: 1,
+            models: [
+                (icon_key(required), Arc::clone(&required_mesh)),
+                (icon_key(optional), optional_mesh),
+            ]
+            .into(),
+            optional_models: [icon_key(optional)].into(),
+            textures: [
+                (super::super::atlas::key([1; 2], &[1; 4]), required),
+                (super::super::atlas::key([1; 2], &[2; 4]), optional),
+            ]
+            .into(),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let source = texture();
-    presentation
-        .set_gui_fire_texture(Some(&source))
-        .expect("optional block meshes must leave room for actor flames");
+    presentation.set_gui_fire_texture(Some(&source));
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
-    assert_eq!(presentation.gui_models.pages.len(), 2);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 2);
     assert!(Arc::ptr_eq(
-        &presentation.gui_models.models[&icon_key(required)],
+        &presentation.gui_models.sources.models[&icon_key(required)],
         &required_mesh
     ));
     assert!(
         !presentation
             .gui_models
+            .sources
             .models
             .contains_key(&icon_key(optional))
     );
     assert!(
         !presentation
             .gui_models
+            .sources
             .textures
             .values()
             .any(|icon| icon.page == optional.page)
@@ -185,22 +189,76 @@ fn review_actor_flames_reclaim_pages_from_optional_block_models() {
             .collect::<Vec<_>>()
             .into(),
     };
-    presentation.set_gui_fire_texture(Some(&large)).unwrap();
+    presentation.set_gui_fire_texture(Some(&large));
     assert_eq!(presentation.gui_models.fire.frames.len(), 4);
-    assert_eq!(presentation.gui_models.pages.len(), 5);
-    presentation.set_gui_fire_texture(None).unwrap();
-    assert_eq!(presentation.gui_models.pages.len(), 1);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 5);
+    presentation.set_gui_fire_texture(None);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 1);
 }
 
 #[test]
 fn exhausted_required_pages_clear_previous_flame_frame_addresses() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
-    presentation.set_gui_fire_texture(Some(&texture())).unwrap();
+    presentation.set_gui_fire_texture(Some(&texture()));
     assert!(!presentation.gui_models.fire.frames.is_empty());
-    let page = presentation.gui_models.pages[0].clone();
-    presentation.gui_models.pages = vec![page; MODEL_PAGES];
+    let page = presentation.gui_models.sources.pages[0].clone();
+    presentation.gui_models.sources.pages = vec![page; MODEL_PAGES];
     presentation.gui_models.fire.pages_start = None;
-    assert!(presentation.install_gui_fire().is_err());
+    presentation.install_gui_fire();
     assert!(presentation.gui_models.fire.frames.is_empty());
+}
+
+// Local-only: installed item artwork fits without sprite fallbacks and leaves room for the
+// installed actor flame, as at startup.
+#[test]
+fn installed_item_models_leave_room_for_installed_actor_flames() {
+    use crate::test_support::fixture_hud;
+    use assets::{RuntimeEquipmentCatalog, RuntimeIconCatalog, carriers};
+    let compiled = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(carriers::COMPILED_DIR);
+    let read = |carrier: &carriers::Carrier| {
+        let path = compiled.join(carrier.output);
+        std::fs::read(&path).map_err(|_| {
+            eprintln!(
+                "skipping installed_item_models_leave_room_for_installed_actor_flames: missing {}; run make assets",
+                path.display()
+            );
+        })
+    };
+    let (Ok(world), Ok(entities), Ok(icons), Ok(equipment), Ok(particles)) = (
+        read(&carriers::WORLD),
+        read(&carriers::ENTITY),
+        read(&carriers::ICON),
+        read(&carriers::EQUIPMENT),
+        read(&carriers::PARTICLE),
+    ) else {
+        return;
+    };
+    let world = assets::RuntimeAssets::decode(&world).unwrap();
+    let entities = assets::RuntimeEntityAssets::decode(&entities).unwrap();
+    let icons = Arc::new(RuntimeIconCatalog::decode(&icons).unwrap());
+    let particles = assets::RuntimeParticleAssets::decode(&particles).unwrap();
+    let flame = particles.texture(assets::ACTOR_FLAME_TEXTURE).unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        fixture_hud(),
+        icons,
+    )
+    .unwrap();
+    presentation.set_equipment_catalog(Some(Arc::new(
+        RuntimeEquipmentCatalog::decode(&equipment).unwrap(),
+    )));
+    presentation.set_gui_models(&world, &entities).unwrap();
+    assert_eq!(
+        presentation.gui_models.sources.fallbacks,
+        Default::default(),
+        "installed item artwork must fit the model atlas"
+    );
+    presentation.set_gui_fire_texture(Some(flame));
+    assert_eq!(
+        presentation.gui_models.fire.frames.len(),
+        (flame.height / flame.width) as usize
+    );
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId, StartGame};
+use bedrock_protocol_1_26_60::packets::{self, PacketId, StartGame};
 use thiserror::Error;
 
 use crate::{
@@ -65,14 +65,16 @@ pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
-    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
-    MovementEffectKind, NETHER_DIMENSION_ID, OpenSignEvent, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
-    WeatherUpdateEvent, WorldEvent, WorldSpawnEvent, air_network_id, vanilla_dimension_range,
+    CLASSIC_OVERWORLD_RANGE, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
+    DimensionRange, GameRulesEvent, LEGACY_OVERWORLD_RANGE, LevelChunkEvent, LevelChunkMode,
+    MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MODERN_OVERWORLD_RANGE, MapDataEvent,
+    MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
+    MovementEffectKind, NETHER_DIMENSION_ID, OVERWORLD_DIMENSION_ID, OpenCommandBlockEvent,
+    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
+    RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
+    WeatherChannel, WeatherUpdateEvent, WorldEvent, WorldSpawnEvent, air_network_id,
+    vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{
@@ -359,6 +361,24 @@ world_packets! {
     RemoveObjective(packet) => WorldEvent::Ui(normalize_remove_objective(packet)?),
     SetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
     BossEvent(packet) => WorldEvent::Ui(normalize_boss(packet)?),
+    PlayerLocation(packet) => {
+        use bedrock_protocol_1_26_60::{enums::PlayerLocationType, types::PlayerLocationData};
+        let position = match packet.location {
+            PlayerLocationData::CoordinatesLocation {
+                packet_type: PlayerLocationType::PlayerLocationCoordinates, position,
+            } => Some(position.to_array()),
+            PlayerLocationData::HiddenLocation {
+                packet_type: PlayerLocationType::PlayerLocationHide,
+            } => None,
+            _ => return Ok(None),
+        };
+        WorldEvent::Ui(UiEvent::Locator(vec![crate::LocatorEvent::Player {
+            actor_unique_id: packet.target_actor_id.0, position, dimension: current_dimension,
+        }]))
+    },
+    LocatorBar(packet) => WorldEvent::Ui(UiEvent::Locator(
+        packet.waypoints.into_iter().filter_map(crate::ui::locator::waypoint).collect(),
+    )),
     ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
     ClientboundDataStore(packet) => WorldEvent::Ui(crate::ui::normalize_data_store(packet)),
     ClientboundDataDrivenUIShowScreen(packet) => {
@@ -406,7 +426,7 @@ world_packets! {
     )),
     TakeItemActor(packet) => WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet)),
     ActorEvent(packet) => {
-        if packet.event_id == bedrock_protocol_1_26_51::enums::ActorEventType::StartAttacking {
+        if packet.event_id == bedrock_protocol_1_26_60::enums::ActorEventType::StartAttacking {
             WorldEvent::ItemActor(normalize_actor_attack(packet.target_runtime_id)?)
         } else {
             let Some(event) = crate::actor::normalize_actor_event(packet) else {
@@ -440,7 +460,7 @@ world_packets! {
     })),
     UpdatePlayerGameType(packet) => WorldEvent::Ui(game_mode::targeted_update(packet)),
     SetDefaultGameType(packet) => WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
-        update: PlayerGameMode::update_from_game_mode(packet.default_game_type),
+        update: PlayerGameMode::update_from_game_mode(bedrock_protocol_1_26_60::enums::LevelGameType::from(packet.default_game_type.to_raw())),
     })),
     InventoryContent(packet) => WorldEvent::Inventory(normalize_content(packet)?),
     CreativeContent(packet) => {
@@ -450,6 +470,9 @@ world_packets! {
         WorldEvent::Inventory(event)
     },
     InventorySlot(packet) => WorldEvent::Inventory(normalize_slot(packet)?),
+    PlayerArmorDamage(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_armor_damage(packet))
+    },
     InventoryTransaction(packet) => {
         let Some(event) = crate::inventory::normalize_transaction(packet) else {
             return Ok(None);
@@ -457,8 +480,12 @@ world_packets! {
         WorldEvent::Inventory(event)
     },
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
+    TrimData(packet) => WorldEvent::Inventory(crate::InventoryEvent::Trims(crate::inventory::trims::normalize(packet))),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
-    ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
+    ContainerOpen(packet) => match block_side::normalize_open_command_block(&packet, current_dimension) {
+        Some(event) => WorldEvent::OpenCommandBlock(event),
+        None => WorldEvent::Inventory(normalize_container_open(packet)?),
+    },
     UpdateTrade(packet) => {
         let Some(event) = crate::inventory::normalize_trade(&packet) else { return Ok(None); };
         WorldEvent::Inventory(crate::InventoryEvent::Trade(event))
@@ -505,7 +532,7 @@ world_packets! {
     BiomeDefinitionList(packet) => {
         WorldEvent::BiomeDefinitions(biomes::normalize_biome_definitions(packet)?)
     },
-    LevelChunk(packet) => WorldEvent::LevelChunk(level_chunk::normalize_level_chunk(packet)?),
+    LevelChunk(packet) => WorldEvent::LevelChunk(level_chunk::normalize_level_chunk(*packet)?),
     SubChunk(packet) => WorldEvent::SubChunks(level_chunk::normalize_sub_chunks(packet)?),
     DimensionData(packet) => {
         WorldEvent::DimensionHeights(diagnostics::normalize_dimension_data(packet))
@@ -587,7 +614,7 @@ world_packets! {
     SetTime(packet) => WorldEvent::SetTime(SetTimeEvent { time: packet.time.0 }),
     SetSpawnPosition(packet) => {
         // Player respawn points are not carried; compasses only read the world spawn.
-        if packet.spawn_position_type != bedrock_protocol_1_26_51::enums::SpawnPositionType::Worldspawn {
+        if packet.spawn_position_type != bedrock_protocol_1_26_60::enums::SpawnPositionType::WorldSpawn {
             return Ok(None);
         }
         WorldEvent::WorldSpawn(WorldSpawnEvent {

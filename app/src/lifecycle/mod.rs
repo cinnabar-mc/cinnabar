@@ -25,6 +25,11 @@ pub(crate) fn launched_at() -> Instant {
     *LAUNCHED_AT.get_or_init(Instant::now)
 }
 
+/// Anchors launch timing before argument parsing and logging setup.
+pub fn record_launch() {
+    render_scene::startup_timing::StartupTiming::start(launched_at());
+}
+
 /// The `--first-run-setup` child process: logs as the client does, through the inherited
 /// stderr the client captures, then runs the setup window and returns its exit code.
 pub fn run_first_run_setup() -> i32 {
@@ -35,7 +40,8 @@ pub fn run_first_run_setup() -> i32 {
 }
 
 /// The `--crash-monitor` child process: logs to its own `crash-monitor.log`, then watches the
-/// client until it exits and reports a crash; returns its exit code.
+/// client until it exits and reports a crash; returns its exit code. iOS cannot start one.
+#[cfg(not(target_os = "ios"))]
 pub fn run_crash_monitor() -> i32 {
     crate::app::logging::install(crate::app::logging::Process::Monitor);
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
@@ -62,11 +68,12 @@ pub fn run_crash_monitor() -> i32 {
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
-    launched_at();
+    record_launch();
     let layout = start_session()?;
     if !layout.is_installed() {
         return Ok(true);
     }
+    update::on_next_release(first_run::prepare_next_release);
     update::check_in_background(&layout);
 
     if !assets_overridden {
@@ -95,6 +102,7 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
 /// [`before_run`] and [`crate::run`] to report. A retried setup reuses an earlier preload unless
 /// `rewritten` says setup has rewritten the carriers since.
 pub fn preload(rewritten: bool) {
+    record_launch();
     let Ok(layout) = start_session() else {
         return;
     };
@@ -112,8 +120,9 @@ fn start_session() -> Result<InstallLayout> {
     SESSION_FILES.call_once(|| {
         crate::app::logging::apply_saved_verbose_setting(&layout);
         crash::prune_reports(&layout);
-        // The monitor starts first, so it can report even a failure of the rest of startup.
-        let monitor = if cfg!(target_os = "android") {
+        // The monitor starts first, so it can report even a failure of the rest of startup. Android
+        // and iOS start none, and report crashes in-process.
+        let monitor = if cfg!(any(target_os = "android", target_os = "ios")) {
             None
         } else {
             crash::monitor::MonitorCommand::current_exe().ok()
@@ -140,10 +149,20 @@ pub fn show_failure(error: &anyhow::Error) {
     };
     let text = format!("{error:#}");
     if !crash::report_failure(stage, &text) {
-        use launcher_host::native_dialog::{NativePrompter, Prompter};
-        NativePrompter.alert(&crash_monitor::window::failure_title(stage), &text);
+        alert_failure(stage, &text);
     }
 }
+
+/// Shows `text` in a native alert titled for `stage` as the crash window would be.
+#[cfg(not(target_os = "ios"))]
+fn alert_failure(stage: Stage, text: &str) {
+    use launcher_host::native_dialog::{NativePrompter, Prompter};
+    NativePrompter.alert(&crash_monitor::window::failure_title(stage), text);
+}
+
+/// Shows nothing: iOS has no dialog tool here, so the logged failure is its only record.
+#[cfg(target_os = "ios")]
+fn alert_failure(_stage: Stage, _text: &str) {}
 
 /// Acknowledges startup once the renderer confirms several completed primary-window frames.
 pub fn acknowledge_startup(

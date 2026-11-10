@@ -2,14 +2,42 @@
 
 use super::{
     LocalPhysicsController, MovementSource, MovementTicker, PhysicsAuthorityFault,
-    PhysicsAuthorityGate, reset_start_game_prediction,
+    PhysicsAuthorityGate,
 };
+
+/// Provisional local pre-first-input anchor: public protocol documentation does
+/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
+/// separate clock domain.
+const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
+
+/// Starts a session's prediction at its StartGame position, with no boat prediction carried
+/// over from an earlier session.
+pub fn reset_start_game_prediction(
+    movement: &mut MovementTicker,
+    local_physics: &mut LocalPhysicsController,
+    session_generation: u64,
+    initial_position: [f32; 3],
+) {
+    movement.reset(
+        session_generation,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        initial_position,
+    );
+    local_physics.reanchor_network_position_before_advance(
+        initial_position,
+        START_GAME_PREDICTION_ANCHOR_TICK,
+        false,
+    );
+    local_physics.end_vehicle_prediction();
+}
 
 /// Server facts and local policy needed to initialize player prediction.
 pub struct StartGamePhysics {
     pub session_generation: u64,
     pub position: [f32; 3],
     pub rewind_history_size: i32,
+    /// StartGame's level base game version, which selects the sneaking dimensions.
+    pub base_game_version: protocol::BaseGameVersion,
     pub auto_fly: bool,
     pub collision_registry_complete: bool,
 }
@@ -24,6 +52,7 @@ impl StartGamePhysics {
     ) -> Result<MovementSource, PhysicsAuthorityFault> {
         movement.set_source(MovementSource::FreeCamera);
         local_physics.set_rewind_history_size(self.rewind_history_size);
+        local_physics.set_base_game_version(self.base_game_version);
         reset_start_game_prediction(
             movement,
             local_physics,
@@ -87,6 +116,7 @@ mod tests {
                 session_generation: 5,
                 position: [8.0, 70.62, -4.0],
                 rewind_history_size: 42,
+                base_game_version: protocol::BaseGameVersion::Any,
                 auto_fly,
                 collision_registry_complete: complete,
             }
@@ -101,7 +131,7 @@ mod tests {
             assert_eq!(physics.history_capacity(), 42);
             assert_eq!(physics.is_active(), expected == Ok(MovementSource::Physics));
             if let Some(state) = physics.state() {
-                assert_eq!(state.tick, super::super::START_GAME_PREDICTION_ANCHOR_TICK);
+                assert_eq!(state.tick, super::START_GAME_PREDICTION_ANCHOR_TICK);
                 assert!((state.position.x - 8.0).abs() < f64::EPSILON);
                 assert!((state.position.z + 4.0).abs() < f64::EPSILON);
             }

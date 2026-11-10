@@ -78,7 +78,6 @@ impl RuntimeEntityAssets {
         if source_count == 0
             || source_count > MAX_ENTITY_ASSET_SOURCES
             || symbol_count > MAX_ENTITY_ASSET_SYMBOLS
-            || animation_clip_count > MAX_ENTITY_ANIMATION_CLIPS
             || controller_count > MAX_ENTITY_CONTROLLERS
             || rig_binding_count > MAX_ENTITY_RIG_BINDINGS
             || item_visual_count > crate::item::MAX_ITEM_VISUALS

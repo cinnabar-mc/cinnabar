@@ -40,6 +40,43 @@ fn same_item_menu_cells_keep_distinct_custom_names_including_empty_names() {
     }
 }
 
+#[test]
+fn stack_lore_follows_its_name_in_the_hover_text() {
+    let mut extra_data = vec![0xff, 0xff, 1, 10, 0, 0, 10, 7, 0];
+    extra_data.extend_from_slice(b"display");
+    extra_data.extend_from_slice(&[8, 4, 0]);
+    extra_data.extend_from_slice(b"Name");
+    extra_data.extend_from_slice(&3u16.to_le_bytes());
+    extra_data.extend_from_slice(b"Buy");
+    extra_data.extend_from_slice(&[9, 4, 0]);
+    extra_data.extend_from_slice(b"Lore");
+    extra_data.push(8);
+    extra_data.extend_from_slice(&2i32.to_le_bytes());
+    for line in ["two iron", "or gold"] {
+        extra_data.extend_from_slice(&(line.len() as u16).to_le_bytes());
+        extra_data.extend_from_slice(line.as_bytes());
+    }
+    extra_data.extend_from_slice(&[0, 0]);
+    extra_data.extend_from_slice(&[0; 8]);
+    let stack = NetworkItemStack {
+        network_id: 1,
+        count: 1,
+        extra_data: extra_data.into(),
+        ..NetworkItemStack::empty()
+    };
+    let names = Default::default();
+    let mut icons = Vec::new();
+    let mut cells = Cells {
+        names: &names,
+        facts: &inventory::SessionItemFacts::default(),
+        icons: &mut icons,
+    };
+    assert_eq!(
+        cells.cell(Some(&stack), None, None).values["#hover_text"],
+        json_ui::Scalar::Text("Buy\n§5§otwo iron\n§5§oor gold".to_owned()),
+    );
+}
+
 fn cell_control() -> Arc<ResolvedControl> {
     Arc::new(ResolvedControl {
         name: "inventory".into(),
@@ -82,6 +119,7 @@ fn retained_inventory_cell_answers_empty_after_occupied_and_can_be_refilled() {
     stack.stack_network_id = 1;
     stack.count = 1;
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -121,6 +159,7 @@ fn emptying_a_cell_keeps_other_cells_icon_bindings() {
     stack.network_id = 1;
     stack.count = 1;
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,

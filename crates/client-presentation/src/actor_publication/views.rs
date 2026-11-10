@@ -14,6 +14,18 @@ pub(super) fn actor_camera_rotation(rotation: bevy::math::Quat) -> [f32; 2] {
     ]
 }
 
+/// Captures the close-item presentation heading at its first visible position.
+pub(super) fn dropped_item_camera(
+    position: [f32; 3],
+    view: &crate::local_player::LocalViewPose,
+    settings: &crate::camera::CameraSettingsAuthority,
+) -> ([f32; 3], f32) {
+    (
+        position,
+        actor_camera_rotation(view.camera_rotation(settings))[1],
+    )
+}
+
 /// The camera's frustum widened by the guard band, with the render distances.
 pub(super) fn animation_view(
     transform: &bevy::prelude::Transform,
@@ -57,6 +69,12 @@ impl super::ActorPresentationState<'_, '_> {
             .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection))
     }
 
+    /// Whether the world camera draws through a shader pack, whose shadow pass also needs the
+    /// local body that first person hides from the camera.
+    pub(super) fn shader_pack_rendering(&self) -> bool {
+        !self.pack_cameras.is_empty()
+    }
+
     /// Captures the active render camera's actor admission bounds.
     pub(super) fn cull_view(&self) -> Option<render_model::ActorCullView> {
         self.camera
@@ -84,3 +102,7 @@ pub(super) fn refresh_interpolation(
         stream.advance_actor_interpolation_frame(0);
     }
 }
+
+#[cfg(test)]
+#[path = "views_tests.rs"]
+mod tests;

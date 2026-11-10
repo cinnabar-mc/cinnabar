@@ -18,12 +18,21 @@ macro_rules! source {
         pub const SOURCE_BYTES: &[u8] = include_bytes!(concat!("../../data/", $file));
     };
 }
-source!("entity-facts-v2193.bin");
-pub const EXPANSION_PATH: &str = "crates/assets/data/entity-facts-expansion-v2193.tsv";
+source!("entity-facts-v2225.bin");
+pub const EXPANSION_PATH: &str = "crates/assets/data/entity-facts-expansion-v2225.tsv";
 pub const MAGIC: &[u8; 8] = b"EFACT001";
 pub const MAX_BYTES: usize = 1024 * 1024;
 /// Interaction-box inflation when an actor has no constructor override.
 pub const DEFAULT_ACTOR_PICK_RADIUS: f32 = 0.1;
+
+/// Behavior component key for NPC interactions, independent of the actor's identity.
+pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
+/// Behavior component key for tripod-camera interactions, independent of the actor's identity.
+pub const TRIPOD_CAMERA_COMPONENT_IDENTIFIER: &str = "minecraft:tripod_camera";
+/// The actor type whose native renderer draws its synced carried block.
+pub const ENDERMAN_IDENTIFIER: &str = "minecraft:enderman";
+/// The actor type whose native renderer draws a carved pumpkin on its head until sheared.
+pub const SNOW_GOLEM_IDENTIFIER: &str = "minecraft:snow_golem";
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -47,12 +56,15 @@ pub enum NativeEntityClass {
     Item,
     XpOrb,
     Wolf,
+    Sheep,
     SplashPotion,
     LingeringPotion,
     Tropicalfish,
     DragonFireball,
     FireworksRocket,
     AreaEffectCloud,
+    Shulker,
+    ThrownTrident,
 }
 
 impl NativeEntityClass {
@@ -126,6 +138,7 @@ impl ShadowRadius {
 #[serde(deny_unknown_fields)]
 pub struct EntityFact {
     pub native_class: NativeEntityClass,
+    pub actor_use_resolver: crate::entity::offered_use::ActorUseResolver,
     /// Stable within this carrier's sorted constructor inventory; zero is unresolved.
     pub class_key: u16,
     pub shadow: ShadowRadius,
@@ -153,6 +166,7 @@ impl Default for EntityFact {
     fn default() -> Self {
         Self {
             native_class: NativeEntityClass::Unresolved,
+            actor_use_resolver: Default::default(),
             class_key: 0,
             shadow: ShadowRadius::Width(1.0),
             shadow_drop: 0.0,
@@ -178,6 +192,16 @@ impl Default for EntityFact {
 pub struct EntityFactRecord {
     pub identifier: Box<str>,
     pub fact: EntityFact,
+}
+
+impl EntityFactRecord {
+    /// Derives a minecart constructor's default block identity; bare carts have none.
+    pub fn minecart_display_block(&self) -> Option<&str> {
+        if self.fact.native_class != NativeEntityClass::Minecart {
+            return None;
+        }
+        self.identifier.strip_suffix("_minecart")
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -206,7 +230,7 @@ impl EntityFacts {
             || facts.records.len() > u16::MAX as usize
             || facts.actors_sha256
                 != <[u8; 32]>::from(Sha256::digest(include_bytes!(
-                    "../../../protocol/data/retail_actors_1_26_50.txt"
+                    "../../../protocol/data/retail_actors_1_26_60.txt"
                 )))
             || !facts
                 .records
@@ -228,7 +252,7 @@ impl EntityFacts {
         {
             return Err(bad());
         }
-        if !include_str!("../../../protocol/data/retail_actors_1_26_50.txt")
+        if !include_str!("../../../protocol/data/retail_actors_1_26_60.txt")
             .lines()
             .all(|name| {
                 facts

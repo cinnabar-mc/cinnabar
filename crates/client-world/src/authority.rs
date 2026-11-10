@@ -13,9 +13,9 @@ use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAsse
 use protocol::{
     ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
     ChangeDimensionEvent, CustomBlocks, DaylightCycleUpdateEvent, DimensionHeightDiagnostic,
-    DimensionRange, MAX_DIMENSION_DEFINITIONS, MovePlayerEvent, PlayerMovementCorrectionEvent,
-    PrimitiveShapesEvent, RespawnEvent, SetTimeEvent, UiEvent, WeatherUpdateEvent, WorldBootstrap,
-    WorldEvent, vanilla_dimension_range,
+    DimensionRange, MAX_DIMENSION_DEFINITIONS, MovePlayerEvent, OVERWORLD_DIMENSION_ID,
+    PlayerMovementCorrectionEvent, PrimitiveShapesEvent, RespawnEvent, SetTimeEvent, UiEvent,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent, vanilla_dimension_range,
 };
 #[cfg(test)]
 use protocol::{
@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+mod actor_lives;
 mod actor_movement;
 mod actors;
 mod biomes;
@@ -47,6 +48,7 @@ mod commits;
 mod contracts;
 mod dimension_ranges;
 mod dimension_transfer;
+mod local_actor_lifetime;
 #[cfg(test)]
 mod local_movement_flags_tests;
 #[cfg(test)]
@@ -65,9 +67,9 @@ mod synchronized_audio_tests;
 mod terrain;
 #[cfg(test)]
 mod tests;
-mod totems;
 #[cfg(test)]
 mod world_spawn_tests;
+pub use actor_lives::{ActorLife, MAX_ACTOR_LIVES};
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
 pub use combat::{ActorCombatEvidence, ActorCombatKind};
@@ -90,8 +92,8 @@ pub(crate) fn allocate_actor_session_id() -> u64 {
         })
         .expect("actor session identity space exhausted")
 }
-/// An attribute update can publish both movement changes and a local death.
-pub const COMMITTED_CONTROL_CAPACITY: usize = 2 * MAX_ADMITTED_WORLD_EVENTS;
+/// A local spawn can publish item use, movement attributes and a local death.
+pub const COMMITTED_CONTROL_CAPACITY: usize = 3 * MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
@@ -100,11 +102,12 @@ pub const COMMITTED_PARTICLE_CAPACITY: usize = 512;
 /// The one session owner of packed terrain, actors, identities and committed consumer queues.
 /// Terrain scheduling borrows this owner synchronously; it keeps no shadow world or frontier.
 pub struct WorldAuthority {
+    /// The local player's game mode follows the world default.
+    local_mode_follows_default: bool,
     terrain: ChunkStore,
     actors: ActorStore,
     combat_evidence: VecDeque<ActorCombatEvidence>,
     combat_revision: u64,
-    totems: Option<totems::Tracking>,
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
     pending_sign_edit: Option<SignEditRequest>,
@@ -126,12 +129,16 @@ pub struct WorldAuthority {
     world_spawn: [i32; 3],
     dimension_ranges: std::collections::BTreeMap<i32, (Arc<str>, DimensionRange)>,
     frozen_dimension_ranges: BTreeSet<i32>,
+    /// StartGame's generator-selected overworld, used without a server overworld definition.
+    start_game_overworld_range: DimensionRange,
     dimension_range_skips: u64,
     form_dimension_epoch: u64,
     local_player_runtime_id: u64,
     local_player_unique_id: i64,
     local_actor_position: Option<local_actor_move::LocalActorPosition>,
     local_movement_speed: Option<f64>,
+    /// The bootstrap lifetime is zero; session setup already clears its consumers.
+    published_local_actor_revision: u64,
     resolved_server_position: ResolvedServerPosition,
     latest_movement_correction_tick: Option<u64>,
     actor_session_id: u64,
@@ -151,6 +158,23 @@ impl WorldAuthority {
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
         entity_assets: Option<Arc<RuntimeEntityAssets>>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
+        Self::new_with_actor_catalog(
+            bootstrap,
+            runtime_assets,
+            entity_assets.map(actor_animation::ActorAnimationCatalog::new),
+            current_position,
+            existing_anchor,
+        )
+    }
+
+    /// Starts session authority using entity analysis completed before bootstrap publication.
+    pub fn new_with_actor_catalog(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Option<actor_animation::ActorAnimationCatalog>,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
@@ -183,12 +207,15 @@ impl WorldAuthority {
             },
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
+        actors.set_local_unique_id(bootstrap.local_player_unique_id);
+        // No custom palette is admitted yet, so the internal air id is also its wire id.
+        actors.set_air_block_network_id(Some(air_block_id));
         Self {
             terrain: ChunkStore::new(),
             actors,
             combat_evidence: VecDeque::new(),
+            local_mode_follows_default: false,
             combat_revision: 0,
-            totems: None,
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
             pending_sign_edit: None,
@@ -209,12 +236,14 @@ impl WorldAuthority {
             world_spawn: bootstrap.world_spawn_position,
             dimension_ranges: std::collections::BTreeMap::new(),
             frozen_dimension_ranges: BTreeSet::new(),
+            start_game_overworld_range: protocol::MODERN_OVERWORLD_RANGE,
             dimension_range_skips: 0,
             form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
             local_player_unique_id: bootstrap.local_player_unique_id,
             local_actor_position: None,
             local_movement_speed: None,
+            published_local_actor_revision: 0,
             resolved_server_position,
             latest_movement_correction_tick: None,
             actor_session_id,
@@ -245,17 +274,19 @@ impl WorldAuthority {
     }
     /// Resets authoritative actor state at the committed dimension transition.
     pub fn reset_dimension(&mut self, sequence: u64, dimension: i32) {
-        let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+        let previous_mount = self.actors.linked_unique_id(self.local_player_unique_id);
         let _ = self
             .actors
             .reset_dimension(self.actor_session_id, sequence, dimension);
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
-        self.local_movement_speed = None;
+        // Its coordinates named a block in the dimension just left.
+        self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }
-    /// Returns the mount retained for an actor's current lifetime.
+    /// The mount an actor rides as the client shows it; the local player rides none once it
+    /// got off on the client, until the server's links for it change.
     pub fn ridden_unique_id(&self, unique_id: i64) -> Option<i64> {
         self.actors.ridden_unique_id(unique_id)
     }

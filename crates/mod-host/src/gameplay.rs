@@ -1,6 +1,7 @@
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{
-    CameraDelta, GameplayCameraRig, GameplayMob, GameplayMovementSnapshot, GameplaySnapshot,
+    CameraDelta, GameplayCameraPose, GameplayCameraRig, GameplayControlModes, GameplayFacts,
+    GameplayMob, GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot,
     GameplayVector3, ModCue,
 };
 use anyhow::{Result, bail, ensure};
@@ -15,8 +16,18 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
-    pub movement_toggles: Option<cinnabar::extension::gameplay::MovementToggles>,
-    pending_movement_toggles: Option<cinnabar::extension::gameplay::MovementToggles>,
+    /// Complete movement input from the last frame callback that completed in its frame.
+    pub movement_input: Option<crate::GameplayMovementInput>,
+    pending_movement_input: Option<crate::GameplayMovementInput>,
+    /// Sprint and sneak holds, retained like `movement_input`.
+    pub movement_intents: Option<GameplayMovementIntents>,
+    pending_movement_intents: Option<GameplayMovementIntents>,
+    /// Control modes added to the player's own, retained like `movement_input`.
+    pub control_modes: Option<GameplayControlModes>,
+    pending_control_modes: Option<GameplayControlModes>,
+    /// The next commit cannot renew movement output: its callback started in an earlier frame
+    /// or is `init`.
+    hold: bool,
     pub mobs: Vec<GameplayMob>,
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
@@ -32,10 +43,53 @@ pub(super) struct WorldState {
 }
 
 impl WorldState {
-    /// Drops unconsumed one-frame output; the committed rig is retained.
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            movement_input: None,
+            pending_movement_input: None,
+            movement_intents: None,
+            pending_movement_intents: None,
+            control_modes: None,
+            pending_control_modes: None,
+            hold: false,
+            mobs: self.mobs.clone(),
+            rig: None,
+            commands: Vec::new(),
+            cues: Vec::new(),
+            incoming: self.incoming.clone(),
+            polls: 0,
+            pending_rig: None,
+            pending_commands: Vec::new(),
+            pending_cues: Vec::new(),
+            window_sent: self.window_sent,
+            window_seconds: 0.,
+        }
+    }
+
+    /// Keeps rate accounting host-owned and discards actions completed after their frame.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, camera_blocked: bool) {
+        self.hold = !current_frame;
+        if current_frame {
+            self.pending_movement_input = transaction.pending_movement_input;
+            self.pending_movement_intents = transaction.pending_movement_intents;
+            self.pending_control_modes = transaction.pending_control_modes;
+            if !camera_blocked {
+                self.pending_rig = transaction.pending_rig;
+            }
+            self.pending_commands = transaction.pending_commands;
+            self.pending_cues = transaction.pending_cues;
+        }
+    }
+
+    /// Drops unconsumed one-frame output. The committed rig and movement output are retained
+    /// until a callback completing in its frame replaces them, so a deferred, suspended or
+    /// recovering callback does not release controls the guest renews every frame.
     pub fn begin_frame(&mut self) {
-        self.movement_toggles = None;
-        self.pending_movement_toggles = None;
+        self.pending_movement_input = None;
+        self.pending_movement_intents = None;
+        self.pending_control_modes = None;
+        self.hold = false;
         self.polls = 0;
         self.mobs.clear();
         self.commands.clear();
@@ -54,8 +108,38 @@ impl WorldState {
         }
     }
 
+    /// Keeps retained movement output through the next commit, for an `init` callback, which
+    /// cannot renew it.
+    pub(super) fn hold_movement(&mut self) {
+        self.hold = true;
+    }
+
+    /// Releases retained movement output that the guest could not renew under `controls`,
+    /// with the same eligibility its imports check.
+    pub(super) fn release_unrenewable(&mut self, controls: &crate::ControlFrame) {
+        let gameplay = controls.focused && controls.gameplay;
+        if !gameplay || controls.panel_open {
+            self.movement_input = None;
+        }
+        if !gameplay {
+            self.movement_intents = None;
+            self.control_modes = None;
+        }
+    }
+
+    /// Releases all retained movement output.
+    pub(super) fn release_movement(&mut self) {
+        self.movement_input = None;
+        self.movement_intents = None;
+        self.control_modes = None;
+    }
+
     pub fn commit(&mut self) {
-        self.movement_toggles = self.pending_movement_toggles.take();
+        if !std::mem::take(&mut self.hold) {
+            self.movement_input = self.pending_movement_input.take();
+            self.movement_intents = self.pending_movement_intents.take();
+            self.control_modes = self.pending_control_modes.take();
+        }
         if let Some(rig) = self.pending_rig.take() {
             self.rig = rig;
         }
@@ -188,6 +272,25 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
     Ok(())
 }
 
+/// Rejects non-finite client facts before any guest can read them.
+pub(super) fn validate_facts(facts: &GameplayFacts) -> Result<()> {
+    ensure!(
+        facts.movement_input.is_none_or(valid_movement_input),
+        "invalid movement input axes"
+    );
+    ensure!(
+        facts.camera.is_none_or(|camera| finite(&camera.position)
+            && camera.yaw.is_finite()
+            && camera.pitch.is_finite())
+            && facts
+                .damage_shake
+                .is_none_or(|shake| shake.roll.is_finite() && shake.pitch.is_finite())
+            && facts.relayed_position.as_ref().is_none_or(finite),
+        "invalid gameplay facts"
+    );
+    Ok(())
+}
+
 /// Movement and pose must refer to the same captured input authority.
 pub(super) fn validate_movement(
     snapshot: Option<&GameplaySnapshot>,
@@ -208,6 +311,7 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    /// Stages one gameplay tap without changing physical controls.
     fn pulse_button(
         &mut self,
         button: cinnabar::extension::gameplay::Button,
@@ -242,6 +346,7 @@ impl cinnabar::extension::gameplay::Host for State {
         Ok(Ok(()))
     }
 
+    /// Stages a local slot selection for the next hotbar sampling frame.
     fn select_hotbar_slot(&mut self, slot: u8) -> Result<Result<(), String>> {
         self.gameplay_input_writes += 1;
         if self.gameplay_input_writes > MAX_IMPORT_WRITES {
@@ -264,56 +369,95 @@ impl cinnabar::extension::gameplay::Host for State {
         Ok(Ok(()))
     }
 
-    fn set_movement_toggles(
+    /// Reads only the admitted input captured before mod output is applied.
+    fn read_movement_input(
         &mut self,
-        policy: Option<cinnabar::extension::gameplay::MovementToggles>,
-    ) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+    ) -> Result<Result<Option<crate::GameplayMovementInput>, String>> {
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        if policy.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
-            return Ok(Err("movement toggles require focused gameplay".into()));
+        let owned = self.controls.frame.focused
+            && self.controls.frame.gameplay
+            && !self.controls.frame.panel_open;
+        Ok(Ok(self.gameplay_facts.movement_input.filter(|_| owned)))
+    }
+
+    /// Stages a complete, bounded control vector; omission restores ordinary input.
+    fn set_movement_input(
+        &mut self,
+        input: Option<crate::GameplayMovementInput>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
         }
-        self.world.pending_movement_toggles = policy;
+        if input.is_some()
+            && !(self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open)
+        {
+            return Ok(Err("movement input requires focused gameplay".into()));
+        }
+        if input.is_some_and(|input| !valid_movement_input(input)) {
+            return Ok(Err("movement axes must be finite and within -1..1".into()));
+        }
+        self.world.pending_movement_input = input;
         Ok(Ok(()))
     }
-    fn read_movement(&mut self) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
-        self.gameplay_reads += 1;
-        if self.gameplay_reads > MAX_IMPORT_WRITES {
-            bail!("gameplay read budget exhausted");
-        }
+
+    /// Stages sprint and sneak holds for this focused gameplay frame; none releases both.
+    fn set_movement_intents(
+        &mut self,
+        intents: Option<GameplayMovementIntents>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        Ok(Ok(self.movement))
+        if intents.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
+            return Ok(Err("movement intents require focused gameplay".into()));
+        }
+        self.world.pending_movement_intents = intents;
+        Ok(Ok(()))
+    }
+    /// Stages control modes for this focused gameplay frame; none restores the player's own.
+    fn set_control_modes(
+        &mut self,
+        modes: Option<GameplayControlModes>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if modes.is_some() && !(self.controls.frame.focused && self.controls.frame.gameplay) {
+            return Ok(Err("control modes require focused gameplay".into()));
+        }
+        self.world.pending_control_modes = modes;
+        Ok(Ok(()))
+    }
+    fn read_movement(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::gameplay::MovementSnapshot>, String>> {
+        Ok(read_movement(self)?.map(|value| value.map(Into::into)))
     }
 
     fn cancel_jump(&mut self) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        self.pending_jump_cancel = true;
+        self.motion.pending_jump_cancel = true;
         Ok(Ok(()))
     }
 
     fn pulse_jump(&mut self) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
         if !self
-            .movement
+            .motion
+            .snapshot
             .as_ref()
             .is_some_and(|movement| movement.eligible && !movement.jump_held)
         {
@@ -321,11 +465,12 @@ impl cinnabar::extension::gameplay::Host for State {
                 "jump requires eligible captured gameplay without held jump".into(),
             ));
         }
-        self.pending_jump = true;
+        self.motion.pending_jump = true;
         Ok(Ok(()))
     }
 
-    fn set_show_real_position(&mut self, enabled: bool) -> Result<Result<(), String>> {
+    /// The feet position the client last relayed to the server, in a connected world.
+    fn read_relayed_position(&mut self) -> Result<Result<Option<GameplayVector3>, String>> {
         self.packet_delay_writes += 1;
         if self.packet_delay_writes > MAX_IMPORT_WRITES {
             bail!("packet delay import budget exhausted");
@@ -333,8 +478,7 @@ impl cinnabar::extension::gameplay::Host for State {
         if !self.grants.packet_delay {
             return Ok(Err("packet delay capability denied".into()));
         }
-        self.pending_show_real_position = Some(enabled);
-        Ok(Ok(()))
+        Ok(Ok(self.gameplay_facts.relayed_position))
     }
 
     fn set_packet_delay(&mut self, delay_ms: u32) -> Result<Result<(), String>> {
@@ -360,7 +504,103 @@ impl cinnabar::extension::gameplay::Host for State {
         State::pulse_attack(self)
     }
 
-    fn read_frame(&mut self) -> Result<Result<Option<GameplaySnapshot>, String>> {
+    fn set_block_mining(&mut self, held: bool) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !self.grants.interaction {
+            return Ok(Err("interaction capability denied".into()));
+        }
+        if held
+            && (self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open)
+        {
+            return Ok(Err("block mining requires focused gameplay".into()));
+        }
+        self.controls.pending_interaction.block_mining = held;
+        Ok(Ok(()))
+    }
+
+    fn read_block_target(&mut self) -> Result<Result<Option<GameplayVector3>, String>> {
+        self.controls.budget(false)?;
+        if !self.grants.terrain {
+            return Ok(Err("terrain capability denied".into()));
+        }
+        Ok(Ok(self.gameplay_facts.block_target.filter(|_| {
+            self.snapshot.is_some()
+                && self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        })))
+    }
+
+    fn break_blocks(
+        &mut self,
+        positions: Vec<crate::GameplayBlockPosition>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        let Some(frame) = self.snapshot.as_ref().filter(|_| {
+            self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        }) else {
+            return Ok(Err("block destruction requires focused gameplay".into()));
+        };
+        let pending = &mut self.controls.pending_interaction.block_breaks;
+        if positions.len() > mod_api::MAX_BLOCK_BREAKS.saturating_sub(pending.len()) {
+            return Ok(Err("too many block destruction requests".into()));
+        }
+        if positions.iter().any(|p| {
+            [p.x, p.y, p.z]
+                .into_iter()
+                .zip([frame.eye.x, frame.eye.y, frame.eye.z])
+                .map(|(v, eye)| (f64::from(v) + 0.5 - f64::from(eye)).powi(2))
+                .sum::<f64>()
+                > f64::from(mod_api::MAX_BLOCK_BREAK_DISTANCE).powi(2)
+        }) {
+            return Ok(Err("block destruction request out of range".into()));
+        }
+        pending.extend(positions);
+        pending.sort_unstable_by_key(|p| (p.x, p.y, p.z));
+        pending.dedup_by_key(|p| (p.x, p.y, p.z));
+        Ok(Ok(()))
+    }
+
+    fn set_block_mining_target(
+        &mut self,
+        point: Option<GameplayVector3>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        if let Some(point) = point {
+            if self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open
+                || !self.gameplay_facts.attack_held
+            {
+                return Ok(Err(
+                    "mining target requires physical attack in focused gameplay".into(),
+                ));
+            }
+            if ![point.x, point.y, point.z]
+                .iter()
+                .all(|v| v.is_finite() && v.abs() < (i32::MAX - 16) as f32)
+            {
+                return Ok(Err("invalid mining point".into()));
+            }
+        }
+        self.controls.pending_interaction.block_mining_target = point;
+        Ok(Ok(()))
+    }
+
+    /// The presented camera, available with the same grants and frame as `read-frame`.
+    fn read_camera(&mut self) -> Result<Result<Option<GameplayCameraPose>, String>> {
         self.gameplay_reads += 1;
         if self.gameplay_reads > MAX_IMPORT_WRITES {
             bail!("gameplay read budget exhausted");
@@ -368,13 +608,16 @@ impl cinnabar::extension::gameplay::Host for State {
         if !(self.grants.players || self.grants.terrain) {
             return Ok(Err("local pose capability denied".into()));
         }
-        let mut snapshot = self.snapshot.clone();
-        if !self.grants.players
-            && let Some(frame) = snapshot.as_mut()
-        {
-            frame.players.clear();
-        }
-        Ok(Ok(snapshot))
+        Ok(Ok(self
+            .gameplay_facts
+            .camera
+            .filter(|_| self.snapshot.is_some())))
+    }
+
+    fn read_frame(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::gameplay::Snapshot>, String>> {
+        Ok(read_frame(self)?.map(|value| value.map(Into::into)))
     }
 
     fn read_mobs(&mut self) -> Result<Result<Vec<GameplayMob>, String>> {
@@ -468,6 +711,45 @@ impl cinnabar::extension::gameplay::Host for State {
     }
 }
 
+/// Reads the bounded, grant-filtered host snapshot before selecting a guest record shape.
+pub(super) fn read_frame(state: &mut State) -> Result<Result<Option<GameplaySnapshot>, String>> {
+    state.gameplay_reads += 1;
+    if state.gameplay_reads > MAX_IMPORT_WRITES {
+        bail!("gameplay read budget exhausted");
+    }
+    if !(state.grants.players || state.grants.terrain) {
+        return Ok(Err("local pose capability denied".into()));
+    }
+    let mut snapshot = state.snapshot.clone();
+    if !state.grants.players
+        && let Some(frame) = snapshot.as_mut()
+    {
+        frame.players.clear();
+    }
+    Ok(Ok(snapshot))
+}
+
+/// Reads walking facts with the same authority and allowance for every guest generation.
+pub(super) fn read_movement(
+    state: &mut State,
+) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
+    state.gameplay_reads += 1;
+    if state.gameplay_reads > MAX_IMPORT_WRITES {
+        bail!("gameplay read budget exhausted");
+    }
+    if !state.grants.movement {
+        return Ok(Err("movement capability denied".into()));
+    }
+    Ok(Ok(state.motion.snapshot))
+}
+
 #[cfg(test)]
 #[path = "gameplay_tests.rs"]
 mod tests;
+
+/// Accepts only bounded finite control lanes, including neutral and diagonal input.
+fn valid_movement_input(input: crate::GameplayMovementInput) -> bool {
+    [input.right, input.forward]
+        .iter()
+        .all(|axis| axis.is_finite() && (-1.0..=1.0).contains(axis))
+}

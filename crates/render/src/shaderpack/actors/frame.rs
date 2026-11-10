@@ -60,13 +60,14 @@ pub(crate) fn prepare(
     if let Some(source) = &sources.block_entities {
         actors.plan_block_entities(source, &drawn, &mut output);
     }
-    let frame = actors.frame;
-    actors.views.retain(|_, (_, used)| *used == frame);
+    actors.retire_unused();
     if output == 0 {
         actors.draws.clear();
         return;
     }
-    if skin(device, queue, encoder, actors, sources, kernels, output).is_none() {
+    if skin(device, queue, encoder, actors, sources, kernels, output).is_none()
+        || actors.compose_layers(device, encoder, &kernels).is_none()
+    {
         actors.allocation_failed = true;
         actors.draws.clear();
         actors.jobs.clear();
@@ -115,12 +116,13 @@ pub(crate) fn prepare(
             patch_block(block, &draw.values.uniforms(), &mut actors.scratch);
             queue.write_buffer(&slot.uniforms, 0, &actors.scratch);
         }
-        if slot.texture != Some(draw.texture) {
-            let Some((view, _)) = actors.views.get(&draw.texture) else {
-                continue;
-            };
+        let Some(view) = actors.views.get(&draw.texture) else {
+            continue;
+        };
+        let texture = (draw.texture, view.generation);
+        if slot.texture != Some(texture) {
             let atlas = AtlasViews {
-                color: view,
+                color: &view.view,
                 normals: &neutral.normals,
                 specular: &neutral.specular,
             };
@@ -136,7 +138,7 @@ pub(crate) fn prepare(
                     draws_into_geometry_depth(geometry.kind),
                 )
             });
-            slot.texture = Some(draw.texture);
+            slot.texture = Some(texture);
         }
     }
 }
@@ -356,6 +358,15 @@ pub(crate) fn record(
     if !state.actors.draws.iter().any(|draw| draw.kind == kind) {
         return;
     }
+    if state
+        .pack
+        .draws
+        .iter()
+        .any(|draw| draw.kind == kind && draw.emulation.is_some())
+    {
+        record_emulated(encoder, state, kind, write_alt, depth);
+        return;
+    }
     let constant = state.pack.host.constant_stream.clone();
     let Some((mut render, _)) = open_kind(encoder, state, kind, write_alt, depth) else {
         return;
@@ -369,10 +380,12 @@ pub(crate) fn record(
     for index in actors.draw_order(kind) {
         let draw = &actors.draws[index];
         let slot = actors.slot_of[index];
-        let Some(slot) = slots
-            .get(slot as usize)
-            .filter(|slot| slot.texture == Some(draw.texture))
-        else {
+        let Some(slot) = slots.get(slot as usize).filter(|slot| {
+            actors
+                .views
+                .get(&draw.texture)
+                .is_some_and(|view| slot.texture == Some((draw.texture, view.generation)))
+        }) else {
             continue;
         };
         for (index, group) in slot.groups[parity].iter().enumerate() {
@@ -399,4 +412,57 @@ pub(crate) fn record(
             );
         }
     }
+}
+
+/// Expands skinned actor triangles with each layer's existing uniform and texture bindings.
+fn record_emulated(
+    encoder: &mut CommandEncoder,
+    state: &mut ViewState,
+    kind: DrawKind,
+    write_alt: u32,
+    depth: Option<(&TextureView, [u32; 2])>,
+) {
+    let actors = std::mem::take(&mut state.actors);
+    if let Some(slots) = actors.slots.get(&kind) {
+        for index in actors.draw_order(kind) {
+            let draw = &actors.draws[index];
+            let Some(slot) = slots.get(actors.slot_of[index] as usize).filter(|slot| {
+                actors
+                    .views
+                    .get(&draw.texture)
+                    .is_some_and(|view| slot.texture == Some((draw.texture, view.generation)))
+            }) else {
+                continue;
+            };
+            for buffers in &actors.pages {
+                let start = draw.vertices.start.max(buffers.first);
+                let end = draw
+                    .vertices
+                    .end
+                    .min(buffers.first + u64::from(buffers.vertices));
+                let Some(output) = buffers.output.buffer.as_ref().filter(|_| start < end) else {
+                    continue;
+                };
+                crate::shaderpack::geometry_shader::record(
+                    encoder,
+                    state,
+                    kind,
+                    write_alt,
+                    depth,
+                    crate::shaderpack::geometry_shader::Input {
+                        vertices: output,
+                        indices: None,
+                        index_values: None,
+                        origins: None,
+                        first: (start - buffers.first) as u32,
+                        count: (end - start) as u32,
+                        base_vertex: 0,
+                        instance: 0,
+                    },
+                    Some(&slot.groups[state.targets.parity]),
+                );
+            }
+        }
+    }
+    state.actors = actors;
 }

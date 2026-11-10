@@ -1,5 +1,5 @@
-//! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
-//! actor hurt/death status events, and dropped-item pickup.
+//! Client-predicted sounds tied to local interaction: block hit/break, eating and drinking,
+//! the player's own attacks, actor hurt/death status events, and dropped-item pickup.
 
 use std::sync::Arc;
 
@@ -39,11 +39,14 @@ pub enum LocalBlockCue {
         position: [i32; 3],
         block_runtime_id: i32,
     },
-    /// A block item was placed at `position`; the id uses the local store palette.
-    Place {
-        position: [i32; 3],
-        block_runtime_id: i32,
-    },
+}
+
+/// The local player's attack sound, voiced on the frame the attack is sent. Servers send
+/// it only to other players, so no server copy is expected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Message)]
+pub struct LocalAttackCue {
+    /// The player's level sound event, such as `attack.strong`.
+    pub event: &'static str,
 }
 
 #[derive(Debug, Default)]
@@ -84,7 +87,9 @@ pub fn predicts_bites(consumption: assets::item_use::ItemConsumption) -> bool {
     )
 }
 
-/// Voices local block placement, mining hits and the predicted break of the mined block.
+/// Voices mining hits and the predicted break of the mined block. Placement has no local sound:
+/// vanilla's client-side `LevelSoundManager::broadcastSoundEvent` returns early, so only the
+/// server's `place` event voices it.
 #[allow(clippy::too_many_arguments)]
 pub fn drive_block_cues(
     mut cues: MessageReader<LocalBlockCue>,
@@ -114,16 +119,11 @@ pub fn drive_block_cues(
     );
     let mut requests = Vec::new();
     for cue in cues.read() {
-        let (event, position, block_runtime_id) = match *cue {
-            LocalBlockCue::Place {
-                position,
-                block_runtime_id,
-            } => ("place", position, block_runtime_id),
-            LocalBlockCue::Break {
-                position,
-                block_runtime_id,
-            } => ("break", position, block_runtime_id),
-        };
+        let LocalBlockCue::Break {
+            position,
+            block_runtime_id,
+        } = *cue;
+        let event = "break";
         let runtime_id = block_runtime_id as u32;
         requests.push(BlockSoundCue {
             event,
@@ -345,6 +345,49 @@ pub fn drive_consume_audio(
     }
 }
 
+/// Voices the local player's attack cues at `position`, unless the player is silent.
+pub fn drive_attack_cues(
+    mut cues: MessageReader<LocalAttackCue>,
+    world: crate::observations::WorldObservation<'_>,
+    position: bevy::prelude::Vec3,
+    mut engine: ResMut<AudioEngine>,
+) {
+    use actor_animation::AnimatedActor;
+    let silent = world.stream.as_ref().is_none_or(|stream| {
+        stream
+            .authority()
+            .actor(stream.local_player_runtime_id())
+            .is_some_and(|actor| actor.flag(protocol_ids::ActorFlag::Silent.wire_value()))
+    });
+    let requests: Vec<SoundRequest> = match engine.bank() {
+        Some(bank) if !silent => cues
+            .read()
+            .filter_map(|cue| attack_request(bank.tables(), *cue, position.into()))
+            .collect(),
+        _ => {
+            cues.clear();
+            return;
+        }
+    };
+    for request in requests {
+        engine.enqueue(request);
+    }
+}
+
+/// The player's sound for an attack cue at `position`.
+fn attack_request(
+    tables: &assets::SoundEventTables,
+    cue: LocalAttackCue,
+    position: [f32; 3],
+) -> Option<SoundRequest> {
+    let route = tables.entity(PLAYER, cue.event, None)?;
+    Some(
+        SoundRequest::new(route.sound)
+            .with_ranges(route.volume, route.pitch)
+            .at(position),
+    )
+}
+
 /// Hurt or death sound of `identifier` for a status `notice`, from the actor's head.
 fn status_request(
     tables: &assets::SoundEventTables,
@@ -371,7 +414,24 @@ fn status_request(
     Some((event, request))
 }
 
-/// Voices every actor's hurt/death status.
+/// Splash a fishing hook plays from itself when a fish bites; a silent hook stays quiet.
+fn fishing_bite_request(
+    tables: &assets::SoundEventTables,
+    notice: &ActorStatusNotice,
+) -> Option<SoundRequest> {
+    let hook = notice.fishing.as_ref()?;
+    if notice.kind != ActorStatusKind::FishHookBite || hook.silent {
+        return None;
+    }
+    let route = tables.entity(&hook.identifier, super::route::SPLASH_EVENT, None)?;
+    Some(
+        SoundRequest::new(route.sound)
+            .with_ranges(route.volume, route.pitch)
+            .at(notice.position),
+    )
+}
+
+/// Voices every actor's hurt/death status and a fishing hook's bite.
 pub fn drive_actor_audio(
     world: crate::observations::WorldObservation<'_>,
     inbox: Option<&mut dyn crate::observations::ParticleAudioObservation>,
@@ -391,6 +451,16 @@ pub fn drive_actor_audio(
     }
     let local = stream.local_player_runtime_id();
     for notice in &notices {
+        // Native plays the bite locally with no server copy to pair, so it bypasses the echo
+        // ledger. The notice carries the hook's identifier, so a hook removed in the same batch
+        // still splashes.
+        if let Some(request) = engine
+            .bank()
+            .and_then(|bank| fishing_bite_request(bank.tables(), notice))
+        {
+            engine.enqueue(request);
+            continue;
+        }
         let (identifier, unique_id, class) = if notice.runtime_id == local {
             (
                 PLAYER,
@@ -570,6 +640,7 @@ mod tests {
             position: [1.0, 64.0, 1.0],
             height: Some(2.0),
             eating_position: [0.0; 3],
+            fishing: None,
         };
         let (event, hurt) = status_request(
             &tables,
@@ -604,6 +675,58 @@ mod tests {
     }
 
     #[test]
+    fn a_fish_bite_splashes_from_the_hook_unless_it_is_silent() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {"entities": {"fishing_hook": {
+                "volume": 0.25, "pitch": [0.6, 1.4], "events": {"splash": "random.splash"}
+            }}}}),
+            &serde_json::json!({}),
+        );
+        let hook = client_world::FishingHookPose {
+            identifier: "minecraft:fishing_hook".into(),
+            bottom: 62.75,
+            width: 0.25,
+            fish_offset: [0.0; 2],
+            fish_angle: 0.0,
+            silent: false,
+        };
+        let notice = ActorStatusNotice {
+            runtime_id: 9,
+            kind: ActorStatusKind::FishHookBite,
+            data: 0,
+            position: [4.25, 62.75, -3.5],
+            height: Some(0.25),
+            eating_position: [4.25, 62.75, -3.5],
+            fishing: Some(hook.clone()),
+        };
+        // The notice alone routes the splash, so a hook removed in the same batch still sounds.
+        let splash = fishing_bite_request(&tables, &notice).unwrap();
+        assert_eq!(&*splash.name, "random.splash");
+        assert_eq!(splash.position, Some([4.25, 62.75, -3.5]));
+        assert_eq!((splash.volume.min, splash.volume.max), (0.25, 0.25));
+        assert_eq!((splash.pitch.min, splash.pitch.max), (0.6, 1.4));
+        for quiet in [
+            ActorStatusNotice {
+                fishing: Some(client_world::FishingHookPose {
+                    silent: true,
+                    ..hook.clone()
+                }),
+                ..notice.clone()
+            },
+            ActorStatusNotice {
+                kind: ActorStatusKind::FishHookPosition,
+                ..notice.clone()
+            },
+            ActorStatusNotice {
+                fishing: None,
+                ..notice.clone()
+            },
+        ] {
+            assert!(fishing_bite_request(&tables, &quiet).is_none());
+        }
+    }
+
+    #[test]
     fn dragon_death_audio_waits_for_the_server_sound_event() {
         let tables = assets::SoundEventTables::from_json(
             &serde_json::json!({"entity_sounds": {"entities": {
@@ -620,6 +743,7 @@ mod tests {
             position: [1.0, 64.0, 1.0],
             height: Some(4.0),
             eating_position: [0.0; 3],
+            fishing: None,
         };
         assert!(
             status_request(
@@ -681,5 +805,30 @@ mod tests {
     #[test]
     fn cell_centers_offset_by_half_a_block() {
         assert_eq!(center([1, -2, 3]), [1.5, -1.5, 3.5]);
+    }
+
+    #[test]
+    fn attack_cues_voice_the_player_attack_sound_at_the_player() {
+        let tables = assets::SoundEventTables::from_json(
+            &serde_json::json!({"entity_sounds": {"entities": {"player": {
+                "volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "attack.critical": "game.player.attack.critical",
+                    "attack.strong": "game.player.attack.strong"}}}}}),
+            &serde_json::json!({}),
+        );
+        let request = attack_request(
+            &tables,
+            LocalAttackCue {
+                event: "attack.critical",
+            },
+            [1.0, 65.62, 1.0],
+        )
+        .unwrap();
+        assert_eq!(&*request.name, "game.player.attack.critical");
+        assert_eq!(request.position, Some([1.0, 65.62, 1.0]));
+        let missing = LocalAttackCue {
+            event: "attack.nodamage",
+        };
+        assert!(attack_request(&tables, missing, [0.0; 3]).is_none());
     }
 }

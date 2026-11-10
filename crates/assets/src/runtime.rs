@@ -155,6 +155,8 @@ pub struct RuntimeAssets {
     overlay_page_layer_counts: Box<[usize]>,
     biomes: CompiledBiomeAssets,
     provenance: BlobProvenance,
+    /// Sorted base visual ids whose face art a session overlay changed.
+    retextured_visuals: Box<[u32]>,
     missing: AtomicU64,
 }
 
@@ -197,14 +199,18 @@ impl RuntimeAssets {
             model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
-            texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
-                .into_boxed_slice(),
+            texture_pages: vec![TexturePage::new(TextureArray {
+                layers: 1,
+                mips: mips.into(),
+            })]
+            .into_boxed_slice(),
             overlay_texture_source_sizes: Box::new([]),
             overlay_texture_source_grids: Box::new([]),
             overlay_page_layer_counts: Box::new([]),
             biomes: CompiledBiomeAssets::diagnostic(),
             provenance: BlobProvenance::ZEROED,
             carrier_identity: None,
+            retextured_visuals: Box::new([]),
             missing: AtomicU64::new(0),
         }
     }
@@ -272,6 +278,39 @@ impl RuntimeAssets {
             .and_then(|flat| self.overlay_texture_source_grids.get(flat))
             .copied()
             .unwrap_or(0)
+    }
+
+    /// A material's first-mip texels in RGBA8 at its source size, so other consumers can reuse
+    /// the carrier's copy of a terrain raster. `None` for the diagnostic material or a layer
+    /// outside the retained pages.
+    #[must_use]
+    pub fn material_texels(&self, id: u32) -> Option<([u32; 2], Box<[u8]>)> {
+        if id == DIAGNOSTIC_MATERIAL {
+            return None;
+        }
+        let reference = self.materials.get(id as usize)?.texture;
+        let texture = &self.texture_pages.get(reference.page() as usize)?.texture;
+        let mip = texture.mips.first()?;
+        if reference.layer() >= texture.layers {
+            return None;
+        }
+        let side = mip.size as usize;
+        let [width, height] = self.texture_source_size(reference);
+        if width == 0 || height == 0 || width as usize > side || height as usize > side {
+            return None;
+        }
+        let layer_bytes = side * side * 4;
+        let layer = mip
+            .rgba8
+            .get(reference.layer() as usize * layer_bytes..)?
+            .get(..layer_bytes)?;
+        let texels = layer
+            .chunks_exact(side * 4)
+            .take(height as usize)
+            .flat_map(|row| &row[..width as usize * 4])
+            .copied()
+            .collect();
+        Some(([width, height], texels))
     }
 
     /// Index of a shard reference's layer inside the flat per-layer arrays.
@@ -403,9 +442,14 @@ impl RuntimeAssets {
             .ok()
             .map(|index| self.model_random_offsets[index].1)
             .or_else(|| {
-                let model = self.model_templates.get(template as usize)?;
-                (model.flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0)
-                    .then_some(block_transform::random_offset::SHORT_GRASS)
+                let flags = self.model_templates.get(template as usize)?.flags;
+                if flags & crate::model::MODEL_TEMPLATE_FLAG_SHORT_GRASS != 0 {
+                    Some(block_transform::random_offset::SHORT_GRASS)
+                } else if flags & crate::model::MODEL_TEMPLATE_FLAG_SPELEOTHEM != 0 {
+                    Some(block_transform::random_offset::POINTED_DRIPSTONE)
+                } else {
+                    None
+                }
             })
     }
 
@@ -461,6 +505,13 @@ impl RuntimeAssets {
     #[must_use]
     pub const fn biome_assets(&self) -> &CompiledBiomeAssets {
         &self.biomes
+    }
+
+    /// Whether a session overlay changed this base visual's face art, so art prepared from the
+    /// startup carrier, such as carried cube sheets, no longer matches its terrain.
+    #[must_use]
+    pub fn is_retextured(&self, visual: crate::BlockVisualId) -> bool {
+        self.retextured_visuals.binary_search(&visual.0).is_ok()
     }
 
     /// Returns the validated carrier identity; synthetic and composed assets have none.

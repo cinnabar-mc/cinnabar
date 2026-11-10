@@ -1,0 +1,12 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "fixture:material_entity",
+      "materials": {"default": "fixture_base"},
+      "textures": {"default": "textures/fixture", "second": "textures/fixture_second"},
+      "geometry": {"default": "geometry.fixture"},
+      "render_controllers": ["controller.render.fixture"]
+    }
+  }
+}

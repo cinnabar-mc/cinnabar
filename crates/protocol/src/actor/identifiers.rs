@@ -22,12 +22,13 @@ pub struct ActorIdentifierRegistry {
 
 /// Empty or mistyped base identifiers select vanilla's generic mob constructor.
 pub(crate) fn normalize(bytes: &[u8]) -> ActorIdentifierRegistry {
-    let Some(root) = read_root(bytes) else {
+    let Some(document) = read_root(bytes) else {
         return ActorIdentifierRegistry {
             skipped: 1,
             ..Default::default()
         };
     };
+    let root = document.root();
     let mut registry = ActorIdentifierRegistry::default();
     let mut entries = Vec::new();
     if !matches!(root.field("idlist"), Some(Nbt::List(_))) {
@@ -100,5 +101,31 @@ mod tests {
         assert_eq!(registry.entries.len(), 2);
         assert_eq!(&*registry.entries[0].base_identifier, "minecraft:arrow");
         assert!(registry.entries[1].base_identifier.is_empty());
+    }
+
+    #[test]
+    fn registry_decoding_allocates_a_small_multiple_of_the_wire_size() {
+        let measure = |unused: &[u8]| {
+            let mut bytes = vec![10, 0, 9, 6];
+            bytes.extend(b"idlist");
+            bytes.extend([10, 2]);
+            string(&mut bytes, "id", "custom:mob");
+            bytes.push(0);
+            bytes.extend(unused);
+            bytes.push(0);
+            let (registry, allocations) = test_alloc::measure(|| normalize(&bytes));
+            assert_eq!(registry.entries.len(), 1);
+            allocations.bytes
+        };
+        let baseline = measure(&[]);
+        for (shape, field) in crate::nbt_tree::test_tree::amplifying_fields("test:unused", 1 << 20)
+        {
+            let decoded = measure(&field).saturating_sub(baseline);
+            assert!(
+                decoded <= 3 * field.len(),
+                "{shape}: {decoded} bytes allocated for {} wire bytes",
+                field.len()
+            );
+        }
     }
 }

@@ -2,8 +2,42 @@
 
 use super::*;
 
-/// Search results, an empty result and the compact settings viewport.
+/// Opens a settings category by its registered name rather than a copied index.
+pub fn settings(section: &str) -> MenuView {
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Settings;
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == section).then_some(*index))
+        .expect("registered settings category");
+    view
+}
+
+/// Global resources while applying and with an empty library, search results, an empty result
+/// and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
+    State {
+        name: "settings-global-resources-applying",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            let packs = Arc::make_mut(&mut view.global_resources);
+            packs.busy = true;
+            packs.message = oreui::loading_screen::RESOURCE_PACK_WORDS[0].to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
+        name: "settings-global-resources-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            Arc::make_mut(&mut view.global_resources).available_expanded = true;
+            Fixture::Menu(Box::new(view))
+        },
+    },
     State {
         name: "settings-framerate",
         size: SIZE,
@@ -31,6 +65,36 @@ pub(super) const SEARCH_STATES: &[State] = &[
         size: [640, 360],
         gui_scale: GUI_SCALE,
         fixture: || settings_search("vsync"),
+    },
+    State {
+        name: "settings-storage-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+                unreachable!()
+            };
+            Arc::make_mut(&mut view.storage).loading = true;
+            Fixture::Menu(view)
+        },
+    },
+    State {
+        name: "settings-storage-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("harbor"),
+    },
+    State {
+        name: "settings-storage-empty-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("no matching downloaded pack"),
+    },
+    State {
+        name: "settings-storage-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::settings_storage,
     },
 ];
 
@@ -146,7 +210,7 @@ pub(super) const PAGE_STATES: &[State] = &[
     },
     State {
         name: "settings-video-page",
-        size: [1280, 2600],
+        size: [1280, 4600],
         gui_scale: GUI_SCALE,
         fixture: || settings_page(SettingSection::Video, false),
     },
@@ -228,6 +292,17 @@ fn settings_search(query: &str) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the Accessibility GUI-scale slider with a 1440p window's three modifiers, set to the
+/// middle one.
+pub(super) fn settings_gui_scale() -> Fixture {
+    let mut view = settings("accessibility_forced_index");
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
+        .choices()
+        .collect();
+    view.gui_scale_offset = view.gui_scale_choices[1].offset;
+    Fixture::Menu(Box::new(view))
+}
+
 /// Focuses the occlusion toggle at its saved value in the Video settings viewport.
 pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
     let mut view = settings("video_forced_index");
@@ -238,4 +313,13 @@ pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
         i32::from(!enabled),
     ));
     Fixture::Menu(Box::new(view))
+}
+
+/// Filters an anonymous cache inventory without changing its original row indices.
+fn storage_search(query: &str) -> Fixture {
+    let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+        unreachable!()
+    };
+    view.storage_query = query.into();
+    Fixture::Menu(view)
 }

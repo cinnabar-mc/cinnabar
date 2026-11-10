@@ -8,6 +8,7 @@ use std::sync::Arc;
 /// Creates one deterministic icon reference for geometry assertions.
 pub(crate) fn source(page: u16) -> ui::IconRef {
     ui::IconRef {
+        color_mask: None,
         page,
         uv: [10, 20, 26, 36],
         glint: false,
@@ -104,6 +105,7 @@ pub fn assert_installed_shield(
         }
     });
     let shield = PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: ui::IconRef {
             uv: [0, 0, texture.width, texture.height],
             ..source(8)

@@ -24,6 +24,7 @@ pub mod inbox;
 mod input;
 mod invite;
 mod join_requests;
+mod realm_leave;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
@@ -33,6 +34,7 @@ mod navigation;
 mod presence_targets;
 mod reconnect;
 mod renderer;
+mod saved_servers;
 pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
@@ -122,6 +124,7 @@ pub struct MenuRuntime {
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
     settings_query: ui::ChatEditor,
+    storage_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -175,6 +178,8 @@ pub struct MenuRuntime {
     player_skin: crate::player_skin::LocalPlayerSkin,
     dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
     dressing_room_worker: Option<dressing_room::Worker>,
+    /// Fallback pixels for catalog entries created before world assets were ready.
+    default_player_skin: Option<render_api::StandardSkin>,
     skin_update_pending: bool,
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,
@@ -218,6 +223,7 @@ pub struct MenuRuntime {
     settings_input: focus::SettingsInput,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
+    storage_reader: Option<launcher_host::settings_storage::StorageReader>,
     settings_dirty: bool,
     settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
     /// Worker startup failures wait until this deadline before another attempt.
@@ -230,7 +236,7 @@ pub struct MenuRuntime {
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
-    input_mode: input::MenuInputMode,
+    input_mode: input::mode::MenuInputMode,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,
@@ -238,6 +244,7 @@ pub struct MenuRuntime {
     /// The pause screen's invite screen and the invites it queued.
     invite: invite::InviteUi,
     realm_membership: realm_membership::RealmUi,
+    realm_leave: realm_leave::RealmLeaveUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
 }
@@ -389,10 +396,10 @@ impl MenuRuntime {
         if launcher::menu::disconnect::requires_client_update(&message) {
             launcher_host::lifecycle::update::protocol_required();
         }
+        bevy::log::warn!(error = %message, kind = ?self.feeds.join.kind, "join failed");
         if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
-            bevy::log::warn!(error = %message, "join failed");
             self.message = None;
             self.disconnect_message = Some(message);
             self.focused = 0;
@@ -436,6 +443,10 @@ impl MenuRuntime {
 
     pub fn take_disconnect_request(&mut self) -> bool {
         std::mem::take(&mut self.intents.disconnect)
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.intents.exit
     }
 
     pub fn take_exit_request(&mut self) -> bool {
@@ -563,14 +574,14 @@ impl MenuRuntime {
                     self.death_loading = true;
                     self.death_presentation.exiting_world = true;
                     self.death_presentation.respawn_seconds = Some(0.0);
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.dialog = None;
                 }
             }
             MenuAction::ConfirmDeathQuit => {
                 if self.dialog == Some(MenuDialog::DeathQuit) {
                     self.dialog = None;
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.set_visible(false);
                 }
             }
@@ -624,6 +635,9 @@ impl MenuRuntime {
                 }
             }
             MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
+            MenuAction::LeaveRealmDialog(_) | MenuAction::ConfirmLeaveRealm(_) => {
+                self.activate_realm_leave(action)
+            }
             MenuAction::PlayRealm(index) => {
                 if let Some(realm) = self.realms.get(index) {
                     let target = if realm.target.is_empty() {
@@ -722,7 +736,7 @@ impl MenuRuntime {
             }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
-                self.intents.disconnect = true;
+                self.request_disconnect();
                 self.set_visible(false);
             }
             MenuAction::PauseSettings => {
@@ -749,7 +763,6 @@ impl MenuRuntime {
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
             | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
@@ -773,6 +786,7 @@ impl MenuRuntime {
             MenuAction::SignOut => self.sign_out_requested = true,
             MenuAction::SelectFeatured(index) => self.feeds.select(index),
             MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
+            MenuAction::ServerDetail(_) => {}
             MenuAction::ServerList(action) => {
                 self.settings_dirty |=
                     std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);
@@ -818,91 +832,6 @@ impl MenuRuntime {
             MenuAction::Invite(action) => self.activate_invite(action),
             MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
             MenuAction::ShaderOptions(action) => self.activate_shader_options(action),
-        }
-    }
-
-    /// The draft's `host:port`; a host typed with its own port keeps it.
-    fn draft_endpoint(&self) -> String {
-        let host = self.address.as_str().trim();
-        let port = self.port.as_str().trim();
-        let own_port = host.contains("]:")
-            || host.split_once(':').is_some_and(|(_, rest)| {
-                !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
-            });
-        match (
-            own_port || host.is_empty(),
-            port.is_empty(),
-            host.contains(':'),
-        ) {
-            (true, _, _) | (_, true, _) => host.to_owned(),
-            (false, false, true) => format!("[{host}]:{port}"),
-            (false, false, false) => format!("{host}:{port}"),
-        }
-    }
-
-    fn save_draft(&mut self) -> bool {
-        let name = self.name.as_str().trim();
-        let endpoint = self.draft_endpoint();
-        let address = endpoint.trim();
-        if name.is_empty() || address.is_empty() {
-            self.message = Some("Enter a server name and address.".to_owned());
-            return false;
-        }
-        let server = SavedServer {
-            name: name.to_owned(),
-            address: address.to_owned(),
-            favorite: false,
-            last_joined_unix: 0,
-        };
-        let saved = if let Some(index) = self.editing.filter(|&index| index < self.servers.len()) {
-            let existing = &mut self.servers[index];
-            existing.name = server.name;
-            existing.address = server.address;
-            index
-        } else if let Some(index) = self
-            .servers
-            .iter()
-            .position(|existing| existing.address.eq_ignore_ascii_case(&server.address))
-        {
-            let existing = &mut self.servers[index];
-            *existing = SavedServer {
-                favorite: existing.favorite,
-                last_joined_unix: existing.last_joined_unix,
-                ..server
-            };
-            index
-        } else {
-            self.servers.push(server);
-            self.servers.len() - 1
-        };
-        // The server just saved replaces whichever one was selected before.
-        self.feeds.select_saved(saved);
-        if let Some(external) = &mut self.external {
-            external.preferences_dirty = true;
-            return true;
-        }
-        if let Err(error) = self.saves.save(&self.servers) {
-            self.message = Some(format!("Could not save server: {error}"));
-            return false;
-        }
-        true
-    }
-
-    /// Queues the list for writing; a schema refusal leaves only the log.
-    fn save_servers(&mut self) {
-        if let Some(external) = &mut self.external {
-            external.preferences_dirty = true;
-            return;
-        }
-        if let Err(error) = self.saves.save(&self.servers) {
-            bevy::log::warn!("saved servers not written: {error:#}");
-        }
-    }
-
-    /// Surfaces a saved-server write that failed on the worker.
-    pub fn poll_saves(&mut self) {
-        if let Some(error) = self.saves.take_error() {
-            self.message = Some(format!("Could not save servers: {error}"));
         }
     }
 

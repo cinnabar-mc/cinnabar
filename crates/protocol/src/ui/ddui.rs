@@ -5,20 +5,25 @@
 //! input back as `ServerboundDataStore` path updates and reports every screen it closes with
 //! `ServerboundDataDrivenScreenClosed`.
 
+mod scripted;
 mod store;
 mod value;
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     ClientboundDataDrivenUICloseScreen, ClientboundDataDrivenUIShowScreen, ClientboundDataStore,
     ServerboundDataDrivenScreenClosed, ServerboundDataStore,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     BedrockDDUI, BedrockDDUIDataStoreUpdate, BedrockDDUIDataStoreUpdateData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
+pub use scripted::{
+    CLOSE_BUTTON_CLICKS, ControlKind, CustomFormView, DropdownItem, FormControl, MessageBoxView,
+    SCRIPT_STORE, ScreenButton, ScreenText, ScriptedScreen,
+};
 pub use store::{DataStores, StoreApply};
 pub use value::{DataPrimitive, DataValue, PathError};
 use value::{from_wire, text};

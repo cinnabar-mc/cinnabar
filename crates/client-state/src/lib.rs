@@ -44,6 +44,11 @@ pub struct SemanticInputSnapshot(pub semantic_input::finalized::FinalizedInput);
 #[derive(Clone, Copy, Debug, Default, Resource)]
 pub struct ModHotbarSelection(pub Option<u8>);
 
+pub mod devices;
+pub use devices::{
+    ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,
+};
+
 /// Screen ownership published by the shell for the current gameplay frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
 pub struct ScreenFocus {
@@ -63,6 +68,8 @@ pub struct GameplayScreenControls {
     pub pick_block_pressed: bool,
     pub spyglass_mouse_damping: f32,
     pub spyglass_gamepad_damping: f32,
+    /// Hide HUD (F1) is on, so gameplay overlays such as the block selection are not drawn.
+    pub hide_hud: bool,
 }
 
 /// Interaction phases whose surrounding world and transport adapters share the frame.
@@ -133,6 +140,6 @@ pub enum ShellFrameSet {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExperienceInputSet;
 
-/// The emote UI consumed the sampled input before gameplay finalization.
+/// The emote wheel or mob effect screen consumed the sampled input before gameplay finalization.
 #[derive(Resource, Default)]
-pub struct EmoteInputConsumed(pub bool);
+pub struct ScreenInputConsumed(pub bool);

@@ -68,6 +68,23 @@ pub(crate) struct EffectBuffers {
 }
 
 impl EffectBuffers {
+    /// Borrows an indexed effect range and its retained CPU indices for bounded storage bindings.
+    pub(crate) fn emulation_input(
+        &self,
+        range: Range<u32>,
+    ) -> Option<crate::shaderpack::geometry_shader::Input<'_>> {
+        Some(crate::shaderpack::geometry_shader::Input {
+            vertices: self.vertices.as_ref()?,
+            indices: Some(self.indices.as_ref()?),
+            index_values: Some(&self.mesh.indices),
+            origins: None,
+            first: range.start,
+            count: range.end - range.start,
+            base_vertex: 0,
+            instance: 0,
+        })
+    }
+
     /// The indices `effect` draws this frame, when it has any.
     pub(crate) fn range(&self, effect: Effect) -> Option<Range<u32>> {
         self.ranges
@@ -113,23 +130,27 @@ fn build(
                 particle_quads(mesh, &frame.add, camera, inputs.particle_atlas_side);
             }
         }
-        Effect::Weather => {
+        Effect::Rain => {
+            let Some(scene) = inputs.precipitation else {
+                return;
+            };
+            if scene
+                .layers
+                .iter()
+                .any(|layer| layer.kind == RAIN_KIND && layer.particle_count > 0)
+            {
+                let seconds = inputs.frame.frame_time_counter.unwrap_or(inputs.seconds);
+                rain_columns(
+                    mesh,
+                    &scene.occlusion,
+                    camera,
+                    inputs.frame.rain_strength,
+                    seconds * render_model::PRECIPITATION_TICKS_PER_SECOND as f32,
+                );
+            }
+        }
+        Effect::Snow => {
             if let Some(scene) = inputs.precipitation {
-                if let Some(rain) = scene
-                    .layers
-                    .iter()
-                    .find(|layer| layer.kind == RAIN_KIND && layer.particle_count > 0)
-                {
-                    let seconds = inputs.frame.frame_time_counter.unwrap_or(inputs.seconds);
-                    rain_columns(
-                        mesh,
-                        &scene.occlusion,
-                        rain.uv_rect,
-                        camera,
-                        inputs.frame.rain_strength,
-                        seconds * render_model::PRECIPITATION_TICKS_PER_SECOND as f32,
-                    );
-                }
                 weather_quads(
                     mesh,
                     &scene.layers,
@@ -252,13 +273,13 @@ pub(crate) fn prepare_effects(
     fit(
         &mut buffers.vertices,
         vertex_bytes,
-        wgpu::BufferUsages::VERTEX,
+        wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
         "shader pack effect vertices",
     );
     fit(
         &mut buffers.indices,
         index_bytes,
-        wgpu::BufferUsages::INDEX,
+        wgpu::BufferUsages::INDEX | wgpu::BufferUsages::STORAGE,
         "shader pack effect indices",
     );
 }

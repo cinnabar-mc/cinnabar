@@ -1,11 +1,11 @@
 //! UI admission for decoded server packets: per-field budgets bound the decoder before it
 //! allocates, and decoded packets are checked for UTF-8, enum and aggregate budgets.
 
-use bedrock_protocol_1_26_51::enums::{BossEventUpdateType, SoftEnumUpdateType, TextPacketType};
-use bedrock_protocol_1_26_51::fields;
-use bedrock_protocol_1_26_51::packets;
-use bedrock_protocol_1_26_51::types::{SetScoreInfoItem, TextData};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{BossEventUpdateType, SoftEnumUpdateType, TextPacketType};
+use bedrock_protocol_1_26_60::fields;
+use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_1_26_60::types::{SetScoreInfoItem, TextData};
+use bedrock_protocol_1_26_60::wire;
 
 use super::{
     MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_FORM_JSON_BYTES,

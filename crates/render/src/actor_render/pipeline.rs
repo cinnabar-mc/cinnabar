@@ -217,6 +217,11 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
     });
     ordinary
         .chain(additive)
+        .chain(
+            assets::facts::pack::rules()
+                .material_states()
+                .map(|(name, state)| assets::facts::pack::rules().raster(name).word(Some(state))),
+        )
         .flat_map(|material| {
             [
                 material,
@@ -228,6 +233,7 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
         .flat_map(|material| {
             [
                 Some(material),
+                Some(material | assets::EntityRenderMaterialState::DEPTH_EQUAL),
                 Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
                 (material & assets::EntityRenderMaterialState::KIND_MASK
                     == assets::EntityRenderMaterial::DissolveColor as u32)
@@ -236,23 +242,50 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             .into_iter()
             .flatten()
         })
+        .flat_map(|material| {
+            [
+                0,
+                assets::EntityRenderMaterialState::DISABLE_ALPHA_WRITE,
+                assets::EntityRenderMaterialState::DISABLE_COLOR_WRITE,
+            ]
+            .map(|writes| material | writes)
+        })
 }
+
+/// The camera state that selects each view's actor pipeline variants.
+type ActorViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static bevy::render::camera::ExtractedCamera,
+        &'static Msaa,
+        Option<&'static render_scene::EnhancedRendering>,
+        bevy::prelude::Has<render_scene::shaderpack::ShaderPackRendering>,
+        bevy::prelude::Has<bevy::prelude::Camera3d>,
+    ),
+>;
 
 pub(super) fn prepare_actor_pipelines(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<ActorPipeline>,
     readiness: Res<render_scene::ActorPipelineReadiness>,
-    views: Query<(
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-        Option<&render_scene::EnhancedRendering>,
-    )>,
+    preflight: Option<Res<render_scene::SampleCountPreflight>>,
+    views: ActorViews,
 ) {
     let mut has_view = false;
     let mut ready = true;
-    for (camera, msaa, enhanced) in &views {
+    for (camera, msaa, enhanced, shader_pack, world_camera) in &views {
         has_view = true;
-        for msaa in crate::pipeline_warmup::sample_modes(*msaa) {
+        let requested = crate::pipeline_warmup::requested_sample_mode(
+            preflight
+                .as_ref()
+                .and_then(|preflight| preflight.requested())
+                .and_then(|request| request.for_view(camera.hdr, enhanced.is_some())),
+            world_camera,
+            shader_pack,
+        );
+        let counts = std::iter::once(*msaa).chain(requested);
+        for msaa in counts.flat_map(crate::pipeline_warmup::sample_modes) {
             ready &= pipeline
                 .prewarm(&cache, msaa, camera.hdr, enhanced.is_some())
                 .is_some()
@@ -260,6 +293,13 @@ pub(super) fn prepare_actor_pipelines(
         }
     }
     readiness.publish(has_view && ready);
+}
+
+/// A sample-count switch waits on actor variants as it does on every other warm-up owner.
+impl crate::pipeline_warmup::PendingPipelines for render_scene::ActorPipelineReadiness {
+    fn pending(&self) -> bool {
+        !self.is_ready()
+    }
 }
 
 pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
@@ -478,6 +518,8 @@ pub(super) struct ActorPipelineContract {
     blend: bool,
     depth_write: bool,
     depth_always: bool,
+    depth_equal: bool,
+    write_color: bool,
     additive: bool,
     additive_alpha: bool,
     alpha_to_coverage: bool,
@@ -522,15 +564,21 @@ impl ActorPipelineKey {
             blend: state.blend,
             depth_write: state.depth_write,
             depth_always: state.depth_always,
+            depth_equal: (state.depth_equal || kind == assets::EntityRenderMaterial::DissolveColor)
+                && !state.depth_always,
+            write_color: !state.disable_color_write,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
-            write_alpha: self.material
-                & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
-                != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
+            write_alpha: !state.disable_color_write
+                && !state.disable_alpha_write
+                && self.material
+                    & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                        | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
+                    != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                        | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
             alpha_to_coverage: self.msaa.samples() > 1
                 && state.alpha_test
+                && !state.masked_multitexture
                 && !state.blend
                 && !state.emissive
                 && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
@@ -579,12 +627,13 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .unwrap()
                 .write_mask = ColorWrites::COLOR;
         }
-        if kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
+        if !contract.write_color || kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
                 .write_mask = ColorWrites::empty();
-        } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
+        }
+        if contract.depth_equal || kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(CompareFunction::Equal);
         }
         if state.is_some_and(|state| state.depth_always) {

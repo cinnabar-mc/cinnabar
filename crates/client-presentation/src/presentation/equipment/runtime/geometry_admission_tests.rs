@@ -139,11 +139,14 @@ fn runtime(
 /// Supplies the complete stack fields used by the production owner-selection entry point.
 fn item() -> WornItem {
     WornItem {
+        trim: None,
         identifier: ITEM.into(),
         kind: HeldKind::Other,
         metadata: 0,
         damage: None,
         variant: Default::default(),
+        map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: Default::default(),
         grip: Default::default(),

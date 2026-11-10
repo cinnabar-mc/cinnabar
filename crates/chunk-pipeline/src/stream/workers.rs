@@ -1,7 +1,10 @@
+mod mailbox;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 mod priority;
+mod scratch;
+pub(crate) use scratch::WorkerScratch;
 #[cfg(feature = "tracy")]
 mod queue_lock;
 #[cfg(not(target_arch = "wasm32"))]
@@ -15,6 +18,7 @@ use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+pub(in crate::stream) use mailbox::{Mailbox, MailboxSender, result_mailbox};
 
 #[cfg(not(feature = "tracy"))]
 type QueueGuard<'a> = MutexGuard<'a, Queues>;
@@ -34,6 +38,14 @@ pub(super) enum Lane {
     Decode,
     Light,
     Summary,
+}
+
+impl Lane {
+    /// Whether the lane's work may run below frame priority. Light and summaries trail the
+    /// frame; mesh and decode gate chunks appearing, so they keep normal priority on any worker.
+    const fn below_frame(self) -> bool {
+        matches!(self, Self::Light | Self::Summary)
+    }
 }
 
 /// Thread split for one machine; only background threads take light, so they cap its width.
@@ -59,8 +71,18 @@ impl PoolSize {
     }
 }
 
-type Job = Box<dyn FnOnce(&mut world::LightSolverScratch) + Send + 'static>;
+type Job = Box<dyn FnOnce(&mut WorkerScratch) + Send + 'static>;
 type Queue = VecDeque<(Moment, Job)>;
+
+/// A job a worker took, with whether its lane may run it below frame priority.
+struct Taken {
+    job: Job,
+    #[cfg_attr(
+        all(target_arch = "wasm32", not(test)),
+        allow(dead_code, reason = "the browser driver has no thread priorities")
+    )]
+    below_frame: bool,
+}
 
 #[derive(Default)]
 struct Queues {
@@ -81,13 +103,17 @@ struct Queues {
 impl Queues {
     /// Adds one lane job with its monotonic submission observation.
     fn push(&mut self, lane: Lane, queued_at: Moment, job: Job) {
-        let queue = match lane {
+        self.queue(lane).push_back((queued_at, job));
+    }
+
+    /// The backlog that holds `lane`'s jobs.
+    fn queue(&mut self, lane: Lane) -> &mut Queue {
+        match lane {
             Lane::Mesh => &mut self.mesh,
             Lane::Decode => &mut self.decode,
             Lane::Light => &mut self.light,
             Lane::Summary => &mut self.summary,
-        };
-        queue.push_back((queued_at, job));
+        }
     }
 
     /// Alternates worker eligibility so overdue light cannot occupy every browser turn.
@@ -96,7 +122,8 @@ impl Queues {
         let background = !self.foreground_turn;
         let job = self
             .take(background, now)
-            .or_else(|| (!background).then(|| self.take(true, now)).flatten());
+            .or_else(|| (!background).then(|| self.take(true, now)).flatten())
+            .map(|taken| taken.job);
         if job.is_some() {
             self.foreground_turn = !self.foreground_turn;
         }
@@ -104,10 +131,13 @@ impl Queues {
     }
 
     /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
-    /// Urgent work comes first on any thread.
-    fn take(&mut self, background: bool, now: Moment) -> Option<Job> {
+    /// Urgent work comes first on any thread and never runs below frame priority.
+    fn take(&mut self, background: bool, now: Moment) -> Option<Taken> {
         if let Some((_, job)) = self.urgent.pop_front() {
-            return Some(job);
+            return Some(Taken {
+                job,
+                below_frame: false,
+            });
         }
         let overdue = |queue: &Queue, limit| {
             queue
@@ -115,19 +145,25 @@ impl Queues {
                 .is_some_and(|(queued, _)| now.saturating_duration_since(*queued) >= limit)
         };
         let lane = if background && overdue(&self.light, LIGHT_MAX_WAIT) {
-            &mut self.light
+            Lane::Light
         } else if overdue(&self.decode, DECODE_MAX_WAIT) || self.mesh.is_empty() {
             if self.decode.is_empty() && background {
-                &mut self.light
+                Lane::Light
             } else {
-                &mut self.decode
+                Lane::Decode
             }
         } else {
-            &mut self.mesh
+            Lane::Mesh
         };
-        lane.pop_front()
-            .or_else(|| background.then(|| self.summary.pop_front()).flatten())
-            .map(|(_, job)| job)
+        let lane = if self.queue(lane).is_empty() && background {
+            Lane::Summary
+        } else {
+            lane
+        };
+        self.queue(lane).pop_front().map(|(_, job)| Taken {
+            job,
+            below_frame: lane.below_frame(),
+        })
     }
 }
 
@@ -167,21 +203,37 @@ impl Shared {
 
     /// Sleeps atomically with queue release, excluding the sleep from lock ownership.
     #[cfg(not(target_arch = "wasm32"))]
-    fn wait<'a>(&'a self, guard: QueueGuard<'a>) -> QueueGuard<'a> {
+    fn wait<'a>(&'a self, guard: QueueGuard<'a>, timeout: Option<Duration>) -> QueueGuard<'a> {
         #[cfg(feature = "tracy")]
         {
             let (guard, owned, wait) = guard.end_ownership();
             let waiting = wait.entered();
-            let guard = self
-                .ready
-                .wait(guard)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let guard = self.wait_guard(guard, timeout);
             QueueGuard::new(guard, owned, waiting.exit())
         }
         #[cfg(not(feature = "tracy"))]
-        self.ready
-            .wait(guard)
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.wait_guard(guard, timeout)
+    }
+
+    /// Releases the queue atomically, waking for work or an outstanding scratch deadline.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_guard<'a>(
+        &self,
+        guard: MutexGuard<'a, Queues>,
+        timeout: Option<Duration>,
+    ) -> MutexGuard<'a, Queues> {
+        match timeout {
+            Some(timeout) => {
+                self.ready
+                    .wait_timeout(guard, timeout)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .0
+            }
+            None => self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        }
     }
 }
 
@@ -240,7 +292,7 @@ pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
 });
 
 impl WorldPool {
-    /// Submits detached allocations to the executor driven by the browser host.
+    /// Submits detached work to the executor driven by the browser host.
     #[cfg(any(test, target_arch = "wasm32"))]
     fn retire(&self, job: impl FnOnce() + Send + 'static) {
         // Decode ageing also prevents a mesh backlog from retaining evicted allocations.
@@ -296,8 +348,9 @@ impl WorldPool {
     }
 }
 
-/// Releases detached world allocations through the host's background executor.
-pub(super) fn retire(job: impl FnOnce() + Send + 'static) {
+/// Runs detached work, such as releasing world allocations or building a shared table, on the
+/// host's background executor, never on the submitting thread.
+pub(super) fn detach(job: impl FnOnce() + Send + 'static) {
     #[cfg(not(target_arch = "wasm32"))]
     rayon::spawn(job);
     #[cfg(target_arch = "wasm32")]
@@ -314,15 +367,16 @@ pub(super) struct DispatchBatch<'a> {
 impl DispatchBatch<'_> {
     /// Adds an independent task without waking or locking the pool yet; an `urgent` one, for a
     /// block the local player just changed, runs ahead of every lane's backlog.
+    #[cfg(test)]
     pub(super) fn spawn(&mut self, urgent: bool, job: impl FnOnce() + Send + 'static) {
         self.spawn_with_scratch(urgent, move |_| job());
     }
 
-    /// Gives a solve exclusive access to this worker's retained scratch buffers.
+    /// Gives a job exclusive access to this worker's retained light and mesh buffers.
     pub(super) fn spawn_with_scratch(
         &mut self,
         urgent: bool,
-        job: impl FnOnce(&mut world::LightSolverScratch) + Send + 'static,
+        job: impl FnOnce(&mut WorkerScratch) + Send + 'static,
     ) {
         self.jobs
             .push((self.pool.observed_at(), urgent, Box::new(job)));
@@ -358,12 +412,30 @@ impl Drop for WorldPool {
     }
 }
 
-/// Restores normal job priority before reserving a result-channel slot.
-/// This prevents the receiving frame from spinning on a preempted, lowered sender.
-pub(super) fn send_result<T>(tx: &Sender<T>, result: T) {
+/// Where a worker publishes a result; a receiver that has gone away discards it.
+pub(super) trait ResultSink<T> {
+    /// Publishes a result or drops it if its receiver has gone away.
+    fn publish(&self, result: T);
+}
+
+impl<T> ResultSink<T> for Sender<T> {
+    fn publish(&self, result: T) {
+        let _ = self.send(result);
+    }
+}
+
+impl<T> ResultSink<T> for MailboxSender<T> {
+    fn publish(&self, result: T) {
+        let _ = self.send(result);
+    }
+}
+
+/// Restores normal job priority before publishing, so a lowered sender is not left preempted
+/// while it holds the queue that other producers and receivers use.
+pub(super) fn send_result<T>(tx: &impl ResultSink<T>, result: T) {
     #[cfg(not(target_arch = "wasm32"))]
     restore_lowered_job();
-    let _ = tx.send(result);
+    tx.publish(result);
 }
 
 /// Updates the browser observation before a frame submits jobs.
@@ -375,20 +447,23 @@ pub(crate) fn observe(now: Moment) {
 
 /// Runs one cooperative turn using native foreground and background eligibility.
 #[cfg(any(test, target_arch = "wasm32"))]
-fn run_one(shared: &Shared, now: Moment, scratch: &mut world::LightSolverScratch) -> bool {
-    let Some(job) = shared.lock().take_cooperative(now) else {
+fn run_one(shared: &Shared, now: Moment, scratch: &mut WorkerScratch) -> bool {
+    let job = shared.lock().take_cooperative(now);
+    let Some(job) = job else {
+        scratch.release_if_idle(now);
         return false;
     };
     // Matches native workers: a panic cannot silently lose job permits.
     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(scratch))).is_err() {
         std::process::abort();
     }
+    scratch.finished(now);
     true
 }
 
 /// Runs at most one browser world job; the host yields between calls.
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn run_browser_job(now: Moment, scratch: &mut world::LightSolverScratch) -> bool {
+pub(crate) fn run_browser_job(now: Moment, scratch: &mut WorkerScratch) -> bool {
     observe(now);
     let now = WORKERS.shared.lock().observed_at;
     run_one(&WORKERS.shared, now, scratch)

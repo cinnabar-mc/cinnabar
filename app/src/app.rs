@@ -30,7 +30,7 @@ use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait
 use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render_api::PublicationServiceConfig;
 use std::io::Write;
-use std::{ffi::OsStr, path::Path, sync::Arc};
+use std::{ffi::OsStr, sync::Arc};
 #[cfg(feature = "acceptance")]
 use {
     crate::acceptance::{model_witness::drive_model_witness, world_ready::emit_world_ready},
@@ -40,7 +40,7 @@ use {
     render::{ActorRenderPlugin, AtmospherePlugin, ChunkRenderPlugin, UiRenderPlugin},
     render_scene::{
         ActorRenderScene, AtmosphereFrame, AtmosphereTextureAssets, ChunkRenderApplySet,
-        ChunkTextureAssets, VisibilityDiagnosticsInput,
+        VisibilityDiagnosticsInput,
     },
 };
 pub(crate) mod logging;
@@ -51,7 +51,7 @@ use startup::bind_direct_session_directory;
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use client_presentation::{camera::FlyCameraUpdateSet, local_player::LocalPlayerFrameSet};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::{PlatformClipboard, UiRuntime, presentation::UiPresentationRuntime};
+use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 use diagnostics::markers::SHUTDOWN_COMPLETED;
 use diagnostics::metrics::MetricsCollector;
 use launcher::install_layout::InstallLayout;
@@ -81,7 +81,7 @@ use {
             },
             world::{
                 ClientWorld, WorldStreamFramePoll, camera_environment::update_camera_medium,
-                drive_world_stream, reconcile_world_stream_before_physics, startup_biome_tints,
+                drive_world_stream, reconcile_world_stream_before_physics,
             },
         },
         semantic_controls::{
@@ -94,8 +94,8 @@ use {
         shell_adapters::drive_menu_services,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-            drive_world_inventory_keys, flush_server_form_network,
+            drive_command_block, drive_inventory_ui_actions, drive_server_form_input,
+            drive_sign_editor, drive_world_inventory_keys, flush_server_form_network,
             gameplay_touch::drive_gameplay_touch_targets,
             presentation::{
                 dials::advance_dials, drive_menu_panorama, observe_mount_jump_input,
@@ -113,7 +113,7 @@ use {
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, log_shutdown_phase,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -123,7 +123,7 @@ mod render_setup;
 use render_setup::RendererSetup;
 
 const PHYSICS_REGISTRY_SHA256: &str =
-    include_str!("../../crates/assets/data/block-physics-v2193.sha256");
+    include_str!("../../crates/assets/data/block-physics-v2225.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make assets` (normal `make client` does this automatically)";
 
@@ -148,6 +148,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             receive_network_events
+                .run_if(bevy::prelude::resource_exists::<client_interaction::movement::PhysicsCollisionRegistries>)
                 .before(drive_server_form_input)
                 .before(drain_inventory_authority)
                 .before(ClientFrameSet::Physics),
@@ -190,7 +191,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ClientFrameSet::ActorPreparation),
         )
         // Build actions resolve before the tick they precede, so its movement sees the block.
-        .add_systems(
+    .add_systems(
             Update,
             produce_block_use
                 .after(ClientFrameSet::SemanticFinalize)
@@ -226,7 +227,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
 }
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
-    app.add_plugins(client_runtime::ClientRuntimePlugin::<PackApplication>::default());
+    app.init_resource::<PublicationController>()
+        .add_plugins(client_runtime::ClientRuntimePlugin::<PackApplication>::default());
     crate::runtime::world::configure_world_service(app);
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
@@ -281,8 +283,24 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    args.validate_camera_support(cfg!(any(
+        feature = "developer-control",
+        feature = "acceptance"
+    )))?;
+    if std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some()
+        && !cfg!(feature = "acceptance")
+    {
+        bail!("startup benchmark requires a client built with the `acceptance` feature");
+    }
+    #[cfg(feature = "developer-control")]
+    let offscreen_startup = crate::developer_control::hidden_window_requested();
+    #[cfg(not(feature = "developer-control"))]
+    let offscreen_startup = false;
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.configure_menu(!args.connection_requested(), offscreen_startup);
+    }
     let feedback = crate::startup_feedback::Feedback::start();
-    let app = App::new();
+    let app = render_scene::startup_timing::measure("application_create", App::new);
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
@@ -308,7 +326,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let far_terrain_dir = layout.far_terrain_cache_dir();
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
-    reclaim_stale_session_directories(&layout);
+    render_scene::startup_timing::measure("session_cleanup", || {
+        reclaim_stale_session_directories(&layout)
+    });
     let connection_requested = args.connection_requested();
     let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
         layout.direct_socket_dir(std::process::id())
@@ -321,6 +341,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
     let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
+    let packet_mods = crate::modding::packets::from_environment();
+    let startup_cache = packet_mods.startup_cache(&client_blob_cache, &layout.user_config_root);
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.
@@ -328,23 +350,15 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
-    let carriers =
-        startup::take_or_load_startup_carriers(selected_assets, &layout.physics_registry);
-    let startup::CoreCarriers {
-        assets: loaded_assets,
-        actor: actor_catalog,
-        equipment: equipment_catalog,
-        authored_texture_loading,
-    } = carriers.core.context("load startup block assets")?;
+    let carriers = startup::begin(
+        selected_assets,
+        &layout.physics_registry,
+        connection_requested,
+    )?;
+    let menu_assets = carriers.assets.context("load required menu assets")?;
     if feedback.cancelled() {
         return Ok(());
     }
-    logging::loaded_assets(&loaded_assets);
-    let entity_runtime = Arc::clone(loaded_assets.entities.runtime());
-    let actor_catalog = actor_catalog.context("load exact entity-linked neutral actor artwork")?;
-    let actor_artwork = crate::asset_bindings::actor_artwork(&actor_catalog, &entity_runtime);
-    let hand_geometry =
-        render_model::ViewmodelGeometry::from_runtime(&entity_runtime, &actor_artwork);
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
@@ -353,17 +367,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
     bevy::log::info!("{}", icon_assets.startup_summary());
-    crate::runtime::network::install_vanilla_item_assets(&entity_runtime, icon_assets.runtime());
-    // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
-    let (equipment_runtime, actor_artwork, equipment_geometries) =
-        client_presentation::presentation::equipment::EquipmentRuntime::build(
-            Arc::clone(&entity_runtime),
-            equipment_catalog.clone(),
-            Arc::clone(icon_assets.runtime()),
-            Some(Arc::clone(&loaded_assets.runtime)),
-            carriers.block_entities.clone(),
-            actor_artwork,
-        );
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
@@ -378,128 +381,53 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     pack_runtime::pack_language::set_active_language(&language);
     let active_lang = assets::carriers::startup::load_optional_language(
-        &loaded_assets.selected_path,
+        &carriers.path,
         &language,
         assets::carriers::startup::vanilla_source_manifest_json(),
     );
+    let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
+    feedback.progress(launcher::startup::Stage::PreparingInterface);
+    let mut preparing_interface = Some(startup::interface::PreparingInterface::start(
+        menu_assets.clone(),
+        hud_assets,
+        icon_assets,
+        carriers.ui?,
+        carriers.path.clone(),
+        layout.vanilla_pack_dir(),
+        args.gui_scale,
+    )?);
     let startup::AudioCarriers {
         catalog: audio_catalog,
         pcm,
         sound_bank,
     } = carriers.audio?;
-    let audio_device = if pcm.is_some() || sound_bank.is_some() {
-        client_audio::named_audio::AudioDevice::open_default_once()
-    } else {
-        client_audio::named_audio::AudioDevice::disabled()
-    };
+    let audio_device = render_scene::startup_timing::measure("audio_device", || {
+        if pcm.is_some() || sound_bank.is_some() {
+            client_audio::named_audio::AudioDevice::open_default_once()
+        } else {
+            client_audio::named_audio::AudioDevice::disabled()
+        }
+    });
     // The full engine supersedes the single-sample named path when a bank is present.
     let named_audio =
         client_audio::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = client_audio::audio::AudioEngine::new(sound_bank);
-    let particle_assets = carriers.particles;
-    let flame_texture = particle_assets
-        .as_deref()
-        .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE));
-    let (actor_flames, actor_artwork) =
-        client_presentation::actor_publication::WorldActorFlames::prepare(
-            actor_artwork,
-            flame_texture,
-        );
-    let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
-    let mut block_entity_scene =
-        crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
-    block_entity_scene.install_entity_assets(&entity_runtime);
-    feedback.progress(launcher::startup::Stage::PreparingInterface);
-    let font_runtime = loaded_assets.fonts.into_runtime();
-    let block_entity_font = Arc::clone(&font_runtime);
-    let font_dir = loaded_assets.selected_path.parent();
-    let font_runtime = oreui::fonts::install(font_runtime, font_dir.unwrap_or(Path::new(".")));
-    let mut ui_presentation = UiPresentationRuntime::with_hud_and_icons(
-        font_runtime,
-        hud_assets.into_runtime(),
-        icon_assets.into_runtime(),
-    )
-    .context("prepare bounded font, HUD, and item-icon texture arrays for UI rendering")?;
-    // The gameplay HUD draws through the JSON-UI engine, so its carrier is required.
-    let json_ui = carriers.ui?;
-    json_ui
-        .join()
-        .and_then(|prepared| ui_presentation.enable_prepared_json_ui(prepared))
-        .map_err(|reason| anyhow::anyhow!("JSON-UI engine failed to start: {reason}"))?;
-    let ui_catalog = crate::runtime::network::PackUiCatalog(
-        ui_presentation
-            .pack_catalog_base()
-            .context("JSON-UI engine is missing its carrier catalog")?,
-    );
-    ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
-    ui_presentation.enable_touch_controls(cfg!(target_os = "android"));
-    // OreUI artwork is decoded once for every native screen.
-    if let Some(images) = oreui::images::load_optional_oreui_images(
-        loaded_assets
-            .selected_path
-            .parent()
-            .unwrap_or(Path::new(".")),
-    ) && let Err(reason) = ui_presentation.enable_oreui_originals(images)
-    {
-        bevy::log::warn!("OreUI originals disabled ({reason})");
-    }
-    let food_catalog = equipment_catalog.clone();
-    ui_presentation.set_equipment_catalog(equipment_catalog);
-    ui_presentation
-        .set_gui_models(&loaded_assets.runtime, &entity_runtime)
-        .context("prepare native GUI model geometry and original texture pages")?;
-    ui_presentation.set_gui_particle_assets(particle_assets.clone());
-    ui_presentation
-        .set_gui_fire_texture(flame_texture)
-        .context("prepare native HUD actor flame texture frames")?;
-    ui_presentation.set_gui_scale_preference(args.gui_scale);
-    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
-    let (atmosphere_runtime, atmosphere_identity) = loaded_assets.atmosphere.into_parts();
+    let (atmosphere_runtime, atmosphere_identity) = menu_assets.atmosphere.into_parts();
     let atmosphere_assets = AtmosphereTextureAssets::new(atmosphere_runtime, atmosphere_identity);
-    let weather_textures = carriers.weather;
-    let runtime_assets = loaded_assets.runtime;
-    let asset_metrics = loaded_assets.metrics.into();
-    let mut actor_render_scene = ActorRenderScene::with_runtime_entity_assets_and_equipment(
-        &entity_runtime,
-        &equipment_geometries,
-    )
-    .map_err(|error| {
-        anyhow::anyhow!("prepare validated runtime entity geometry for actor rendering: {error:?}")
-    })?;
-    crate::runtime::network::block_entity_art::install_base(
-        carriers.block_entities.clone(),
-        &block_entity_scene,
-    );
-    crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
-    actor_render_scene.configure_artwork(actor_artwork.clone());
-    if let Some(geometry) = actor_flames.geometry() {
-        actor_render_scene
-            .insert_geometry(geometry)
-            .map_err(|error| anyhow::anyhow!("prepare world actor flame geometry: {error:?}"))?;
-    }
-    // A dedicated single-instance builder for the local player's first-person rig, sharing the
-    // same validated geometry catalog as the third-person actor pass.
-    let hand_rig_builder =
-        client_presentation::actor_publication::HandRigBuilder::from_runtime_assets(
-            &entity_runtime,
-        )?;
-    let collision_registries = carriers.collision?;
-    bevy::log::info!(
-        "loaded {} authoritative collision records for local physics",
-        collision_registries.available_record_count()
-    );
-    #[cfg(feature = "acceptance")]
-    let movement_identity_source = args
-        .movement_evidence_target
-        .map(|target| {
-            MovementEvidenceIdentitySource::from_build(
-                target,
-                args.movement_candidate_physics,
-                &collision_registries,
-            )
-        })
-        .transpose()
-        .context("bind movement evidence to this exact build and collision registry")?;
+    let weather_textures = render_scene::WeatherTextureAssets::default();
+    let asset_metrics = diagnostics::metrics::AssetMetrics::default();
+
+    let mut world_input = Some(carriers.world);
+    let direct_interface = if connection_requested {
+        Some(
+            preparing_interface
+                .take()
+                .expect("interface preparation")
+                .finish(world_input.take().expect("world inputs"), true)?,
+        )
+    } else {
+        None
+    };
 
     let client_random_id = connection_requested
         .then(|| launcher_host::client_random_id::load(&layout.user_data_root))
@@ -516,7 +444,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
                     &socket_dir,
                     address,
                     None,
-                    client_blob_cache.enables_upstream_client_cache(),
+                    startup_cache.enables_upstream_client_cache(),
                     false,
                 )
                 .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
@@ -545,36 +473,26 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
-    let local_player_skin =
-        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
+    let local_player_skin = render_scene::startup_timing::measure("local_appearance", || {
+        client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name)
+    });
     let screenshots_dir = layout.screenshots_dir();
-    #[cfg(feature = "shaderpacks")]
-    let shader_compiler = {
-        let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
-        if layout.is_installed() {
-            bundled
-        } else {
-            layout
-                .core_executable
-                .with_file_name(bundled.file_name().context("asset compiler basename")?)
-        }
-    };
+    let shader_compiler = layout.shaderpack_worker.clone();
     let renderer_data_root = layout.user_data_root.clone();
+    let pipeline_cache_dir = layout.pipeline_cache_dir();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
-    let menu = MenuRuntime::new_with_import_snapshot(
-        !connection_requested,
-        args.gui_scale,
-        args.display_name.clone(),
-        layout,
-        local_player_skin.clone(),
-        minecraft_import,
-    )
-    .with_language_assets(
-        loaded_assets.selected_path.clone(),
-        args.language.as_deref(),
-    );
+    let menu = render_scene::startup_timing::measure("menu_services", || {
+        MenuRuntime::new_with_import_snapshot(
+            !connection_requested,
+            args.gui_scale,
+            args.display_name.clone(),
+            layout,
+            local_player_skin.clone(),
+            minecraft_import,
+        )
+        .with_language_assets(carriers.path.clone(), args.language.as_deref())
+    });
     crate::runtime::network::await_overlay_texture_device();
-    let packet_mods = crate::modding::packets::from_environment();
     let network = NetworkHandle::<PackApplication>::disconnected();
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
         network.physics_epoch_publisher(),
@@ -626,6 +544,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
+        pipeline_cache_dir,
         video_override: saved_settings.graphics_api(),
         graphics_api_revision: saved_settings.graphics_api_revision(),
     };
@@ -639,13 +558,33 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
+        .add_before::<bevy::post_process::PostProcessPlugin>(render::ClientPostProcessPlugin)
+        // Drops stock systems that no client camera or entity feeds.
+        .add_before::<bevy::post_process::PostProcessPlugin>(render::StockSystemsPlugin)
+        .disable::<bevy::post_process::PostProcessPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    logging::add_default_plugins(&mut app, plugins);
+    render_scene::startup_timing::measure("renderer_and_plugins", || {
+        logging::add_default_plugins(&mut app, plugins)
+    });
     render_setup::finish(&mut app)?;
-    #[cfg(feature = "shaderpacks")]
+    let (interface, world_preparation) = match direct_interface {
+        Some(ready) => ready,
+        None => render_setup::finish_prerequisite(
+            &mut app,
+            preparing_interface
+                .take()
+                .expect("interface preparation")
+                .finish(world_input.take().expect("world inputs"), false),
+        )?,
+    };
+    let startup::interface::Interface {
+        presentation: ui_presentation,
+        catalog: ui_catalog,
+        block_entity_font,
+    } = interface;
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
     ));
@@ -653,10 +592,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
-    #[cfg(target_os = "macos")]
-    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
-    #[cfg(target_os = "macos")]
-    crate::frame_pacing::macos_display_link::install(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::thread_budget::ThreadBudget::configure_frame_threads(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    crate::frame_pacing::display_link::install(&mut app);
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_presentation::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
@@ -687,6 +626,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(present_mode_runtime)
     .insert_resource(
         SessionController::new(core_process)
+            .with_blob_cache(startup_cache)
             .with_client_random_id(client_random_id)
             .with_address(args.address.as_deref())
             .with_startup_endpoint(
@@ -698,19 +638,13 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(client_blob_cache)
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
-    .insert_resource(render_scene::ActorArtworkResource(actor_artwork))
-    .insert_resource(actor_flames)
-    .insert_resource(ClientWorld::new_with_entity_assets(
-        Arc::clone(&runtime_assets),
-        Arc::clone(&entity_runtime),
-    ))
+    .insert_resource(render_scene::ActorArtworkResource(Default::default()))
+    .init_resource::<ClientWorld>()
     .init_resource::<crate::runtime::shutdown::FatalError>()
     .insert_resource(UiRuntimeResource({
         let mut ui_runtime = UiRuntime::new(0);
-        ui_runtime.set_item_fuel_catalog(Arc::clone(&entity_runtime));
-        ui_runtime.set_food_catalog(food_catalog);
         if let Some(address) = &args.address {
-            ui_runtime.experiences.select_destination(address);
+            ui_runtime.session.experiences.select_destination(address);
         }
         ui_runtime.set_lang_catalog(lang_assets.into_runtime());
         ui_runtime.set_active_language(active_lang);
@@ -748,23 +682,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(LocalPhysicsController::default())
     .insert_resource(LocalMovementEffectTimeline::default())
     .insert_resource(LocalMovementSpeedAuthority::default())
-    .insert_resource(collision_registries)
-    .insert_resource(actor_render_scene)
-    .insert_resource(equipment_runtime)
-    .insert_resource(hand_rig_builder)
+    .init_resource::<ActorRenderScene>()
     .insert_resource(AtmosphereFrame::default())
     .insert_resource(weather_textures.clone())
     .insert_resource(
         crate::runtime::network::reload_environment::EnvironmentBase::new(
             atmosphere_assets.clone(),
-            particle_assets.clone(),
+            None,
             weather_textures,
         ),
     )
     .insert_resource(atmosphere_assets)
-    .insert_resource(startup_biome_tints(&runtime_assets))
-    .insert_resource(ChunkTextureAssets::new(runtime_assets))
-    .insert_resource(authored_texture_loading)
     .insert_resource(CaveVisibilityCache::default())
     .insert_resource(VisibilityDiagnosticsInput::new(diagnostics_enabled))
     .insert_resource(runtime_config)
@@ -783,10 +711,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         },
     ))
     .insert_resource(DiagnosticQuads::default())
-    .insert_resource(render_scene::BlockEntitySceneResource(block_entity_scene))
-    .insert_resource(PublicationController::new(
-        PublicationServiceConfig::DEFAULT,
-    ));
+    .init_resource::<render_scene::BlockEntitySceneResource>();
     #[cfg(feature = "acceptance")]
     app.add_plugins(acceptance::AcceptancePlugin {
         seconds: args.acceptance_seconds,
@@ -796,6 +721,19 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         transparent_witness_request: args.transparent_witness_request,
         model_witness_request: args.model_witness_request,
     });
+    world_preparation.install(&mut app);
+    #[cfg(feature = "acceptance")]
+    if let Some(target) = args.movement_evidence_target {
+        let collisions = app
+            .world()
+            .resource::<client_interaction::movement::PhysicsCollisionRegistries>();
+        let identity = MovementEvidenceIdentitySource::from_build(
+            target,
+            args.movement_candidate_physics,
+            collisions,
+        )?;
+        app.insert_resource(identity);
+    }
     {
         const MAIN_FRAME: usize = render_scene::RuntimeStage::MainFrame as usize;
         app.insert_resource(crate::runtime::frame_profile::profiler(
@@ -860,24 +798,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         args.frame_time_counter_ms.map(|ms| ms as f32 / 1000.0),
     ));
     app.add_plugins(render::PanoramaRenderPlugin);
-    if let Some(particle_assets) = &particle_assets {
-        app.insert_resource(render_scene::ParticleSimulation(
-            particles::ParticleSystem::from_assets(particle_assets),
-        ));
-    }
     app.insert_resource(particle_icons);
     crate::particles::configure_particles(&mut app);
     crate::block_entities::configure(&mut app, block_entity_font);
     crate::block_selection::configure(&mut app);
     crate::primitive_shapes::configure(&mut app);
     app.init_resource::<client_presentation::presentation::viewmodel::HandAdapter>();
-    if let Some(geometry) = hand_geometry {
-        app.insert_resource(render_scene::ViewmodelGeometryResource(geometry));
-    }
-    #[cfg(feature = "acceptance")]
-    if let Some(identity) = movement_identity_source {
-        app.insert_resource(identity);
-    }
     crate::global_resources::configure(
         &mut app,
         global_pack_root,
@@ -886,6 +812,24 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
+    app.configure_sets(
+        Update,
+        (
+            ClientFrameSet::Physics,
+            ClientFrameSet::Camera,
+            ClientFrameSet::Interaction,
+            ClientFrameSet::NetworkSend,
+            ClientFrameSet::WorldPublication,
+            ClientFrameSet::ActorPreparation,
+            ClientFrameSet::ActorFinalization,
+            ClientFrameSet::ActorPublication,
+        )
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            ),
+    );
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }
@@ -923,15 +867,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    log_shutdown_phase("runner_returned");
     PlatformClipboard::shutdown();
+    log_shutdown_phase("clipboard");
     client_shell::discord_presence::shutdown(&mut app);
+    log_shutdown_phase("discord");
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()
     {
         network.shutdown();
     }
+    log_shutdown_phase("network");
     drop(app);
+    log_shutdown_phase("world_dropped");
     bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),

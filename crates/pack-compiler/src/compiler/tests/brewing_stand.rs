@@ -157,6 +157,11 @@ fn brewing_stand_retains_post_feet_and_each_bottle_panel() {
             }
         }
         assert!(quads[6..24].iter().all(|q| q.material == base));
+        assert!(
+            quads[..24]
+                .iter()
+                .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE == 0)
+        );
         let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
         for ((panel, slot), [x, z]) in
             quads[24..]
@@ -165,6 +170,11 @@ fn brewing_stand_retains_post_feet_and_each_bottle_panel() {
                 .zip([[256, 128], [37, 37], [37, 219]])
         {
             assert_ne!(panel.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED, 0);
+            assert_ne!(
+                panel.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
+                0,
+                "panels keep the last foot's shade"
+            );
             assert_eq!(panel.material, stand);
             assert_eq!(panel.positions[0], [128, 256, 128]);
             assert_eq!(panel.positions[1], [128, 0, 128]);

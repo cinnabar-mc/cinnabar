@@ -105,7 +105,8 @@ impl WorldsClient {
             .spawn(move || {
                 manager.reclaim_abandoned_imports();
                 let mut loaded = HashSet::new();
-                while let Ok(request) = effect_rx.recv() {
+                let mut queued = None;
+                while let Ok(request) = queued.take().map_or_else(|| effect_rx.recv(), Ok) {
                     let effect = match request {
                         Request::Effect(effect) => effect,
                         Request::SaveThumbnail { id, image } => {
@@ -120,9 +121,13 @@ impl WorldsClient {
                         Effect::PollStatus => crossbeam_channel::select! {
                             recv(changes) -> _ => {}
                             recv(routed) -> _ => {}
+                            recv(effect_rx) -> request => queued = request.ok(),
                             default(poll_delay) => {}
                         },
-                        Effect::PollPrefs => thread::sleep(poll_delay),
+                        Effect::PollPrefs => crossbeam_channel::select! {
+                            recv(effect_rx) -> request => queued = request.ok(),
+                            default(poll_delay) => {}
+                        },
                         _ => {}
                     }
                     let preferences = matches!(
@@ -135,7 +140,7 @@ impl WorldsClient {
                     }
                     // Only an open holds the gate, so a revoked client never starts a world
                     // while slow requests (a Docker probe) never delay a detach.
-                    let gate = matches!(effect, Effect::Open(_) | Effect::Prestart).then_some(gate);
+                    let gate = matches!(effect, Effect::Open(_)).then_some(gate);
                     let cancelled = || *lock(&worker_revoked);
                     let event = execute(&manager, &route, effect, &cancelled);
                     drop(gate);
@@ -247,7 +252,13 @@ fn execute(
             .map_or_else(failed, |()| Event::EulaAccepted),
         Effect::Import(Some(files)) => import_files(manager, files, cancelled),
         Effect::Import(None) => match picker::pick(&WORLD_FILES) {
-            Ok(file) => import_files(manager, file.into_iter().collect(), cancelled),
+            Ok(file) => import_files(
+                manager,
+                file.iter()
+                    .map(|file| file.as_ref().to_path_buf())
+                    .collect(),
+                cancelled,
+            ),
             Err(error) => Event::Imported {
                 worlds: Vec::new(),
                 errors: vec![error],
@@ -268,10 +279,6 @@ fn execute(
         }
         Effect::Prepare => {
             manager.prepare();
-            return None;
-        }
-        Effect::Prestart => {
-            manager.prestart();
             return None;
         }
         Effect::OpenUrl(_) => return None,
@@ -392,6 +399,35 @@ mod tests {
             )
         });
         assert_eq!(manager.status().state, bridge::WorldState::Idle);
+    }
+
+    /// A pending poll must not hold a later settings request until its timeout.
+    #[test]
+    fn pending_polls_wake_for_queued_work() {
+        for poll in [Effect::PollStatus, Effect::PollPrefs] {
+            let worlds = tempfile::tempdir().expect("worlds folder");
+            let manager = launcher_host::local_worlds::open_store(worlds.path().to_path_buf())
+                .expect("manager");
+            let client = WorldsClient::spawn_polling(
+                manager,
+                worlds.path().join("no-core-here"),
+                Duration::from_secs(3600),
+            )
+            .expect("spawn worker");
+            client.send(poll);
+            client.send(Effect::List);
+            let mut received = Vec::new();
+            test_time::eventually_within(
+                Duration::from_secs(5),
+                "queued work after a poll",
+                || {
+                    received.extend(client.drain().into_iter().map(|reply| reply.event));
+                    received
+                        .iter()
+                        .any(|event| matches!(event, Event::Listed(_)))
+                },
+            );
+        }
     }
 
     /// A status poll answers when the world changes instead of waiting out its delay.

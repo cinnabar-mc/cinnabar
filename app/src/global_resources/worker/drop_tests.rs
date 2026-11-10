@@ -88,12 +88,11 @@ fn shader_pack_drops_bypass_resource_import_only_in_the_shaders_tab() {
             .activate(MenuAction::SettingsSection(section.definition().index));
         let files = ["/drop/Dusk.zip", "/drop/Faithful.mcpack"];
         drop_files(&mut app, &files);
-        let expected: &[PathBuf] =
-            if render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders {
-                &[]
-            } else {
-                &files.map(PathBuf::from)
-            };
+        let expected: &[PathBuf] = if section == SettingSection::Shaders {
+            &[]
+        } else {
+            &files.map(PathBuf::from)
+        };
         assert_eq!(pack_imports(&incoming), expected, "{section:?}");
     }
 }

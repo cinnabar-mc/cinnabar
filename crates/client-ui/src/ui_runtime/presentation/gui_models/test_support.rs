@@ -2,10 +2,12 @@
 use super::*;
 
 mod cosmetic_particles;
+mod trims;
 use crate::test_support::fixture_hud;
 pub use cosmetic_particles::cosmetic_particle_preview;
 #[cfg(test)]
 pub(super) use cosmetic_particles::particle_fixture_assets;
+pub use trims::trim_gallery;
 use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.
@@ -19,17 +21,29 @@ pub fn assert_installed_geometry(
         UiPresentationRuntime::with_hud_and_icons(fixture_font(), fixture_hud(), icons).unwrap();
     presentation.set_equipment_catalog(equipment);
     presentation.set_gui_models(world, entities).unwrap();
+    let flame = assets::ParticleTexture {
+        path: assets::ACTOR_FLAME_TEXTURE.into(),
+        width: 16,
+        height: 32,
+        rgba8: [31, 47, 59, 255].repeat(16 * 32).into(),
+    };
+    presentation.set_gui_fire_texture(Some(&flame));
     let icons = presentation.icon_catalog.as_deref().unwrap();
     for identifier in ["minecraft:dirt", "minecraft:grass_block"] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
-        assert!(presentation.gui_models.models.contains_key(&icon_key(icon)));
+        assert!(
+            presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon))
+        );
         let model = presentation
             .gui_models
+            .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: identifier.into(),
-                metadata: 0,
-            })
+            .get(identifier)
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert_eq!(model.vertices.len(), 36);
@@ -41,11 +55,10 @@ pub fn assert_installed_geometry(
     if presentation.equipment_catalog.is_some() {
         let shield = presentation
             .gui_models
+            .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: "minecraft:shield".into(),
-                metadata: 0,
-            })
+            .get("minecraft:shield")
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert!(matches!(
@@ -85,18 +98,20 @@ pub fn assert_installed_geometry(
         .as_deref()
         .is_some_and(|icons| !icons.block_models().is_empty());
     if modelled {
-        for identifier in [
-            "minecraft:oak_stairs",
-            "minecraft:cobblestone_wall",
-            "minecraft:oak_fence",
+        use assets::gui_item::BlockModelOrder::{Depth, Paint};
+        for (identifier, order) in [
+            ("minecraft:oak_stairs", Depth),
+            ("minecraft:cobblestone_wall", Depth),
+            ("minecraft:oak_fence", Paint),
         ] {
             let icon = presentation.item_icon(identifier, 0).unwrap();
             let mesh = presentation
                 .gui_models
+                .sources
                 .models
                 .get(&icon_key(icon))
                 .unwrap_or_else(|| panic!("{identifier} draws at the control's size"));
-            assert!(mesh.batches().iter().all(|batch| batch.depth_test));
+            assert_block_model_order(mesh, order);
         }
     }
     assert_installed_blended_thumbnails(&presentation, world, entities, icons);
@@ -113,9 +128,28 @@ pub fn assert_installed_geometry(
     assert!(
         presentation
             .gui_models
+            .sources
             .models
             .contains_key(&icon_key(grass))
     );
+}
+
+/// Checks depth state and flat paint depth for admitted block geometry.
+pub(super) fn assert_block_model_order(
+    mesh: &ui::UiMesh,
+    order: assets::gui_item::BlockModelOrder,
+) {
+    let depth = order == assets::gui_item::BlockModelOrder::Depth;
+    assert!(!mesh.batches().is_empty());
+    assert!(
+        mesh.batches()
+            .iter()
+            .all(|batch| batch.depth_test == depth && batch.depth_write == depth)
+    );
+    assert!(mesh.vertices().iter().all(|vertex| vertex.terrain_mips));
+    if !depth {
+        assert!(mesh.vertices().iter().all(|vertex| vertex.clip_z == 0.0));
+    }
 }
 
 /// Checks fractional blended faces using the installed carrier's material and alpha data.
@@ -163,7 +197,11 @@ fn assert_installed_blended_thumbnails(
             continue;
         };
         assert!(
-            !presentation.gui_models.models.contains_key(&icon_key(icon)),
+            !presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon)),
             "fractional blended faces retain their composited thumbnail: {:?}",
             definition.key
         );

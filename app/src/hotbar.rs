@@ -14,6 +14,8 @@ use protocol::Packet;
 
 pub(crate) mod ordered;
 
+const _: () = assert!(mod_api::HOTBAR_SLOT_COUNT == protocol::HOTBAR_SLOT_COUNT);
+
 /// Announces a queued selection before unordered hand actions capture it.
 /// Selection-only frames leave the announcement to the next tick.
 pub(crate) fn flush_hotbar_selection(
@@ -100,10 +102,14 @@ mod tests {
     use super::*;
     use client_interaction::hotbar::queue_hotbar_selection;
 
-    fn current_gameplay_input() -> SemanticInputSnapshot {
+    /// Builds a gameplay frame with the supplied ordered input.
+    fn current_gameplay_input(
+        ordered: Option<semantic_input::OrderedActions>,
+    ) -> SemanticInputSnapshot {
         SemanticInputSnapshot(semantic_input::finalized::FinalizedInput::from_finalized(
             semantic_input::ActionSnapshot {
-                ordered: None,
+                ordered,
+                admitted_desktop: Vec::new(),
                 frame_sequence: semantic_input::identity::InputSequence::new(1),
                 authority_generation: semantic_input::identity::InputAuthorityGeneration::INITIAL,
                 movement: [0.0; 2],
@@ -127,7 +133,7 @@ mod tests {
         app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .insert_resource(current_gameplay_input())
+        .insert_resource(current_gameplay_input(None))
         .insert_resource(AccumulatedMouseScroll::default())
         .insert_resource(client_state::ScreenFocus::default())
         .insert_resource(ModHotbarSelection(Some(6)));
@@ -146,7 +152,7 @@ mod tests {
         app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
-        .insert_resource(current_gameplay_input())
+        .insert_resource(current_gameplay_input(None))
         .insert_resource(AccumulatedMouseScroll::default())
         .insert_resource(client_state::ScreenFocus {
             absorbs_input: true,
@@ -162,6 +168,31 @@ mod tests {
                 .inventory
                 .pending_hotbar_selection(),
             None
+        );
+        assert_eq!(app.world().resource::<ModHotbarSelection>().0, None);
+    }
+
+    #[test]
+    fn mod_hotbar_selection_reaches_the_local_queue_with_ordered_input() {
+        use bevy::{ecs::system::RunSystemOnce, prelude::*};
+
+        let mut app = App::new();
+        app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            1,
+        )))
+        .insert_resource(current_gameplay_input(Some(Default::default())))
+        .insert_resource(AccumulatedMouseScroll::default())
+        .insert_resource(client_state::ScreenFocus::default())
+        .insert_resource(ModHotbarSelection(Some(6)));
+        app.world_mut()
+            .run_system_once(queue_hotbar_selection)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<client_state::PlayerRuntime>()
+                .inventory
+                .pending_hotbar_selection(),
+            Some(6)
         );
         assert_eq!(app.world().resource::<ModHotbarSelection>().0, None);
     }
