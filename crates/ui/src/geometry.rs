@@ -266,6 +266,15 @@ pub fn gui_scale(physical: [u32; 2], preference: Option<u8>) -> u32 {
     }
 }
 
+/// The largest fractional GUI scale whose 376-by-250 minimum GUI viewport still fits, at
+/// least 1; a mod's fractional scale override is clamped to `0.5..=` this.
+#[must_use]
+pub fn max_fractional_gui_scale(physical: [u32; 2]) -> f32 {
+    (physical[0] as f32 / 376.0)
+        .min(physical[1] as f32 / 250.0)
+        .clamp(1.0, f32::from(DESKTOP_GUI_SCALE_VALUES[DESKTOP_GUI_SCALE_VALUES.len() - 1]))
+}
+
 /// Desktop settings use a signed modifier relative to the optimal scale,
 /// rather than an absolute scale. Desktop optimal and maximum scale share the
 /// same 376-by-250 minimum viewport, with settings offering the upper half
@@ -308,5 +317,17 @@ impl DesktopGuiScale {
     pub fn scale_for_offset(self, offset: i8) -> u8 {
         let minimum = *self.offsets().start();
         (self.optimal as i8 + offset.clamp(minimum, 0)) as u8
+    }
+}
+
+#[cfg(test)]
+mod fractional_gui_scale_tests {
+    use super::*;
+
+    #[test]
+    fn fractional_scale_stops_where_the_minimum_gui_viewport_fits() {
+        assert_eq!(max_fractional_gui_scale([1920, 1080]), 1080.0 / 250.0);
+        assert_eq!(max_fractional_gui_scale([300, 200]), 1.0);
+        assert_eq!(max_fractional_gui_scale([7680, 4320]), 8.0);
     }
 }

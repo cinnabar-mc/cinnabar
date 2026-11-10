@@ -77,6 +77,31 @@ record damage-shake {
 | `roll` | `f32` |  |
 | `pitch` | `f32` |  |
 
+<a id="type-hand-motion"></a>
+
+### `hand-motion`
+
+Local first-person hand presentation. `sway` scales the hand trailing the look and
+`bob` the hand's walking bob, each 0..1; `swing-speed` multiplies how fast the local
+arm swing animation plays, `MIN_HAND_SWING_SPEED`..`MAX_HAND_SWING_SPEED`. Swing timing
+sent to the server, attacks, the camera's own view bob and other players' views are
+unchanged. Each field is owned separately by the earliest mod setting it; none keeps
+native for that field.
+
+```wit
+record hand-motion {
+    sway: option<f32>,
+    bob: option<f32>,
+    swing-speed: option<f32>,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `sway` | `option<f32>` |  |
+| `bob` | `option<f32>` |  |
+| `swing-speed` | `option<f32>` |  |
+
 ## Functions
 
 <a id="set-view-yaw-offset"></a>
@@ -142,3 +167,16 @@ read-damage-shake: func() -> result<option<damage-shake>, string>;
 Requires the camera grant.
 
 Types: [`damage-shake`](camera.md#type-damage-shake).
+
+<a id="set-hand-motion"></a>
+
+### `set-hand-motion`
+
+```wit
+set-hand-motion: func(motion: option<hand-motion>) -> result<_, string>;
+```
+
+Requires camera authority. Current frame only, including while a menu owns input; renew
+while needed. None, omission, unload and failed callbacks restore the native hand.
+
+Types: [`hand-motion`](camera.md#type-hand-motion).

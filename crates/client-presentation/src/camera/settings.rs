@@ -33,6 +33,28 @@ pub struct CameraSettingsAuthority {
     scripted_view: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
+    hand_motion: HandMotion,
+}
+
+/// A mod's current-frame first-person hand presentation; the default is the native hand.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HandMotion {
+    /// Scales the hand trailing the look, 0..1.
+    pub sway: f32,
+    /// Scales the hand's walking bob, 0..1.
+    pub bob: f32,
+    /// Multiplies the local arm swing animation's speed.
+    pub swing_speed: f32,
+}
+
+impl Default for HandMotion {
+    fn default() -> Self {
+        Self {
+            sway: 1.0,
+            bob: 1.0,
+            swing_speed: 1.0,
+        }
+    }
 }
 
 /// A packet mod's detached camera pose, presented instead of the body's camera.
@@ -150,6 +172,7 @@ impl Default for CameraSettingsAuthority {
             scripted_view: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
+            hand_motion: HandMotion::default(),
         }
     }
 }
@@ -350,6 +373,24 @@ impl CameraSettingsAuthority {
             tilt.filter(|tilt| tilt.roll_degrees.is_finite() && tilt.pitch_degrees.is_finite());
     }
 
+    /// Applies a mod's current-frame hand presentation; none, or out-of-range values, restore
+    /// the native hand.
+    pub fn set_hand_motion(&mut self, motion: Option<HandMotion>) {
+        self.hand_motion = motion
+            .filter(|m| {
+                (0.0..=1.0).contains(&m.sway)
+                    && (0.0..=1.0).contains(&m.bob)
+                    && m.swing_speed.is_finite()
+                    && m.swing_speed > 0.0
+            })
+            .unwrap_or_default();
+    }
+
+    /// The current hand presentation, native when no mod sets one.
+    pub const fn hand_motion(&self) -> HandMotion {
+        self.hand_motion
+    }
+
     /// The current mod view tilt, if any.
     pub const fn view_tilt(&self) -> Option<ViewTilt> {
         self.view_tilt
@@ -433,6 +474,7 @@ impl CameraSettingsAuthority {
         self.view_yaw_offset = 0.0;
         self.view_scale = [1.0, 1.0];
         self.view_tilt = None;
+        self.hand_motion = HandMotion::default();
     }
 }
 

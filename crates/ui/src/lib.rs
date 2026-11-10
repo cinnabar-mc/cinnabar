@@ -29,7 +29,7 @@ pub use chat::{
 };
 pub use geometry::{
     DesktopGuiScale, DesktopGuiScaleChoice, DpiScale, GeometryError, MIN_WINDOW_LOGICAL_SIZE,
-    SafeArea, UiPoint, UiRect, UiScale, gui_scale,
+    SafeArea, UiPoint, UiRect, UiScale, gui_scale, max_fractional_gui_scale,
 };
 pub use hud::{
     BoundedStat, HudExperience, HudPlayerStatus, HudStore, HudViewNode, HudViewRole, LoadingStage,

@@ -134,6 +134,9 @@ pub const MAX_RIG_ROLL_RADIANS: f32 = 0.6;
 pub const MAX_RIG_FOV_DELTA_DEGREES: f32 = 30.0;
 /// Largest absolute roll or pitch a current-frame view tilt adds, in degrees.
 pub const MAX_VIEW_TILT_DEGREES: f32 = 90.0;
+/// Bounds of `camera.hand-motion.swing-speed`.
+pub const MIN_HAND_SWING_SPEED: f32 = 0.25;
+pub const MAX_HAND_SWING_SPEED: f32 = 4.0;
 /// Lower bounds for current-frame FOV and routed look multipliers; their upper bound is 1.
 pub const MIN_VIEW_FOV_SCALE: f32 = 0.1;
 pub const MIN_VIEW_LOOK_SCALE: f32 = 0.05;

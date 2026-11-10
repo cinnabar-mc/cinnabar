@@ -184,6 +184,18 @@ pub(super) fn view_tilt(tilt: mod_api::native_camera::ViewTilt) -> ViewTilt {
     }
 }
 
+/// Converts a mod's hand motion to the camera's presentation parameter.
+pub(super) fn hand_motion(
+    motion: mod_api::native_camera::HandMotion,
+) -> client_presentation::camera::HandMotion {
+    let native = client_presentation::camera::HandMotion::default();
+    client_presentation::camera::HandMotion {
+        sway: motion.sway.unwrap_or(native.sway),
+        bob: motion.bob.unwrap_or(native.bob),
+        swing_speed: motion.swing_speed.unwrap_or(native.swing_speed),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

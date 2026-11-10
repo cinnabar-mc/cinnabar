@@ -31,8 +31,12 @@ impl TextMetrics {
         dpi_scale: DpiScale,
         preference: Option<u8>,
     ) -> Self {
+        Self::for_gui_scale(dpi_scale, gui_scale(physical_size, preference) as f32)
+    }
+
+    /// Metrics for an explicit, possibly fractional, physical GUI scale.
+    pub fn for_gui_scale(dpi_scale: DpiScale, k: f32) -> Self {
         let dpi = dpi_scale.get();
-        let k = gui_scale(physical_size, preference) as f32;
         let scale = k / (FONT_DESIGN_PIXEL_TEXELS as f32 * dpi);
         Self {
             scale: UiScale::new_display(scale)

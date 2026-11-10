@@ -10,6 +10,14 @@ pub const MAX_ANNOTATION_SPAN_BYTES: usize = 32;
 pub const MAX_ACTOR_TINTS: usize = 64;
 /// Most tooltip lines one mod retains, across every item.
 pub const MAX_TOOLTIP_LINES: usize = 256;
+/// Most dropped-item identifiers one mod scales.
+pub const MAX_ITEM_SCALES: usize = 64;
+/// Bounds of `presentation.item-scale.scale`.
+pub const MIN_ITEM_SCALE: f32 = 0.1;
+pub const MAX_ITEM_SCALE: f32 = 8.0;
+/// Bounds of `presentation.set-gui-scale`; the client also stops at the window's fit.
+pub const MIN_GUI_SCALE: f32 = 0.5;
+pub const MAX_GUI_SCALE: f32 = 8.0;
 /// Most mod lines one item's tooltip shows, across every mod.
 pub const MAX_ITEM_TOOLTIP_LINES: usize = 8;
 /// Most UTF-8 bytes in one tooltip line.

@@ -209,17 +209,20 @@ pub fn advance_presentation_state(
     } else {
         *java = JavaCameraState::default();
     }
-    // Java hand sway applies to both combat profiles and animation modes.
+    // Java hand sway applies to both combat profiles and animation modes; a mod's hand motion
+    // scales it and the walking bob.
+    let motion = settings.hand_motion();
     (hand.sway_pitch_radians, hand.sway_yaw_radians) =
         if physics.and_then(|physics| physics.state()).is_some() {
-            java.sway(physics.map_or(1.0, |physics| physics.tick_alpha()), look)
+            let (pitch, yaw) = java.sway(physics.map_or(1.0, |physics| physics.tick_alpha()), look);
+            (pitch * motion.sway, yaw * motion.sway)
         } else {
             (0.0, 0.0)
         };
     if settings.feel().java_animations {
         let alpha = physics.map_or(1.0, |physics| physics.tick_alpha());
         hand.bob = if settings.feel().view_bobbing.hand_enabled() {
-            java.bob(alpha)
+            java.bob(alpha).scaled(motion.bob)
         } else {
             ViewEffect::NONE
         };
@@ -239,7 +242,7 @@ pub fn advance_presentation_state(
         return;
     }
     hand.bob = if settings.feel().view_bobbing.hand_enabled() {
-        walk_bob_effect(bob.walk_distance(), bob.bob())
+        walk_bob_effect(bob.walk_distance(), bob.bob()).scaled(motion.bob)
     } else {
         ViewEffect::NONE
     };

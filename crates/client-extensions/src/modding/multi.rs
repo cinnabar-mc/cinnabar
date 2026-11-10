@@ -854,6 +854,7 @@ pub struct Merged {
     pub perspective: Option<mod_api::native_camera::Perspective>,
     pub view_scale: Option<[f32; 2]>,
     pub view_tilt: Option<mod_api::native_camera::ViewTilt>,
+    pub hand_motion: Option<mod_api::native_camera::HandMotion>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
     pub weather_override: Option<[f32; 2]>,
@@ -917,6 +918,10 @@ impl Merged {
         self.perspective = self.perspective.or(host.camera_perspective());
         self.view_scale = self.view_scale.or(host.camera_view_scale());
         self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
+        self.hand_motion = match (self.hand_motion, host.camera_hand_motion()) {
+            (Some(earlier), Some(later)) => Some(earlier.or(later)),
+            (earlier, later) => earlier.or(later),
+        };
         self.time_override = self.time_override.or(host.time_override());
         self.weather_override = self.weather_override.or(host.weather_override());
         self.commands.extend(host.take_commands());

@@ -718,6 +718,11 @@ impl Instance {
             .flatten()
     }
 
+    /// Successful hand fields are merged independently of whole-camera ownership.
+    pub(super) fn camera_hand_motion(&self) -> Option<mod_api::native_camera::HandMotion> {
+        self.store.data().camera_policy.committed_hand_motion
+    }
+
     /// Consumes the committed cancellation once.
     pub(super) fn take_jump_cancel(&mut self) -> bool {
         std::mem::take(&mut self.store.data_mut().motion.jump_cancel)

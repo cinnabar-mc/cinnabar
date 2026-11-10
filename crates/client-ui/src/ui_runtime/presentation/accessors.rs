@@ -185,6 +185,32 @@ impl UiPresentationRuntime {
         self.hud_frame.paper_doll_visible = self.paper_doll.update(now, state);
     }
 
+    /// The physical GUI scale in effect: a mod's fractional override, clamped so the HUD fits,
+    /// or the native integer scale for the preference.
+    pub fn effective_gui_scale(&self, physical_size: [u32; 2]) -> f32 {
+        match self.screens.mod_ui.mod_presentation().gui_scale {
+            Some(scale) => scale.clamp(
+                ui::mod_presentation::MIN_GUI_SCALE,
+                ui::max_fractional_gui_scale(physical_size),
+            ),
+            None => ui::gui_scale(physical_size, self.gui_scale_preference) as f32,
+        }
+    }
+
+    /// Gameplay HUD geometry at the effective GUI scale.
+    pub(in crate::ui_runtime::presentation) fn hud_geometry(
+        &self,
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+    ) -> Option<HudGeometry> {
+        HudGeometry::scaled(
+            physical_size,
+            dpi_scale,
+            self.safe_area,
+            self.effective_gui_scale(physical_size),
+        )
+    }
+
     /// The effective GUI preference consumed by the app scale adapter.
     pub fn gui_scale_preference(&self) -> Option<u8> {
         self.gui_scale_preference
@@ -193,12 +219,7 @@ impl UiPresentationRuntime {
     /// The gameplay HUD root's size in GUI units for a window, inset by the safe area; none
     /// when the window cannot hold the HUD.
     pub fn hud_gui_viewport(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<[f32; 2]> {
-        let geometry = HudGeometry::new(
-            physical_size,
-            dpi_scale,
-            self.safe_area,
-            self.gui_scale_preference,
-        )?;
+        let geometry = self.hud_geometry(physical_size, dpi_scale)?;
         Some([geometry.gui_width, geometry.gui_height])
     }
 
@@ -210,12 +231,7 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: f32,
     ) -> Option<[f32; 2]> {
-        let geometry = HudGeometry::new(
-            physical_size,
-            dpi_scale,
-            self.safe_area,
-            self.gui_scale_preference,
-        )?;
+        let geometry = self.hud_geometry(physical_size, dpi_scale)?;
         let point = [
             (logical[0] - self.safe_area.left()) / geometry.scale,
             (logical[1] - self.safe_area.top()) / geometry.scale,

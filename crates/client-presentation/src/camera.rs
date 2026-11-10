@@ -68,8 +68,8 @@ pub use rig::{
 };
 pub use server_view::{ActorView, ServerCameraSkips, ServerCameraView, ViewContext};
 pub use settings::{
-    CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, PresentedView,
-    ViewTilt, next_perspective,
+    CameraFeelSettings, CameraRig, CameraSettingsAuthority, CameraSettingsError, HandMotion,
+    PresentedView, ViewTilt, next_perspective,
 };
 pub use vehicle_look::{VehicleLookFollow, predicted_heading};
 

@@ -81,7 +81,12 @@ pub fn apply_actor_damage_camera_rotation(
     if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Legacy112 {
         shake.0 = actor.and_then(|actor| legacy_damage_shake(actor, alpha));
         let tilt = tilt_view_effect(settings.view_tilt_rotation());
-        let sample = |bobbing| {
+        let sample = |bobbing, strength| {
+            let endpoints = render_model::legacy_combat::LegacyCameraEndpoints {
+                bob: endpoints.bob.map(|bob| bob * strength),
+                fall_degrees: endpoints.fall_degrees.map(|fall| fall * strength),
+                ..endpoints
+            };
             tilt * sampled_legacy_effect(
                 actor,
                 endpoints,
@@ -93,12 +98,13 @@ pub fn apply_actor_damage_camera_rotation(
             )
         };
         let mode = settings.feel().view_bobbing;
-        let effect = sample(mode.hand_enabled());
+        let hand_bob = settings.hand_motion().bob;
+        let effect = sample(mode.hand_enabled(), hand_bob);
         hand.legacy_effect = Some(effect);
-        let camera_effect = if mode.hand_enabled() == mode.camera_enabled() {
+        let camera_effect = if mode.hand_enabled() == mode.camera_enabled() && hand_bob == 1.0 {
             effect
         } else {
-            sample(false)
+            sample(mode.camera_enabled(), 1.0)
         };
         if camera_effect.is_finite() {
             for mut camera in &mut cameras {

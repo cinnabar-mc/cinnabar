@@ -639,6 +639,19 @@ impl DroppedItemPublisher<'_, '_> {
             .as_ref()
             .and_then(|scene| scene.0.held_models());
         stream.authority().dropped_items_into(partial_tick, dropped);
+        let mod_presentation = icons.mod_ui().mod_presentation();
+        if !mod_presentation.item_scales.is_empty() {
+            for view in dropped.iter_mut() {
+                if let Some(scale) = view
+                    .item
+                    .identifier
+                    .as_deref()
+                    .and_then(|identifier| mod_presentation.item_scale(identifier))
+                {
+                    view.render_scale *= scale;
+                }
+            }
+        }
         let mut dial_models = dials::DialModels::default();
         let budget = self.device.as_ref().map_or_else(
             render_model::dropped_item::ItemModelBudget::default,
