@@ -142,9 +142,7 @@ jobs:
         run: |
           {
             cargo clippy -p render --features enhanced --all-targets --locked --message-format json-render-diagnostics -- -D warnings
-            cargo clippy -p render --features shaderpacks --all-targets --locked --message-format json-render-diagnostics -- -D warnings
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked --message-format json-render-diagnostics -- -D warnings
-            cargo clippy -p cinnabar --features shaderpacks --locked --message-format json-render-diagnostics -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked --message-format json-render-diagnostics -- -D warnings
           } >> "$RUNNER_TEMP/cargo-units.jsonl"
       - continue-on-error: true

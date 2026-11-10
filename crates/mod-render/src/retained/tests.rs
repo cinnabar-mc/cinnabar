@@ -1,10 +1,11 @@
 use super::*;
 
 mod sdk;
+mod transactions;
 pub(super) mod work;
 
 /// Makes a reusable unit triangle with distinct vertex colours.
-fn mesh() -> GeometrySpec {
+pub(super) fn mesh() -> GeometrySpec {
     GeometrySpec::Triangles {
         vertices: [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]]
             .map(|position| Vertex {
@@ -18,10 +19,11 @@ fn mesh() -> GeometrySpec {
     }
 }
 /// Makes an identity instance referencing the caller's admitted geometry.
-fn drawing(geometry: Handle) -> Instance {
+pub(super) fn drawing(geometry: Handle) -> Instance {
     Instance {
         geometry,
         material: None,
+        clip: None,
         params: mod_api::materials::Preset::default().0,
         anchor: Anchor::World {
             dimension: 0,
@@ -378,6 +380,26 @@ fn actor(spawn_revision: u64) -> EntityKey {
         runtime_id: 7,
         spawn_revision,
     }
+}
+
+#[test]
+fn guest_restart_keeps_native_candidates_and_invalidates_old_resources() {
+    let mut store = Store::default();
+    store.bind_session(1, 0);
+    store.reconcile_entities(vec![actor(1)], &[]).unwrap();
+    let old_entity = store.observe_entities().unwrap()[0].0;
+    let geometry = store.create_geometry(mesh()).unwrap();
+    store.commit();
+    store.restart_guest();
+    assert_eq!(store.snapshot().connection, 1);
+    assert!(store.snapshot().geometry.is_empty());
+    assert_eq!(
+        store.remove(geometry).unwrap_err().code,
+        ErrorCode::StaleHandle
+    );
+    let observed = store.observe_entities().unwrap();
+    assert_eq!(observed[0].1, actor(1));
+    assert_ne!(observed[0].0, old_entity);
 }
 
 #[test]

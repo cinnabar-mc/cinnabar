@@ -108,11 +108,7 @@ fn fixture() -> Option<(Gpu, Vec<u32>)> {
     }))
     .expect("entity shadow raster device");
     Some((
-        Gpu {
-            device,
-            queue,
-            backend: adapter.get_info().backend,
-        },
+        Gpu::from_device(device, queue, adapter.get_info().backend),
         counts,
     ))
 }

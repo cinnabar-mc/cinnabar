@@ -1,4 +1,4 @@
-//! Animation parity against the 1.26.50 `UIAnimationComponent`: every type,
+//! Animation parity against the 1.26.60 `UIAnimationComponent`: every type,
 //! chains, events, lifecycle flags, flip-book geometry and property writes.
 
 use json_ui::{

@@ -5,7 +5,7 @@ pub fn within_actor_candidate_cube(position: [f32; 3], camera: [f32; 3]) -> bool
     })
 }
 
-/// Rejects distant actors and player bodies containing the camera before frame model sampling.
+/// Rejects distant actors before frame model sampling, including the non-player candidate cube.
 pub(crate) fn actor_is_render_candidate(
     actor: &client_world::ActorSnapshot,
     partial_tick: f32,
@@ -18,17 +18,6 @@ pub(crate) fn actor_is_render_candidate(
         return true;
     };
     let camera = view.camera_position.to_array();
-    if matches!(actor.kind, protocol::ActorKind::Player { .. })
-        && view.camera_position.is_finite()
-        && actor.bounding_box_at(feet).is_some_and(|(low, high)| {
-            (0..3).all(|axis| {
-                low[axis] < high[axis] && camera[axis] >= low[axis] && camera[axis] <= high[axis]
-            })
-        })
-    {
-        // Reject the body before skin and equipment layers can cover the entire view.
-        return false;
-    }
     (!matches!(actor.kind, protocol::ActorKind::Entity { .. })
         || within_actor_candidate_cube(feet, camera))
         && view.contains_distance(feet)
@@ -61,9 +50,11 @@ pub(crate) fn rig_may_replace_geometry(
 pub(crate) fn admit_frame_bounds(
     presentation: &mut super::ActorRigPresentation,
     rig: &actor_animation::ActorRigSnapshot<'_>,
+    actor: &client_world::ActorSnapshot,
     view: Option<render_model::ActorCullView>,
     frame: Option<&mut actor_animation::ActorRenderFrame<'_>>,
 ) -> bool {
+    use actor_animation::actor_culling_bounds;
     use render_model::actor_rig_submission_is_visible;
 
     if view.is_none() {
@@ -73,6 +64,7 @@ pub(crate) fn admit_frame_bounds(
     if view.is_some_and(|view| !view.contains_distance(feet)) {
         return false;
     }
+    let scale = presentation.submission.culling_scale();
     let mut visible = actor_rig_submission_is_visible(&presentation.submission, view);
     let mut bounds = presentation.submission.culling_bounds;
     for layer in rig.skin_layers {
@@ -80,10 +72,12 @@ pub(crate) fn admit_frame_bounds(
             presentation.submission.culling_bounds = bounds;
             return true;
         };
-        let selected = presentation.model_frame.culling_bounds(selected);
+        let selected = presentation
+            .model_frame
+            .culling_bounds(actor_culling_bounds(selected, actor, scale));
         presentation.submission.culling_bounds = selected;
         visible |= actor_rig_submission_is_visible(&presentation.submission, view);
-        bounds = union(bounds, selected);
+        bounds = bounds.union(selected);
     }
     presentation.submission.culling_bounds = bounds;
     // The layer resolver ignores catalog geometry choices for a runtime player skin.
@@ -108,28 +102,13 @@ pub(crate) fn admit_frame_bounds(
             presentation.submission.culling_bounds = bounds;
             return true;
         };
-        let selected = presentation.model_frame.culling_bounds(selected);
+        let selected = presentation
+            .model_frame
+            .culling_bounds(actor_culling_bounds(selected, actor, scale));
         presentation.submission.culling_bounds = selected;
         visible |= actor_rig_submission_is_visible(&presentation.submission, view);
-        bounds = union(bounds, selected);
+        bounds = bounds.union(selected);
     }
     presentation.submission.culling_bounds = bounds;
     visible
-}
-
-/// Covers both admitted model boxes without overflow when their finite offsets are far apart.
-fn union(
-    a: assets::SkinGeometryBounds,
-    b: assets::SkinGeometryBounds,
-) -> assets::SkinGeometryBounds {
-    let low: [f32; 3] = std::array::from_fn(|axis| {
-        (a.center[axis] - a.half_extents[axis]).min(b.center[axis] - b.half_extents[axis])
-    });
-    let high: [f32; 3] = std::array::from_fn(|axis| {
-        (a.center[axis] + a.half_extents[axis]).max(b.center[axis] + b.half_extents[axis])
-    });
-    assets::SkinGeometryBounds {
-        center: std::array::from_fn(|axis| low[axis] * 0.5 + high[axis] * 0.5),
-        half_extents: std::array::from_fn(|axis| high[axis] * 0.5 - low[axis] * 0.5),
-    }
 }

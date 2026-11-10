@@ -127,97 +127,6 @@ fn world_isotropy_preserves_general_cube_icons() {
 }
 
 #[test]
-fn identical_cube_thumbnails_keep_distinct_lighting_policies() {
-    let records = read_registry_for_protocol(
-        pinned_block_registry_bytes(),
-        active_content_registry_protocol(),
-    )
-    .unwrap();
-    let visuals = ["minecraft:stone", "minecraft:dirt", "minecraft:sea_lantern"].map(|name| {
-        BlockVisualId(
-            records
-                .iter()
-                .find(|record| record.name.as_ref() == name)
-                .unwrap()
-                .sequential_id,
-        )
-    });
-    let count = visuals
-        .iter()
-        .map(|visual| visual.0 as usize + 1)
-        .max()
-        .unwrap();
-    let mut source = cube_source(0);
-    let cube = source.visuals[1];
-    source.visuals = vec![source.visuals[0]; count].into();
-    source.light_properties = vec![LightProperties::default(); count].into();
-    for visual in visuals {
-        source.visuals[visual.0 as usize] = cube;
-    }
-    let world = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
-    let compiled = crate::compile_entity_pack(vec![(
-        "entity/fixture.json".into(),
-        br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:cube"}}}"#.to_vec(),
-    )])
-    .unwrap()
-    .unwrap()
-    .assets;
-    for carried in [false, true] {
-        let root = tempfile::tempdir().unwrap();
-        if carried {
-            std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
-            std::fs::write(
-                root.path().join("blocks.json"),
-                r#"{"stone":{"textures":"shared"},"dirt":{"textures":"shared"},"sea_lantern":{"textures":"shared"}}"#,
-            )
-            .unwrap();
-            std::fs::write(
-                root.path().join("textures/terrain_texture.json"),
-                r#"{"texture_data":{"shared":{"textures":"textures/blocks/shared"}}}"#,
-            )
-            .unwrap();
-            std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
-            image::RgbaImage::from_pixel(16, 16, image::Rgba([40, 80, 120, 255]))
-                .save(root.path().join("textures/blocks/shared.png"))
-                .unwrap();
-        }
-        let blocks = blocks::IconBlocks::read(root.path()).unwrap();
-        let plan = visuals.map(|visual| (visual.0, cube::Cube::read(&world, visual)));
-        let mut sprites = Vec::new();
-        let baked = bake::run(
-            root.path(),
-            Some(&world),
-            Some(&blocks),
-            &BTreeMap::new(),
-            &BTreeMap::from(plan),
-            &compiled,
-            &mut sprites,
-        )
-        .unwrap();
-        let indices = visuals.map(|visual| {
-            *baked
-                .model_sprites
-                .get(&(visual.0, 0))
-                .or_else(|| baked.block_sprites.get(&visual.0))
-                .unwrap()
-        });
-        assert_eq!(sprites[indices[0] as usize], sprites[indices[2] as usize]);
-        assert_eq!(
-            indices[0], indices[1],
-            "equally lit cubes still share artwork"
-        );
-        assert_ne!(
-            indices[0], indices[2],
-            "different lighting needs distinct icon keys"
-        );
-        assert!(
-            baked.block_models.is_empty(),
-            "cube icons keep their carried geometry"
-        );
-    }
-}
-
-#[test]
 fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
     let mut source = cube_source(0);
     source.visuals[1].kind = VisualKind::Model;
@@ -301,11 +210,7 @@ fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
                 .raster(),
         "a change to an unsampled texel preserves the thumbnail"
     );
-    let compiled = crate::compile_entity_pack(vec![
-        ("entity/test.json".into(), br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.test"},"render_controllers":["controller.render.test"]}}}"#.to_vec()),
-        ("models/entity/test.geo.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test"},"bones":[{"name":"root"}]}]}"#.to_vec()),
-        ("render_controllers/test.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default"}}}"#.to_vec()),
-    ]).unwrap().unwrap().assets;
+    let compiled = entity_assets();
     let root = tempfile::tempdir().unwrap();
     let mut sprites = vec![raster];
     let baked = bake::run(
@@ -328,4 +233,133 @@ fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
         "a flat thumbnail must not acquire a model binding"
     );
     assert_eq!(baked.block_models.len(), 2);
+}
+
+#[test]
+fn shared_cube_artwork_only_reuses_thumbnails_with_matching_lighting() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
+    for (path, text) in [
+        (
+            "blocks.json",
+            r#"{"glowstone":{"textures":"shared"},"quartz_block":{"textures":"shared"},"sea_lantern":{"textures":"shared"},"stone":{"textures":"shared"}}"#,
+        ),
+        (
+            "textures/terrain_texture.json",
+            r#"{"texture_data":{"shared":{"textures":"textures/blocks/shared"}}}"#,
+        ),
+        ("textures/flipbook_textures.json", "[]"),
+    ] {
+        std::fs::write(root.path().join(path), text).unwrap();
+    }
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([40, 80, 120, 255]))
+        .save(root.path().join("textures/blocks/shared.png"))
+        .unwrap();
+    let records = read_registry_for_protocol(
+        pinned_block_registry_bytes(),
+        active_content_registry_protocol(),
+    )
+    .unwrap();
+    let items = [
+        "minecraft:glowstone",
+        "minecraft:quartz_block",
+        "minecraft:sea_lantern",
+        "minecraft:stone",
+    ];
+    let visuals = items.map(|name| {
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap()
+            .sequential_id
+    });
+    let mut source = cube_source(0);
+    let count = *visuals.iter().max().unwrap() as usize + 1;
+    let diagnostic = source.visuals[0];
+    source.visuals = vec![source.visuals[1]; count].into();
+    source.visuals[0] = diagnostic;
+    source.light_properties = vec![LightProperties::default(); count].into();
+    let world = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
+    let mut compiled = entity_assets();
+    compiled.block_visual_count = count as u32;
+    compiled.item_visual_aliases = Box::new([]);
+    compiled.item_visuals = items
+        .into_iter()
+        .zip(visuals)
+        .map(|(identifier, visual)| ItemVisualDefinition {
+            grip: item::grip::ItemGrip::Unresolved,
+            glint: item::glint::ItemGlint::Unresolved,
+            fuel: item::fuel::ItemFuel::Unresolved,
+            durability: item::durability::ItemDurability::Unresolved,
+            armour: item::armour::ItemArmour::Unresolved,
+            key: ItemVisualKey {
+                identifier: identifier.into(),
+                metadata: 0,
+            },
+            source: 0,
+            route: ItemVisualDefinitionRoute::BlockItem {
+                block_visual: BlockVisualId(visual),
+            },
+            first_person: ItemDisplayTransform::identity(),
+            third_person: ItemDisplayTransform::identity(),
+            dropped: ItemDisplayTransform::identity(),
+        })
+        .collect();
+    let blocks = blocks::IconBlocks::read(root.path()).unwrap();
+    let plan = visuals
+        .into_iter()
+        .map(|visual| (visual, cube::Cube::read(&world, BlockVisualId(visual))))
+        .collect();
+    for carried in [false, true] {
+        let mut sprites = Vec::new();
+        let baked = bake::run(
+            root.path(),
+            Some(&world),
+            carried.then_some(&blocks),
+            &BTreeMap::new(),
+            &plan,
+            &compiled,
+            &mut sprites,
+        )
+        .unwrap();
+        let indices = visuals.map(|visual| {
+            if carried {
+                baked.model_sprites[&(visual, 0)]
+            } else {
+                baked.block_sprites[&visual]
+            }
+        });
+        assert_eq!(
+            indices[0], indices[2],
+            "unshaded cubes share their thumbnail"
+        );
+        assert_eq!(
+            indices[1], indices[3],
+            "directional cubes share their thumbnail"
+        );
+        assert_ne!(
+            indices[0], indices[1],
+            "lighting separates identical artwork"
+        );
+        assert_eq!(sprites[indices[0] as usize], sprites[indices[1] as usize]);
+        if carried {
+            assert_eq!(baked.block_sheets.len(), visuals.len());
+            assert!(
+                baked
+                    .block_sheets
+                    .iter()
+                    .all(|sheet| sheet.sprite == baked.block_sheets[0].sprite),
+                "lighting does not duplicate source sheets"
+            );
+        }
+    }
+}
+
+/// Compiles original entity metadata for isolated thumbnail baking.
+fn entity_assets() -> CompiledEntityAssets {
+    crate::compile_entity_pack(vec![
+        ("entity/test.json".into(), br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","geometry":{"default":"geometry.test"},"render_controllers":["controller.render.test"]}}}"#.to_vec()),
+        ("models/entity/test.geo.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test"},"bones":[{"name":"root"}]}]}"#.to_vec()),
+        ("render_controllers/test.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default"}}}"#.to_vec()),
+    ]).unwrap().unwrap().assets
 }

@@ -3,6 +3,7 @@ package core_test
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -14,14 +15,14 @@ func TestModulesPinTheCoreTransportForks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, library := range []string{"gophertunnel", "go-raknet"} {
-		t.Run(library, func(t *testing.T) {
-			core := forkPin(t, "go.mod", library)
+	for _, upstream := range []string{"sandertv/gophertunnel", "sandertv/go-raknet", "df-mc/go-nethernet"} {
+		t.Run(upstream, func(t *testing.T) {
+			core := forkPin(t, "go.mod", upstream)
 			if core == "" {
-				t.Fatalf("core/go.mod does not replace %s with the fork", library)
+				t.Fatalf("core/go.mod does not replace %s with the fork", upstream)
 			}
 			for _, module := range modules {
-				if pin := forkPin(t, module, library); pin != "" && pin != core {
+				if pin := forkPin(t, module, upstream); pin != "" && pin != core {
 					t.Errorf("%s pins %q, core pins %q", module, pin, core)
 				}
 			}
@@ -29,14 +30,15 @@ func TestModulesPinTheCoreTransportForks(t *testing.T) {
 	}
 }
 
-// forkPin reads one selected transport replacement from a module manifest.
-func forkPin(t *testing.T, path, library string) string {
+// forkPin reads the hashimthearab fork that a module manifest replaces upstream (owner/name) with.
+func forkPin(t *testing.T, manifest, upstream string) string {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile(fmt.Sprintf(`github\.com/sandertv/%s\s*=>\s*(github\.com/hashimthearab/%s\s+\S+)`, regexp.QuoteMeta(library), regexp.QuoteMeta(library)))
+	library := path.Base(upstream)
+	pattern := regexp.MustCompile(fmt.Sprintf(`github\.com/%s\s*=>\s*(github\.com/hashimthearab/%s\s+\S+)`, regexp.QuoteMeta(upstream), regexp.QuoteMeta(library)))
 	match := pattern.FindSubmatch(data)
 	if match == nil {
 		return ""

@@ -94,7 +94,10 @@ fn check_motion(query: &str, value: impl Fn(ActorTickInput) -> f32) {
             for alpha in [0.0, 0.25, 0.75, 1.0] {
                 let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], alpha);
                 let expected = 1.0 + previous + (current - previous) * alpha;
-                let sampled = frame.sample_held_item_scale(tick).held_item_scale.unwrap();
+                let sampled = frame
+                    .sample_equipment_properties(tick)
+                    .held_item_scale
+                    .unwrap();
                 assert!(
                     (sampled - expected).abs() < 1.0e-5,
                     "{query} at {alpha}, call {call}, reselect {reselect}: {sampled} vs {expected}"
@@ -112,7 +115,7 @@ fn check_motion(query: &str, value: impl Fn(ActorTickInput) -> f32) {
                 let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.5);
                 frame.set_remaining_ops(budget);
                 assert_eq!(
-                    frame.sample_held_item_scale(tick).held_item_scale,
+                    frame.sample_equipment_properties(tick).held_item_scale,
                     tick.held_item_scale
                 );
                 assert_eq!(authored_state(&store), before);

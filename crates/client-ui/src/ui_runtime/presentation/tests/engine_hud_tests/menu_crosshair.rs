@@ -7,11 +7,10 @@ use ui::mod_panel::{Surface, SurfaceTransition, SurfaceValue};
 enum Cursor {
     Native,
     Pack,
-    Custom,
 }
 
-/// A deterministic HUD with an ordinary, pack-image or personal crosshair.
-fn presentation(cursor: Cursor) -> UiPresentationRuntime {
+/// A deterministic HUD with an ordinary or pack-image crosshair.
+fn presentation() -> UiPresentationRuntime {
     let mut presentation =
         UiPresentationRuntime::with_hud(fixture_font(), crate::test_support::fixture_hud())
             .unwrap();
@@ -19,15 +18,6 @@ fn presentation(cursor: Cursor) -> UiPresentationRuntime {
         .enable_json_ui_inline(crate::test_support::mini_carrier())
         .unwrap();
     presentation.hud_frame_mut().first_person = true;
-    if matches!(cursor, Cursor::Custom) {
-        presentation
-            .mod_ui_mut()
-            .set_mod_crosshair(Some(&ui::mod_hud::Crosshair {
-                color: [1., 0., 1., 1.],
-                ..Default::default()
-            }))
-            .unwrap();
-    }
     presentation
 }
 
@@ -108,17 +98,13 @@ fn has_cursor(presentation: &UiPresentationRuntime, cursor: Cursor) -> bool {
             (Cursor::Pack, ui::UiVisual::Sprite { uv, .. }) => {
                 uv[2] - uv[0] == 13 && uv[3] - uv[1] == 13
             }
-            (Cursor::Custom, ui::UiVisual::Mesh(mesh)) => mesh
-                .vertices()
-                .iter()
-                .any(|vertex| vertex.color[..3] == [255, 0, 255]),
             _ => false,
         })
 }
 
 /// A hidden replacement must not reveal the ordinary fallback cursor either.
 fn has_any_cursor(presentation: &UiPresentationRuntime) -> bool {
-    [Cursor::Native, Cursor::Pack, Cursor::Custom]
+    [Cursor::Native, Cursor::Pack]
         .into_iter()
         .any(|cursor| has_cursor(presentation, cursor))
 }
@@ -163,7 +149,7 @@ fn cursor_diagnostics(
 fn crosshair_is_first_person_only_and_mode_gated() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
-    let mut presentation = presentation(Cursor::Native);
+    let mut presentation = presentation();
     presentation.hud_frame_mut().first_person = false;
     let mut runtime = runtime(Cursor::Native);
     player_runtime
@@ -225,8 +211,8 @@ fn crosshair_is_first_person_only_and_mode_gated() {
 
 #[test]
 fn crosshair_menu_input_ownership_hides_every_style_and_restores_after_nested_close() {
-    for cursor in [Cursor::Native, Cursor::Pack, Cursor::Custom] {
-        let mut presentation = presentation(cursor);
+    for cursor in [Cursor::Native, Cursor::Pack] {
+        let mut presentation = presentation();
         let mut runtime = runtime(cursor);
         let mut player = player_state::PlayerState::new(1);
         player
@@ -275,7 +261,7 @@ fn crosshair_menu_input_ownership_hides_every_style_and_restores_after_nested_cl
 
 #[test]
 fn crosshair_menu_panel_close_restores_cursor_while_exit_is_still_painted() {
-    let mut presentation = presentation(Cursor::Native);
+    let mut presentation = presentation();
     let runtime = runtime(Cursor::Native);
     let mut player = player_state::PlayerState::new(1);
     player
@@ -283,9 +269,8 @@ fn crosshair_menu_panel_close_restores_cursor_while_exit_is_still_painted() {
         .publish_player_game_mode(PlayerGameMode::Survival);
     let mut panel = mod_ui::test_support::sample_panel();
     panel.motion = true;
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
-        previews: Default::default(),
         screen: "extension.cursor_exit".into(),
         document: json!({"namespace":"extension","cursor_exit":{
             "type":"screen","controls":[{"body":{"type":"panel","size":[40,20],
@@ -303,7 +288,7 @@ fn crosshair_menu_panel_close_restores_cursor_while_exit_is_still_painted() {
                 exit: Some(SurfaceValue::Number(0.)),
             },
         )]),
-    });
+    };
     presentation
         .mod_ui_mut()
         .set_mod_panel(PanelUiOwner::Environment(0), Some(&panel))

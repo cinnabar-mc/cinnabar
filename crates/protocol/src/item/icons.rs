@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::nbt_tree::read_root;
+use crate::nbt_tree::Nbt;
 
 const MAX_ICON_KEY_BYTES: usize = 256;
 
@@ -33,11 +33,9 @@ fn short_name_key(identifier: &str) -> Option<Arc<str>> {
     (!name.is_empty() && name.len() <= MAX_ICON_KEY_BYTES).then(|| name.into())
 }
 
-/// Reads `components["minecraft:icon"]` (or the legacy `item_properties` copy): a key, or an object
+/// Reads `minecraft:icon` (or the legacy `item_properties` copy) from a components compound: a key, or an object
 /// naming it under `textures.default` or `texture`.
-pub(super) fn icon_key(bytes: &[u8]) -> Option<Arc<str>> {
-    let root = read_root(bytes)?;
-    let components = root.field("components")?;
+pub(super) fn icon_key(components: Nbt<'_>) -> Option<Arc<str>> {
     let icon = components
         .field("minecraft:icon")
         .or_else(|| components.field("item_properties")?.field("minecraft:icon"))?;
@@ -50,7 +48,12 @@ pub(super) fn icon_key(bytes: &[u8]) -> Option<Arc<str>> {
 
 #[cfg(test)]
 mod tests {
-    use super::icon_key;
+    use crate::nbt_tree::read_root;
+
+    /// Reads the icon key from a complete root compound, as `parse_components` does.
+    fn icon_key(bytes: &[u8]) -> Option<std::sync::Arc<str>> {
+        super::icon_key(read_root(bytes)?.root().field("components")?)
+    }
 
     fn named(tag: u8, name: &str) -> Vec<u8> {
         let mut bytes = vec![tag, name.len() as u8];

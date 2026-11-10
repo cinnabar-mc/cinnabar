@@ -128,7 +128,7 @@ fn a_picked_actor_prevents_indirect_support_use_and_outline() {
     assert!(published_outline(&mut world).is_none());
     world.run_system_cached(produce_block_use).unwrap();
     assert!(transaction_targets(&mut captured).is_empty());
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
 }
 
 #[test]

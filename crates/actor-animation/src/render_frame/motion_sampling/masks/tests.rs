@@ -33,13 +33,13 @@ fn prepared_masks_match_conditional_named_override_rotation_and_scale_unions() {
                 for clips in [vec![], vec![weighted(0)], vec![weighted(0), weighted(0)]] {
                     for geometry in [None, Some(0)] {
                         assert_eq!(
-                            sampling.mask(&assets, &names, clips.iter().copied(), geometry),
+                            sampling.mask(&assets, &names, None, clips.iter().copied(), geometry),
                             sampling.mask_unbound(&assets, &names, clips.iter().copied(), geometry)
                         );
                     }
                 }
                 let before = pose::name_lookups();
-                let _ = sampling.mask(&assets, &names, [weighted(0)], None);
+                let _ = sampling.mask(&assets, &names, None, [weighted(0)], None);
                 assert_eq!(
                     pose::name_lookups(),
                     before,
@@ -57,7 +57,7 @@ fn dynamic_unbound_clip_unions_keep_the_reference_path() {
     let sampling = MotionSampling::new(&assets, &layout, 0, 0, &[], &[]).reference_masks();
     let (_, names) = resolve_bones(&assets, 0).unwrap();
     assert_eq!(
-        sampling.mask(&assets, &names, [weighted(0)], None),
+        sampling.mask(&assets, &names, None, [weighted(0)], None),
         sampling.mask_unbound(&assets, &names, [weighted(0)], None)
     );
 }

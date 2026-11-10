@@ -60,6 +60,39 @@ fn arbitrary_pack_texture_keeps_source_dimensions_sidecar_and_pixels() {
 }
 
 #[test]
+fn server_ui_reservation_keeps_eight_full_page_images_resident_in_one_frame() {
+    let keys: Vec<_> = (0..8)
+        .map(|index| format!("textures/ui/t{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let mut bytes = Cursor::new(Vec::new());
+            image::RgbaImage::from_pixel(
+                PAGE_SIDE,
+                PAGE_SIDE,
+                image::Rgba([index as u8, 0, 0, 255]),
+            )
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+            (format!("{key}.png"), bytes.into_inner())
+        })
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    for (index, key) in keys.iter().enumerate() {
+        let placement = atlas
+            .placement(key)
+            .expect("all eight images must be resident");
+        assert_eq!(placement.rect[2..], [PAGE_SIDE as u16; 2]);
+        let image = &atlas.images()[usize::from(placement.page)];
+        assert_eq!(&image.pixels()[..4], &[index as u8, 0, 0, 255]);
+    }
+}
+
+#[test]
 fn cold_loading_backdrop_precedes_an_expensive_title_decode() {
     let files = vec![
         ("textures/ui/title.png".to_owned(), png(1992, 669)),
@@ -192,6 +225,24 @@ fn worker_decodes_become_resident_and_keep_their_pixels() {
     assert_eq!(atlas.decodes.pixels.len(), keys.len());
 }
 
+#[test]
+fn server_screen_keeps_every_reserved_image_resident_in_one_frame() {
+    let keys: Vec<_> = (0..render_model::UI_SERVER_UI_PAGES)
+        .map(|index| format!("textures/ui/image{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .map(|key| (format!("{key}.png"), png(200, 200)))
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    for key in &keys {
+        assert!(atlas.placement(key).is_some(), "missing {key}");
+    }
+    assert_eq!(atlas.images().len(), render_model::UI_SERVER_UI_PAGES);
+}
+
 // A full atlas evicts the page drawn least recently, never one drawn this frame.
 #[test]
 fn a_full_atlas_evicts_the_least_recently_drawn_page() {
@@ -216,26 +267,22 @@ fn a_full_atlas_evicts_the_least_recently_drawn_page() {
 }
 
 #[test]
-fn server_ui_reservation_keeps_eight_images_resident_in_one_frame() {
+fn server_ui_reservation_keeps_eight_page_sized_images_resident_together() {
+    let side = PAGE_SIDE - GUTTER * 2;
+    let pixels = png(side, side);
     let keys: Vec<_> = (0..8)
-        .map(|index| format!("textures/ui/t{index}"))
+        .map(|index| format!("textures/ui/page{index}"))
         .collect();
     let files: Vec<_> = keys
         .iter()
-        .enumerate()
-        .map(|(index, key)| {
-            let mut bytes = Cursor::new(Vec::new());
-            image::RgbaImage::from_pixel(128, 128, image::Rgba([index as u8, 2, 3, 255]))
-                .write_to(&mut bytes, image::ImageFormat::Png)
-                .unwrap();
-            (format!("{key}.png"), bytes.into_inner())
-        })
+        .map(|key| (format!("{key}.png"), pixels.clone()))
         .collect();
     let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
-        .with_image_work(ImageWork::inline());
+        .with_image_work(crate::sources::ImageWork::inline());
     atlas.require(keys.iter().map(String::as_str));
     for key in &keys {
-        assert!(atlas.placement(key).is_some(), "missing server image {key}");
+        let placement = atlas.placement(key).expect("every image stays resident");
+        assert_eq!(placement.rect[2..], [side as u16; 2]);
     }
 }
 

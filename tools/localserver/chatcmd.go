@@ -35,6 +35,7 @@ func registerChatCommands() {
 	cmd.Register(cmd.New("fixture_dummy", "Spawns a player to attack two blocks ahead", nil, targetDummy{}))
 	cmd.Register(cmd.New("fixture_effect", "Gives you a lasting effect by ID: seconds (0 is infinite) and amplifier", nil, effectFixture{}))
 	cmd.Register(cmd.New("weather", "Sets the weather: clear, rain or thunder", nil, weatherSet{}))
+	cmd.Register(cmd.New("time", "Sets and freezes the time of day, or resumes the daylight cycle", nil, timeSetNamed{}, timeSetTicks{}, timeCycle{}))
 }
 
 // weatherKind is the /weather argument.

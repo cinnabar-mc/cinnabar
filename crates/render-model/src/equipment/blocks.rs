@@ -10,6 +10,8 @@ use assets::{
     compose_block_item_sheet,
 };
 
+use crate::HandItemAlphaMode;
+
 const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
 
 #[cfg(test)]
@@ -19,6 +21,41 @@ mod buttons;
 mod fences;
 mod panes;
 mod trapdoors;
+
+/// Resolves a held material mode, with blending taking precedence over cutout.
+pub fn mode_for_material_flags(flags: u32) -> HandItemAlphaMode {
+    if flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0 {
+        HandItemAlphaMode::Blend
+    } else if flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT != 0 {
+        HandItemAlphaMode::Cutout
+    } else {
+        HandItemAlphaMode::Opaque
+    }
+}
+
+/// Reads each held visual's alpha policy from the carrier supplying its materials.
+pub fn block_alpha_modes(
+    world: Option<&RuntimeAssets>,
+    sheets: &BTreeMap<u32, usize>,
+) -> BTreeMap<u32, HandItemAlphaMode> {
+    let Some(world) = world else {
+        return BTreeMap::new();
+    };
+    sheets
+        .keys()
+        .filter_map(|&visual| {
+            if visual as usize >= world.visual_count() {
+                return None;
+            }
+            let block = world.resolve(assets::NetworkIdMode::Sequential, visual);
+            let flags = assets::BlockFace::ALL.into_iter().fold(0, |flags, face| {
+                flags | world.material(block.face(face).material_id()).flags
+            });
+            let mode = mode_for_material_flags(flags);
+            Some((visual, mode))
+        })
+        .collect()
+}
 
 /// Composed block-item sheets and the visual IDs that select them.
 pub struct BlockSheets {
@@ -46,6 +83,68 @@ impl BlockSheets {
             }
         }
     }
+}
+
+/// The shared held route after block geometry and artwork have been admitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeldRoute {
+    /// A carried model or cube using the block's prepared face sheet.
+    Block(u32),
+    /// An item sprite, including an explicit carried sprite override.
+    Sprite(usize),
+}
+
+/// Selects the same ordinary held presentation for world hands and player previews.
+pub fn held_route(
+    icons: &assets::RuntimeIconCatalog,
+    identifier: &str,
+    metadata: u32,
+    visual: Option<u32>,
+    has_block: impl FnOnce(u32) -> bool,
+) -> Option<HeldRoute> {
+    if let Some(visual) = visual.filter(|visual| has_block(*visual)) {
+        return Some(HeldRoute::Block(visual));
+    }
+    icons
+        .lookup_held_index(identifier, metadata)
+        .map(HeldRoute::Sprite)
+}
+
+/// Prepares carried models and compatible authored faces for every ordinary held context.
+pub fn prepare_held(
+    world: Option<&RuntimeAssets>,
+    entities: &RuntimeEntityAssets,
+    icons: &assets::RuntimeIconCatalog,
+) -> BlockSheets {
+    let mut blocks = world.map_or_else(
+        || BlockSheets {
+            sheets: Vec::new(),
+            by_visual: BTreeMap::new(),
+            models: BTreeMap::new(),
+        },
+        |world| {
+            let mut blocks = collect_held(world, entities, icons);
+            blocks.prefer_carried_faces(world, icons);
+            blocks
+        },
+    );
+    if icons.source_manifest_sha256() == entities.source_manifest_sha256() {
+        let mut carried = BTreeMap::new();
+        for sheet in icons.block_sheets().iter().filter(|sheet| {
+            sheet.visual.0 < entities.block_visual_count()
+                && !blocks.models.contains_key(&sheet.visual.0)
+        }) {
+            let index = *carried.entry(sheet.sprite).or_insert_with(|| {
+                let index = blocks.sheets.len();
+                blocks
+                    .sheets
+                    .push(icons.sprites()[sheet.sprite as usize].clone());
+                index
+            });
+            blocks.by_visual.insert(sheet.visual.0, index);
+        }
+    }
+    blocks
 }
 
 /// Shares face sheets across cube items independently of their terrain occlusion and alpha.
@@ -187,7 +286,11 @@ fn collect_shapes(
             if shown as usize >= world.visual_count() {
                 return None;
             }
-            template_model(world, shown)
+            template_model(
+                world,
+                shown,
+                assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier),
+            )
         });
         let Some(materials) = model.as_ref().map(|(materials, _)| *materials).or(cube) else {
             continue;
@@ -299,10 +402,12 @@ fn sheet_model(quads: &[assets::ModelQuad]) -> Option<([u32; 6], Vec<crate::Acto
 /// The geometry a non-cube block item (slab, stairs, fence, anvil) holds as: its template's
 /// quads, as the inventory model draws them, with up to six distinct face materials composed
 /// into one sheet, in centred block coordinates. `None` keeps the sprite: a refused state, more
-/// than six materials, or a UV wrapping past its tile, which one sheet tile cannot hold.
+/// than six materials unless `retain_shape` folds the extras, or a UV wrapping past its tile,
+/// which one sheet tile cannot hold.
 fn template_model(
     world: &RuntimeAssets,
     visual: u32,
+    retain_shape: bool,
 ) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
     let block = world.resolve(NetworkIdMode::Sequential, visual);
     if !block.is_known()
@@ -324,12 +429,15 @@ fn template_model(
         world.model_quads(),
     )
     .ok()?;
-    template_quads(&quads)
+    template_quads(&quads, retain_shape)
 }
 
-/// Maps bounded template geometry into the same material sheet used by held cubes.
+/// Maps bounded template geometry into the same material sheet used by held cubes. The sheet holds
+/// six tiles, so with `retain_shape` any further material draws with the first tile's art, and
+/// without it such a model is refused.
 fn template_quads(
     quads: &[assets::gui_item::GuiBlockQuad],
+    retain_shape: bool,
 ) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
     let mut materials: Vec<u32> = Vec::with_capacity(BlockFace::ALL.len());
     for quad in quads {
@@ -345,14 +453,16 @@ fn template_quads(
             materials.push(quad.material);
         }
     }
-    if materials.is_empty() || materials.len() > BlockFace::ALL.len() {
+    if materials.is_empty() || (materials.len() > BlockFace::ALL.len() && !retain_shape) {
         return None;
     }
+    materials.truncate(BlockFace::ALL.len());
     let slots: [u32; 6] = std::array::from_fn(|slot| *materials.get(slot).unwrap_or(&materials[0]));
     let rects = face_rects([0.0, 0.0, 1.0, 1.0]);
     let mut vertices = Vec::with_capacity(quads.len() * 6);
     for quad in quads {
-        let rect = rects[materials.iter().position(|id| *id == quad.material)?];
+        let tile = materials.iter().position(|id| *id == quad.material);
+        let rect = rects[tile.unwrap_or(0)];
         let [a, b, c, _] = quad.corners.map(glam::Vec3::from);
         let normal = (b - a).cross(c - a).normalize_or_zero().to_array();
         for corner in [0, 1, 2, 0, 2, 3] {
@@ -495,7 +605,7 @@ pub fn overlay_item(
         &overlay.model_quads,
     )
     .ok()?;
-    let (materials, vertices) = template_quads(&quads)?;
+    let (materials, vertices) = template_quads(&quads, false)?;
     Some((
         overlay_face_sheet_tinted(overlay, materials, base, tint)?,
         Some(vertices),
@@ -649,7 +759,18 @@ fn overlay_face_sheet_tinted(
             None
         };
         material.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
+        let rotated =
+            material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+        if rotated {
+            material.flags &= !assets::MATERIAL_FLAG_UV_MASK;
+        }
         let mut tile = overlay_face_tile(overlay, &material, base)?;
+        if rotated {
+            Arc::make_mut(&mut tile.rgba8)
+                .as_chunks_mut::<4>()
+                .0
+                .reverse();
+        }
         if let Some(color) = color {
             for pixel in Arc::make_mut(&mut tile.rgba8).as_chunks_mut::<4>().0 {
                 for axis in 0..3 {

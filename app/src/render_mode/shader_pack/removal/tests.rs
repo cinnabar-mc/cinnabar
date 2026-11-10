@@ -39,6 +39,10 @@ fn fixture(path: &std::path::Path, selected: Option<&str>) -> App {
     .insert_resource(settings)
     .init_resource::<Time<Real>>();
     app.add_systems(Update, super::super::super::apply_menu_render_mode);
+    app.configure_sets(
+        Update,
+        super::super::ShaderPackUiSystems.run_if(super::super::work_pending),
+    );
     configure(&mut app);
     app.update();
     app

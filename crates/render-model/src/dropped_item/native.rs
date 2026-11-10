@@ -1,4 +1,4 @@
-//! Dropped items as 1.26.50.26 renders them. Item-local
+//! Dropped items as 1.26.60.26 renders them. Item-local
 //! geometry already contains the default display correction; copies translate before actor scale.
 
 use super::dropped_item_transform;
@@ -12,7 +12,8 @@ const RADIANS_TO_DEGREES: f32 = 57.295776;
 const DEGREES_TO_RADIANS: f32 = 0.017453292;
 const SPRITE_GROUP_SCALE: f32 = 0.3;
 const SPRITE_DEFAULT_SCALE: f32 = 1.5;
-const CUBE_SCALE: f32 = 0.25;
+/// Scale the item renderer gives an ordinary cube block item, dropped or framed.
+pub(crate) const CUBE_SCALE: f32 = 0.25;
 
 /// Rotates a block model vector by its authored quarter turn about Y.
 pub(super) fn block_item_rotation([x, y, z]: [f32; 3], rotation: u32) -> [f32; 3] {
@@ -34,6 +35,7 @@ pub(super) fn block_item_position(point: [i16; 3], rotation: u32) -> [f32; 3] {
 pub enum DroppedItemShape {
     Sprite,
     Cube,
+    Shield,
 }
 
 /// Native per-item first-render capture. Walking closer later never restarts the animation.
@@ -103,7 +105,7 @@ pub fn native_dropped_item_transform(
     let scale = actor_scale
         * match shape {
             DroppedItemShape::Sprite => SPRITE_GROUP_SCALE * SPRITE_DEFAULT_SCALE,
-            DroppedItemShape::Cube => CUBE_SCALE,
+            DroppedItemShape::Cube | DroppedItemShape::Shield => CUBE_SCALE,
         };
     dropped_item_transform(center, yaw, scale)
 }

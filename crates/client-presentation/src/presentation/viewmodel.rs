@@ -99,7 +99,8 @@ fn extra_shape_flags(extra: &[u8]) -> i128 {
         | (i128::from(extra.get(6..10) == Some(&[0; 4])) << 5)
         | ((extra.len() as i128) << 8)
 }
-fn stack_block_visual_id(
+/// Maps a stack's wire block id through the session palette to its stock block visual.
+pub(super) fn stack_block_visual_id(
     stream: &chunk_pipeline::WorldStream,
     assets: &assets::RuntimeAssets,
     wire_id: i32,

@@ -130,11 +130,21 @@ fn stonecutter_saw_and_top_turn_with_the_cardinal_direction() {
                 face == BlockFace::Up,
                 "only the inset top skips neighbour culling: {direction}/{face:?}"
             );
+            assert_eq!(
+                quad.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
+                0,
+                "{direction}/{face:?}"
+            );
         }
         assert!(body.iter().flat_map(|q| q.positions).any(|p| p[1] == 144));
         let saw = saw[0];
         assert_eq!(saw.material, materials[BlockFace::West as usize]);
         assert_ne!(saw.flags & assets::MODEL_QUAD_FLAG_TWO_SIDED, 0);
+        assert_ne!(
+            saw.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
+            0,
+            "the saw keeps the body's shade"
+        );
         let (plane_axis, span_axis) = if along_z { (0, 2) } else { (2, 0) };
         assert!(
             saw.positions.iter().all(|p| p[plane_axis] == 128),

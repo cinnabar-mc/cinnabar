@@ -4,9 +4,7 @@ use bevy::platform::collections::{HashMap, HashSet};
 use render_model::{ActorRigGeometry, EntityRigId, skin_rig_id};
 use std::collections::VecDeque;
 
-/// Body and animated skin models for every selected player, plus the local first-person hand.
-pub const MAX_SKIN_RIGS: usize =
-    render_model::MAX_RENDERED_PLAYERS * (1 + render_api::MAX_SKIN_ANIMATION_LAYERS) + 1;
+use render_model::MAX_SKIN_RIGS;
 /// Models that failed to build, remembered so they are not rebuilt every frame.
 const MAX_REJECTED_SKIN_RIGS: usize = 64;
 
