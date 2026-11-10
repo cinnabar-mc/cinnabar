@@ -224,8 +224,7 @@ pub fn perform<B: Backend>(
             )
             .map(|()| String::new())
         }
-        Action::BrowseMarketplace
-        | Action::ReadMore(_)
+        Action::ReadMore(_)
         | Action::Update(_)
         | Action::ViewUpdates
         | Action::OpenUpdate(_)

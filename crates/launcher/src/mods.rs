@@ -6,8 +6,6 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
-/// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
-pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
 /// File-name prefix reserved for managed marketplace components.
 ///
 /// It is distinctive so that ordinary local file names, such as `marketplace-prices.wasm`, are
@@ -36,8 +34,6 @@ pub fn marketplace_withdrawn(reason: &str) -> String {
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Opens the website without changing the local library or its permissions.
-    BrowseMarketplace,
     ReadMore(u64),
     ToggleActive,
     ToggleAvailable,
@@ -274,7 +270,6 @@ impl Snapshot {
     /// Keeps disclosure changes local and forwards work only while the library is idle.
     pub fn apply(&mut self, action: Action) -> Option<Action> {
         match action {
-            Action::BrowseMarketplace => None,
             Action::Customize(id) => {
                 self.customizing = (self.customizing != Some(id)).then_some(id);
                 self.show_all_permissions = false;
@@ -436,18 +431,6 @@ mod tests {
         assert!(!item.marketplace(), "a local file name must stay local");
         item.file = format!("{MARKETPLACE_FILE_PREFIX}11-fixture.wasm");
         assert!(item.marketplace());
-    }
-
-    #[test]
-    fn browsing_never_queues_library_work_or_changes_grants() {
-        for busy in [false, true] {
-            let mut snapshot = Snapshot::default();
-            snapshot.library.busy = busy;
-            snapshot.library.installed.push(installed(7));
-            let before = snapshot.clone();
-            assert_eq!(snapshot.apply(Action::BrowseMarketplace), None);
-            assert_eq!(snapshot, before);
-        }
     }
 
     #[test]

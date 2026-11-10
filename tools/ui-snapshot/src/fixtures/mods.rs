@@ -135,7 +135,7 @@ pub(super) const STATES: &[State] = &[
     },
 ];
 
-/// A signed-out home with a public marketplace shortcut and no service fixtures.
+/// A signed-out home with no service fixtures.
 fn home_marketplace() -> Fixture {
     Fixture::Menu(Box::new(launcher::menu::MenuView::new(
         true,
