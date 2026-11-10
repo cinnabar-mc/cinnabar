@@ -3,7 +3,7 @@
 use super::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery,
     CollisionRegistryIdentity, CollisionSnapshot, DEFAULT_SURFACE_FRICTION, LenientCollisionBoxes,
-    LenientSkipCounts, ProvenancedCollider, SurfaceResponse, Vec3, WorldQueryError,
+    LenientSkipCounts, PistonPush, ProvenancedCollider, SurfaceResponse, Vec3, WorldQueryError,
 };
 
 pub trait CollisionWorld {
@@ -36,6 +36,20 @@ pub trait CollisionWorld {
     /// Retains the world read by this tick when the adapter supports historical replay.
     fn snapshot(&self) -> Option<CollisionSnapshot> {
         None
+    }
+
+    /// Shows the world as the client simulation tick `tick` leaves it, so piston arms stand
+    /// at that tick's progress. Worlds without tick-dependent geometry ignore it.
+    fn begin_tick(&self, _tick: u64) {}
+
+    /// Piston arms that move on the update of client simulation tick `tick` and whose push
+    /// cube may overlap `query`. Worlds without piston actors push nothing.
+    fn piston_pushes(
+        &self,
+        _query: Aabb,
+        _tick: u64,
+    ) -> Result<Option<CollisionQuery<Vec<PistonPush>>>, WorldQueryError> {
+        Ok(None)
     }
 
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError>;

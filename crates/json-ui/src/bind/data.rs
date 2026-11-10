@@ -115,6 +115,12 @@ impl DataSource {
         self.globals.insert(name.into(), value);
     }
 
+    /// Removes a `global` binding value, so bindings read `name` as unbound again, exactly as
+    /// before it was set. Returns the removed value.
+    pub fn remove_global(&mut self, name: &str) -> Option<Scalar> {
+        self.globals.remove(name)
+    }
+
     /// Reads an ordinary global value so native adapters can share its formatted representation.
     pub fn global_value(&self, name: &str) -> Option<&Scalar> {
         self.globals.get(name)

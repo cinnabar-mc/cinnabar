@@ -38,29 +38,40 @@ var (
 // in it would collide with a vanilla block, which Dragonfly refuses with a panic, or pose as one.
 const vanillaNamespace = "minecraft"
 
-// Registry holds the registered Experience blocks and items.
+// Registry holds the registered Experience blocks, items and overlay types.
 type Registry struct {
-	types map[string]*blockType // by block id
-	items map[string]*itemType  // by item id
+	entityTypes map[string]*modEntityType
+	types       map[string]*blockType // by block id
+	items       map[string]*itemType  // by item id
+	overlays    map[string]*blockType // overlay types, by id
 }
 
-// Register checks the blocks and items of every loaded Experience and reads their textures,
-// geometries and icons. Then it registers every state of each block, its item and each item with
-// Dragonfly, and for each Experience a construction creative group named after it, which holds
-// its blocks, then its items, and shows the first. A reserved or repeated Experience id, or a bad
+// Register checks the blocks, items and overlays of every loaded Experience and reads their
+// textures, geometries and icons. Then it registers every state of each block, the item of each
+// block that has one and each item with Dragonfly, and for each Experience a construction
+// creative group named after it, which holds its listed blocks, then its listed items, and shows
+// the first. Every state of each overlay type registers as a hidden block, without an item or a
+// creative entry, so clients resolve overlays by name and states as they resolve blocks; an
+// overlay host's states register as HostBlocks. A reserved or repeated Experience id, or a bad
 // definition, texture, geometry or icon, fails before anything is registered, with an error
-// naming the Experience and the block, item or file.
+// naming the Experience and the block, item, overlay type or file.
 //
 // Dragonfly's registries are global: Register may succeed once per process, before
 // server.Config.New finalizes them and builds the resource pack from the registered blocks. It is
 // not safe for concurrent use.
 func Register(loaded []Loaded) (*Registry, error) {
-	r := &Registry{types: make(map[string]*blockType), items: make(map[string]*itemType)}
+	r := &Registry{
+		entityTypes: make(map[string]*modEntityType),
+		types:       make(map[string]*blockType),
+		items:       make(map[string]*itemType),
+		overlays:    make(map[string]*blockType),
+	}
 	experiences := make(map[string]bool, len(loaded))
 	cache := newAssetCache() // several slots, materials and blocks may share a file
 	// blocks[i] and items[i] hold the types of loaded[i]'s blocks and items in their order.
 	blocks := make([][]*blockType, len(loaded))
 	items := make([][]*itemType, len(loaded))
+	overlays := make([][]*blockType, len(loaded))
 	for i, l := range loaded {
 		if l.ID == vanillaNamespace {
 			return nil, fmt.Errorf("experience id %q is reserved", l.ID)
@@ -71,6 +82,19 @@ func Register(loaded []Loaded) (*Registry, error) {
 		experiences[l.ID] = true
 		if len(l.Blocks) > maxBlocks {
 			return nil, fmt.Errorf("experience %q declares %d blocks; the limit is %d", l.ID, len(l.Blocks), maxBlocks)
+		}
+		if len(l.Entities) > maxEntityTypes {
+			return nil, fmt.Errorf("experience %s has too many entity types", l.ID)
+		}
+		for _, def := range l.Entities {
+			if r.entityTypes[def.ID] != nil {
+				return nil, fmt.Errorf("duplicate entity type %s", def.ID)
+			}
+			t, err := newModEntityType(l.ID, def, cache)
+			if err != nil {
+				return nil, err
+			}
+			r.entityTypes[def.ID] = t
 		}
 		if len(l.Items) > maxItems {
 			return nil, fmt.Errorf("experience %q declares %d items; the limit is %d", l.ID, len(l.Items), maxItems)
@@ -97,25 +121,42 @@ func Register(loaded []Loaded) (*Registry, error) {
 			r.items[def.ID] = t
 			items[i] = append(items[i], t)
 		}
+		types, err := r.registerOverlays(l, cache)
+		if err != nil {
+			return nil, err
+		}
+		overlays[i] = types
 	}
 	// Every definition is valid; only now does anything reach Dragonfly.
 	for i, types := range blocks {
 		for _, t := range types {
 			t.hash = block.NextHash()
 			for s := range t.combinations {
+				world.RegisterBlock(Block{t, s}.inWorld(nil))
+			}
+			if t.item != ItemNone {
+				world.RegisterItem(Block{t, 0})
+			}
+		}
+		for _, t := range overlays[i] {
+			t.hash = block.NextHash()
+			for s := range t.combinations {
 				world.RegisterBlock(Block{t, s})
 			}
-			world.RegisterItem(Block{t, 0})
 		}
 		for _, t := range items[i] {
 			world.RegisterItem(Item{t})
 		}
 		var stacks []item.Stack
 		for _, t := range types {
-			stacks = append(stacks, item.NewStack(Block{t: t}, 1))
+			if t.item == ItemListed {
+				stacks = append(stacks, item.NewStack(Block{t: t}, 1))
+			}
 		}
 		for _, t := range items[i] {
-			stacks = append(stacks, item.NewStack(Item{t}, 1))
+			if t.listed {
+				stacks = append(stacks, item.NewStack(Item{t}, 1))
+			}
 		}
 		if len(stacks) == 0 {
 			continue
@@ -161,6 +202,16 @@ func blockTypeOf(exp string, def BlockDef, cache *assetCache) (*blockType, error
 		traits:    traitsOf(def.Placement),
 		declared:  make(map[string][]any, len(def.States)),
 		network:   def.Network,
+		item:      def.Item,
+		redstone:  def.Redstone,
+	}
+	switch {
+	case !slices.Contains(blockItems, def.Item):
+		return nil, fmt.Errorf("its item %q is none of %q", def.Item, blockItems)
+	case !slices.Contains(blockDrops, def.Drops):
+		return nil, fmt.Errorf("its drops %q are none of %q", def.Drops, blockDrops)
+	case def.Item == ItemNone && def.Drops == DropsItself:
+		return nil, errors.New("it has no item, so it cannot drop itself")
 	}
 	b := Block{t: t}
 	info := block.BreakInfo{
@@ -172,6 +223,10 @@ func blockTypeOf(exp string, def BlockDef, cache *assetCache) (*blockType, error
 		BreakHandler: func(pos cube.Pos, tx *world.Tx, u item.User) {
 			currentHooks().breakHandler(b, pos, tx, u)
 		},
+	}
+	if def.Drops == DropsNothing {
+		// The guest's on-break drops what the block leaves to it.
+		info.Drops = func(item.Tool, []item.Enchantment) []item.Stack { return nil }
 	}
 	switch m := def.Mining; {
 	case m.Breakable != nil:

@@ -1,26 +1,26 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     CameraShakeAction as WireShakeAction, CameraShakeType as WireShakeType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, Camera as CameraPacket, CameraInstruction as InstructionPacket,
     CameraShake as ShakePacket, PacketId,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorUniqueID, CameraEntityOffset, CameraFacing, CameraFadeColor as WireFadeColor,
     CameraFadeTimeData, CameraInstructionData, CameraInstructionFade, CameraInstructionFieldOfView,
     CameraInstructionSet, CameraInstructionTarget, CameraInstructionTargetData, CameraPosition,
     CameraRotation, CameraViewOffset,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     CameraEase, CameraEvent, CameraFadeColor, CameraFadeInstruction, CameraFadeTimes,
     CameraFovInstruction, CameraInstructionEvent, CameraSetInstruction, CameraShakeAction,
     CameraShakeEvent, CameraShakeType, CameraSwitchEvent, CameraTargetInstruction, ProtocolError,
     WorldEvent, WorldPacketError, decode_batch, encode, into_world_event,
 };
-type SetEase = bedrock_protocol_1_26_51::types::CameraEase;
+type SetEase = bedrock_protocol_1_26_60::types::CameraEase;
 
 #[test]
 fn client_input_locks_are_admitted_instead_of_ignored() {
@@ -38,7 +38,7 @@ fn client_input_locks_are_admitted_instead_of_ignored() {
 fn spline_instruction_reaches_camera_presentation() {
     let event = normalized(InstructionPacket {
         camera_instruction: CameraInstructionData {
-            spline: Some(bedrock_protocol_1_26_51::types::CameraSplineInstruction {
+            spline: Some(bedrock_protocol_1_26_60::types::CameraSplineInstruction {
                 total_time: wire::F32LE(2.0),
                 type_: wire::U8(1),
                 curve: vec![[0.0, 2.0, 0.0].into(), [4.0, 2.0, 0.0].into()],
@@ -397,7 +397,7 @@ fn oversized_camera_strings_are_semantic_skips() {
 fn invalid_spline_instructions_are_semantic_skips() {
     let packet: protocol::Packet = protocol::Packet::new(InstructionPacket {
         camera_instruction: CameraInstructionData {
-            spline: Some(bedrock_protocol_1_26_51::types::CameraSplineInstruction::default()),
+            spline: Some(bedrock_protocol_1_26_60::types::CameraSplineInstruction::default()),
             ..Default::default()
         },
     });
@@ -457,8 +457,8 @@ fn truncated_camera_shake_wire_stays_fatal() {
 
 #[test]
 fn preset_registry_preserves_indices_and_counts_non_finite_rejection() {
-    use bedrock_protocol_1_26_51::packets::CameraPresets as CameraPresetsPacket;
-    use bedrock_protocol_1_26_51::types::{CameraPreset, CameraPresetList as CameraPresets};
+    use bedrock_protocol_1_26_60::packets::CameraPresets as CameraPresetsPacket;
+    use bedrock_protocol_1_26_60::types::{CameraPreset, CameraPresetList as CameraPresets};
     let preset = |name: &str, radius: f32| CameraPreset {
         name: name.into(),
         inherit_from: "minecraft:free".into(),

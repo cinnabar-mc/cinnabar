@@ -328,7 +328,7 @@ impl StageMask {
     pub(crate) fn add(&mut self, stage: StageKind) {
         match stage {
             StageKind::Fragment => self.fragment = true,
-            StageKind::Compute => self.compute = true,
+            StageKind::Compute | StageKind::Geometry => self.compute = true,
             _ => self.vertex = true,
         }
     }

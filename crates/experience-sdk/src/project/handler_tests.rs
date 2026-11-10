@@ -58,12 +58,19 @@ fn routes_and_silently_drops_rejected_records() {
 "#;
 
 const SERVER: &str = r#"
-use experience_sdk::{entry::server, server::{Callback, Experience, GuestError, PlayerId}};
+use experience_sdk::{entry::server, server::{Callback, EntityEvent, EntityHandle, Experience, GuestError, PlayerId}};
 mod shared { include!("../out/mod_shared.rs"); }
 use shared::{Ping, Pong, State};
 struct Server;
 #[server]
 impl Experience for Server {
+    /// Sends a typed response from an entity callback alongside message handlers.
+    fn on_entity(ctx: &Callback, _handle: EntityHandle, event: EntityEvent) -> Result<(), GuestError> {
+        if let EntityEvent::Interact(interaction) = event {
+            ctx.send(&interaction.player, &Pong { request: 0 })?;
+        }
+        Ok(())
+    }
     /// Echoes the request through a retained response.
     #[on_message]
     fn ping(ctx: &Callback, player: PlayerId, ping: Ping) -> Result<(), GuestError> {

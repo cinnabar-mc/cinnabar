@@ -35,8 +35,12 @@ pub mod loading_texture_tests;
 pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
+mod menu_sounds;
+#[cfg(any(test, feature = "test-support"))]
+pub use menu_sounds::CapturedMenuSounds;
 mod menu_title;
 pub mod menus;
+pub mod mob_effect_screen;
 mod mod_surfaces;
 pub mod model;
 pub mod npc;
@@ -64,6 +68,7 @@ pub mod regression_snapshots;
 use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod accounts;
+pub mod command_block;
 #[cfg(test)]
 pub mod play_flow_snapshots;
 mod player_list;
@@ -100,6 +105,7 @@ pub use containers::{container_screen_reference, engine_screen_for};
 pub(crate) use recipe_book::BookIconCache;
 pub use recipe_book::{BookIconSources, recipe_book_hover, recipe_book_icons, recipe_book_shown};
 use ui_engine::{
+    atlas::OversizedFrame,
     engine::{FormEngine, PreparedCatalog, screen::PaintFrame},
     frame::EngineFrame,
     pages,
@@ -115,8 +121,11 @@ use ui::{UiNode, UiPoint, UiRect};
 pub(super) struct ScreenStates {
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(launcher::menu::MenuAction, String)>,
-    /// The engine menu's press sounds by action.
-    menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
+    /// Who decides the press sounds of the menu painted last.
+    menu_sounds: menu_sounds::MenuSounds,
+    /// Receives this presentation's press sounds in place of the process-wide queue.
+    #[cfg(any(test, feature = "test-support"))]
+    menu_sound_capture: Option<menu_sounds::CapturedMenuSounds>,
     /// Where the installed catalog's title image draws from.
     menu_title: Option<menu_title::TitleSource>,
     /// The title splash, picked once per resource reload.
@@ -133,11 +142,14 @@ pub(super) struct ScreenStates {
     pub(super) mod_ui: mod_ui::ModUi,
     /// The container screens' layout and recipe rows.
     containers: ui_screens::containers::ContainerScreen,
+    /// The blink of the container screens' search or anvil name caret.
+    container_caret: menu_caret::CaretBlink,
     /// The menu text caret's blink and its boxes' text.
     menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen.
     chat: ui_screens::chat_screen::ChatScreen,
     emote: ui_screens::emote_screen::EmoteScreen,
+    mob_effects: ui_screens::mob_effect_screen::MobEffectScreen,
     /// The bed screen's hits and pointer.
     bed: oreui::BedScreen,
     /// The data-driven form's hits, pointer and scroll, and the form instance they belong to.
@@ -153,6 +165,12 @@ pub(super) struct ScreenStates {
     touch: touch_controls::TouchControls,
 }
 
+/// The pressable cells of one drawn container frame, with the hit regions they came from.
+type ContainerCells = std::sync::OnceLock<(
+    std::sync::Arc<[json_ui::HitRegion]>,
+    Vec<(ui_screens::container_actions::InventoryCellHit, [f32; 2])>,
+)>;
+
 /// What the last build exposes to input and the next build; reset as each build starts.
 #[derive(Default)]
 pub(super) struct FrameProjections {
@@ -162,6 +180,11 @@ pub(super) struct FrameProjections {
     container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
     /// Last build's container frame, for this build's pointer hover.
     previous_container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
+    /// The container's pressable cells, found once per drawn frame and keyed by that frame's
+    /// hit regions, so repeated queries in one build reuse them.
+    container_cells: ContainerCells,
+    /// The command block editor drawn this build.
+    command_block: Option<EngineFrame>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
     pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
     /// Screen and popup context owning the painted menu controls.
@@ -251,6 +274,17 @@ impl UiPresentationRuntime {
             prepared,
             texture_sources::downloads(),
             texture_sources::image_work(),
+        )
+    }
+
+    /// [`Self::enable_json_ui`] decoding every image on the calling thread, so a single paint
+    /// holds all of them instead of deferring past the host's frame budget.
+    #[cfg(all(not(target_arch = "wasm32"), any(test, feature = "test-support")))]
+    pub fn enable_json_ui_inline(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
+        self.enable_prepared_json_ui_with_sources(
+            PreparedJsonUi::new(assets)?,
+            texture_sources::downloads(),
+            ui_engine::sources::ImageWork::inline(),
         )
     }
 
@@ -346,6 +380,19 @@ impl UiPresentationRuntime {
         self.sync_server_ui_pages();
     }
 
+    /// Starts container lifetimes afresh and releases the old trees away from the frame.
+    pub(super) fn reset_container_screens(&mut self) {
+        let retired = std::mem::take(&mut self.screens.containers);
+        self.projections.container = None;
+        self.projections.previous_container = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = std::thread::Builder::new()
+            .name("container-cleanup".into())
+            .spawn(move || drop(retired));
+        #[cfg(target_arch = "wasm32")]
+        drop(retired);
+    }
+
     /// Draws oversized server textures from their server-page downscale again.
     #[cfg(test)]
     pub fn drop_full_res_art(&mut self) {
@@ -372,21 +419,46 @@ impl UiPresentationRuntime {
 
     /// Publishes completed original images before a saved menu frame can be reused.
     pub(super) fn poll_server_ui_images(&mut self) {
-        if self
+        use ui_engine::engine::ImageUpdate;
+        let update = self
             .engine
             .as_mut()
-            .is_some_and(|engine| engine.poll_native_images())
-        {
-            self.retained_menu = None;
+            .map_or(ImageUpdate::None, |engine| engine.poll_native_images());
+        if update == ImageUpdate::None {
+            return;
+        }
+        self.retained_menu = None;
+        if update == ImageUpdate::Metadata {
             self.screens.hud.invalidate_textures();
             self.screens.containers.invalidate_textures();
-            self.sync_server_ui_pages();
+        } else {
+            self.screens.containers.refresh_artwork();
         }
+        self.sync_server_ui_pages();
     }
 
-    /// Hands changed server atlas pages to the dynamic texture pages; runs
-    /// after the frame's screens drew, before the frame publishes.
+    /// Ends a built frame after its screens drew, before it publishes: records the large server
+    /// textures it drew for the art pages, then hands changed pages on.
+    pub(super) fn end_ui_frame(&mut self) {
+        let drawn = self
+            .engine
+            .as_ref()
+            .map_or_else(Default::default, |engine| {
+                engine.textures.end_oversized_frame(&self.frame_oversized)
+            });
+        self.sync_server_ui_pages_with(drawn);
+    }
+
+    /// Hands changed server atlas pages to the dynamic texture pages outside a frame boundary.
     pub(super) fn sync_server_ui_pages(&mut self) {
+        self.sync_server_ui_pages_with(OversizedFrame::default());
+    }
+
+    /// Hands changed pages on; `drawn` is what an ended frame drew among the large textures.
+    fn sync_server_ui_pages_with(&mut self, drawn: OversizedFrame) {
+        if let Some(changed) = drawn.changed {
+            self.frame_oversized = changed;
+        }
         let server = self
             .engine
             .as_mut()
@@ -394,15 +466,29 @@ impl UiPresentationRuntime {
         let changed = self.screens.mod_ui.refresh_experience_modal_pages()
             | self.screens.mod_ui.refresh_mod_screen_pages()
             | server;
-        // Server textures too big for a server page draw from full-resolution art.
+        // Server textures too big for a server page draw from full-resolution art; the ones the
+        // last frame drew pack first. The priority changes only with a request: at once when
+        // the sources change, otherwise once the pack in flight (which a new request would
+        // discard) is installed, and only when a drawn texture lacks art or the installed
+        // atlas left sources out, since a new order could not change anything else.
         let oversized = self.oversized_ui_textures();
+        let mut artwork_changed = false;
         if !oversized.shares_storage(&self.menu_artwork_set.oversized) {
-            let artwork_changed = !oversized.same(&self.menu_artwork_set.oversized);
+            artwork_changed = !oversized.same(&self.menu_artwork_set.oversized);
             self.menu_artwork_set.oversized = oversized;
-            if artwork_changed {
-                self.menu_artwork_loader
-                    .request(self.menu_artwork_set.clone());
-            }
+        }
+        let loader = &self.menu_artwork_loader;
+        if self.frame_oversized != self.menu_artwork_set.drawn_oversized
+            && (artwork_changed || loader.settled() && (drawn.uncovered || loader.left_out()))
+        {
+            self.menu_artwork_set
+                .drawn_oversized
+                .clone_from(&self.frame_oversized);
+            artwork_changed = true;
+        }
+        if artwork_changed {
+            self.menu_artwork_loader
+                .request(self.menu_artwork_set.clone());
         }
         if changed {
             self.rebuild_dynamic_textures();
@@ -531,15 +617,6 @@ impl UiPresentationRuntime {
         self.engine
             .as_ref()
             .map(|engine| &engine.formatting_palette)
-    }
-
-    /// The sound the engine menu's control for `action` plays when pressed.
-    pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
-        self.screens
-            .menu_sounds
-            .iter()
-            .find(|(candidate, _)| *candidate == action)
-            .map(|(_, sound)| sound)
     }
 
     /// The live catalog's screen settings; empty without the JSON-UI engine.
@@ -786,6 +863,7 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         ui_screens::sign_editor::SIGN_SCREEN,
         ui_screens::emote_screen::EMOTE_SCREEN,
         ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
+        ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN,
         ui_screens::npc::NPC_SCREEN,
         ui_screens::toast_screen::TOAST_SCREEN,
         ui_screens::credits_screen::CREDITS_SCREEN,

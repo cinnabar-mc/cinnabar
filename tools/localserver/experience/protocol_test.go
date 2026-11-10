@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"maps"
+	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +18,10 @@ import (
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.
 type fixtureLimits struct {
+	MaxEntityTypes      int    `json:"max_entity_types"`
+	MaxEntitySeats      int    `json:"max_entity_seats"`
+	MaxEntityProperties int    `json:"max_entity_properties"`
+	MaxEntities         int    `json:"max_entities"`
 	SimulationStepNanos uint64 `json:"simulation_step_nanos"`
 	MaxFrameBytes       int    `json:"max_frame_bytes"`
 	Protocol            uint32 `json:"protocol"`
@@ -40,6 +46,10 @@ type fixtureLimits struct {
 	// The network bounds, which the adapter's flood keeps.
 	MaxNetworkBlocks    int `json:"max_network_blocks"`
 	MaxNetworkDataBytes int `json:"max_network_data_bytes"`
+	// The containers' bounds, which the snapshot keeps.
+	MaxContainers         int `json:"max_containers"`
+	MaxContainerSlots     int `json:"max_container_slots"`
+	MaxContainerDataBytes int `json:"max_container_data_bytes"`
 	// The inventory's shape and the item bounds, which registration and the commit check keep.
 	InventorySlots   int `json:"inventory_slots"`
 	HotbarSlots      int `json:"hotbar_slots"`
@@ -51,6 +61,12 @@ type fixtureLimits struct {
 	MaxRecipeInputs  int `json:"max_recipe_input_items"`
 	MaxScheduleTicks int `json:"max_schedule_ticks"`
 	MaxScheduled     int `json:"max_scheduled_updates"`
+	// The overlay bounds, which registration and the commit check keep.
+	MaxOverlayTypes int `json:"max_overlay_types"`
+	MaxCellOverlays int `json:"max_cell_overlays"`
+	// The item overlay bounds are floats Rust writes as "16.0"; json.Number keeps them so.
+	MaxOverlayItemSize   json.Number `json:"max_overlay_item_size"`
+	MaxOverlayItemOffset json.Number `json:"max_overlay_item_offset"`
 }
 
 // rustLimits reads the limits fixture.
@@ -77,6 +93,9 @@ type fixtureEnums struct {
 	FailKinds       []FailKind       `json:"fail_kinds"`
 	RenderMethods   []RenderMethod   `json:"render_methods"`
 	PlacementStates []PlacementState `json:"placement_states"`
+	BlockDrops      []BlockDrops     `json:"block_drops"`
+	BlockItems      []BlockItem      `json:"block_items"`
+	GameModes       []GameMode       `json:"game_modes"`
 	PlacementValues []struct {
 		Placement PlacementState `json:"placement"`
 		State     string         `json:"state"`
@@ -130,8 +149,11 @@ func fixtureValue(t *testing.T, name string) any {
 	return nil
 }
 
-// normalized re-encodes data compactly with sorted keys, keeping numbers as written.
-func normalized(t *testing.T, data []byte) string {
+// fixtureNumber distinguishes exact numeric values from JSON strings.
+type fixtureNumber string
+
+// normalized decodes semantic JSON without losing integer precision or comparing numeric spelling.
+func normalized(t *testing.T, data []byte) any {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -139,11 +161,45 @@ func normalized(t *testing.T, data []byte) string {
 	if err := decoder.Decode(&v); err != nil {
 		t.Fatalf("normalizing %s: %v", data, err)
 	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("normalizing %s: %v", data, err)
+	return normalizedValue(t, v)
+}
+
+// normalizedValue retains JSON types while giving equivalent numbers the same exact value.
+func normalizedValue(t *testing.T, value any) any {
+	t.Helper()
+	switch v := value.(type) {
+	case json.Number:
+		number, ok := new(big.Rat).SetString(v.String())
+		if !ok {
+			t.Fatalf("invalid JSON number %q", v)
+		}
+		return fixtureNumber(number.RatString())
+	case []any:
+		for i, item := range v {
+			v[i] = normalizedValue(t, item)
+		}
+	case map[string]any:
+		for key, item := range v {
+			v[key] = normalizedValue(t, item)
+		}
 	}
-	return string(out)
+	return value
+}
+
+func TestFixtureNumbersCompareExactly(t *testing.T) {
+	for _, test := range []struct {
+		left, right string
+		equal       bool
+	}{
+		{`[0,9007199254740993,2.5]`, `[0.0,9007199254740993.0,25e-1]`, true},
+		{`[9007199254740992]`, `[9007199254740993]`, false},
+		{`[0]`, `["0"]`, false},
+	} {
+		got := reflect.DeepEqual(normalized(t, []byte(test.left)), normalized(t, []byte(test.right)))
+		if got != test.equal {
+			t.Fatalf("comparing %s and %s: equal = %v, want %v", test.left, test.right, got, test.equal)
+		}
+	}
 }
 
 // Every fixture decodes into its Go mirror and re-encodes to the same JSON.
@@ -163,8 +219,8 @@ func TestFixturesRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("encoding: %v", err)
 			}
-			if got, want := normalized(t, encoded), normalized(t, data); got != want {
-				t.Fatalf("re-encoded as\n%s\nwant\n%s", got, want)
+			if got, want := normalized(t, encoded), normalized(t, data); !reflect.DeepEqual(got, want) {
+				t.Fatalf("re-encoded as\n%s\nwant\n%s", encoded, data)
 			}
 			if enums, ok := v.(*fixtureEnums); ok {
 				checkEnums(t, enums)
@@ -194,6 +250,13 @@ func checkEnums(t *testing.T, rust *fixtureEnums) {
 	if !slices.Equal(placementStates, rust.PlacementStates) {
 		t.Errorf("Go placement states %q, Rust placement states %q", placementStates,
 			rust.PlacementStates)
+	}
+	if !slices.Equal(blockDrops, rust.BlockDrops) || !slices.Equal(blockItems, rust.BlockItems) {
+		t.Errorf("Go block drops %q and items %q, Rust %q and %q", blockDrops, blockItems,
+			rust.BlockDrops, rust.BlockItems)
+	}
+	if !slices.Equal(gameModes, rust.GameModes) {
+		t.Errorf("Go game modes %q, Rust game modes %q", gameModes, rust.GameModes)
 	}
 	for _, other := range []string{`"sideways"`, `"Up"`, `""`, `null`, `1`} {
 		var face Face
@@ -390,6 +453,9 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxGeometryBytes", maxGeometryBytes, rust.MaxGeometryBytes},
 		{"maxNetworkBlocks", maxNetworkBlocks, rust.MaxNetworkBlocks},
 		{"maxNetworkDataBytes", maxNetworkDataBytes, rust.MaxNetworkDataBytes},
+		{"maxContainers", maxContainers, rust.MaxContainers},
+		{"maxContainerSlots", maxContainerSlots, rust.MaxContainerSlots},
+		{"maxContainerDataBytes", maxContainerDataBytes, rust.MaxContainerDataBytes},
 		{"inventorySlots", inventorySlots, rust.InventorySlots},
 		{"hotbarSlots", hotbarSlots, rust.HotbarSlots},
 		{"maxItems", maxItems, rust.MaxItems},
@@ -400,10 +466,22 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxRecipeInputItems", maxRecipeInputItems, rust.MaxRecipeInputs},
 		{"maxScheduleTicks", maxScheduleTicks, rust.MaxScheduleTicks},
 		{"maxScheduledUpdates", maxScheduledUpdates, rust.MaxScheduled},
+		{"maxEntityTypes", maxEntityTypes, rust.MaxEntityTypes},
+		{"maxEntitySeats", maxEntitySeats, rust.MaxEntitySeats},
+		{"maxEntityProperties", maxEntityProperties, rust.MaxEntityProperties},
+		{"maxEntities", maxEntities, rust.MaxEntities},
+		{"maxOverlayTypes", maxOverlayTypes, rust.MaxOverlayTypes},
+		{"maxCellOverlays", maxCellOverlays, rust.MaxCellOverlays},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)
 		}
+	}
+	size, sizeErr := rust.MaxOverlayItemSize.Float64()
+	offset, offsetErr := rust.MaxOverlayItemOffset.Float64()
+	if sizeErr != nil || offsetErr != nil || maxOverlayItemSize != size || maxOverlayItemOffset != offset {
+		t.Errorf("item overlay bounds %v and %v, Rust has %v and %v", maxOverlayItemSize,
+			maxOverlayItemOffset, rust.MaxOverlayItemSize, rust.MaxOverlayItemOffset)
 	}
 }
 

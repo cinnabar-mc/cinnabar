@@ -68,7 +68,7 @@ impl ItemDigger {
 }
 
 /// Reads a digger declaration, skipping entries without a usable block selector or integer speed.
-pub(super) fn parse_digger(component: Option<&Nbt>) -> Option<ItemDigger> {
+pub(super) fn parse_digger(component: Option<Nbt<'_>>) -> Option<ItemDigger> {
     let component = component.filter(|component| matches!(component, Nbt::Compound(_)))?;
     let destroy_speeds = component
         .list("destroy_speeds")
@@ -89,9 +89,10 @@ pub(super) fn parse_digger(component: Option<&Nbt>) -> Option<ItemDigger> {
     })
 }
 
-/// A serialized name takes precedence over tags; nonempty states narrow the name.
-fn digger_block(block: &Nbt) -> Option<DiggerBlock> {
-    let text = |value: Option<&Nbt>| {
+/// Reads a block descriptor as Bedrock does: a string names a block; in a compound, nonempty
+/// states narrow the name, otherwise a nonempty tag expression wins over any name.
+fn digger_block(block: Nbt<'_>) -> Option<DiggerBlock> {
+    let text = |value: Option<Nbt<'_>>| {
         value
             .and_then(Nbt::as_str)
             .filter(|text| !text.is_empty())
@@ -100,16 +101,16 @@ fn digger_block(block: &Nbt) -> Option<DiggerBlock> {
     if let Some(name) = text(Some(block)) {
         return Some(DiggerBlock::Name(name));
     }
-    let Some(raw_name) = block.field("name") else {
-        return text(block.field("tags")).map(DiggerBlock::Tags);
-    };
-    let name = text(Some(raw_name))?;
     let has_states = match block.field("states") {
         Some(Nbt::Compound(states)) => !states.is_empty(),
         Some(Nbt::List(states)) => !states.is_empty(),
         Some(Nbt::String(states)) => !states.is_empty(),
         _ => false,
     };
+    if !has_states && let Some(tags) = text(block.field("tags")) {
+        return Some(DiggerBlock::Tags(tags));
+    }
+    let name = text(block.field("name"))?;
     Some(if has_states {
         DiggerBlock::NameWithStates {
             name,
@@ -121,7 +122,7 @@ fn digger_block(block: &Nbt) -> Option<DiggerBlock> {
 }
 
 /// Reads serialized typed states without broadening an unsupported restriction.
-fn parse_states(states: &Nbt) -> Option<DiggerStates> {
+fn parse_states(states: Nbt<'_>) -> Option<DiggerStates> {
     let Nbt::List(states) = states else {
         return None;
     };
@@ -142,6 +143,7 @@ fn parse_states(states: &Nbt) -> Option<DiggerStates> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt_tree::test_tree::Nbt;
 
     /// Builds a descriptor with a name and one serialized typed state.
     fn restricted_block() -> Nbt {
@@ -161,7 +163,7 @@ mod tests {
     #[test]
     fn serialized_state_list_does_not_become_an_unrestricted_name() {
         assert_eq!(
-            digger_block(&restricted_block()),
+            digger_block(restricted_block().view()),
             Some(DiggerBlock::NameWithStates {
                 name: "minecraft:oak_log".into(),
                 states: Some(Arc::from([(
@@ -173,14 +175,47 @@ mod tests {
     }
 
     #[test]
-    fn serialized_name_takes_precedence_over_tags() {
-        let block = Nbt::Compound(vec![
-            ("name".into(), Nbt::String("minecraft:stone".into())),
-            ("tags".into(), Nbt::String("q.any_tag('wood')".into())),
-        ]);
+    fn a_tag_expression_without_states_selects_by_tags_even_beside_a_name() {
+        let tags = "q.any_tag('minecraft:is_pickaxe_item_destructible')";
+        let block = |name: &str| {
+            Nbt::Compound(vec![
+                ("name".into(), Nbt::String(name.into())),
+                ("tags".into(), Nbt::String(tags.into())),
+            ])
+        };
         assert_eq!(
-            digger_block(&block),
-            Some(DiggerBlock::Name("minecraft:stone".into()))
+            digger_block(block("").view()),
+            Some(DiggerBlock::Tags(tags.into()))
+        );
+        assert_eq!(
+            digger_block(block("minecraft:stone").view()),
+            Some(DiggerBlock::Tags(tags.into()))
+        );
+        let component = Nbt::Compound(vec![(
+            "destroy_speeds".into(),
+            Nbt::List(vec![Nbt::Compound(vec![
+                ("block".into(), block("")),
+                ("speed".into(), Nbt::Int(8)),
+            ])]),
+        )]);
+        assert_eq!(
+            parse_digger(Some(component.view())).map(|digger| digger.destroy_speeds),
+            Some(Arc::from([DiggerSpeed {
+                block: DiggerBlock::Tags(tags.into()),
+                speed: 8,
+            }]))
+        );
+    }
+
+    #[test]
+    fn states_keep_the_named_block_over_a_tag_expression() {
+        let Nbt::Compound(mut fields) = restricted_block() else {
+            unreachable!()
+        };
+        fields.push(("tags".into(), Nbt::String("q.any_tag('wood')".into())));
+        assert_eq!(
+            digger_block(Nbt::Compound(fields).view()),
+            digger_block(restricted_block().view())
         );
     }
 
@@ -198,7 +233,7 @@ mod tests {
             ("value".into(), Nbt::Int(1)),
         ])]));
         assert_eq!(
-            digger_block(&block),
+            digger_block(block.view()),
             Some(DiggerBlock::NameWithStates {
                 name: "test:block".into(),
                 states: Some(Arc::from([(
@@ -208,11 +243,11 @@ mod tests {
             })
         );
         assert_eq!(
-            digger_block(&make(Nbt::List(vec![]))),
+            digger_block(make(Nbt::List(vec![])).view()),
             Some(DiggerBlock::Name("test:block".into()))
         );
         assert_eq!(
-            digger_block(&make(Nbt::List(vec![Nbt::Other]))),
+            digger_block(make(Nbt::List(vec![Nbt::Other])).view()),
             Some(DiggerBlock::NameWithStates {
                 name: "test:block".into(),
                 states: None

@@ -70,19 +70,30 @@ func TestTargetDummySpawnsAPlayerAhead(t *testing.T) {
 }
 
 func TestTargetDummyIsNotKnockedBack(t *testing.T) {
-	withPlayer(t, world.GameModeSurvival, func(tx *world.Tx, p *player.Player) {
-		runCommand(t, tx, p, "fixture_dummy", "")
-		for e := range tx.Players() {
-			if dummy := e.(*player.Player); dummy.Name() == "Target" {
-				p.AttackEntity(dummy)
-				if v := dummy.Velocity(); v.Len() != 0 {
-					t.Fatalf("dummy knocked back with velocity %v", v)
+	for _, installed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without_host", true: "with_host"}[installed], func(t *testing.T) {
+			withPlayer(t, world.GameModeSurvival, func(tx *world.Tx, p *player.Player) {
+				recorder := &entityHookRecorder{}
+				if installed {
+					p.Handle(&localPlayerHandler{host: recorder})
 				}
-				return
-			}
-		}
-		t.Fatal("fixture_dummy spawned no player")
-	})
+				runCommand(t, tx, p, "fixture_dummy", "")
+				for e := range tx.Players() {
+					if dummy := e.(*player.Player); dummy.Name() == "Target" {
+						p.AttackEntity(dummy)
+						if v := dummy.Velocity(); v.Len() != 0 {
+							t.Fatalf("dummy knocked back with velocity %v", v)
+						}
+						if installed && (len(recorder.attacks) != 1 || !recorder.attacks[0] || recorder.actor != p.H() || recorder.target != dummy.H()) {
+							t.Fatalf("dummy attack did not reach the installed host: %+v", recorder)
+						}
+						return
+					}
+				}
+				t.Fatal("fixture_dummy spawned no player")
+			})
+		})
+	}
 }
 
 // TestEveryOpenedWorldWithholdsTheAttackersAttackSound opens a world through the lifecycle that

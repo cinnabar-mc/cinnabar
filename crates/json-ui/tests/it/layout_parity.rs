@@ -1106,3 +1106,28 @@ fn review_vertical_grid_positions_count_only_admitted_cells() {
     }
     assert_eq!(rect(&root, "cell2")[1], 10.0);
 }
+
+#[test]
+fn model_renderer_outside_nominal_bounds_keeps_its_ancestor_clip() {
+    let root = screen(json!([{ "frame": top_left(json!({
+        "type": "panel", "size": [40, 40], "clip_children": true,
+        "controls": [
+            {"actor": top_left(json!({"type":"custom", "renderer":"paper_doll_renderer", "size":[16,24], "offset":[-24,0]}))},
+            {"image": top_left(json!({"type":"image", "texture":"t", "size":[16,24], "offset":[-24,0]}))},
+        ],
+    })) }]));
+    let laid = layout(&root, [100., 100.], &env());
+    let nodes = json_ui::emit(&laid, &env());
+    let actor = nodes
+        .iter()
+        .find(|node| node.name == "actor")
+        .expect("the model may project translated geometry into the viewport");
+    assert_eq!(
+        [actor.clip.x, actor.clip.y, actor.clip.w, actor.clip.h],
+        [0., 0., 40., 40.]
+    );
+    assert!(
+        !nodes.iter().any(|node| node.name == "image"),
+        "ordinary offscreen images remain culled"
+    );
+}

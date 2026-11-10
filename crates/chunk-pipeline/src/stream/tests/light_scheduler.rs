@@ -112,7 +112,7 @@ pub(super) fn light_test_assets() -> RuntimeAssets {
                     rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
@@ -259,6 +259,7 @@ fn synthetic_light_completion(
             light_levels_changed,
             direct_sky_changed,
             changed_faces,
+            equal_prior: None,
         }),
         queue_wait: Duration::ZERO,
         duration: Duration::from_millis(3),
@@ -270,15 +271,19 @@ mod boundary_dominance;
 mod column_propagation;
 mod convergence;
 mod dependency_lifecycle;
+mod equal_completions;
 mod filter_dominance;
 mod mesh_fairness;
 mod mesh_light_dependencies;
+mod notification_refresh;
 mod provenance;
 mod scheduling_priority;
 mod sky_boundary;
 mod worker_caps;
 
 mod mesh_admission;
+mod mesh_preparation;
+mod output_bounds_reload;
 
 mod backlog;
 mod mixed_prefix;
@@ -326,3 +331,5 @@ fn settle_light_waits_for_retired_worker_slots() {
     joined.unwrap();
     assert!(stream.light_is_current(key));
 }
+
+mod batch_preparation;

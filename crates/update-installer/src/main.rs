@@ -38,7 +38,7 @@ fn run() -> Result<()> {
         }
         return Ok(());
     }
-    ensure!(args.len() == 4, "expected STAGE TARGET PARENT_PID CHANNEL");
+    let switch_from = switch_consent(&args)?;
     let (stage, target) = (PathBuf::from(&args[0]), PathBuf::from(&args[1]));
     let pid = args[2].to_str().context("invalid parent PID")?.parse()?;
     let channel =
@@ -77,6 +77,7 @@ fn run() -> Result<()> {
                     current_build: installed.number,
                     switch_now: false,
                 },
+                switch_from: switch_from.as_ref(),
                 now: time::OffsetDateTime::now_utc(),
             },
             lease,
@@ -88,6 +89,28 @@ fn run() -> Result<()> {
         )
     })();
     finish_apply(result, started, || relaunch_retained(&target))
+}
+
+/// Accepts an optional exact installed identity as consent for one older-release handoff.
+fn switch_consent(args: &[std::ffi::OsString]) -> Result<Option<update_manifest::build::Build>> {
+    ensure!(
+        args.len() == 4 || args.len() == 6,
+        "expected STAGE TARGET PARENT_PID CHANNEL [FROM_VERSION FROM_BUILD]"
+    );
+    if args.len() == 4 {
+        return Ok(None);
+    }
+    let version = args[4]
+        .to_str()
+        .context("invalid switch version")?
+        .to_owned();
+    let number = args[5].to_str().context("invalid switch build")?.parse()?;
+    ensure!(!version.is_empty(), "missing switch version");
+    Ok(Some(update_manifest::build::Build {
+        version,
+        number,
+        channel: None,
+    }))
 }
 
 /// Restarts after a failed apply, except when the replacement already confirmed good startup.
@@ -138,6 +161,22 @@ fn relaunch_retained(target: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ordinary updates carry no consent, and malformed or incomplete switch identities are refused.
+    #[test]
+    fn helper_parses_only_complete_channel_switch_consent() {
+        let mut args: Vec<std::ffi::OsString> =
+            ["stage", "target", "42", "beta"].map(Into::into).into();
+        assert!(switch_consent(&args).unwrap().is_none());
+        args.push("3.0.0".into());
+        assert!(switch_consent(&args).is_err());
+        args.push("7".into());
+        let consent = switch_consent(&args).unwrap().unwrap();
+        assert_eq!(consent.version, "3.0.0");
+        assert_eq!(consent.number, 7);
+        args[5] = "invalid".into();
+        assert!(switch_consent(&args).is_err());
+    }
 
     #[test]
     fn retained_relaunch_does_not_reuse_another_attempts_startup_receipt() {

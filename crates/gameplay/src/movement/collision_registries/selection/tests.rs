@@ -27,8 +27,8 @@ pub(super) struct Fixture {
 pub(super) fn fixture() -> &'static Fixture {
     static FIXTURE: OnceLock<Fixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let breg = include_bytes!("../../../../../assets/data/block-registry-v2193.bin");
-        let preg = include_bytes!("../../../../../assets/data/block-physics-v2193.bin");
+        let breg = include_bytes!("../../../../../assets/data/block-registry-v2225.bin");
+        let preg = include_bytes!("../../../../../assets/data/block-physics-v2225.bin");
         let protocol = u32::try_from(
             serde_json::from_str::<serde_json::Value>(include_str!(
                 "../../../../../../assets/bedrock-target.json"

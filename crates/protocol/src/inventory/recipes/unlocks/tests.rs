@@ -5,7 +5,7 @@ use super::*;
 use crate::test_support::recipes::{
     CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture, UnlockingFixture,
 };
-use bedrock_protocol_1_26_51::{packets::UnlockedRecipes, wire::Encode};
+use bedrock_protocol_1_26_60::{packets::UnlockedRecipes, wire::Encode};
 
 /// Produces ordinary named wire recipes with fixture-owned numeric item bindings.
 fn recipe(name: &str, id: u32) -> RecipeFixture {

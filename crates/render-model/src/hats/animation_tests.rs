@@ -190,3 +190,41 @@ fn trailing_flex_moves_the_tips_but_preserves_the_rigid_mount() {
         "tip flex must contribute beyond the shoulder flap"
     );
 }
+
+#[test]
+fn changing_cosmetic_poses_reuse_storage_without_mutating_retained_frames() {
+    let item = fixture::dragon_wings();
+    let model = rig(item);
+    let head = RenderBoneTransform {
+        rotation: Quat::IDENTITY.to_array(),
+        translation_scale: [0., 1.5, 0., 1.],
+        axis_scale: crate::UNIT_AXIS_SCALE,
+    };
+    let mut cache = HatPoseCache::default();
+    let mut held = std::collections::VecDeque::with_capacity(3);
+    for frame in 0..32 {
+        let motion = Motion {
+            seconds: frame as f32 / 120.0,
+            bend: 0.2,
+        };
+        if held.len() == 3 {
+            held.pop_front();
+        }
+        let expected = model.pose(head, motion);
+        let before: Vec<Vec<RenderBoneTransform>> = held
+            .iter()
+            .map(|pose: &Arc<[RenderBoneTransform]>| pose.to_vec())
+            .collect();
+        let (pose, allocations) = test_alloc::count(|| cache.pose(item, head, motion));
+        assert_eq!(pose, expected);
+        if frame > 4 {
+            assert_eq!(allocations, 0);
+        }
+        assert!(
+            held.iter()
+                .zip(&before)
+                .all(|(held, before)| held.as_ref() == before.as_slice())
+        );
+        held.push_back(pose);
+    }
+}

@@ -10,12 +10,26 @@ import (
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
+// localExperienceHost receives session changes and entity observations from the local player.
+type localExperienceHost interface {
+	TeleportPlayer(*player.Player, experience.Position) bool
+	PlayerDisconnected(*player.Player)
+	EntityInteraction(*player.Player, world.Entity, bool)
+}
+
 // localPlayerHandler owns temporary flight controls and clears Experience focus on quit.
 // Its movement handler accepts client positions, including large flight deltas.
 type localPlayerHandler struct {
 	player.NopHandler
-	host   *experience.Host
+	host   localExperienceHost
 	flight flySpeedState
+}
+
+// HandleItemUseOnEntity forwards accepted entity interactions to the installed runtime.
+func (h *localPlayerHandler) HandleItemUseOnEntity(ctx *player.Context, e world.Entity) {
+	if h.host != nil {
+		h.host.EntityInteraction(ctx.Player(), e, false)
+	}
 }
 
 // HandleTeleport applies authoritative teleports through the host's session fence.
@@ -25,9 +39,12 @@ func (h *localPlayerHandler) HandleTeleport(ctx *player.Context, pos mgl64.Vec3)
 	}
 }
 
-// HandleAttackEntity keeps the attacker's own attack sound from being sent back to it and
-// keeps target dummies in place.
+// HandleAttackEntity observes attacks while keeping their sound local to other viewers
+// and preventing target dummy knockback.
 func (h *localPlayerHandler) HandleAttackEntity(ctx *player.Context, e world.Entity, force, height *float64, _ *bool) {
+	if h.host != nil {
+		h.host.EntityInteraction(ctx.Player(), e, true)
+	}
 	markAttacker(ctx.Tx, ctx.Player().Addr())
 	if isTargetDummy(e) {
 		*force, *height = 0, 0

@@ -20,7 +20,7 @@ func main() {
 	level := slog.LevelInfo
 	corelog.LevelFlag(flags, &level)
 	crashOutput := flags.String("crash-output", "", "file that also receives the runtime's crash output")
-	mode := flags.String("mode", "clean", "clean, hold, fail or panic")
+	mode := flags.String("mode", "clean", "clean, hold, streams, fail or panic")
 	process := flags.String("process", "fixture", "process attribute of every record")
 	_ = flags.Parse(os.Args[1:])
 	logger := corelog.New(os.Stderr, *process, level)
@@ -36,6 +36,10 @@ func main() {
 	switch *mode {
 	case "hold":
 		_, _ = io.Copy(io.Discard, os.Stdin)
+	case "streams":
+		input, _ := io.ReadAll(os.Stdin)
+		fmt.Fprintf(os.Stdout, "stdout:%s\n", input)
+		fmt.Fprintf(os.Stderr, "stderr:%s\n", input)
 	case "fail":
 		logger.Error("core failed")
 		os.Exit(1)

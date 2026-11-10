@@ -171,6 +171,7 @@ fn load_then_callback_round_trip() {
     assert_eq!(
         session.load(dir.path()),
         Response::Loaded {
+            entities: loaded.entities,
             simulation: true,
             protocol: PROTOCOL_VERSION,
             id: loaded.manifest.id,
@@ -179,6 +180,7 @@ fn load_then_callback_round_trip() {
             items: loaded.items,
             focus: loaded.focus,
             worlds: loaded.worlds,
+            overlays: loaded.overlays,
         }
     );
     session.send(&interact(0));

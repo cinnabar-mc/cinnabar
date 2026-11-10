@@ -403,7 +403,7 @@ fn ui_reload_tracks_declared_documents_and_external_art() {
         );
         let previous = super::PackApplication {
             admission: resource_pack::PackAdmission::Validated(before.shared_stack()),
-            dependencies,
+            dependencies: dependencies.into(),
             ..Default::default()
         };
         assert!(
@@ -430,7 +430,7 @@ fn ui_reload_tracks_new_art_without_reloading_for_unrelated_files() {
     );
     let previous = super::PackApplication {
         admission: resource_pack::PackAdmission::Validated(before.shared_stack()),
-        dependencies,
+        dependencies: dependencies.into(),
         ..Default::default()
     };
     for (added, changed) in [("assets/gui/new.png", true), ("texts/en_US.lang", false)] {
@@ -486,7 +486,7 @@ fn texture_sets_supply_color_layers() {
         ("textures/blocks/a_color.png", &png),
         (
             "textures/blocks/b.texture_set.json",
-            br#"{"minecraft:texture_set":{"color":[10,20,30]}}"#,
+            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[10,20,30,255]}}"#,
         ),
     ]);
     let image = pack_runtime::pack_textures::decode_pack_texture(&view, "textures/blocks/a")
@@ -852,7 +852,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     let base = assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap();
     let view = files_pack(&[(
         "textures/entity/chest/normal.texture_set.json",
-        br#"{"minecraft:texture_set":{"color":[200,100,50]}}"#,
+        br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[200,100,50,255]}}"#,
     )]);
     let view = resource_pack::LayeredPackView::tracked(view.shared_stack());
     let changed = super::super::block_entity_art::prepare_over(
@@ -865,7 +865,7 @@ fn block_entity_art_reads_texture_sets_and_tracks_missing_overrides() {
     let inputs = view.dependencies().unwrap().snapshot();
     assert!(inputs.iter().any(|input| matches!(input,
         resource_pack::PackDependency::File { path, .. }
-            if path == "textures/entity/chest/normal.png"
+            if path == "textures/entity/chest/normal.texture_set.json"
     )));
     let empty = files_pack(&[]);
     let restored = super::super::block_entity_art::prepare_over(

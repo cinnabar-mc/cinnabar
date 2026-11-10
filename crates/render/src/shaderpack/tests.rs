@@ -5,9 +5,12 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+mod atomics;
+mod dot;
 #[cfg(target_os = "windows")]
 mod fxc;
 mod geometry_frames;
+mod partial;
 
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
@@ -100,25 +103,6 @@ fn enabled_full_screen_programs_run_in_frame_order() {
         "composite2's flip is suppressed"
     );
     assert_eq!(plans[3].group, ProgramGroup::Final);
-}
-
-#[test]
-fn a_failed_required_program_fails_the_load() {
-    let pack = pack(&[
-        ("composite.vsh", PASS_VERTEX),
-        (
-            "composite.fsh",
-            "#version 120\nvoid main() { gl_FragData[0] = undefined_name; }\n",
-        ),
-    ]);
-    let translation = pack.translate(&translate_config(&pack, JAVA_DIMENSIONS[0]));
-    let error = runnable_programs(&translation).expect_err("composite fails");
-    let lines: Vec<&str> = error.lines().collect();
-    assert_eq!(lines.len(), 1, "one line per failed program: {error}");
-    assert!(
-        lines[0].starts_with("composite: composite.fsh:") && lines[0].contains("undefined_name"),
-        "names the program and its first diagnostic: {error}"
-    );
 }
 
 /// Switching packs shows Vanilla, which removes the block ids, between them; the geometry
@@ -744,58 +728,6 @@ fn images_sampled_and_written_in_one_dispatch_read_snapshots() {
     assert_pixels(&bytes, |_| [255, 255, 255]);
 }
 
-/// Counts its 16 invocations into an `r32ui` custom image with an image atomic.
-const COUNT_ATOMICALLY: &str = "#version 430
-layout(local_size_x = 4, local_size_y = 4) in;
-const ivec3 workGroups = ivec3(1, 1, 1);
-layout(r32ui) uniform uimage2D counter;
-void main() {
-    imageAtomicAdd(counter, ivec2(0), 1u);
-}
-";
-
-/// Writes the counter's first texel, over 255, to red.
-const SHOW_COUNT: &str = "#version 430
-uniform usampler2D counterSampler;
-void main() {
-/* DRAWBUFFERS:0 */
-    uint count = texelFetch(counterSampler, ivec2(0), 0).r;
-    gl_FragData[0] = vec4(float(count) / 255.0, 0.0, 0.0, 1.0);
-}
-";
-
-#[test]
-fn image_atomics_count_into_a_custom_image() {
-    let Some(gpu) = gpu() else {
-        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
-        return;
-    };
-    if !gpu
-        .device
-        .features()
-        .contains(wgpu::Features::TEXTURE_ATOMIC)
-    {
-        eprintln!("missing fixture: a GPU with TEXTURE_ATOMIC for image atomics");
-        return;
-    }
-    let (_, bytes) = render_frames(
-        &gpu,
-        &[
-            (
-                "shaders.properties",
-                "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT true false 1 1\n",
-            ),
-            ("composite.csh", COUNT_ATOMICALLY),
-            ("composite.vsh", PASS_VERTEX),
-            ("composite.fsh", SHOW_COUNT),
-            ("final.vsh", PASS_VERTEX),
-            ("final.fsh", FINAL),
-        ],
-        2,
-    );
-    assert_pixels(&bytes, |_| [16, 0, 0]);
-}
-
 /// A pack's switched-off pass, as Noble's `deferred` is without a LOD mod: no output, and a
 /// target nothing else writes.
 const SWITCHED_OFF: &str = "#version 430
@@ -860,8 +792,14 @@ fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
-    let (device, queue) =
-        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
     let gpu = GpuContext {
         device,
         queue,

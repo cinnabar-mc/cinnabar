@@ -20,7 +20,7 @@ fn face_descriptor(
     face: BlockFace,
     flags: u32,
 ) -> Option<(Descriptor, Box<str>)> {
-    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
+    let TextureKey { key, uv_rotation } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
     let (path, state_variant) = pack.terrain.get_for_record_variant(&key, record)?;
     Some((
@@ -29,12 +29,7 @@ fn face_descriptor(
             texture_key: key.clone(),
             state_variant,
             flipbook_selector: None,
-            flags: flags
-                | if rotate_uv {
-                    MATERIAL_FLAG_ROTATE_UV
-                } else {
-                    0
-                },
+            flags: flags | uv_rotation,
         },
         key,
     ))

@@ -57,13 +57,14 @@ pub(crate) fn configure_actor_render_systems(app: &mut App) {
             Update,
             (
                 advance_actor_frame,
+                crate::runtime::network::complete_actor_motion_trace,
                 crate::runtime::network::publish_local_actor_damage,
             )
                 .chain()
                 .in_set(ClientFrameSet::ActorPreparation),
         )
-        // The camera's vehicle look and picks in Interaction and NetworkSend read this
-        // frame's remote actor positions.
+        // Vehicle look and collision queries use staged motion; interaction boxes keep
+        // completed remote actor steps until actor preparation.
         .add_systems(
             Update,
             crate::runtime::network::advance_actor_motion
@@ -96,11 +97,13 @@ pub(crate) fn configure_world(app: &mut App) {
     configure_pack_publication(app);
     configure_actor_render_systems(app);
     interaction::configure(app);
+    crate::terrain_markers::configure(app);
     app.add_systems(
         Update,
         (
             crate::item_use::adopt_server_item_use,
             advance_local_physics,
+            crate::movement::record_simulation_tick,
         )
             .chain()
             .in_set(LocalPlayerFrameSet::Physics)
@@ -140,6 +143,7 @@ pub(crate) fn configure_world(app: &mut App) {
             sync_world_point_light_from_local_player,
             publish_interaction_origin,
             crate::camera::aim_assist::publish_assisted_interaction,
+            crate::camera::freeform_pick::publish,
             crate::camera::aim_highlight::publish,
         )
             .chain()

@@ -164,6 +164,8 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 		queued := ev
 		if queued.actor != nil {
 			queued.inventory, queued.slots = inventoryOf(d.id, p)
+			queued.entities = h.entitySnapshot(p.Tx(), d.id)
+			queued.ridingElsewhere = ridingOutsideSnapshot(p.Tx(), d.id, p, queued.entities)
 		}
 		select {
 		case d.events <- queued:
@@ -257,9 +259,11 @@ func (h *Host) runPlayerTicks(ctx context.Context) {
 // worldContext reads authorized state and the actor's location under its world transaction.
 func (h *Host) worldContext(tx *world.Tx, d *dispatcher, ev event, actor *string) *WorldContext {
 	context := &WorldContext{Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, ev.storePrincipal(actor)))}
+	context.Entities = h.entitySnapshot(tx, d.id)
 	if ev.actor != nil {
 		if e, ok := ev.actor.Entity(tx); ok {
 			context.Player = &PlayerLocation{World: ev.instance.handle, Epoch: ev.epoch, Position: positionOf(e.Position())}
+			context.ActorRidingElsewhere = ridingOutsideSnapshot(tx, d.id, e, context.Entities)
 		}
 	}
 	return context
@@ -278,6 +282,8 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		actor = &id
 	}
 	context := &WorldContext{Current: loc.World, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(loc.World.ID, ev.storePrincipal(actor)))}
+	context.Entities = ev.entities
+	context.ActorRidingElsewhere = ev.ridingElsewhere
 	if actor != nil {
 		copy := *loc
 		context.Player = &copy

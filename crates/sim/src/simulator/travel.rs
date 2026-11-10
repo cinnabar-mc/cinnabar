@@ -29,6 +29,18 @@ const GLIDE_SLOW_FALLING_GRAVITY: f32 = -0.01;
 const GLIDE_BOOST_TARGET: f32 = 1.5;
 const GLIDE_BOOST_BLEND: f32 = 0.5;
 const GLIDE_BOOST_PUSH: f32 = 0.1;
+/// Upward push the glide input adds each tick for an Instabuild player holding jump.
+const GLIDE_ASCENT: f32 = 0.1;
+
+/// Adds the Instabuild glide ascent to `velocity` in f32, as the glide input
+/// does before this tick's travel.
+pub(super) fn glide_ascent(velocity: Vec3) -> Vec3 {
+    Vec3::new(
+        velocity.x,
+        f64::from(velocity.y as f32 + GLIDE_ASCENT),
+        velocity.z,
+    )
+}
 
 /// Completes a stationary tick while retaining independent motion and block contacts.
 pub(super) fn tick_without_travel(

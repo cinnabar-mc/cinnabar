@@ -18,6 +18,7 @@ mod hotbar_open_tests;
 mod inventory_layout_tests;
 mod prewarm_tests;
 mod search_focus_tests;
+mod split_drag_tests;
 
 #[test]
 fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {
@@ -64,6 +65,15 @@ fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {
             "unresolved equipment draws the panel rather than a slot well"
         );
     }
+    // A cell named by the developer endpoint follows the same rule as the pointer.
+    assert!(presentation.engine_container_frame().is_none());
+    assert!(
+        presentation
+            .inventory_screen_cells(screen)
+            .iter()
+            .all(|(hit, _)| !matches!(hit, InventoryCellHit::Storage(0 | 1))),
+        "unresolved equipment cells are listed as pressable"
+    );
 }
 
 fn opened(
@@ -109,6 +119,18 @@ fn opened(
     }
     runtime.drain_pending_inventory(player_runtime);
     runtime
+}
+
+#[test]
+fn actor_menu_larger_than_one_byte_keeps_the_storage_screen() {
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
+
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let runtime = opened(&mut player_runtime, 0, 549);
+    assert_eq!(
+        InventoryScreen::of_runtime(&player_runtime, &runtime),
+        InventoryScreen::Storage(549)
+    );
 }
 
 /// `runtime` with the open window's `ContainerSetData` properties applied.
@@ -207,7 +229,7 @@ fn screens() -> Vec<(
     };
     use protocol::*;
     use ui_screens::container_actions::{ReaderButton as R, Widget as W};
-    let storage = |count: u8| (0..count).map(Storage).collect::<Vec<_>>();
+    let storage = |count: u8| (0..u16::from(count)).map(Storage).collect::<Vec<_>>();
     vec![
         screen(
             "inventory",
@@ -651,6 +673,12 @@ fn opening_the_inventory_reuses_the_screen_prepared_while_closed() {
     presentation
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
         .unwrap();
+    test_time::eventually("closed inventory preparation", || {
+        presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
+        !presentation.engine_inventory_preparation_pending()
+    });
     let prepared = presentation.engine_container_resolves();
     assert_eq!(prepared, 1, "the closed inventory was not prepared");
     for now in [50, 100] {

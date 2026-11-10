@@ -118,9 +118,9 @@ fn a_ready_shader_pack_turns_far_terrain_off_and_meshes_every_column() {
     assert!(app.world().resource::<FarTerrainScene>().tiles.is_empty());
 }
 
-/// Distant delivered air hides old terrain without refining unrelated far tiles.
+/// Distant air follows horizon changes without refining unrelated far tiles.
 #[test]
-fn distant_air_does_not_refine_the_far_ring() {
+fn distant_air_masks_follow_horizon_without_refining_far_ring() {
     let horizon = 160;
     let near_radius = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32;
     let mut app = far_terrain_app(horizon as u8);
@@ -179,6 +179,23 @@ fn distant_air_does_not_refine_the_far_ring() {
         far_terrain::select_tiles(before).len(),
         "air coverage must not increase the tile count"
     );
+    app.world_mut()
+        .resource_scope(|world, mut far: bevy::prelude::Mut<FarTerrain>| {
+            let world = world.resource::<ClientWorld>();
+            let stream = world.stream.as_ref().unwrap();
+            let centre = stream.far_terrain_centre();
+            assert!(far.update_near(stream, centre, near_radius, horizon / 2));
+            assert!(
+                !far.near.contains(empty),
+                "the smaller horizon excludes distant air"
+            );
+            assert!(far.update_near(stream, centre, near_radius, horizon));
+            assert!(
+                far.near.contains(empty),
+                "expanding restores delivered-air coverage"
+            );
+            assert!(!far.update_near(stream, centre, near_radius, horizon));
+        });
 }
 
 /// Summaries a retiring session collected reach disk when the app exits that frame.
@@ -201,6 +218,7 @@ fn exit_writes_retiring_summaries() {
         .add_systems(Last, finish_far_terrain_on_exit);
     app.world_mut().write_message(AppExit::Success);
     app.update();
+    drop(app);
 
     let mut reader = FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
     join(&mut reader, now);
@@ -339,6 +357,7 @@ fn shutdown_progresses_all_retiring_inboxes_before_waiting() {
     );
     far.cache.leave_world();
     far.cache.sync();
+    drop(far);
 
     let mut reader = FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
     join_world(&mut reader, SERVER, 0, now);

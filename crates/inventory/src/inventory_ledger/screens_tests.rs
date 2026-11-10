@@ -431,7 +431,7 @@ fn enchanting_sends_the_native_request_and_rolls_back_on_rejection() {
                 amount: 1,
                 source: protocol::StackRequestSlot {
                     container: StackRequestContainer::CreatedOutput,
-                    slot: protocol::CREATED_OUTPUT_SLOT,
+                    slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
                     stack_network_id: request_id,
                 },
                 destination: slot(22, 14, 0),
@@ -562,7 +562,7 @@ fn gather_fills_the_cursor_partial_stacks_first() {
     set_cursor(&mut ledger, stack(50, 10));
     ledger.begin_gather().unwrap();
     let request = ledger.newest_request().unwrap();
-    let takes: Vec<(u8, u8)> = request
+    let takes: Vec<(u16, u8)> = request
         .actions
         .iter()
         .filter_map(|action| match action {
@@ -573,6 +573,30 @@ fn gather_fills_the_cursor_partial_stacks_first() {
     assert_eq!(takes, vec![(5, 20), (6, 34)]);
     assert_eq!(ledger.cursor_stack().unwrap().count, 64);
     assert_eq!(ledger.displayed_stack(6).unwrap().count, 30);
+}
+
+/// Gather leaves stacks with different item data in their original cells.
+#[test]
+fn gather_only_collects_compatible_item_stacks() {
+    let mut incompatible = stack(12, 40);
+    incompatible.metadata = 1;
+    let mut ledger = personal_ledger(&[(5, stack(11, 20)), (6, incompatible.clone())]);
+    set_cursor(&mut ledger, stack(50, 10));
+
+    ledger.begin_gather().unwrap();
+
+    let request = ledger.newest_request().unwrap();
+    let takes: Vec<_> = request
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Take { amount, source, .. } => Some((source.slot, *amount)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(takes, vec![(5, 20)]);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 30);
+    assert_eq!(ledger.displayed_stack(6), Some(&incompatible));
 }
 
 fn bundle_stack(stack_network_id: i32, bundle_id: i32) -> NetworkItemStack {

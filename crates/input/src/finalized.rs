@@ -83,35 +83,22 @@ impl FinalizedInput {
     }
 
     /// Applies one generic action filter after semantic authority has been resolved.
+    /// Returns which requested attack and item-use repeats were admitted.
     pub fn filter_actions(
         &mut self,
         state: &mut crate::action_filter::ActionFilterState,
         owner: Option<u64>,
         time_us: u64,
-        repeat: bool,
+        repeat: [bool; 2],
         decide: impl FnMut(
             &crate::action_filter::ActionFilterFrame,
         ) -> Option<crate::action_filter::ActionVerdict>,
-    ) -> bool {
+    ) -> [bool; 2] {
         if let Some(snapshot) = self.0.as_mut() {
             state.filter(snapshot, owner, time_us, repeat, decide)
         } else {
             state.reset();
-            false
-        }
-    }
-
-    /// Removes excess attack/use presses from both ordered and projected input.
-    pub fn limit_clicks(
-        &mut self,
-        limiter: &mut crate::ClickLimiter,
-        rates: [Option<u32>; 2],
-        seconds: f64,
-    ) {
-        if let Some(snapshot) = self.0.as_mut() {
-            limiter.apply(snapshot, rates, seconds);
-        } else {
-            limiter.reset();
+            [false; 2]
         }
     }
 
@@ -139,11 +126,14 @@ impl MovementOverlay {
     /// The caller arbitrates focus, world identity and manual movement first.
     pub fn apply(&mut self, input: &mut FinalizedInput, intent: Option<([f32; 2], [bool; 3])>) {
         input.1 = intent.is_some();
-        let Some(snapshot) = input.0.as_mut() else {
-            self.held = [false; 3];
-            return;
-        };
-        if let Some((axes, _)) = intent {
+        self.remap(input, intent);
+    }
+
+    /// Replaces the walking axes and holds the buttons as if their bindings were held, so the
+    /// player's toggle and always-sprint modes still apply. Leaves any resolved movement from
+    /// [`Self::apply`] in place; `None` releases only this overlay's buttons.
+    pub fn remap(&mut self, input: &mut FinalizedInput, intent: Option<([f32; 2], [bool; 3])>) {
+        if let (Some(snapshot), Some((axes, _))) = (input.0.as_mut(), intent) {
             snapshot.movement = axes;
             snapshot.raw_movement = axes;
             snapshot.analogue_movement = axes;
@@ -154,7 +144,17 @@ impl MovementOverlay {
                 right: axes[0] > 0.0,
             };
         }
-        let held = intent.map_or([false; 3], |(_, held)| held);
+        self.hold(input, intent.map_or([false; 3], |(_, held)| held));
+    }
+
+    /// Holds the jump, sneak and sprint actions as if their bindings were held, leaving
+    /// walking axes alone. A hold presses once when it starts and releases once when it ends,
+    /// unless a physical binding holds the action; without a frame the holds are dropped.
+    pub fn hold(&mut self, input: &mut FinalizedInput, held: [bool; 3]) {
+        let Some(snapshot) = input.0.as_mut() else {
+            self.held = [false; 3];
+            return;
+        };
         for (index, action) in [Action::Jump, Action::Sneak, Action::Sprint]
             .into_iter()
             .enumerate()
@@ -182,6 +182,7 @@ mod tests {
         FinalizedInput(
             Some(ActionSnapshot {
                 ordered: None,
+                admitted_desktop: Vec::new(),
                 frame_sequence: crate::identity::InputSequence::new(1),
                 authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
                 movement,
@@ -242,6 +243,58 @@ mod tests {
         assert!(!input.request_mod_attack_press());
         assert_eq!(input.snapshot(), Some(&expected));
     }
+    /// A remapped vector holds buttons as bindings would, without claiming resolved movement,
+    /// and never clears resolution another overlay applied.
+    #[test]
+    fn remapped_vectors_hold_buttons_without_resolving_movement() {
+        let mut overlay = MovementOverlay::default();
+        let mut frame = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        overlay.remap(&mut frame, Some(([1.0, 1.0], [false, false, true])));
+        assert_eq!(frame.movement(), [1.0, 1.0]);
+        assert!(!frame.movement_is_resolved());
+        assert!(frame.phase(Action::Sprint).pressed && frame.phase(Action::Sprint).held);
+        let mut resolved = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        MovementOverlay::default().apply(&mut resolved, Some(([0.0, 1.0], [false; 3])));
+        overlay.remap(&mut resolved, None);
+        assert!(resolved.movement_is_resolved());
+        assert!(resolved.phase(Action::Sprint).released);
+    }
+
+    #[test]
+    fn held_intents_add_to_physical_bindings_without_walking() {
+        let mut overlay = MovementOverlay::default();
+        let mut frame = snapshot_with_carriers([0.3, 0.0], [0.3, 0.0], [0.0; 2]);
+        overlay.hold(&mut frame, [false, true, true]);
+        assert_eq!(frame.movement(), [0.3, 0.0]);
+        assert!(!frame.movement_is_resolved());
+        for action in [Action::Sneak, Action::Sprint] {
+            assert!(frame.phase(action).pressed && frame.phase(action).held);
+        }
+        assert_eq!(frame.phase(Action::Jump), ActionPhase::default());
+        let sprinting = || {
+            let mut frame = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+            frame.0.as_mut().unwrap().phases[Action::Sprint as usize].held = true;
+            frame
+        };
+        let mut renewed = sprinting();
+        overlay.hold(&mut renewed, [false, true, true]);
+        assert!(renewed.phase(Action::Sneak).held && !renewed.phase(Action::Sneak).pressed);
+        let mut released = sprinting();
+        overlay.hold(&mut released, [false; 3]);
+        assert!(released.phase(Action::Sneak).released);
+        assert!(
+            !released.phase(Action::Sprint).released && released.phase(Action::Sprint).held,
+            "a physically held binding keeps the action held"
+        );
+        overlay.hold(&mut FinalizedInput::default(), [false, true, false]);
+        let mut next = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        overlay.hold(&mut next, [false; 3]);
+        assert!(
+            !next.phase(Action::Sneak).released,
+            "a frame without input drops the hold"
+        );
+    }
+
     #[test]
     fn mod_walking_uses_one_button_edge_and_releases_to_physical_input() {
         let mut overlay = MovementOverlay::default();

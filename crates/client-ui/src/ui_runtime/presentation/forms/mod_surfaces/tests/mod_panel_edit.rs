@@ -304,6 +304,7 @@ fn eight_dropdown_options_remain_inside_small_viewport_and_route_individually() 
         index: 0,
         options: (0..8).map(|i| format!("Mode {i}")).collect(),
     }];
+    spec.surface = mod_ui::test_support::sample_surface(&spec.controls);
     presentation
         .mod_ui_mut()
         .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))

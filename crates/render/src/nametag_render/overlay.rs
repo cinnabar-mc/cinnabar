@@ -25,8 +25,7 @@ struct Installed;
 
 /// Graded and pack views keep labels outside every world colour effect.
 pub(crate) fn enabled(enhanced: bool, pack: bool) -> bool {
-    (render_model::enhanced_rendering_enabled() && enhanced)
-        || (cfg!(feature = "shaderpacks") && pack)
+    (render_model::enhanced_rendering_enabled() && enhanced) || (pack)
 }
 
 /// Installs the label overlay before the HUD, after world post-processing and hands.

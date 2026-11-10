@@ -1,6 +1,6 @@
 use super::*;
-use bedrock_protocol_1_26_51::types::{ActorUniqueID, DimensionType};
-use bedrock_protocol_1_26_51::wire::{Decode, Encode};
+use bedrock_protocol_1_26_60::types::{ActorUniqueID, DimensionType};
+use bedrock_protocol_1_26_60::wire::{Decode, Encode};
 
 /// Encodes and decodes real wire entries before exercising event normalization.
 fn through_wire(entries: Vec<PrimitiveShape>) -> PrimitiveShapesEvent {

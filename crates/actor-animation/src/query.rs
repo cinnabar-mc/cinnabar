@@ -7,6 +7,7 @@ use {
 };
 
 mod item_use;
+pub(super) use item_use::main_hand_elapsed_ticks;
 pub(super) mod potion;
 pub(super) mod tint;
 pub(super) mod wolf;
@@ -239,6 +240,10 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         return variant;
     }
     match name.descriptor().handler {
+        // An actor with no limited life syncs a negative span, which reads as zero.
+        MolangQueryHandler::IntegerMetadata(key) if name == Q::LifeSpan => {
+            return metadata_number(actor, key).unwrap_or(0.0).max(0.0);
+        }
         MolangQueryHandler::IntegerMetadata(key) => {
             return metadata_number(actor, key).unwrap_or(0.0);
         }
@@ -294,25 +299,25 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
-        // Native actor-state position, before the actor store removes collision offsets.
         Q::Position if arguments.len() == 1 => {
+            let position = native_position(actor, input);
             argument(0)
                 .filter(|axis| axis.is_finite())
                 .map_or(0.0, |axis| match axis as i32 {
-                    0 => input.position[0],
-                    1 => input.position[1] + actor.network_position_offset(),
-                    2 => input.position[2],
+                    0 => position[0],
+                    1 => position[1],
+                    2 => position[2],
                     _ => 0.0,
                 })
         }
         Q::Position => 0.0,
         Q::RotationToCamera => argument(0).map_or(0.0, |axis| {
-            rotation_to_camera(input.position, context.camera_position, axis)
+            rotation_to_camera(native_position(actor, input), context.camera_position, axis)
         }),
-        Q::DistanceFromCamera => distance_from_camera(input, context),
+        Q::DistanceFromCamera => distance_from_camera(native_position(actor, input), context),
         Q::CameraDistanceRangeLerp => match arguments {
             [start, end] => camera_distance_range_lerp(
-                distance_from_camera(input, context),
+                distance_from_camera(native_position(actor, input), context),
                 start.number(),
                 end.number(),
             ),
@@ -325,10 +330,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         // 26.50 returns the signed actor shake counter as float.
         Q::ShakeTime => actor.shake_time() as f32,
         Q::HurtDirection => actor.hurt_direction().unwrap_or(0.0),
-        Q::IsCarryingBlock => truth(
-            metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0)
-                != 0.0,
-        ),
+        Q::IsCarryingBlock => truth(carries_block(actor, context)),
         Q::MainHandItemUseDuration => item_use::remaining_ticks(evaluator),
         Q::MainHandItemMaxDuration => context.main_hand_max_use_ticks as f32,
         Q::ItemRemainingUseDuration => item_use::remaining(evaluator, arguments),
@@ -405,6 +407,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         }),
         Q::IsOnGround => truth(input.on_ground),
         Q::IsRiding => truth(input.is_riding),
+        Q::IsAttachedToEntity => truth(attached_to_entity(actor)),
         Q::IsMoving => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
         Q::IsAlive => truth(health(actor).is_none_or(|health| health > 0.0)),
         Q::Health => health(actor).unwrap_or(0.0),
@@ -445,9 +448,16 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
     }
 }
 
-fn distance_from_camera(input: &ActorTickInput, context: &ActorTickContext) -> f32 {
+/// The native actor-state position queries measure from, before the actor store removes
+/// collision offsets: a player's sits at eye height, its network offset above the feet.
+fn native_position(actor: &dyn AnimatedActor, input: &ActorTickInput) -> [f32; 3] {
+    let [x, y, z] = input.position;
+    [x, y + actor.network_position_offset(), z]
+}
+
+fn distance_from_camera(position: [f32; 3], context: &ActorTickContext) -> f32 {
     (0..3)
-        .map(|axis| (context.camera_position[axis] - input.position[axis]).powi(2))
+        .map(|axis| (context.camera_position[axis] - position[axis]).powi(2))
         .sum::<f32>()
         .sqrt()
 }
@@ -610,6 +620,11 @@ fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
         .unwrap_or(UPPER_BOUNDS.len()) as f32
 }
 
+/// A boosting rocket names the glider it follows; an unattached rocket leaves the default of -1.
+fn attached_to_entity(actor: &dyn AnimatedActor) -> bool {
+    matches!(actor.metadata().get(&ActorDataKey::CustomDisplay.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
+}
+
 pub(super) fn has_target(actor: &dyn AnimatedActor) -> bool {
     matches!(actor.metadata().get(&ActorDataKey::Target.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
 }
@@ -655,6 +670,18 @@ fn in_water(actor: &dyn AnimatedActor, input: &ActorTickInput) -> bool {
 
 fn health(actor: &dyn AnimatedActor) -> Option<f32> {
     actor.health().map(|health| health.current)
+}
+
+/// Reports a carried block other than air. The synced value is a block runtime id, and an
+/// empty-handed enderman reports the session's air id rather than zero.
+fn carries_block(actor: &dyn AnimatedActor, context: &ActorTickContext) -> bool {
+    let key = ActorDataKey::CarryBlockRuntimeID.wire_value();
+    let Some(ActorMetadataValue::Int(runtime_id)) = actor.metadata().get(&key) else {
+        return false;
+    };
+    context
+        .air_block_network_id
+        .is_some_and(|air| *runtime_id as u32 != air)
 }
 
 fn metadata_number(actor: &dyn AnimatedActor, key: u32) -> Option<f32> {

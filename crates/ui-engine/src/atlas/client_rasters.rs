@@ -125,6 +125,7 @@ impl ServerAtlas {
                 changed.push(usize::from(slot.page));
             } else {
                 self.resident.remove(key);
+                self.oversized.evicted(key);
             }
         }
         changed.sort_unstable();

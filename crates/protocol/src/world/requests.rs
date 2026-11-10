@@ -1,8 +1,8 @@
 use super::*;
 
-use bedrock_protocol_1_26_51::packets::SubChunkRequest;
-use bedrock_protocol_1_26_51::types::{DimensionType, SubChunkPos, SubChunkPosOffset};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::SubChunkRequest;
+use bedrock_protocol_1_26_60::types::{DimensionType, SubChunkPos, SubChunkPosOffset};
+use bedrock_protocol_1_26_60::wire;
 
 use render_api::sub_chunk_requests::{
     MAX_SUB_CHUNK_COLUMN_HEIGHT, MAX_SUB_CHUNK_REQUESTS, sub_chunk_request_offset,

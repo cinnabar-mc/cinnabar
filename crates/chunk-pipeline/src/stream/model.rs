@@ -188,7 +188,7 @@ pub(super) fn split_block_update(
     ))
 }
 
-/// One column's admitted request intent; encoding waits for the current camera.
+/// One column's admitted request intent, retaining absolute positions until encoding.
 #[derive(Debug, Clone, Copy)]
 pub struct PendingSubChunkRequest {
     pub chunk: ChunkKey,
@@ -231,6 +231,8 @@ impl PendingSubChunkRequest {
 /// One packet's exact membership and the column intents restored on failed admission.
 #[derive(Debug)]
 pub struct SubChunkRequestBatch {
+    /// Packet origin selected together with the absolute members.
+    pub center: [i32; 3],
     pub receipt: SubChunkRequestReceipt,
     pub(super) intents: Vec<PendingSubChunkRequest>,
 }

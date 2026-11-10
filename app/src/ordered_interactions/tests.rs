@@ -25,3 +25,21 @@ fn maintenance_reads_current_buttons_after_neutral_rearm() {
     assert!(held(Some(&runtime), &input, Action::Attack));
     assert!(!is_blocked(Some(&runtime)));
 }
+
+/// Counts its runs in its own state and adds the input, so shared registrations show.
+fn counted(In(step): In<u32>, mut runs: Local<u32>) -> u32 {
+    *runs += step;
+    *runs
+}
+
+#[test]
+fn cached_runs_share_the_registration_of_run_system_cached() {
+    let mut world = World::new();
+    assert_eq!(run_cached(&mut world, counted, 1).unwrap(), 1);
+    assert_eq!(world.run_system_cached_with(counted, 2).unwrap(), 3);
+    assert_eq!(run_cached(&mut world, counted, 3).unwrap(), 6);
+    // A removed registration is rebuilt exactly as `run_system_cached_with` rebuilds it.
+    world.unregister_system_cached(counted).unwrap();
+    assert_eq!(run_cached(&mut world, counted, 4).unwrap(), 4);
+    assert_eq!(world.run_system_cached_with(counted, 1).unwrap(), 5);
+}

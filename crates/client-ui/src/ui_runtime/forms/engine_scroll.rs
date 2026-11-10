@@ -8,13 +8,12 @@ use web_time::Instant;
 use json_ui::{Draggable, HitKind, HitRegion, ScrollMetrics};
 use semantic_input::ScrollUnit;
 
-use super::values::FormDrag;
-use crate::ui_runtime::UiRuntime;
+use super::values::{FormDrag, FormEngineState};
 use ui_engine::frame::EngineFrame;
 
 /// Wheel notches or pixels over the view the pointer reaches.
 pub(super) fn wheel(
-    runtime: &mut UiRuntime,
+    engine: &mut FormEngineState,
     frame: &EngineFrame,
     point: [f64; 2],
     notches: &[(f32, ScrollUnit)],
@@ -25,7 +24,7 @@ pub(super) fn wheel(
     let Some(metrics) = frame.report.scrolls.get(&view.key) else {
         return;
     };
-    let view_state = &mut runtime.server_forms_mut().engine_mut().view;
+    let view_state = &mut engine.view;
     let mut offset = view_state
         .scroll
         .get(&view.key)
@@ -49,12 +48,11 @@ pub(super) fn wheel(
 /// A press at `point` over `region`: `true` when a scrollbar took it, so it
 /// presses nothing else. A press in a gesture view also starts a touch pan.
 pub(super) fn press(
-    runtime: &mut UiRuntime,
+    engine: &mut FormEngineState,
     frame: &EngineFrame,
     region: Option<&HitRegion>,
     point: [f64; 2],
 ) -> bool {
-    let engine = runtime.server_forms_mut().engine_mut();
     if let Some(region) = region.filter(|region| region.enabled)
         && let Some(view) = owning_view(frame, region)
         && let Some(metrics) = frame.report.scrolls.get(&view.key)
@@ -104,8 +102,7 @@ pub(super) fn press(
 }
 
 /// Follow a held box drag or touch pan.
-pub(super) fn drag(runtime: &mut UiRuntime, frame: &EngineFrame, point: [f64; 2]) {
-    let engine = runtime.server_forms_mut().engine_mut();
+pub(super) fn drag(engine: &mut FormEngineState, frame: &EngineFrame, point: [f64; 2]) {
     match engine.drag.clone() {
         // The box moves content pixels per track pixel from where it was last.
         Some(FormDrag::ScrollBox { view, last }) => {
@@ -143,8 +140,7 @@ pub(super) fn drag(runtime: &mut UiRuntime, frame: &EngineFrame, point: [f64; 2]
 
 /// The pointer lifts; `false` when a touch pan travelled far enough that the
 /// press under it no longer counts.
-pub(super) fn release(runtime: &mut UiRuntime) -> bool {
-    let engine = runtime.server_forms_mut().engine_mut();
+pub(super) fn release(engine: &mut FormEngineState) -> bool {
     match engine.scroll_touch.take() {
         Some((view, _)) => engine.view.end_scroll_touch(&view),
         None => true,
@@ -152,8 +148,7 @@ pub(super) fn release(runtime: &mut UiRuntime) -> bool {
 }
 
 /// Advance flings and touch-box fades, and adopt what the last layout settled.
-pub(super) fn step(runtime: &mut UiRuntime, frame: &EngineFrame) {
-    let engine = runtime.server_forms_mut().engine_mut();
+pub(super) fn step(engine: &mut FormEngineState, frame: &EngineFrame) {
     let now = Instant::now();
     let dt = engine
         .scroll_clock

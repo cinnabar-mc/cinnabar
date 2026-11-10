@@ -199,6 +199,9 @@ impl CallbackRes {
     }
     /// Enforces a lifecycle-only result so a failed transfer cannot partially commit data.
     fn lifecycle(&mut self, action: WorldOp) -> Result<Result<(), WorldError>> {
+        if self.context.as_ref().is_some_and(|c| c.opening_closed) {
+            return Ok(Err(WorldError::Unavailable));
+        }
         if !self.ops.is_empty() {
             return Ok(Err(WorldError::Denied));
         }

@@ -88,8 +88,13 @@ impl GpuPacing {
         {
             finish = finish.max(entry.at) + execution;
         }
-        // The handed frame may already have submitted on the other thread. Predict it once.
-        finish = finish.max(handed + render) + execution;
+        // Once the render thread submits this frame, its CPU feeding work is already done.
+        let submitted = self
+            .pending
+            .iter()
+            .find(|entry| entry.frame == handed_frame)
+            .map_or(handed + render, |entry| entry.at);
+        finish = finish.max(submitted) + execution;
         let deadline = finish.checked_sub(main + render + MARGIN)?;
         (deadline > handed).then_some(deadline.min(handed + MAX_DELAY))
     }
@@ -127,6 +132,42 @@ mod tests {
         assert_eq!(
             gpu.deadline(34, now, &cpu),
             Some(now + Duration::from_millis(5))
+        );
+    }
+
+    #[test]
+    fn submitted_handed_frame_does_not_predict_its_cpu_work_again() {
+        let now = Instant::now();
+        let (mut gpu, cpu) = model(now);
+        gpu.submit(33, now + Duration::from_millis(1));
+        assert_eq!(
+            gpu.deadline(33, now + Duration::from_millis(2), &cpu),
+            None,
+            "the submitted frame finishes within the next frame's CPU work and margin"
+        );
+    }
+
+    #[test]
+    fn submitted_handed_frame_still_waits_for_earlier_gpu_work() {
+        let now = Instant::now();
+        let (mut gpu, cpu) = model(now);
+        gpu.submit(33, now);
+        gpu.submit(34, now + Duration::from_millis(1));
+        assert_eq!(
+            gpu.deadline(34, now + Duration::from_millis(2), &cpu),
+            Some(now + Duration::from_millis(5))
+        );
+    }
+
+    #[test]
+    fn submitted_handed_frame_uses_a_later_measured_submission() {
+        let now = Instant::now();
+        let (mut gpu, cpu) = model(now);
+        // The main thread may be preempted between handoff and reading the queue model.
+        gpu.submit(33, now + Duration::from_millis(3));
+        assert_eq!(
+            gpu.deadline(33, now + Duration::from_millis(1), &cpu),
+            Some(now + Duration::from_millis(4))
         );
     }
 

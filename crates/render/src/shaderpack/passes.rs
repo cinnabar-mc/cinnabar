@@ -68,6 +68,7 @@ pub(crate) struct ViewState {
     pub history: super::uniforms::UniformHistory,
     /// Actor, block-entity and hand geometry skinned for the pack, with its draw bindings.
     pub actors: super::actors::ViewActors,
+    pub geometry_shader: Option<super::geometry_shader::Scratch>,
     custom: CustomUniforms,
     scratch: Vec<u8>,
     unknown: BTreeSet<String>,
@@ -101,11 +102,23 @@ impl ViewState {
             crate::gpu_allocation::checked(&render_device, "shader pack view bindings", 0, || {
                 ViewBindings::new(device, &pack, &mut targets)
             });
+        let geometry_shader = crate::gpu_allocation::checked(
+            &render_device,
+            super::geometry_shader::SCRATCH_ALLOCATION,
+            0,
+            || super::geometry_shader::Scratch::new(device, &pack.draws),
+        );
         if let Some(error) = bevy::tasks::block_on(scope.pop()) {
             return Err(error.to_string());
         }
         let bindings =
             bindings.ok_or_else(|| "shader pack view bindings ran out of GPU memory".to_owned())?;
+        let geometry_shader = geometry_shader.ok_or_else(|| {
+            format!(
+                "{} ran out of GPU memory",
+                super::geometry_shader::SCRATCH_ALLOCATION
+            )
+        })?;
         let custom = pack.custom_uniforms.clone();
         let center_depth = pack.host.center_depth.as_ref().map(|pipeline| {
             CenterDepth::new(
@@ -121,6 +134,7 @@ impl ViewState {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
+            geometry_shader,
             pack,
             scene_bindings: Default::default(),
             overlay_depth: Default::default(),
@@ -425,6 +439,9 @@ pub(crate) fn record_frame(
     state: &mut ViewState,
     io: &FrameIo<'_>,
 ) {
+    if let Some(scratch) = state.geometry_shader.as_mut() {
+        scratch.begin();
+    }
     let pack = Arc::clone(&state.pack);
     state.scene_bindings.prepare(
         device,
@@ -545,6 +562,9 @@ pub(crate) fn record_frame(
         encoder,
         |encoder| record_composite(encoder, state, io),
     );
+    if let Some(scratch) = state.geometry_shader.as_mut() {
+        scratch.finish();
+    }
 }
 
 /// `composite*` and `final`, the copy-back of buffers that end flipped (or the exchange of
