@@ -1,5 +1,5 @@
 //! Block items with overlapping faces as GUI geometry: the quads their baked thumbnail
-//! projects, painted in their supplied order at the control's physical size.
+//! projects, drawn at the control's physical size with depth or supplied paint order.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -15,7 +15,7 @@ use {
     ui::IconRef,
 };
 
-/// Draws atlas quads with the requested face shading and cube brightness.
+/// Draws atlas quads with the requested shading, brightness and overlap order.
 /// Returns `None` when a UV leaves its tile, which an atlas cannot wrap.
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
@@ -51,7 +51,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
                 true,
             );
             if order == BlockModelOrder::Depth {
-                vertex.clip_z = 0.5 - z / 8.0;
+                vertex.clip_z = depth(z);
             }
             vertex.terrain_mips = true;
             vertices.push(vertex);
@@ -87,6 +87,11 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         .ok()
         .map(UiMesh::with_compact_block_vertices)
         .map(Arc::new)
+}
+
+/// Converts projected view depth to UI depth, where greater values are nearer.
+fn depth(z: f32) -> f32 {
+    0.5 - z / 8.0
 }
 
 #[cfg(test)]

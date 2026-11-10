@@ -686,6 +686,18 @@ fn bamboo_gui_posts_and_slats_use_separate_texture_regions() {
         &[],
     )
     .unwrap();
+    let held = block_item_quads(VisualKind::Model, [7; 6], Some(0), &templates, &[]).unwrap();
+    assert_ne!(gui, held);
+    let ordinary = block_gui_quads(
+        Default::default(),
+        VisualKind::Model,
+        [7; 6],
+        Some(0),
+        &templates,
+        &[],
+    )
+    .unwrap();
+    assert_ne!(gui, ordinary);
     let post = gui
         .iter()
         .find(|q| q.corners.iter().all(|p| p[2] == 0.25) && q.corners.iter().any(|p| p[1] == 1.0))

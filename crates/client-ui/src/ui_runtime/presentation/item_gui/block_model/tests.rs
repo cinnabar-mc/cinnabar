@@ -134,35 +134,6 @@ fn authored_two_sided_planes_remain_visible_from_the_back() {
 }
 
 #[test]
-fn quads_preserve_world_inventory_and_unshaded_brightness() {
-    let quads = [
-        (quad(BlockFace::Up), tile(1)),
-        (quad(BlockFace::South), tile(1)),
-        (quad(BlockFace::West), tile(1)),
-    ];
-    let shades = |shading, lighting| {
-        mesh(&quads, shading, lighting, BlockModelOrder::Depth)
-            .unwrap()
-            .vertices()
-            .chunks(4)
-            .map(|face| face[0].color[0])
-            .collect::<Vec<_>>()
-    };
-    // Bytes truncate `255 * brightness`, as the GUI tessellator does.
-    assert_eq!(
-        shades(GuiShading::World, CubeLighting::Directional),
-        [255, 204, 153]
-    );
-    assert_eq!(
-        shades(GuiShading::Inventory, CubeLighting::Directional),
-        [255, 127, 186]
-    );
-    for shading in [GuiShading::World, GuiShading::Inventory] {
-        assert_eq!(shades(shading, CubeLighting::Unshaded), [255; 3]);
-    }
-}
-
-#[test]
 fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
     let mut top = quad(BlockFace::Up);
     let mut lower = top;
@@ -176,7 +147,7 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
     let mesh = mesh(
         &quads,
         GuiShading::Inventory,
-        Default::default(),
+        CubeLighting::Directional,
         BlockModelOrder::Depth,
     )
     .unwrap();
@@ -194,4 +165,40 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
             .fold(f32::MIN, f32::max)
     };
     assert!(nearest(4..8) > nearest(0..4));
+    assert!(
+        mesh.vertices()
+            .iter()
+            .all(|vertex| (0.0..=1.0).contains(&vertex.clip_z))
+    );
+}
+
+#[test]
+fn quads_preserve_world_inventory_and_unshaded_brightness() {
+    let quads = [
+        (quad(BlockFace::Up), tile(1)),
+        (quad(BlockFace::South), tile(1)),
+        (quad(BlockFace::West), tile(1)),
+    ];
+    let shades = |shading, lighting, order| {
+        mesh(&quads, shading, lighting, order)
+            .unwrap()
+            .vertices()
+            .chunks(4)
+            .map(|face| face[0].color[0])
+            .collect::<Vec<_>>()
+    };
+    // Bytes truncate `255 * brightness`, as the GUI tessellator does.
+    for order in [BlockModelOrder::Depth, BlockModelOrder::Paint] {
+        assert_eq!(
+            shades(GuiShading::World, CubeLighting::Directional, order),
+            [255, 204, 153]
+        );
+        assert_eq!(
+            shades(GuiShading::Inventory, CubeLighting::Directional, order),
+            [255, 127, 186]
+        );
+        for shading in [GuiShading::World, GuiShading::Inventory] {
+            assert_eq!(shades(shading, CubeLighting::Unshaded, order), [255; 3]);
+        }
+    }
 }
