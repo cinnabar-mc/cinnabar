@@ -2128,11 +2128,6 @@ literal = "scaffolding"
 reason = "Behavior conformance scenario vocabulary selects checked physics fixtures, not runtime block identities."
 
 [[identifier_literal_exceptions]]
-path = "crates/ui-engine/src/engine/vector_icons.rs"
-literal = "sword"
-reason = "Product vector-icon schema token selecting original Cinnabar artwork."
-
-[[identifier_literal_exceptions]]
 path = "crates/ui-screens/src/container_data.rs"
 literal = "_button"
 reason = "JSON-UI crafter widget-name grammar encodes a numeric slot before the button suffix."

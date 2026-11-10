@@ -51,7 +51,6 @@ pub mod screen_cache;
 mod server_form;
 mod sprites;
 pub mod text_paint;
-mod vector_icons;
 mod vector_paths;
 use crate::atlas::ServerAtlas;
 use crate::frame::EngineFrame;
@@ -597,7 +596,7 @@ impl Canvas<'_> {
         Ok(id)
     }
 
-    /// Hands `node` to the frame's renderers, then to the engine's own: vector icons, rounded
+    /// Hands `node` to the frame's renderers, then to the engine's own: vector paths, rounded
     /// chrome, fills, messaging art, named profile images, name tags and banners. Others draw
     /// nothing.
     fn custom(
@@ -613,9 +612,6 @@ impl Canvas<'_> {
         let (data, dest) = (node.data, node.dest);
         let alpha = |color: [u8; 4]| node.alpha(color);
         let drawn = match node.renderer {
-            "cinnabar_vector_icon" => self
-                .vector_icon(data, dest, &alpha)
-                .map(|visual| (visual, dest)),
             json_ui::vector_path::RENDERER => self
                 .vector_path(data, dest, &alpha)
                 .map(|visual| (visual, dest)),

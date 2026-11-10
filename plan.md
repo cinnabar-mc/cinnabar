@@ -2495,6 +2495,8 @@ Flathub submission remain incomplete.
   and platform acceptance remain pending.
   The host layout editor, now used by the touch-control layout, keeps nine anchors,
   snapping, undo/redo, grid and inspector behavior; mods build their own editors.
+  Its cards carry only placement, an optional title and a background; mods draw HUD
+  artwork and icons themselves with generic primitives such as `cinnabar_vector_path`.
   Backdrop and element blur now limit downsampling to referenced mip levels and
   cache the admitted maximum blur. Pixel-equivalence regressions are included;
   executed GPU checks and measured frame-budget acceptance remain pending.

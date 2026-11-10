@@ -151,10 +151,9 @@ pub(super) fn catalog(
             "controls":[named("background",background),named("name",name),named("scale",json!({"type":"panel","size":[22,caption::CAPTION_HEIGHT],"anchor_from":"top_left","anchor_to":"top_left","bindings":[{"binding_name":"#hud_caption_scale_offset","binding_name_override":"#offset"},{"binding_name":"#hud_caption_scale_width","binding_name_override":"#size_binding_x_absolute"}],"controls":[named("text",scale)]}))]
         })));
     }
-    let mut row = 0;
     for (index, card) in hud.cards.iter().enumerate() {
         let visible = json!({"binding_name":format!("#hud_card_{index}_visible"), "binding_name_override":"#visible"});
-        let mut artwork = cards::card(card, index, &mut row);
+        let mut artwork = cards::card(card, index);
         artwork["bindings"]
             .as_array_mut()
             .expect("card bindings")
