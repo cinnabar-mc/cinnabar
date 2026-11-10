@@ -130,10 +130,25 @@ fn controller_and_touch_attacks_record_the_admitted_actor_for_storage() {
         ),
     ] {
         let (mut world, mut captured) = unpublished_attack_fixture(7.5);
-        let snapshot = world
-            .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
-            .route_and_finalize(frame)
-            .unwrap();
+        let mut input = world.resource_mut::<crate::semantic_controls::SemanticInputRuntime>();
+        // The fixture has already routed a frame, so a controller first seen mid-press stays
+        // quarantined. Connect it at rest first, as a polled controller would be.
+        if !frame.controllers.is_empty() {
+            input
+                .route_and_finalize(semantic_input::DeviceFrame {
+                    controllers: frame
+                        .controllers
+                        .iter()
+                        .map(|controller| semantic_input::ControllerFrame {
+                            device_id: controller.device_id,
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let snapshot = input.route_and_finalize(frame).unwrap();
         assert_eq!(snapshot.input_mode, mode);
         assert!(snapshot.phases[Action::Attack as usize].pressed);
         assert!(snapshot.ordered.is_none());
