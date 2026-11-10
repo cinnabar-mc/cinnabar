@@ -65,7 +65,7 @@ pub fn fitted_dimensions(width: u16, height: u16, limit: u32) -> [u16; 2] {
 }
 
 /// The power-of-two box size for `limit`, or 1 when the artwork already fits.
-fn reduction(width: u16, height: u16, limit: u32) -> usize {
+pub(super) fn reduction(width: u16, height: u16, limit: u32) -> usize {
     let longest = u32::from(width.max(height));
     if longest <= limit || limit == 0 {
         return 1;

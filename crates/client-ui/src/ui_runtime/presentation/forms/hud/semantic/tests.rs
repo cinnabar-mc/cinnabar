@@ -628,10 +628,15 @@ fn world_text_language_and_visibility_invalidate_without_touching_hotbar() {
         cache.model.player_position.as_deref(),
         Some("At 2 / 64 / -3")
     );
+    assert!(cache.position_shown());
     fixture.hide_position = true;
     let changes = fixture.check(&mut cache);
     assert!(changes.world_text && !changes.hotbar);
     assert!(cache.model.player_position.is_none());
+    assert!(
+        cache.position_shown(),
+        "hiding keeps vanilla's own visibility"
+    );
     assert!(cache.model.days_played.is_some());
     fixture.hide_position = false;
     assert!(fixture.check(&mut cache).world_text);
@@ -639,6 +644,7 @@ fn world_text_language_and_visibility_invalidate_without_touching_hotbar() {
     fixture.runtime.session.last_known_local_player_alive = Some(false);
     fixture.check(&mut cache);
     assert!(cache.model.player_position.is_none());
+    assert!(!cache.position_shown());
     fixture
         .player
         .facts
@@ -1044,7 +1050,7 @@ fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
         assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
         assert!(!fixture.check(&mut cache).chat);
     }
-    for only_self in [true, false] {
+    for only_self in [false, true] {
         fixture
             .settings
             .set(SettingId::MentionsTarget.index(), i32::from(only_self));

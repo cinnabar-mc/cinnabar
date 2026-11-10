@@ -16,6 +16,7 @@ mod hats;
 pub use ground_effects::{GroundEffectWearer, GroundEffectWearers};
 pub use hats::{CosmeticEmitterKey, CosmeticEmitterPlacement, CosmeticEmitterPlacements};
 mod layers;
+pub use layers::mod_actor_facts;
 mod occlusion;
 mod paintings;
 pub use flames::WorldActorFlames;

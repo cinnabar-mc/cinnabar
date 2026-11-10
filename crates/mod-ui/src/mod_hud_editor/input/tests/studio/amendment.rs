@@ -37,7 +37,7 @@ fn amendment_snap_and_grid_toggle_independently_and_shift_preserves_both() {
 #[test]
 fn amendment_initial_hidden_cards_stay_listed_and_show_is_undoable() {
     let mut editor = published(serde_json::json!({"cards":[{
-        "id":"disabled","title":"Disabled module","visible":false,"rows":[]
+        "id":"disabled","title":"Disabled module","visible":false
     }]}));
     let data = editor.data();
     assert_eq!(
@@ -80,7 +80,7 @@ fn amendment_initial_hidden_cards_stay_listed_and_show_is_undoable() {
 #[test]
 fn amendment_inspector_and_viewport_bindings_use_gui_pixels() {
     let mut editor = published(serde_json::json!({"inspector_size":[180,120],"cards":[{
-        "id":"fixture","width":100,"offset":[40,60],"rows":[]
+        "id":"fixture","width":100,"offset":[40,60]
     }]}));
     editor.selected = Some(0);
     let data = editor.data();

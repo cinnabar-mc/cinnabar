@@ -335,8 +335,9 @@ impl HudModel {
     /// Applies the controller's material and texture transforms to the just-appended geometry.
     fn style_last_layer(&mut self, start: usize, layer: &actor_animation::RenderTextureLayer) {
         let state = layer.material_state.unwrap_or_default();
+        let raster = layer.render_state.unwrap_or_default();
         for bone in &mut self.bones[start..] {
-            bone.set_backface_culling(state.cull);
+            bone.set_backface_culling(raster.cull == render_api::render_state::CullMode::Back);
             bone.uv_transform = layer.uv_anim;
             bone.styles[1] = 1;
             bone.tint = layer.color;
@@ -346,8 +347,8 @@ impl HudModel {
         }
         let material = (
             ui::UiBlendMode::Alpha,
-            !state.depth_always,
-            state.depth_write,
+            !raster.ignores_stored_depth(),
+            raster.depth.write && raster.depth.compare.is_some(),
             state
                 .alpha_test
                 .then_some(assets::ENTITY_ALPHA_TEST_THRESHOLD),

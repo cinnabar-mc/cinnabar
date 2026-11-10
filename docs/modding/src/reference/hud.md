@@ -53,7 +53,8 @@ enum font {
 
 ### `vanilla-element`
 
-Vanilla HUD elements a mod may read and hide.
+Vanilla HUD elements a mod may read and hide. `position` is the position line the
+`showcoordinates` rule or a held filled map shows.
 
 ```wit
 enum vanilla-element {
@@ -61,6 +62,7 @@ enum vanilla-element {
     status-effects,
     sidebar,
     hunger,
+    position,
 }
 ```
 
@@ -70,6 +72,7 @@ enum vanilla-element {
 | `status-effects` |  |  |
 | `sidebar` |  |  |
 | `hunger` |  |  |
+| `position` |  |  |
 
 <a id="type-rect"></a>
 
@@ -100,7 +103,8 @@ record rect {
 Whether vanilla draws the element this frame, ignoring hiding, and where. `bounds`
 covers what vanilla draws: the drawn row of shanks for `hunger`, not its renderer
 node; the effect icons for `status-effects`; the cursor for `crosshair`; the sidebar's
-rows for `sidebar`. None while vanilla lays the element out nowhere.
+rows for `sidebar`; the line and its background for `position`. None while vanilla
+lays the element out nowhere, which includes a hidden `sidebar` or `position`.
 
 ```wit
 record element-state {
@@ -205,17 +209,6 @@ set-hidden-elements: func(elements: list<vanilla-element>) -> result<_, string>;
 Retained; the listed elements are not drawn. An empty list restores them all.
 
 Types: [`vanilla-element`](hud.md#type-vanilla-element).
-
-<a id="set-position-hidden"></a>
-
-### `set-position-hidden`
-
-```wit
-set-position-hidden: func(hidden: bool) -> result<_, string>;
-```
-
-Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
-a held filled map) is not drawn. Independent of `set-hidden-elements`.
 
 <a id="read-elements"></a>
 

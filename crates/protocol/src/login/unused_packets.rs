@@ -35,4 +35,10 @@ impl<R: bridge::FrameRead> PlaySession<R> {
     pub fn unused_packet_count(&self) -> u64 {
         self.unused_packets
     }
+
+    /// Number of well-formed server packets skipped because this protocol does not define their
+    /// ID; vanilla's receive loop skips them the same way.
+    pub fn unknown_packet_count(&self) -> u64 {
+        self.transport.unknown_packet_count()
+    }
 }

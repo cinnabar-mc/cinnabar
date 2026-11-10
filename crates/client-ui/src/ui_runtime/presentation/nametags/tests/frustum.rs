@@ -130,13 +130,8 @@ fn clip(position: Vec3, rotation: Quat) -> Mat4 {
 /// Sets every styling field so additions require an explicit bounds-test choice.
 fn extended_style() -> ui::mod_presentation::NametagStyle {
     ui::mod_presentation::NametagStyle {
-        hide: false,
-        hide_players: false,
         opacity: 1.0,
         shadow: true,
-        show_self: true,
-        show_when_hud_hidden: true,
-        hide_passengers: false,
         own_text_color: Some([1.0; 4]),
         border_width: 3.0,
         border_color: Some([1.0; 4]),

@@ -36,7 +36,7 @@ fn retained_bytes(textures: &[assets::ActorTexture], pages: &ActorArtworkPages) 
 #[test]
 fn reused_pixels_keep_their_layer_boundaries() {
     let layers = distinct_textures(0..2, 32);
-    let live = ActorArtworkPages::default().with_pack_artwork(&layers, &[]);
+    let live = ActorArtworkPages::default().with_pack_artwork(&layers, &[], &Default::default());
     assert_eq!(live.pages()[0].layers(), 2);
 
     // The same bytes as one taller layer must not borrow the live page's two allocations.
@@ -48,7 +48,11 @@ fn reused_pixels_keep_their_layer_boundaries() {
         pixel_sha256: Sha256::digest(&rgba8).into(),
         rgba8,
     };
-    let tall = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&tall), &[]);
+    let tall = ActorArtworkPages::default().with_pack_artwork(
+        std::slice::from_ref(&tall),
+        &[],
+        &Default::default(),
+    );
     let page = &tall.pages()[0];
     assert_eq!((page.layers(), page.rgba8.parts().len()), (1, 1));
     let fitted = page.fit_within(32);
@@ -57,7 +61,7 @@ fn reused_pixels_keep_their_layer_boundaries() {
 
     // A page with the same layers still reuses the live allocations.
     let again = distinct_textures(0..2, 32);
-    let again = ActorArtworkPages::default().with_pack_artwork(&again, &[]);
+    let again = ActorArtworkPages::default().with_pack_artwork(&again, &[], &Default::default());
     assert!(again.pages()[0].rgba8.ptr_eq(&live.pages()[0].rgba8));
 }
 
@@ -71,8 +75,9 @@ fn packed_pack_artwork_retains_one_copy_of_each_texel() {
         .iter()
         .map(|texture| usize::from(texture.width) * usize::from(texture.height))
         .sum();
-    let (pages, allocated) =
-        test_alloc::measure(|| ActorArtworkPages::default().with_pack_artwork(&textures, &[]));
+    let (pages, allocated) = test_alloc::measure(|| {
+        ActorArtworkPages::default().with_pack_artwork(&textures, &[], &Default::default())
+    });
     assert!(pages.pages().len() >= 3);
     assert_eq!(
         pages.pages().iter().map(|page| page.layers()).sum::<u32>(),

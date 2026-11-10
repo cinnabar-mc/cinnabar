@@ -137,8 +137,11 @@ fn settings_button_and_input_background_fit_independently_of_history_width() {
     for viewport in [[360.0, 240.0], [640.0, 360.0], [960.0, 540.0]] {
         for history_width in [180.0, 330.0] {
             let root = chat("", 0, &[], history_width);
+            // Layers decide paint order, so compare the backdrops left to right.
+            let mut rects = backgrounds(&root, viewport, 128.0 / 255.0);
+            rects.sort_by(|a, b| a.x.total_cmp(&b.x));
             assert_eq!(
-                backgrounds(&root, viewport, 128.0 / 255.0),
+                rects,
                 [
                     Rect::new(2.0, viewport[1] - 14.0, 12.0, 12.0),
                     Rect::new(16.0, viewport[1] - 14.0, viewport[0] - 18.0, 12.0),

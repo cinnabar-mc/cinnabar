@@ -37,7 +37,7 @@ pub(super) struct ActorRigState {
     pub(super) render: Vec<RenderTextureLayer>,
     pub(super) visibility: RenderVisibility,
     /// Includes dormant controller layers, so admission need not sample ordinary rigs.
-    pub(super) may_use_always_depth_material: bool,
+    pub(super) may_use_occlusion_bypass_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
     pub(super) scale: Option<[f32; 4]>,
     /// Completed main-hand scale, absent when the owner did not author one.

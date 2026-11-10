@@ -11,22 +11,23 @@ const RAINBOW_TICKS_PER_COLOR: u32 = 25;
 /// Multiplies the low unique-id word to offset each sheep's rainbow phase.
 const RAINBOW_PHASE_MULTIPLIER: u32 = 0x0210_6547;
 
-/// Sheep take their byte dye, or the `jeb_` rainbow, every tick; tamed wolves take their byte
-/// collar dye. Every other actor keeps the neutral multiplier.
+/// Sheep take their byte dye, or the `jeb_` rainbow, every tick; wild wolves take the palette's
+/// white; every other actor, a tamed wolf's collar included, takes its byte colour index. Only
+/// colour-mask layers read it, so other materials stay neutral.
 ///
 /// The sheep rule follows the native system that writes the tint for actors carrying the sheep
 /// flag: a `jeb_` name (exact string metadata) blends palette entries
 /// `n / 25` and `n / 25 + 1` by `(n % 25) / 25`, where
 /// `n = low32(unique id) * 0x2106547 + actor tick count` in wrapping 32-bit arithmetic; otherwise
-/// a byte colour index selects the palette entry and any other type reads as white.
+/// a byte colour index selects the palette entry and any other type reads as index 0, white.
 pub(crate) fn default_render_color(actor: &dyn AnimatedActor, life_tick: u64) -> [f32; 4] {
     match actor.entity_fact().native_class {
         NativeEntityClass::Sheep if has_rainbow_name(actor) => rainbow_color(actor, life_tick),
         NativeEntityClass::Sheep => metadata_color(actor),
-        NativeEntityClass::Wolf if actor_flag(actor, ActorFlag::Tamed.wire_value()) => {
-            metadata_color(actor)
+        NativeEntityClass::Wolf if !actor_flag(actor, ActorFlag::Tamed.wire_value()) => {
+            assets::dye::actor_palette_color(0)
         }
-        _ => [1.0; 4],
+        _ => metadata_color(actor),
     }
 }
 

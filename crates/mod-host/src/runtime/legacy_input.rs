@@ -12,20 +12,16 @@ use wasmtime::{
     },
 };
 
-/// Host observation used for enforcement and guests compiled with the original snapshot.
-#[derive(Clone, Debug, PartialEq, ComponentType, Lower, Lift)]
-#[component(record)]
+/// Host frame observation; the physical attack hold gates requests and never reaches guests.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
     pub session: u64,
     pub dimension: i32,
     pub eye: gameplay::Vector3,
     pub yaw: f32,
     pub pitch: f32,
-    #[component(name = "attack-held")]
     pub attack_held: bool,
-    #[component(name = "frame-seconds")]
     pub frame_seconds: f32,
-    pub players: Vec<gameplay::Player>,
 }
 
 /// Host walking observation retaining physical gates for old guests and jump admission.
@@ -58,7 +54,6 @@ impl From<Snapshot> for gameplay::Snapshot {
             yaw: value.yaw,
             pitch: value.pitch,
             frame_seconds: value.frame_seconds,
-            players: value.players,
         }
     }
 }
@@ -93,7 +88,8 @@ fn has_field(item: Option<ComponentItem>, name: &str) -> bool {
     record.fields().any(|field| field.name == name)
 }
 
-/// Replaces only imports whose old records were actually requested by a built component.
+/// Replaces the gameplay imports only for a built component that requested the old movement
+/// record; every other import keeps its current type.
 pub(super) fn link(
     engine: &Engine,
     component: &Component,
@@ -107,9 +103,7 @@ pub(super) fn link(
         let ComponentItem::ComponentInstance(instance) = item else {
             continue;
         };
-        let frame = has_field(instance.get_export(engine, "read-frame"), "attack-held");
-        let movement = has_field(instance.get_export(engine, "read-movement"), "jump-held");
-        if !(frame || movement) {
+        if !has_field(instance.get_export(engine, "read-movement"), "jump-held") {
             continue;
         }
         linker.allow_shadowing(true);
@@ -134,31 +128,15 @@ pub(super) fn link(
         forward!("set-packet-delay", set_packet_delay, delay: u32);
         forward!("read-relayed-position", read_relayed_position);
         forward!("read-camera", read_camera);
-        forward!("read-mobs", read_mobs);
         forward!("set-camera-rig", set_camera_rig, rig: Option<gameplay::CameraRig>);
         forward!("request-command", request_command, command: String);
-        if !frame {
-            forward!("read-frame", read_frame);
-        }
-        if !movement {
-            forward!("read-movement", read_movement);
-        }
-        if frame {
-            imports.func_wrap(
-                "read-frame",
-                |mut store: StoreContextMut<'_, State>, (): ()| {
-                    Ok((super::gameplay::read_frame(store.data_mut())?,))
-                },
-            )?;
-        }
-        if movement {
-            imports.func_wrap(
-                "read-movement",
-                |mut store: StoreContextMut<'_, State>, (): ()| {
-                    Ok((super::gameplay::read_movement(store.data_mut())?,))
-                },
-            )?;
-        }
+        forward!("read-frame", read_frame);
+        imports.func_wrap(
+            "read-movement",
+            |mut store: StoreContextMut<'_, State>, (): ()| {
+                Ok((super::gameplay::read_movement(store.data_mut())?,))
+            },
+        )?;
         linker.allow_shadowing(false);
     }
     Ok(())

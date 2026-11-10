@@ -9,7 +9,8 @@ mod wire;
 
 mod sources;
 pub use sources::{
-    BlockTextureSource, MAX_TERRAIN_VARIANTS, MaterialTextureSource, normalize_terrain_weights,
+    BlockTextureSource, DEFAULT_TERRAIN_WEIGHT, MAX_TERRAIN_VARIANTS, MaterialTextureSource,
+    normalize_terrain_weights,
 };
 
 /// Sidecar wire version; part of the world carrier's prepared identity.

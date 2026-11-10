@@ -86,9 +86,11 @@ impl PreparedSessionResources {
                     textures = pack.textures.len()
                 )
                 .entered();
-                resources.pages = resources
-                    .pages
-                    .with_pack_artwork(&pack.textures, &pack.bindings);
+                resources.pages = resources.pages.with_pack_artwork(
+                    &pack.textures,
+                    &pack.bindings,
+                    &assets::actor_page_sharing(pack.assets.render_data()),
+                );
             }
             {
                 let _span = bevy::log::info_span!(

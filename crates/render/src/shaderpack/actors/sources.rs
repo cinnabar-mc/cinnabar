@@ -41,6 +41,8 @@ pub(crate) struct RigInstance<'a> {
     /// Its index in the source's instance buffer.
     pub index: u32,
     pub data: &'a ActorGpuInstance,
+    /// Raster state its native draw uses.
+    pub raster: render_api::render_state::RenderState,
     /// Vertices of its geometry span (whole triangles).
     pub vertex_count: u32,
     pub texture: LayerTexture<'a>,

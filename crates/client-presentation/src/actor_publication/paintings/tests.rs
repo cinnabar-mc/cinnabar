@@ -25,6 +25,7 @@ fn pack() -> assets::SessionEntityPack {
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment: None,
+        material_report: None,
     }
 }
 
@@ -59,7 +60,11 @@ fn batch() -> ActorPresentationBatch {
 #[test]
 fn admitted_paintings_publish_both_surfaces_in_all_wall_directions() {
     let pack = pack();
-    let pages = ActorArtworkPages::default().with_pack_artwork(&pack.textures, &pack.bindings);
+    let pages = ActorArtworkPages::default().with_pack_artwork(
+        &pack.textures,
+        &pack.bindings,
+        &Default::default(),
+    );
     let mut routes = PaintingRoutes::default();
     routes.refresh(None, Some(&pack), &pages);
     let mut builder =
@@ -157,7 +162,11 @@ fn admitted_paintings_publish_both_surfaces_in_all_wall_directions() {
 #[test]
 fn invisible_paintings_publish_neither_front_nor_border() {
     let pack = pack();
-    let pages = ActorArtworkPages::default().with_pack_artwork(&pack.textures, &pack.bindings);
+    let pages = ActorArtworkPages::default().with_pack_artwork(
+        &pack.textures,
+        &pack.bindings,
+        &Default::default(),
+    );
     let mut routes = PaintingRoutes::default();
     routes.refresh(None, Some(&pack), &pages);
     let mut world = world();
@@ -192,7 +201,11 @@ fn invisible_paintings_publish_neither_front_nor_border() {
 fn painting_edges_remain_visible_until_the_rendered_surface_leaves_the_viewport() {
     use bevy::math::{Mat4, Vec3, Vec4};
     let pack = pack();
-    let pages = ActorArtworkPages::default().with_pack_artwork(&pack.textures, &pack.bindings);
+    let pages = ActorArtworkPages::default().with_pack_artwork(
+        &pack.textures,
+        &pack.bindings,
+        &Default::default(),
+    );
     let mut routes = PaintingRoutes::default();
     routes.refresh(None, Some(&pack), &pages);
     for direction in 0..4 {

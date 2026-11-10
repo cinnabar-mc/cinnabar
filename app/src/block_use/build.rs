@@ -418,6 +418,16 @@ pub(crate) fn advance(
         ) {
             movement.mark_started_using_item(tick);
         }
+        // Vanilla's client sweeps dust off the brushed block from its use on the block,
+        // at most once per effects cooldown.
+        if item_use.brush_effects_due(tick) {
+            context.brush_dust.write(crate::particles::LocalBrushDust {
+                block: observed.target.position,
+                face: observed.target.face,
+                relative_hit: observed.target.relative_hit,
+                runtime_id: observed.target.runtime_id,
+            });
+        }
     }
     // Vanilla's `GameMode::useItemOn` starts the item's cooldown after any successful use on.
     if (plan.local_use == LocalUse::UseItem

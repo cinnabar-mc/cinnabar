@@ -15,9 +15,9 @@ mod world_entry;
 mod world_entry_tests;
 mod world_lifecycle;
 use crate::{
-    CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
-    GameplayMovementSnapshot, GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent,
-    ModGrants, ModScreens, PlayerStateSnapshot,
+    CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMovementSnapshot,
+    GameplaySnapshot, MAX_LABEL_BYTES, MEMORY_BYTES, ModCue, ModEvent, ModGrants, ModScreens,
+    PlayerStateSnapshot,
 };
 use anyhow::{Result, bail};
 use server_experience::{
@@ -226,10 +226,6 @@ impl cinnabar::extension::hud::Host for State {
         hud::surface::set_hidden(self, elements)
     }
 
-    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
-        hud::surface::set_position_hidden(self, hidden)
-    }
-
     fn read_elements(
         &mut self,
     ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
@@ -386,7 +382,6 @@ impl Instance {
         state.player_state.begin_frame();
         state.player_state.clear_presentation();
         state.motion.finish_frame();
-        state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
         state.controls.scroll = crate::empty_scroll();
@@ -400,7 +395,6 @@ impl Instance {
         &mut self,
         pressed: bool,
         snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
         player_state: Option<PlayerStateSnapshot>,
         movement: Option<GameplayMovementSnapshot>,
         controls: crate::ControlFrame,
@@ -414,7 +408,6 @@ impl Instance {
             return Ok(());
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
-            .and_then(|()| gameplay::validate_mobs(snapshot.as_ref(), &mobs))
             .and_then(|()| gameplay::validate_movement(snapshot.as_ref(), movement.as_ref()))
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
@@ -436,7 +429,6 @@ impl Instance {
         state.snapshot = snapshot;
         state.motion.snapshot = movement;
         state.world.advance_command_window(snapshot_seconds);
-        state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
         state.controls.native_editing = std::mem::take(&mut state.controls.native_editing_next);

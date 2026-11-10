@@ -124,9 +124,11 @@ pub(super) fn attach(
         artwork,
         layer_poses,
     );
-    for body in &mut batch.submissions {
-        if body.material.glint.texture == render_model::GlintTexture::Item {
-            equipment_layers::animate_glint(body, partial_tick, glint_settings);
+    for submission in &mut batch.submissions {
+        if submission.material.state.is_some_and(|state| state.glint) {
+            equipment_layers::animate_material_glint(submission, partial_tick, glint_settings);
+        } else if submission.material.glint.texture == render_model::GlintTexture::Item {
+            equipment_layers::animate_glint(submission, partial_tick, glint_settings);
         }
     }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
@@ -235,6 +237,19 @@ pub(super) fn attach(
     }
 }
 
+/// The facts mod presentation rules select `actor` by.
+pub fn mod_actor_facts(
+    authority: &client_world::WorldAuthority,
+    actor: &client_world::ActorSnapshot,
+) -> ui::mod_presentation::ActorFacts {
+    ui::mod_presentation::ActorFacts {
+        runtime_id: actor.runtime_id,
+        player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+        local: actor.runtime_id == authority.local_player_runtime_id(),
+        riding: authority.ridden_unique_id(actor.unique_id).is_some(),
+    }
+}
+
 /// Applies cosmetic overlays before hiding body layers, leaving armor and held items visible.
 pub(super) fn apply_style_and_visibility(
     batch: &mut ActorPresentationBatch,
@@ -259,22 +274,14 @@ pub(super) fn apply_style_and_visibility(
         };
         if !submission.material.allows_overlay() {
             submission.overlay_rgba8 = 0;
-        } else if let Some(style) = style {
+        } else if let Some(((style, actor), stream)) = style.zip(actor).zip(stream) {
             let armor = (3..=6).contains(&identity.layer);
-            let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
-            let tint = actor.and_then(|actor| {
-                style.presentation.tint(
-                    identity.runtime_id,
-                    matches!(actor.kind, protocol::ActorKind::Player { .. }),
-                )
-            });
-            if let Some(color) = cosmetic_overlay(
-                &style.presentation.hurt_overlay,
-                hurt,
-                armor,
-                submission.overlay_rgba8 != 0,
-                tint,
-            ) {
+            let state = ui::mod_presentation::TintState::of(actor.hurt_overlay_active());
+            if let Some(color) = style
+                .presentation
+                .tint(&mod_actor_facts(stream.authority(), actor), state)
+                .and_then(|tint| tint.overlay(state, armor, submission.overlay_rgba8 != 0))
+            {
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
         }
@@ -288,26 +295,5 @@ pub(super) fn apply_style_and_visibility(
         {
             submission.route = render_model::ActorRigRoute::NoDraw;
         }
-    }
-}
-
-/// Selects the mod overlay colour: its damage colours while the actor is hurt, else its tint.
-pub(super) fn cosmetic_overlay(
-    hurt_overlay: &ui::mod_presentation::HurtOverlay,
-    hurt: bool,
-    armor: bool,
-    native_overlay: bool,
-    tint: Option<[f32; 4]>,
-) -> Option<[f32; 4]> {
-    if hurt {
-        if armor {
-            hurt_overlay.armor
-        } else if native_overlay {
-            hurt_overlay.body
-        } else {
-            None
-        }
-    } else {
-        tint
     }
 }

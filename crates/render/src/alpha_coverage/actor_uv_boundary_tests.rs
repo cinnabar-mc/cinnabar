@@ -26,15 +26,13 @@ fn actor_cutout_does_not_draw_artwork_outside_a_transparent_face_region() {
         return;
     };
     let plane = transparent_region_plane();
-    let material = render_model::ActorMaterial {
-        state: Some(assets::EntityRenderMaterialState {
-            alpha_test: true,
-            cull: false,
-            depth_write: true,
-            ..Default::default()
-        }),
+    let material = crate::actor::test_material::TestMaterial {
+        alpha_test: true,
+        cull: false,
+        depth_write: true,
         ..Default::default()
-    };
+    }
+    .material(assets::EntityRenderMaterial::Default);
     for below in [false, true] {
         let raster = |texels| {
             actor_raster::raster_material_with_state(
@@ -131,15 +129,13 @@ fn raster_chart(
     coverage: bool,
     texels: &[[u8; 4]],
 ) -> Vec<u8> {
-    let material = render_model::ActorMaterial {
-        state: Some(assets::EntityRenderMaterialState {
-            alpha_test: true,
-            cull: true,
-            depth_write: true,
-            ..Default::default()
-        }),
+    let material = crate::actor::test_material::TestMaterial {
+        alpha_test: true,
+        cull: true,
+        depth_write: true,
         ..Default::default()
-    };
+    }
+    .material(assets::EntityRenderMaterial::Default);
     let sign = if below { -1.0 } else { 1.0 };
     let clip = Mat4::from_cols(
         Vec4::new(0.75, 0.16, 0.0, 0.35),
