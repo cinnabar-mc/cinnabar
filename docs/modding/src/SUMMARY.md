@@ -69,3 +69,4 @@
 - [Entity masks](appendix/entity-masks.md)
 - [Native packet frames](appendix/native-frame.md)
 - [Packet panel capabilities](appendix/packet-panels.md)
+- [Shared mod list (Mods Core)](appendix/mods-core.md)
