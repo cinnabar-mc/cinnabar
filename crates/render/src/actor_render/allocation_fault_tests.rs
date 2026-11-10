@@ -50,8 +50,6 @@ pub(crate) fn fixture() -> App {
         .init_resource::<FrameCount>()
         .init_resource::<Frames>()
         .init_resource::<ExecutedSpans>()
-        .init_resource::<render_scene::WorldLighting>()
-        .init_resource::<render_scene::WorldFullbright>()
         .init_resource::<render_scene::NametagSceneResource>()
         .add_systems(Render, begin_frame.in_set(RenderSystems::PrepareViews))
         .add_systems(
@@ -64,6 +62,7 @@ pub(crate) fn fixture() -> App {
                 .in_set(RenderSystems::Render)
                 .before(submit_actor_presented_frame),
         );
+    crate::lighting::init_inputs(render.world_mut());
     app.insert_resource(Assets::<Shader>::default());
     app.insert_sub_app(RenderApp, render);
     app.add_plugins(ActorRenderPlugin);
