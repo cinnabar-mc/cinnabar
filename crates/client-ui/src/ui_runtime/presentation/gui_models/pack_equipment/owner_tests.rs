@@ -286,6 +286,7 @@ fn catalog_for_item(
             )
             .unwrap(),
         )),
+        material_diagnostics: None,
     }
 }
 

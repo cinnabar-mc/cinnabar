@@ -315,7 +315,7 @@ fn profession_sampler_uses_masked_composition_and_keeps_draw_tint() {
     let instance = render_model::ActorGpuInstance {
         material: assets::EntityRenderMaterial::Default.word(Some(
             assets::EntityRenderMaterialState {
-                masked_multitexture: true,
+                texture_mask: true,
                 ..Default::default()
             },
         )),

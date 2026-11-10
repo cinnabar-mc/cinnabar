@@ -14,6 +14,8 @@ pub(crate) const CHUNK_SAMPLED_TEXTURE_BINDINGS: u32 =
 // Admitted source sizes are powers of two up to MAX_TILE_SIZE. Four bits store
 // log2(size) + 1; zero means the physical page size. Grid occupies five more bits.
 // They sit below the page field, which a reference's own width separates.
+/// `COLOR_SECOND_TEXTURE` draws the third texture where its alpha exceeds this.
+const ACTOR_FP_EPSILON: f32 = 1.0e-5;
 const TEXTURE_SIZE_BITS: u32 = 4;
 const TEXTURE_WIDTH_SHIFT: u32 = assets::TEXTURE_LAYER_MASK.count_ones();
 const TEXTURE_HEIGHT_SHIFT: u32 = TEXTURE_WIDTH_SHIFT + TEXTURE_SIZE_BITS;
@@ -154,6 +156,10 @@ pub(crate) fn source(source: &str) -> String {
         .replace("GPU_TEXTURE_HEIGHT_SHIFT", &format!("{TEXTURE_HEIGHT_SHIFT}u"))
         .replace("BLOCK_ENTITY_CULL_BACK_FACES", &format!("{}u", render_model::block_entity::mesh::BLOCK_ENTITY_CULL_BACK_FACES))
         .replace("BLOCK_OVERLAY_FACE_OFFSET", &format!("{:?}", render_api::BLOCK_OVERLAY_FACE_OFFSET))
+        .replace("ACTOR_GLINT_DEFINE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::GLINT))
+        .replace("ACTOR_TEXTURE_TINT_FLAG", &format!("{}u", assets::EntityRenderMaterialState::TEXTURE_TINT))
+        .replace("ACTOR_TEXTURE_MASK_FLAG", &format!("{}u", assets::EntityRenderMaterialState::TEXTURE_MASK))
+        .replace("ACTOR_COLOR_SECOND_TEXTURE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::COLOR_SECOND_TEXTURE))
         .replace("ACTOR_COLOR_MASK_MATERIAL_FLAG", &format!("{}u", render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG))
         .replace("ACTOR_MATERIAL_LEGACY112_FLAG", &format!("{}u", render_model::LEGACY_COMBAT_MATERIAL_FLAG))
         .replace("// LEGACY_GLINT_CONSTANTS", &legacy_glint_constants())
@@ -165,7 +171,6 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_KIND_MASK", &format!("{}u", assets::EntityRenderMaterialState::KIND_MASK))
         .replace("ACTOR_MATERIAL_AUTHORED_FLAG", &format!("{}u", assets::EntityRenderMaterialState::AUTHORED))
         .replace("ACTOR_MATERIAL_ALPHA_TEST_FLAG", &format!("{}u", assets::EntityRenderMaterialState::ALPHA_TEST))
-        .replace("ACTOR_MATERIAL_MASKED_MULTITEXTURE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::MASKED_MULTITEXTURE))
         .replace("ACTOR_MATERIAL_CULL_FLAG", &format!("{}u", assets::EntityRenderMaterialState::CULL))
         .replace("ACTOR_MATERIAL_BLEND_FLAG", &format!("{}u", assets::EntityRenderMaterialState::BLEND))
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
@@ -174,6 +179,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_COLOR_MASK_FLAG", &format!("{}u", assets::EntityRenderMaterialState::COLOR_MASK))
         .replace("ACTOR_CHART_COORDINATE_BITS", &format!("{}u", u16::BITS))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))
+        .replace("ACTOR_FP_EPSILON", &format!("{ACTOR_FP_EPSILON:?}"))
         .replace("SURFACE_QUAD_INDEX_MASK", &format!("{}u", meshing::surface::QUAD_INDEX_MASK))
         .replace("SURFACE_TILE_SHIFT", &format!("{}u", meshing::surface::TILE_SHIFT))
         .replace("SURFACE_TILE_MASK", &format!("{}u", meshing::surface::TILE_MASK))

@@ -559,3 +559,132 @@ fn actor_draws_use_a_materials_skinning_variant_and_otherwise_the_material() {
         assert!(drawn.has_define(define), "{name}");
     }
 }
+
+/// Resolves `name` from documents admitted by path, as compilation loads them.
+fn listed_definition(documents: &[(&str, Value)], name: &str) -> Option<EntityMaterialDefinition> {
+    let states =
+        MaterialStates::from_documents(documents.iter().map(|(path, value)| (*path, value)));
+    let mut table = MaterialTable::default();
+    let (_, index) = states.resolve(name, &mut table)?;
+    Some(table.definitions[index as usize].clone())
+}
+
+#[test]
+fn list_defines_seed_every_root_of_the_listed_file() {
+    let documents = [
+        (
+            list::ENTITY_MATERIAL_LIST_PATH,
+            json!([{"path": "materials/listed.material", "tag": "ignored", "+defines": ["LISTED"]}]),
+        ),
+        (
+            "materials/listed.material",
+            modern(json!({
+                "root": {"+defines": ["OWN"]},
+                "child:root": {},
+                "native:entity_alphatest": {},
+                "replaced": {"defines": ["ONLY"]}
+            })),
+        ),
+        ("materials/other.material", modern(json!({"other": {}}))),
+    ];
+    for name in ["root", "child", "native"] {
+        let definition = listed_definition(&documents, name).unwrap();
+        assert!(definition.has_define("LISTED"), "{name}");
+    }
+    let native = listed_definition(&documents, "native").unwrap();
+    assert!(native.has_define("ALPHA_TEST"));
+    let replaced = listed_definition(&documents, "replaced").unwrap();
+    assert!(replaced.has_define("ONLY") && !replaced.has_define("LISTED"));
+    let other = listed_definition(&documents, "other").unwrap();
+    assert!(
+        !other.has_define("LISTED"),
+        "unlisted files have no list defines"
+    );
+}
+
+#[test]
+fn listed_files_load_before_unlisted_files() {
+    let documents = [
+        (
+            list::ENTITY_MATERIAL_LIST_PATH,
+            json!([{"path": "materials/z.material"}]),
+        ),
+        (
+            "materials/a.material",
+            modern(json!({"shared": {"+defines": ["UNLISTED"]}})),
+        ),
+        (
+            "materials/z.material",
+            modern(json!({"shared": {"+defines": ["LISTED"]}})),
+        ),
+    ];
+    let shared = listed_definition(&documents, "shared").unwrap();
+    assert!(shared.has_define("LISTED") && !shared.has_define("UNLISTED"));
+}
+
+#[test]
+fn a_list_entry_whose_path_is_too_long_loads_nothing() {
+    let path = format!(
+        "materials/{}.material",
+        "a".repeat(list::MAX_MATERIAL_LIST_PATH_BYTES)
+    );
+    let documents = [
+        (
+            list::ENTITY_MATERIAL_LIST_PATH,
+            json!([{"path": path, "+defines": ["LISTED"]}]),
+        ),
+        (path.as_str(), modern(json!({"long": {}}))),
+    ];
+    let long = listed_definition(&documents, "long").unwrap();
+    assert!(
+        !long.has_define("LISTED"),
+        "the file loads only as unlisted"
+    );
+}
+
+#[test]
+fn programs_without_an_actor_type_draw_as_plain_actor() {
+    let file = modern(json!({
+        "named": {"fragmentShader": "shaders/entity.fragment", "+defines": ["USE_MULTITEXTURE"]},
+        "pattern": {"fragmentShader": "shaders/pattern.fragment", "+defines": ["USE_MULTITEXTURE"]},
+        "other": {"fragmentShader": "shaders/custom.fragment", "+defines": ["USE_MULTITEXTURE"]},
+        "unnamed": {"+defines": ["USE_MULTITEXTURE"]},
+        "inherited:llama": {},
+        "renamed:llama": {"fragmentShader": "shaders/custom.fragment"}
+    }));
+    let mut states = MaterialStates::default();
+    states.read(&file);
+    for (name, multitexture) in [
+        ("named", true),
+        ("pattern", true),
+        ("other", false),
+        ("unnamed", false),
+        ("inherited", true),
+        ("renamed", false),
+    ] {
+        let (state, _) = states.resolve(name, &mut MaterialTable::default()).unwrap();
+        assert_eq!(state.multitexture, multitexture, "{name}");
+    }
+}
+
+#[test]
+fn applied_defines_are_exactly_the_actor_defines_drawing_reads() {
+    // What an actor draw reads: its shading and whether it applies `uv_anim`. Second-texture
+    // colouring only exists beside `USE_MULTITEXTURE`, so every define is added to that base.
+    let drawn = |defines: &[&str]| {
+        let mut resolved = Resolved::default();
+        resolved.definition.fragment_shader = Some("shaders/entity.fragment".into());
+        Arc::make_mut(&mut resolved.defines)
+            .extend(defines.iter().map(|&define| Box::from(define)));
+        (actor_shading(&resolved), applies_uv_anim(&resolved))
+    };
+    let plain = drawn(&[MULTITEXTURE]);
+    for define in assets::entity::material::ACTOR_DEFINE_FLAGS {
+        let changes = if define == MULTITEXTURE {
+            drawn(&[]) != plain
+        } else {
+            drawn(&[MULTITEXTURE, define]) != plain
+        };
+        assert_eq!(changes, APPLIED_DEFINES.contains(&define), "{define}");
+    }
+}

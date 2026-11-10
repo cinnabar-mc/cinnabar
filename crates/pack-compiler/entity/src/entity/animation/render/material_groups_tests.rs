@@ -67,6 +67,7 @@ fn compile_with_materials(
             candidates: &mut Vec::new(),
             visibility: &mut visibility,
             geometries: &mut Vec::new(),
+            skipped_draws: &mut 0,
         },
         &mut molang,
     )
@@ -275,7 +276,7 @@ fn bone_bindings_preserve_dynamic_materials_on_unbound_bones() {
         for bone in ["eye", "missing", "*"] {
             let materials = bound_materials(bone);
             let (state, _, _) = materials
-                .resolve_extension("test:fixed", &mut MaterialTable::default())
+                .resolve_extension("test:fixed", true, &mut MaterialTable::default())
                 .unwrap();
             let fixed = EntityRenderMaterial::Default.word(Some(state));
             let fixture = compile_with_materials(

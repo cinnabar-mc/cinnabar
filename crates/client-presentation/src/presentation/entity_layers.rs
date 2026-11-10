@@ -157,6 +157,24 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
     }
 }
 
+/// The glint of a `GLINT` layer at the actor's completed tick; publication then interpolates
+/// it and applies the glint settings. Other layers keep the placed body's own foil. The draw
+/// adds the client's actor glint; Bedrock's glint constants are unknown.
+fn layer_glint(
+    submission: &ActorRigSubmission,
+    layer: &RenderTextureLayer,
+) -> render_model::ActorGlint {
+    if !layer.material_state.is_some_and(|state| state.glint) {
+        // A native foil set on the placed body survives its controller's layers.
+        return submission.material.glint;
+    }
+    render_model::ActorGlint {
+        time_seconds: submission.input.completed_tick as f32
+            * simulation_clock::TICK_DURATION.as_secs_f32(),
+        ..Default::default()
+    }
+}
+
 /// Resolves one admitted controller layer for both body drawing and equipment styling.
 fn resolve_layer(
     submission: &ActorRigSubmission,
@@ -221,8 +239,7 @@ fn resolve_layer(
     Some(ResolvedLayer {
         material: render_model::ActorMaterial {
             color_mask: false,
-            // A native foil set on the placed body survives its controller's layers.
-            glint: submission.material.glint,
+            glint: layer_glint(submission, layer),
             kind: layer.material,
             state: layer.material_state,
             render_state: layer.render_state,
@@ -252,7 +269,7 @@ fn catalog_location(
         Some([second, third]) => multitexture([layer.source, second, third]).or_else(|| {
             layer
                 .material_state
-                .is_some_and(|state| state.masked_multitexture)
+                .is_some_and(|state| state.texture_mask)
                 .then(|| single(layer.source))
                 .flatten()
         }),
@@ -758,10 +775,10 @@ mod tests {
             axis_scale: [1.0; 3],
         }]);
         let layer = |runtime_skin: bool, source: u32, geometry: Option<u32>| RenderTextureLayer {
-            render_state: None,
-            masks: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
+            render_state: None,
+            masks: None,
             source,
             texture_slot: 0,
             multitexture: None,
@@ -796,10 +813,7 @@ mod tests {
         let artwork = ActorArtworkPages::default().with_pack_artwork(
             &[texture(23), texture(24)],
             &[],
-            &assets::ActorPageSharing {
-                multitexture: assets::ActorMultitextureSources::from_draws([[23, 24]]),
-                ..Default::default()
-            },
+            &Default::default(),
         );
         // The cosmetic samples a second catalog texture, as a two-texture material does.
         let mut hat = layer(false, 23, Some(7));
@@ -863,10 +877,10 @@ mod tests {
             axis_scale: [1.0; 3],
         }]);
         let morph = RenderTextureLayer {
-            render_state: None,
-            masks: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
+            render_state: None,
+            masks: None,
             source: 23,
             texture_slot: 0,
             multitexture: None,

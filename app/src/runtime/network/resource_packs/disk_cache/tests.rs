@@ -9,6 +9,7 @@ fn every_stack_reference_device_and_session_input_changes_the_key() {
         terrain: Default::default(),
         device: assets::texture::policy::TexturePolicy::for_device(1024),
         terrain_policy: assets::texture::policy::TexturePolicy::for_terrain(1024, 0),
+        fancy_graphics: true,
     };
     let stack = vec![("id".into(), "version".into(), "subpack".into(), [3; 32])];
     let inputs = PackInputs::default();
@@ -27,7 +28,7 @@ fn every_stack_reference_device_and_session_input_changes_the_key() {
                 key(subscriber, &changed, &inputs, 256, &references)
             );
         }
-        for index in 0..6 {
+        for index in 0..7 {
             let mut changed = references.clone();
             match index {
                 0 => changed.world = Some([4; 32]),
@@ -37,6 +38,7 @@ fn every_stack_reference_device_and_session_input_changes_the_key() {
                 }
                 3 => changed.device = assets::texture::policy::TexturePolicy::for_device(512),
                 5 => changed.readers[0][0] ^= 1,
+                6 => changed.fancy_graphics = false,
                 _ => {
                     changed.terrain_policy =
                         assets::texture::policy::TexturePolicy::for_terrain(1024, 1)

@@ -25,14 +25,25 @@ test requires every inventory token to appear in a matrix row's surface, wire or
 Confirmed gaps against the current client:
 
 - Custom block texture variations draw like vanilla terrain variations. Alpha-masked tint uses
-  the grass-side overlay composition (alpha weights the tint, the face stays opaque); the Bedrock
-  shader formula is unknown, so this is provisional. Packed bit 4 is retained but not
-  rendered; its constant is unknown.
-- Block AO exponents reach the material as the exact authored f32, as Bedrock carries them; the
-  shading consumer is unknown, so raising vertex AO to the exponent is provisional.
+  the grass-side overlay composition (alpha weights the tint, the face stays opaque), which matches the
+  native terrain shading. Packed bit 4 is retained but not rendered:
+  native terrain shading reads its lightmap UV.x only as the camera-distance dither flag, and the
+  value written is unknown.
+- Block AO exponents reach the material as the exact authored f32, as Bedrock carries them. Native
+  terrain shading takes occlusion premultiplied in the vertex colour, so the exponent is applied
+  when vertices are built; that consumer is unknown, so raising vertex AO to the exponent is
+  provisional.
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server texture sets contribute only their colour layer.
+- Entity material files load through the entity material list, `materials/fancy.json` with the
+  Graphics Mode option on Fancy (the default) and `materials/sad.json` on Simple, as Bedrock's
+  switchable group does; a change applies from the next pack application. Every pack's copy is
+  read, each entry's defines seed the
+  root of the file it names and `tag` is ignored. The vanilla lists are not shipped to the
+  client, so `materials/*.material` files no list names still load after the listed ones;
+  Bedrock loads only listed files. The order in which Bedrock processes the packs' list copies is
+  not settled; the client reads the highest pack's copy first.
 - Entity materials resolve completely, with version rules, `+name` modification, same-file
   parents and variants, into the carrier's material table. Actor draws use a material's
   `skinning` variant, as Bedrock does, with its culling, depth function, depth writes, blend
@@ -45,6 +56,19 @@ Confirmed gaps against the current client:
   (16,384 declarations, 16,384 definitions, 256-byte names) that are not verified against the
   native client, which shows none. A material past them stays unresolved, is counted in the
   server pack's skip report and draws as a layer without a material.
+- A material's `fragmentShader` stem selects its actor material type. A program that is not
+  `entity`, `pattern` or an elided third stem draws as plain `Actor`, so the client
+  drops its three-sampler draw; the absent variant flags' defaults and the per-type material
+  tables are unknown, so `pattern` draws as `entity`.
+- Actor draws bind their extra textures and colours as Bedrock wires its defines: a second
+  texture for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and `MASKED_MULTITEXTURE`, a
+  third for `USE_MULTITEXTURE`, the overlay colour with `USE_OVERLAY` or `TINTED_ALPHA_TEST`, and
+  `uv_anim` with `USE_UV_ANIM`. Multiplicative tint, masked multitexture and the coloured
+  second texture follow the native formulas exactly. The glint follows the native composition,
+  but the values for its colour, rotation, scroll and scale are unknown,
+  so it keeps the client's actor glint; `MULTI_COLOR_TINT` and `COLOR_BASED` are
+  carried but not drawn.
+
 - Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
   vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
   built-in bases declare them; packs cannot derive from `entity_change_color` or
@@ -52,6 +76,22 @@ Confirmed gaps against the current client:
   whose `GLINT`, `MULTIPLICATIVE_TINT` or `MASKED_MULTITEXTURE` defines need more textures than its
   controller supplies is not drawn; whether the native check applies to every material is
   unresolved.
+
+Each server pack's entity compilation counts, and logs once, the material behaviour the client
+does not draw exactly: unknown state names (Bedrock asserts), define names without an actor flag
+(ignored silently, as Bedrock does), sampler entries at index 8 or above (skipped, as Bedrock
+does), materials that fail to resolve, programs without an actor type, stencil, polygon-offset or
+depth-bias state, carried-but-undrawn actor defines, draws dropped for missing textures, unlisted
+material files and partly read list entries.
+
+Actor pipelines are keyed by the lowered raster contract, a finite set; block and block-entity
+pipelines use a fixed key per view. An unchanged pack reload requests no pipelines, and a pack change
+retires the previous session's actor pipelines from readiness. Bevy's pipeline cache cannot destroy
+pipelines, so retired ones stay compiled and are reused if a later pack needs them again. An actor
+material whose state the adapter's render targets cannot represent (blending into a format that does
+not blend there, or a sample count the format does not support), or whose pipeline fails to compile,
+draws with its view's unauthored pipeline; each such material is logged and counted once, and
+readiness does not wait on it.
 
 Texture variations have no client version gate, only the network bit.
 
@@ -61,5 +101,7 @@ These questions remain unresolved:
 - the visual meaning of packed bit 4;
 - the render-target key literal;
 - how a material's depth bias reaches an actor draw, and its scale;
-- the backend addressing and filtering a material's sampler states select.
+- the backend addressing and filtering a material's sampler states select;
+- the order in which packs' copies of the entity material list are processed, and which files the
+  vanilla lists name;
 - the separate `metalness`/`emissive`/`roughness` texture-set form.

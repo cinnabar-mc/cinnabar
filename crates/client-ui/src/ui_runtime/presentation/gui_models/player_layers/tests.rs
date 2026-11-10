@@ -33,6 +33,7 @@ fn pack() -> Arc<assets::SessionEntityPack> {
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment: None,
+        material_diagnostics: None,
     })
 }
 
@@ -241,6 +242,7 @@ fn authored_material_culling_and_depth_reach_the_retained_controller_draws() {
             textures: compiled.textures.into(),
             bindings: compiled.bindings.into(),
             equipment: None,
+            material_diagnostics: None,
         });
         let mut stream = super::super::live_player::tests::player_stream(
             Arc::clone(&pack.assets),
@@ -386,6 +388,7 @@ fn custom_player_skin_keeps_independent_controller_geometry() {
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment: None,
+        material_diagnostics: None,
     });
     let mut stream = super::super::live_player::tests::player_stream(
         Arc::clone(&vanilla.assets),

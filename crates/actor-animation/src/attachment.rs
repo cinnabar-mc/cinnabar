@@ -259,10 +259,10 @@ mod tests {
     fn model_layer(geometry: Option<u32>, pose: BoneTransform) -> RenderTextureLayer {
         let pose: std::sync::Arc<[BoneTransform]> = std::sync::Arc::from([pose]);
         RenderTextureLayer {
-            render_state: None,
-            masks: None,
             material: Default::default(),
             material_state: None,
+            render_state: None,
+            masks: None,
             source: 0,
             texture_slot: 0,
             multitexture: None,

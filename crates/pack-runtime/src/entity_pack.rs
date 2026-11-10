@@ -7,6 +7,8 @@ use assets::{RuntimeEntityAssets, RuntimeEquipmentCatalog};
 use resource_pack::LayeredPackView;
 
 pub mod collect;
+#[cfg(test)]
+use collect::collect_files;
 mod equipment_artwork;
 
 static BASE_EQUIPMENT: std::sync::OnceLock<Arc<RuntimeEquipmentCatalog>> =
@@ -16,7 +18,6 @@ static BASE_EQUIPMENT: std::sync::OnceLock<Arc<RuntimeEquipmentCatalog>> =
 pub fn set_base_equipment_catalog(catalog: Arc<RuntimeEquipmentCatalog>) {
     let _ = BASE_EQUIPMENT.set(catalog);
 }
-use collect::collect_files;
 
 use crate::pack_textures::parse_pack_json;
 use resource_pack::StackFingerprint;
@@ -76,6 +77,7 @@ pub fn compile_session_entities(
         vanilla: vanilla_refs(),
         vanilla_pack_dir: vanilla_pack_dir(),
         equipment: BASE_EQUIPMENT.get().cloned(),
+        fancy_graphics: crate::graphics::fancy_graphics(),
     };
     ENTITY_CACHE.get_or_compile(
         inputs,
@@ -94,9 +96,17 @@ pub fn compile(
     vanilla_pack_dir: Option<&std::path::Path>,
     equipment: Option<&RuntimeEquipmentCatalog>,
 ) -> Option<Arc<SessionEntityPack>> {
-    compile_encoded(view, vanilla, vanilla_pack_dir, equipment, false, &|| false)
-        .expect("an uncancellable compile completes")
-        .0
+    compile_encoded(
+        view,
+        vanilla,
+        vanilla_pack_dir,
+        equipment,
+        crate::graphics::fancy_graphics(),
+        false,
+        &|| false,
+    )
+    .expect("an uncancellable compile completes")
+    .0
 }
 
 /// `encode` also returns the entity blob, which only a disk-cached compile needs. Checks
@@ -106,10 +116,12 @@ fn compile_encoded(
     vanilla: Option<&assets::VanillaEntityRefs>,
     vanilla_pack_dir: Option<&std::path::Path>,
     base_equipment: Option<&RuntimeEquipmentCatalog>,
+    fancy_graphics: bool,
     encode: bool,
     cancelled: &dyn Fn() -> bool,
 ) -> Option<Compiled> {
-    let mut files = collect_files(view, vanilla, vanilla_pack_dir);
+    let (mut files, collected) =
+        collect::collect_files_for_graphics(view, vanilla, vanilla_pack_dir, fancy_graphics);
     let artwork_sources = equipment_artwork::collect(view, base_equipment, &mut files);
     let equipment_priorities = artwork_sources
         .iter()
@@ -146,6 +158,23 @@ fn compile_encoded(
             unusable_attachables = skipped.unusable_attachables,
             rigs_without_artwork = compiled.fallbacks.len(),
             "server pack entities are incomplete"
+        );
+    }
+    let mut materials = compiled.material_diagnostics;
+    materials.list.add(collected.list);
+    if !materials.is_empty() {
+        tracing::info!(
+            unknown_states = materials.unknown_states,
+            unknown_defines = materials.unknown_defines,
+            skipped_samplers = materials.skipped_samplers,
+            failed_materials = materials.failed_materials,
+            unassignable_programs = materials.unassignable_programs,
+            unsupported_materials = materials.unsupported_materials,
+            approximated_materials = materials.approximated_materials,
+            skipped_draws = materials.skipped_draws,
+            unlisted_files = materials.unlisted_files,
+            list = ?materials.list,
+            "server pack entity materials draw in part"
         );
     }
     equipment_artwork::merge(
@@ -203,6 +232,7 @@ fn compile_encoded(
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment,
+        material_diagnostics: Some(materials),
     });
     Some((Some(pack), blob))
 }

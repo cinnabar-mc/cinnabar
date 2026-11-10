@@ -11,6 +11,10 @@ pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
     let kind = instance.material & EntityRenderMaterialState::KIND_MASK;
     instance.mask_layers == [u32::MAX; 2]
         && instance.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
+        && instance.material
+            & (EntityRenderMaterialState::TEXTURE_TINT
+                | EntityRenderMaterialState::COLOR_SECOND_TEXTURE)
+            == 0
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
         && !crate::actor::material::state(instance.material)
@@ -167,6 +171,27 @@ mod tests {
             }]);
             frame.rig.rasters = std::sync::Arc::from([state.raster()]);
             assert!(!frame_supported(Some(&frame), None, None));
+        }
+    }
+
+    #[test]
+    fn unsupported_texture_tint_modes_keep_native_composition() {
+        for flag in [
+            EntityRenderMaterialState::TEXTURE_TINT,
+            EntityRenderMaterialState::COLOR_SECOND_TEXTURE,
+        ] {
+            for authored in [0, EntityRenderMaterialState::AUTHORED] {
+                let instance = ActorGpuInstance {
+                    material: EntityRenderMaterial::Default as u32 | authored | flag,
+                    multitexture_layers: [1, 1],
+                    tint: 0xff0000ff,
+                    ..Default::default()
+                };
+                assert!(!instance_supported(&instance));
+                let mut frame = ActorRenderFrame::default();
+                frame.rig.instances = std::sync::Arc::from([instance]);
+                assert!(!frame_supported(Some(&frame), None, None));
+            }
         }
     }
 

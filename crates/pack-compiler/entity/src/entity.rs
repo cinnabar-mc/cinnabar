@@ -28,6 +28,7 @@ mod item_bindings;
 mod legacy_block_geometry;
 mod legacy_icons;
 pub(crate) mod materials;
+use assets::EntityMaterialDiagnostics;
 mod molang;
 mod mount;
 mod native_bind_pose;
@@ -86,6 +87,8 @@ pub struct EntityAssetCompilation {
     pub unresolved_materials: u32,
     /// Attachables a lenient compile left out because they could not be read.
     pub unusable_attachables: u32,
+    /// Entity material counts the pack compile reports once.
+    pub material_diagnostics: EntityMaterialDiagnostics,
 }
 
 const MAX_ENTITY_SOURCE_DIRECTORY_DEPTH: usize = 32;
@@ -174,6 +177,11 @@ fn compile_with_behavior(
     collect_family(root, "animation_controllers", &["json"], &mut selected)?;
     collect_family(root, "render_controllers", &["json"], &mut selected)?;
     collect_optional_family(root, "materials", &["material"], &mut selected)?;
+    collect_optional_file(
+        root,
+        materials::list::ENTITY_MATERIAL_LIST_PATH,
+        &mut selected,
+    )?;
     collect_family(
         root,
         "textures/entity",
@@ -549,6 +557,7 @@ fn assemble(
     };
     let reference_outcomes = animation.outcomes;
     let unresolved_materials = animation.unresolved_materials;
+    let material_diagnostics = animation.material_diagnostics;
     let mut interaction_traits = assets::interactions::compile(&symbols);
     let mut offered_uses = offered_use::compile(&symbols, &sources, source_payloads)?;
     for entry in &mut interaction_traits {
@@ -596,6 +605,7 @@ fn assemble(
         equipment_bindings,
         unresolved_materials,
         unusable_attachables,
+        material_diagnostics,
     })
 }
 
@@ -611,6 +621,7 @@ fn parse_source(
         "textures/item_texture.json"
             | "manifest.json"
             | materials::extension::MATERIAL_BINDINGS_PATH
+            | materials::list::ENTITY_MATERIAL_LIST_PATH
     ) {
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());

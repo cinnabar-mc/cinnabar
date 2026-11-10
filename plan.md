@@ -153,7 +153,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   evidence and confirmed gaps are tracked in the
   [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
   is `implemented` with a named test. The entity material declaration, definition and name
-  bounds are unverified implementation limits; past them a material draws without one.
+  bounds are unverified implementation limits; past them a material draws without one. The
+  Graphics Mode video option (Fancy by default) selects server packs' entity material list,
+  `materials/fancy.json` or `materials/sad.json`; a change applies from the next pack application,
+  not to the packs already loaded.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps);
