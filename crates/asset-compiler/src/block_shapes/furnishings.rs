@@ -34,6 +34,7 @@ pub(super) fn shape(record: &RegistryRecord, shapes: ShapeTraits) -> Option<Shap
     Some(match () {
         _ if shapes.contains(ShapeTraits::BELL) => bell(record)?,
         _ if record.model_family == assets::ModelFamily::Cocoa => cocoa(record)?,
+        _ if shapes.contains(ShapeTraits::STRAW_BED) => bounds([0.0; 3], [1.0, 0.25, 1.0]),
         _ if record.model_family == assets::ModelFamily::Bed
             || shapes.contains(ShapeTraits::STONECUTTER) =>
         {

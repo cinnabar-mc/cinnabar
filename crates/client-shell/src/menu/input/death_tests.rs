@@ -223,3 +223,67 @@ fn death_respawn_retains_explicit_cursor_return_until_recovery() {
     assert!(!app.world().resource::<MenuRuntime>().is_visible());
     assert!(app.world().resource::<CursorFocus>().capture_allowed());
 }
+
+#[test]
+fn resource_pack_cover_blocks_escape_in_the_launcher_menu() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    let mut runtime = UiRuntime::new(0);
+    runtime.set_resource_pack_loading(true);
+    let presentation = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_message::<KeyboardInput>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<Touches>()
+        .init_resource::<MenuClipboard>()
+        .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            0,
+        )))
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(menu)
+        .insert_resource(UiPresentationResource(presentation))
+        .add_systems(Update, drive_menu_input);
+    let window = app
+        .world_mut()
+        .spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            CursorOptions::default(),
+            PrimaryWindow,
+        ))
+        .id();
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Escape,
+        logical_key: bevy::input::keyboard::Key::Escape,
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window,
+    });
+    app.update();
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().screen,
+        MenuScreen::Settings
+    );
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .set_resource_pack_loading(false);
+    app.world_mut().write_message(KeyboardInput {
+        key_code: KeyCode::Escape,
+        logical_key: bevy::input::keyboard::Key::Escape,
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window,
+    });
+    app.update();
+    assert_ne!(
+        app.world().resource::<MenuRuntime>().view().screen,
+        MenuScreen::Settings
+    );
+}

@@ -55,6 +55,13 @@ impl ActorStore {
             let previous_fact = actor.entity_fact;
             let previous = actor.network_position_offset();
             let previous_spawn = actor.spawn_network_offset();
+            if fact.native_class == NativeEntityClass::Minecart
+                && previous_fact.native_class == NativeEntityClass::Unresolved
+                && previous == 0.0
+                && previous_spawn == 0.0
+            {
+                actor.retain_spawn_heights();
+            }
             actor.entity_fact = fact;
             let offset = actor.network_position_offset();
             actor.shift_poses_y(

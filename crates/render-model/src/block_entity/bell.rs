@@ -1,22 +1,26 @@
-//! Bell body, lip and supporting frame; the body swings after a ring cue.
-//!
-//! Body and lip boxes come from the bell texture's unwrap; the frame geometry, its textures
-//! and the swing curve are provisional and need native measurement.
+//! The bell's swinging body. Terrain draws the frame from the block's own materials.
+
+use std::f32::consts::PI;
 
 use assets::block_entity_geometry::BoxSpec;
 use glam::{Mat4, Vec3};
 
 use super::{
     atlas::BlockEntityAtlas,
-    mesh::{Layer, MeshBuilder, WHITE, model_matrix},
+    mesh::{Layer, MeshBuilder, WHITE},
 };
 
-/// Swing amplitude right after a ring, in degrees.
-const SWING_DEGREES: f32 = 30.0;
-const SWING_HERTZ: f32 = 1.5;
-const SWING_DECAY_SECONDS: f32 = 1.0;
-/// Height of the bell's pivot on the frame bar, in pixels.
-const PIVOT_HEIGHT: f32 = 13.0;
+/// Height of the body's pivot in blocks, for a standing frame and for every other mounting.
+const STANDING_PIVOT_HEIGHT: f32 = 0.564;
+const PIVOT_HEIGHT: f32 = 0.75;
+/// Ring animation ticks per game tick, and the count at which the swing ends.
+const SWING_TICKS_PER_GAME_TICK: u32 = 2;
+const SWING_END_TICK: u32 = 50;
+const GAME_TICKS_PER_SECOND: f32 = 20.0;
+/// The body's box about its pivot, and the lip below it, as legacy cubes with Y negated (see
+/// [`MeshBuilder::legacy_cuboid`]).
+const BODY: BoxSpec = BoxSpec::new([-3.0, -1.0, -3.0], [6.0, 7.0, 6.0], [0.0, 0.0]);
+const LIP: BoxSpec = BoxSpec::new([-4.0, 6.0, -4.0], [8.0, 2.0, 8.0], [0.0, 13.0]);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BellAttachment {
@@ -42,21 +46,40 @@ impl BellAttachment {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BellModel {
     pub attachment: BellAttachment,
-    /// Bedrock `direction` state; odd values run the frame bar along Z.
-    pub direction: u8,
+    /// Native direction the last ring struck from: 0 south, 1 west, 2 north, 3 east.
+    pub ring_direction: u8,
     /// Seconds since the last ring cue; large values mean at rest.
     pub seconds_since_ring: f32,
 }
 
-/// Swing angle in degrees `seconds` after a ring: a decaying sine.
+/// Swing angle in radians `seconds` after a ring. It stops once the ring's ticks run out, and
+/// advances two animation ticks per game tick with the partial tick added on top.
 #[must_use]
-pub fn swing_degrees(seconds: f32) -> f32 {
+pub fn swing_radians(seconds: f32) -> f32 {
     if !seconds.is_finite() || seconds < 0.0 {
         return 0.0;
     }
-    SWING_DEGREES
-        * (-seconds / SWING_DECAY_SECONDS).exp()
-        * (std::f32::consts::TAU * SWING_HERTZ * seconds).sin()
+    let game_ticks = seconds * GAME_TICKS_PER_SECOND;
+    let whole_ticks = game_ticks as u32;
+    let ticks = whole_ticks.saturating_mul(SWING_TICKS_PER_GAME_TICK);
+    if ticks >= SWING_END_TICK {
+        return 0.0;
+    }
+    let time = ticks as f32 + game_ticks.fract();
+    (time / PI).sin() / (time / 3.0 + 4.0)
+}
+
+/// The body's tilt for a ring from `ring_direction`: east-west strikes tilt about Z and
+/// north-south strikes about X, with the far pair turning the other way.
+fn swing_matrix(ring_direction: u8, seconds: f32) -> Mat4 {
+    let angle = swing_radians(seconds);
+    match ring_direction {
+        0 => Mat4::from_rotation_x(angle),
+        1 => Mat4::from_rotation_z(angle),
+        2 => Mat4::from_rotation_x(-angle),
+        3 => Mat4::from_rotation_z(-angle),
+        _ => Mat4::IDENTITY,
+    }
 }
 
 pub(super) fn emit(
@@ -65,83 +88,23 @@ pub(super) fn emit(
     block: [i32; 3],
     model: &BellModel,
 ) {
-    // Frame bar axis: X for even directions, Z for odd; the model turns a quarter for Z.
-    let yaw = if model.direction.is_multiple_of(2) {
-        0.0
-    } else {
-        90.0
-    };
-    let base = model_matrix(block, [0.5, 0.0, 0.5], yaw);
-    emit_frame(builder, atlas, base, model.attachment);
     let Some(texture) = atlas.texture(
         assets::block_entity_geometry::textures::AtlasTexture::EntityBellBell.path(),
         [32.0, 32.0],
     ) else {
         return;
     };
-    // The body swings about the bar, so it tilts in the plane across the bar.
-    let pivot = Vec3::new(0.0, PIVOT_HEIGHT, 0.0);
-    let swing = base
-        * Mat4::from_translation(pivot)
-        * Mat4::from_rotation_x(swing_degrees(model.seconds_since_ring).to_radians())
-        * Mat4::from_translation(-pivot);
-    builder.cuboid(
-        Layer::Solid,
-        &texture,
-        swing,
-        BoxSpec::new([-3.0, 6.0, -3.0], [6.0, 7.0, 6.0], [0.0, 0.0]),
-        WHITE,
-    );
-    builder.cuboid(
-        Layer::Solid,
-        &texture,
-        swing,
-        BoxSpec::new([-4.0, 4.0, -4.0], [8.0, 2.0, 8.0], [0.0, 13.0]),
-        WHITE,
-    );
-}
-
-fn emit_frame(
-    builder: &mut MeshBuilder,
-    atlas: &BlockEntityAtlas,
-    base: Mat4,
-    attachment: BellAttachment,
-) {
-    let (Some(side), Some(top), Some(bottom)) = (
-        atlas.texture(
-            assets::block_entity_geometry::textures::AtlasTexture::BlocksBellSide.path(),
-            [16.0, 16.0],
-        ),
-        atlas.texture(
-            assets::block_entity_geometry::textures::AtlasTexture::BlocksBellTop.path(),
-            [16.0, 16.0],
-        ),
-        atlas.texture(
-            assets::block_entity_geometry::textures::AtlasTexture::BlocksBellBottom.path(),
-            [16.0, 16.0],
-        ),
-    ) else {
-        return;
+    let height = if model.attachment == BellAttachment::Standing {
+        STANDING_PIVOT_HEIGHT
+    } else {
+        PIVOT_HEIGHT
     };
-    let rects = [
-        side.rect,
-        side.rect,
-        bottom.rect,
-        top.rect,
-        side.rect,
-        side.rect,
-    ];
-    // Boxes as `[min, max]` in pixels about the block center, bar along X.
-    let bar = |from: f32, to: f32| [[from, 13.0, -1.0], [to, 15.0, 1.0]];
-    let post = |x: f32| [[x, 0.0, -1.0], [x + 2.0, 13.0, 1.0]];
-    let boxes: Vec<[[f32; 3]; 2]> = match attachment {
-        BellAttachment::Standing => vec![bar(-8.0, 8.0), post(-8.0), post(6.0)],
-        BellAttachment::Hanging => vec![[[-1.0, 13.0, -1.0], [1.0, 16.0, 1.0]]],
-        BellAttachment::Side => vec![bar(-8.0, 1.0)],
-        BellAttachment::Multiple => vec![bar(-8.0, 8.0)],
-    };
-    for [min, max] in boxes {
-        builder.tile_cuboid(Layer::Solid, base, min, max, rects, WHITE);
+    let pivot = Vec3::from_array(block.map(|axis| axis as f32)) + Vec3::new(0.5, height, 0.5);
+    let matrix = Mat4::from_translation(pivot)
+        * swing_matrix(model.ring_direction, model.seconds_since_ring)
+        * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
+    for part in [BODY, LIP] {
+        builder.legacy_cuboid(Layer::Solid, &texture, matrix, part, WHITE);
     }
 }
 
@@ -149,18 +112,170 @@ fn emit_frame(
 mod tests {
     use super::*;
 
+    /// A one-texture atlas holding the bell's art.
+    fn atlas() -> BlockEntityAtlas {
+        let placement = assets::BlockEntityPlacement {
+            name: assets::block_entity_geometry::textures::AtlasTexture::EntityBellBell
+                .path()
+                .into(),
+            x: 0,
+            y: 0,
+            width: 32,
+            height: 32,
+        };
+        let encoded = assets::encode_block_entity_catalog(
+            b"{}",
+            32,
+            32,
+            &vec![255; 32 * 32 * 4],
+            &[placement],
+        )
+        .unwrap();
+        BlockEntityAtlas::from_assets(&assets::RuntimeBlockEntityAssets::decode(&encoded).unwrap())
+    }
+
+    /// The Y range of the emitted body in pixels above the block's base.
+    fn height_range(attachment: BellAttachment) -> (f32, f32) {
+        let atlas = atlas();
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &BellModel {
+                attachment,
+                ring_direction: 0,
+                seconds_since_ring: f32::INFINITY,
+            },
+        );
+        builder
+            .solid
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(low, high), vertex| {
+                let y = vertex.position[1] * 16.0;
+                (low.min(y), high.max(y))
+            })
+    }
+
     #[test]
-    fn swing_starts_at_rest_decays_and_ignores_bad_times() {
-        assert_eq!(swing_degrees(0.0), 0.0);
-        let early = (0..100)
-            .map(|step| swing_degrees(step as f32 * 0.01).abs())
-            .fold(0.0, f32::max);
-        let late = (0..100)
-            .map(|step| swing_degrees(4.0 + step as f32 * 0.01).abs())
-            .fold(0.0, f32::max);
-        assert!(early > 10.0 && late < 1.0);
-        assert_eq!(swing_degrees(f32::NAN), 0.0);
-        assert_eq!(swing_degrees(-1.0), 0.0);
+    fn a_standing_body_hangs_under_its_lower_bar() {
+        let (low, high) = height_range(BellAttachment::Standing);
+        assert!((low - 1.024).abs() < 1.0e-3, "lip rim at {low}");
+        assert!((high - 10.024).abs() < 1.0e-3, "crown at {high}");
+    }
+
+    #[test]
+    fn other_mountings_hang_the_body_from_the_high_bar() {
+        for attachment in [
+            BellAttachment::Hanging,
+            BellAttachment::Side,
+            BellAttachment::Multiple,
+        ] {
+            let (low, high) = height_range(attachment);
+            assert!((low - 4.0).abs() < 1.0e-3, "lip rim at {low}");
+            assert!((high - 13.0).abs() < 1.0e-3, "crown at {high}");
+        }
+    }
+
+    #[test]
+    fn the_crown_and_rim_read_and_shade_as_their_drawn_sides() {
+        let atlas = atlas();
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &BellModel {
+                attachment: BellAttachment::Hanging,
+                ring_direction: 0,
+                seconds_since_ring: f32::INFINITY,
+            },
+        );
+        // Each quad is two triangles; the crown lies flat at the body's top, the rim's
+        // underside at the lip's bottom.
+        let flat_at = |pixels: f32| -> Vec<_> {
+            builder
+                .solid
+                .chunks(6)
+                .filter(|quad| {
+                    quad.iter()
+                        .all(|vertex| (vertex.position[1] - pixels / 16.0).abs() < 1.0e-4)
+                })
+                .flatten()
+                .collect()
+        };
+        let crown = flat_at(13.0);
+        let underside = flat_at(4.0);
+        assert_eq!(crown.len(), 6, "one crown quad");
+        assert_eq!(underside.len(), 6, "one rim underside quad");
+        assert!(
+            crown[0].color[0] > underside[0].color[0],
+            "the crown takes the top shade and the underside the bottom shade"
+        );
+        let min_u = crown
+            .iter()
+            .map(|vertex| vertex.uv[0] * atlas.size()[0] as f32)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            (min_u - 12.0).abs() < 1.0e-3,
+            "the crown reads the box's down region, starting at u 12, got {min_u}"
+        );
+    }
+
+    #[test]
+    fn the_body_sides_start_their_art_at_the_rim() {
+        let atlas = atlas();
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &BellModel {
+                attachment: BellAttachment::Hanging,
+                ring_direction: 0,
+                seconds_since_ring: f32::INFINITY,
+            },
+        );
+        // A body side spans the body's full height, 6 to 13 pixels; its art covers rows 6 to 13.
+        let sides: Vec<_> = builder
+            .solid
+            .chunks(6)
+            .filter(|quad| {
+                let (low, high) = quad
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(low, high), vertex| {
+                        let y = vertex.position[1] * 16.0;
+                        (low.min(y), high.max(y))
+                    });
+                (low - 6.0).abs() < 1.0e-3 && (high - 13.0).abs() < 1.0e-3
+            })
+            .collect();
+        assert_eq!(sides.len(), 4, "four body sides");
+        for vertex in sides.into_iter().flatten() {
+            let y = vertex.position[1] * 16.0;
+            let v = vertex.uv[1] * atlas.size()[1] as f32;
+            assert!((v - y).abs() < 1.0e-3, "row {v} drawn at height {y}");
+        }
+    }
+
+    #[test]
+    fn the_swing_follows_the_ring_tick_curve_and_ends_on_time() {
+        assert_eq!(swing_radians(0.0), 0.0);
+        let expected = (8.0_f32 / PI).sin() / (8.0 / 3.0 + 4.0);
+        assert!((swing_radians(0.2) - expected).abs() < 1.0e-5);
+        assert_eq!(swing_radians(1.25), 0.0);
+        assert_eq!(swing_radians(f32::NAN), 0.0);
+        assert_eq!(swing_radians(-1.0), 0.0);
+    }
+
+    #[test]
+    fn rings_tilt_about_the_axis_across_their_strike() {
+        let top = Vec3::Y;
+        let shifted = |direction| swing_matrix(direction, 0.2).transform_vector3(top);
+        assert!(shifted(0).z.abs() > 0.05 && shifted(0).x.abs() < 1.0e-6);
+        assert!(shifted(1).x.abs() > 0.05 && shifted(1).z.abs() < 1.0e-6);
+        assert!((shifted(0).z + shifted(2).z).abs() < 1.0e-6);
+        assert!((shifted(1).x + shifted(3).x).abs() < 1.0e-6);
     }
 
     #[test]

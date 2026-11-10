@@ -17,9 +17,10 @@ pub(super) fn model(
     {
         return None;
     }
-    let (materials, mut vertices) = template_quads(&quads(
-        BlockFace::ALL.map(|face| block.face(face).material_id()),
-    ))?;
+    let (materials, mut vertices) = template_quads(
+        &quads(BlockFace::ALL.map(|face| block.face(face).material_id())),
+        false,
+    )?;
     for vertex in &mut vertices {
         vertex.back_uv = crate::ONE_SIDED_BACK_UV;
     }

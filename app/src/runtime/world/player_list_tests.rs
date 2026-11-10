@@ -47,10 +47,10 @@ fn player_list_marker_refreshes_known_names_without_a_ui_event() {
     refresh_player_list_cache_for_controls(&stream, &mut ui, &controls);
     assert_eq!(ui.known_player_names(), [Arc::<str>::from("Alex")]);
     assert_eq!(
-        ui.player_roster.xuids().collect::<Vec<_>>(),
+        ui.session.player_roster.xuids().collect::<Vec<_>>(),
         ["2535400000000007"]
     );
-    assert!(ui.player_roster.rows()[0].skin.is_none());
+    assert!(ui.session.player_roster.rows()[0].skin.is_none());
     let skin = render_api::StandardSkin {
         width: 64,
         height: 64,
@@ -73,5 +73,5 @@ fn player_list_marker_refreshes_known_names_without_a_ui_event() {
         vec![CommittedControlEvent::PlayerListChanged { sequence: 2 }]
     );
     refresh_player_list_cache_for_controls(&stream, &mut ui, &controls);
-    assert_eq!(ui.player_roster.rows()[0].skin, Some(skin));
+    assert_eq!(ui.session.player_roster.rows()[0].skin, Some(skin));
 }

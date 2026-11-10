@@ -22,7 +22,7 @@ impl PhysicalControls {
         self.left_held = false;
         self.held_keys.clear();
         self.held_seeded = false;
-        self.packet_pointer_active = false;
+        self.panel_pointer_active = false;
     }
 
     /// Adopts keys already down at attachment as held, without producing press edges.
@@ -37,16 +37,24 @@ impl PhysicalControls {
 
     /// Tracks held keys from events, since reserved keys are reset out of the shared input state.
     pub(super) fn track_held(&mut self, key: String, pressed: bool) {
-        let index = self.held_keys.iter().position(|held| *held == key);
-        match (pressed, index) {
-            (true, None) if self.held_keys.len() < mod_api::MAX_CONTROL_KEYS => {
-                self.held_keys.push(key);
-            }
-            (false, Some(index)) => {
-                self.held_keys.swap_remove(index);
+        // Keep the complete physical set so keys beyond the wire cap become visible
+        // when earlier keys release, without waiting for another press.
+        match (pressed, self.held_keys.binary_search(&key)) {
+            (true, Err(index)) => self.held_keys.insert(index, key),
+            (false, Ok(index)) => {
+                self.held_keys.remove(index);
             }
             _ => {}
         }
+    }
+
+    /// Projects the stable physical-name order under the shared wire cap.
+    pub(super) fn held_sample(&self) -> Vec<String> {
+        self.held_keys
+            .iter()
+            .take(mod_api::MAX_CONTROL_KEYS)
+            .cloned()
+            .collect()
     }
 
     /// Observes same-window pointer edges without consuming ordinary gameplay buttons.
@@ -114,8 +122,8 @@ impl PhysicalControls {
         restore
     }
 
-    /// Tracks accepted packet-panel gestures, separating interruption from a normal release.
-    pub(super) fn packet_pointer_sample(
+    /// Tracks accepted focused panel gestures, separating interruption from a normal release.
+    pub(super) fn focused_pointer_sample(
         &mut self,
         open: bool,
         focused: bool,
@@ -124,10 +132,10 @@ impl PhysicalControls {
         pressed: bool,
     ) -> (bool, bool) {
         let accepting = open && focused && !absorbed && cursor;
-        let cancelled = self.packet_pointer_active && !accepting;
-        self.packet_pointer_active =
-            accepting && self.left_held && (self.packet_pointer_active || pressed);
-        (self.packet_pointer_active, cancelled)
+        let cancelled = self.panel_pointer_active && !accepting;
+        self.panel_pointer_active =
+            accepting && self.left_held && (self.panel_pointer_active || pressed);
+        (self.panel_pointer_active, cancelled)
     }
 
     /// Reads Shift from the single physical key owner after UI-reserved keys were consumed.

@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use bedrock_protocol_1_26_51::packets;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_1_26_60::wire;
 use protocol::LoginSequence;
 
 const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";
@@ -251,7 +251,7 @@ fn assert_handed_off_fixture_packs(handoff: protocol::ResourcePackHandoff) {
         [
             (
                 "00112233-4455-6677-8899-aabbccddeeff".to_owned(),
-                b"fixture-content-key".to_vec()
+                b"\xfffixture-content-key\x80".to_vec()
             ),
             (
                 "11223344-5566-7788-99aa-bbccddeeff00".to_owned(),

@@ -103,7 +103,12 @@ impl Preparer for Fixture {
 
 /// Uses the Android install layout with temporary private roots on every test host.
 fn layout(data: &Dir) -> InstallLayout {
-    InstallLayout::android(data.path(), data.path().join("native/core.so")).with_prepared_assets()
+    InstallLayout::android(
+        data.path(),
+        data.path().join("native/core.so"),
+        data.path().join("native/worker.so"),
+    )
+    .with_prepared_assets()
 }
 
 /// Reads the status Android setup publishes for the current attempt.
@@ -129,10 +134,10 @@ fn attempt(
             consent_events.borrow_mut().push(Event::Consent);
             accept
         },
-        |line| {
+        |status: &Status| {
             progress_events
                 .borrow_mut()
-                .push(Event::Progress(line.to_owned()));
+                .push(Event::Progress(status.label.clone()));
         },
         fixture,
     )
@@ -140,7 +145,7 @@ fn attempt(
 
 /// Whether setup told the activity it could start the game.
 fn is_ready(event: &Event) -> bool {
-    matches!(event, Event::Progress(line) if line == &Status::ready().summary())
+    matches!(event, Event::Progress(line) if line == &Status::ready().label)
 }
 
 #[test]
@@ -323,11 +328,11 @@ fn cancelling_from_local_world_progress_does_not_start_the_stage() {
             &layout,
             &cancel,
             |_, _| true,
-            |line| {
-                if line == LOCAL_WORLDS_LABEL {
+            |status: &Status| {
+                if status.label == LOCAL_WORLDS_LABEL {
                     cancel.store(true, Ordering::Relaxed);
                 }
-                progress.push(Event::Progress(line.into()));
+                progress.push(Event::Progress(status.label.clone()));
             },
             &mut fixture,
         )

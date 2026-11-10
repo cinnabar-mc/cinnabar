@@ -74,6 +74,8 @@ pub(crate) mod harness;
 mod layer;
 #[path = "ui_render/model_depth.rs"]
 mod model_depth;
+#[path = "ui_render/models.rs"]
+mod models;
 #[path = "ui_render/overlay.rs"]
 pub(crate) mod overlay;
 #[path = "ui_render/pipeline.rs"]
@@ -225,6 +227,7 @@ pub(crate) struct UiGpu {
     vertex_arena_id: u64,
     index_arena_id: u64,
     viewport_buffer: Buffer,
+    models: models::UiModels,
     viewport_uploads: viewport::ViewportUploads,
     #[cfg(test)]
     geometry_writes: [usize; 2],
@@ -267,6 +270,13 @@ pub(crate) struct UiGpu {
 #[cfg(test)]
 #[path = "ui_render/geometry_tests.rs"]
 mod geometry_tests;
+
+#[cfg(test)]
+#[path = "ui_render/culled_model_tests.rs"]
+mod culled_model_tests;
+#[cfg(test)]
+#[path = "ui_render/masked_model_tests.rs"]
+mod masked_model_tests;
 
 #[cfg(test)]
 #[path = "ui_render/ordered_command_tests.rs"]

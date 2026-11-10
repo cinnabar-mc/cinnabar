@@ -2,10 +2,12 @@
 use super::*;
 
 mod cosmetic_particles;
+mod trims;
 use crate::test_support::fixture_hud;
 pub use cosmetic_particles::cosmetic_particle_preview;
 #[cfg(test)]
 pub(super) use cosmetic_particles::particle_fixture_assets;
+pub use trims::trim_gallery;
 use ui_engine::test_support::fixture_font;
 
 /// Checks installed geometry admission and diagnostic fallback without owning asset paths.
@@ -25,7 +27,7 @@ pub fn assert_installed_geometry(
         height: 32,
         rgba8: [31, 47, 59, 255].repeat(16 * 32).into(),
     };
-    presentation.set_gui_fire_texture(Some(&flame)).unwrap();
+    presentation.set_gui_fire_texture(Some(&flame));
     let icons = presentation.icon_catalog.as_deref().unwrap();
     for identifier in ["minecraft:dirt", "minecraft:grass_block"] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
@@ -40,10 +42,8 @@ pub fn assert_installed_geometry(
             .gui_models
             .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: identifier.into(),
-                metadata: 0,
-            })
+            .get(identifier)
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert_eq!(model.vertices.len(), 36);
@@ -57,10 +57,8 @@ pub fn assert_installed_geometry(
             .gui_models
             .sources
             .held
-            .get(&assets::ItemVisualKey {
-                identifier: "minecraft:shield".into(),
-                metadata: 0,
-            })
+            .get("minecraft:shield")
+            .and_then(|variants| variants.get(&0))
             .and_then(|held| held.model(icons))
             .unwrap();
         assert!(matches!(

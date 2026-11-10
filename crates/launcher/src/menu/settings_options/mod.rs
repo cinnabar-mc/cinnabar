@@ -8,6 +8,7 @@ pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
 pub mod graphics_api;
+mod input_placeholders;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
@@ -17,9 +18,10 @@ pub mod render_distance;
 pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
+pub mod touch_control_mode;
 pub mod touch_layout;
 pub mod video_presets;
-pub use chat::CHAT_POSITION_OPTION;
+pub use chat::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 pub use reset::SettingsGroup;
 #[cfg(test)]
 mod registry_tests;
@@ -30,9 +32,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub use bindings::{
-    BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS, SHADER_PACK_BINDINGS,
-};
+pub use bindings::{BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS};
 pub use command_macros::{
     COMMAND_MACRO_COUNT, MAX_COMMAND_MACRO_BYTES, macro_message, macro_row, macro_row_index,
     macro_title,
@@ -49,6 +49,7 @@ pub use definitions::{
     VIEW_BOBBING_CHOICES, VRR_CHOICES, VRR_OPTION, VSYNC_CHOICES,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
+pub use input_placeholders::ExpandedTextTooLarge;
 pub use keybindings::{
     DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
 };

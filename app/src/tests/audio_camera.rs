@@ -39,7 +39,7 @@ fn camera_app() -> App {
     }));
     let collisions = PhysicsCollisionRegistries::bind_coherent_assets(
         assets::pinned_block_registry_bytes(),
-        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../crates/assets/data/block-physics-v2225.bin"),
         Path::new("fixture.preg"),
         Path::new("fixture.mcbea"),
         assets::active_content_registry_protocol(),

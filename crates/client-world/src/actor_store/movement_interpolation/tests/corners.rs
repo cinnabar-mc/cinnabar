@@ -35,6 +35,7 @@ fn overlaps_corner(actor: &ActorSnapshot, feet: [f32; 3]) -> bool {
 fn remote_player_interpolation_can_cross_a_corner_between_clear_targets() {
     for reverse in [false, true] {
         let mut store = player(0.0);
+        store.advance_interpolation_ticks(1);
         let (mut start, mut target) = ([-0.31, 0.0, 0.5], [0.5, 0.0, -0.31]);
         if reverse {
             std::mem::swap(&mut start, &mut target);
@@ -67,6 +68,7 @@ fn remote_player_interpolation_can_cross_a_corner_between_clear_targets() {
 #[test]
 fn a_remote_teleport_discards_the_segment_crossing_a_corner() {
     let mut store = player(0.0);
+    store.advance_interpolation_ticks(1);
     let start = [-0.31, 0.0, 0.5];
     let target = [0.5, 0.0, -0.31];
     move_to(&mut store, 2, start, true);

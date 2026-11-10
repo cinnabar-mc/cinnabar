@@ -17,6 +17,6 @@ impl UiRuntime {
     pub(super) fn sample_crafting_observation(&self, player_runtime: &player_state::PlayerState) {
         player_runtime
             .inventory
-            .sample_crafting_observation(self.inventory_open);
+            .sample_crafting_observation(self.session.inventory_open);
     }
 }

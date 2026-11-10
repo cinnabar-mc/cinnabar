@@ -552,6 +552,7 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         template_id,
         rotation,
+        u32::MAX,
         surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
@@ -562,6 +563,7 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     template_id: u32,
     rotation: u32,
+    visible: u32,
     emitting_block: bool,
 ) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
@@ -578,28 +580,28 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     {
         return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
     }
-    Some(
-        quads
-            .iter()
-            .map(|quad| {
-                model_quad_face(*quad, rotation).map_or_else(
-                    || lighting_at(inputs.sample(block)),
-                    |face| {
-                        bake_quad_with(
-                            inputs,
-                            block,
-                            face,
-                            quad.positions.map(|position| {
-                                crate::overlays::turn_model_position(position, rotation)
-                            }),
-                            true,
-                            emitting_block,
-                        )
-                    },
-                )
-            })
-            .collect(),
-    )
+    let mut lighting: Vec<_> = quads
+        .iter()
+        .map(|quad| {
+            model_quad_face(*quad, rotation).map_or_else(
+                || lighting_at(inputs.sample(block)),
+                |face| {
+                    bake_quad_with(
+                        inputs,
+                        block,
+                        face,
+                        quad.positions.map(|position| {
+                            crate::overlays::turn_model_position(position, rotation)
+                        }),
+                        true,
+                        emitting_block,
+                    )
+                },
+            )
+        })
+        .collect();
+    detail::inherit_detail_lighting(quads, rotation, visible, &mut lighting);
+    Some(lighting)
 }
 
 /// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light
@@ -821,6 +823,9 @@ const fn rotate_face(mut face: Option<Face>, rotation: u32) -> Option<Face> {
         (other, _) => other,
     }
 }
+
+#[path = "lighting/detail.rs"]
+mod detail;
 
 #[cfg(test)]
 #[path = "lighting/flat_tests.rs"]

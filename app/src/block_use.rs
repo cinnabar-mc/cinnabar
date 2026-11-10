@@ -6,8 +6,8 @@
 //! use lives in `item_use`.
 
 use client_interaction::block_use::{
-    BlockUseRuntime, FramePick, held_block_store_id, predicted_placement, predicted_toggle,
-    verified_use_selection,
+    BlockUseRuntime, FramePick, held_block_store_id, paired_item_block, paired_item_fits,
+    predicted_placement, predicted_seed_planting, predicted_toggle, verified_use_selection,
 };
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -47,6 +47,7 @@ use gameplay::block_use::{LocalUse, RepeatClock, UseSurroundings, placement_cell
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
+    ordered: Option<Res<'w, crate::ordered_interactions::InteractionRuntime>>,
     frame: Res<'w, bevy::diagnostic::FrameCount>,
     origin: Res<'w, InteractionOriginSnapshot>,
     view: Res<'w, LocalViewPose>,
@@ -59,27 +60,33 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
+    /// Whether a waiting dismount holds this frame's ticks.
+    locomotion: Res<'w, client_interaction::movement::LocomotionState>,
     /// The level's sneaking dimensions size the player box that blocks placement.
     physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
-    audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
 }
 
 /// Drains physical interactions before physics, then evaluates the buffered held picks.
-pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+pub(crate) fn produce_block_use(
+    world: &mut bevy::prelude::World,
+    mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
+) {
+    // Block use is the frame's first reader of whether a tick runs; item use and movement
+    // follow, so all three see one decision.
+    crate::movement::decide_frame_ticks(world);
     if !world.contains_resource::<PhysicsCollisionRegistries>() {
         return;
     }
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
+        &mut windows,
     );
     if !crate::ordered_interactions::pending(world) {
-        world
-            .run_system_cached(maintain_block_use)
+        crate::ordered_interactions::run_cached(world, maintain_block_use, ())
             .expect("block maintenance resources");
     } else {
-        world
-            .run_system_cached(held::discard_tick_picks)
+        crate::ordered_interactions::run_cached(world, held::discard_tick_picks, ())
             .expect("block pick retirement resources");
     }
 }
@@ -92,6 +99,9 @@ pub(crate) use pick::retain_block_use_pick;
 
 mod target;
 use target::observe_use_target;
+
+mod press_target;
+pub(crate) use press_target::UsePressTarget;
 
 /// Sends the held-use stop action before dropping its successful-placement history.
 fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repress: bool) -> bool {
@@ -106,14 +116,14 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
-mod published_tests;
+pub(crate) mod published_tests;
 
 #[cfg(test)]
 mod startup_tests {
     #[test]
     fn input_maintenance_waits_for_deferred_world_resources() {
         let mut world = bevy::prelude::World::new();
-        super::produce_block_use(&mut world);
+        world.run_system_cached(super::produce_block_use).unwrap();
         assert!(!world.contains_resource::<crate::ordered_interactions::InteractionRuntime>());
     }
 }

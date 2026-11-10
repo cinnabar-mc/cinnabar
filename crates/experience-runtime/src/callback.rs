@@ -16,16 +16,16 @@ use crate::host::cinnabar::experience_server::types::{
 use crate::host::{HostState, LimitExceeded};
 use crate::limits::{
     CALLBACK_DEADLINE, CALLBACK_FUEL, MAX_BLOCK_DATA_BYTES, MAX_CLIENT_SEND_BYTES,
-    MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_NETWORK_BLOCKS, MAX_NETWORK_DATA_BYTES,
-    MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
+    MAX_CLIENT_SENDS, MAX_HOST_CALLS, MAX_STAGED_DATA_BYTES, MAX_STAGED_OPS, MAX_TELL_BYTES,
+    MAX_TELLS,
 };
 use crate::load::{Catalog, Loaded, holds};
 use crate::protocol::{
-    self, BlockPos, BlockState, Call, Cell, FailKind, Inventory, Network, Op, Outcome, Request,
-    Scalar, StateDef, StateValue, StateValues, bounded_reason,
+    self, BlockPos, BlockState, FailKind, Inventory, Network, Op, Outcome, Request, Scalar,
+    StateDef, StateValue, StateValues, bounded_reason,
 };
 use crate::value::{self, Refusal};
-use block_transform::overlay_face::MAX_CELL_OVERLAYS;
+use prepare::{player_id, prepare};
 
 /// The one block id outside its own namespace that an Experience may place.
 const AIR: &str = "minecraft:air";
@@ -102,6 +102,10 @@ pub struct CallbackRes {
     /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
     /// its anchor would have.
     focus: Option<BlockPos>,
+    /// Whether a break callback harvests, so that drops its blocks leave to the guest are due.
+    harvest: bool,
+    /// Whether this is an interaction, whose click the guest may pass on.
+    interact: bool,
     /// This Experience's blocks and items and the server's items.
     own: Arc<Catalog>,
     snapshot: Snapshot,
@@ -109,6 +113,8 @@ pub struct CallbackRes {
     network: Option<Network>,
     /// The actor's inventory with the staged slots applied; none without an actor.
     inventory: Option<Inventory>,
+    /// The containers in reach of the anchor and its network, with the staged slots applied.
+    containers: containers::Reachable,
     /// In the order they commit. A position has at most one `SetBlockData`, and it comes after
     /// any `SetBlock` there.
     ops: Vec<Op>,
@@ -150,7 +156,7 @@ enum Reach {
 }
 
 /// One snapshot cell. `owned` means it holds this Experience's block, which alone has data,
-/// states and overlays.
+/// states, overlays and redstone power.
 struct Slot {
     loaded: bool,
     id: String,
@@ -158,6 +164,8 @@ struct Slot {
     data: Option<Vec<u8>>,
     states: Vec<BlockState>,
     overlays: Vec<protocol::Overlay>,
+    /// The redstone power a redstone block receives.
+    power: u8,
 }
 
 /// The export a callback calls, with its arguments.
@@ -201,329 +209,6 @@ enum Export<'a> {
     ScheduledUpdate {
         pos: wit::BlockPos,
     },
-}
-
-/// The callback's host value and export for `request`, an Experience whose blocks are `own`.
-/// The anchor, whose chunk column bounds writes, is the call's position; a client message and an
-/// epoch have their player's focus, if any, and without one no snapshot. Hex is decoded and player ids are checked here, so a request
-/// that is not a callback, holds bad hex or a player id that is not canonical fails before
-/// anything runs.
-fn prepare<'a>(
-    own: &Arc<Catalog>,
-    request: &'a Request,
-) -> Result<(CallbackRes, Export<'a>), String> {
-    let Request::Callback {
-        info,
-        actor,
-        world_min_y,
-        world_max_y,
-        data_budget,
-        snapshot,
-        network,
-        inventory,
-        call,
-        ..
-    } = request
-    else {
-        return Err("not a callback".to_owned());
-    };
-    player_id("actor", actor.as_deref())?;
-    if let Some(context) = &info.context {
-        entities::check_context(own, context)?;
-    }
-    let mut focused = None;
-    let (anchor, export) = match call {
-        Call::Entity { handle, event } => {
-            if !snapshot.is_empty() {
-                return Err("entity observation has a block snapshot".into());
-            }
-            let principal = match event {
-                protocol::EntityEvent::Interact { player, .. }
-                | protocol::EntityEvent::Attacked { player, .. } => Some(player.as_str()),
-                protocol::EntityEvent::Mounted { rider }
-                | protocol::EntityEvent::Dismounted { rider } => Some(rider.player.as_str()),
-                protocol::EntityEvent::Steering { input } => Some(input.rider.player.as_str()),
-                protocol::EntityEvent::Despawned {} => None,
-            };
-            player_id("entity actor", principal)?;
-            if actor.as_deref() != principal {
-                return Err("entity actor differs from observation".into());
-            }
-            (
-                None,
-                Export::Entity {
-                    handle: (*handle).into(),
-                    event: entities::event(event.clone())?,
-                },
-            )
-        }
-        Call::Tick { step } | Call::Timer { step, .. } => {
-            if actor.is_some()
-                || !snapshot.is_empty()
-                || info.simulation.as_ref().is_none_or(|s| s.step != *step)
-            {
-                return Err(
-                    "simulation callback has unauthorized snapshot or inconsistent time".into(),
-                );
-            }
-            if let Call::Timer { handle, .. } = call
-                && (info
-                    .context
-                    .as_ref()
-                    .is_none_or(|c| c.current != handle.world)
-                    || info
-                        .simulation
-                        .as_ref()
-                        .is_none_or(|s| !s.schedules.contains(handle)))
-            {
-                return Err("scheduled callback has no active instance handle".into());
-            }
-            let export = match call {
-                Call::Timer { handle, .. } => Export::Timer {
-                    handle: handle.clone().into(),
-                    step: (*step).into(),
-                },
-                _ => Export::Tick((*step).into()),
-            };
-            (None, export)
-        }
-        Call::Player { player, event } => {
-            player_id("player", Some(player))?;
-            if !snapshot.is_empty() || actor.as_deref().is_some_and(|actor| actor != player) {
-                return Err("player observation has unauthorized snapshot or actor".into());
-            }
-            (
-                None,
-                Export::Player {
-                    player,
-                    event: event.clone().into(),
-                },
-            )
-        }
-        Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
-        Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
-        Call::Interact {
-            player,
-            pos,
-            face,
-            hit,
-        } => {
-            player_id("player", Some(player))?;
-            if let Some(hit) = hit
-                && ![hit.x, hit.y, hit.z]
-                    .iter()
-                    .all(|axis| (0.0..=16.0).contains(axis))
-            {
-                return Err(format!("click position {hit:?} is not within the cell"));
-            }
-            let target = hit.and_then(|hit| {
-                let anchor = snapshot.iter().find(|cell| cell.pos == *pos)?;
-                overlays::target(own, &anchor.overlays, hit)
-            });
-            let export = Export::Interact {
-                player,
-                pos: (*pos).into(),
-                face: (*face).into(),
-                hit: hit.map(Into::into),
-                target,
-            };
-            (Some(*pos), export)
-        }
-        Call::Neighbor { pos, neighbor } => (
-            Some(*pos),
-            Export::Neighbor {
-                pos: (*pos).into(),
-                neighbor: (*neighbor).into(),
-            },
-        ),
-        Call::ClientMessage {
-            player,
-            channel,
-            schema,
-            payload,
-            focus,
-        } => {
-            player_call(
-                "a client message",
-                player,
-                actor.as_deref(),
-                snapshot,
-                *focus,
-            )?;
-            if value::depth(payload) > MAX_VALUE_DEPTH {
-                let reason = format!("a client message nests values deeper than {MAX_VALUE_DEPTH}");
-                return Err(reason);
-            }
-            let export = Export::ClientMessage {
-                player,
-                channel,
-                schema: *schema,
-                payload,
-            };
-            focused = *focus;
-            (*focus, export)
-        }
-        Call::Epoch { player, focus } => {
-            player_call("an epoch", player, actor.as_deref(), snapshot, *focus)?;
-            focused = *focus;
-            (*focus, Export::Epoch { player })
-        }
-        Call::ScheduledUpdate { pos } => {
-            (Some(*pos), Export::ScheduledUpdate { pos: (*pos).into() })
-        }
-    };
-    let cells = snapshot
-        .iter()
-        .map(|cell| {
-            let data = decode(cell.data.as_deref())
-                .map_err(|error| format!("data of cell {:?}: {error}", cell.pos))?;
-            if !cell.overlays.is_empty() && !(cell.owned && own.overlay_hosts.contains(&cell.id)) {
-                return Err(format!(
-                    "cell {:?} has overlays but is not an overlay host of its own",
-                    cell.pos
-                ));
-            }
-            let slots = cell
-                .overlays
-                .iter()
-                .map(|overlay| usize::from(overlay.slot));
-            if !slots.is_sorted_by(|a, b| a < b)
-                || cell
-                    .overlays
-                    .last()
-                    .is_some_and(|overlay| usize::from(overlay.slot) >= MAX_CELL_OVERLAYS)
-            {
-                return Err(format!(
-                    "the overlays of cell {:?} are not in distinct slots in slot order",
-                    cell.pos
-                ));
-            }
-            let slot = Slot {
-                loaded: cell.loaded,
-                id: cell.id.clone(),
-                owned: cell.owned,
-                data,
-                states: cell.states.clone(),
-                overlays: cell.overlays.clone(),
-            };
-            Ok((cell.pos, slot))
-        })
-        .collect::<Result<HashMap<_, _>, String>>()?;
-    let members = match network {
-        Some(network) => members(network, &cells)?,
-        None => HashSet::new(),
-    };
-    if let Some(inventory) = inventory {
-        items::check_inventory(own, inventory, actor.as_deref())?;
-    }
-    let res = CallbackRes {
-        context: info.context.clone(),
-        simulation: info.simulation.clone(),
-        info: CallbackInfo {
-            world_id: info.world_id.clone(),
-            dimension_id: info.dimension_id.clone(),
-            tick: info.tick,
-            event_sequence: info.event_sequence,
-        },
-        actor: actor.clone(),
-        player_store: actor.is_some() || matches!(call, Call::Player { .. }),
-        focus: focused,
-        own: Arc::clone(own),
-        snapshot: Snapshot {
-            cells,
-            min_y: *world_min_y,
-            max_y: *world_max_y,
-            column: anchor.map(column),
-            members,
-        },
-        network: network.clone(),
-        inventory: inventory.clone(),
-        ops: Vec::new(),
-        spawned_entities: 0,
-        budget: *data_budget,
-        added: 0,
-        staged_data: 0,
-        host_calls: 0,
-        tells: 0,
-        client_sends: 0,
-        client_send_bytes: 0,
-    };
-    Ok((res, export))
-}
-
-/// The members of `network`, which the adapter builds from the snapshot's loaded own blocks
-/// within the network bounds; anything else is malformed.
-fn members(
-    network: &Network,
-    cells: &HashMap<BlockPos, Slot>,
-) -> Result<HashSet<BlockPos>, String> {
-    if network.blocks.len() > MAX_NETWORK_BLOCKS {
-        return Err(format!(
-            "the network has {} members; the limit is {MAX_NETWORK_BLOCKS}",
-            network.blocks.len()
-        ));
-    }
-    let mut data = 0;
-    for pos in &network.blocks {
-        let slot = cells
-            .get(pos)
-            .ok_or_else(|| format!("network member {pos:?} is not in the snapshot"))?;
-        if !slot.loaded || !slot.owned {
-            return Err(format!(
-                "network member {pos:?} is not a loaded block of its own"
-            ));
-        }
-        data += slot.data.as_ref().map_or(0, Vec::len);
-    }
-    if data > MAX_NETWORK_DATA_BYTES {
-        return Err(format!(
-            "the network holds {data} bytes of data; the limit is {MAX_NETWORK_DATA_BYTES}"
-        ));
-    }
-    Ok(network.blocks.iter().copied().collect())
-}
-
-fn block_change(change: &protocol::Change) -> Result<wit::BlockChange, String> {
-    player_id("change actor", change.actor.as_deref())?;
-    let previous_data = decode(change.previous_data.as_deref())
-        .map_err(|error| format!("previous data: {error}"))?;
-    Ok(wit::BlockChange {
-        pos: change.pos.into(),
-        actor: change.actor.clone(),
-        cause: change.cause.into(),
-        before_id: change.before_id.clone(),
-        after_id: change.after_id.clone(),
-        previous_data,
-    })
-}
-
-/// Refuses `id`, named `what`, when it is present but not a canonical player id.
-fn player_id(what: &str, id: Option<&str>) -> Result<(), String> {
-    match id {
-        Some(id) if !protocol::is_player_id(id) => Err(format!(
-            "{what} is not a canonical lowercase hyphenated UUID"
-        )),
-        _ => Ok(()),
-    }
-}
-
-/// Refuses `what`, a callback for `player` alone, unless `player` is canonical and the actor, and
-/// the snapshot is empty without a `focus`.
-fn player_call(
-    what: &str,
-    player: &str,
-    actor: Option<&str>,
-    snapshot: &[Cell],
-    focus: Option<BlockPos>,
-) -> Result<(), String> {
-    player_id("player", Some(player))?;
-    if actor != Some(player) {
-        return Err(format!("{what}'s actor is not its player"));
-    }
-    if focus.is_none() && !snapshot.is_empty() {
-        return Err(format!("{what} has a snapshot without a focus"));
-    }
-    Ok(())
 }
 
 fn decode(data: Option<&str>) -> Result<Option<Vec<u8>>, HexError> {
@@ -586,14 +271,31 @@ impl CallbackRes {
         Ok(self.focus)
     }
 
+    /// Stages passing this interaction's click on, once; only an interaction may.
+    pub(crate) fn pass_interaction(&mut self) -> Result<Result<(), WorldError>> {
+        self.host_call()?;
+        if !self.interact {
+            return Ok(Err(WorldError::Denied));
+        }
+        if !self
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::PassInteraction {}))
+        {
+            stage(&mut self.ops, Op::PassInteraction {})?;
+        }
+        Ok(Ok(()))
+    }
+
     pub(crate) fn get_block(&mut self, pos: BlockPos) -> Result<Result<String, WorldError>> {
         self.host_call()?;
         Ok(self.snapshot.read(pos).map(|slot| slot.id.clone()))
     }
 
-    /// Replaces air or an own block with air or an own block. The position loses its data and
-    /// states, so data and states staged for it are dropped; it is owned exactly when the new
-    /// block is this Experience's, which starts with its default states.
+    /// Replaces air or an own block with air or an own block. The position loses its data,
+    /// states, overlays and redstone power, so what is staged for them there is dropped; it is
+    /// owned exactly when the new block is this Experience's, which starts with its default
+    /// states.
     pub(crate) fn set_block(
         &mut self,
         pos: BlockPos,
@@ -620,6 +322,9 @@ impl CallbackRes {
             self.ops.remove(index);
         }
         if let Some(index) = overlays::overlay_op(&self.ops, pos) {
+            self.ops.remove(index);
+        }
+        if let Some(index) = redstone::redstone_op(&self.ops, pos) {
             self.ops.remove(index);
         }
         stage(
@@ -775,7 +480,8 @@ impl CallbackRes {
     }
 
     /// Stages `payload`, its values' pre-order nodes, for the event's actor's client part on
-    /// `channel`. Lists and records nest at most [`MAX_VALUE_DEPTH`] deep, and the callback's
+    /// `channel`. Lists and records nest at most
+    /// [`MAX_VALUE_DEPTH`](crate::limits::MAX_VALUE_DEPTH) deep, and the callback's
     /// channels and payloads may hold [`MAX_CLIENT_SEND_BYTES`] in all, else it is `too-large`; a
     /// header that counts more items than follow it traps, and so does the send past
     /// [`MAX_CLIENT_SENDS`]. Which channels the client part declares is the adapter's to check.
@@ -980,11 +686,14 @@ impl From<protocol::Cause> for ChangeCause {
     }
 }
 
+mod containers;
 mod craft;
 mod entities;
 mod invoke;
 mod items;
 mod overlays;
+mod prepare;
+mod redstone;
 #[cfg(test)]
 mod tests;
 

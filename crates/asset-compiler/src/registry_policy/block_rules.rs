@@ -326,16 +326,16 @@ fn components(source: &[BlockFact]) -> Result<&'static BTreeMap<String, BlockTra
 /// Combines all pinned name domains into one sorted vocabulary for compiler guards.
 pub(super) fn vocabulary(root: &std::path::Path, blocks: &[BlockFact]) -> Result<Vec<u8>> {
     let mut names: BTreeSet<_> = blocks.iter().map(|b| b.name.clone()).collect();
-    for row in include_str!("../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+    for row in include_str!("../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv").lines() {
         let (domain, name) = row.split_once('\t').ok_or("invalid pack vocabulary row")?;
         if matches!(domain, "block" | "item" | "actor" | "property") {
             names.insert(name.to_owned());
         }
     }
     for path in [
-        "crates/protocol/data/retail_items_1_26_50.tsv",
-        "crates/protocol/data/retail_actors_1_26_50.txt",
-        "crates/protocol/data/retail_biomes_1_26_50.txt",
+        "crates/protocol/data/retail_items_1_26_60.tsv",
+        "crates/protocol/data/retail_actors_1_26_60.txt",
+        "crates/protocol/data/retail_biomes_1_26_60.txt",
     ] {
         for row in std::fs::read_to_string(root.join(path))?.lines() {
             names.insert(
