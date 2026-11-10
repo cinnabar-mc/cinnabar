@@ -8,12 +8,44 @@ use client_shell::physical_input::{keyboard_usage, mouse_button_code};
 use launcher::menu::settings_options::{SettingsOptions, key_name};
 use semantic_input::PhysicalControl;
 
+/// An action run by pressing its suffix key while the debug key is held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DebugChord {
+    ReloadChunks,
+    ClearChat,
+    ChunkBorders,
+    Help,
+}
+
+/// Each chord's suffix key and help text, in help order; detection and help both read it.
+const CHORDS: [(DebugChord, KeyCode, &str); 4] = [
+    (DebugChord::ReloadChunks, KeyCode::KeyA, "Reload chunks"),
+    (DebugChord::ClearChat, KeyCode::KeyD, "Clear chat"),
+    (
+        DebugChord::ChunkBorders,
+        KeyCode::KeyG,
+        "Show chunk borders",
+    ),
+    (DebugChord::Help, KeyCode::KeyQ, "Show this help list"),
+];
+
+/// The chords pressed this frame, one bit per `CHORDS` row.
 #[derive(Clone, Copy, Default)]
-pub(super) struct DebugChords {
-    pub chunk_borders: bool,
-    pub reload_chunks: bool,
-    pub clear_chat: bool,
-    pub help: bool,
+pub(super) struct DebugChords(u8);
+
+impl DebugChords {
+    pub(super) const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Yields each pressed chord with its suffix key, in help order.
+    pub(super) fn iter(self) -> impl Iterator<Item = (DebugChord, KeyCode)> {
+        CHORDS
+            .iter()
+            .enumerate()
+            .filter(move |(row, _)| self.0 & (1 << row) != 0)
+            .map(|(_, (chord, key, _))| (*chord, *key))
+    }
 }
 
 pub(super) struct DebugBindings {
@@ -94,19 +126,29 @@ impl DebugBindings {
         keys: &mut ButtonInput<KeyCode>,
         mouse: Option<&ButtonInput<MouseButton>>,
     ) -> DebugChords {
+        let mut chords = DebugChords::default();
         if !self.is_down(keys, mouse) {
-            return DebugChords::default();
+            return chords;
         }
-        let mut take = |key| {
-            self.control != keyboard_usage(key).map(PhysicalControl::KeyboardUsage)
-                && keys.clear_just_pressed(key)
-        };
-        DebugChords {
-            chunk_borders: take(KeyCode::KeyG),
-            reload_chunks: take(KeyCode::KeyA),
-            clear_chat: take(KeyCode::KeyD),
-            help: take(KeyCode::KeyQ),
+        for (row, (_, key, _)) in CHORDS.iter().enumerate() {
+            if self.control != keyboard_usage(*key).map(PhysicalControl::KeyboardUsage)
+                && keys.clear_just_pressed(*key)
+            {
+                chords.0 |= 1 << row;
+            }
         }
+        chords
+    }
+
+    /// Formats one help row per chord, naming the configured debug key.
+    pub(super) fn chord_help(&self) -> impl Iterator<Item = String> {
+        let modifier = self.control.map(key_name).unwrap_or_default();
+        CHORDS.iter().map(move |(_, key, help)| {
+            let suffix = keyboard_usage(*key)
+                .map(|usage| key_name(PhysicalControl::KeyboardUsage(usage)))
+                .unwrap_or_default();
+            format!("[Debug] {modifier} + {suffix} = {help}")
+        })
     }
 
     /// Returns the help row already formatted for the current bindings.

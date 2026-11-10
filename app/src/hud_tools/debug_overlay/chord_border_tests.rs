@@ -190,8 +190,8 @@ fn debug_help_does_not_drop_the_held_stack() {
     }
 }
 
-#[test]
-fn debug_modifier_remapped_to_a_suffix_still_toggles_overlay() {
+/// Binds the debug overlay to `key` through the Controls settings.
+fn remap_debug_key(app: &mut App, key: KeyCode) {
     use launcher::menu::settings_options::{DEBUG_OVERLAY_KEY, EXTRA_KEYS, KEY_BINDINGS};
 
     let row = KEY_BINDINGS.len()
@@ -199,17 +199,20 @@ fn debug_modifier_remapped_to_a_suffix_still_toggles_overlay() {
             .iter()
             .position(|(name, _)| *name == DEBUG_OVERLAY_KEY)
             .unwrap();
+    let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Player".into());
+    assert!(client_shell::menu::test_support::remap_control(
+        &mut menu,
+        row,
+        semantic_input::PhysicalControl::KeyboardUsage(keyboard_usage(key).unwrap()),
+    ));
+    app.insert_resource(menu);
+}
+
+#[test]
+fn debug_modifier_remapped_to_a_suffix_still_toggles_overlay() {
     for key in [KeyCode::KeyG, KeyCode::KeyA, KeyCode::KeyD, KeyCode::KeyQ] {
         let mut app = overlay_app();
-        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Player".into());
-        assert!(client_shell::menu::test_support::remap_control(
-            &mut menu,
-            row,
-            semantic_input::PhysicalControl::KeyboardUsage(
-                client_shell::physical_input::keyboard_usage(key).unwrap()
-            ),
-        ));
-        app.insert_resource(menu);
+        remap_debug_key(&mut app, key);
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(key);
@@ -251,6 +254,94 @@ fn debug_modifier_remapped_to_a_suffix_still_toggles_overlay() {
             "second {key:?}"
         );
     }
+}
+
+/// Held chord keys stay out of gameplay movement until released, so F3+A does not strafe.
+#[test]
+fn chord_keys_do_not_move_the_player_until_released() {
+    use crate::semantic_controls::SemanticInputRuntime;
+    use semantic_input::{ButtonEdges, DeviceFrame, KeyboardMouseFrame};
+
+    let mut app = overlay_app();
+    app.init_resource::<SemanticInputRuntime>();
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::F3);
+        keys.press(KeyCode::KeyA);
+    }
+    app.update();
+    let [a, f3] = [KeyCode::KeyA, KeyCode::F3].map(|key| keyboard_usage(key).unwrap());
+    let mut semantic = app.world_mut().resource_mut::<SemanticInputRuntime>();
+    let mut movement = |keys: Vec<u16>| {
+        let pressed = keys.clone();
+        semantic
+            .route_and_finalize(DeviceFrame {
+                keyboard_mouse: Some(KeyboardMouseFrame {
+                    keys,
+                    key_edges: ButtonEdges {
+                        pressed,
+                        released: Vec::new(),
+                    },
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap()
+            .movement
+    };
+    assert_eq!(movement(vec![a, f3]), [0.0; 2]);
+    movement(Vec::new());
+    assert_ne!(movement(vec![a]), [0.0; 2]);
+}
+
+/// Chord letters typed into a focused chat box stay text and run nothing.
+#[test]
+fn chords_wait_while_a_text_box_has_focus() {
+    let mut app = overlay_app();
+    let mut player = player_state::PlayerState::new(1);
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .open_chat(&mut player);
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::F3);
+        keys.press(KeyCode::KeyG);
+    }
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<DebugOverlayState>()
+            .show_chunk_borders
+    );
+    assert!(
+        app.world()
+            .resource::<ButtonInput<KeyCode>>()
+            .just_pressed(KeyCode::KeyG)
+    );
+}
+
+/// The help list names the debug key the player bound rather than the default one.
+#[test]
+fn chord_help_names_the_bound_debug_key() {
+    let mut app = overlay_app();
+    remap_debug_key(&mut app, KeyCode::F4);
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::F4);
+        keys.press(KeyCode::KeyQ);
+    }
+    app.update();
+    let messages = app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .chat()
+        .messages();
+    assert!(!messages.is_empty());
+    assert!(
+        messages
+            .iter()
+            .all(|line| line.message.starts_with("[Debug] F4 + ")),
+    );
 }
 
 /// Installs a session with an advertised range and enables borders at the supplied feet.
