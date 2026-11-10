@@ -394,6 +394,36 @@ fn descendant<'a>(
 }
 
 #[test]
+fn popups_create_their_own_named_item_text_controls() {
+    let mut popups = model();
+    popups.item_name = Some(Timed {
+        text: "Dirt".into(),
+        born: 0.0,
+    });
+    popups.popup = Some(Timed {
+        text: "\nPopup".into(),
+        born: 0.0,
+    });
+    popups.jukebox_popup = Some(Timed {
+        text: "Jukebox\n".into(),
+        born: 0.0,
+    });
+    let Some(render) = render_full(&popups, true) else {
+        return;
+    };
+    assert!(
+        descendant(&render.bound, "item_name_text").is_none(),
+        "the popup takes the item-text field"
+    );
+    for name in ["popup_item_text", "popup_jukebox_text"] {
+        assert!(descendant(&render.bound, name).is_some(), "missing {name}");
+    }
+    let popup = text_node(&render.nodes, "\nPopup");
+    let jukebox = text_node(&render.nodes, "Jukebox\n");
+    assert!(popup.dest.h > 0.0 && popup.dest.h == jukebox.dest.h);
+}
+
+#[test]
 fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     let mut item = model();
     item.item_name = Some(Timed {

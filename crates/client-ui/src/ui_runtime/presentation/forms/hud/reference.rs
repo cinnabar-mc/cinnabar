@@ -92,6 +92,15 @@ pub(super) fn hud_model(
             text: bounded_visible_text(name).to_owned(),
             born: seconds(changed),
         });
+    let popups = popups_allowed(mode);
+    let popup = visible(runtime.hud().popup(), now)
+        .filter(|_| popups)
+        .filter(|text| {
+            runtime
+                .selected_item_changed_millis()
+                .is_none_or(|changed| text.started_millis >= changed)
+        })
+        .map(timed);
     let chat_visible = !runtime.chat_focused() && !runtime.inventory_open();
     let horizon = seconds(now) - settings.chat_lifetime() - 1.0;
     let messages = runtime.chat().messages();
@@ -154,7 +163,11 @@ pub(super) fn hud_model(
             .actionbar_request()
             .map(|text| text.fifo_sequence),
         tip: visible(runtime.hud().tip(), now).map(timed),
-        item_name,
+        item_name: item_name.filter(|_| popup.is_none()),
+        popup,
+        jukebox_popup: visible(runtime.hud().jukebox_popup(), now)
+            .filter(|_| popups)
+            .map(timed),
         chat,
         chat_visible,
         chat_color: ui_screens::settings_chat::default_color(settings),

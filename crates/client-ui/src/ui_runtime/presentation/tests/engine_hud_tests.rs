@@ -24,6 +24,7 @@ mod long_chat;
 mod menu_crosshair;
 mod offhand;
 mod pack_snapshots;
+mod popups;
 mod retained_paint;
 
 pub use crate::test_support::{engine_presentation, engine_presentation_with};

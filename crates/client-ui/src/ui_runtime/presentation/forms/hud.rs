@@ -53,6 +53,11 @@ const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
 
+/// Whether server popups may show: spectators never see them, and a mode not yet known allows them.
+fn popups_allowed(mode: Option<protocol::PlayerGameMode>) -> bool {
+    mode != Some(protocol::PlayerGameMode::Spectator)
+}
+
 /// Resolves the HUD screens of `catalog` under every HUD placement on the calling thread, and
 /// returns the textures their controls name.
 pub(in crate::ui_runtime::presentation) fn prepare(catalog: &Arc<Catalog>) -> BTreeSet<String> {

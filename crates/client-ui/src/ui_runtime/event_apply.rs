@@ -208,11 +208,11 @@ impl UiRuntime {
         fifo_sequence: u64,
         event_millis: u64,
     ) -> Result<UiApplyOutcome, UiRuntimeError> {
-        // A tip text rides its own `hud_tip_text` slot; a popup shares the
-        // action bar's, as both draw above the hotbar.
+        // Text-packet popup channels must not replace SetTitle's action bar.
         let slot = match event.kind {
             TextKind::Tip => HudStore::set_tip,
-            TextKind::Popup | TextKind::JukeboxPopup => HudStore::set_actionbar,
+            TextKind::Popup => HudStore::set_popup,
+            TextKind::JukeboxPopup => HudStore::set_jukebox_popup,
             TextKind::Chat
             | TextKind::Whisper
             | TextKind::Announcement

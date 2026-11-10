@@ -1301,6 +1301,16 @@ translation regressions and inspected CPU snapshots cover both paths; contributo
 gameplay captures show a previously truncated server guide footer in HUD chat.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
+Text-packet popups no longer replace SetTitle action bars. Ordinary popups use the
+item-text factory, while jukebox notifications keep their own text and factory clock.
+Both use the native two-line text and control names, and spectators do not see them.
+Empty selections keep popups dismissed after a newer item name supersedes them.
+Ordinary popups retain the existing HUD text budget.
+Clocked HUD controls recreate after a completed destruction animation when their request
+clock advances.
+The `ItemText` HUD element gate, the native popup background, matched native popup
+lifetime, selected-item precedence and simultaneous HUD-frame qualification remain
+incomplete.
 Action-bar controller inputs remain until explicit clear/reset so server controls
 without fade animations retain their text. Authored fade animations remain in control
 of visibility, and a new factory creation clock revives a previously destroyed control.
