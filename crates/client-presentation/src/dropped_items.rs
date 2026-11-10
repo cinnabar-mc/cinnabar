@@ -484,7 +484,8 @@ impl DroppedItemPublisher<'_, '_> {
         preparation: &DropPreparation<'_>,
     ) -> Option<preparation::PreparedDrop> {
         let view = preparation.view;
-        let identifier = view.item.identifier.as_deref()?;
+        let retained = view.item.identifier.as_ref()?;
+        let identifier: &str = retained;
         if identifier == assets::gui_item::SHIELD_IDENTIFIER
             && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
             && let Some((key, model)) = cache.shield_model(artwork)
@@ -518,7 +519,7 @@ impl DroppedItemPublisher<'_, '_> {
                     _ => icons.startup_item_icon(icon_identifier, variant),
                 }?;
                 if let Some(artwork) =
-                    icons.world_trim_artwork(identifier, icon, view.item.trim.as_ref(), true)
+                    icons.world_trim_artwork(retained, icon, view.item.trim.as_ref(), true)
                 {
                     let key = ModelKey::Trim(artwork.clone());
                     if let Some(prepared) =

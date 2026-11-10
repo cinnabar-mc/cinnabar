@@ -9,49 +9,95 @@ pub fn fit_rgba_within(
     limit: u32,
 ) -> Option<([u16; 2], Vec<u8>)> {
     let longest = u32::from(width.max(height));
-    let (width, height) = (usize::from(width), usize::from(height));
-    let layer = width * height * 4;
+    let layer = usize::from(width) * usize::from(height) * 4;
     if longest <= limit || limit == 0 || layer == 0 {
         return None;
     }
-    let factor = longest.div_ceil(limit).next_power_of_two() as usize;
-    let [out_width, out_height] =
-        fitted_dimensions(width as u16, height as u16, limit).map(usize::from);
+    let factor = reduction(width, height, limit);
+    let [out_width, out_height] = fitted_dimensions(width, height, limit).map(usize::from);
     let mut out = Vec::with_capacity(out_width * out_height * 4 * (rgba8.len() / layer));
     for layer in rgba8.chunks_exact(layer) {
         for y in 0..out_height {
             for x in 0..out_width {
-                let mut sum = [0u32; 4];
-                let mut count = 0;
-                for source_y in y * factor..((y + 1) * factor).min(height) {
-                    for source_x in x * factor..((x + 1) * factor).min(width) {
-                        let at = (source_y * width + source_x) * 4;
-                        for (total, value) in sum.iter_mut().zip(&layer[at..at + 4]) {
-                            *total += u32::from(*value);
-                        }
-                        count += 1;
-                    }
-                }
-                out.extend(sum.map(|total| (total / count) as u8));
+                out.extend(block_mean(
+                    width,
+                    height,
+                    factor,
+                    x,
+                    y,
+                    |source_x, source_y| {
+                        let at = (source_y * usize::from(width) + source_x) * 4;
+                        [layer[at], layer[at + 1], layer[at + 2], layer[at + 3]]
+                    },
+                ));
             }
         }
     }
     Some(([out_width as u16, out_height as u16], out))
 }
 
+/// One channel of the texel at `[x, y]` of [`fitted_dimensions`] that `fit_rgba_within` would
+/// produce, reading source texels through `sample`; artwork that fits is sampled unchanged.
+/// Lets callers measure a reduced image without building the source or the reduction.
+pub fn fitted_channel(
+    width: u16,
+    height: u16,
+    limit: u32,
+    x: usize,
+    y: usize,
+    sample: impl Fn(usize, usize) -> u8,
+) -> u8 {
+    let [channel] = block_mean(
+        width,
+        height,
+        reduction(width, height, limit),
+        x,
+        y,
+        |x, y| [sample(x, y)],
+    );
+    channel
+}
+
 /// The dimensions `fit_rgba_within` produces for `limit`; unchanged when they already fit.
-pub(crate) fn fitted_dimensions(width: u16, height: u16, limit: u32) -> [u16; 2] {
+pub fn fitted_dimensions(width: u16, height: u16, limit: u32) -> [u16; 2] {
+    let factor = reduction(width, height, limit) as u32;
+    [width, height].map(|side| u32::from(side).div_ceil(factor) as u16)
+}
+
+/// The power-of-two box size for `limit`, or 1 when the artwork already fits.
+fn reduction(width: u16, height: u16, limit: u32) -> usize {
     let longest = u32::from(width.max(height));
     if longest <= limit || limit == 0 {
-        return [width, height];
+        return 1;
     }
-    let factor = longest.div_ceil(limit).next_power_of_two();
-    [width, height].map(|side| u32::from(side).div_ceil(factor) as u16)
+    longest.div_ceil(limit).next_power_of_two() as usize
+}
+
+/// The per-channel truncated mean of `sample` over output texel `[x, y]`'s box, clipped at the
+/// edges; zero for a texel outside the reduced image.
+fn block_mean<const N: usize>(
+    width: u16,
+    height: u16,
+    factor: usize,
+    x: usize,
+    y: usize,
+    sample: impl Fn(usize, usize) -> [u8; N],
+) -> [u8; N] {
+    let (mut sum, mut count) = ([0u32; N], 0u32);
+    for source_y in y * factor..((y + 1) * factor).min(usize::from(height)) {
+        for source_x in x * factor..((x + 1) * factor).min(usize::from(width)) {
+            for (total, value) in sum.iter_mut().zip(sample(source_x, source_y)) {
+                *total += u32::from(value);
+            }
+            count += 1;
+        }
+    }
+    sum.map(|total| total.checked_div(count).unwrap_or(0) as u8)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::fit_rgba_within;
+    use super::{fit_rgba_within, fitted_channel, fitted_dimensions};
 
     #[test]
     fn oversized_art_halves_by_powers_of_two_and_averages_odd_edges() {
@@ -74,5 +120,28 @@ mod tests {
         assert!(fit_rgba_within(512, 512, &vec![0; 512 * 512 * 4], 512).is_none());
         assert!(fit_rgba_within(4, 4, &[0; 64], 0).is_none());
         assert!(fit_rgba_within(0, 4, &[], 2).is_none());
+    }
+
+    #[test]
+    fn fitted_channels_read_the_reduced_texels_in_place() {
+        let pixels = (0..5u8 * 3)
+            .flat_map(|texel| [texel * 7, texel, 255 - texel, texel * 3])
+            .collect::<Vec<_>>();
+        for limit in [2, 3, 5] {
+            let [width, height] = fitted_dimensions(5, 3, limit);
+            let reduced = fit_rgba_within(5, 3, &pixels, limit)
+                .map_or(pixels.clone(), |(_, reduced)| reduced);
+            for y in 0..usize::from(height) {
+                for x in 0..usize::from(width) {
+                    for channel in 0..4 {
+                        let read = fitted_channel(5, 3, limit, x, y, |sx, sy| {
+                            pixels[(sy * 5 + sx) * 4 + channel]
+                        });
+                        let at = (y * usize::from(width) + x) * 4 + channel;
+                        assert_eq!(read, reduced[at], "limit {limit}, texel {x},{y}");
+                    }
+                }
+            }
+        }
     }
 }

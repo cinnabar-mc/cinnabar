@@ -88,9 +88,33 @@ fn armor_material(identifier: &str) -> Option<Option<assets::facts::ArmourMateri
     )
 }
 
-/// Composes one trim over `base` from the active pack's masks and palettes, then the startup
-/// carrier's; `binding` supplies authored pattern and palette aliases. `None` for an item that
-/// is not trimmable armor or whose artwork is missing.
+/// Resolves one trim's masks and palettes from the active pack, then the startup carrier;
+/// `binding` supplies authored pattern and palette aliases. `None` for an item that is not
+/// trimmable armor or whose artwork is missing.
+pub(super) fn trim_layers<'a>(
+    startup: &'a assets::RuntimeEquipmentCatalog,
+    pack: Option<&'a assets::RuntimeEquipmentCatalog>,
+    binding: Option<&'a assets::EquipmentBinding>,
+    material: &str,
+    pattern: &str,
+    identifier: &str,
+    icon: bool,
+) -> Option<assets::item::trim::TrimLayers<'a>> {
+    assets::item::trim::layers(
+        armor_material(identifier)?,
+        material,
+        pattern,
+        assets::item::trim::armor_slot(identifier)?,
+        icon,
+        binding.map(|binding| &binding.resources),
+        |path| {
+            pack.and_then(|p| p.texture(path))
+                .or_else(|| startup.texture(path))
+        },
+    )
+}
+
+/// Composes one trim over `base` with the layers [`trim_layers`] resolves.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compose_trim(
     startup: &assets::RuntimeEquipmentCatalog,
@@ -102,20 +126,16 @@ pub(super) fn compose_trim(
     icon: bool,
     dye: Option<assets::item::trim::Dye>,
 ) -> Option<assets::EquipmentTexture> {
-    assets::item::trim::compose(
-        base,
-        armor_material(identifier)?,
+    trim_layers(
+        startup,
+        pack,
+        binding,
         &trim.material,
         &trim.pattern,
-        assets::item::trim::armor_slot(identifier)?,
+        identifier,
         icon,
-        dye,
-        binding.map(|binding| &binding.resources),
-        |path| {
-            pack.and_then(|p| p.texture(path))
-                .or_else(|| startup.texture(path))
-        },
-    )
+    )?
+    .compose(base, dye)
 }
 
 impl UiPresentationRuntime {

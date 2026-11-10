@@ -227,3 +227,58 @@ fn matching_material_palette_ignores_reskinned_texture_paths() {
         }
     }
 }
+
+#[test]
+fn measured_alpha_matches_composed_alpha_across_sizes() {
+    let base = image("base", 3, &[[9, 9, 9, 0], [9, 9, 9, 128], [9, 9, 9, 255]]);
+    let mask = EquipmentTexture {
+        identifier: "mask".into(),
+        width: 2,
+        height: 2,
+        rgba8: [
+            [100, 100, 100, 0],
+            [100, 100, 100, 64],
+            [100, 100, 100, 255],
+            [7, 7, 7, 200],
+        ]
+        .concat()
+        .into(),
+    };
+    let textures = BTreeMap::from([
+        ("textures/trims/items/chestplate_trim", mask),
+        (
+            "textures/trims/color_palettes/trim_palette",
+            image("palette", 1, &[[100, 100, 100, 255]]),
+        ),
+        (
+            "textures/trims/color_palettes/gold",
+            image("gold", 1, &[[240, 170, 20, 255]]),
+        ),
+    ]);
+    let layers = layers(
+        None,
+        "gold",
+        "",
+        ArmorSlot::Chestplate,
+        true,
+        None,
+        |path| textures.get(path),
+    )
+    .unwrap();
+    let composed = layers.compose(&base, None).unwrap();
+    let size = [base.width, base.height];
+    assert_eq!(layers.size(size), [composed.width, composed.height]);
+    assert_eq!([composed.width, composed.height], [3, 2]);
+    for y in 0..composed.height {
+        for x in 0..composed.width {
+            let measured = layers.alpha(
+                size,
+                |x, y| base.rgba8[(y * usize::from(base.width) + x) * 4 + 3],
+                x,
+                y,
+            );
+            let at = (usize::from(y) * usize::from(composed.width) + usize::from(x)) * 4 + 3;
+            assert_eq!(measured, composed.rgba8[at], "texel {x},{y}");
+        }
+    }
+}
