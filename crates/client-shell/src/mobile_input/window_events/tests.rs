@@ -101,10 +101,11 @@ fn keyboard_mouse_and_scroll_reach_both_streams_in_callback_order() {
 }
 
 #[test]
-fn unlocked_primary_click_uses_only_the_uikit_touch_route() {
+fn unlocked_primary_click_preserves_binding_state_and_ordered_form_input() {
     let (mut app, window) = app();
     let position = Vec2::new(120.0, 80.0);
     for (pressed, phase) in [(true, TouchPhase::Started), (false, TouchPhase::Ended)] {
+        // A real finger remains independent of the native mouse.
         app.world_mut().write_message(TouchInput {
             phase,
             position,
@@ -129,22 +130,26 @@ fn unlocked_primary_click_uses_only_the_uikit_touch_route() {
             touches.get_released(7)
         };
         assert_eq!(touch.unwrap().position(), position);
-        assert!(take::<MouseButtonInput>(&mut app).is_empty());
-        assert!(
-            take::<WindowEvent>(&mut app)
-                .iter()
-                .all(|event| !matches!(event, WindowEvent::MouseButtonInput(_)))
+        let button = MouseButtonInput {
+            button: MouseButton::Left,
+            state: button_state(pressed),
+            window,
+        };
+        assert_eq!(take::<MouseButtonInput>(&mut app), [button]);
+        let cursor = take::<CursorMoved>(&mut app);
+        assert_eq!(
+            take::<WindowEvent>(&mut app),
+            [cursor[0].clone().into(), button.into()]
         );
-        assert!(
-            !app.world()
-                .resource::<ButtonInput<MouseButton>>()
-                .pressed(MouseButton::Left)
-        );
+        let mouse = app.world().resource::<ButtonInput<MouseButton>>();
+        assert_eq!(mouse.pressed(MouseButton::Left), pressed);
+        assert_eq!(mouse.just_pressed(MouseButton::Left), pressed);
+        assert_eq!(mouse.just_released(MouseButton::Left), !pressed);
     }
 }
 
 #[test]
-fn primary_click_keeps_its_route_when_pointer_lock_changes_before_release() {
+fn primary_click_keeps_both_edges_when_pointer_lock_changes_before_release() {
     for locked in [false, true] {
         let (mut app, window) = app();
         app.world_mut()
@@ -158,11 +163,10 @@ fn primary_click_keeps_its_route_when_pointer_lock_changes_before_release() {
                 pressed: true,
             }],
         );
-        assert_eq!(
+        assert!(
             app.world()
                 .resource::<ButtonInput<MouseButton>>()
-                .pressed(MouseButton::Left),
-            locked
+                .pressed(MouseButton::Left)
         );
         app.world_mut()
             .resource_mut::<client_state::CursorFocus>()
@@ -176,25 +180,21 @@ fn primary_click_keeps_its_route_when_pointer_lock_changes_before_release() {
             }],
         );
         let buttons = take::<MouseButtonInput>(&mut app);
-        if locked {
-            assert_eq!(
-                buttons,
-                [
-                    MouseButtonInput {
-                        button: MouseButton::Left,
-                        state: ButtonState::Pressed,
-                        window,
-                    },
-                    MouseButtonInput {
-                        button: MouseButton::Left,
-                        state: ButtonState::Released,
-                        window,
-                    },
-                ]
-            );
-        } else {
-            assert!(buttons.is_empty());
-        }
+        assert_eq!(
+            buttons,
+            [
+                MouseButtonInput {
+                    button: MouseButton::Left,
+                    state: ButtonState::Pressed,
+                    window,
+                },
+                MouseButtonInput {
+                    button: MouseButton::Left,
+                    state: ButtonState::Released,
+                    window,
+                },
+            ]
+        );
         assert_eq!(
             take::<WindowEvent>(&mut app),
             buttons

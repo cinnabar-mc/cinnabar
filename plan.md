@@ -1908,21 +1908,22 @@ acceptance with Xbox, PlayStation and generic controllers remains incomplete, as
 controllers whose right stick uses `AXIS_RX`/`AXIS_RY`.
 iOS reads physical keys, mouse motion, buttons and scrolling, and extended-profile controllers
 through the Game Controller framework. Keyboard and mouse callbacks reach both Bevy's typed
-messages and ordered window stream, except unlocked primary clicks use UIKit's touch path.
-Each primary click keeps its input route through release. UIKit hover updates the unlocked
-menu pointer in window coordinates without requesting a native cursor warp.
+messages and ordered window stream, including unlocked primary clicks for binding capture and
+data-driven forms. A UIKit recognizer consumes mouse-generated touches before winit sees them,
+while finger and Pencil touches retain their own path. UIKit hover and click gestures update
+the unlocked menu pointer in window coordinates without requesting a native cursor warp.
 Gameplay locks the iPadOS pointer through the winit fork
 so mouse clicks do not also arrive as touches. While text input is enabled, the keyboard's
 Backspace yields to winit's text path. Device acceptance remains incomplete, including mouse
-delta and scroll directions and scales, Enter handling in focused text fields, and micro-profile
+delta and scroll directions and scales, pointer-touch deduplication, Enter handling in focused
+text fields, and micro-profile controllers.
 Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
 winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
 look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
 gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
 winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
 PlayStation and generic controllers remains incomplete, as do controllers whose right stick
-uses `AXIS_RX`/`AXIS_RY`. iOS still lacks hardware keyboard keys, mouse capture and
-controllers.
+uses `AXIS_RX`/`AXIS_RY`.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
