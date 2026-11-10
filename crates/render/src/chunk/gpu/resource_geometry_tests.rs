@@ -4,7 +4,7 @@ use crate::chunk::plugin::publication_schedule::{
     ChunkPublicationStage, configure_chunk_publication,
 };
 use crate::chunk::transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws,
+    transparent_frame_draws, transparent_frame_draws_for_range,
 };
 use meshing::PackedBiomeRecord;
 use render_scene::{
@@ -482,7 +482,10 @@ fn review_render_retained_liquid_snapshot_resolves_updated_active_generation() {
         ChunkBiomeTintIdentity::default()
     ));
     assert_eq!(transparent_frame_draws(snapshot, &arena).len(), 1);
-    assert!(transparent_frame_draw_for_range(snapshot, &arena, 0..1).is_some());
+    assert_eq!(
+        transparent_frame_draws_for_range(snapshot, &arena, 0..1).len(),
+        1
+    );
 }
 
 /// Builds a resident model sort with a writable stream and one matching view.
@@ -1068,5 +1071,49 @@ fn unwitnessed_model_order_resorts_when_its_class_changes() {
             .draw_orders;
         assert!(orders.get(&identity).is_none(), "the group has no CPU copy");
         assert_eq!(orders.class(&identity), Some(metric.class(group)));
+    }
+}
+
+/// Failed invisible uploads reject the candidate without invalidating the active generation.
+#[test]
+fn failed_background_upload_keeps_the_active_arena() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+    let active = PreparedResourceGeometry::build(
+        &[shore(ChunkBiomeTintIdentity::default())],
+        ChunkTextureAssets::default(),
+        device.clone(),
+        queue.clone(),
+        None,
+    )
+    .unwrap();
+    let buffer = active.arena.geometry_stream_buffer.id();
+    let live = crate::gpu_allocation::FailureFlag::new(&device);
+    for site in [
+        "packed chunk quads",
+        "terrain identity vertex offsets",
+        "packed chunk indirect commands",
+        "terrain arena upload",
+        "terrain resource sorts upload",
+    ] {
+        let _failure = crate::gpu_allocation::inject(move |label, _| label == site);
+        let candidate = PreparedResourceGeometry::build(
+            &[shore(ChunkBiomeTintIdentity::default())],
+            ChunkTextureAssets::default(),
+            device.clone(),
+            queue.clone(),
+            Some(ResourceView {
+                entity: Entity::PLACEHOLDER,
+                transform: GlobalTransform::IDENTITY,
+                sort_order_independent: true,
+            }),
+        );
+        assert!(
+            candidate.is_none(),
+            "{site} published an incomplete candidate"
+        );
+        assert!(!live.failed(), "{site} invalidated the active generation");
+        assert_eq!(active.arena.geometry_stream_buffer.id(), buffer);
+        assert_eq!(active.arena.allocations.len(), 1);
     }
 }

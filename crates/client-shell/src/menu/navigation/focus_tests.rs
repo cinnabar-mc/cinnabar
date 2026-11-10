@@ -10,7 +10,7 @@ use client_ui::ui_runtime::UiRuntime;
 use {
     crate::menu::{
         MenuClipboard, MenuRuntime,
-        input::{MenuInputMode, drive_menu_input},
+        input::{drive_menu_input, mode::MenuInputMode},
     },
     launcher::menu::{MenuAction, MenuScreen},
 };
@@ -462,5 +462,297 @@ fn a_loaded_event_badge_does_not_trap_gamepad_navigation() {
             .resource::<UiPresentationResource>()
             .visible_menu_actions()
             .any(|action| Some(action) == view.focused_action)
+    );
+}
+
+#[test]
+fn arrow_down_from_add_server_walks_the_server_list_and_stops_at_its_end() {
+    let Some((mut app, window)) =
+        fixture("arrow_down_from_add_server_walks_the_server_list_and_stops_at_its_end")
+    else {
+        return;
+    };
+    const SAVED: usize = 12;
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        for index in 0..SAVED {
+            menu.servers.push(launcher::menu::view::SavedServer {
+                name: format!("Server {index}"),
+                address: format!("127.0.0.{index}:19132"),
+                favorite: false,
+                last_joined_unix: 0,
+            });
+        }
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    }
+    draw(&mut app);
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::PlayAddServer);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::PlayAddServer));
+    }
+    let mut rows = Vec::new();
+    for _ in 0..SAVED * 2 {
+        key(&mut app, window, KeyCode::ArrowDown);
+        let focused = app.world().resource::<MenuRuntime>().view().focused_action;
+        match focused {
+            Some(MenuAction::SelectSaved(index)) => {
+                rows.push(index);
+                assert!(
+                    app.world()
+                        .resource::<UiPresentationResource>()
+                        .menu_action_bounds(MenuAction::SelectSaved(index))
+                        .is_some(),
+                    "focused row {index} is scrolled into view"
+                );
+            }
+            Some(MenuAction::ServerList(_)) => {}
+            other => panic!("left the list at {other:?}"),
+        }
+    }
+    rows.dedup();
+    assert_eq!(rows, (0..SAVED).collect::<Vec<_>>());
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().focused_action,
+        Some(MenuAction::SelectSaved(SAVED - 1)),
+        "focus stops at the bottom of the list instead of wrapping"
+    );
+}
+
+#[test]
+fn right_moves_from_a_server_row_to_play_and_left_returns_to_that_row() {
+    let Some((mut app, window)) =
+        fixture("right_moves_from_a_server_row_to_play_and_left_returns_to_that_row")
+    else {
+        return;
+    };
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        for index in 0..6 {
+            menu.servers.push(launcher::menu::view::SavedServer {
+                name: format!("Server {index}"),
+                address: format!("127.0.0.{index}:19132"),
+                favorite: false,
+                last_joined_unix: 0,
+            });
+        }
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+        menu.activate(MenuAction::SelectSaved(3));
+    }
+    draw(&mut app);
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::SelectSaved(3));
+    }
+    let focused = |app: &App| app.world().resource::<MenuRuntime>().view().focused_action;
+    key(&mut app, window, KeyCode::ArrowRight);
+    assert_eq!(focused(&app), Some(MenuAction::PlaySaved(3)));
+    key(&mut app, window, KeyCode::ArrowRight);
+    assert_eq!(
+        focused(&app),
+        Some(MenuAction::PlaySaved(3)),
+        "the details are the rightmost region"
+    );
+    key(&mut app, window, KeyCode::ArrowLeft);
+    assert_eq!(focused(&app), Some(MenuAction::SelectSaved(3)));
+    key(&mut app, window, KeyCode::ArrowLeft);
+    assert_eq!(
+        focused(&app),
+        Some(MenuAction::SelectSaved(3)),
+        "the list is the leftmost region"
+    );
+    key(&mut app, window, KeyCode::ArrowRight);
+    assert_eq!(focused(&app), Some(MenuAction::PlaySaved(3)));
+}
+
+#[test]
+fn left_and_right_cross_the_play_tabs_and_up_from_the_list_reaches_them() {
+    let Some((mut app, window)) =
+        fixture("left_and_right_cross_the_play_tabs_and_up_from_the_list_reaches_them")
+    else {
+        return;
+    };
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    }
+    draw(&mut app);
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::Navigate(MenuScreen::Servers));
+    }
+    let focused = |app: &App| app.world().resource::<MenuRuntime>().view().focused_action;
+    let tab = |screen| Some(MenuAction::Navigate(screen));
+    for (key_code, expected) in [
+        (KeyCode::ArrowLeft, MenuScreen::Social),
+        (KeyCode::ArrowLeft, MenuScreen::Play),
+        (KeyCode::ArrowLeft, MenuScreen::Play),
+        (KeyCode::ArrowRight, MenuScreen::Social),
+        (KeyCode::ArrowRight, MenuScreen::Servers),
+        (KeyCode::ArrowRight, MenuScreen::Servers),
+    ] {
+        key(&mut app, window, key_code);
+        assert_eq!(focused(&app), tab(expected), "after {key_code:?}");
+    }
+    key(&mut app, window, KeyCode::ArrowLeft);
+    key(&mut app, window, KeyCode::Enter);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().screen(),
+        MenuScreen::Social
+    );
+    assert_eq!(
+        focused(&app),
+        tab(MenuScreen::Social),
+        "focus stays on the tab bar"
+    );
+    key(&mut app, window, KeyCode::ArrowRight);
+    key(&mut app, window, KeyCode::Enter);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().screen(),
+        MenuScreen::Servers
+    );
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.focus_pointer(MenuAction::PlayAddServer);
+    }
+    key(&mut app, window, KeyCode::ArrowUp);
+    assert_eq!(
+        focused(&app),
+        tab(MenuScreen::Play),
+        "up reaches the tab above the list"
+    );
+    key(&mut app, window, KeyCode::ArrowUp);
+    assert_eq!(
+        focused(&app),
+        tab(MenuScreen::Home),
+        "up from the tabs reaches Back"
+    );
+    key(&mut app, window, KeyCode::ArrowDown);
+    assert_eq!(
+        focused(&app),
+        tab(MenuScreen::Play),
+        "down returns to the tab bar"
+    );
+}
+
+#[test]
+fn down_from_play_reads_each_part_of_the_details() {
+    let Some((mut app, window)) = fixture("down_from_play_reads_each_part_of_the_details") else {
+        return;
+    };
+    const ACTIVITIES: usize = 3;
+    let address = "featured.test:19132".to_owned();
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.featured = vec![launcher::menu::MenuServerCard {
+            name: "Featured".into(),
+            address: address.clone(),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        }]
+        .into();
+        menu.feeds.details.insert(
+            address,
+            launcher::menu::view::ServerDetails {
+                description: "A server.".into(),
+                news: "Patch notes.".into(),
+                games: (0..ACTIVITIES)
+                    .map(|index| launcher::menu::view::MenuGameCard {
+                        title: format!("Activity {index}"),
+                        description: "Something to do.".into(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        );
+        menu.feeds.selected_featured = Some(0);
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+    }
+    draw(&mut app);
+    let play = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .visible_menu_actions()
+        .find(|action| matches!(action, MenuAction::PlayFeatured(_)))
+        .expect("the details draw a Play button");
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(play);
+    }
+    use launcher::menu::view::ServerDetailPart::{Activity, Description, News};
+    let parts = std::iter::once(Description)
+        .chain((0..ACTIVITIES).map(Activity))
+        .chain([News]);
+    for part in parts {
+        key(&mut app, window, KeyCode::ArrowDown);
+        assert_eq!(
+            app.world().resource::<MenuRuntime>().view().focused_action,
+            Some(MenuAction::ServerDetail(part))
+        );
+    }
+    key(&mut app, window, KeyCode::ArrowUp);
+    assert_eq!(
+        app.world().resource::<MenuRuntime>().view().focused_action,
+        Some(MenuAction::ServerDetail(Activity(ACTIVITIES - 1)))
+    );
+}
+
+#[test]
+fn up_and_down_move_between_worlds_and_right_reaches_edit() {
+    let Some((mut app, window)) = fixture("up_and_down_move_between_worlds_and_right_reaches_edit")
+    else {
+        return;
+    };
+    use launcher::menu::LocalWorldAction::Edit;
+    const WORLDS: usize = 8;
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.set_local_worlds(
+            (0..WORLDS)
+                .map(|index| launcher::menu::view::LocalWorldCard {
+                    name: format!("World {index}"),
+                    game_mode: "survival".into(),
+                    ..Default::default()
+                })
+                .collect(),
+        );
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    }
+    draw(&mut app);
+    {
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.input_mode = MenuInputMode::Keyboard;
+        menu.focus_pointer(MenuAction::PlayLocalWorld(0));
+    }
+    let focused = |app: &App| app.world().resource::<MenuRuntime>().view().focused_action;
+    for index in 1..WORLDS {
+        key(&mut app, window, KeyCode::ArrowDown);
+        assert_eq!(focused(&app), Some(MenuAction::PlayLocalWorld(index)));
+    }
+    key(&mut app, window, KeyCode::ArrowDown);
+    assert_eq!(
+        focused(&app),
+        Some(MenuAction::PlayLocalWorld(WORLDS - 1)),
+        "focus stops at the last world"
+    );
+    key(&mut app, window, KeyCode::ArrowRight);
+    assert_eq!(
+        focused(&app),
+        Some(MenuAction::LocalWorld(Edit(WORLDS - 1)))
+    );
+    key(&mut app, window, KeyCode::ArrowLeft);
+    assert_eq!(focused(&app), Some(MenuAction::PlayLocalWorld(WORLDS - 1)));
+    key(&mut app, window, KeyCode::ArrowRight);
+    key(&mut app, window, KeyCode::ArrowUp);
+    assert_eq!(
+        focused(&app),
+        Some(MenuAction::PlayLocalWorld(WORLDS - 2)),
+        "up from Edit moves to the world above"
     );
 }

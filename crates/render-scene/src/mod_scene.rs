@@ -47,6 +47,7 @@ pub struct ModRenderScene {
     pub vertices: Arc<[ModVertex]>,
     pub bundle_vertices: Vec<(mod_render::GpuLedger, Arc<[ModVertex]>)>,
     primitives: Arc<mod_render::Primitives>,
+    pub debug_vertices: Arc<[ModVertex]>,
     pub block_vertices: Arc<[ModVertex]>,
     drawn_blocks: Arc<[mod_api::native_render::BlockHighlight]>,
 }
@@ -140,6 +141,14 @@ impl ModRenderScene {
         self.masks = Arc::clone(&output.masks);
     }
 
+    /// Publishes Java F3 debug line vertices (hitboxes, chunk borders).
+    pub fn set_debug_vertices(&mut self, debug_vertices: Arc<[ModVertex]>) {
+        if Arc::ptr_eq(&self.debug_vertices, &debug_vertices) {
+            return;
+        }
+        self.debug_vertices = debug_vertices;
+    }
+
     /// Adopts a packet mod's validated block highlights, drawn through world geometry.
     pub fn set_drawn_block_highlights(
         &mut self,
@@ -179,6 +188,7 @@ impl ModRenderScene {
 
     pub fn vertex_count(&self) -> usize {
         self.vertices.len()
+            + self.debug_vertices.len()
             + self.block_vertices.len()
             + self
                 .bundle_vertices

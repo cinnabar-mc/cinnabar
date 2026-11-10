@@ -45,10 +45,22 @@ fn frame() -> ActionFrame {
 #[test]
 fn filter_returns_a_verdict_even_when_ordinary_frame_fuel_is_empty() {
     let (_dir, mut host) = host("", "local.get $count", true);
-    host.set_frame_authority(CallbackBudget::new(0), false, false, 0);
+    host.set_frame_authority(CallbackBudget::new(0), false, false);
     let verdict = host.filter_actions(frame()).unwrap();
     assert_eq!(verdict.accepted, [true]);
     assert!(host.is_active());
+}
+
+#[test]
+fn action_filters_keep_their_independent_fuel_limit() {
+    let (_dir, mut host) = host("(loop $forever br $forever)", "local.get $count", true);
+    let error = host.filter_actions(frame()).unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<wasmtime::Trap>(),
+        Some(&wasmtime::Trap::OutOfFuel)
+    );
+    assert_eq!(host.last_fuel_used(), mod_api::ACTION_FILTER_FUEL);
+    assert!(!host.is_active());
 }
 
 #[test]

@@ -166,6 +166,9 @@ impl ActorAnimationStore {
         if let Some(ui) = state.ui_animation.as_mut() {
             ui.server_animations.clone_from(&state.server_animations);
         }
+        if let Some(ui) = state.paper_doll_animation.as_mut() {
+            ui.server_animations.clone_from(&state.server_animations);
+        }
         state.replay = None;
     }
 }

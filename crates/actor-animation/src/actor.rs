@@ -44,6 +44,9 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     /// Height the server adds above the feet position this actor reports.
     fn network_position_offset(&self) -> f32;
     fn render_scale(&self) -> f32;
+    /// Collision `(min, max)` box anchored at [`Self::position`], with server scale applied;
+    /// `None` when the actor has no usable collision dimensions.
+    fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])>;
     /// Creeper swell in `0..=1` at `partial_tick` between the last two ticks.
     fn creeper_swell_amount(&self, partial_tick: f32) -> f32;
     fn creeper_swell_changes(&self) -> bool;
@@ -52,6 +55,11 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     fn swell_full_ticks(&self) -> f32;
     /// Red damage overlay alpha; zero while no overlay shows.
     fn overlay_alpha(&self) -> f32;
+    /// Whether a render controller's `is_hurt_color` replaces its `overlay_color`. Native reads it
+    /// only while the actor shows damage, so a pack's constant hurt colour leaves it untinted otherwise.
+    fn shows_damage(&self) -> bool {
+        self.overlay_alpha() > 0.0
+    }
     fn hurt_time(&self) -> u8;
     fn shake_time(&self) -> i32;
     fn hurt_direction(&self) -> Option<f32>;

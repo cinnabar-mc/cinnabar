@@ -48,6 +48,11 @@ impl UiPresentationRuntime {
                 local_player: &runtime.session.local_player_display_name,
                 editor: runtime.chat_editor(),
                 messages: runtime.chat().messages(),
+                first_message_id: runtime
+                    .chat()
+                    .observed_rows()
+                    .next()
+                    .map_or(0, |(id, _)| id),
                 suggestions: runtime.chat_suggestions(),
                 usage: runtime.chat_usage_hint(),
                 selected_suggestion: runtime.chat_selected_suggestion(),
@@ -143,7 +148,13 @@ impl UiPresentationRuntime {
         if &self.screens.touch.saved != snapshot.0.touch_layout() {
             self.screens.touch.saved = snapshot.0.touch_layout().clone();
         }
+        self.set_touch_control_mode(snapshot.0.touch_control_mode());
         self.screens.chat.settings.set_snapshot(snapshot);
+    }
+
+    /// Borrows the persisted gameplay preferences even while the launcher menu is closed.
+    pub(in crate::ui_runtime::presentation) fn gameplay_settings(&self) -> &SettingsOptions {
+        self.screens.chat.settings.options()
     }
 
     /// Opens or closes only the native chat settings popup, retaining the chat draft.

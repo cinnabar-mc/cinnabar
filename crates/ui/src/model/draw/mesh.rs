@@ -92,6 +92,16 @@ pub(super) fn emit_mesh(
                 uv: vertex.uv,
                 color: vertex.color,
                 style_flags: u32::from(vertex.style_flags)
+                    | if mesh.uses_compact_block_vertices() {
+                        render_api::UI_STYLE_HALF_FLOAT_XY | render_api::UI_STYLE_UNORM16_UV
+                    } else {
+                        0
+                    }
+                    | if vertex.terrain_mips {
+                        render_api::UI_STYLE_TERRAIN_MIPS
+                    } else {
+                        0
+                    }
                     | if mesh.is_skinned() {
                         render_api::UI_STYLE_MODEL_VERTEX
                     } else {
@@ -152,6 +162,7 @@ mod tests {
         let vertex_count = 100_000;
         let material_count = 128;
         let source = UiMeshVertex {
+            terrain_mips: false,
             alpha_test: false,
             position: [0.25, 0.5],
             clip_z: 0.0,

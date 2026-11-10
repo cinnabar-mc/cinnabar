@@ -41,20 +41,20 @@ impl ChunkRenderInstance {
         self.cube_layout = mesh.cube_layout();
         let (cubes, cube_light, models, model_light, draws, transparent, liquids, liquid_light) =
             mesh.into_streams();
-        self.cube_quads = cubes.into();
-        self.cube_lighting = cube_light.into();
-        self.model_refs = models.into();
-        self.model_lighting = model_light.into();
-        self.model_draw_refs = draws.into();
-        self.transparent_model_draw_refs = transparent.into();
+        self.cube_quads = cubes;
+        self.cube_lighting = cube_light;
+        self.model_refs = models;
+        self.model_lighting = model_light;
+        self.model_draw_refs = draws;
+        self.transparent_model_draw_refs = transparent;
         self.depth_liquid_start = liquids
             .iter()
             .position(|quad| quad.is_depth_writing())
             .map(|i| i as u32);
         self.has_depth_liquid = self.depth_liquid_start.is_some();
         self.has_transparent_liquid = liquids.first().is_some_and(|quad| !quad.is_depth_writing());
-        self.liquid_quads = liquids.into();
-        self.liquid_lighting = liquid_light.into();
+        self.liquid_quads = liquids;
+        self.liquid_lighting = liquid_light;
         self.token = None;
         self.publication_permit = None;
         self

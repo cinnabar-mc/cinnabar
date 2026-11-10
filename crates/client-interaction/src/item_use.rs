@@ -4,7 +4,7 @@ use chunk_pipeline::WorldStream;
 use client_ui::ui_runtime::UiRuntime;
 use client_world::LocalItemUse;
 use gameplay::item_use::AirUse;
-use inventory::{crossbow_animation_frame, ranged_animation_frame};
+use inventory::{crossbow_animation_frame, held_animation_frame};
 use selection::selected_air_use_with_projectile;
 
 pub mod selection;
@@ -123,19 +123,20 @@ impl ItemUseRuntime {
             .selected_stack()
             .map(|stack| stream.authority().item_use_profile(stack.network_id))
             .unwrap_or_default();
-        let animation_frame = if use_facts.animation == assets::item_use::ItemUseAnimation::Crossbow
-        {
-            let firework = ui.local_offhand_stack(player_runtime).is_some_and(|stack| {
-                stream
-                    .authority()
-                    .item_use_profile(stack.network_id)
-                    .projectile
-                    == assets::item_use::ItemProjectileRole::Firework
-            });
-            crossbow_animation_frame(use_elapsed_ticks, max_use_ticks, projectile, firework)
-        } else {
-            ranged_animation_frame(use_facts.animation, use_elapsed_ticks, max_use_ticks)
-        };
+        let firework = ui.local_offhand_stack(player_runtime).is_some_and(|stack| {
+            stream
+                .authority()
+                .item_use_profile(stack.network_id)
+                .projectile
+                == assets::item_use::ItemProjectileRole::Firework
+        });
+        let animation_frame = held_animation_frame(
+            use_facts.animation,
+            use_elapsed_ticks,
+            max_use_ticks,
+            projectile,
+            firework,
+        );
         actor_animation::AttachableAnimationInput {
             first_person: true,
             is_local_player: true,
@@ -184,7 +185,8 @@ impl ItemUseRuntime {
         Some(crossbow_animation_frame(None, 0, projectile, false))
     }
 
-    /// The local rig's use flag: set while a use runs, cleared while a held-use item idles.
+    /// The local rig's use flag: set while a use runs, cleared while a held-use item or a
+    /// brush idles.
     pub fn local_item_use(
         &self,
         player_runtime: &client_state::PlayerRuntime,
@@ -200,6 +202,8 @@ impl ItemUseRuntime {
             self.selected_projectile(player_runtime, ui),
         ) {
             Some(AirUse::Hold { .. } | AirUse::Instant { .. }) => LocalItemUse::Idle,
+            // A brush's use starts and ends locally, so its idle state is predicted too.
+            _ if selection::selected_brush(player_runtime, stream) => LocalItemUse::Idle,
             Some(AirUse::Swing | AirUse::Throw { .. } | AirUse::GlideRocket) | None => {
                 LocalItemUse::Unpredicted
             }

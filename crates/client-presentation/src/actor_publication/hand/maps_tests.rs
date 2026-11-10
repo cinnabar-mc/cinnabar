@@ -28,24 +28,24 @@ fn held_map_images_keep_rectangles_and_independent_hands_without_warm_pixel_work
     let main = cache.image(&stream, 0, Some(266)).unwrap();
     let off = cache.image(&stream, 1, Some(-267)).unwrap();
     assert_eq!(
-        &main.rgba8[..8],
+        &main.rgba8.joined()[..8],
         &[0x11, 0x22, 0x33, 0xff, 0x44, 0x55, 0x66, 0xff]
     );
-    assert_eq!(&off.rgba8[..4], &[0x77, 0x88, 0x99, 0xff]);
+    assert_eq!(&off.rgba8.joined()[..4], &[0x77, 0x88, 0x99, 0xff]);
     let allocations = test_alloc::thread_allocations();
     let unchanged = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(allocations, test_alloc::thread_allocations());
-    assert!(Arc::ptr_eq(&main.rgba8, &unchanged.rgba8));
+    assert!(main.rgba8.ptr_eq(&unchanged.rgba8));
     update(&mut stream, 266, 1, &[0xffabcdef]);
     let patched = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(
-        &patched.rgba8[..8],
+        &patched.rgba8.joined()[..8],
         &[0x11, 0x22, 0x33, 0xff, 0xef, 0xcd, 0xab, 0xff]
     );
-    assert!(Arc::ptr_eq(
-        &off.rgba8,
-        &cache.image(&stream, 1, Some(-267)).unwrap().rgba8
-    ));
+    assert!(
+        off.rgba8
+            .ptr_eq(&cache.image(&stream, 1, Some(-267)).unwrap().rgba8)
+    );
     assert!(cache.image(&stream, 0, None).is_none());
 }
 
@@ -64,15 +64,15 @@ fn resident_updates_and_new_sessions_cannot_reuse_stale_map_pixels() {
         stream.map_image(266).is_some(),
         "earlier authoritative images remain available"
     );
-    assert!(Arc::ptr_eq(
-        &old.rgba8,
-        &cache.image(&stream, 0, Some(266)).unwrap().rgba8
-    ));
+    assert!(
+        old.rgba8
+            .ptr_eq(&cache.image(&stream, 0, Some(266)).unwrap().rgba8)
+    );
     update(&mut stream, 266, 0, &[3]);
     assert_eq!(stream.map_image(266).unwrap().revision, 2);
     let replaced = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(replaced.rgba8[0], 3);
-    assert!(!Arc::ptr_eq(&old.rgba8, &replaced.rgba8));
+    assert!(!old.rgba8.ptr_eq(&replaced.rgba8));
     let (mut next, _, _, _) = fixture(None);
     update(&mut next, 266, 0, &[4]);
     assert_eq!(next.map_image(266).unwrap().revision, 1);
@@ -108,7 +108,7 @@ fn filled_map_submits_paper_and_server_pixels_in_both_animation_modes() {
             "held map must submit the received image"
         );
         assert_eq!(
-            &source.items[0].as_ref().unwrap().1.rgba8[..4],
+            &source.items[0].as_ref().unwrap().1.rgba8.joined()[..4],
             &[0x11, 0x22, 0x33, 0xff]
         );
         assert_eq!(
@@ -192,10 +192,7 @@ fn missing_map_data_keeps_arms_and_each_hand_waits_for_its_own_image() {
         assert!(waiting.maps.paper[0].is_none());
         assert!(waiting.items[0].is_none());
         assert!(waiting.maps.paper[1].is_some());
-        assert!(Arc::ptr_eq(
-            &off,
-            &waiting.items[1].as_ref().unwrap().1.rgba8
-        ));
+        assert!(off.ptr_eq(&waiting.items[1].as_ref().unwrap().1.rgba8));
         update(&mut stream, 268, 0, &[0xff998877]);
         let switched = hand_source_for_mode(
             &stream,
@@ -207,10 +204,7 @@ fn missing_map_data_keeps_arms_and_each_hand_waits_for_its_own_image() {
             java,
         );
         assert_eq!(switched.items[0].as_ref().unwrap().1.rgba8[0], 0x77);
-        assert!(Arc::ptr_eq(
-            &off,
-            &switched.items[1].as_ref().unwrap().1.rgba8
-        ));
+        assert!(off.ptr_eq(&switched.items[1].as_ref().unwrap().1.rgba8));
         input.off = None;
         let main_only = hand_source_for_mode(
             &stream,
@@ -270,7 +264,7 @@ fn pack_paper_keeps_resolution_and_alpha_and_rolls_back_without_rebuilding_map_m
     );
     let paper = changed.maps.background.unwrap();
     assert_eq!((paper.width, paper.height, paper.layers), (257, 129, 1));
-    assert!(Arc::ptr_eq(&pixels, &paper.rgba8));
+    assert!(Arc::ptr_eq(&pixels, &paper.rgba8.parts()[0]));
     assert!(equipment.take_pending_geometries().is_empty());
     equipment.set_pack_layer(None);
     let restored = hand_source_for_mode(
@@ -282,10 +276,11 @@ fn pack_paper_keeps_resolution_and_alpha_and_rolls_back_without_rebuilding_map_m
         1.0,
         false,
     );
-    assert!(Arc::ptr_eq(
-        &startup_paper.rgba8,
-        &restored.maps.background.unwrap().rgba8
-    ));
+    assert!(
+        startup_paper
+            .rgba8
+            .ptr_eq(&restored.maps.background.unwrap().rgba8)
+    );
 }
 
 #[test]
@@ -330,7 +325,7 @@ fn held_map_wire_colors_reach_the_rgba_atlas() {
     let mut cache = MapCache::default();
     let atlas = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(
-        &atlas.rgba8[..expected.len() * 4],
+        &atlas.rgba8.joined()[..expected.len() * 4],
         expected.concat(),
         "held map must preserve wire colors and alpha"
     );
@@ -343,17 +338,20 @@ fn empty_map_pixels_draw_a_checkerboard_without_replacing_transparent_colors() {
     let mut cache = MapCache::default();
     let atlas = cache.image(&stream, 0, Some(266)).unwrap();
     assert_eq!(
-        &atlas.rgba8[..12],
+        &atlas.rgba8.joined()[..12],
         &[0, 0, 0, 16, 0, 0, 0, 24, 0x12, 0x34, 0x56, 0]
     );
     let next_row = protocol::MAP_IMAGE_SIDE as usize * 4;
     assert_eq!(
-        &atlas.rgba8[next_row..next_row + 8],
+        &atlas.rgba8.joined()[next_row..next_row + 8],
         &[0, 0, 0, 24, 0, 0, 0, 16]
     );
     update(&mut stream, 266, 0, &[0xff332211]);
     let patched = cache.image(&stream, 0, Some(266)).unwrap();
-    assert_eq!(&patched.rgba8[..8], &[0x11, 0x22, 0x33, 0xff, 0, 0, 0, 24]);
+    assert_eq!(
+        &patched.rgba8.joined()[..8],
+        &[0x11, 0x22, 0x33, 0xff, 0, 0, 0, 24]
+    );
     assert_eq!(stream.map_image(266).unwrap().pixels[1], 0);
 }
 

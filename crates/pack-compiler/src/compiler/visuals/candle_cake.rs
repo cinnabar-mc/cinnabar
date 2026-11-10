@@ -50,27 +50,7 @@ pub(in crate::compiler) fn descriptors(
         .collect::<Vec<_>>();
     let mut candle = record.clone();
     candle.name = assets::facts::pack::candle_companion(&record.name)?.into();
-    let TextureKey { key, rotate_uv } =
-        resolve_texture_key(&pack.blocks, &candle, assets::BlockFace::Down);
-    let key = key?;
-    let (path, state_variant) = pack
-        .terrain
-        .get_clamped_untinted_variant(&key, usize::from(lit))?;
-    descriptors.push((
-        Descriptor {
-            path: path.into(),
-            texture_key: key.clone(),
-            state_variant,
-            flipbook_selector: None,
-            flags: MATERIAL_FLAG_ALPHA_CUTOUT
-                | if rotate_uv {
-                    MATERIAL_FLAG_ROTATE_UV
-                } else {
-                    0
-                },
-        },
-        key,
-    ));
+    descriptors.push(super::candle::descriptor(pack, &candle, lit != 0)?);
     Some(descriptors)
 }
 
@@ -116,61 +96,10 @@ pub(in crate::compiler) fn compile_rule(
     Ok(CompileRuleResult::Compiled(visual))
 }
 
-/// Emits the cake, six candle faces, and both sides of each diagonal wick plane.
+/// Emits the cake, then one native candle centred on its top.
 fn quads(faces: [u32; 6], candle: u32) -> Vec<ModelQuad> {
     let mut quads =
         super::geometry::vanilla_cuboid_quads(faces, [16, 0, 16], [240, 128, 240]).to_vec();
-    for (face, mut quad) in
-        assets::BlockFace::ALL
-            .into_iter()
-            .zip(super::geometry::vanilla_cuboid_quads(
-                [candle; 6],
-                [112, 128, 112],
-                [144, 224, 144],
-            ))
-    {
-        let region = match face {
-            assets::BlockFace::Down => [0, 14, 2, 16],
-            assets::BlockFace::Up => [0, 6, 2, 8],
-            _ => [0, 8, 2, 14],
-        };
-        for axis in 0..2 {
-            let min = quad.uvs.iter().map(|uv| uv[axis]).min().unwrap();
-            let max = quad.uvs.iter().map(|uv| uv[axis]).max().unwrap();
-            for uv in &mut quad.uvs {
-                uv[axis] = region[axis] * 256
-                    + (u32::from(uv[axis] - min)
-                        * u32::from((region[axis + 2] - region[axis]) * 256)
-                        / u32::from(max - min)) as u16;
-            }
-        }
-        quads.push(quad);
-    }
-    for positions in [
-        [
-            [120, 240, 120],
-            [120, 224, 120],
-            [136, 224, 136],
-            [136, 240, 136],
-        ],
-        [
-            [120, 240, 136],
-            [120, 224, 136],
-            [136, 224, 120],
-            [136, 240, 120],
-        ],
-    ] {
-        let quad = ModelQuad {
-            positions,
-            uvs: [[0, 1280], [0, 1536], [256, 1536], [256, 1280]],
-            material: candle,
-            flags: assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
-        };
-        quads.push(quad);
-        let mut back = quad;
-        back.positions.reverse();
-        back.uvs.reverse();
-        quads.push(back);
-    }
+    quads.extend(super::candle::candle_quads(candle, [128, 128], 128, 6));
     quads
 }

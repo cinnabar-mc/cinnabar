@@ -102,12 +102,12 @@ impl CullStorage {
             buffer(
                 "terrain cull records",
                 slots * RECORD_BYTES,
-                U::STORAGE | U::COPY_DST,
+                U::STORAGE | U::COPY_DST | copy_out,
             ),
             buffer(
                 "terrain cull enabled bits and draw order",
                 enabled_words(capacity) * 4,
-                U::STORAGE | U::COPY_DST,
+                U::STORAGE | U::COPY_DST | copy_out,
             ),
             buffer(
                 "terrain cull visibility history",
@@ -198,10 +198,23 @@ impl CullStorage {
 
     /// Writes the slots the count and emit kernels visit from rank `first` on.
     pub fn write_order(&self, queue: &wgpu::Queue, first: u32, slots: &[u32]) {
+        self.write_stream_order(queue, 0, first, slots);
+    }
+
+    /// Writes one retained colour order without changing the other streams' ranks.
+    pub fn write_stream_order(
+        &self,
+        queue: &wgpu::Queue,
+        stream_order: u32,
+        first: u32,
+        slots: &[u32],
+    ) {
         if slots.is_empty() {
             return;
         }
-        let word = u64::from(super::model::order_base(self.capacity)) + u64::from(first);
+        let word = u64::from(super::model::order_base(self.capacity))
+            + u64::from(stream_order) * u64::from(self.capacity)
+            + u64::from(first);
         queue.profiled_write_buffer(&self.enabled, word * 4, bytemuck::cast_slice(slots));
     }
 }
@@ -222,7 +235,7 @@ impl OcclusionStorage {
             buffer(
                 "terrain occlusion records",
                 u64::from(capacity) * RECORD_BYTES,
-                U::STORAGE | U::COPY_DST,
+                U::STORAGE | U::COPY_DST | if cfg!(test) { U::COPY_SRC } else { U::empty() },
             ),
             buffer(
                 "terrain occlusion bits",

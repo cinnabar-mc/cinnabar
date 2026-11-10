@@ -164,6 +164,7 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 		queued := ev
 		if queued.actor != nil {
 			queued.inventory, queued.slots = inventoryOf(d.id, p)
+			queued.pose = poseOf(p)
 			queued.entities = h.entitySnapshot(p.Tx(), d.id)
 			queued.ridingElsewhere = ridingOutsideSnapshot(p.Tx(), d.id, p, queued.entities)
 		}
@@ -293,7 +294,7 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 	if d.sup.registered.Simulation && call.Event.Type != "leave" {
 		info.Simulation = h.simulationContext(d.id, ev, d.seq)
 	}
-	return snapshot{req: CallbackRequest{Info: info, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}
+	return snapshot{req: CallbackRequest{Info: info, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory, Pose: ev.pose}, slots: ev.slots}
 }
 
 // storePrincipal retains an observed player's private record after its live actor leaves.

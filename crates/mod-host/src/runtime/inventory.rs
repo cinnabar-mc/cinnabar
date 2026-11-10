@@ -14,6 +14,13 @@ pub(super) struct InventoryRequests {
 }
 
 impl InventoryRequests {
+    /// Moves one frame's requests without resurrecting requests already consumed by the client.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool) {
+        if current_frame {
+            self.pending = transaction.pending;
+        }
+    }
+
     /// A failed callback's requests never reach the client.
     pub(super) fn begin(&mut self) {
         self.pending.clear();

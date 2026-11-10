@@ -35,6 +35,7 @@ const CHECK_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const MANUAL_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const FLATPAK_APP_ID: &str = "io.github.cinnabar_mc.cinnabar";
 static LAYOUT: OnceLock<InstallLayout> = OnceLock::new();
 static STATE: Mutex<State> = Mutex::new(State::new());
 /// Held while the exit handoff runs and true once it has run; see [`apply_after_exit`].
@@ -47,6 +48,16 @@ const PREPARE_EXIT_WAIT: Duration = Duration::from_secs(60);
 static MANUAL: OnceLock<manual::Running> = OnceLock::new();
 #[cfg(unix)]
 static STARTUP: OnceLock<update_installer::recovery::Startup> = OnceLock::new();
+static NEXT_RELEASE: OnceLock<NextRelease> = OnceLock::new();
+
+/// Receives each offered release's unpacked prep kit, or `None` once no release is staged;
+/// called on the update worker, so it must hand long work to its own thread.
+pub type NextRelease = fn(&InstallLayout, Option<&std::path::Path>);
+
+/// Lets carrier preparation start on an offered release while this client runs.
+pub fn on_next_release(hook: NextRelease) {
+    let _ = NEXT_RELEASE.set(hook);
+}
 
 #[derive(Clone)]
 struct Ready {
@@ -402,7 +413,7 @@ impl State {
 
 /// Configures installed clients; stage and network checks begin after startup acknowledgement.
 pub fn check_in_background(layout: &InstallLayout) {
-    if !layout.is_installed() {
+    if managed_install() || !layout.is_installed() {
         return;
     }
     let _ = LAYOUT.set(layout.clone());
@@ -446,6 +457,13 @@ pub fn configure(mut preferences: Preferences) {
 
 /// Presents a verified ready stage and channel availability through the launcher data contract.
 pub fn view() -> View {
+    if managed_install() {
+        return View {
+            managed: true,
+            active: false,
+            ..View::default()
+        };
+    }
     let now = OffsetDateTime::now_utc();
     tick(now);
     let Ok(state) = STATE.lock() else {
@@ -480,6 +498,33 @@ pub fn view() -> View {
         waiting_for_channel: state.waiting_for_channel,
         ..View::default()
     }
+}
+
+/// Only this application's Flatpak installation delegates updates to the package manager.
+fn managed_install() -> bool {
+    static MANAGED: OnceLock<bool> = OnceLock::new();
+    *MANAGED.get_or_init(|| {
+        cfg!(target_os = "linux") && owns_flatpak_sandbox(std::path::Path::new("/.flatpak-info"))
+    })
+}
+
+/// Matches the marker's application identity, ignoring runtime and context entries.
+fn owns_flatpak_sandbox(marker: &std::path::Path) -> bool {
+    let Ok(info) = std::fs::read_to_string(marker) else {
+        return false;
+    };
+    let mut application = false;
+    info.lines().any(|line| {
+        let line = line.trim();
+        if line.starts_with('[') {
+            application = line == "[Application]";
+            return false;
+        }
+        application
+            && line
+                .split_once('=')
+                .is_some_and(|(key, value)| key.trim() == "name" && value.trim() == FLATPAK_APP_ID)
+    })
 }
 
 /// Raises the wording after a protocol refusal; it never changes update consent.

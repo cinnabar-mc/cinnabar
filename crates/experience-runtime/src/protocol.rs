@@ -43,7 +43,7 @@ pub use recipes::{Crafted, ItemMatch, Recipe};
 
 pub use player::{
     Container, Containers, GameMode, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, Network,
-    NewStack, ServerItem,
+    NewStack, PlayerPose, ServerItem,
 };
 pub use visuals::{
     BlockState, BoneVisibility, Condition, Flipbook, ItemDef, Material, Permutation, Pixel,
@@ -61,8 +61,8 @@ pub use visuals::{
 /// 11 adds registered actors, seats, steering and entity observations; 12 adds blocks' drops and
 /// items, items' listing, whether a `break` harvests, the `pass_interaction` op, the containers
 /// in reach with the `set_container_slot` op, blocks' redstone flag, the power snapshot cells
-/// receive, the `set_redstone_power` op, the actor's game mode in its inventory, and the
-/// `set_velocity` and `knock_back` ops.
+/// receive, the `set_redstone_power` op, the actor's game mode in its inventory, its pose, and
+/// the `set_velocity` and `knock_back` ops.
 pub const PROTOCOL_VERSION: u32 = 12;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
@@ -259,6 +259,9 @@ pub enum Request {
         network: Option<Network>,
         /// The actor's inventory, when the callback has an actor.
         inventory: Option<Inventory>,
+        /// The actor's pose, when the callback has an actor that is a player.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pose: Option<PlayerPose>,
         /// The containers within reach of the anchor and its network, for a callback with an
         /// anchor.
         #[serde(default, skip_serializing_if = "Option::is_none")]

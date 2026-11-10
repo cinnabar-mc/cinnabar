@@ -35,9 +35,7 @@ pub(super) fn build_candidate_with_settings(
         ui,
         settings: _,
     } = snapshot;
-    if mod_host::SourceKind::of(&component) == mod_host::SourceKind::Packet
-        || registration.grants.packets
-    {
+    if mod_host::is_packet_source(&component) {
         let compiled =
             mod_host::packet_mod::CompiledPacketMod::compile(&component, &registration.grants)
                 .map_err(|error| format!("{error:#}"))?;
@@ -48,10 +46,12 @@ pub(super) fn build_candidate_with_settings(
             drawing: None,
         });
     }
+    let mut frame_grants = registration.grants.clone();
+    frame_grants.retain_applicable(false);
     let prepared = crate::modding::admission::prepare(
         &registration.component,
         &component,
-        registration.grants.clone(),
+        frame_grants,
         font_bytes.as_deref(),
         ui.as_deref(),
         settings

@@ -116,6 +116,55 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
     }
 }
 
+/// Versioned cube bottoms keep both their thumbnails and held face sheets.
+#[test]
+fn versioned_cube_items_keep_thumbnails_and_held_sheets() {
+    use super::super::super::item_icons::custom_block_icons;
+
+    for isotropic in [false, true] {
+        let mut material = CustomMaterialInstance::with_authored_defaults("*", "lucky");
+        if isotropic {
+            material.packed_bools |= 2;
+        }
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:lucky",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some("minecraft:geometry.full_block_v1".into()),
+                        materials: Some(vec![material].into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+        let icons = custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            false,
+            &[("test:lucky".into(), "test:lucky".into())],
+            None,
+        );
+        assert!(icons.misses.is_empty(), "{isotropic}: {:?}", icons.misses);
+        assert_eq!(icons.icons.len(), 1);
+        assert_eq!(icons.block_sheets.len(), 1);
+        for icon in [&icons.icons[0], &icons.block_sheets[0]] {
+            assert!(
+                icon.rgba8
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel[3] != 0)
+            );
+        }
+    }
+}
+
 #[test]
 fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
     use super::super::super::item_icons::custom_block_icons;
@@ -129,12 +178,9 @@ fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
                     tint_method: Option<&str>|
      -> Option<Box<[CustomMaterialInstance]>> {
         Some(Box::new([CustomMaterialInstance {
-            name: "*".into(),
-            texture: "lucky".into(),
-            render_method: render_method.map(Into::into),
+            render_method: protocol_ids::BlockRenderMethod::from_network(render_method),
             tint_method: tint_method.map(Into::into),
-            ambient_occlusion: None,
-            face_dimming: None,
+            ..CustomMaterialInstance::with_authored_defaults("*", "lucky")
         }]))
     };
     for (case, transformation, materials, thumbnail) in [
@@ -145,13 +191,6 @@ fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
                 ..identity
             }),
             material(None, None),
-            true,
-        ),
-        ("blend", None, material(Some("blend"), None), true),
-        (
-            "unknown method",
-            None,
-            material(Some("unknown"), None),
             true,
         ),
         (
@@ -384,7 +423,7 @@ fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
                 item_visual: Some(CustomVisualComponents {
                     geometry: Some("minecraft:geometry.full_block".into()),
                     materials: materials("lucky").map(|mut materials| {
-                        materials[0].face_dimming = Some(false);
+                        materials[0].packed_bools &= !1;
                         materials
                     }),
                     ..Default::default()
