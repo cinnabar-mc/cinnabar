@@ -161,8 +161,6 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   budget or page capacity are dropped, and their set draws colour only. That budget is an
   implementation limit, not a verified native one; deferred or streamed admission of the
   remaining layers is incomplete. Only the disabled Enhanced renderer reads these layers.
-  bounds are unverified implementation limits; past them a material draws without one.
-  is `implemented` with a named test.
 - [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
   block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
   bindings take none: the schema rejects one, and the client binds unconditionally and counts the
@@ -177,10 +175,6 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
   a live session's choices, and the actor fragment's readback tests in
   `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
-- [ ] Programmable world materials for server Experiences (a `render_world_material` permission
-  binding guest `shade` fragments to their own entities and blocks) are blocked: Experience client
-  guests have no drawing interface yet, and production Experience execution stays fail-closed
-  until the restricted-helper launch gate.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps);
@@ -2760,8 +2754,6 @@ frame, and runs a pending frame ahead of queued input once pointer moves have he
 1 ms. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
 screens with a free cursor still receive every raw report. Raw reports in gameplay are still
 handled one message at a time and are not bounded the same way; buffered reads are unmeasured.
-frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
-screens with a free cursor still receive every raw report.
 - [ ] GPU device loss is an app-wide gap: the renderer has no device-loss path or test seam, so no
   subsystem recovers a lost device. Pipelines, bind groups and uploaded textures, materials and
   Enhanced maps included, are lost with it.

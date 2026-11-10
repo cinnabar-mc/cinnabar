@@ -93,13 +93,10 @@ validated but not drawn.
   `material_provenance` (schema 6).
 - Server pack loads log one line of material counts for entities and one for blocks.
 
-## Retained drawing materials and world materials
+## Retained drawing materials
 
 Mod drawing materials (`create-material`, which needs both the `world_draw` and `render_material`
-grants; see `crates/mod-api/drawing-materials.md`) shade only the mod's own retained drawings.
-They do not draw entity or block surfaces, and a resource pack's material bindings never grant
-them. Programmable world materials for server Experiences would take a separate
-`render_world_material` permission. They stay blocked until Experience guests have a drawing
-interface (see `plan.md`). Moving a retained-drawing effect to a world surface today means
-expressing it as a binding in this file, with its states, defines, masks and parameters.
-
+grants; see [drawing materials](../modding/src/appendix/drawing-materials.md)) shade only the mod's
+own retained drawings. They do not draw entity or block surfaces, and a resource pack's material
+bindings never grant them. Moving a retained-drawing effect to a world surface means expressing it as a binding in this
+file, with its states, defines, masks and parameters.
