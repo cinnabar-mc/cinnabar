@@ -65,7 +65,6 @@ fn fixture() -> (client_world::WorldAuthority, WorldObservation) {
         runtime_id: 1,
         position: (0., 0., 0.),
         alive: true,
-        vehicle: None,
     };
     (authority, world)
 }

@@ -2,9 +2,15 @@
 //!
 //! Each mod retains one [`ModPresentation`]. The client merges every active mod's output in load
 //! order into one [`Presentation`]: the earliest mod that sets a single policy (nametag style,
-//! a kind's default nametag visibility, a state's every-actor tint, chat actions) owns it;
-//! per-actor rows are owned per runtime ID and surface by the earliest mod whose grants admit
-//! that actor's kind; tooltip lines are appended in load order.
+//! nametag rules, the tint rules of one actor state, chat actions) owns it; annotations are
+//! owned per runtime ID and surface by the earliest mod whose grants admit that actor's kind;
+//! tooltip lines are appended in load order.
+
+mod rules;
+pub use rules::{
+    ActorFacts, ActorSelector, MAX_NAMETAG_RULES, MAX_TINT_RULES, NametagRule, NametagVisibility,
+    Tint, TintRule, TintState,
+};
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -17,10 +23,6 @@ pub const MAX_ANNOTATIONS: usize = 128;
 pub const MAX_ANNOTATION_SPANS: usize = 4;
 /// Most UTF-8 bytes in one annotation span.
 pub const MAX_ANNOTATION_SPAN_BYTES: usize = 32;
-/// Most actors one mod overrides the nametag visibility of.
-pub const MAX_NAMETAG_OVERRIDES: usize = 128;
-/// Most distinct actors one mod tints individually.
-pub const MAX_ACTOR_TINTS: usize = 64;
 /// Most tooltip lines one mod retains, across every item.
 pub const MAX_TOOLTIP_LINES: usize = 256;
 /// Most mod lines appended to one item's tooltip, across every mod.
@@ -167,89 +169,6 @@ pub struct Annotation {
     pub roster: Option<Arc<Spans>>,
 }
 
-/// Whether one actor's nametag draws.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum NametagVisibility {
-    /// As the client draws it: the local player's own tag only when the player's settings or
-    /// an annotation show it, and no tag while the HUD is hidden.
-    #[default]
-    Native,
-    /// Also the local player's own tag outside first person, and every tag while the HUD is
-    /// hidden and no menu is open.
-    Shown,
-    /// Never drawn.
-    Hidden,
-}
-
-/// The default nametag visibility of each actor kind.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct NametagDefaults {
-    /// Players' tags, the local player's own included.
-    pub players: NametagVisibility,
-    pub others: NametagVisibility,
-}
-
-impl NametagDefaults {
-    /// The default for an actor of this kind.
-    pub fn get(self, player: bool) -> NametagVisibility {
-        if player { self.players } else { self.others }
-    }
-}
-
-/// The actor state a tint applies in. `Hurt` follows the native damage flash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TintState {
-    Hurt,
-    NotHurt,
-}
-
-impl TintState {
-    /// The state of an actor that is or is not hurt.
-    pub fn of(hurt: bool) -> Self {
-        if hurt { Self::Hurt } else { Self::NotHurt }
-    }
-}
-
-/// The actors one tint covers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum TintTarget {
-    EveryActor,
-    /// One actor, by nonzero runtime ID.
-    Actor(u64),
-}
-
-/// Overlay colours for an actor's body and its armour; an absent part keeps native.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Tint {
-    pub body: Option<Rgba>,
-    pub armor: Option<Rgba>,
-}
-
-impl Tint {
-    /// Requires at least one valid colour.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.body.is_none() && self.armor.is_none() {
-            return Err("a tint needs a body or armour colour".into());
-        }
-        [self.body, self.armor]
-            .into_iter()
-            .flatten()
-            .try_for_each(validate_color)
-    }
-
-    /// The overlay colour for one draw layer: armour layers take `armor`; other layers take
-    /// `body`, which while hurt only replaces a native damage overlay the layer draws.
-    pub fn overlay(&self, state: TintState, armor: bool, native_overlay: bool) -> Option<Rgba> {
-        if armor {
-            self.armor
-        } else if state == TintState::Hurt && !native_overlay {
-            None
-        } else {
-            self.body
-        }
-    }
-}
-
 /// One extra line appended to the tooltip of matching items.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TooltipLine {
@@ -309,11 +228,9 @@ impl ChatAction {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModPresentation {
     pub nametag_style: Option<NametagStyle>,
-    pub nametag_defaults: NametagDefaults,
-    pub nametag_overrides: BTreeMap<u64, NametagVisibility>,
+    pub nametag_rules: Vec<NametagRule>,
     pub annotations: BTreeMap<u64, Annotation>,
-    /// At most one tint per target and state.
-    pub tints: BTreeMap<(TintTarget, TintState), Tint>,
+    pub tint_rules: Vec<TintRule>,
     pub tooltip_lines: Vec<TooltipLine>,
     pub chat_actions: Vec<ChatAction>,
 }
@@ -382,14 +299,13 @@ impl<T> ByKind<T> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Presentation {
     pub nametag_style: Option<NametagStyle>,
-    pub nametag_defaults: NametagDefaults,
-    pub nametag_overrides: HashMap<u64, ByKind<NametagVisibility>>,
+    /// The owning mod's grants and nametag rules.
+    pub nametag_rules: (ActorGrants, Vec<NametagRule>),
     pub nametags: HashMap<u64, ByKind<Arc<Spans>>>,
     /// Player-list spans by player runtime ID; only mods with the players grant contribute.
     pub roster: HashMap<u64, Arc<Spans>>,
-    /// Tints for every actor, by state.
-    pub every_actor_tints: HashMap<TintState, Tint>,
-    pub tints: HashMap<(u64, TintState), ByKind<Tint>>,
+    /// For each [`TintState`] in order, its owning mod's grants and rules for that state.
+    pub tint_rules: [(ActorGrants, Vec<TintRule>); 2],
     pub tooltip_lines: Vec<TooltipLine>,
     pub chat_actions: Vec<ChatAction>,
 }
@@ -402,23 +318,20 @@ impl Presentation {
             if merged.nametag_style.is_none() {
                 merged.nametag_style.clone_from(&output.nametag_style);
             }
-            let defaults = &mut merged.nametag_defaults;
-            if defaults.players == NametagVisibility::Native {
-                defaults.players = output.nametag_defaults.players;
+            if merged.nametag_rules.1.is_empty() {
+                merged.nametag_rules = (grants, output.nametag_rules.clone());
             }
-            if defaults.others == NametagVisibility::Native {
-                defaults.others = output.nametag_defaults.others;
+            for (state, owner) in [TintState::Hurt, TintState::NotHurt]
+                .into_iter()
+                .zip(&mut merged.tint_rules)
+            {
+                if owner.1.is_empty() {
+                    owner.0 = grants;
+                    owner
+                        .1
+                        .extend(output.tint_rules.iter().filter(|rule| rule.state == state));
+                }
             }
-            for (&runtime_id, visibility) in &output.nametag_overrides {
-                merged
-                    .nametag_overrides
-                    .entry(runtime_id)
-                    .or_default()
-                    .offer(grants, visibility);
-            }
-            merged
-                .nametag_overrides
-                .retain(|_, entry| !entry.is_empty());
             for (&runtime_id, annotation) in &output.annotations {
                 if let Some(spans) = &annotation.nametag {
                     merged
@@ -435,19 +348,6 @@ impl Presentation {
                 }
             }
             merged.nametags.retain(|_, entry| !entry.is_empty());
-            for (&(target, state), tint) in &output.tints {
-                match target {
-                    TintTarget::EveryActor => {
-                        merged.every_actor_tints.entry(state).or_insert(*tint);
-                    }
-                    TintTarget::Actor(runtime_id) => merged
-                        .tints
-                        .entry((runtime_id, state))
-                        .or_default()
-                        .offer(grants, tint),
-                }
-            }
-            merged.tints.retain(|_, entry| !entry.is_empty());
             merged
                 .tooltip_lines
                 .extend(output.tooltip_lines.iter().cloned());
@@ -463,33 +363,23 @@ impl Presentation {
         self.nametags.get(&runtime_id)?.get(player)
     }
 
-    /// The nametag visibility of one actor of this kind: its override, else its kind's default.
-    pub fn nametag_visibility(&self, runtime_id: u64, player: bool) -> NametagVisibility {
-        self.nametag_overrides
-            .get(&runtime_id)
-            .and_then(|entry| entry.get(player))
-            .copied()
-            .unwrap_or_else(|| self.nametag_defaults.get(player))
+    /// The nametag visibility the owning mod's rules give `actor`.
+    pub fn nametag_visibility(&self, actor: &ActorFacts, hud_hidden: bool) -> NametagVisibility {
+        let (grants, rules) = &self.nametag_rules;
+        rules::nametag_visibility(rules, *grants, actor, hud_hidden)
     }
 
-    /// Whether any kind's default or any actor's override is [`NametagVisibility::Shown`], so a
-    /// tag can draw while the HUD is hidden.
-    pub fn shows_nametags(&self) -> bool {
-        let shown = |visibility: &NametagVisibility| *visibility == NametagVisibility::Shown;
-        shown(&self.nametag_defaults.players)
-            || shown(&self.nametag_defaults.others)
-            || self.nametag_overrides.values().any(|entry| {
-                entry.player.as_ref().is_some_and(shown) || entry.other.as_ref().is_some_and(shown)
-            })
+    /// Whether some rule can draw a tag while the HUD is hidden.
+    pub fn shows_nametags_with_hidden_hud(&self) -> bool {
+        self.nametag_rules.1.iter().any(|rule| {
+            rule.hud_hidden != Some(false) && rule.visibility != NametagVisibility::Hidden
+        })
     }
 
-    /// The tint for one actor of this kind in `state`: its own tint, else the every-actor tint.
-    pub fn tint(&self, runtime_id: u64, player: bool, state: TintState) -> Option<Tint> {
-        self.tints
-            .get(&(runtime_id, state))
-            .and_then(|entry| entry.get(player))
-            .or_else(|| self.every_actor_tints.get(&state))
-            .copied()
+    /// The tint the owning mod's rules for `state` give `actor`.
+    pub fn tint(&self, actor: &ActorFacts, state: TintState) -> Option<Tint> {
+        let (grants, rules) = &self.tint_rules[state as usize];
+        rules::tint(rules, *grants, actor, state)
     }
 
     /// The first [`MAX_ITEM_TOOLTIP_LINES`] lines for one item, in load order.
@@ -521,11 +411,24 @@ mod tests {
         })
     }
 
-    /// A tint drawing `color` on both body and armour.
-    fn tint(color: Rgba) -> Tint {
-        Tint {
-            body: Some(color),
-            armor: Some(color),
+    /// A rule tinting the bodies of `actors` in `state`.
+    fn tint_rule(actors: ActorSelector, state: TintState, color: Rgba) -> TintRule {
+        TintRule {
+            actors,
+            state,
+            tint: Tint {
+                body: Some(color),
+                armor: None,
+            },
+        }
+    }
+
+    /// Facts of a remote actor of this kind.
+    fn actor(runtime_id: u64, player: bool) -> ActorFacts {
+        ActorFacts {
+            runtime_id,
+            player,
+            ..Default::default()
         }
     }
 
@@ -553,10 +456,11 @@ mod tests {
                     roster: None,
                 },
             )]),
-            tints: BTreeMap::from([(
-                (TintTarget::Actor(7), TintState::NotHurt),
-                tint([1., 0., 0., 1.]),
-            )]),
+            tint_rules: vec![tint_rule(
+                ActorSelector::Actor(7),
+                TintState::NotHurt,
+                [1., 0., 0., 1.],
+            )],
             tooltip_lines: vec![TooltipLine {
                 identifier: "minecraft:apple".into(),
                 metadata: None,
@@ -574,19 +478,15 @@ mod tests {
                     roster: Some(spans("tab", SpanPosition::Above)),
                 },
             )]),
-            tints: BTreeMap::from([
-                (
-                    (TintTarget::EveryActor, TintState::Hurt),
-                    Tint {
-                        body: Some([0., 0., 1., 1.]),
-                        armor: None,
-                    },
-                ),
-                (
-                    (TintTarget::Actor(7), TintState::NotHurt),
-                    tint([0., 1., 0., 1.]),
-                ),
-            ]),
+            nametag_rules: vec![NametagRule {
+                actors: ActorSelector::All,
+                hud_hidden: None,
+                visibility: NametagVisibility::Hidden,
+            }],
+            tint_rules: vec![
+                tint_rule(ActorSelector::All, TintState::Hurt, [0., 0., 1., 1.]),
+                tint_rule(ActorSelector::Actor(7), TintState::NotHurt, [0., 1., 0., 1.]),
+            ],
             tooltip_lines: vec![TooltipLine {
                 identifier: "minecraft:apple".into(),
                 metadata: Some(1),
@@ -611,20 +511,29 @@ mod tests {
             "second",
             "the first mod lacks entities, so the second owns non-player rows"
         );
+        let tint = |merged: &Presentation, actor: ActorFacts, state| {
+            merged.tint(&actor, state).and_then(|tint| tint.body)
+        };
         assert_eq!(
-            merged.tint(7, true, TintState::NotHurt),
-            Some(tint([1., 0., 0., 1.]))
+            tint(&merged, actor(7, true), TintState::NotHurt),
+            Some([1., 0., 0., 1.])
         );
         assert_eq!(
-            merged.tint(7, false, TintState::NotHurt),
-            Some(tint([0., 1., 0., 1.]))
+            tint(&merged, actor(7, false), TintState::NotHurt),
+            None,
+            "the first mod owns not-hurt tints, and its grants do not admit other actors"
         );
         assert_eq!(&*merged.roster[&7].spans[0].text, "tab");
         assert_eq!(
-            merged.tint(7, true, TintState::Hurt).unwrap().body,
+            tint(&merged, actor(7, true), TintState::Hurt),
             Some([0., 0., 1., 1.]),
-            "the second mod's every-actor tint covers actors without their own hurt tint"
+            "the second mod owns hurt tints, which the first left unset"
         );
+        assert_eq!(
+            merged.nametag_visibility(&actor(7, true), false),
+            NametagVisibility::Hidden
+        );
+        assert!(!merged.shows_nametags_with_hidden_hud());
         assert_eq!(merged.chat_actions, second.chat_actions);
         let lines: Vec<_> = merged
             .tooltip_lines("minecraft:apple", 1)
@@ -651,112 +560,68 @@ mod tests {
                     roster: Some(spans("tab", SpanPosition::After)),
                 },
             )]),
-            nametag_overrides: BTreeMap::from([(3, NametagVisibility::Hidden)]),
-            tints: BTreeMap::from([((TintTarget::Actor(3), TintState::NotHurt), tint([1.; 4]))]),
+            nametag_rules: vec![NametagRule {
+                actors: ActorSelector::Actor(3),
+                hud_hidden: None,
+                visibility: NametagVisibility::Hidden,
+            }],
+            tint_rules: vec![tint_rule(
+                ActorSelector::Actor(3),
+                TintState::NotHurt,
+                [1.; 4],
+            )],
             ..Default::default()
         };
         let merged = Presentation::merge([(ENTITIES, &output)]);
         assert_eq!(
-            merged.nametag_visibility(3, false),
+            merged.nametag_visibility(&actor(3, false), false),
             NametagVisibility::Hidden
         );
         assert_eq!(
-            merged.nametag_visibility(3, true),
+            merged.nametag_visibility(&actor(3, true), false),
             NametagVisibility::Native
         );
         assert!(merged.nametag(3, true).is_none());
         assert!(merged.nametag(3, false).is_some());
         assert!(merged.roster.is_empty());
-        assert!(merged.tint(3, true, TintState::NotHurt).is_none());
-        let none = Presentation::merge([(ActorGrants::default(), &output)]);
         assert!(
-            none.nametags.is_empty() && none.tints.is_empty() && none.nametag_overrides.is_empty()
+            merged
+                .tint(&actor(3, true), TintState::NotHurt)
+                .is_none()
         );
+        assert!(
+            merged
+                .tint(&actor(3, false), TintState::NotHurt)
+                .is_some()
+        );
+        let none = Presentation::merge([(ActorGrants::default(), &output)]);
+        assert!(none.nametags.is_empty());
+        assert!(none.tint(&actor(3, false), TintState::NotHurt).is_none());
     }
 
-    /// Each kind's default visibility belongs to the earliest mod that leaves native, and an
-    /// actor's override replaces its kind's default.
+    /// Only rules that can draw while the HUD is hidden make the client consider tags then.
     #[test]
-    fn nametag_visibility_defaults_and_overrides_merge_by_kind() {
-        let first = ModPresentation {
-            nametag_defaults: NametagDefaults {
-                players: NametagVisibility::Shown,
-                others: NametagVisibility::Native,
-            },
-            ..Default::default()
+    fn hidden_hud_tags_need_a_rule_that_can_show_them() {
+        let with = |rules: Vec<NametagRule>| {
+            Presentation::merge([(
+                PLAYERS,
+                &ModPresentation {
+                    nametag_rules: rules,
+                    ..Default::default()
+                },
+            )])
+            .shows_nametags_with_hidden_hud()
         };
-        let second = ModPresentation {
-            nametag_defaults: NametagDefaults {
-                players: NametagVisibility::Hidden,
-                others: NametagVisibility::Hidden,
-            },
-            nametag_overrides: BTreeMap::from([(9, NametagVisibility::Shown)]),
-            ..Default::default()
+        let rule = |hud_hidden, visibility| NametagRule {
+            actors: ActorSelector::Players,
+            hud_hidden,
+            visibility,
         };
-        let merged = Presentation::merge([(PLAYERS, &first), (PLAYERS, &second)]);
-        assert_eq!(merged.nametag_visibility(1, true), NametagVisibility::Shown);
-        assert_eq!(
-            merged.nametag_visibility(1, false),
-            NametagVisibility::Hidden
-        );
-        assert_eq!(merged.nametag_visibility(9, true), NametagVisibility::Shown);
-        assert_eq!(
-            merged.nametag_visibility(9, false),
-            NametagVisibility::Hidden,
-            "a players-only mod's override never reaches other actors"
-        );
-        assert_eq!(
-            Presentation::default().nametag_visibility(1, true),
-            NametagVisibility::Native
-        );
-        assert!(merged.shows_nametags());
-        assert!(!Presentation::default().shows_nametags());
-        let override_only = ModPresentation {
-            nametag_overrides: BTreeMap::from([(9, NametagVisibility::Shown)]),
-            ..Default::default()
-        };
-        assert!(Presentation::merge([(ENTITIES, &override_only)]).shows_nametags());
-    }
-
-    /// An actor's own tint replaces the every-actor tint of its state, and each state's
-    /// every-actor tint belongs to the earliest mod that sets one.
-    #[test]
-    fn actor_tints_take_precedence_over_every_actor_tints() {
-        let red = tint([1., 0., 0., 1.]);
-        let blue = tint([0., 0., 1., 1.]);
-        let first = ModPresentation {
-            tints: BTreeMap::from([((TintTarget::EveryActor, TintState::Hurt), red)]),
-            ..Default::default()
-        };
-        let second = ModPresentation {
-            tints: BTreeMap::from([
-                ((TintTarget::EveryActor, TintState::Hurt), blue),
-                ((TintTarget::EveryActor, TintState::NotHurt), blue),
-                ((TintTarget::Actor(4), TintState::Hurt), blue),
-            ]),
-            ..Default::default()
-        };
-        let merged = Presentation::merge([(PLAYERS, &first), (PLAYERS, &second)]);
-        assert_eq!(merged.tint(1, true, TintState::Hurt), Some(red));
-        assert_eq!(merged.tint(1, false, TintState::NotHurt), Some(blue));
-        assert_eq!(merged.tint(4, true, TintState::Hurt), Some(blue));
-        assert_eq!(merged.tint(4, false, TintState::Hurt), Some(red));
-    }
-
-    /// Armour layers take the armour colour; while hurt, other layers take the body colour
-    /// only where the native damage overlay draws, matching the native flash.
-    #[test]
-    fn tint_overlays_follow_layer_and_state() {
-        let tint = Tint {
-            body: Some([1., 0., 0., 1.]),
-            armor: None,
-        };
-        assert_eq!(tint.overlay(TintState::Hurt, false, true), tint.body);
-        assert_eq!(tint.overlay(TintState::Hurt, false, false), None);
-        assert_eq!(tint.overlay(TintState::Hurt, true, true), None);
-        assert_eq!(tint.overlay(TintState::NotHurt, false, false), tint.body);
-        assert!(Tint::default().validate().is_err());
-        assert!(tint.validate().is_ok());
+        assert!(!with(Vec::new()));
+        assert!(with(vec![rule(Some(true), NametagVisibility::Native)]));
+        assert!(with(vec![rule(None, NametagVisibility::Shown)]));
+        assert!(!with(vec![rule(Some(false), NametagVisibility::Shown)]));
+        assert!(!with(vec![rule(None, NametagVisibility::Hidden)]));
     }
 
     /// Each item tooltip receives a bounded number of mod lines.

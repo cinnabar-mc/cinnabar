@@ -49,7 +49,6 @@ fn run(host: &mut ModHost) -> anyhow::Result<()> {
         position: (0., 63., 0.),
         alive: true,
         runtime_id: 1,
-        vehicle: None,
     };
     host.observe_presentation(Some(world), None, None, Vec::new())?;
     host.frame_with_gameplay(false, Some(snapshot()))
@@ -164,7 +163,6 @@ fn round_robin_sampling_reaches_every_mod() {
                 position: (32., 64., 8.),
                 alive: true,
                 runtime_id: 1,
-                vehicle: None,
             };
             host.observe_presentation(Some(world), None, None, Vec::new())
                 .unwrap();

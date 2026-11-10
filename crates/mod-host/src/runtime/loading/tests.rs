@@ -101,13 +101,13 @@ fn loading_gap_clears_actor_presentation_before_deferred_destination_callbacks()
                 state
                     .set_actor_tints(vec![
                         wit::ActorTint {
-                            target: wit::TintTarget::Actor(42),
+                            actors: wit::ActorSelector::Actor(42),
                             state: wit::TintState::NotHurt,
                             body: Some(white),
                             armor: Some(white),
                         },
                         wit::ActorTint {
-                            target: wit::TintTarget::EveryActor,
+                            actors: wit::ActorSelector::All,
                             state: wit::TintState::Hurt,
                             body: Some(white),
                             armor: None,
@@ -235,7 +235,7 @@ fn stage_world_output(state: &mut State) -> Result<()> {
     state.emit("fixture".into(), vec![1.])?.unwrap();
     state
         .set_actor_tints(vec![presentation::ActorTint {
-            target: presentation::TintTarget::Actor(42),
+            actors: presentation::ActorSelector::Actor(42),
             state: presentation::TintState::NotHurt,
             body: Some(Rgba {
                 r: 1.,

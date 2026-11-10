@@ -314,12 +314,9 @@ pub(super) fn drive_mod(
     terrain.refresh(&mut extension.hosts, &gameplay, world_observation.as_ref());
     let (hud_viewport, hud_elements) = presentation.hud_elements();
     let label_metrics = presentation.label_metrics();
-    extension.hosts.observe_hud(
-        hud_viewport,
-        hud_elements,
-        presentation.hud_hidden(),
-        label_metrics,
-    );
+    extension
+        .hosts
+        .observe_hud(hud_viewport, hud_elements, label_metrics);
     let panel_layout = presentation.mod_ui().mod_panel_layout();
     for index in 0..extension.hosts.host_count() {
         let owner = extension.panel_ui_owner(index);

@@ -179,7 +179,6 @@ mod tests {
             position: (0., 0., 0.),
             alive: true,
             runtime_id: 1,
-            vehicle: None,
         });
         value
     }
@@ -362,7 +361,6 @@ mod tests {
             position: (0., 0., 0.),
             alive: true,
             runtime_id: 1,
-            vehicle: None,
         });
         value.read_region(query(0), None).unwrap().unwrap();
         for (session, dimension, delivered) in [(7, 2, true), (1, 2, false), (7, 0, false)] {

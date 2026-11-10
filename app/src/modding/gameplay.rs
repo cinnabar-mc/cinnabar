@@ -176,10 +176,6 @@ impl GameplayContext<'_> {
             position: (position.x, position.y, position.z),
             alive: ui.hud().health().is_none_or(|health| health.current() > 0),
             runtime_id: authority.local_player_runtime_id(),
-            vehicle: super::module_observations::vehicle(
-                authority,
-                authority.local_player_unique_id(),
-            ),
         })
     }
 

@@ -214,7 +214,6 @@ fn observe(host: &mut ModHost) {
         position: (16., 64., 16.),
         alive: true,
         runtime_id: 1,
-        vehicle: None,
     };
     host.observe_presentation(Some(world), None, None, Vec::new())
         .unwrap();

@@ -139,30 +139,14 @@ fn the_position_line_is_a_hidden_element_like_the_others() {
 }
 
 #[test]
-fn hud_hidden_reads_report_the_last_observation() {
-    let none = [ElementState::default(); VanillaElement::ALL.len()];
-    let (_dir, mut host) = load("call $require-hud-shown", "call $require-hud-hidden", true);
-    host.observe_hud(Some(VIEWPORT), none, true);
-    host.frame(false).unwrap();
-    assert!(
-        host.is_active(),
-        "the guest read the observed Hide HUD state"
-    );
-    let (_dir, mut host) = load("", "call $require-hud-denied", false);
-    host.observe_hud(Some(VIEWPORT), none, true);
-    host.frame(false).unwrap();
-    assert!(host.is_active(), "denied mods read no Hide HUD state");
-}
-
-#[test]
 fn viewport_reads_report_the_last_observed_root() {
     let (_dir, mut host) = load("call $require-no-viewport", "call $require-viewport", true);
     let none = [ElementState::default(); VanillaElement::ALL.len()];
-    host.observe_hud(Some(VIEWPORT), none, false);
+    host.observe_hud(Some(VIEWPORT), none);
     host.frame(false).unwrap();
     assert!(host.is_active(), "the guest read the observed root");
     let (_dir, mut host) = load("", "call $require-no-viewport", false);
-    host.observe_hud(Some(VIEWPORT), none, false);
+    host.observe_hud(Some(VIEWPORT), none);
     host.frame(false).unwrap();
     assert!(host.is_active(), "denied mods read no root");
 }

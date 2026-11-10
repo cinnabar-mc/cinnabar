@@ -284,8 +284,6 @@ fn hud_imports_are_denied_without_hud_authority() {
     });
     assert!(surface::viewport(&state).is_none());
     assert!(surface::elements(&state).is_err());
-    state.hud.hud_hidden = true;
-    assert!(surface::hud_hidden(&state).is_err());
     assert!(surface::measure(&mut state, "x", wit::Font::Native).is_err());
 }
 

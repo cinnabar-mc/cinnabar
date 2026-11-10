@@ -4,11 +4,12 @@
     (export "rgba" (type $rgba (eq $r)))
     (type $a (record (field "text" string) (field "action" string)))
     (export "chat-action" (type $chat-action (eq $a)))
-    (type $tt (variant (case "every-actor") (case "actor" u64)))
-    (export "tint-target" (type $tint-target (eq $tt)))
+    (type $sel (variant (case "all") (case "players") (case "non-players") (case "local-player")
+      (case "riding") (case "actor" u64)))
+    (export "actor-selector" (type $actor-selector (eq $sel)))
     (type $ts (enum "hurt" "not-hurt"))
     (export "tint-state" (type $tint-state (eq $ts)))
-    (type $t (record (field "target" $tint-target) (field "state" $tint-state)
+    (type $t (record (field "actors" $actor-selector) (field "state" $tint-state)
       (field "body" (option $rgba)) (field "armor" (option $rgba))))
     (export "actor-tint" (type $actor-tint (eq $t)))
     (export "set-actor-tints" (func (param "tints" (list $actor-tint))
@@ -37,7 +38,7 @@
     (import "host" "memory" (memory 1))
     (func (export "init"))
     (func (export "frame")
-      ;; One every-actor hurt tint at 1024: the target and state stay zero, the body colour is
+      ;; One hurt tint for all actors at 1024: the selector and state stay zero, the body colour is
       ;; some at 1044 with its channels from 1048, and the armour colour at 1064 stays none.
       i32.const 1044 i32.const 1 i32.store8
       i32.const 1048 f32.const $RED f32.store

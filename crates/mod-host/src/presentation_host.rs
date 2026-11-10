@@ -8,9 +8,9 @@ use super::{
 use anyhow::{Result, bail};
 use std::{collections::BTreeMap, sync::Arc};
 use ui::mod_presentation::{
-    Annotation, ChatAction, MAX_ACTOR_TINTS, MAX_ANNOTATIONS, MAX_CHAT_ACTIONS,
-    MAX_NAMETAG_OVERRIDES, MAX_TOOLTIP_LINES, ModPresentation, NametagDefaults, NametagStyle,
-    NametagVisibility, Span, SpanPosition, Spans, Tint, TintState, TintTarget, TooltipLine,
+    ActorSelector, Annotation, ChatAction, MAX_ANNOTATIONS, MAX_CHAT_ACTIONS, MAX_NAMETAG_RULES,
+    MAX_TINT_RULES, MAX_TOOLTIP_LINES, ModPresentation, NametagRule, NametagStyle,
+    NametagVisibility, Span, SpanPosition, Spans, Tint, TintRule, TintState, TooltipLine,
 };
 
 // The guest-facing limits in `mod-api` are the ones the shared presentation types enforce.
@@ -20,8 +20,8 @@ const _: () = assert!(
             == ui::mod_presentation::MAX_ANNOTATION_SPANS
         && mod_api::presentation::MAX_ANNOTATION_SPAN_BYTES
             == ui::mod_presentation::MAX_ANNOTATION_SPAN_BYTES
-        && mod_api::presentation::MAX_NAMETAG_OVERRIDES == MAX_NAMETAG_OVERRIDES
-        && mod_api::presentation::MAX_ACTOR_TINTS == MAX_ACTOR_TINTS
+        && mod_api::presentation::MAX_NAMETAG_RULES == MAX_NAMETAG_RULES
+        && mod_api::presentation::MAX_TINT_RULES == MAX_TINT_RULES
         && mod_api::presentation::MAX_TOOLTIP_LINES == MAX_TOOLTIP_LINES
         && mod_api::presentation::MAX_ITEM_TOOLTIP_LINES
             == ui::mod_presentation::MAX_ITEM_TOOLTIP_LINES
@@ -195,55 +195,69 @@ fn nametag_style(style: wit::NametagStyle) -> Result<NametagStyle, String> {
     Ok(style)
 }
 
-/// The host visibility a WIT visibility names.
-fn visibility(visibility: wit::NametagVisibility) -> NametagVisibility {
-    match visibility {
-        wit::NametagVisibility::Native => NametagVisibility::Native,
-        wit::NametagVisibility::Shown => NametagVisibility::Shown,
-        wit::NametagVisibility::Hidden => NametagVisibility::Hidden,
-    }
+/// The host selector a WIT selector names, rejecting runtime ID zero.
+fn selector(selector: wit::ActorSelector) -> Result<ActorSelector, String> {
+    let selector = match selector {
+        wit::ActorSelector::All => ActorSelector::All,
+        wit::ActorSelector::Players => ActorSelector::Players,
+        wit::ActorSelector::NonPlayers => ActorSelector::NonPlayers,
+        wit::ActorSelector::LocalPlayer => ActorSelector::LocalPlayer,
+        wit::ActorSelector::Riding => ActorSelector::Riding,
+        wit::ActorSelector::Actor(runtime_id) => ActorSelector::Actor(runtime_id),
+    };
+    selector.validate()?;
+    Ok(selector)
 }
 
-/// Converts and validates every tint: at most one per target and state, actor targets with
-/// distinct nonzero runtime IDs within [`MAX_ACTOR_TINTS`], and each with a valid colour.
-fn tints(tints: Vec<wit::ActorTint>) -> Result<BTreeMap<(TintTarget, TintState), Tint>, String> {
-    let count = tints.len();
-    let mut rows = BTreeMap::new();
-    for tint in tints {
-        let target = match tint.target {
-            wit::TintTarget::EveryActor => TintTarget::EveryActor,
-            wit::TintTarget::Actor(0) => {
-                return Err("tinted actors need nonzero runtime IDs".into());
-            }
-            wit::TintTarget::Actor(runtime_id) => TintTarget::Actor(runtime_id),
-        };
-        let state = match tint.state {
-            wit::TintState::Hurt => TintState::Hurt,
-            wit::TintState::NotHurt => TintState::NotHurt,
-        };
-        let value = Tint {
-            body: tint.body.map(rgba),
-            armor: tint.armor.map(rgba),
-        };
-        value.validate()?;
-        rows.insert((target, state), value);
+/// Whether a WIT selector names one actor, which needs an actor grant.
+fn names_actor(selector: wit::ActorSelector) -> bool {
+    matches!(selector, wit::ActorSelector::Actor(_))
+}
+
+/// Converts and validates at most [`MAX_NAMETAG_RULES`] nametag rules.
+fn nametag_rules(rules: Vec<wit::NametagRule>) -> Result<Vec<NametagRule>, String> {
+    if rules.len() > MAX_NAMETAG_RULES {
+        return Err("too many nametag rules".into());
     }
-    if rows.len() != count {
-        return Err("tints need distinct targets within each state".into());
-    }
-    // Keys sort by target first, so one actor's states are adjacent.
-    let mut actors: Vec<u64> = rows
-        .keys()
-        .filter_map(|(target, _)| match target {
-            TintTarget::Actor(runtime_id) => Some(*runtime_id),
-            TintTarget::EveryActor => None,
+    rules
+        .into_iter()
+        .map(|rule| {
+            Ok(NametagRule {
+                actors: selector(rule.actors)?,
+                hud_hidden: rule.hud_hidden,
+                visibility: match rule.visibility {
+                    wit::NametagVisibility::Native => NametagVisibility::Native,
+                    wit::NametagVisibility::Shown => NametagVisibility::Shown,
+                    wit::NametagVisibility::Hidden => NametagVisibility::Hidden,
+                },
+            })
         })
-        .collect();
-    actors.dedup();
-    if actors.len() > MAX_ACTOR_TINTS {
-        return Err("too many tinted actors".into());
+        .collect()
+}
+
+/// Converts and validates at most [`MAX_TINT_RULES`] tint rules, each with a valid colour.
+fn tint_rules(tints: Vec<wit::ActorTint>) -> Result<Vec<TintRule>, String> {
+    if tints.len() > MAX_TINT_RULES {
+        return Err("too many tint rules".into());
     }
-    Ok(rows)
+    tints
+        .into_iter()
+        .map(|rule| {
+            let tint = Tint {
+                body: rule.body.map(rgba),
+                armor: rule.armor.map(rgba),
+            };
+            tint.validate()?;
+            Ok(TintRule {
+                actors: selector(rule.actors)?,
+                state: match rule.state {
+                    wit::TintState::Hurt => TintState::Hurt,
+                    wit::TintState::NotHurt => TintState::NotHurt,
+                },
+                tint,
+            })
+        })
+        .collect()
 }
 
 impl wit::Host for State {
@@ -278,30 +292,15 @@ impl wit::Host for State {
         }
     }
 
-    fn set_nametag_visibility(
-        &mut self,
-        players: wit::NametagVisibility,
-        others: wit::NametagVisibility,
-        overrides: Vec<wit::NametagOverride>,
-    ) -> Result<Result<(), String>> {
-        if let Err(error) = admit(self, !overrides.is_empty())? {
+    fn set_nametag_rules(&mut self, rules: Vec<wit::NametagRule>) -> Result<Result<(), String>> {
+        let actor_rows = rules.iter().any(|rule| names_actor(rule.actors));
+        if let Err(error) = admit(self, actor_rows)? {
             return Ok(Err(error));
         }
-        let rows = overrides
-            .into_iter()
-            .map(|row| (row.runtime_id, visibility(row.visibility)))
-            .collect();
-        match keyed(rows, MAX_NAMETAG_OVERRIDES) {
-            Ok(rows) => {
-                self.presentation.replace(
-                    |output| &mut output.nametag_defaults,
-                    NametagDefaults {
-                        players: visibility(players),
-                        others: visibility(others),
-                    },
-                );
+        match nametag_rules(rules) {
+            Ok(rules) => {
                 self.presentation
-                    .replace(|output| &mut output.nametag_overrides, rows);
+                    .replace(|output| &mut output.nametag_rules, rules);
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(error)),
@@ -309,15 +308,14 @@ impl wit::Host for State {
     }
 
     fn set_actor_tints(&mut self, rows: Vec<wit::ActorTint>) -> Result<Result<(), String>> {
-        let actor_rows = rows
-            .iter()
-            .any(|tint| matches!(tint.target, wit::TintTarget::Actor(_)));
+        let actor_rows = rows.iter().any(|rule| names_actor(rule.actors));
         if let Err(error) = admit(self, actor_rows)? {
             return Ok(Err(error));
         }
-        match tints(rows) {
-            Ok(rows) => {
-                self.presentation.replace(|output| &mut output.tints, rows);
+        match tint_rules(rows) {
+            Ok(rules) => {
+                self.presentation
+                    .replace(|output| &mut output.tint_rules, rules);
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(error)),

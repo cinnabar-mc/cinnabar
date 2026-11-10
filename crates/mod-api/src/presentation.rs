@@ -6,10 +6,10 @@ pub const MAX_ANNOTATIONS: usize = 128;
 pub const MAX_ANNOTATION_SPANS: usize = 4;
 /// Most UTF-8 bytes in one annotation span.
 pub const MAX_ANNOTATION_SPAN_BYTES: usize = 32;
-/// Most actors one mod overrides through `presentation.set-nametag-visibility`.
-pub const MAX_NAMETAG_OVERRIDES: usize = 128;
-/// Most distinct actors one mod tints through `presentation.set-actor-tints`.
-pub const MAX_ACTOR_TINTS: usize = 64;
+/// Most rules one mod retains through `presentation.set-nametag-rules`.
+pub const MAX_NAMETAG_RULES: usize = 128;
+/// Most rules one mod retains through `presentation.set-actor-tints`.
+pub const MAX_TINT_RULES: usize = 128;
 /// Most tooltip lines one mod retains, across every item.
 pub const MAX_TOOLTIP_LINES: usize = 256;
 /// Most mod lines one item's tooltip shows, across every mod.

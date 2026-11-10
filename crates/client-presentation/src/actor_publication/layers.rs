@@ -235,6 +235,19 @@ pub(super) fn attach(
     }
 }
 
+/// The facts mod presentation rules select `actor` by.
+pub fn mod_actor_facts(
+    authority: &client_world::WorldAuthority,
+    actor: &client_world::ActorSnapshot,
+) -> ui::mod_presentation::ActorFacts {
+    ui::mod_presentation::ActorFacts {
+        runtime_id: actor.runtime_id,
+        player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+        local: actor.runtime_id == authority.local_player_runtime_id(),
+        riding: authority.ridden_unique_id(actor.unique_id).is_some(),
+    }
+}
+
 /// Applies cosmetic overlays before hiding body layers, leaving armor and held items visible.
 pub(super) fn apply_style_and_visibility(
     batch: &mut ActorPresentationBatch,
@@ -259,16 +272,12 @@ pub(super) fn apply_style_and_visibility(
         };
         if !submission.material.allows_overlay() {
             submission.overlay_rgba8 = 0;
-        } else if let Some((style, actor)) = style.zip(actor) {
+        } else if let Some(((style, actor), stream)) = style.zip(actor).zip(stream) {
             let armor = (3..=6).contains(&identity.layer);
             let state = ui::mod_presentation::TintState::of(actor.hurt_overlay_active());
             if let Some(color) = style
                 .presentation
-                .tint(
-                    identity.runtime_id,
-                    matches!(actor.kind, protocol::ActorKind::Player { .. }),
-                    state,
-                )
+                .tint(&mod_actor_facts(stream.authority(), actor), state)
                 .and_then(|tint| tint.overlay(state, armor, submission.overlay_rgba8 != 0))
             {
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);

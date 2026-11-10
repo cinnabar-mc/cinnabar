@@ -185,12 +185,6 @@ impl UiPresentationRuntime {
         (self.screens.mod_ui.hud_viewport(), self.hud_elements.states)
     }
 
-    /// Whether the player has hidden the HUD with the Hide HUD setting, for
-    /// `hud.read-hud-hidden`.
-    pub fn hud_hidden(&self) -> bool {
-        self.gameplay_settings().value(SettingId::HideHud) != 0
-    }
-
     /// Draws the personal panel.
     pub(in super::super) fn append_mod_panel(
         &mut self,

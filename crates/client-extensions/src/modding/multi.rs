@@ -258,13 +258,12 @@ impl ModHosts {
         self.hosts.push(host);
     }
 
-    /// Records the last painted HUD root, its vanilla element states, whether the player hid
-    /// the HUD and its label metrics for every host's next HUD reads.
+    /// Records the last painted HUD root, its vanilla element states and its label metrics
+    /// for every host's next HUD reads.
     pub fn observe_hud(
         &mut self,
         viewport: Option<ui::mod_hud::HudViewport>,
         elements: ui::mod_hud::ElementStates,
-        hud_hidden: bool,
         label_metrics: Option<std::sync::Arc<mod_ui::LabelMetrics>>,
     ) {
         let changed = match (&self.label_metrics, &label_metrics) {
@@ -278,7 +277,7 @@ impl ModHosts {
         }
         let measure = label_widths(&self.label_metrics);
         for host in &mut self.hosts {
-            host.observe_hud(viewport, elements, hud_hidden);
+            host.observe_hud(viewport, elements);
             host.set_text_measure(measure.clone());
         }
     }

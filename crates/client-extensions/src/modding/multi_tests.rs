@@ -127,7 +127,10 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
     frame(&mut runtime);
     let merged = runtime.merged_presentation();
     let hurt = |merged: &ui::mod_presentation::Presentation| {
-        merged.every_actor_tints[&ui::mod_presentation::TintState::Hurt].body
+        let mob = ui::mod_presentation::ActorFacts::default();
+        merged
+            .tint(&mob, ui::mod_presentation::TintState::Hurt)
+            .and_then(|tint| tint.body)
     };
     assert_eq!(hurt(&merged), Some([1., 0., 0., 1.]));
     assert_eq!(merged.chat_actions[0].action, "first");
@@ -864,7 +867,6 @@ fn hidden_hud_elements_combine_across_mods_and_hosts_share_hud_observations() {
     hosts.observe_hud(
         Some(viewport),
         [ElementState::default(); VanillaElement::ALL.len()],
-        false,
         None,
     );
     assert!(hosts.host(0).hud_surface().is_none());
@@ -919,7 +921,6 @@ fn unchanged_hud_metrics_are_installed_on_replacement_hosts() {
         hosts.observe_hud(
             None,
             Default::default(),
-            false,
             Some(std::sync::Arc::clone(&metrics)),
         )
     };

@@ -498,16 +498,16 @@ pub(crate) fn prepare_ui_runtime(
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
     presentation.prepare_nametag_layout(&runtime);
-    // Mod visibility decides each tag after native eligibility: `Hidden` never draws, and only
-    // `Shown` draws while the HUD is hidden, outside menus.
+    // Mod nametag rules decide each tag after native eligibility; with none, every tag is
+    // native, and none draws while the HUD is hidden.
     let hud_hidden = !overlays.nametags;
-    let visible = |visibility: NametagVisibility| match visibility {
-        NametagVisibility::Native => !hud_hidden,
-        NametagVisibility::Shown => true,
-        NametagVisibility::Hidden => false,
-    };
-    let own_visibility = client_world.stream.as_ref().map(|stream| {
-        mod_presentation.nametag_visibility(stream.authority().local_player_runtime_id(), true)
+    let own_visibility = client_world.stream.as_ref().and_then(|stream| {
+        let authority = stream.authority();
+        let actor = authority.actor(authority.local_player_runtime_id())?;
+        Some(mod_presentation.nametag_visibility(
+            &client_presentation::actor_publication::mod_actor_facts(authority, actor),
+            hud_hidden,
+        ))
     });
     // An annotation on the local player shows its own tag, as other annotated players' tags do.
     let annotated_self = client_world.stream.as_ref().is_some_and(|stream| {
@@ -522,7 +522,9 @@ pub(crate) fn prepare_ui_runtime(
     let nametags = client_world
         .stream
         .as_ref()
-        .filter(|_| !hud_hidden || (!menu_visible && mod_presentation.shows_nametags()))
+        .filter(|_| {
+            !hud_hidden || (!menu_visible && mod_presentation.shows_nametags_with_hidden_hud())
+        })
         .zip(cameras.single().ok().map(|(_, transform, projection)| {
             (
                 GlobalTransform::from(*transform),
@@ -538,15 +540,17 @@ pub(crate) fn prepare_ui_runtime(
             let clip_from_world = clip_from_view * transform.to_matrix().inverse();
             let rotation = transform.rotation();
             let mut admit = |tag: &mut nametags::NametagAnchor| {
-                let Some(player) = authority
-                    .actor(tag.runtime_id())
-                    .map(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }))
-                else {
+                let Some(facts) = authority.actor(tag.runtime_id()).map(|actor| {
+                    client_presentation::actor_publication::mod_actor_facts(authority, actor)
+                }) else {
                     return false;
                 };
-                if !visible(mod_presentation.nametag_visibility(tag.runtime_id(), player)) {
+                if mod_presentation.nametag_visibility(&facts, hud_hidden)
+                    == NametagVisibility::Hidden
+                {
                     return false;
                 }
+                let player = facts.player;
                 tag.set_cinnabar_badge(
                     authority
                         .actor_player_roster_identity(tag.runtime_id())

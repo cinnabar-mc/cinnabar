@@ -436,7 +436,6 @@ fn cancelling_or_replacing_a_suspended_world_entry_releases_unspent_fuel() {
                 position: (0., 64., 0.),
                 alive: true,
                 runtime_id: 1,
-                vehicle: None,
             }),
             None,
             None,

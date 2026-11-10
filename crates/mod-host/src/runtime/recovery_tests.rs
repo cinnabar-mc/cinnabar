@@ -262,7 +262,7 @@ fn fuel_recovery_cancels_old_taps_and_keeps_trusted_drawing_observations() {
 #[test]
 fn fuel_recovery_keeps_presentation_and_discards_failed_parameter_writes() {
     use cinnabar::extension::{
-        presentation::{ActorTint, Host as _, TintState, TintTarget},
+        presentation::{ActorSelector, ActorTint, Host as _, TintState},
         render::Rgba,
     };
     let (engine, _ticker) = crate::execution::engine().unwrap();
@@ -277,7 +277,7 @@ fn fuel_recovery_keeps_presentation_and_discards_failed_parameter_writes() {
         .store
         .data_mut()
         .set_actor_tints(vec![ActorTint {
-            target: TintTarget::EveryActor,
+            actors: ActorSelector::All,
             state: TintState::Hurt,
             body: Some(Rgba {
                 r: 1.,

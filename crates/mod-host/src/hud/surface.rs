@@ -140,14 +140,6 @@ pub(in super::super) fn set_hidden(
     Ok(Ok(()))
 }
 
-/// Whether the player had hidden the HUD in the last laid-out frame.
-pub(in super::super) fn hud_hidden(state: &State) -> Result<bool, String> {
-    if !state.grants.hud {
-        return Err("HUD capability denied".into());
-    }
-    Ok(state.hud.hud_hidden)
-}
-
 /// Every vanilla element's last observed state, in enum order.
 pub(in super::super) fn elements(state: &State) -> Result<Vec<wit::ElementState>, String> {
     if !state.grants.hud {

@@ -45,7 +45,6 @@ fn app(daylight_cycle_enabled: bool) -> App {
             position: (0., 64., 0.),
             alive: true,
             runtime_id: 1,
-            vehicle: None,
         }))
         .init_resource::<Observed>()
         .add_systems(Update, capture);
