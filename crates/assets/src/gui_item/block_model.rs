@@ -11,6 +11,7 @@ use crate::{
 
 use super::CUBE_FACES;
 
+mod bamboo_fence;
 mod plants;
 
 /// Largest material tile side drawn; session overlays resample to at most 128.
@@ -60,15 +61,10 @@ pub enum GuiBlockReject {
 
 /// Whether overlapping GUI faces draw in supplied order instead of using depth.
 #[must_use]
-pub fn block_gui_uses_paint_order(
-    render_kind: crate::facts::BlockRenderKind,
-    template: Option<&ModelTemplate>,
-) -> bool {
-    render_kind != crate::facts::BlockRenderKind::BambooFence
-        && template.is_some_and(|template| {
-            template.flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER)
-                != 0
-        })
+pub fn block_gui_uses_paint_order(template: Option<&ModelTemplate>) -> bool {
+    template.is_some_and(|template| {
+        template.flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0
+    })
 }
 
 /// Inventory geometry, independent of the placed block's connection shape.
@@ -110,13 +106,16 @@ pub fn block_gui_quads(
             .collect());
     }
     if kind == VisualKind::Model
-        && block_gui_uses_paint_order(
-            render_kind,
-            template.and_then(|id| templates.get(id as usize)),
-        )
+        && block_gui_uses_paint_order(template.and_then(|id| templates.get(id as usize)))
     {
         let material = faces[BlockFace::South as usize];
-        return Ok(gui_fence_quads(material));
+        return Ok(
+            if render_kind == crate::facts::BlockRenderKind::BambooFence {
+                bamboo_fence::quads(material)
+            } else {
+                gui_fence_quads(material)
+            },
+        );
     }
     let mut carried = block_item_quads(kind, faces, template, templates, quads)?;
     if kind == VisualKind::Model && flags & crate::MODEL_TEMPLATE_FLAG_HEAVY_CORE != 0 {
