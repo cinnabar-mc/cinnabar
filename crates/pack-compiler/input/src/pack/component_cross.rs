@@ -157,7 +157,7 @@ fn material(block: &Value) -> Option<(&str, CrossMaterial)> {
     ) {
         return None;
     }
-    let mut flags = assets::block_render_method_flags(method);
+    let mut flags = assets::compiled::block_render_method_flags(method);
     if method.two_sided() {
         flags |= assets::MATERIAL_FLAG_TWO_SIDED;
     }

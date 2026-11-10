@@ -825,8 +825,10 @@ fn overlay_face_sheet_tinted(
             None
         };
         material.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
-        let rotated =
-            material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+        let rotated = matches!(
+            material.flags & assets::MATERIAL_FLAG_UV_MASK,
+            assets::MATERIAL_FLAG_UV_ROTATE_180 | assets::MATERIAL_FLAG_UV_INVERT
+        );
         if rotated {
             material.flags &= !assets::MATERIAL_FLAG_UV_MASK;
         }

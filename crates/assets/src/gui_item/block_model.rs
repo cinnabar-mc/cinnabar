@@ -30,6 +30,7 @@ const SHELF_GUI_TRANSFORM: (f32, [f32; 2]) = (1.178, [1.4, 2.0]);
 pub const GUI_BLOCK_MATERIAL_FLAGS: u32 = MATERIAL_FLAG_ALPHA_BLEND
     | MATERIAL_FLAG_ALPHA_CUTOUT
     | MATERIAL_FLAG_ISOTROPIC
+    | crate::MATERIAL_LEAF_AO_EXPONENT_MASK
     | MATERIAL_FLAG_DISABLE_AO
     | MATERIAL_FLAG_DISABLE_FACE_DIMMING;
 
@@ -536,7 +537,7 @@ fn carried_face_uvs(face: usize, [u0, v0, u1, v1]: [u16; 4]) -> [[f32; 2]; 4] {
 }
 
 /// Reads a material's first-mip tile, side and alpha mode from its texture page.
-/// World isotropy and disabled ambient occlusion preserve isolated tiles; tints and rotated UVs do not.
+/// World isotropy and lighting metadata preserve isolated tiles; tints and rotated UVs do not.
 pub fn material_tile<'a>(
     materials: &[Material],
     id: u32,

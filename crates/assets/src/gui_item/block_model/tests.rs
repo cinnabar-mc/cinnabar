@@ -581,6 +581,8 @@ fn lighting_flags_preserve_material_tiles_without_admitting_unresolved_tint() {
     for flags in [
         MATERIAL_FLAG_ALPHA_CUTOUT | crate::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
         MATERIAL_FLAG_DISABLE_AO | crate::MATERIAL_FLAG_DISABLE_FACE_DIMMING,
+        80 << crate::MATERIAL_LEAF_AO_EXPONENT_SHIFT,
+        MATERIAL_FLAG_ALPHA_CUTOUT | (80 << crate::MATERIAL_LEAF_AO_EXPONENT_SHIFT),
     ] {
         let materials = [
             Material::unvaried(),

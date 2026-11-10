@@ -221,29 +221,11 @@ fn network_material_lighting_reads_typed_float_and_packed_byte() {
         legacy.render_method,
         protocol_ids::BlockRenderMethod::Opaque
     );
-}
-
-#[test]
-fn network_material_lighting_choices_remain_distinct() {
-    use crate::nbt_tree::test_tree::Nbt;
-    let components = |ao, dimming| {
-        Nbt::Compound(vec![(
-            "minecraft:material_instances".into(),
-            Nbt::Compound(vec![(
-                "materials".into(),
-                Nbt::Compound(vec![(
-                    "*".into(),
-                    Nbt::Compound(vec![
-                        ("texture".into(), Nbt::String("test:plant".into())),
-                        ("ambient_occlusion".into(), Nbt::Float(ao)),
-                        ("packed_bools".into(), Nbt::Byte(dimming)),
-                    ]),
-                )]),
-            )]),
-        )])
-    };
     let choices = [(0.0, 0), (0.0, 1), (1.0, 0), (1.0, 1)].map(|(ao, dimming)| {
-        super::visual_components(Some(components(ao, dimming).view())).materials
+        material(vec![
+            ("ambient_occlusion", Nbt::Float(ao)),
+            ("packed_bools", Nbt::Byte(dimming)),
+        ])
     });
     for (index, first) in choices.iter().enumerate() {
         for second in &choices[index + 1..] {
