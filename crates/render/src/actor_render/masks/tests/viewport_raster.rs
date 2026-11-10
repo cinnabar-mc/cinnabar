@@ -21,9 +21,8 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth, paired: b
     app.sub_app_mut(RenderApp)
         .insert_resource(device.clone())
         .insert_resource(queue.clone())
-        .insert_resource(PipelineCache::new(device.clone(), true))
-        .init_resource::<render_scene::WorldLighting>()
-        .init_resource::<render_scene::WorldFullbright>();
+        .insert_resource(PipelineCache::new(device.clone(), true));
+    crate::lighting::init_inputs(app.sub_app_mut(RenderApp).world_mut());
     crate::lighting::install(&mut app);
     let world = app.sub_app_mut(RenderApp).world_mut();
     world.run_schedule(Render);

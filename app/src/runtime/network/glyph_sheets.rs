@@ -2,6 +2,7 @@
 
 use std::{io::Cursor, sync::Arc};
 
+use assets::emoticons::{BUILTIN_EMOTICON_PAGE, builtin_emoticon_cells};
 use assets::{CellGlyph, GlyphSheet, SHEET_GRID, extract_cells, texel_size_64};
 use image::{ImageFormat, ImageReader, Limits};
 use resource_pack::LayeredPackView;
@@ -14,18 +15,56 @@ mod metadata;
 const MAX_SHEET_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_SHEET_SIDE: u32 = 4096;
 const MAX_CELLS: usize = 65_536;
+/// The Unicode pages of vanilla's default font, which include its built-in emoticon page.
+const DEFAULT_UNICODE_PREFIX: &str = "font/glyph_";
 
-/// Crops every sheet present in the stack into glyph cells, or `None` when it has none. Each
-/// sheet is dropped once cropped so a large one is not retained for the session.
+/// Crops every sheet present in the stack into glyph cells, with the built-in emoticon page
+/// where no pack replaces it, or `None` when the stack has no sheets. Each sheet is dropped
+/// once cropped so a large one is not retained for the session.
 pub(crate) fn compile_session_glyphs(view: &LayeredPackView) -> Option<Arc<SessionGlyphSheets>> {
-    let cells = bitmap(view, Some("font/default8"), Some("font/glyph_"));
+    let cells = bitmap(view, Some("font/default8"), Some(DEFAULT_UNICODE_PREFIX));
     let mut named = std::collections::BTreeMap::new();
     named.insert("rune".into(), bitmap(view, Some("font/ascii_sga"), None));
-    named.insert("unicode".into(), bitmap(view, None, Some("font/glyph_")));
+    named.insert(
+        "unicode".into(),
+        bitmap(view, None, Some(DEFAULT_UNICODE_PREFIX)),
+    );
     metadata::apply(view, &cells, &mut named);
-    let cells = named.remove("default").unwrap_or(cells);
-    (!cells.is_empty() || named.values().any(|cells| !cells.is_empty()))
+    let builtin = builtin_emoticon_cells();
+    let cells = match named.remove("default") {
+        Some(resolved) => with_missing_emoticons(resolved, &cells, &builtin),
+        None => cells,
+    };
+    // Without any pack sheet the UI draws the built-in emoticon page by itself.
+    cells
+        .iter()
+        .chain(named.values().flatten())
+        .any(|cell| !builtin.contains(cell))
         .then(|| Arc::new(SessionGlyphSheets::with_named(cells, named)))
+}
+
+/// `resolved`, a default face that font metadata declared, plus the emoticon code points it
+/// lacks, as the bitmap default `bitmap` draws them: from a pack's own emoticon page when it
+/// has one, otherwise from the built-in page.
+fn with_missing_emoticons(
+    mut resolved: Vec<CellGlyph>,
+    bitmap: &[CellGlyph],
+    builtin: &[CellGlyph],
+) -> Vec<CellGlyph> {
+    let present: std::collections::HashSet<_> =
+        resolved.iter().map(|cell| cell.codepoint).collect();
+    resolved.extend(
+        bitmap
+            .iter()
+            .filter(|cell| {
+                !present.contains(&cell.codepoint)
+                    && builtin
+                        .iter()
+                        .any(|emoticon| emoticon.codepoint == cell.codepoint)
+            })
+            .cloned(),
+    );
+    resolved
 }
 
 /// Reads a named bitmap's default8 mapping and Unicode pages using one locale.
@@ -46,8 +85,16 @@ fn bitmap(view: &LayeredPackView, ascii: Option<&str>, unicode: Option<&str>) ->
             ]
             .into_iter()
             .find_map(|name| read_named_sheet(view, high_byte, &name));
-            if let Some(sheet) = sheet {
-                for mut cell in extract_cells(&sheet) {
+            // Vanilla draws its emoticons from a built-in page that packs may replace.
+            let page = match sheet {
+                Some(sheet) => Some(extract_cells(&sheet)),
+                None if high_byte == BUILTIN_EMOTICON_PAGE && prefix == DEFAULT_UNICODE_PREFIX => {
+                    Some(builtin_emoticon_cells())
+                }
+                None => None,
+            };
+            if let Some(page) = page {
+                for mut cell in page {
                     if mapped.contains(&cell.codepoint) {
                         continue;
                     }

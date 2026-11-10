@@ -545,7 +545,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        terrain_light_colour(in.native_light_levels),
+        point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
         atmosphere.fog_gamma.rgb,
         distance_fog_amount(in.world_position),
     );

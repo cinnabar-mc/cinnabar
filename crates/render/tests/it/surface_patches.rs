@@ -186,11 +186,11 @@ const LIGHTING_WITNESS: &str = r#"
                 valid = valid && abs(actual.ambient_occlusion - ao) < 0.00001;
             }
             for (var tile = 0u; tile < 9u; tile += 1u) {
-                let patch = ModelQuad(tile | (16u << 4u), face.quad_flags);
+                let tile_quad = ModelQuad(tile | (16u << 4u), face.quad_flags);
                 for (var corner = 0u; corner < 4u; corner += 1u) {
-                    let point = patch_coordinate(patch, corner);
+                    let point = patch_coordinate(tile_quad, corner);
                     let expected = mix(mix(a, b, point.x), mix(d, c, point.x), point.y);
-                    let actual = patch_lighting(patch, corner, exponent);
+                    let actual = patch_lighting(tile_quad, corner, exponent);
                     valid = valid && all(abs(actual.lighting - vec3(expected)) < vec3(0.00001));
                     @if(!ENHANCED)
                     valid = valid && abs(actual.native_ao_face - expected) < 0.00001;

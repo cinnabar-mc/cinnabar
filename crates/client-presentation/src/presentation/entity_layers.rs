@@ -796,7 +796,10 @@ mod tests {
         let artwork = ActorArtworkPages::default().with_pack_artwork(
             &[texture(23), texture(24)],
             &[],
-            &Default::default(),
+            &assets::ActorPageSharing {
+                multitexture: assets::ActorMultitextureSources::from_draws([[23, 24]]),
+                ..Default::default()
+            },
         );
         // The cosmetic samples a second catalog texture, as a two-texture material does.
         let mut hat = layer(false, 23, Some(7));

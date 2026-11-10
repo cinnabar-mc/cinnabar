@@ -15,6 +15,8 @@ use carrier::{
 };
 mod fallback;
 #[cfg(test)]
+mod fallback_tests;
+#[cfg(test)]
 mod merge_tests;
 mod outline;
 mod rendering;
@@ -135,7 +137,8 @@ pub struct FontLineMetrics {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompiledFontCatalog {
     identity: FontCatalogIdentity,
-    glyphs: Box<[GlyphMetrics]>,
+    /// Shared between clones, so faces copied into fallback chains keep one table.
+    glyphs: Arc<[GlyphMetrics]>,
     pages: Arc<[FontTexturePage]>,
     /// Drawn size in 1/64 px for glyphs that are not drawn at their texel size.
     draw_sizes_64: Arc<BTreeMap<char, [u32; 2]>>,
@@ -207,7 +210,7 @@ impl CompiledFontCatalog {
                 source_manifest_sha256: expected_source_manifest_sha256,
                 carrier_sha256,
             },
-            glyphs: glyphs.into_boxed_slice(),
+            glyphs: glyphs.into(),
             pages: pages.into(),
             draw_sizes_64: Arc::default(),
             named: Arc::default(),
@@ -432,7 +435,7 @@ impl CompiledFontCatalog {
 
 /// `base`, sorted by codepoint, with `added` inserted in order; an added glyph replaces the
 /// base glyph of its codepoint.
-fn merge_glyphs(base: &[GlyphMetrics], added: BTreeMap<char, GlyphMetrics>) -> Box<[GlyphMetrics]> {
+fn merge_glyphs(base: &[GlyphMetrics], added: BTreeMap<char, GlyphMetrics>) -> Arc<[GlyphMetrics]> {
     let mut merged = Vec::with_capacity(base.len() + added.len());
     let mut added = added.into_values().peekable();
     for glyph in base {
@@ -445,7 +448,7 @@ fn merge_glyphs(base: &[GlyphMetrics], added: BTreeMap<char, GlyphMetrics>) -> B
         }
     }
     merged.extend(added);
-    merged.into_boxed_slice()
+    merged.into()
 }
 
 #[derive(Debug, Error)]

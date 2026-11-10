@@ -6,7 +6,7 @@ use bevy::{
         query::ROQueryItem,
         system::{SystemParamItem, lifetimeless::SRes},
     },
-    prelude::{App, Commands, Handle, Res, ResMut, Resource, Shader},
+    prelude::{App, Commands, Handle, Res, ResMut, Resource, Shader, World},
     render::{
         Render, RenderApp, RenderSystems,
         extract_resource::ExtractResourcePlugin,
@@ -151,11 +151,17 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
 #[derive(Resource)]
 struct LightingInstalled;
 
+/// Initializes every environment input [`prepare`] reads. [`install`] runs it on the main
+/// world, which extracts them; a render world assembled without extraction runs it directly.
+pub(crate) fn init_inputs(world: &mut World) {
+    world.init_resource::<WorldLighting>();
+    world.init_resource::<WorldFullbright>();
+    world.init_resource::<WorldPointLight>();
+}
+
 /// Installs one lightmap upload, independent of terrain or actor publication revisions.
 pub(crate) fn install(app: &mut App) {
-    app.init_resource::<WorldLighting>()
-        .init_resource::<WorldFullbright>()
-        .init_resource::<WorldPointLight>();
+    init_inputs(app.world_mut());
     let Some(render_app) = app.get_sub_app(RenderApp) else {
         return;
     };

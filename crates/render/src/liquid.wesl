@@ -62,6 +62,7 @@ struct VertexOutput {
     @location(12) native_light_levels: vec2<f32>,
     @location(13) @interpolate(flat) native_face_shade: f32,
     @location(2) @interpolate(flat) two_sided: u32,
+    @if(ENHANCED)
     @location(10) normal: vec3<f32>,
     @if(ENHANCED)
     @location(11) @interpolate(flat) surface_class: u32,

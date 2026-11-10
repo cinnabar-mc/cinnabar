@@ -20,6 +20,7 @@ pub mod compiled;
 pub mod door;
 pub mod dye;
 mod effects;
+pub mod emoticons;
 mod encoding;
 pub mod entity;
 mod environment_settings;
@@ -246,7 +247,6 @@ pub use model::{
     model_template_parts, model_template_span, scaffolding_is_supported,
     whole_sheet_model_template, world_aligned_uv,
 };
-pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
     ACTOR_FLAME_TEXTURE, MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES,
     MAX_PARTICLE_EFFECTS, MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
@@ -296,5 +296,5 @@ pub use ui::{
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
 pub use {beacon_tints::BeaconTintCatalog, error::AssetError, publication::rename_no_replace};
-pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};
-pub use {server_lang::ServerLangOverlay, session_entities::SessionEntityPack};
+pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition, ogg::decode_ogg};
+pub use {ogg::decode_sound, server_lang::ServerLangOverlay, session_entities::SessionEntityPack};

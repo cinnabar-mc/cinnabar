@@ -45,12 +45,18 @@ fn localized_text_packets_resolve_marked_keys_for_chat_and_popups() {
                 ),
             )
             .unwrap();
+        // A popup fills the second line of the selected-item popup text, not the action bar.
         let message = if kind == TextKind::Popup {
-            runtime.hud().actionbar().unwrap().text.as_ref()
+            runtime.hud().popup().unwrap().text.as_ref()
         } else {
             runtime.chat().messages().back().unwrap().message.as_ref()
         };
-        assert_eq!(message, "§eAlex joined the game");
+        let expected = if kind == TextKind::Popup {
+            "\n§eAlex joined the game"
+        } else {
+            "§eAlex joined the game"
+        };
+        assert_eq!(message, expected);
     }
 }
 
@@ -196,9 +202,10 @@ fn large_server_translation_streams_through_text_and_death_consumers() {
             )
             .unwrap();
         match kind {
-            TextKind::Popup => {
-                assert_eq!(runtime.hud().actionbar().unwrap().text.as_ref(), expected)
-            }
+            TextKind::Popup => assert_eq!(
+                runtime.hud().popup().unwrap().text.as_ref(),
+                format!("\n{expected}")
+            ),
             TextKind::Translation => {
                 let translator = runtime.translator();
                 assert_eq!(
