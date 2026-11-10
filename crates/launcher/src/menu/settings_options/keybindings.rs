@@ -52,9 +52,9 @@ impl SettingsOptions {
             .and_then(|id| id.row(false))
             .ok_or(KeyBindingRejected::NoKeyboardRow)?;
         let before = self.keys.clone();
+        // Assignment always replaces the row, as a Controls remap does, so default alternatives
+        // such as a second modifier key are dropped; repeating it leaves the keys unchanged.
         let accepted = match change {
-            // An assignment already in effect keeps the saved layout, including its defaults.
-            KeyBindingChange::Assign(control) if self.key_control(index) == Some(control) => true,
             KeyBindingChange::Assign(control) => self.remap(index, control),
             KeyBindingChange::Unbind => self.unbind_key(index),
             KeyBindingChange::Reset => self.reset_key(index),
