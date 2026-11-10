@@ -2062,7 +2062,10 @@ Flathub submission remain incomplete.
   tombstones from v0.1.29 to v0.1.31 show two pipeline-creation threads in its compiler, in half of
   them both faulting at the same instruction, with the failing program changing between launches. No
   Adreno phone has confirmed that serializing avoids the crash; if it persists, the single
-  compiling thread identifies the failing program.
+  compiling thread identifies the failing program. On these drivers the lock also covers
+  shader-module destruction, including each pipeline's temporary stage modules, and
+  pipeline-cache creation, reads and destruction. One Snapdragon tester still reports a crash
+  just after the menu on the first nightly with the lock; that crash report is still missing.
   Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
