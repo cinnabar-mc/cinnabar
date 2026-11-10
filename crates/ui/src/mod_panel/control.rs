@@ -32,12 +32,6 @@ pub enum Control {
         #[serde(default)]
         capturing: bool,
     },
-    Choice {
-        id: String,
-        label: String,
-        index: u32,
-        options: Vec<String>,
-    },
     Text {
         id: String,
         label: String,
@@ -95,8 +89,7 @@ impl Control {
             | Self::Slider { id, .. }
             | Self::Button { id, .. }
             | Self::Keybind { id, .. }
-            | Self::Choice { id, .. } => id,
-            Self::Text { id, .. } => id,
+            | Self::Text { id, .. } => id,
         }
     }
 
@@ -106,8 +99,7 @@ impl Control {
             | Self::Slider { label, .. }
             | Self::Button { label, .. }
             | Self::Keybind { label, .. }
-            | Self::Choice { label, .. } => label,
-            Self::Text { label, .. } => label,
+            | Self::Text { label, .. } => label,
         }
     }
 }

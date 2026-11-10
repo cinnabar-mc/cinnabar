@@ -34,7 +34,6 @@ pub const MAX_PANEL_CONTROLS: usize = 512;
 pub const MAX_PANEL_EVENTS: usize = 64;
 pub const MAX_PANEL_TEXT_BYTES: usize = 96;
 pub const MAX_PANEL_ID_BYTES: usize = 48;
-pub const MAX_PANEL_CHOICES: usize = 8;
 pub const FONT_NAME: &str = "mod_panel";
 /// Glyph records in one bounded private atlas, including text, punctuation and icons.
 pub const MAX_FONT_GLYPHS: usize = 512;
@@ -87,18 +86,19 @@ pub struct Panel {
     pub motion: bool,
 }
 
-/// Straight RGBA colours of the host-drawn popup widgets: the slider value editor, the choice
-/// dropdown and keybind capture. Each omitted colour keeps its built-in value.
+/// Straight RGBA colours of the host-drawn value editor that slider and text fields open, with
+/// its hint. Each omitted colour keeps its built-in value.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WidgetColors {
-    /// Behind the whole popup.
+    /// Accepted for compatibility; the value editor paints no separate popup background.
     pub background: Option<[f32; 4]>,
-    /// Fields and rows inside the popup.
+    /// The value field inside the popup.
     pub surface: Option<[f32; 4]>,
     pub text: Option<[f32; 4]>,
-    /// The caret, selection and highlighted row.
+    /// The caret, selection, field border and hint text.
     pub accent: Option<[f32; 4]>,
+    /// Accepted for compatibility; the value field's border uses `accent`.
     pub border: Option<[f32; 4]>,
 }
 
@@ -253,19 +253,6 @@ impl Panel {
                             "panel slider requires finite, ordered bounds and a positive step"
                                 .into(),
                         );
-                    }
-                }
-                Control::Choice { index, options, .. } => {
-                    if options.is_empty()
-                        || options.len() > MAX_PANEL_CHOICES
-                        || *index as usize >= options.len()
-                    {
-                        return Err(
-                            "panel choice requires bounded options and a valid index".into()
-                        );
-                    }
-                    for option in options {
-                        text(option, "choice label")?;
                     }
                 }
                 _ => {}
