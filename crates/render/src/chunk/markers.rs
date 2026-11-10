@@ -2,8 +2,16 @@
 //!
 //! Meshing records marker cells per sub-chunk; queue application keeps them here beside the
 //! chunk entities. While [`TerrainMarkerLayers`] is empty nothing is extracted, uploaded or
-//! queued. A shown layer rebuilds its instances only when the cells, layers or textures change.
+//! queued. A shown layer rebuilds its instances only when the cells, layers or texture assets
+//! change, resolving each block's art from the current pack. Instances live in fixed-size
+//! vertex buffers, so no device binding limit bounds how many markers draw, and flipbook art
+//! follows the shared terrain animation clock on the GPU.
 
+use assets::{
+    ANIMATION_FLAG_BLEND, Animation, BlockFace, DIAGNOSTIC_MATERIAL, Material, NetworkIdMode,
+    RuntimeAssets, TerrainMarker, TextureRef,
+};
+use bevy::mesh::VertexBufferLayout;
 use bevy::{
     asset::{Handle, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Transparent3d},
@@ -28,11 +36,12 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferDescriptor, BufferId, BufferSize, BufferUsages, Canonical, ColorTargetState,
-            ColorWrites, CompareFunction, DepthStencilState, FilterMode, FragmentState,
-            PipelineCache, PrimitiveState, RenderPipeline, RenderPipelineDescriptor, Sampler,
-            SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
-            SpecializerKey, TextureSampleType, TextureViewDimension, Variants, VertexState,
+            BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages, Canonical,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FilterMode,
+            FragmentState, PipelineCache, PrimitiveState, RenderPipeline, RenderPipelineDescriptor,
+            Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, Specializer,
+            SpecializerKey, TextureSampleType, TextureViewDimension, Variants, VertexAttribute,
+            VertexFormat, VertexState, VertexStepMode,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -42,20 +51,22 @@ use bevy::{
 use meshing::PackedTerrainMarker;
 use render_scene::TerrainMarkerLayers;
 use render_scene::chunk::chunk_origin;
-use render_scene::chunk::textures::{ChunkTextureAssets, ChunkTextureBindingIdentity};
-use std::{collections::HashMap, sync::Arc};
+use render_scene::chunk::textures::{
+    ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureBindingIdentity,
+};
+use std::{collections::HashMap, ops::Range, sync::Arc};
 use world::SubChunkKey;
 
-use super::gpu::bind_groups::ChunkGpuTextureAssets;
+use super::gpu::bind_groups::{ChunkGpuAnimationClock, ChunkGpuTextureAssets};
 
 const MARKER_SHADER_HANDLE: Handle<Shader> = uuid_handle!("3f6c2a5e-8b1d-4c7a-9e24-5d0b7a1c6e93");
 const INSTANCE_BYTES: u64 = size_of::<MarkerInstance>() as u64;
-const MIN_CAPACITY: usize = 64;
+/// Instances per vertex buffer: 1.25 MiB, far below every device's buffer size limit.
+const CHUNK_INSTANCES: usize = 1 << 16;
 const SPRITE_VERTICES: u32 = 6;
 const BOX_VERTICES: u32 = 36;
 const BOX_FLAG: u32 = 1;
 const LIGHT_SHIFT: u32 = 8;
-const PAGE_SHIFT: u32 = 16;
 
 /// Marker cells of every applied near sub-chunk, kept in step with the chunk entities.
 #[derive(Resource, Default)]
@@ -94,51 +105,124 @@ impl TerrainMarkerSections {
     }
 }
 
-/// One marker as the shader reads it.
+/// One marker as the vertex stage reads it.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 struct MarkerInstance {
     block: [i32; 3],
-    /// Box flag, cell light and texture page; see the shader's `Marker`.
+    /// Box flag and cell light; see the shader's `marker_vertex`.
     packed: u32,
+    /// Index of the marker's art in [`MarkerTables::animations`].
+    animation: u32,
+}
+
+/// One frame of marker art: its texture page, array layer and exposed UV scale.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct MarkerTexture {
+    page: u32,
     layer: u32,
     uv_scale: f32,
-    reserved: [u32; 2],
+    reserved: u32,
+}
+
+/// The frames of one marker's art; static art is a single frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct MarkerAnimation {
+    frame_start: u32,
+    frame_count: u32,
+    ticks_per_frame: u32,
+    flags: u32,
+}
+
+/// The art of every shown marker, rebuilt with the instances.
+#[derive(Default, Debug)]
+struct MarkerTables {
+    animations: Vec<MarkerAnimation>,
+    textures: Vec<MarkerTexture>,
+}
+
+impl MarkerTables {
+    fn clear(&mut self) {
+        self.animations.clear();
+        self.textures.clear();
+    }
+
+    /// Appends `material`'s flipbook frames, or its one texture, and returns the art's index.
+    fn push(
+        &mut self,
+        material: &Material,
+        animations: &[Animation],
+        frames: &[TextureRef],
+        texture: impl Fn(TextureRef) -> MarkerTexture,
+    ) -> u32 {
+        let frame_start = self.textures.len() as u32;
+        let flipbook = animations
+            .get(material.animation as usize)
+            .filter(|animation| animation.ticks_per_frame != 0)
+            .and_then(|animation| {
+                let start = animation.frame_start as usize;
+                let frames =
+                    frames.get(start..start.checked_add(animation.frame_count as usize)?)?;
+                (!frames.is_empty()).then_some((animation, frames))
+            });
+        let (frame_count, ticks_per_frame, flags) = match flipbook {
+            Some((animation, frames)) => {
+                self.textures
+                    .extend(frames.iter().map(|&frame| texture(frame)));
+                (
+                    frames.len() as u32,
+                    animation.ticks_per_frame,
+                    animation.flags & ANIMATION_FLAG_BLEND,
+                )
+            }
+            None => {
+                self.textures.push(texture(material.texture));
+                (1, 1, 0)
+            }
+        };
+        self.animations.push(MarkerAnimation {
+            frame_start,
+            frame_count,
+            ticks_per_frame,
+            flags,
+        });
+        (self.animations.len() - 1) as u32
+    }
 }
 
 /// Instances of the shown layers, rebuilt only when their inputs change.
 #[derive(Resource, Default)]
-struct MarkerFrame {
-    inputs: Option<(u64, u8, u64)>,
-    sprites: Vec<MarkerInstance>,
-    boxes: Vec<MarkerInstance>,
+struct MarkerBatch {
+    inputs: Option<(u64, u8, ChunkTextureAssetIdentity)>,
+    /// Sprites first, then boxes.
+    instances: Vec<MarkerInstance>,
+    sprites: usize,
+    tables: MarkerTables,
     uploaded: bool,
 }
 
-impl MarkerFrame {
-    fn is_empty(&self) -> bool {
-        self.sprites.is_empty() && self.boxes.is_empty()
-    }
-
+impl MarkerBatch {
     fn clear(&mut self) {
         self.inputs = None;
-        self.sprites.clear();
-        self.boxes.clear();
+        self.instances.clear();
+        self.sprites = 0;
+        self.tables.clear();
         self.uploaded = false;
     }
 }
 
-/// Collects the instances of every cell whose layer is shown.
+/// Collects the instances of every cell whose layer is shown and whose block `art` resolves.
 fn marker_instances(
     sections: &TerrainMarkerSections,
     layers: u8,
-    textures: &ChunkTextureAssets,
+    mut art: impl FnMut(u32) -> Option<u32>,
     sprites: &mut Vec<MarkerInstance>,
     boxes: &mut Vec<MarkerInstance>,
 ) {
     sprites.clear();
     boxes.clear();
-    let assets = &textures.assets;
     for (&key, markers) in &sections.sections {
         let origin = chunk_origin(key);
         for marker in markers.iter() {
@@ -146,20 +230,16 @@ fn marker_instances(
             if layers & class.layer() == 0 {
                 continue;
             }
-            let Some(material) = assets.materials().get(marker.material() as usize) else {
+            let Some(animation) = art(marker.block()) else {
                 continue;
             };
-            let texture = material.texture;
             let local = marker.local();
             let boxed = !class.is_camera_facing();
             let instance = MarkerInstance {
                 block: std::array::from_fn(|axis| origin[axis] + i32::from(local[axis])),
                 packed: if boxed { BOX_FLAG } else { 0 }
-                    | (u32::from(marker.light()) << LIGHT_SHIFT)
-                    | (texture.page() << PAGE_SHIFT),
-                layer: texture.layer(),
-                uv_scale: (-f32::from(assets.texture_source_grid(texture))).exp2(),
-                reserved: [0; 2],
+                    | (u32::from(marker.light()) << LIGHT_SHIFT),
+                animation,
             };
             if boxed {
                 boxes.push(instance);
@@ -170,43 +250,100 @@ fn marker_instances(
     }
 }
 
+/// The material a marker block draws with in `assets`, if that pack gives it art.
+fn marker_material(assets: &RuntimeAssets, block: u32) -> Option<&Material> {
+    let resolved = assets.resolve_known(NetworkIdMode::Sequential, block)?;
+    TerrainMarker::from_variant(resolved.kind(), resolved.variant())?;
+    let material = resolved.face(BlockFace::Up).material_id();
+    if material == DIAGNOSTIC_MATERIAL {
+        return None;
+    }
+    assets.materials().get(material as usize)
+}
+
+fn marker_texture(assets: &RuntimeAssets, texture: TextureRef) -> MarkerTexture {
+    MarkerTexture {
+        page: texture.page(),
+        layer: texture.layer(),
+        uv_scale: (-f32::from(assets.texture_source_grid(texture))).exp2(),
+        reserved: 0,
+    }
+}
+
 /// Copies shown markers into the render world; hidden layers cost one comparison.
 fn extract_markers(
     layers: Extract<Option<Res<TerrainMarkerLayers>>>,
     sections: Extract<Res<TerrainMarkerSections>>,
     textures: Extract<Res<ChunkTextureAssets>>,
-    mut frame: ResMut<MarkerFrame>,
+    mut batch: ResMut<MarkerBatch>,
 ) {
     let layers = layers.as_deref().map_or(0, |layers| layers.0);
     if layers == 0 {
-        if frame.inputs.is_some() {
-            frame.clear();
+        if batch.inputs.is_some() {
+            batch.clear();
         }
         return;
     }
-    let inputs = Some((sections.revision, layers, textures.revision));
-    if frame.inputs == inputs {
+    let inputs = Some((sections.revision, layers, textures.identity()));
+    if batch.inputs == inputs {
         return;
     }
-    let frame = &mut *frame;
+    let batch = &mut *batch;
+    let assets = &*textures.assets;
+    batch.tables.clear();
+    let mut by_block = HashMap::new();
+    let mut boxes = Vec::new();
     marker_instances(
         &sections,
         layers,
-        &textures,
-        &mut frame.sprites,
-        &mut frame.boxes,
+        |block| {
+            *by_block.entry(block).or_insert_with(|| {
+                let material = marker_material(assets, block)?;
+                Some(batch.tables.push(
+                    material,
+                    assets.animations(),
+                    assets.animation_frames(),
+                    |texture| marker_texture(assets, texture),
+                ))
+            })
+        },
+        &mut batch.instances,
+        &mut boxes,
     );
-    frame.inputs = inputs;
-    frame.uploaded = false;
+    batch.sprites = batch.instances.len();
+    batch.instances.append(&mut boxes);
+    batch.inputs = inputs;
+    batch.uploaded = false;
 }
+
+/// Each vertex buffer's sprite and box instance ranges, local to that buffer.
+fn chunk_draws(total: usize, sprites: usize) -> impl Iterator<Item = (Range<u32>, Range<u32>)> {
+    (0..total.div_ceil(CHUNK_INSTANCES)).map(move |chunk| {
+        let start = chunk * CHUNK_INSTANCES;
+        let end = (start + CHUNK_INSTANCES).min(total);
+        let split = sprites.clamp(start, end);
+        let local = |index: usize| (index - start) as u32;
+        (local(start)..local(split), local(split)..local(end))
+    })
+}
+
+type MarkerBindKey = (
+    BufferId,
+    BufferId,
+    BufferId,
+    BufferId,
+    ChunkTextureBindingIdentity,
+);
 
 #[derive(Resource)]
 struct MarkerGpu {
     sampler: Sampler,
-    buffer: Option<Buffer>,
-    capacity: usize,
+    /// Instance buffers of [`CHUNK_INSTANCES`] each, in batch order.
+    chunks: Vec<Buffer>,
+    /// The batch's animation and texture tables.
+    tables: Option<(Buffer, Buffer)>,
     bind_group: Option<BindGroup>,
-    bound: Option<(BufferId, BufferId, ChunkTextureBindingIdentity)>,
+    bound: Option<MarkerBindKey>,
 }
 
 fn init_marker_gpu(mut commands: Commands, device: Res<RenderDevice>) {
@@ -222,67 +359,106 @@ fn init_marker_gpu(mut commands: Commands, device: Res<RenderDevice>) {
     });
     commands.insert_resource(MarkerGpu {
         sampler,
-        buffer: None,
-        capacity: 0,
+        chunks: Vec::new(),
+        tables: None,
         bind_group: None,
         bound: None,
     });
 }
 
-/// Writes changed instances, growing the buffer to the next power of two when needed.
+/// Writes a changed batch into its instance buffers and tables, and frees them once hidden.
 fn prepare_markers(
-    mut frame: ResMut<MarkerFrame>,
+    mut batch: ResMut<MarkerBatch>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<MarkerGpu>,
 ) {
-    if frame.uploaded || frame.is_empty() {
+    if batch.instances.is_empty() {
+        if !gpu.chunks.is_empty() || gpu.tables.is_some() {
+            gpu.chunks.clear();
+            gpu.tables = None;
+            gpu.bind_group = None;
+            gpu.bound = None;
+        }
         return;
     }
-    let total = frame.sprites.len() + frame.boxes.len();
-    if gpu.buffer.is_none() || gpu.capacity < total {
-        let capacity = total.next_power_of_two().max(MIN_CAPACITY);
-        gpu.buffer = Some(device.create_buffer(&BufferDescriptor {
-            label: Some("terrain marker instances"),
-            size: capacity as u64 * INSTANCE_BYTES,
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }));
-        gpu.capacity = capacity;
-        gpu.bind_group = None;
+    if batch.uploaded {
+        return;
     }
-    let buffer = gpu.buffer.as_ref().expect("marker buffer was just ensured");
-    queue.write_buffer(buffer, 0, bytemuck::cast_slice(&frame.sprites));
-    queue.write_buffer(
-        buffer,
-        frame.sprites.len() as u64 * INSTANCE_BYTES,
-        bytemuck::cast_slice(&frame.boxes),
-    );
-    frame.uploaded = true;
+    let needed = batch.instances.len().div_ceil(CHUNK_INSTANCES);
+    gpu.chunks.truncate(needed);
+    while gpu.chunks.len() < needed {
+        let buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("terrain marker instances"),
+            size: CHUNK_INSTANCES as u64 * INSTANCE_BYTES,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.chunks.push(buffer);
+    }
+    for (buffer, instances) in gpu
+        .chunks
+        .iter()
+        .zip(batch.instances.chunks(CHUNK_INSTANCES))
+    {
+        queue.write_buffer(buffer, 0, bytemuck::cast_slice(instances));
+    }
+    let table = |label, contents: &[u8]| {
+        device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some(label),
+            contents,
+            usage: BufferUsages::STORAGE,
+        })
+    };
+    gpu.tables = Some((
+        table(
+            "terrain marker animations",
+            bytemuck::cast_slice(&batch.tables.animations),
+        ),
+        table(
+            "terrain marker textures",
+            bytemuck::cast_slice(&batch.tables.textures),
+        ),
+    ));
+    batch.uploaded = true;
 }
 
+/// Binds the uploaded batch once the GPU texture pages match the assets it was built from.
 fn prepare_marker_bind_group(
-    frame: Res<MarkerFrame>,
+    batch: Res<MarkerBatch>,
     device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
     pipeline: Res<MarkerPipeline>,
     view_uniforms: Res<ViewUniforms>,
     textures: Res<ChunkGpuTextureAssets>,
+    clock: Option<Res<ChunkGpuAnimationClock>>,
     mut gpu: ResMut<MarkerGpu>,
 ) {
-    if frame.is_empty() {
+    if batch.instances.is_empty() {
         return;
     }
-    let (Some(view_binding), Some(view_buffer), Some(prepared), Some(buffer)) = (
+    let (Some(view_binding), Some(view_buffer), Some(prepared), Some(clock), Some(tables)) = (
         view_uniforms.uniforms.binding(),
         view_uniforms.uniforms.buffer(),
         textures.prepared.as_ref(),
-        gpu.buffer.as_ref(),
+        clock.as_deref(),
+        gpu.tables.as_ref(),
     ) else {
         gpu.bind_group = None;
         return;
     };
-    let key = (view_buffer.id(), buffer.id(), prepared.identity);
+    // Pages still being prepared for a reloaded pack would show the wrong art.
+    if batch.inputs.map(|(_, _, identity)| identity) != Some(prepared.identity.carrier) {
+        gpu.bind_group = None;
+        return;
+    }
+    let key = (
+        view_buffer.id(),
+        tables.0.id(),
+        tables.1.id(),
+        clock.buffer.id(),
+        prepared.identity,
+    );
     if gpu.bind_group.is_some() && gpu.bound == Some(key) {
         return;
     }
@@ -293,14 +469,22 @@ fn prepare_marker_bind_group(
         },
         BindGroupEntry {
             binding: 1,
-            resource: buffer.as_entire_binding(),
+            resource: tables.0.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 2,
+            resource: tables.1.as_entire_binding(),
+        },
+        BindGroupEntry {
+            binding: 3,
+            resource: clock.buffer.as_entire_binding(),
         },
     ];
     entries.extend(
         prepared
             .native_leaf_views
             .iter()
-            .zip(2..)
+            .zip(PAGE_BINDINGS_START..)
             .map(|(view, binding)| BindGroupEntry {
                 binding,
                 resource: BindingResource::TextureView(view),
@@ -319,8 +503,10 @@ fn prepare_marker_bind_group(
     gpu.bound = Some(key);
 }
 
-/// The sampler's binding, after the view, the instances and one binding per texture page.
-const PAGE_BINDINGS_END: u32 = 2 + assets::MAX_TEXTURE_PAGES as u32;
+/// The first texture page's binding, after the view, the two art tables and the clock.
+const PAGE_BINDINGS_START: u32 = 4;
+/// The sampler's binding, after one binding per texture page.
+const PAGE_BINDINGS_END: u32 = PAGE_BINDINGS_START + assets::MAX_TEXTURE_PAGES as u32;
 
 struct MarkerSpecializer;
 
@@ -343,26 +529,30 @@ impl FromWorld for MarkerPipeline {
                 },
                 count: None,
             },
+            table_entry(1, size_of::<MarkerAnimation>()),
+            table_entry(2, size_of::<MarkerTexture>()),
             BindGroupLayoutEntry {
-                binding: 1,
+                binding: 3,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
+                    ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(INSTANCE_BYTES),
+                    min_binding_size: Some(ChunkAnimationClock::min_size()),
                 },
                 count: None,
             },
         ];
-        entries.extend((2..PAGE_BINDINGS_END).map(|binding| BindGroupLayoutEntry {
-            binding,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                sample_type: TextureSampleType::Float { filterable: true },
-                view_dimension: TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
+        entries.extend((PAGE_BINDINGS_START..PAGE_BINDINGS_END).map(|binding| {
+            BindGroupLayoutEntry {
+                binding,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            }
         }));
         entries.push(BindGroupLayoutEntry {
             binding: PAGE_BINDINGS_END,
@@ -378,7 +568,27 @@ impl FromWorld for MarkerPipeline {
             vertex: VertexState {
                 shader: MARKER_SHADER_HANDLE,
                 entry_point: Some("marker_vertex".into()),
-                buffers: Vec::new(),
+                buffers: vec![VertexBufferLayout {
+                    array_stride: INSTANCE_BYTES,
+                    step_mode: VertexStepMode::Instance,
+                    attributes: vec![
+                        VertexAttribute {
+                            format: VertexFormat::Sint32x3,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Uint32,
+                            offset: 12,
+                            shader_location: 1,
+                        },
+                        VertexAttribute {
+                            format: VertexFormat::Uint32,
+                            offset: 16,
+                            shader_location: 2,
+                        },
+                    ],
+                }],
                 ..default()
             },
             fragment: Some(FragmentState {
@@ -409,6 +619,20 @@ impl FromWorld for MarkerPipeline {
             variants: Variants::new(MarkerSpecializer, descriptor),
             bind_group_layout,
         }
+    }
+}
+
+/// A read-only storage table the vertex stage indexes, holding `record` bytes per entry.
+fn table_entry(binding: u32, record: usize) -> BindGroupLayoutEntry {
+    BindGroupLayoutEntry {
+        binding,
+        visibility: ShaderStages::VERTEX,
+        ty: BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size: BufferSize::new(record as u64),
+        },
+        count: None,
     }
 }
 
@@ -459,7 +683,7 @@ impl crate::pipeline_warmup::PrewarmPipelines for MarkerPipeline {
 
 /// Queues one depth-writing draw per view, ahead of translucent terrain like opaque particles.
 fn queue_markers(
-    frame: Res<MarkerFrame>,
+    batch: Res<MarkerBatch>,
     gpu: Res<MarkerGpu>,
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<MarkerPipeline>,
@@ -467,7 +691,7 @@ fn queue_markers(
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(Entity, &MainEntity, &ExtractedView, &ExtractedCamera, &Msaa)>,
 ) {
-    if frame.is_empty() || gpu.bind_group.is_none() {
+    if !batch.uploaded || gpu.bind_group.is_none() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawMarkers>();
@@ -532,7 +756,7 @@ impl<P: PhaseItem, const I: usize> RenderCommand<P> for SetMarkerBindGroup<I> {
 struct DrawMarkerInstances;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawMarkerInstances {
-    type Param = SRes<MarkerFrame>;
+    type Param = (SRes<MarkerBatch>, SRes<MarkerGpu>);
     type ViewQuery = ();
     type ItemQuery = ();
 
@@ -540,20 +764,22 @@ impl<P: PhaseItem> RenderCommand<P> for DrawMarkerInstances {
         _item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        frame: SystemParamItem<'w, '_, Self::Param>,
+        (batch, gpu): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let frame = frame.into_inner();
-        if !frame.uploaded {
+        let (batch, gpu) = (batch.into_inner(), gpu.into_inner());
+        if !batch.uploaded {
             return RenderCommandResult::Skip;
         }
-        let sprites = frame.sprites.len() as u32;
-        let boxes = frame.boxes.len() as u32;
-        if sprites != 0 {
-            pass.draw(0..SPRITE_VERTICES, 0..sprites);
-        }
-        if boxes != 0 {
-            pass.draw(0..BOX_VERTICES, sprites..sprites + boxes);
+        let draws = chunk_draws(batch.instances.len(), batch.sprites);
+        for (buffer, (sprites, boxes)) in gpu.chunks.iter().zip(draws) {
+            pass.set_vertex_buffer(0, buffer.slice(..));
+            if !sprites.is_empty() {
+                pass.draw(0..SPRITE_VERTICES, sprites);
+            }
+            if !boxes.is_empty() {
+                pass.draw(0..BOX_VERTICES, boxes);
+            }
         }
         RenderCommandResult::Success
     }
@@ -578,7 +804,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
     crate::transparent_phase::install(render_app);
     crate::world_passes::install(render_app);
     render_app
-        .init_resource::<MarkerFrame>()
+        .init_resource::<MarkerBatch>()
         .init_resource::<MarkerPipeline>()
         .add_render_command::<Transparent3d, DrawMarkers>()
         .add_systems(RenderStartup, init_marker_gpu)

@@ -738,10 +738,8 @@ pub(crate) fn palette_entry_of_block(
     };
     let mut flags = block.flags();
     flags.remove(BlockFlags::AIR);
-    // A terrain marker keeps the face that names its sprite or box texture.
     let faces = if flags.contains(BlockFlags::CUBE_GEOMETRY)
         || matches!(block.kind(), VisualKind::Liquid | VisualKind::Model)
-        || TerrainMarker::from_variant(block.kind(), block.variant()).is_some()
     {
         Face::ALL.map(|face| block.face(block_face(face)).material_id())
     } else {

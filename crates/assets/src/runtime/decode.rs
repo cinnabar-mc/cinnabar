@@ -303,12 +303,7 @@ fn validate_fixed(
         if !covered_grass_variant_is_valid(kind, u32_at(record, 40), header.counts[2]) {
             return Err(invalid("visual has invalid covered-grass material"));
         }
-        if !terrain_marker_variant_is_valid(
-            kind,
-            u32_at(record, 40),
-            u32_at(record, 0),
-            header.counts[2],
-        ) {
+        if !terrain_marker_variant_is_valid(kind, u32_at(record, 40)) {
             return Err(invalid("visual has an invalid terrain marker"));
         }
         let contributor_role = ContributorRole::read(record[26])?;

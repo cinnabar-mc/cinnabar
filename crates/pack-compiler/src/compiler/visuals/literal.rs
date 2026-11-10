@@ -78,13 +78,13 @@ pub(in crate::compiler) fn compile_rule(
         );
         visual.kind = VisualKind::Invisible;
         visual.support = VisualSupport::Exact;
-        // A pack without the marker's art leaves the block invisible in every layer.
-        if let Some(marker) = terrain_marker(record)
-            && let Some(material) = inputs.material(record, BlockFace::Up)
-            && material != DIAGNOSTIC_MATERIAL
-        {
-            visual.faces = [material; 6];
+        // The layer comes from the block alone, so a pack reload never moves a cell between
+        // layers; a pack without the marker's art leaves it with nothing to draw.
+        if let Some(marker) = terrain_marker(record) {
             visual.variant = marker.variant();
+            if let Some(material) = inputs.material(record, BlockFace::Up) {
+                visual.faces = [material; 6];
+            }
         }
         return CompileRuleResult::Compiled(visual);
     }

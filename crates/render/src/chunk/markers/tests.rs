@@ -1,6 +1,10 @@
 use super::*;
-use assets::{RuntimeAssets, TerrainMarker};
+use assets::{TerrainMarker, TextureRef};
 use meshing::MeshLightSample;
+
+/// The block whose art the test resolver knows, and that art's index.
+const ART_BLOCK: u32 = 7;
+const ART: u32 = 3;
 
 fn key(x: i32, y: i32, z: i32) -> SubChunkKey {
     SubChunkKey {
@@ -11,29 +15,40 @@ fn key(x: i32, y: i32, z: i32) -> SubChunkKey {
     }
 }
 
-fn marker(local: [u8; 3], class: TerrainMarker) -> PackedTerrainMarker {
-    PackedTerrainMarker::new(local, class, 0, MeshLightSample::try_new(13, 4).unwrap())
+fn marker(local: [u8; 3], class: TerrainMarker, block: u32) -> PackedTerrainMarker {
+    PackedTerrainMarker::new(
+        local,
+        class,
+        block,
+        MeshLightSample::try_new(13, 4).unwrap(),
+    )
 }
 
 fn instances(
     sections: &TerrainMarkerSections,
     layers: u8,
 ) -> (Vec<MarkerInstance>, Vec<MarkerInstance>) {
-    let textures = ChunkTextureAssets::new(Arc::new(RuntimeAssets::diagnostic()));
     let (mut sprites, mut boxes) = (Vec::new(), Vec::new());
-    marker_instances(sections, layers, &textures, &mut sprites, &mut boxes);
+    marker_instances(
+        sections,
+        layers,
+        |block| (block == ART_BLOCK).then_some(ART),
+        &mut sprites,
+        &mut boxes,
+    );
     (sprites, boxes)
 }
 
 #[test]
-fn only_shown_layers_become_instances_at_their_world_cells() {
+fn only_shown_layers_with_art_become_instances_at_their_world_cells() {
     let mut sections = TerrainMarkerSections::default();
     sections.set(
         key(1, -1, 2),
         &Arc::from([
-            marker([3, 4, 5], TerrainMarker::Light),
-            marker([0, 0, 0], TerrainMarker::Barrier),
-            marker([15, 15, 15], TerrainMarker::StructureVoid),
+            marker([3, 4, 5], TerrainMarker::Light, ART_BLOCK),
+            marker([0, 0, 0], TerrainMarker::Barrier, ART_BLOCK),
+            marker([15, 15, 15], TerrainMarker::StructureVoid, ART_BLOCK),
+            marker([1, 1, 1], TerrainMarker::Light, ART_BLOCK + 1),
         ]),
     );
 
@@ -41,8 +56,13 @@ fn only_shown_layers_become_instances_at_their_world_cells() {
 
     let (sprites, boxes) = instances(&sections, TerrainMarker::Light.layer());
     assert!(boxes.is_empty());
-    assert_eq!(sprites.len(), 1);
+    assert_eq!(
+        sprites.len(),
+        1,
+        "a block the pack gives no art draws nothing"
+    );
     assert_eq!(sprites[0].block, [19, -12, 37]);
+    assert_eq!(sprites[0].animation, ART);
     assert_eq!((sprites[0].packed >> LIGHT_SHIFT) & 255, 13 | (4 << 4));
     assert_eq!(sprites[0].packed & BOX_FLAG, 0);
 
@@ -56,7 +76,8 @@ fn only_shown_layers_become_instances_at_their_world_cells() {
 #[test]
 fn section_changes_advance_the_revision_only_when_cells_change() {
     let mut sections = TerrainMarkerSections::default();
-    let cells: Arc<[PackedTerrainMarker]> = Arc::from([marker([1, 2, 3], TerrainMarker::Barrier)]);
+    let cells: Arc<[PackedTerrainMarker]> =
+        Arc::from([marker([1, 2, 3], TerrainMarker::Barrier, ART_BLOCK)]);
     sections.set(key(0, 0, 0), &cells);
     let revision = sections.revision;
     sections.set(key(0, 0, 0), &Arc::from(cells.to_vec()));
@@ -71,4 +92,85 @@ fn section_changes_advance_the_revision_only_when_cells_change() {
     sections.clear();
     assert!(sections.revision > revision);
     assert!(instances(&sections, u8::MAX).0.is_empty());
+}
+
+/// Every vertex buffer holds at most one chunk of instances, whatever the batch size, so a
+/// world full of markers never needs a binding larger than the device allows.
+#[test]
+fn draws_split_sprites_and_boxes_across_fixed_size_buffers() {
+    let total = 2 * CHUNK_INSTANCES + 5;
+    let sprites = CHUNK_INSTANCES + 3;
+    let chunk = CHUNK_INSTANCES as u32;
+    let draws = chunk_draws(total, sprites).collect::<Vec<_>>();
+    assert_eq!(
+        draws,
+        [(0..chunk, chunk..chunk), (0..3, 3..chunk), (0..0, 0..5),]
+    );
+    let drawn = draws
+        .iter()
+        .map(|(sprites, boxes)| sprites.len() + boxes.len())
+        .sum::<usize>();
+    assert_eq!(drawn, total);
+    assert!(chunk_draws(0, 0).next().is_none());
+}
+
+/// Flipbook art keeps every frame and its timing, so the GPU steps it with the terrain clock.
+#[test]
+fn flipbook_art_keeps_its_frames_and_timing() {
+    let texture = |layer| TextureRef::new(1, layer).unwrap();
+    let encode = |texture: TextureRef| MarkerTexture {
+        page: texture.page(),
+        layer: texture.layer(),
+        uv_scale: 1.0,
+        reserved: 0,
+    };
+    let animations = [Animation {
+        frame_start: 1,
+        frame_count: 2,
+        ticks_per_frame: 3,
+        atlas_index: 0,
+        atlas_tile_variant: 0,
+        replicate: 1,
+        flags: ANIMATION_FLAG_BLEND,
+    }];
+    let frames = [texture(9), texture(10), texture(11)];
+    let mut tables = MarkerTables::default();
+
+    let still = Material {
+        texture: texture(4),
+        ..Material::unvaried()
+    };
+    let animated = Material {
+        texture: texture(10),
+        animation: 0,
+        ..Material::unvaried()
+    };
+    assert_eq!(tables.push(&still, &animations, &frames, encode), 0);
+    assert_eq!(tables.push(&animated, &animations, &frames, encode), 1);
+
+    assert_eq!(
+        tables.animations,
+        [
+            MarkerAnimation {
+                frame_start: 0,
+                frame_count: 1,
+                ticks_per_frame: 1,
+                flags: 0,
+            },
+            MarkerAnimation {
+                frame_start: 1,
+                frame_count: 2,
+                ticks_per_frame: 3,
+                flags: ANIMATION_FLAG_BLEND,
+            },
+        ]
+    );
+    assert_eq!(
+        tables
+            .textures
+            .iter()
+            .map(|texture| texture.layer)
+            .collect::<Vec<_>>(),
+        [4, 10, 11]
+    );
 }

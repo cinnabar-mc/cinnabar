@@ -114,18 +114,11 @@ impl TerrainMarker {
     }
 }
 
-/// An invisible visual names no marker, or a marker drawn with a real material in its first face.
-pub(crate) fn terrain_marker_variant_is_valid(
-    kind: VisualKind,
-    variant: u32,
-    material: u32,
-    material_count: usize,
-) -> bool {
-    kind != VisualKind::Invisible
+/// An invisible visual names no marker or one marker class; its art may be missing.
+pub(crate) const fn terrain_marker_variant_is_valid(kind: VisualKind, variant: u32) -> bool {
+    !matches!(kind, VisualKind::Invisible)
         || variant == 0
-        || (TerrainMarker::from_variant(kind, variant).is_some()
-            && material != crate::DIAGNOSTIC_MATERIAL
-            && (material as usize) < material_count)
+        || TerrainMarker::from_variant(kind, variant).is_some()
 }
 
 /// Template selects its body or head quads from the primary block above it.

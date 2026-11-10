@@ -14,20 +14,24 @@ use crate::lighting::{LightingInputs, MeshLightSample};
 const CLASS_SHIFT: u32 = 12;
 const LIGHT_SHIFT: u32 = 16;
 
-/// One marker cell of a sub-chunk: its local position, layer, material and own-cell light.
+/// One marker cell of a sub-chunk: its local position, layer, block and own-cell light.
+///
+/// The block is kept as its sequential ID rather than a material, so the renderer resolves the
+/// marker's art from whichever pack is current without remeshing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PackedTerrainMarker {
     cell_class_light: u32,
-    material: u32,
+    block: u32,
 }
 
 impl PackedTerrainMarker {
-    /// Packs `local` cell coordinates below 16, the marker class, its material and light.
+    /// Packs `local` cell coordinates below 16, the marker class, its sequential block ID and
+    /// light.
     #[must_use]
     pub const fn new(
         local: [u8; 3],
         marker: TerrainMarker,
-        material: u32,
+        block: u32,
         light: MeshLightSample,
     ) -> Self {
         Self {
@@ -36,7 +40,7 @@ impl PackedTerrainMarker {
                 | ((local[2] as u32 & 15) << 8)
                 | ((marker.variant() & 3) << CLASS_SHIFT)
                 | ((light.block() as u32 | ((light.sky() as u32) << 4)) << LIGHT_SHIFT),
-            material,
+            block,
         }
     }
 
@@ -60,10 +64,10 @@ impl PackedTerrainMarker {
         .expect("packed markers always hold a class")
     }
 
-    /// The material the marker's texture comes from.
+    /// The sequential ID of the marker's block.
     #[must_use]
-    pub const fn material(self) -> u32 {
-        self.material
+    pub const fn block(self) -> u32 {
+        self.block
     }
 
     /// The cell's solved light, block level in the low nibble and sky level in the high nibble.
@@ -73,9 +77,9 @@ impl PackedTerrainMarker {
     }
 }
 
-/// The marker class and texture of an entry, if it is a marker block.
+/// The marker class and sequential block ID of an entry, if it is a known marker block.
 fn entry_marker(entry: &ResolvedPaletteEntry) -> Option<(TerrainMarker, u32)> {
-    TerrainMarker::from_variant(entry.kind, entry.variant).map(|marker| (marker, entry.faces[0]))
+    TerrainMarker::from_variant(entry.kind, entry.variant).zip(entry.sequential_id)
 }
 
 /// Records every marker cell of the section with the light solved at that cell.
@@ -88,12 +92,12 @@ pub(crate) fn collect(
     }
     let mut markers = Vec::new();
     facts.for_each_voxel_class(entry_marker, |x, y, z, class| {
-        if let Some((marker, material)) = class {
+        if let Some((marker, block)) = class {
             let light = lighting.sample([x as i32, y as i32, z as i32]);
             markers.push(PackedTerrainMarker::new(
                 [x as u8, y as u8, z as u8],
                 marker,
-                material,
+                block,
                 light,
             ));
         }

@@ -340,12 +340,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
                 "visual {index} has invalid covered-grass material"
             )));
         }
-        if !terrain_marker_variant_is_valid(
-            visual.kind,
-            visual.variant,
-            visual.faces[0],
-            compiled.materials.len(),
-        ) {
+        if !terrain_marker_variant_is_valid(visual.kind, visual.variant) {
             return Err(invalid(format!(
                 "visual {index} has an invalid terrain marker"
             )));

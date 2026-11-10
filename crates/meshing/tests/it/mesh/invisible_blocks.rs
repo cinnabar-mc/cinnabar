@@ -144,7 +144,7 @@ fn expected_marker(name: &str) -> Option<assets::TerrainMarker> {
     }
 }
 
-/// Barriers, light blocks and structure voids record their cell, layer, art and light, which
+/// Barriers, light blocks and structure voids record their cell, layer, block and light, which
 /// the renderer draws while their layer is shown; invisible bedrock records nothing.
 #[test]
 fn marker_blocks_record_their_cell_layer_and_art() {
@@ -161,7 +161,7 @@ fn marker_blocks_record_their_cell_layer_and_art() {
             assert_eq!(markers.len(), 1, "{name} {mode:?}");
             assert_eq!(markers[0].local(), [3, 9, 12], "{name} {mode:?}");
             assert_eq!(markers[0].marker(), expected, "{name} {mode:?}");
-            assert_ne!(markers[0].material(), DIAGNOSTIC_MATERIAL, "{name} {mode:?}");
+            assert_eq!(markers[0].block(), values.sequential, "{name} {mode:?}");
             assert_eq!(markers[0].light(), full_bright, "{name} {mode:?}");
         }
     }
