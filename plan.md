@@ -69,7 +69,10 @@ closes no gate and provides no new runtime or performance evidence.
   Opt-in packet captures retain attack and mouseover pick geometry, input-frame identities,
   applied packet correspondence and remote actor time. Live comparison evidence remains open.
   Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
-  live custom-dimension transfer acceptance remains open.
+  live custom-dimension transfer acceptance remains open. Without an overworld
+  definition, StartGame's Legacy generator selects Y 0..128 and unrecognised generators
+  0..256. Overworld, Flat and Void keep -64..320, so vanilla's 0..256 choices for them
+  (a level flag and a base-game-version gate) are incomplete.
 
 ## Phase 1 — Core service
 

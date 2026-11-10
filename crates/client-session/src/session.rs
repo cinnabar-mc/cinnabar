@@ -100,6 +100,9 @@ pub enum NetworkControlEvent<P = ()> {
         rewind_history_size: i32,
         /// StartGame's level base game version, resolved for version gates.
         base_game_version: protocol::BaseGameVersion,
+        /// The overworld range StartGame's generator selects; a server overworld
+        /// definition replaces it.
+        overworld_range: protocol::DimensionRange,
         hardcore: bool,
         hud_rules: protocol::HudRules,
         death_rules: protocol::DeathRules,

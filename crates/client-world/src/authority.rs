@@ -13,9 +13,9 @@ use assets::{NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, RuntimeEntityAsse
 use protocol::{
     ActorAttribute, ActorEvent, ActorHandedness, AudioEvent, BiomeDefinitionEvent, BlockCrackEvent,
     ChangeDimensionEvent, CustomBlocks, DaylightCycleUpdateEvent, DimensionHeightDiagnostic,
-    DimensionRange, MAX_DIMENSION_DEFINITIONS, MovePlayerEvent, PlayerMovementCorrectionEvent,
-    PrimitiveShapesEvent, RespawnEvent, SetTimeEvent, UiEvent, WeatherUpdateEvent, WorldBootstrap,
-    WorldEvent, vanilla_dimension_range,
+    DimensionRange, MAX_DIMENSION_DEFINITIONS, MovePlayerEvent, OVERWORLD_DIMENSION_ID,
+    PlayerMovementCorrectionEvent, PrimitiveShapesEvent, RespawnEvent, SetTimeEvent, UiEvent,
+    WeatherUpdateEvent, WorldBootstrap, WorldEvent, vanilla_dimension_range,
 };
 #[cfg(test)]
 use protocol::{
@@ -129,6 +129,8 @@ pub struct WorldAuthority {
     world_spawn: [i32; 3],
     dimension_ranges: std::collections::BTreeMap<i32, (Arc<str>, DimensionRange)>,
     frozen_dimension_ranges: BTreeSet<i32>,
+    /// StartGame's generator-selected overworld, used without a server overworld definition.
+    start_game_overworld_range: DimensionRange,
     dimension_range_skips: u64,
     form_dimension_epoch: u64,
     local_player_runtime_id: u64,
@@ -234,6 +236,7 @@ impl WorldAuthority {
             world_spawn: bootstrap.world_spawn_position,
             dimension_ranges: std::collections::BTreeMap::new(),
             frozen_dimension_ranges: BTreeSet::new(),
+            start_game_overworld_range: protocol::MODERN_OVERWORLD_RANGE,
             dimension_range_skips: 0,
             form_dimension_epoch: 0,
             local_player_runtime_id: bootstrap.local_player_runtime_id,
