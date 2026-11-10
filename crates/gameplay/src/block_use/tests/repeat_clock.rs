@@ -22,6 +22,7 @@ fn a_fractional_deadline_preserves_the_forward_placement_opportunity() {
         start.now,
         1,
         LocalUse::Place,
+        false,
         start,
     );
     let deadline = RepeatClock {
@@ -54,7 +55,7 @@ fn a_fractional_deadline_preserves_the_forward_placement_opportunity() {
             face: 5
         })
     );
-    runtime.record(trigger, due, 7, LocalUse::Nothing, next);
+    runtime.record(trigger, due, 7, LocalUse::Nothing, false, next);
     assert_eq!(runtime.due(true, 7, next), Some((trigger, due)));
     assert_eq!(runtime.due(true, 8, next), Some((trigger, due)));
 }
@@ -72,6 +73,7 @@ fn moving_repeats_preserve_fractional_schedule_and_catchup_limit() {
         start.now,
         1,
         LocalUse::Place,
+        false,
         start,
     );
     let due = start.now + Duration::from_millis(100);
@@ -88,6 +90,7 @@ fn moving_repeats_preserve_fractional_schedule_and_catchup_limit() {
         due,
         3,
         LocalUse::Place,
+        false,
         next,
     );
     let deadline = RepeatClock {
@@ -116,6 +119,7 @@ fn moving_repeats_preserve_fractional_schedule_and_catchup_limit() {
         deadline.now,
         20,
         LocalUse::Place,
+        false,
         late,
     );
     assert_eq!(

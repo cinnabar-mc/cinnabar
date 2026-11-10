@@ -1,8 +1,9 @@
-//! Native ambient sampling, its shared random stream, and leaf/fire/candle admission.
+//! Native ambient sampling, its shared random stream, and leaf/fire/candle/ender chest admission.
 
 use assets::native_material::NativeMaterialFacts;
 
 mod candle;
+mod ender_chest;
 mod fire;
 mod random;
 mod sampler;
@@ -10,6 +11,7 @@ mod sampler;
 mod tests;
 
 pub use candle::{CANDLE_FLAME_EFFECT, CANDLE_SMOKE_EFFECT, emit_candle_effects};
+pub use ender_chest::{ENDER_CHEST_EFFECT, emit_ender_chest_effects};
 pub use fire::{FIRE_SMOKE_EFFECT, emit_fire_smoke};
 pub use random::AmbientRandom;
 pub use sampler::{MIN_SAMPLES, SamplePlan, Sampler};

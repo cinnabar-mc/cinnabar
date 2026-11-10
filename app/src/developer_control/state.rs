@@ -140,6 +140,20 @@ fn player_position(world: &World) -> Option<[f32; 3]> {
     Some(stream.authority().resolved_server_position().position)
 }
 
+/// The local player's integer skin ID actor metadata, which `query.skin_id` reads, once the
+/// server has sent it.
+fn local_skin_id(world: &World) -> Option<i64> {
+    let stream = world.resource::<ClientWorld>().stream.as_ref()?;
+    let key = protocol_ids::ActorDataKey::SkinID.wire_value();
+    match stream.authority().local_actor()?.metadata.get(&key)? {
+        protocol::ActorMetadataValue::Byte(value) => Some(i64::from(*value)),
+        protocol::ActorMetadataValue::Short(value) => Some(i64::from(*value)),
+        protocol::ActorMetadataValue::Int(value) => Some(i64::from(*value)),
+        protocol::ActorMetadataValue::Long(value) => Some(*value),
+        _ => None,
+    }
+}
+
 /// Screen names bottom first, e.g. `Gameplay`, `Hud`, `Chat`, `Menu(Pause)`.
 fn screens(world: &World) -> Vec<String> {
     let (Some(ui), Some(player)) = (
@@ -371,6 +385,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         "actor_count": actor_count,
         "actors": actors,
         "actor_draw": super::actors::snapshot(world),
+        "hand_draw": super::actors::hand_snapshot(world),
         "player_motion": player_motion(world),
         "local_mods": local_mods,
         "primitive_shapes": crate::primitive_shapes::snapshot(world),
@@ -437,6 +452,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             "cave_visible": cache.visible_rendered,
         })),
     });
+    snapshot["skin_id"] = json!(local_skin_id(world));
     snapshot["inventory"] = super::inventory::snapshot(world);
     snapshot["client_part_screens"] = json!(crate::server_experiences::developer_screens(world));
     snapshot["chat"] = json!(world.get_resource::<UiRuntimeResource>().map(|ui| {

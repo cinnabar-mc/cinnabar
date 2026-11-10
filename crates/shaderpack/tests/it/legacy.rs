@@ -292,6 +292,7 @@ fn version_400_compatibility_ftransform_needs_only_the_position_matrices() {
     );
 }
 
+/// Builds a pack from in-memory shader files.
 fn inline_pack(files: &[(&str, &str)]) -> shaderpack::ShaderPack {
     shaderpack::ShaderPack::new(shaderpack::PackSource::from_files(
         files
@@ -299,6 +300,49 @@ fn inline_pack(files: &[(&str, &str)]) -> shaderpack::ShaderPack {
             .map(|(k, v)| (*k, (*v).to_owned()))
             .collect::<Vec<_>>(),
     ))
+}
+
+#[test]
+fn renamed_uniforms_keep_their_property_names_and_struct_member_paths() {
+    let vertex =
+        "#version 330\nuniform float sample;\nvoid main() { gl_Position = vec4(sample); }\n";
+    let fragment = "#version 330
+uniform float resource;
+uniform float buffer[2];
+struct Data { float sample; };
+uniform Data data;
+void main() { gl_FragData[0] = vec4(resource + buffer[1] + data.sample); }
+";
+    let pack = inline_pack(&[
+        ("composite.vsh", vertex),
+        ("composite.fsh", fragment),
+        (
+            "shaders.properties",
+            "uniform.float.sample = 0.25\nuniform.float.resource = 1.0\n",
+        ),
+    ]);
+    let translated = pack.translate(&TranslateConfig::default());
+    let reflected = reflection(program(&translated, "composite"));
+    assert_eq!(
+        uniform_names(reflected),
+        ["sample", "resource", "buffer", "data.sample"]
+    );
+    let (mut custom, errors) =
+        shaderpack::CustomUniforms::new(&translated.properties.custom_uniforms);
+    assert!(errors.is_empty(), "{errors:?}");
+    let values = custom.evaluate(&|_| None, 0.0);
+    for (member, expected) in reflected.uniforms.as_ref().unwrap().members.iter().zip([
+        shaderpack::UniformValue::Float(0.25),
+        shaderpack::UniformValue::Float(1.0),
+    ]) {
+        let value = values.iter().find(|(name, _)| name == &member.name);
+        assert_eq!(
+            value.map(|(_, value)| *value),
+            Some(expected),
+            "{}",
+            member.name
+        );
+    }
 }
 
 #[test]
@@ -510,4 +554,101 @@ fn float_block_id_and_mid_block_declarations_read_the_stored_integers_and_conver
     ] {
         assert!(glsl.contains(converted), "missing `{converted}` in\n{glsl}");
     }
+}
+
+/// The translated names of a program's vertex inputs for `attribute`.
+fn attribute_inputs(
+    t: &shaderpack::PackTranslation,
+    name: &str,
+    attribute: VertexAttribute,
+) -> Vec<String> {
+    reflection(program(t, name))
+        .vertex_inputs
+        .iter()
+        .filter(|input| input.attribute == attribute)
+        .map(|input| input.name.clone())
+        .collect()
+}
+
+#[test]
+fn compatibility_programs_read_declared_core_inputs_as_unbound() {
+    // Eclipse's `gbuffers_textured_lit` declares the core inputs next to the built-ins it
+    // reads. Iris's compatibility transformers bind vertex data only to the built-ins.
+    let vertex = "#version 330 compatibility\n\
+        in vec3 vaPosition;\n\
+        in vec3 vaNormal;\n\
+        in vec2 vaUV0;\n\
+        out vec3 normal;\n\
+        out float wave;\n\
+        void main() {\n\
+            normal = gl_Normal + vaNormal;\n\
+            wave = sin(vaPosition.x * 0.5) + cos(vaPosition.z * 0.5);\n\
+            gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n\
+        }\n";
+    let fragment = "#version 330 compatibility\n\
+        in vec3 normal;\n\
+        in float wave;\n\
+        void main() { gl_FragData[0] = vec4(normal, wave); }\n";
+    let pack = inline_pack(&[
+        ("gbuffers_textured_lit.vsh", vertex),
+        ("gbuffers_textured_lit.fsh", fragment),
+    ]);
+    let t = pack.translate(&TranslateConfig::default());
+    let name = "gbuffers_textured_lit";
+    assert_eq!(
+        attribute_inputs(&t, name, VertexAttribute::Position),
+        ["iris_Vertex"]
+    );
+    assert_eq!(
+        attribute_inputs(&t, name, VertexAttribute::Normal),
+        ["iris_Normal"]
+    );
+    assert!(attribute_inputs(&t, name, VertexAttribute::TexCoord).is_empty());
+}
+
+#[test]
+fn compatibility_programs_bind_explicitly_located_core_inputs() {
+    let location = VertexAttribute::Position.location().unwrap();
+    let vertex = format!(
+        "#version 330 compatibility\n\
+        layout(location = {location}) in vec3 vaPosition;\n\
+        in vec3 vaNormal;\n\
+        void main() {{ gl_Position = vec4(vaPosition + vaNormal, 1.0); }}\n"
+    );
+    let fragment = "#version 330 compatibility\nvoid main() { gl_FragData[0] = vec4(1.0); }\n";
+    let pack = inline_pack(&[
+        ("gbuffers_basic.vsh", vertex.as_str()),
+        ("gbuffers_basic.fsh", fragment),
+    ]);
+    let t = pack.translate(&TranslateConfig::default());
+    let position = reflection(program(&t, "gbuffers_basic"))
+        .vertex_inputs
+        .iter()
+        .find(|input| input.name == "vaPosition")
+        .expect("explicitly located vaPosition is a vertex input");
+    assert_eq!(position.attribute, VertexAttribute::Position);
+    assert_eq!(position.location, location);
+    assert!(attribute_inputs(&t, "gbuffers_basic", VertexAttribute::Normal).is_empty());
+}
+
+#[test]
+fn line_programs_bind_declared_core_inputs_in_the_compatibility_profile() {
+    // Iris compiles the line program with its core-profile transformer, which binds the
+    // declared core inputs; other compatibility programs leave implicit inputs unbound.
+    let vertex = "#version 330 compatibility\n\
+        in vec3 vaPosition;\n\
+        void main() { gl_Position = gl_ProjectionMatrix * vec4(vaPosition, 1.0); }\n";
+    let fragment = "#version 330 compatibility\nvoid main() { gl_FragData[0] = vec4(1.0); }\n";
+    let pack = inline_pack(&[
+        ("gbuffers_line.vsh", vertex),
+        ("gbuffers_line.fsh", fragment),
+        ("gbuffers_basic.vsh", vertex),
+        ("gbuffers_basic.fsh", fragment),
+    ]);
+    let t = pack.translate(&TranslateConfig::default());
+    assert_eq!(
+        attribute_inputs(&t, "gbuffers_line", VertexAttribute::Position),
+        ["vaPosition"]
+    );
+    assert!(attribute_inputs(&t, "gbuffers_basic", VertexAttribute::Position).is_empty());
 }

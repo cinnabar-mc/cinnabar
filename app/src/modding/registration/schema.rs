@@ -30,6 +30,9 @@ pub(super) struct Registration {
     pub version: u32,
     pub request_id: String,
     pub mods: Vec<Entry>,
+    /// Stops runtime admission without discarding the predecessor's enabled selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suspended: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +57,7 @@ impl Registration {
             version: VERSION,
             request_id: "initial".into(),
             mods: Vec::new(),
+            suspended: None,
         }
     }
 
@@ -68,6 +72,7 @@ impl Registration {
             Self {
                 version: VERSION,
                 request_id: old.request_id,
+                suspended: None,
                 mods: vec![Entry {
                     component: old.component,
                     enabled: old.enabled,
@@ -90,6 +95,17 @@ impl Registration {
         }
         result.validate()?;
         Ok(result)
+    }
+
+    /// Builds the runtime view while retaining persisted consent for migration recovery.
+    pub(super) fn fence_admission(&mut self) {
+        for entry in &mut self.mods {
+            if self.suspended.as_ref().is_some_and(|path| {
+                launcher_host::mod_library::paths::same_path(path, &entry.component)
+            }) {
+                entry.enabled = false;
+            }
+        }
     }
 
     /// Rejects ambiguous identities, unbounded counts and relative source paths.

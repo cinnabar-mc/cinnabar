@@ -114,8 +114,8 @@ mod tests {
 
     use super::{SCHEMA_TAG, enabled_for_env_value, format_trace_line, trace_line_if};
     use protocol::{
-        PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, player_auth_input,
-        player_auth_input_trace_sample, request_sub_chunk_column,
+        PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+        player_auth_input, player_auth_input_trace_sample, request_sub_chunk_column,
     };
 
     fn snapshot() -> PlayerAuthInputSnapshot {
@@ -136,6 +136,7 @@ mod tests {
                 | PlayerInputFlags::SPRINTING
                 | PlayerInputFlags::HORIZONTAL_COLLISION,
             input_mode: PlayerInputMode::Mouse,
+            interaction_model: PlayerInteractionModel::Crosshair,
             vehicle: None,
         }
     }

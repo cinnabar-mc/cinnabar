@@ -110,6 +110,7 @@ fn facts_migration_compiled_ambient_facts_preserve_exact_membership_in_numeric_b
     let facts = crate::facts::BlockFacts::new(&records).unwrap();
     for record in records {
         let expected = match record.name.as_ref() {
+            "minecraft:ender_chest" => AmbientBlock::EnderChest,
             "minecraft:fire" => AmbientBlock::Fire,
             "minecraft:portal" => AmbientBlock::Portal,
             name if name.ends_with("candle") || name.ends_with("candle_cake") => {

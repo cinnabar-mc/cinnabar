@@ -195,11 +195,13 @@ pub(super) fn attach(
             skin_rigs,
             |geometry| new_geometries.push(geometry),
             |draw, location| {
-                let slot = match draw.input.identity.layer {
-                    crate::presentation::equipment::LAYER_MAIN_HAND => 0,
-                    crate::presentation::equipment::LAYER_OFF_HAND => 1,
-                    _ => return None,
+                use crate::presentation::equipment::{
+                    LAYER_MAIN_HAND, LAYER_OFF_HAND, armor_slot_index, is_armor_layer,
                 };
+                let layer = draw.input.identity.layer;
+                if layer != LAYER_MAIN_HAND && layer != LAYER_OFF_HAND && !is_armor_layer(layer) {
+                    return None;
+                }
                 let remote;
                 let input = if draw.input.identity.runtime_id == local_runtime_id {
                     poses.local_equipment
@@ -210,14 +212,22 @@ pub(super) fn attach(
                     );
                     &remote
                 };
-                let item = if slot == 0 {
-                    input.main.as_ref()
-                } else {
-                    input.off.as_ref()
+                let item = match layer {
+                    LAYER_MAIN_HAND => input.main.as_ref(),
+                    LAYER_OFF_HAND => input.off.as_ref(),
+                    _ => input
+                        .armor
+                        .get(armor_slot_index(layer)?)
+                        .and_then(Option::as_ref),
                 }?;
-                equipment
-                    .as_deref_mut()?
-                    .shield_raster(item, artwork, location?, draw.input.rig)
+                let equipment = equipment.as_deref_mut()?;
+                let location = location?;
+                if let Some(raster) =
+                    equipment.trim_draw(item, artwork, location, draw, is_armor_layer(layer))
+                {
+                    return Some(raster);
+                }
+                equipment.shield_raster(item, artwork, location, draw.input.rig)
             },
         )
     {

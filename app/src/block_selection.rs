@@ -21,7 +21,7 @@ use {
 };
 
 /// Actor selected by this frame's eye-origin gameplay ray after block occlusion.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, PartialEq)]
 pub(crate) struct CrosshairActor(pub(crate) Option<u64>);
 
 #[derive(SystemParam)]
@@ -36,6 +36,7 @@ pub(crate) struct SelectionContext<'w> {
     input: Res<'w, SemanticInputSnapshot>,
     settings: Res<'w, RuntimeSettings>,
     controls: Res<'w, client_state::GameplayScreenControls>,
+    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
 impl SelectionContext<'_> {
@@ -65,8 +66,10 @@ pub(crate) fn publish(
 ) {
     let (target, actor) = target(&context.player, &context).unwrap_or_default();
     // Hiding the HUD hides only the drawn selection; the pick still drives interaction.
-    picked.0 = actor;
-    frame.update(
+    picked.set_if_neq(CrosshairActor(actor));
+    // An unchanged selection leaves the resource unchanged, so render extraction skips its clone.
+    let revision = frame.revision;
+    frame.bypass_change_detection().update(
         target.as_ref().filter(|_| context.selection_visible()),
         context
             .settings
@@ -75,6 +78,9 @@ pub(crate) fn publish(
             .video
             .outline_selection,
     );
+    if frame.revision != revision {
+        frame.set_changed();
+    }
 }
 
 /// Resolves the block outline or actor selected by the shared gameplay pick.
@@ -126,7 +132,7 @@ fn target(
         .ok()?;
     let actor = pick_actor(
         stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
+        stream.authority().local_mount_unique_id(),
         ray.origin().to_array(),
         ray.direction().to_array(),
         reach,
@@ -142,6 +148,14 @@ fn target(
             .miss_support(vector(ray.origin()), vector(ray.direction()))
             .ok()??,
     };
+    let position = context
+        .physics
+        .as_deref()
+        .and_then(|physics| physics.network_position())
+        .unwrap_or(ray.origin().to_array());
+    if !gameplay::interaction_authority::block_pick_in_range(hit.block_pos, position, reach) {
+        return None;
+    }
     if !context.collisions.selection_overlay_visible(
         stream.network_id_mode(),
         hit.runtime_id,

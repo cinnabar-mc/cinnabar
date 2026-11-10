@@ -1,6 +1,6 @@
 //! Composition of an item's display placement with the hand bone's pose.
 
-use bevy::math::{Mat4, Quat, Vec3};
+use bevy::math::{Mat4, Vec3};
 use render_model::RenderBoneTransform;
 use render_model::equipment::ItemDisplay;
 use render_model::equipment::sprite_item_transform;
@@ -26,8 +26,12 @@ fn item_default() -> Mat4 {
 pub(super) enum FirstPersonShape {
     /// A flat sprite; `mirrored_art` items (rods on a stick) turn half a revolution.
     Sprite { mirrored_art: bool },
-    /// A block's centred unit cube.
-    Block,
+    /// A block's centred unit cube, with its optional default quarter turn.
+    Block { quarter_turn: bool },
+    /// A button panel with its item-space placement below the first-person hand.
+    Button,
+    /// A wall's centered mesh translated to its carried model origin.
+    Wall,
 }
 
 /// The arm's state the first-person item follows, interpolated to the frame.
@@ -109,7 +113,14 @@ pub(super) fn first_person_display_for_profile(
             };
             held * turn * item_default()
         }
-        FirstPersonShape::Block => held,
+        FirstPersonShape::Block { quarter_turn: true } => {
+            held * Mat4::from_rotation_y(-std::f32::consts::FRAC_PI_2)
+        }
+        FirstPersonShape::Block {
+            quarter_turn: false,
+        } => held,
+        FirstPersonShape::Button => held * Mat4::from_translation(Vec3::new(0.5, -0.5, 0.5 - 0.45)),
+        FirstPersonShape::Wall => held * Mat4::from_translation(Vec3::splat(0.5)),
     })
 }
 
@@ -170,20 +181,13 @@ pub fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
     bone.is_finite().then_some(bone)
 }
 
-/// A block worn on the head, facing along the head after vanilla's half-turn.
-/// The existing cube size and vertical placement remain provisional.
-pub(super) fn head_block_display() -> ItemDisplay {
-    ItemDisplay {
-        rotation: Quat::from_rotation_y(std::f32::consts::PI),
-        translation: Vec3::new(0.0, 0.25, 0.0),
-        scale: 0.5625,
-        axis_scale: Vec3::ONE,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use {super::*, render_model::equipment::attach_to_bone};
+    use {
+        super::*,
+        bevy::math::Quat,
+        render_model::equipment::{attach_to_bone, head_block_display},
+    };
 
     const IDENTITY_TABLE: ItemDisplay = ItemDisplay {
         rotation: Quat::IDENTITY,
@@ -227,8 +231,41 @@ mod tests {
     }
 
     #[test]
+    fn block_quarter_turn_keeps_the_anchor_and_rotates_the_authored_faces() {
+        let hand = FirstPersonHand {
+            swing: 0.,
+            equip: 1.,
+            consume: None,
+            aspect: 1.,
+        };
+        for profile in [
+            render_api::CombatVisuals::Legacy112,
+            render_api::CombatVisuals::Modern,
+        ] {
+            let display = first_person_display_for_profile(
+                FirstPersonShape::Block { quarter_turn: true },
+                hand,
+                profile,
+            );
+            assert!(
+                display
+                    .translation
+                    .abs_diff_eq(Vec3::new(0.56, -0.52, -0.72), 1e-6)
+            );
+            assert!((display.scale - 0.4).abs() < 1e-6);
+            let diagonal = std::f32::consts::FRAC_1_SQRT_2;
+            assert!(
+                (display.rotation * Vec3::X).abs_diff_eq(Vec3::new(diagonal, 0., diagonal), 1e-6)
+            );
+            assert!((display.rotation * Vec3::Y).abs_diff_eq(Vec3::Y, 1e-6));
+        }
+    }
+
+    #[test]
     fn profiles_select_the_held_attack_trig_and_preserve_use_poses() {
-        let shape = FirstPersonShape::Block;
+        let shape = FirstPersonShape::Block {
+            quarter_turn: false,
+        };
         let hand = FirstPersonHand {
             swing: 0.37,
             equip: 0.8,

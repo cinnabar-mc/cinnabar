@@ -248,6 +248,7 @@ fn framed_cube_faces_follow_pack_replacement_and_removal() {
             potted_block: None,
             carried_block: Some(assets::BlockVisualId(1)),
             world_from_item: render_model::dropped_item_transform([10.0, 2.0, 3.0], 0.0, 1.0),
+            world_from_block: None,
             light: None,
         }]),
     ));
@@ -478,6 +479,7 @@ fn framed_session_cube_uses_session_sprite_under_cache_pressure() {
         potted_block: None,
         carried_block: Some(assets::BlockVisualId(1)),
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        world_from_block: None,
         light: None,
     };
     for free in 1..assets::BlockFace::ALL.len() {
@@ -521,6 +523,7 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
         potted_block: None,
         carried_block: Some(assets::BlockVisualId(1)),
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        world_from_block: None,
         light: None,
     };
     for native in [false, true] {
@@ -728,6 +731,7 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
                     potted_block: None,
                     carried_block: Some(assets::BlockVisualId(1)),
                     world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+                    world_from_block: None,
                     light: None,
                 };
                 DroppedItemPublisher::placement_model(
@@ -793,6 +797,7 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
                         potted_block: None,
                         carried_block: Some(assets::BlockVisualId(1)),
                         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+                        world_from_block: None,
                         light: None,
                     };
                     DroppedItemPublisher::placement_model(
@@ -943,6 +948,7 @@ fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_
         carried_block: None,
         allow_block_models: true,
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+        world_from_block: None,
         light: None,
     };
     let mut cache = ModelCache::default();

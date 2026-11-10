@@ -164,6 +164,22 @@ pub(super) fn draw_ui_layer(
             }
         }
         pass.set_render_pipeline(pipeline);
+        let profile = draw
+            .world
+            .get_resource::<super::profile::UiProfile>()
+            .map(|profile| {
+                (
+                    profile,
+                    if mode.0.is_some() {
+                        render_scene::RuntimeStage::GpuUiModel
+                    } else {
+                        render_scene::RuntimeStage::GpuUiRaster
+                    },
+                )
+            });
+        if let Some((profile, stage)) = profile {
+            profile.record_pass(stage);
+        }
         nonempty |= draw_batches(
             &mut pass,
             draw.gpu,
@@ -175,18 +191,7 @@ pub(super) fn draw_ui_layer(
             group,
             draw.skip,
             damage,
-            draw.world
-                .get_resource::<super::profile::UiProfile>()
-                .map(|profile| {
-                    (
-                        profile,
-                        if mode.0.is_some() {
-                            render_scene::RuntimeStage::GpuUiModel
-                        } else {
-                            render_scene::RuntimeStage::GpuUiRaster
-                        },
-                    )
-                }),
+            profile,
         );
         if needs_depth {
             lifetime.encoded();
@@ -209,6 +214,8 @@ pub(super) struct LayerDrawn {
 }
 
 /// Draw `batches` into `pass`, each under its own scissor and page bind group.
+///
+/// `profile` counts draws only; the caller that began `pass` counts it.
 #[allow(clippy::too_many_arguments)] // Optional diagnostics accompany the existing draw state.
 pub(super) fn draw_batches<'w>(
     pass: &mut bevy::render::render_phase::TrackedRenderPass<'w>,
@@ -224,9 +231,6 @@ pub(super) fn draw_batches<'w>(
     profile: Option<(&super::profile::UiProfile, render_scene::RuntimeStage)>,
 ) -> bool {
     let mut nonempty = false;
-    if let Some((profile, stage)) = profile {
-        profile.record_pass(stage);
-    }
     if let Some(viewport) = viewport {
         let Some(viewport) = crate::render_bounds::viewport(viewport, extent) else {
             return false;

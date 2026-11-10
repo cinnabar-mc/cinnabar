@@ -176,6 +176,11 @@ impl ActorSnapshot {
             ActorKind::Entity { .. } => match self.entity_fact.native_class {
                 NativeEntityClass::FallingBlock => self.falling_block_network_offset(),
                 NativeEntityClass::Tnt => self.primed_tnt_network_offset(),
+                // Cart packets locate the centre of the constructor's collision box.
+                NativeEntityClass::Minecart => self
+                    .entity_fact
+                    .collision
+                    .map_or(self.entity_fact.network_y_offset, |size| size[1] * 0.5),
                 _ => self.entity_fact.network_y_offset,
             },
         }
@@ -183,15 +188,17 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
-    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount.
+    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount,
+    /// or the vehicle it got off while it still passes through it.
     pub(crate) fn movement_collider_snapshot(
         &self,
         mover: u64,
         rider: i64,
     ) -> std::sync::Arc<[ActorCollisionBounds]> {
-        self.effect_members
-            .collidable
-            .snapshot(mover, self.ridden_unique_id(rider))
+        let skipped = self
+            .ridden_unique_id(rider)
+            .or_else(|| self.passed_through_vehicle(rider));
+        self.effect_members.collidable.snapshot(mover, skipped)
     }
 }
 

@@ -201,6 +201,16 @@ pub(super) fn commit_frame_outputs(store: &mut Store<State>, drawing_committed: 
         && !state.controls.frame.panel_open)
         .then_some(state.camera_policy.pending_view_scale)
         .flatten();
+    state.camera_policy.committed_yaw_offset = (state.snapshot.is_some()
+        && state.controls.frame.focused
+        && !state.controls.frame.panel_open)
+        .then_some(state.camera_policy.pending_yaw_offset)
+        .flatten();
+    state.camera_policy.committed_perspective = (state.snapshot.is_some()
+        && state.controls.frame.focused
+        && !state.controls.frame.panel_open)
+        .then_some(state.camera_policy.pending_perspective)
+        .flatten();
     state.camera_policy.committed_view_tilt = state.camera_policy.pending_view_tilt;
     state.item_use_policy.commit(state.snapshot.is_some());
     state.camera_delta = state.pending_camera.take();

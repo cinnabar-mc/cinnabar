@@ -80,6 +80,7 @@ pub(crate) struct PrimitiveGpu {
     vertices: Option<mod_render::GpuAllocation<Buffer>>,
     capacity: u64,
     uploaded: Arc<[ModVertex]>,
+    uploaded_debug: Arc<[ModVertex]>,
     uploaded_blocks: Arc<[ModVertex]>,
     block_count: u32,
     pub(crate) vertex_count: u32,
@@ -115,6 +116,7 @@ impl PrimitiveGpu {
             )?),
             capacity: 6,
             uploaded: Arc::from([]),
+            uploaded_debug: Arc::from([]),
             uploaded_blocks: Arc::from([]),
             block_count: 0,
             vertex_count: 0,
@@ -148,7 +150,7 @@ fn prepare(
     upload(
         &mut gpu,
         &scene.vertices,
-        &scene.block_vertices,
+        [&scene.debug_vertices, &scene.block_vertices],
         time,
         &device,
         &queue,
@@ -161,20 +163,16 @@ fn prepare(
 fn upload(
     gpu: &mut PrimitiveGpu,
     vertices: &Arc<[ModVertex]>,
-    block_vertices: &Arc<[ModVertex]>,
+    [debug_vertices, block_vertices]: [&Arc<[ModVertex]>; 2],
     time: [f32; 2],
     device: &RenderDevice,
     queue: &RenderQueue,
     ledger: Option<&mod_render::GpuLedger>,
 ) {
-    let needed = (vertices.len() + block_vertices.len()) as u64;
+    let needed = (vertices.len() + debug_vertices.len() + block_vertices.len()) as u64;
     let grew = needed > gpu.capacity || gpu.vertices.is_none();
     if grew {
-        let capacity = needed.next_power_of_two().min(
-            (mod_render::geometry::MAX_VERTICES
-                + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK)
-                as u64,
-        );
+        let capacity = vertex_capacity(needed, debug_vertices.len());
         gpu.bind_group = None;
         if !super::buffers::replace(
             &mut gpu.vertices,
@@ -193,16 +191,33 @@ fn upload(
         gpu.capacity = capacity;
     }
     let storage = gpu.vertices.as_ref().expect("admitted primitive storage");
-    let previous_primitive_count = gpu.uploaded.len();
+    let previous_primitive_count = gpu.uploaded.len() + gpu.uploaded_debug.len();
     let guest_changed = grew || !Arc::ptr_eq(&gpu.uploaded, vertices);
+    let debug_changed = suffix_upload_changed(
+        &gpu.uploaded_debug,
+        debug_vertices,
+        gpu.uploaded.len(),
+        vertices.len(),
+        grew,
+    );
     if guest_changed && !vertices.is_empty() {
         queue.profiled_write_buffer(storage, 0, bytemuck::cast_slice(vertices));
     }
     if guest_changed {
         gpu.uploaded = Arc::clone(vertices);
     }
-    let primitive_count = vertices.len();
-    let blocks_changed = block_upload_changed(
+    if debug_changed && !debug_vertices.is_empty() {
+        queue.profiled_write_buffer(
+            storage,
+            vertices.len() as u64 * VERTEX_BYTES,
+            bytemuck::cast_slice(debug_vertices),
+        );
+    }
+    if debug_changed {
+        gpu.uploaded_debug = Arc::clone(debug_vertices);
+    }
+    let primitive_count = vertices.len() + debug_vertices.len();
+    let blocks_changed = suffix_upload_changed(
         &gpu.uploaded_blocks,
         block_vertices,
         previous_primitive_count,
@@ -227,7 +242,17 @@ fn upload(
     }
 }
 
-fn block_upload_changed(
+/// Reserves room for admitted mod output, block highlights and the host's debug geometry.
+fn vertex_capacity(needed: u64, debug_vertices: usize) -> u64 {
+    needed.next_power_of_two().min(
+        (mod_render::geometry::MAX_VERTICES
+            + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK
+            + debug_vertices) as u64,
+    )
+}
+
+/// Uploads a suffix again when its geometry, offset or backing storage changes.
+fn suffix_upload_changed(
     previous: &Arc<[ModVertex]>,
     next: &Arc<[ModVertex]>,
     previous_offset: usize,
@@ -242,13 +267,62 @@ mod upload_tests {
     use super::*;
 
     #[test]
+    fn debug_geometry_fits_beside_maximum_mod_output_and_block_highlights() {
+        let maximum = mod_render::geometry::MAX_VERTICES
+            + mod_api::MAX_BLOCK_HIGHLIGHTS
+                * super::super::block_highlights::MAX_VERTICES_PER_BLOCK;
+        for debug_vertices in [0, 6, 65_538] {
+            let needed = (maximum + debug_vertices) as u64;
+            assert_eq!(vertex_capacity(needed, debug_vertices), needed);
+        }
+    }
+
+    #[test]
+    fn host_debug_vertices_upload_beside_primitives_and_block_highlights() {
+        let (app, _) = crate::queue_review_support::app();
+        let device = app.world().resource::<RenderDevice>();
+        let queue = app.world().resource::<RenderQueue>();
+        let mut gpu = PrimitiveGpu::new(device, None).unwrap();
+        let vertices: Arc<[ModVertex]> = vec![ModVertex::default(); 6].into();
+        let debug: Arc<[ModVertex]> = vec![ModVertex::default(); 12].into();
+        let blocks: Arc<[ModVertex]> = vec![ModVertex::default(); 36].into();
+        upload(
+            &mut gpu,
+            &vertices,
+            [&debug, &blocks],
+            [0.; 2],
+            device,
+            queue,
+            None,
+        );
+        assert_eq!(gpu.vertex_count as usize, vertices.len() + debug.len());
+        assert_eq!(gpu.block_count as usize, blocks.len());
+        assert!(Arc::ptr_eq(&gpu.uploaded_debug, &debug));
+        let empty = Arc::from([]);
+        upload(
+            &mut gpu,
+            &vertices,
+            [&empty, &blocks],
+            [0.; 2],
+            device,
+            queue,
+            None,
+        );
+        assert_eq!(gpu.vertex_count as usize, vertices.len());
+        assert_eq!(gpu.block_count as usize, blocks.len());
+        assert!(gpu.uploaded_debug.is_empty());
+    }
+
+    #[test]
     fn unchanged_blocks_skip_upload_but_prefix_resize_moves_their_suffix() {
         let vertices: Arc<[ModVertex]> = vec![ModVertex::default(); 36].into();
-        assert!(!block_upload_changed(&vertices, &vertices, 108, 108, false));
-        assert!(block_upload_changed(&vertices, &vertices, 108, 114, false));
-        assert!(block_upload_changed(&vertices, &vertices, 108, 108, true));
+        assert!(!suffix_upload_changed(
+            &vertices, &vertices, 108, 108, false
+        ));
+        assert!(suffix_upload_changed(&vertices, &vertices, 108, 114, false));
+        assert!(suffix_upload_changed(&vertices, &vertices, 108, 108, true));
         let moved: Arc<[ModVertex]> = vec![ModVertex::default(); 36].into();
-        assert!(block_upload_changed(&vertices, &moved, 108, 108, false));
+        assert!(suffix_upload_changed(&vertices, &moved, 108, 108, false));
     }
 }
 
@@ -456,7 +530,7 @@ pub(crate) fn queue(
 ) {
     // Queue precedes upload, so this frame's scene decides; the draw reads the upload.
     let Some(scene) = scene else { return };
-    let regular = !scene.vertices.is_empty();
+    let regular = !scene.vertices.is_empty() || !scene.debug_vertices.is_empty();
     let highlights = !scene.block_vertices.is_empty();
     let draw_functions = draw_functions.read();
     for (view_entity, main_entity, view, extracted_camera, msaa) in &views {

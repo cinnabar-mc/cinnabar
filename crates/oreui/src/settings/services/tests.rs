@@ -42,7 +42,7 @@ fn french_storage_keeps_world_and_cache_names_verbatim() {
         assert!(labels.iter().any(|label| label == name), "{labels:?}");
     }
     assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::SelectWorld(0))));
-    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::Select(0))));
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::DeletePack(0))));
 }
 
 /// Draws one settings panel and returns its visible text and available actions.

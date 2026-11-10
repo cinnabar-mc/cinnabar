@@ -133,3 +133,59 @@ fn render_invisible_blocks_never_cull_neighbour_faces() {
         }
     }
 }
+
+/// The marker layer each fixture block draws into, or `None` for a block drawn in no layer.
+fn expected_marker(name: &str) -> Option<assets::TerrainMarker> {
+    match name {
+        "minecraft:barrier" => Some(assets::TerrainMarker::Barrier),
+        "minecraft:structure_void" => Some(assets::TerrainMarker::StructureVoid),
+        "minecraft:invisible_bedrock" => None,
+        _ => Some(assets::TerrainMarker::Light),
+    }
+}
+
+/// Barriers, light blocks and structure voids record their cell, layer, block and light, which
+/// the renderer draws while their layer is shown; invisible bedrock records nothing.
+#[test]
+fn marker_blocks_record_their_cell_layer_and_art() {
+    let fixture = compiled_invisible_fixture();
+    let full_bright = meshing::FULL_BRIGHT_BLOCK_LIGHT | (meshing::FULL_BRIGHT_SKY_LIGHT << 4);
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for &(name, values) in &fixture.invisible {
+            let mesh = mesh_invisible_fixture(mode, &[([3, 9, 12], values.for_mode(mode))]);
+            let markers = mesh.terrain_markers();
+            let Some(expected) = expected_marker(name) else {
+                assert!(markers.is_empty(), "{name} {mode:?} recorded a marker");
+                continue;
+            };
+            assert_eq!(markers.len(), 1, "{name} {mode:?}");
+            assert_eq!(markers[0].local(), [3, 9, 12], "{name} {mode:?}");
+            assert_eq!(markers[0].marker(), expected, "{name} {mode:?}");
+            assert_eq!(markers[0].block(), values.sequential, "{name} {mode:?}");
+            assert_eq!(markers[0].light(), full_bright, "{name} {mode:?}");
+        }
+    }
+}
+
+/// A section filled with one marker block records every cell.
+#[test]
+fn a_uniform_marker_section_records_every_cell() {
+    let fixture = compiled_invisible_fixture();
+    let (_, barrier) = fixture.invisible[0];
+    let mode = NetworkIdMode::Sequential;
+    let center = sub_chunk(vec![uniform_storage(barrier.for_mode(mode))]);
+    let mesh = mesh_sub_chunk(
+        &BlockClassifier::new(fixture.air.for_mode(mode)),
+        &fixture.assets,
+        mode,
+        &Neighbourhood::default(),
+        &center,
+    );
+    assert!(mesh.is_empty());
+    assert_eq!(mesh.terrain_markers().len(), 16 * 16 * 16);
+    assert!(
+        mesh.terrain_markers()
+            .iter()
+            .all(|marker| marker.marker() == assets::TerrainMarker::Barrier)
+    );
+}

@@ -187,6 +187,55 @@ fn cobweb_prediction_keeps_independent_support_in_both_identity_modes() {
 }
 
 #[test]
+fn frogspawn_prediction_checks_water_depth_for_top_and_shoreline_clicks() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        for name in ["minecraft:water", "minecraft:flowing_water"] {
+            for depth in [0, 1] {
+                let mut store = store(mode);
+                let water = id(record(name, &[("liquid_depth", depth.into())]), mode);
+                let air = id(record("minecraft:air", &[]), mode);
+                store
+                    .update_block(
+                        SubChunkKey::new(0, 0, 0, 0),
+                        BlockUpdate::new(8, 8, 8, 0, water),
+                        air,
+                    )
+                    .unwrap();
+                let mut around = surroundings();
+                around.clicked = fixtures().1.block_facts(mode, water);
+                around.held = block_fact("minecraft:frog_spawn");
+                let expected = (depth == 0)
+                    .then_some(([8, 9, 8], id(record("minecraft:frog_spawn", &[]), mode)));
+                assert_eq!(
+                    predict("minecraft:frog_spawn", &store, mode, &context(&around))
+                        .map(|placement| (placement.position, placement.block)),
+                    expected,
+                    "top: {name} depth={depth} mode={mode:?}"
+                );
+
+                store
+                    .update_block(
+                        SubChunkKey::new(0, 0, 0, 0),
+                        BlockUpdate::new(7, 9, 8, 0, id(record("minecraft:stone", &[]), mode)),
+                        air,
+                    )
+                    .unwrap();
+                around.clicked = block_fact("minecraft:stone");
+                let mut side = context(&around);
+                side.clicked = [7, 9, 8];
+                side.input.face = 5;
+                assert_eq!(
+                    predict("minecraft:frog_spawn", &store, mode, &side)
+                        .map(|placement| (placement.position, placement.block)),
+                    expected,
+                    "shoreline: {name} depth={depth} mode={mode:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn carpet_prediction_accepts_materialized_custom_support_in_both_identity_modes() {
     let (records, _) = fixtures();
     let protocol = active_content_registry_protocol();

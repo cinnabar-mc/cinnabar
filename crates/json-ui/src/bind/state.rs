@@ -93,6 +93,10 @@ pub struct BindState {
     pub(super) moved_windows: Vec<u64>,
     /// Each grid's cell template with its placeholder, so standing placeholders are reused.
     pub(super) placeholders: Vec<(u64, Arc<ResolvedControl>, Arc<ResolvedControl>)>,
+    /// Recently materialized virtual-grid cells, retained after placeholders replace them so
+    /// reversing scroll direction does not bind the same cell subtree again.
+    pub(super) grid_cell_cache: std::collections::VecDeque<(u64, super::Node)>,
+    pub(super) grid_cell_cache_nodes: usize,
 }
 
 /// An opted grid's first window and the host's guarantee about cell paint bounds.
@@ -100,6 +104,7 @@ pub struct BindState {
 pub(super) struct GridPolicy {
     initial: usize,
     clipped: bool,
+    margin_cells: Option<usize>,
 }
 
 /// Allocate an opaque lifetime identity only when a custom control is created.
@@ -175,6 +180,45 @@ impl Retained {
 }
 
 impl BindState {
+    pub(super) fn cache_grid_cell(&mut self, key: u64, node: super::Node) {
+        if let Some(at) = self
+            .grid_cell_cache
+            .iter()
+            .position(|(cached, _)| *cached == key)
+            && let Some((_, replaced)) = self.grid_cell_cache.remove(at)
+        {
+            self.grid_cell_cache_nodes = self
+                .grid_cell_cache_nodes
+                .saturating_sub(replaced.track.count());
+        }
+        self.grid_cell_cache_nodes = self
+            .grid_cell_cache_nodes
+            .saturating_add(node.track.count());
+        self.grid_cell_cache.push_back((key, node));
+        let budget = self.node_limit() / 4;
+        while self.grid_cell_cache_nodes > budget && self.grid_cell_cache.len() > 1 {
+            let (_, evicted) = self
+                .grid_cell_cache
+                .pop_front()
+                .expect("cache is not empty");
+            self.grid_cell_cache_nodes = self
+                .grid_cell_cache_nodes
+                .saturating_sub(evicted.track.count());
+        }
+    }
+
+    pub(super) fn take_grid_cell(&mut self, key: u64) -> Option<super::Node> {
+        let at = self
+            .grid_cell_cache
+            .iter()
+            .position(|(cached, _)| *cached == key)?;
+        let (_, node) = self.grid_cell_cache.remove(at)?;
+        self.grid_cell_cache_nodes = self
+            .grid_cell_cache_nodes
+            .saturating_sub(node.track.count());
+        Some(node)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -182,6 +226,13 @@ impl BindState {
     /// Starts fresh lifetimes for changed preparation inputs, keeping unaffected controls,
     /// grid windows and measurements for the first visible bind.
     pub fn restart(&mut self, data: &super::DataSource) {
+        if self
+            .data
+            .as_deref()
+            .is_some_and(|previous| previous != data)
+        {
+            self.clear_grid_cell_cache();
+        }
         let changes = self
             .data
             .as_deref()
@@ -270,21 +321,44 @@ impl BindState {
         self.virtualize_grid_with_window(collection, INITIAL_GRID_WINDOW);
     }
 
-    /// Selects a smaller first window for fixed native viewports with large tile templates.
+    /// Selects the first materialized window for a grid whose host knows an appropriate warmup
+    /// budget. Binding still stops at the shared node limit.
     pub fn virtualize_grid_with_window(&mut self, collection: &str, initial: usize) {
-        self.set_grid_policy(collection, initial, false);
+        self.set_grid_policy(collection, initial, false, None);
+    }
+
+    /// Opts in cells whose descendants paint at most `margin_cells` cell extents past their rect.
+    pub fn virtualize_grid_with_margin(&mut self, collection: &str, margin_cells: usize) {
+        self.virtualize_grid_with_window_and_margin(collection, INITIAL_GRID_WINDOW, margin_cells);
+    }
+
+    /// Selects a warmup window for cells with a bounded paint overflow.
+    pub fn virtualize_grid_with_window_and_margin(
+        &mut self,
+        collection: &str,
+        initial: usize,
+        margin_cells: usize,
+    ) {
+        self.set_grid_policy(collection, initial, margin_cells == 0, Some(margin_cells));
     }
 
     /// Opts in host-admitted tiles whose descendants cannot paint outside their cell rectangle.
     pub fn virtualize_clipped_grid(&mut self, collection: &str, initial: usize) {
-        self.set_grid_policy(collection, initial, true);
+        self.set_grid_policy(collection, initial, true, Some(0));
     }
 
     /// Invalidates placeholder geometry when the owning host changes its grid guarantee.
-    fn set_grid_policy(&mut self, collection: &str, initial: usize, clipped: bool) {
+    fn set_grid_policy(
+        &mut self,
+        collection: &str,
+        initial: usize,
+        clipped: bool,
+        margin_cells: Option<usize>,
+    ) {
         let policy = GridPolicy {
-            initial: initial.clamp(1, INITIAL_GRID_WINDOW),
+            initial: initial.clamp(1, super::feed::MAX_FACTORY_ITEMS),
             clipped,
+            margin_cells,
         };
         if self.virtual_grids.get(collection) == Some(&policy) {
             return;
@@ -292,6 +366,12 @@ impl BindState {
         self.virtual_grids.insert(collection.to_owned(), policy);
         self.grid_windows.clear();
         self.placeholders.clear();
+        self.clear_grid_cell_cache();
+    }
+
+    pub(super) fn clear_grid_cell_cache(&mut self) {
+        self.grid_cell_cache.clear();
+        self.grid_cell_cache_nodes = 0;
     }
 
     /// Whether the host guarantees this collection's cells cannot overflow their rectangles.
@@ -299,6 +379,13 @@ impl BindState {
         collection
             .and_then(|name| self.virtual_grids.get(name))
             .is_some_and(|policy| policy.clipped)
+    }
+
+    /// Maximum admitted overflow around one cell, measured in that cell's extents.
+    pub(super) fn grid_cell_margin(&self, collection: Option<&str>) -> Option<usize> {
+        collection
+            .and_then(|name| self.virtual_grids.get(name))
+            .and_then(|policy| policy.margin_cells)
     }
 
     /// Whether grids listing `collection` build only the cells around those in view.

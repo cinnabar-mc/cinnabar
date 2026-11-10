@@ -31,6 +31,7 @@ mod service;
 mod sub_chunk_requests;
 mod terrain_generation;
 pub(crate) mod vehicle_look;
+mod view;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 pub(crate) use sub_chunk_requests::sub_chunk_request_center;
@@ -40,7 +41,7 @@ pub(crate) use terrain_generation::synchronize_terrain_generation;
 use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
-pub(crate) use control_apply::{MovePlayerRotation, apply_committed_control};
+pub(crate) use control_apply::{MovePlayerRotation, apply_committed_aim, apply_committed_control};
 
 use std::sync::Arc;
 
@@ -361,7 +362,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         interaction.invalidate();
         return;
     };
-    stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
+    stream.set_view_forward(view::streaming_forward(&view, &camera_settings));
     #[cfg(not(target_arch = "wasm32"))]
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     #[cfg(target_arch = "wasm32")]
@@ -613,8 +614,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
         });
         use gameplay::committed_control::{ControlDisposition, SpatialReset};
+        let mut rotation_filter = control_apply::rotation_filter(
+            #[cfg(not(target_arch = "wasm32"))]
+            mods.as_deref_mut(),
+        );
         let reset = match disposition {
             ControlDisposition::Handled => continue,
+            ControlDisposition::Aim => {
+                apply_committed_aim(control, &view, &mut local_physics, &mut rotation_filter);
+                continue;
+            }
             ControlDisposition::Environment => {
                 apply_environment_control(
                     control,
@@ -643,12 +652,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &mut view,
             &mut camera_settings,
             pending_surface_spawn,
-            #[cfg(not(target_arch = "wasm32"))]
-            &mut |rotation| {
-                crate::modding::handle_move_player_rotation(mods.as_deref_mut(), rotation)
-            },
-            #[cfg(target_arch = "wasm32")]
-            &mut |_| None,
+            &mut rotation_filter,
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {

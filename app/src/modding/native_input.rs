@@ -16,7 +16,8 @@ pub(super) struct NativeInput {
 }
 
 impl NativeInput {
-    /// Replaces axes and adds button holds within one world; omission retires owned buttons.
+    /// Replaces axes and adds button holds as if bound within one world, keeping the player's
+    /// control modes in effect; omission retires owned buttons.
     fn apply_controls(
         &mut self,
         input: &mut semantic_input::finalized::FinalizedInput,
@@ -33,7 +34,7 @@ impl NativeInput {
         }
         self.controls_scope = scope.or(self.controls_scope);
         if let Some(controls) = controls {
-            self.controls.apply(
+            self.controls.remap(
                 input,
                 Some((
                     [controls.right, controls.forward],
@@ -88,12 +89,13 @@ impl NativeInput {
 }
 
 impl ModControlModes {
-    /// The player's gameplay settings with this frame's mod modes in place of their own.
+    /// The player's gameplay settings with this frame's mod modes turned on as well. Mods only
+    /// add modes; a mode the player turned on stays on.
     pub(crate) fn apply(&self, mut gameplay: ui::GameplaySettings) -> ui::GameplaySettings {
         if let Some(modes) = self.0 {
-            gameplay.toggle_sprint = modes.toggle_sprint;
-            gameplay.toggle_sneak = modes.toggle_sneak;
-            gameplay.always_sprint = modes.always_sprint;
+            gameplay.toggle_sprint |= modes.toggle_sprint;
+            gameplay.toggle_sneak |= modes.toggle_sneak;
+            gameplay.always_sprint |= modes.always_sprint;
         }
         gameplay
     }
@@ -276,9 +278,10 @@ mod tests {
         );
         assert!(delta.yaw > 0.0 && delta.yaw < 0.03);
     }
-    /// Control modes replace the player's three control settings only while present.
+    /// Control modes add to the player's three control settings only while present, and never
+    /// turn off one the player turned on.
     #[test]
-    fn control_modes_replace_the_player_settings_only_while_present() {
+    fn control_modes_add_to_the_player_settings_only_while_present() {
         let player = ui::GameplaySettings {
             toggle_sprint: false,
             always_sprint: true,
@@ -295,9 +298,18 @@ mod tests {
             ModControlModes(Some(modes)).apply(player),
             ui::GameplaySettings {
                 toggle_sprint: true,
-                toggle_sneak: false,
-                always_sprint: false,
+                toggle_sneak: true,
+                always_sprint: true,
                 ..player
+            },
+            "a mod's off modes leave the player's always sprint and toggle sneak on"
+        );
+        let own = ui::GameplaySettings::default();
+        assert_eq!(
+            ModControlModes(Some(modes)).apply(own),
+            ui::GameplaySettings {
+                toggle_sprint: true,
+                ..own
             }
         );
     }
@@ -376,7 +388,10 @@ mod tests {
         let mut frame = fresh();
         state.apply_controls(&mut frame, Some((1, 0)), Some(controls));
         assert_eq!(frame.movement(), [-0.5, 0.75]);
-        assert!(frame.movement_is_resolved());
+        assert!(
+            !frame.movement_is_resolved(),
+            "a mod's vector must leave the player's toggle and always-sprint modes in effect"
+        );
         assert!(frame.phase(semantic_input::Action::Jump).pressed);
         assert!(frame.phase(semantic_input::Action::Sneak).held);
         assert!(!frame.phase(semantic_input::Action::Sprint).held);

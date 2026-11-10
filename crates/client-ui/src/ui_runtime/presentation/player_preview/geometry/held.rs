@@ -73,6 +73,7 @@ pub(super) fn append(
             return None;
         }
         vertices.push(UiMeshVertex {
+            terrain_mips: false,
             position: [
                 projected.screen[0] / PREVIEW_WIDTH as f32,
                 projected.screen[1] / PREVIEW_HEIGHT as f32,
@@ -100,7 +101,7 @@ pub(super) fn append(
         blend: UiBlendMode::Alpha,
         depth_test: true,
         depth_write: true,
-        alpha_cutoff: Some(0.5),
+        alpha_cutoff: model.alpha_cutoff(),
     });
     Some(())
 }
@@ -132,10 +133,9 @@ pub(in crate::ui_runtime::presentation) fn placement_on_bone(
     scale: f32,
 ) -> Option<(RenderBoneTransform, Vec3)> {
     let (mut display, pivot) = match *model.placements.get(hand)? {
-        PreviewHeldPlacement::Sprite { hand_equipped } => (
-            held_sprite_display_for_hand(hand_equipped, hand == 1),
-            Vec3::ZERO,
-        ),
+        PreviewHeldPlacement::Sprite { grip } => {
+            (held_sprite_display_for_hand(grip, hand == 1), Vec3::ZERO)
+        }
         PreviewHeldPlacement::Block => (held_block_display_for_hand(hand == 1), Vec3::ZERO),
         PreviewHeldPlacement::Authored { bone, pivot } => {
             let display = ItemDisplay {

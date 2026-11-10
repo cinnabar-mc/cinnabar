@@ -186,6 +186,8 @@ impl Instance {
         }
         crate::execution::complete(init.call_async(&mut *store, ()))?;
         crate::execution::complete(init.post_return_async(&mut *store))?;
+        // Recovery keeps the state, and `init` cannot renew the movement output it retains.
+        store.data_mut().world.hold_movement();
         commit(store);
         let last_fuel = armed - store.get_fuel().unwrap_or(0).min(armed)
             + if exports.loads_session() {

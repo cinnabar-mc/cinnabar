@@ -18,6 +18,7 @@ pub struct BlockUseRuntime {
     owner: gameplay::block_use::BlockUseRuntime,
     previous_pick: Option<FramePick>,
     pending_picks: Vec<FramePick>,
+    last_actor_use: Option<(u64, u64, std::time::Duration)>,
     pub prediction_frames: prediction_frames::PredictionFrames,
 }
 impl std::ops::Deref for BlockUseRuntime {
@@ -56,6 +57,20 @@ pub struct FrameHits {
 }
 
 impl BlockUseRuntime {
+    /// Records an actor interaction only after its packet was admitted.
+    pub fn record_actor_use(&mut self, session: u64, actor: u64, now: std::time::Duration) {
+        self.last_actor_use = Some((session, actor, now));
+    }
+
+    /// Returns a recent interaction from this session for a newly opened screen.
+    pub fn recent_actor_use(&self, session: u64, now: std::time::Duration) -> Option<u64> {
+        let (saved_session, actor, at) = self.last_actor_use?;
+        (saved_session == session
+            && now
+                .checked_sub(at)
+                .is_some_and(|age| age <= std::time::Duration::from_secs(5)))
+        .then_some(actor)
+    }
     /// Keeps this frame's published pick for the build actions before the next tick.
     pub fn retain_pick(
         &mut self,
