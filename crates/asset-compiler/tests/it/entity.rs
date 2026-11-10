@@ -723,6 +723,25 @@ fn compiler_rejects_modified_manifest_and_unsupported_texture_payloads() {
 #[test]
 fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
     let pack = synthetic_pack();
+    let entity = pack.path().join("entity/allay.entity.json");
+    let source = fs::read_to_string(&entity).unwrap().replace(
+        r#""geometry":{"default":"geometry.allay"},"#,
+        r#""geometry":{"default":"geometry.allay"},"materials":{"default":"allay"},"#,
+    );
+    fs::write(&entity, source).unwrap();
+    let controllers = pack
+        .path()
+        .join("render_controllers/allay.render_controllers.json");
+    let source = fs::read_to_string(&controllers).unwrap().replace(
+        r#"{"geometry":"Geometry.default","textures""#,
+        r#"{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures""#,
+    );
+    fs::write(&controllers, source).unwrap();
+    write(
+        pack.path(),
+        "materials/entity.material",
+        br#"{"materials":{"version":"1.0.0","allay:entity_alphatest":{"+defines":["ALLAY_GLOW"]}}}"#,
+    );
     let outputs = tempfile::tempdir().unwrap();
     let manifest = outputs.path().join("vanilla-source.json");
     let blob = outputs.path().join("vanilla-v1.mcbeent");
@@ -763,7 +782,8 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
             .iter()
             .filter(|source| pack.path().join(source.path.as_ref()).is_file())
             .count(),
-        SYNTHETIC_PACK_SOURCE_COUNT
+        // The synthetic pack plus this test's material file.
+        SYNTHETIC_PACK_SOURCE_COUNT + 1
     );
     let binding_source = decoded
         .sources()
@@ -777,7 +797,7 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         <[u8; 32]>::from(Sha256::digest(binding_bytes))
     );
     let report: serde_json::Value = serde_json::from_slice(&first_report).unwrap();
-    assert_eq!(report["schema"], 4);
+    assert_eq!(report["schema"], 5);
     assert_eq!(report["counts"]["sources"], decoded.sources().len());
     assert_eq!(report["counts"]["symbols"], decoded.symbols().len());
     assert_eq!(report["counts"]["geometries"], 1);
@@ -815,6 +835,11 @@ fn assetc_entity_assets_writes_deterministic_carrier_and_report() {
         );
     }
     assert!(report["reference_outcomes"].is_array());
+    assert!(!report["materials"].as_array().unwrap().is_empty());
+    assert_eq!(
+        report["materials"],
+        serde_json::to_value(&decoded.render_data().materials).unwrap()
+    );
     let reported_sources = report["sources"].as_array().unwrap();
     assert_eq!(reported_sources.len(), decoded.sources().len());
     assert_eq!(

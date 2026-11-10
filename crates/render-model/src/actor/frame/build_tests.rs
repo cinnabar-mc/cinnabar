@@ -222,6 +222,7 @@ fn reference(
         let identity = submission.input.identity;
         (identity.layer, page_of(&identity), submission.input.rig)
     });
+    let mut rasters = Vec::new();
     let (mut instances, mut previous_bones, mut current_bones, mut manifest) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut maximum_vertex_count = 0;
@@ -311,6 +312,7 @@ fn reference(
             } else {
                 1.0
             },
+            raster: intern_raster(&mut rasters, submission.material.raster()),
         });
         manifest.push(ActorDrawManifestEntry {
             identity: submission.input.identity,
@@ -339,6 +341,7 @@ fn reference(
         previous_bones: previous_bones.into(),
         current_bones: current_bones.into(),
         manifest: manifest.into(),
+        rasters: rasters.into(),
         maximum_vertex_count,
         rejects,
         ..ActorRigRenderFrame::default()
@@ -456,5 +459,19 @@ fn steady_frames_of_fresh_poses_allocate_independently_of_actor_count() {
             allocated <= 5,
             "{allocated} allocations for {actors} actors"
         );
+    }
+}
+
+/// Interns a raster state the way the frame builder does, returning its table index.
+fn intern_raster(
+    rasters: &mut Vec<render_api::render_state::RenderState>,
+    raster: render_api::render_state::RenderState,
+) -> u32 {
+    match rasters.iter().position(|existing| *existing == raster) {
+        Some(index) => index as u32,
+        None => {
+            rasters.push(raster);
+            rasters.len() as u32 - 1
+        }
     }
 }

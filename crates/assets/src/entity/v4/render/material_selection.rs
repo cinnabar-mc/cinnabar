@@ -7,6 +7,9 @@ pub enum EntityRenderMaterialSelection {
     Raster {
         material: EntityRenderMaterial,
         state: Option<EntityRenderMaterialState>,
+        /// Index into [`EntityRenderData::materials`] when the choice resolved completely.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition: Option<u32>,
     },
     Branch {
         condition: u32,
@@ -66,22 +69,42 @@ impl EntityRenderData {
         })
     }
 
-    /// Every possible raster state, for artwork preservation and conservative capabilities.
+    /// Every possible raster choice with its resolved definition, for artwork preservation and
+    /// conservative capabilities.
     pub fn materials(
         &self,
         layer: &EntityRenderLayer,
-    ) -> impl Iterator<Item = (EntityRenderMaterial, Option<EntityRenderMaterialState>)> {
+    ) -> impl Iterator<
+        Item = (
+            EntityRenderMaterial,
+            Option<EntityRenderMaterialState>,
+            Option<&super::super::material::EntityMaterialDefinition>,
+        ),
+    > {
+        let definition =
+            |index: Option<u32>| index.and_then(|index| self.materials.get(index as usize));
         layer
             .material_selection
             .is_none()
-            .then_some((layer.material, layer.material_state))
+            .then(|| {
+                (
+                    layer.material,
+                    layer.material_state,
+                    definition(layer.material_definition),
+                )
+            })
             .into_iter()
-            .chain(self.material_nodes(layer).filter_map(|node| match node {
-                EntityRenderMaterialSelection::Raster { material, state } => {
-                    Some((*material, *state))
-                }
-                _ => None,
-            }))
+            .chain(
+                self.material_nodes(layer)
+                    .filter_map(move |node| match node {
+                        EntityRenderMaterialSelection::Raster {
+                            material,
+                            state,
+                            definition: index,
+                        } => Some((*material, *state, definition(*index))),
+                        _ => None,
+                    }),
+            )
     }
 }
 
@@ -95,6 +118,7 @@ pub(super) fn validate(render: &EntityRenderData, expressions: usize) -> Result<
             .expression()
             .is_some_and(|expression| expression as usize >= expressions)
             || matches!(node, EntityRenderMaterialSelection::Array { choices, .. } if choices.is_empty())
+            || matches!(node, EntityRenderMaterialSelection::Raster { definition: Some(definition), .. } if *definition as usize >= render.materials.len())
             || node.children().any(|child| {
                 child as usize <= index || child as usize >= render.material_selections.len()
             })

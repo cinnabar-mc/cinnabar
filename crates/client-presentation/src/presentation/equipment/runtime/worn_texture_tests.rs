@@ -534,7 +534,7 @@ fn worn_trim_preserves_authored_color_and_opacity() {
             .to_vec();
         assert_eq!(drawn.len(), 1);
         let mut draw = drawn[0].submission.clone();
-        assert!(draw.material.state.unwrap().blend, "{material}");
+        assert!(draw.material.raster().blend.is_some(), "{material}");
         assert_eq!(draw.tint, render_model::pack_overlay_rgba8(color));
         let (raster, _) = runtime
             .trim_draw(

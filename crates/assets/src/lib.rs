@@ -73,13 +73,12 @@ mod vanilla_refs;
 pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
-    ActorArtworkBinding, ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES,
-    MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, RuntimeActorCatalog,
-    actor_sources_keeping_alpha, encode_actor_catalog,
-    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
-    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
-    neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
-    neutral_actor_material_is_supported, neutral_actor_pose_mode,
+    ActorArtworkBinding, ActorMultitextureSources, ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS,
+    MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES,
+    RuntimeActorCatalog, actor_multitexture_sources, actor_sources_keeping_alpha,
+    encode_actor_catalog, neutral_actor_geometry_sampled_texels,
+    neutral_actor_geometry_uvs_are_supported, neutral_actor_material_is_supported,
+    neutral_actor_pose_mode,
 };
 pub use atmosphere::{
     AtmosphereRole, AtmosphereTexture, BiomeVisualProfile, CelestialBorderTexel, CelestialTile,

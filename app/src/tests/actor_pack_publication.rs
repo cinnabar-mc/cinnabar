@@ -418,9 +418,10 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
         assets::ActorPoseMode::CompiledLiteral,
     );
     let pack = textured_pack(entities.clone(), 19);
-    let expected = artwork
-        .clone()
-        .with_pack_artwork(&pack.textures, &pack.bindings);
+    let expected =
+        artwork
+            .clone()
+            .with_pack_artwork(&pack.textures, &pack.bindings, &Default::default());
     let base = artwork.clone();
     let input = pack.clone();
     let prepared = Arc::new(
@@ -450,7 +451,11 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
         .resource::<render_scene::ActorArtworkResource>()
         .0
         .clone()
-        .with_pack_artwork(&replacement.textures, &replacement.bindings);
+        .with_pack_artwork(
+            &replacement.textures,
+            &replacement.bindings,
+            &Default::default(),
+        );
     world.resource_mut::<ClientWorld>().pack_entities = Some(replacement.clone());
     let changed_pack = publish(&mut world);
     same_artwork(changed_pack.artwork_pages(), &expected);
@@ -478,9 +483,11 @@ fn prepared_actor_artwork_is_shared_and_stale_sources_fall_back() {
             height: 1,
             rgba8: Arc::from([43; 4]),
         }]);
-    let expected = base
-        .clone()
-        .with_pack_artwork(&replacement.textures, &replacement.bindings);
+    let expected = base.clone().with_pack_artwork(
+        &replacement.textures,
+        &replacement.bindings,
+        &Default::default(),
+    );
     world.resource_mut::<render_scene::ActorArtworkResource>().0 = base.clone();
     let changed_base = publish(&mut world);
     same_artwork(changed_base.artwork_pages(), &expected);

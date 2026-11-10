@@ -51,6 +51,8 @@ pub struct EntityPackSkips {
     pub over_budget: u32,
     /// Files dropped because the pack failed to compile with them and succeeded without.
     pub isolated: u32,
+    /// Materials past their declaration or definition bounds, drawn as layers without one.
+    pub unresolved_materials: u32,
     /// Attachables whose description could not be read into a binding.
     pub unusable_attachables: u32,
 }
@@ -433,6 +435,7 @@ fn compile_selected(
                 reference_outcomes: compilation.reference_outcomes,
                 equipment_bindings: compilation.equipment_bindings,
                 skipped: EntityPackSkips {
+                    unresolved_materials: compilation.unresolved_materials,
                     unusable_attachables: compilation.unusable_attachables,
                     ..skipped
                 },

@@ -5,12 +5,9 @@ use sha2::{Digest, Sha256};
 
 use crate::{AssetError, RuntimeEntityAssets};
 mod alpha;
-pub(crate) mod color_mask;
 mod eligibility;
-pub use alpha::actor_sources_keeping_alpha;
-pub use color_mask::{
-    native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
-    native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
+pub use alpha::{
+    ActorMultitextureSources, actor_multitexture_sources, actor_sources_keeping_alpha,
 };
 pub use eligibility::{
     neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
@@ -80,7 +77,6 @@ pub struct RuntimeActorCatalog {
     entity_identity: [u8; 32],
     textures: Arc<[ActorTexture]>,
     bindings: Arc<[ActorArtworkBinding]>,
-    color_mask_textures: Arc<[bool]>,
     multitexture_textures: Arc<[bool]>,
 }
 
@@ -190,22 +186,10 @@ impl RuntimeActorCatalog {
             return Err(invalid("actor carrier has trailing payload"));
         }
         validate(&textures, &bindings, entities, PixelHashes::Sealed)?;
-        let color_mask_textures = textures
-            .iter()
-            .map(|texture| {
-                native_actor_texture_uses_color_mask(&entities.sources()[texture.source as usize])
-            })
-            .collect::<Vec<_>>()
-            .into();
-        let masked_sources = alpha::masked_multitexture_sources(entities.render_data());
+        let multitexture = actor_multitexture_sources(entities.render_data());
         let multitexture_textures = textures
             .iter()
-            .map(|texture| {
-                masked_sources.contains(&texture.source)
-                    || native_actor_texture_uses_multitexture(
-                        &entities.sources()[texture.source as usize],
-                    )
-            })
+            .map(|texture| multitexture.contains(&texture.source))
             .collect::<Vec<_>>()
             .into();
         Ok(Self {
@@ -215,7 +199,6 @@ impl RuntimeActorCatalog {
             entity_identity,
             textures: textures.into(),
             bindings: bindings.into(),
-            color_mask_textures,
             multitexture_textures,
         })
     }
@@ -229,14 +212,7 @@ impl RuntimeActorCatalog {
     pub fn textures(&self) -> &[ActorTexture] {
         &self.textures
     }
-    /// Whether this exact raster uses the witnessed native alpha-as-color-mask material.
-    pub fn texture_uses_color_mask(&self, texture: usize) -> bool {
-        self.color_mask_textures
-            .get(texture)
-            .copied()
-            .unwrap_or(false)
-    }
-    /// Whether this raster participates in a grouped multi-sampler draw.
+    /// Whether a `USE_MULTITEXTURE` or `MASKED_MULTITEXTURE` material samples this raster.
     pub fn texture_uses_multitexture(&self, texture: usize) -> bool {
         self.multitexture_textures
             .get(texture)
@@ -331,7 +307,7 @@ fn validate(
     }
     let mut total = 0usize;
     let mut seen_sources = std::collections::BTreeSet::new();
-    let keeps_alpha = actor_sources_keeping_alpha(entities.render_data(), entities.sources());
+    let keeps_alpha = actor_sources_keeping_alpha(entities.render_data());
     for texture in textures {
         let length = pixel_length(texture.width, texture.height)?;
         total = total

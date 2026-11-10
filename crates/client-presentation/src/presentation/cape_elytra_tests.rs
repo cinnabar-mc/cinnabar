@@ -68,9 +68,9 @@ fn batch() -> ActorPresentationBatch {
         kind: EntityRenderMaterial::Glint,
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
-            cull: false,
             ..Default::default()
         }),
+        render_state: Some(assets::entity::material::UNAUTHORED_RENDER_STATE),
         glint: ActorGlint {
             time_seconds: 4.0,
             ..Default::default()

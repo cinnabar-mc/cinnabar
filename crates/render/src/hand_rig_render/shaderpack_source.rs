@@ -81,6 +81,7 @@ impl RigSource for ShaderpackHand<'_> {
             visit(RigInstance {
                 index: index as u32,
                 data,
+                raster: crate::actor::material::instance_raster(&self.frame.rig.rasters, data),
                 vertex_count: span.vertex_count,
                 texture: LayerTexture {
                     texture,

@@ -70,15 +70,16 @@ impl<'a> ActorRenderFrame<'a> {
             .is_some_and(|actor| self.store.samples_rig_scale(actor))
     }
 
-    fn may_use_always_depth_material(&self, runtime_id: u64) -> bool {
+    /// Checks inactive material branches before spending the frame's sampling budget.
+    fn may_use_occlusion_bypass_material(&self, runtime_id: u64) -> bool {
         self.actors
             .animated_actor(runtime_id)
-            .is_some_and(|actor| self.store.may_use_always_depth_material(actor))
+            .is_some_and(|actor| self.store.may_use_occlusion_bypass_material(actor))
     }
 
     /// Whether admission can spend this actor's frame budget before its body is sampled.
     pub fn samples_during_admission(&self, runtime_id: u64) -> bool {
-        self.samples_rig_scale(runtime_id) || self.may_use_always_depth_material(runtime_id)
+        self.samples_rig_scale(runtime_id) || self.may_use_occlusion_bypass_material(runtime_id)
     }
 
     /// Whether any controller branch can replace the base mesh, including frame selections.
@@ -229,15 +230,16 @@ impl<'a> ActorRenderFrame<'a> {
             .map(|layers| layers.render.clone())
     }
 
-    /// Samples possible Always rigs and retains the same frame layers for the eventual draw.
+    /// Samples rigs that can pass behind terrain and retains their frame layers for drawing.
     /// Ordinary materials do not spend the shared frame budget during occlusion checks.
-    pub fn has_always_depth_material(&mut self, runtime_id: u64) -> bool {
-        self.may_use_always_depth_material(runtime_id)
+    pub fn has_occlusion_bypass_material(&mut self, runtime_id: u64) -> bool {
+        self.may_use_occlusion_bypass_material(runtime_id)
             && self.cached_layers(runtime_id).is_some_and(|layers| {
-                layers
-                    .render
-                    .iter()
-                    .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
+                layers.render.iter().any(|layer| {
+                    layer
+                        .render_state
+                        .is_some_and(|raster| raster.may_pass_behind_terrain())
+                })
             })
     }
 
@@ -551,12 +553,12 @@ impl MotionPoses {
 
 impl ActorAnimationStore {
     /// Checks the resolved rig's compiled layers, including inactive controller branches.
-    pub fn may_use_always_depth_material(&self, actor: &dyn AnimatedActor) -> bool {
+    pub fn may_use_occlusion_bypass_material(&self, actor: &dyn AnimatedActor) -> bool {
         self.runtime_to_lifetime
             .get(&actor.runtime_id())
             .filter(|lifetime| lifetime.spawn_revision == actor.spawn_revision())
             .and_then(|lifetime| self.rigs.get(lifetime))
-            .is_some_and(|state| state.may_use_always_depth_material)
+            .is_some_and(|state| state.may_use_occlusion_bypass_material)
     }
 
     /// Whether admission needs a frame scale rather than the completed tick's scale.

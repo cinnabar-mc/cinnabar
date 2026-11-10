@@ -20,10 +20,10 @@ pub struct EquipmentBindingDependencies {
 
 impl EquipmentBindingDependencies {
     /// Reads installed material parents and applies the stack's winning material declarations.
-    pub fn load(root: Option<&Path>, authored: Option<&Value>) -> Result<Self, AssetError> {
+    pub fn load(root: Option<&Path>, authored: &[Value]) -> Result<Self, AssetError> {
         let mut dependencies = Self::default();
         // Installed material parents cannot affect classification without authored materials.
-        if let Some(root) = root.filter(|_| authored.is_some()) {
+        if let Some(root) = root.filter(|_| !authored.is_empty()) {
             let mut files = Vec::new();
             collect_optional_family(root, "materials", &["material"], &mut files)?;
             for (_, path) in files {
@@ -33,9 +33,11 @@ impl EquipmentBindingDependencies {
                     .read(&parse_unique_json(&path, &bytes)?);
             }
         }
-        if let Some(authored) = authored {
+        if !authored.is_empty() {
             let mut upper = MaterialStates::default();
-            upper.read(authored);
+            for document in authored {
+                upper.read(document);
+            }
             dependencies.authored_materials = dependencies.materials.overlay(upper);
         }
         Ok(dependencies)

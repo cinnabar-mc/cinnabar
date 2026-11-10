@@ -73,10 +73,18 @@ fn occluded_ordinary_rigs_preserve_the_budget_for_visible_frame_layers() {
     marker_layer.rig = 1;
     marker_layer.condition = Some(3);
     marker_layer.first_slot = 1;
-    marker_layer.material_state = Some(assets::EntityRenderMaterialState {
-        depth_always: true,
-        ..Default::default()
-    });
+    marker_layer.material_state = Some(assets::EntityRenderMaterialState::default());
+    marker_layer.material_definition = Some(compiled.render.materials.len() as u32);
+    compiled.render.materials = compiled
+        .render
+        .materials
+        .iter()
+        .cloned()
+        .chain([assets::entity::material::EntityMaterialDefinition {
+            depth_func: assets::entity::material::EntityMaterialCompare::Always,
+            ..Default::default()
+        }])
+        .collect();
     compiled.render.layers = vec![compiled.render.layers[0], marker_layer].into_boxed_slice();
     let mut marker_slot = compiled.render.slots[0];
     marker_slot.first_candidate = 1;
@@ -119,14 +127,18 @@ fn occluded_ordinary_rigs_preserve_the_budget_for_visible_frame_layers() {
     assert!(store.actor_rig(2).unwrap().render.is_empty());
     let mut probe = store.render_frame(0.5);
     let marker_layers = probe.layers(2).unwrap();
-    assert!(marker_layers[0].material_state.unwrap().depth_always);
+    assert!(
+        marker_layers[0]
+            .render_state
+            .is_some_and(|raster| raster.ignores_stored_depth())
+    );
     let marker_cost = MAX_MOLANG_OPS_PER_RENDER_FRAME - probe.remaining_ops();
     assert!(marker_cost > 0);
 
     let mut frame = store.render_frame(0.5);
     frame.set_remaining_ops(marker_cost);
-    assert!(!frame.has_always_depth_material(1));
-    assert!(frame.has_always_depth_material(2));
+    assert!(!frame.has_occlusion_bypass_material(1));
+    assert!(frame.has_occlusion_bypass_material(2));
     assert_eq!(frame.layers(2).unwrap(), marker_layers);
 }
 

@@ -52,6 +52,9 @@ pub(super) fn apply_session_pack(
         apply_session_geometry(scene, resources, geometry_ready, profiler);
     }
     scene.configure_artwork(pages.clone());
+    scene.configure_authored_rasters(
+        pack.map_or_else(|| Arc::from([]), |pack| authored_rasters(&pack.assets)),
+    );
     let effective = (pack.is_some()
         || session_icons.is_some()
         || resources.held_block_entities.is_some()
@@ -145,5 +148,144 @@ impl HandRigBuilder {
             .map_err(|error| {
                 anyhow::anyhow!("prepare validated first-person hand rig geometry: {error:?}")
             })
+    }
+}
+
+/// The (instance word, raster state) pairs a pack's resolved entity materials draw with under
+/// every presentation variant, for the renderer to compile when the pack loads.
+fn authored_rasters(
+    assets: &assets::RuntimeEntityAssets,
+) -> Arc<[(u32, render_api::render_state::RenderState)]> {
+    render_rasters(assets.render_data())
+}
+
+/// Every raster a layer can draw with: its direct material and each resolved leaf of the
+/// Molang material selections, so a later choice never waits for its pipeline.
+fn render_rasters(
+    render: &assets::EntityRenderData,
+) -> Arc<[(u32, render_api::render_state::RenderState)]> {
+    let direct = render.layers.iter().map(|layer| {
+        (
+            layer.material,
+            layer.material_state,
+            layer.material_definition,
+        )
+    });
+    let selected = render
+        .material_selections
+        .iter()
+        .filter_map(|node| match node {
+            assets::EntityRenderMaterialSelection::Raster {
+                material,
+                state,
+                definition,
+            } => Some((*material, *state, *definition)),
+            _ => None,
+        });
+    direct
+        .chain(selected)
+        .filter_map(|(kind, state, definition)| {
+            let raster = render.materials.get(definition? as usize)?.render_state();
+            Some((kind, state, raster))
+        })
+        .flat_map(|(kind, state, raster)| {
+            render_model::ActorMaterial {
+                kind,
+                state,
+                render_state: Some(raster),
+                ..Default::default()
+            }
+            .presentation_rasters()
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+#[cfg(test)]
+mod authored_raster_tests {
+    #[test]
+    fn every_resolved_layer_material_is_published_for_both_combat_profiles() {
+        let Some(assets) =
+            actor_animation::test_support::installed_entity_assets("authored rasters")
+        else {
+            return;
+        };
+        let rasters = super::authored_rasters(&assets);
+        let render = assets.render_data();
+        for layer in render.layers.iter() {
+            let Some(index) = layer.material_definition else {
+                continue;
+            };
+            let raster = render.materials[index as usize].render_state();
+            let words = rasters
+                .iter()
+                .filter(|(_, published)| *published == raster)
+                .count();
+            assert!(words >= 2, "{layer:?}");
+        }
+        assert!(!rasters.is_empty());
+    }
+
+    #[test]
+    fn material_selection_leaves_are_published_without_a_direct_layer_material() {
+        use assets::entity::material::{EntityMaterialDefinition, EntityMaterialState};
+        let culled = EntityMaterialDefinition {
+            states: Box::new([EntityMaterialState::DisableCulling]),
+            ..Default::default()
+        };
+        let raster = culled.render_state();
+        assert_ne!(raster, EntityMaterialDefinition::default().render_state());
+        let render = assets::EntityRenderData {
+            materials: Box::new([EntityMaterialDefinition::default(), culled]),
+            material_selections: Box::new([assets::EntityRenderMaterialSelection::Raster {
+                material: assets::EntityRenderMaterial::Default,
+                state: None,
+                definition: Some(1),
+            }]),
+            ..Default::default()
+        };
+        let rasters = super::render_rasters(&render);
+        let selected = render_model::ActorMaterial {
+            render_state: Some(raster),
+            ..Default::default()
+        };
+        for pair in selected.presentation_rasters() {
+            assert!(rasters.contains(&pair), "{pair:?}");
+        }
+    }
+
+    #[test]
+    fn a_dyed_alpha_tested_authored_layer_publishes_its_legacy_dye_variant() {
+        use assets::entity::material::{EntityMaterialDefinition, EntityMaterialState};
+        let culled = EntityMaterialDefinition {
+            states: Box::new([EntityMaterialState::InvertCulling]),
+            ..Default::default()
+        };
+        let raster = culled.render_state();
+        let state = assets::EntityRenderMaterialState {
+            alpha_test: true,
+            ..Default::default()
+        };
+        let render = assets::EntityRenderData {
+            materials: Box::new([culled]),
+            material_selections: Box::new([assets::EntityRenderMaterialSelection::Raster {
+                material: assets::EntityRenderMaterial::Default,
+                state: Some(state),
+                definition: Some(0),
+            }]),
+            ..Default::default()
+        };
+        let dyed = render_model::ActorMaterial {
+            state: Some(state),
+            render_state: Some(raster),
+            color_mask: true,
+            glint: render_model::ActorGlint {
+                profile: render_api::CombatVisuals::Legacy112,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(super::render_rasters(&render).contains(&(dyed.gpu_word(), raster)));
     }
 }

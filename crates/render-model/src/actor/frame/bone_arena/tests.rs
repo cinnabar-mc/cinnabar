@@ -218,6 +218,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
     let mut current_bones = Vec::new();
     let mut instances = Vec::new();
     let mut manifest = Vec::new();
+    let mut rasters = Vec::new();
     for input in [&inputs[0], &inputs[4]] {
         let base = previous_bones.len() as u32;
         previous_bones.extend(reference_matrices(&input.input.previous_bones, &pivots).unwrap());
@@ -240,6 +241,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
             material: input.material.gpu_word(),
             dissolve_multiplier: input.material.dissolve_multiplier,
             light_color_multiplier: input.material.light_color_multiplier,
+            raster: intern_raster(&mut rasters, input.material.raster()),
         });
         manifest.push(ActorDrawManifestEntry {
             identity: input.input.identity,
@@ -262,6 +264,7 @@ fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_ho
         geometry_vertices: builder.catalog.vertices.clone(),
         geometry_spans: Arc::clone(&builder.catalog.published_spans),
         manifest: manifest.into(),
+        rasters: rasters.into(),
         maximum_vertex_count: builder.catalog.published_spans[geometry_index as usize].vertex_count,
         rejects: ActorRigRejects {
             non_finite_pose: 2,
@@ -453,4 +456,18 @@ fn draw_readiness_shares_rejections_without_changing_frame_or_cache_state() {
     builder.frame_generation = u64::MAX;
     assert!(!builder.can_draw_submission(&good));
     assert!(builder.build(0.0, None, [good]).instances.is_empty());
+}
+
+/// Interns a raster state the way the frame builder does, returning its table index.
+fn intern_raster(
+    rasters: &mut Vec<render_api::render_state::RenderState>,
+    raster: render_api::render_state::RenderState,
+) -> u32 {
+    match rasters.iter().position(|existing| *existing == raster) {
+        Some(index) => index as u32,
+        None => {
+            rasters.push(raster);
+            rasters.len() as u32 - 1
+        }
+    }
 }

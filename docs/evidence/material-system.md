@@ -30,9 +30,21 @@ Confirmed gaps against the current client:
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
 - Server texture sets contribute only their colour layer.
-- Entity materials keep three states, three defines, two depth functions and three blend pairs.
-  Variants, stencil, samplers, vertex fields, depth bias, MSAA and primitive mode are dropped.
-- Multitexture and colour-mask behavior is selected by pinned texture hashes, not by defines.
+- Entity materials resolve completely, with version rules, `+name` modification, same-file
+  parents and variants, into the carrier's material table. Actor pipelines draw each layer with
+  its definition's culling, depth function, depth writes, blend factors, colour and alpha writes
+  and alpha to coverage. Stencil state is carried but not rendered because scene depth has no
+  stencil aspect; depth bias is carried but not rendered. Samplers, vertex fields, MSAA support,
+  primitive mode and shader defines other than alpha to coverage are not applied.
+- Entity material declarations, interned definitions and names have implementation bounds
+  (16,384 declarations, 16,384 definitions, 256-byte names) that are not verified against the
+  native client, which shows none. A material past them stays unresolved, is counted in the
+  server pack's skip report and draws as a layer without a material.
+- Colour masking and three-sampler draws follow `USE_COLOR_MASK` and `USE_MULTITEXTURE`. The
+  vanilla pack does not define the native `sheep`, `wolf` and `llama` materials, so the client's
+  built-in bases declare them; packs cannot derive from `entity_change_color` or
+  `entity_multitexture`, which the vanilla pack never names. `GLINT`,
+  `MULTIPLICATIVE_TINT` and `MASKED_MULTITEXTURE` texture requirements are not checked.
 
 These questions remain unresolved:
 
@@ -41,4 +53,5 @@ These questions remain unresolved:
 - the minimum format version for texture variations;
 - the render-target key literal;
 - draw-time variant selection;
+- the client's depth bias scale;
 - the separate `metalness`/`emissive`/`roughness` texture-set form.

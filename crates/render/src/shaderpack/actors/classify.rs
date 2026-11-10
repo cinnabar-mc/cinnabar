@@ -77,11 +77,12 @@ pub(crate) struct RigClass {
     pub glint: bool,
 }
 
-/// The draw kind and state of a rig instance with `material` (an actor-pass material word),
-/// or `None` for depth-only helpers. `blend` overrides the material's blending (held items);
-/// `hand` selects the first-person kinds.
+/// The draw kind and state of a rig instance with `material` (an actor-pass material word)
+/// drawn with `raster`, or `None` for depth-only helpers. `blend` overrides the material's
+/// blending (held items); `hand` selects the first-person kinds.
 pub(crate) fn classify(
     material: u32,
+    raster: &render_api::render_state::RenderState,
     item_extent: f32,
     blend: Option<bool>,
     hand: bool,
@@ -90,9 +91,10 @@ pub(crate) fn classify(
     if kind_bits == EntityRenderMaterial::DissolveDepth as u32 {
         return None;
     }
-    let state = crate::actor::material::state(material);
-    let blended = blend.unwrap_or(state.is_some_and(|state| state.blend));
-    let additive = state.is_some_and(|state| state.blend && state.additive);
+    let blended = blend.unwrap_or(raster.blend.is_some());
+    let additive = raster
+        .blend
+        .is_some_and(|blend| blend.color.destination == render_api::render_state::BlendFactor::One);
     let kind = match (hand, additive, blended) {
         (true, _, true) => DrawKind::HandWater,
         (true, _, false) => DrawKind::Hand,
@@ -103,7 +105,7 @@ pub(crate) fn classify(
     Some(RigClass {
         kind,
         shadow: !hand && !additive,
-        one_sided: state.is_some_and(|state| state.cull),
+        one_sided: raster.cull == render_api::render_state::CullMode::Back,
         glint: kind_bits == EntityRenderMaterial::Glint as u32 || item_extent != 0.0,
     })
 }

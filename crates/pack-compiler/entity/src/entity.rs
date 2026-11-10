@@ -82,6 +82,8 @@ pub struct EntityAssetCompilation {
     pub assets: CompiledEntityAssets,
     pub reference_outcomes: Box<[CompileReferenceOutcome<u32>]>,
     pub equipment_bindings: Box<[EquipmentBinding]>,
+    /// Materials left unresolved past their bounds; they draw as layers without one.
+    pub unresolved_materials: u32,
     /// Attachables a lenient compile left out because they could not be read.
     pub unusable_attachables: u32,
 }
@@ -548,6 +550,7 @@ fn assemble(
         }
     };
     let reference_outcomes = animation.outcomes;
+    let unresolved_materials = animation.unresolved_materials;
     let mut interaction_traits = assets::interactions::compile(&symbols);
     let mut offered_uses = offered_use::compile(&symbols, &sources, source_payloads)?;
     for entry in &mut interaction_traits {
@@ -593,6 +596,7 @@ fn assemble(
         assets,
         reference_outcomes,
         equipment_bindings,
+        unresolved_materials,
         unusable_attachables,
     })
 }
