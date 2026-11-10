@@ -829,11 +829,11 @@ mod tests {
             );
             let mixed = gpu.render_sources(
                 &[&source],
+                &draws,
                 &[DrawPipeline {
                     vertex: "light_vertex",
                     topology: wgpu::PrimitiveTopology::TriangleList,
                 }],
-                &draws,
                 RasterState::default(),
             );
             assert_eq!(pixels, mixed, "shared and per-draw shader bindings agree");
