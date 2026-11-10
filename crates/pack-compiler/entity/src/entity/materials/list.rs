@@ -36,7 +36,7 @@ pub struct MaterialListEntry {
     pub defines: BTreeSet<Box<str>>,
 }
 
-use assets::MaterialListReport;
+use assets::entity::MaterialListReport;
 
 /// Resolves the list copies in the order the client processes them: entries of each copy in
 /// document order, and a file named again keeps the defines of the entry that loaded it first.

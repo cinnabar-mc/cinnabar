@@ -1,8 +1,4 @@
 //! The actor shading features and layer fields a resolved material's defines select.
-//!
-//! The define-to-texture and define-to-uniform wiring follows Bedrock's actor frame
-//! extraction; the shader formulas are unknown, so the actor shader's handling of
-//! the newer flags is provisional.
 
 use assets::{EntityRenderMaterialState, entity::material::EntityMaterialState};
 
@@ -57,7 +53,7 @@ pub(super) fn actor_shading(resolved: &Resolved) -> EntityRenderMaterialState {
 /// Whether an actor draw of `resolved` applies its controller's `uv_anim`: Bedrock binds the
 /// `UVAnimation` uniform only with `USE_UV_ANIM`. A material inheriting a native base the
 /// client declares itself keeps applying it, because those stand-ins do not carry every define
-/// the shipped declaration has.
+/// the native declaration has.
 pub(super) fn applies_uv_anim(resolved: &Resolved) -> bool {
     resolved.defines.contains(UV_ANIM) || resolved.assumes_entity_program
 }

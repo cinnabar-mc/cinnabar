@@ -22,7 +22,6 @@ pub mod dye;
 mod effects;
 mod encoding;
 pub mod entity;
-mod entity_material_report;
 mod environment_settings;
 pub mod equipment;
 mod error;
@@ -143,10 +142,10 @@ pub use entity::{
     EntityGeometryBone, EntityGeometryBounds, EntityGeometryCube, EntityGeometryFaceUv,
     EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator,
     EntityGeometryPolyCorner, EntityGeometryPolyMesh, EntityGeometryScalar,
-    EntityGeometryTextureMesh, EntityGeometryUv, EntityMaterialMasks, EntityRenderCandidate,
-    EntityRenderData, EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial,
-    EntityRenderMaterialSelection, EntityRenderMaterialState, EntityRenderSlot,
-    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
+    EntityGeometryTextureMesh, EntityGeometryUv, EntityMaterialDiagnostics, EntityMaterialMasks,
+    EntityRenderCandidate, EntityRenderData, EntityRenderGeometry, EntityRenderLayer,
+    EntityRenderMaterial, EntityRenderMaterialSelection, EntityRenderMaterialState,
+    EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     LEGACY_ENTITY_GEOMETRY_PATH, MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_ASSET_PATH_BYTES,
     MAX_ENTITY_ASSET_SOURCES, MAX_ENTITY_ASSET_SYMBOLS, MAX_ENTITY_CARRIER_BYTES,
@@ -169,7 +168,6 @@ pub use entity::{
     encode_entity_blob, entity_render_pattern_matches, interactions, item_use, molang_call,
     molang_program_stack, placement, seats as entity_seats, validate_entity_geometry_inheritance,
 };
-pub use entity_material_report::{EntityMaterialDiagnostics, MaterialListReport};
 pub use environment_settings::{CloudQuality, EnvironmentQualitySettings, PrecipitationQuality};
 pub use equipment::{
     ArmorSlot, AttachablePose, AttachablePoseBone, CompiledItemAttackCooldown,

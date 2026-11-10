@@ -418,7 +418,7 @@ pub fn material_documents(view: &LayeredPackView, fancy_graphics: bool) -> Vec<(
 fn material_files(
     view: &LayeredPackView,
     fancy_graphics: bool,
-) -> (Vec<(String, Vec<u8>)>, assets::MaterialListReport) {
+) -> (Vec<(String, Vec<u8>)>, assets::entity::MaterialListReport) {
     let list_path = pack_entity_compiler::ENTITY_MATERIAL_LIST_PATH;
     let copies = view.read_layers(pack_entity_compiler::entity_material_list_source(
         fancy_graphics,

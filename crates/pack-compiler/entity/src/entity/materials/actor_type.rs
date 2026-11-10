@@ -1,10 +1,9 @@
-//! The actor material type Bedrock selects from a material's `fragmentShader`.
+//! The actor material type a material's `fragmentShader` selects.
 //!
-//! `getActorVariation` names an actor draw's material from a table indexed by this type. The
-//! type comes from the program's stem: the text after the last `/`, up to the first `.` after
-//! it. `entity` and `pattern` select their families and one more stem, elided,
-//! selects a third. Any other program, including none, logs that the shader cannot be assigned
-//! to an entity and draws plain `Actor` with no variant flags.
+//! The type comes from the program's stem: the text after the last `/`, up to the first `.`
+//! after it. `entity` and `pattern` select their families and one more stem, elided, selects a
+//! third. Any other program, including none, cannot be assigned to an entity and draws plain
+//! `Actor` with no variant flags.
 
 use super::Resolved;
 

@@ -212,10 +212,7 @@ fn resolve_layer(
             Some([second, third]) => artwork
                 .multitexture_location(rig, [layer.source, second, third])
                 .or_else(|| {
-                    if layer
-                        .material_state
-                        .is_some_and(|state| state.texture_mask)
-                    {
+                    if layer.material_state.is_some_and(|state| state.texture_mask) {
                         artwork.variant_location(rig, layer.source)
                     } else {
                         None

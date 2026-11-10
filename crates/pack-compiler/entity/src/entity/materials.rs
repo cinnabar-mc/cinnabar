@@ -73,8 +73,7 @@ struct Resolved {
     /// hold one allocation.
     variants: Arc<Vec<(Box<str>, Resolved)>>,
     /// Whether an absent `fragmentShader` stands for the native entity program: true for the
-    /// native bases the client declares itself, whose shipped programs it cannot see, and for
-    /// extension materials without a base.
+    /// native bases the client declares itself and for extension materials without a base.
     assumes_entity_program: bool,
 }
 

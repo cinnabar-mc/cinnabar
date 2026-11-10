@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 
 use super::{MaterialStates, Resolved, actor_type, actor_type::ActorMaterialType};
 
-use assets::{EntityMaterialDiagnostics, MaterialListReport};
+use assets::{EntityMaterialDiagnostics, entity::MaterialListReport};
 
 /// Names and entries noticed while admitting declarations, before resolution.
 #[derive(Default)]

@@ -28,6 +28,8 @@ pub use geometry::{
     EntityGeometry, EntityGeometryBounds, EntityGeometryInheritance, GEOMETRY_NO_HEAD_BOB_FIELD,
 };
 pub use locator::{EntityGeometryLocator, EntityGeometryLocatorBinding, MAX_GEOMETRY_LOCATORS};
+#[path = "entity_material_report.rs"]
+mod material_report;
 #[path = "entity/poly_mesh.rs"]
 mod poly_mesh;
 mod source_paths;
@@ -35,6 +37,7 @@ mod source_paths;
 mod texture_mesh;
 #[path = "entity/v4.rs"]
 mod v4;
+pub use material_report::{EntityMaterialDiagnostics, MaterialListReport};
 pub use poly_mesh::{EntityGeometryPolyCorner, EntityGeometryPolyMesh};
 pub use source_paths::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,

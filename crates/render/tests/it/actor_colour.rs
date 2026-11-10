@@ -266,8 +266,7 @@ fn expected(case: Case, table: &[f32], fog: [f32; 3]) -> [f32; 4] {
         } else {
             unpack(case.tint)
         };
-        // The shipped programs' second and third texture composition (ActorTint,
-        // Actor and ActorMultiTexture material.bin, Opaque pass).
+        // The second and third texture compositions of the opaque pass.
         let second = TEXELS[2].map(|byte| f32::from(byte) / 255.0);
         let third = TEXELS[3].map(|byte| f32::from(byte) / 255.0);
         let over = |color: &mut [f32; 4], layer: [f32; 4]| {
@@ -409,7 +408,7 @@ fn cinnabar_glow_masks_add_after_light_and_emissive_masks_draw_unlit() {
 }
 
 #[test]
-fn define_selected_second_textures_and_glint_follow_the_shipped_formulas() {
+fn define_selected_second_textures_and_glint_follow_their_formulas() {
     let Some(gpu) = Gpu::for_fixture("define-selected actor material shader") else {
         return;
     };
