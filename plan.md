@@ -1016,7 +1016,8 @@ and version-matched in-game acceptance remain incomplete.
   Held pressure plates retain their thin panel, inset cap artwork and item-space pivot
   independently of floor placement. Rendered pressure-plate acceptance remains open.
   Ordinary held fences join their rail halves at the center and retain post-relative
-  artwork. Bamboo uses its separate carried layout; rendered fence acceptance remains open.
+  artwork. Held bamboo fences retain thicker slats and separate post and rail texture
+  regions. Rendered fence acceptance remains open.
   Bedrock hand rigs shade posed normals in world space and interpolate their combined
   directional and eye light in gamma space. Held block emission supplies a minimum
   light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting

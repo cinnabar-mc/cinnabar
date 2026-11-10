@@ -12,6 +12,7 @@ use crate::{
 use super::CUBE_FACES;
 
 mod bamboo_fence;
+pub use bamboo_fence::carried_quads as carried_bamboo_fence_quads;
 mod plants;
 
 /// Largest material tile side drawn; session overlays resample to at most 128.
