@@ -28,17 +28,16 @@ impl SettingsOptions {
             .join(crate::install_layout::vanilla_pack_relative())
             .join("texts/language_names.json");
         let mut bytes = Vec::new();
-        if let Ok(mut file) = File::open(path) {
-            if file
+        if let Ok(file) = File::open(path)
+            && file
                 .take(MAX_LANGUAGE_NAMES_BYTES + 1)
                 .read_to_end(&mut bytes)
                 .is_ok()
-                && bytes.len() as u64 <= MAX_LANGUAGE_NAMES_BYTES
-            {
-                let choices = parse_choices(&bytes);
-                if !choices.is_empty() {
-                    return choices.into();
-                }
+            && bytes.len() as u64 <= MAX_LANGUAGE_NAMES_BYTES
+        {
+            let choices = parse_choices(&bytes);
+            if !choices.is_empty() {
+                return choices.into();
             }
         }
         parse_choices(DEFAULT_LANGUAGE_NAMES_JSON.as_bytes()).into()
@@ -66,7 +65,7 @@ pub const DEFAULT_LANGUAGE_NAMES_JSON: &str = r#"[
   ["bg_BG", "Български (България)"],
   ["cs_CZ", "Čeština (Česko)"],
   ["da_DK", "Dansk (Danmark)"],
-  ["el_GR", "Ελληνικά (Ελλάда)"],
+  ["el_GR", "Ελληνικά (Ελλάδα)"],
   ["fi_FI", "Suomi (Suomi)"],
   ["hu_HU", "Magyar (Magyarország)"],
   ["id_ID", "Indonesia (Indonesia)"],
@@ -106,9 +105,46 @@ mod tests {
     fn language_choices_fall_back_to_canonical_minecraft_languages() {
         let choices = SettingsOptions::language_choices(Path::new("/nonexistent"));
         assert_eq!(choices.len(), 29);
-        assert!(choices.iter().any(|(code, name)| code == "fr_FR" && name.contains("Français")));
-        assert!(choices.iter().any(|(code, name)| code == "de_DE" && name.contains("Deutsch")));
-        assert!(choices.iter().any(|(code, name)| code == "zh_CN" && name.contains("中文")));
+        assert!(
+            choices
+                .iter()
+                .any(|(code, name)| code == "fr_FR" && name.contains("Français"))
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|(code, name)| code == "de_DE" && name.contains("Deutsch"))
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|(code, name)| code == "zh_CN" && name.contains("中文"))
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|(code, name)| code == "el_GR" && name == "Ελληνικά (Ελλάδα)")
+        );
+    }
+
+    #[test]
+    fn fallback_language_choices_match_the_pinned_pack() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(assets::vanilla_source().resource_pack_dir())
+            .join("texts/language_names.json");
+        if !path.is_file() {
+            eprintln!(
+                "skipping fallback_language_choices_match_the_pinned_pack: missing language_names.json fixture at {}",
+                path.display()
+            );
+            return;
+        }
+        let source: Vec<(String, String)> =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let fallback: Vec<(String, String)> =
+            serde_json::from_str(DEFAULT_LANGUAGE_NAMES_JSON).unwrap();
+        assert_eq!(fallback, source);
     }
 
     #[test]
