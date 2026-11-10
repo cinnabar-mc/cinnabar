@@ -33,48 +33,14 @@ impl Content<'_, '_> {
         )
         .map(str::to_owned)
         .or_else(|| (self.translate)(&description_key).map(|text| text.to_string()))
-        .unwrap_or_default();
-        let description = if id == SettingId::ChunkOcclusionCulling {
-            "Skip terrain hidden behind other blocks. Visible terrain stays available.".to_owned()
-        } else if id == SettingId::DynamicLights {
-            launcher::menu::settings_options::DYNAMIC_LIGHTS_DESCRIPTION.to_owned()
-        } else if id == SettingId::RenderScaleSharpen {
-            "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening.".to_owned()
-        } else if id == SettingId::RenderResolution {
-            launcher::menu::settings_options::render_resolution::DESCRIPTION.to_owned()
-        } else if id == SettingId::GraphicsApi {
-            "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
-        } else if id == SettingId::Vrr {
-            "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
-        } else if id == SettingId::ViewBobbing {
-            "Minimal bobs only the hand; Full also bobs the camera.".to_owned()
-        } else if id == SettingId::CinnabarVisible {
-            "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
-        } else if id == SettingId::CinnabarBadges {
-            "Show Cinnabar badges beside player names and in the player list.".to_owned()
-        } else if id == SettingId::AutoUpdateEnabled {
-            "Check and download updates in the background. Changing channels always checks immediately.".to_owned()
-        } else if id == SettingId::InstallUpdatesOnQuit {
-            "Install newer updates when you quit. Older channel switches require Restart and switch.".to_owned()
-        } else if id == SettingId::UpdateChannel {
-            "Changing this checks for the latest release, even with automatic checks off."
-                .to_owned()
-        } else if id == SettingId::ScreenAnimations {
-            "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
-        } else if id == SettingId::VerboseLogging {
-            "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set.".to_owned()
-        } else if id == SettingId::RecordNetworkSession {
-            "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded.".to_owned()
-        } else if description.is_empty() {
+        .unwrap_or_else(|| {
             let fallback = super::localization::fallback(&description_key);
-            if fallback == description_key {
-                String::new()
-            } else {
+            if fallback != description_key {
                 fallback.to_owned()
+            } else {
+                String::new()
             }
-        } else {
-            description
-        };
+        });
         (title, description)
     }
 }

@@ -24,6 +24,51 @@ pub(super) fn locale_text(key: &str, language: Option<&str>) -> Option<&'static 
 /// Returns built-in French settings text for supported localization keys.
 pub(super) fn french_text(key: &str) -> Option<&'static str> {
     Some(match key {
+        "options.chunkOcclusionCulling.description" => {
+            "Ignore le terrain masqué derrière d'autres blocs. Le terrain visible reste accessible."
+        }
+        "options.dynamicLights.description" => {
+            "Illumine le monde environnant à partir des sources lumineuses tenues en main et des entités lumineuses."
+        }
+        "options.renderScaleSharpen.description" => {
+            "Affine le monde mis à l'échelle par FSR lorsque la résolution de rendu est inférieure à 100 %. Désactivez pour conserver la mise à l'échelle FSR sans netteté."
+        }
+        "options.renderResolution.description" => {
+            "Rend le monde à une résolution inférieure et le met à l'échelle avec FSR. Économise le GPU sur les écrans haute résolution."
+        }
+        "options.graphicsApi.description" => {
+            "Redémarrage requis. Auto vérifie la stabilité du pilote avant de choisir une API. WGPU_BACKEND est prioritaire sur ce paramètre."
+        }
+        "options.vrr.description" => {
+            "Automatique utilise la détection d'écran. Choisissez Activé si le rafraîchissement variable est activé, ou Désactivé pour désactiver la limite VRR."
+        }
+        "options.viewBobbing.description" => {
+            "Minimal balance uniquement la main ; Complet balance également la caméra."
+        }
+        "options.cinnabarVisible.description" => {
+            "Permet aux autres joueurs Cinnabar de voir un badge Cinnabar à côté de votre pseudo."
+        }
+        "options.cinnabarBadges.description" => {
+            "Affiche les badges Cinnabar à côté des pseudos et dans la liste des joueurs."
+        }
+        "options.autoUpdateEnabled.description" => {
+            "Vérifie et télécharge les mises à jour en arrière-plan. Changer de canal vérifie toujours immédiatement."
+        }
+        "options.installUpdatesOnQuit.description" => {
+            "Installe les mises à jour lorsque vous quittez. Les changements de canal vers une version antérieure nécessitent Redémarrer et changer."
+        }
+        "options.updateChannel.description" => {
+            "Modifier ce paramètre vérifie la dernière version, même avec les vérifications automatiques désactivées."
+        }
+        "options.screenAnimations.description" => {
+            "Fluidifie les surbrillances, les clics de boutons et les transitions d'écran. Désactivez pour une interface instantanée."
+        }
+        "options.verboseLogging.description" => {
+            "Écrit des journaux détaillés du réseau, de la session, du cœur et des packs de ressources. S'applique maintenant et au lancement."
+        }
+        "options.recordNetworkSession.description" => {
+            "Enregistre les paquets de chaque nouvelle session de serveur dans le dossier des logs. L'enregistrement reste sur cet appareil et n'est jamais téléversé."
+        }
         "options.renderDistanceFormat" => "%s tronçons",
         "options.cloudDistance" | "options.cloudDistance.name" => "Distance des nuages",
         "options.cloudDistance.description" => {
@@ -386,6 +431,51 @@ pub(super) fn french_text(key: &str) -> Option<&'static str> {
 /// Returns built-in English text when the active catalog has no settings entry.
 pub(super) fn fallback(key: &str) -> &str {
     match key {
+        "options.chunkOcclusionCulling.description" => {
+            "Skip terrain hidden behind other blocks. Visible terrain stays available."
+        }
+        "options.dynamicLights.description" => {
+            "Illuminate the surrounding world from handheld light sources and glowing entities."
+        }
+        "options.renderScaleSharpen.description" => {
+            "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening."
+        }
+        "options.renderResolution.description" => {
+            "Render the world at lower resolution and upscale with FSR. Saves GPU time on high-DPI displays."
+        }
+        "options.graphicsApi.description" => {
+            "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting."
+        }
+        "options.vrr.description" => {
+            "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap."
+        }
+        "options.viewBobbing.description" => {
+            "Minimal bobs only the hand; Full also bobs the camera."
+        }
+        "options.cinnabarVisible.description" => {
+            "Let other Cinnabar players see a Cinnabar badge next to your name."
+        }
+        "options.cinnabarBadges.description" => {
+            "Show Cinnabar badges beside player names and in the player list."
+        }
+        "options.autoUpdateEnabled.description" => {
+            "Check and download updates in the background. Changing channels always checks immediately."
+        }
+        "options.installUpdatesOnQuit.description" => {
+            "Install newer updates when you quit. Older channel switches require Restart and switch."
+        }
+        "options.updateChannel.description" => {
+            "Changing this checks for the latest release, even with automatic checks off."
+        }
+        "options.screenAnimations.description" => {
+            "Smooth highlights, button presses and screen transitions. Turn off for an instant interface."
+        }
+        "options.verboseLogging.description" => {
+            "Write detailed network, session, core and resource pack logs. Applies now and at launch. CINNABAR_LOG or RUST_LOG take priority when set."
+        }
+        "options.recordNetworkSession.description" => {
+            "Save each new server session's packets to the logs folder. The recording contains chat messages and player names. It stays on this device and is never uploaded."
+        }
         "options.cloudDistance" | "options.cloudDistance.name" => "Cloud Distance",
         "options.cloudDistance.description" => {
             "Adjust how far clouds render in chunks (up to 128 chunks) with smooth distance fog fade."

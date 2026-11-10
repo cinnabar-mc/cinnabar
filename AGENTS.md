@@ -32,6 +32,7 @@ Keep internal notes and agent reports in the private checkout. Public implementa
 - Never impose stricter observable limits than version-matched Bedrock. Check admission, truncation, recursion, work and timeout limits against identified native behavior. Use deferred work, streaming or recoverable caches when an implementation budget would otherwise discard valid content. Unverified limits remain incomplete parity work.
 - Everything a server can observe follows vanilla timing exactly: picks, hit and interaction positions, and every sent position use vanilla's tick order and remote-actor interpolation steps, even where rendering smooths further. Anticheats reconstruct a vanilla client's view, so earlier state reads as a hitbox or reach cheat. A regression test pins each such value. Client-only presentation is free to differ.
 - Require valid, hash-checked atmosphere, entity, HUD, and JSON-UI carriers at startup. Fail from `main` with the path and `make assets` rebuild command. Missing world or font carriers may use their diagnostic textures or font; optional carriers degrade gracefully.
+- Every setting modification or addition must be translated into all supported languages (including French, German, Spanish, etc.), never left as hardcoded English literals. When adding or modifying any setting, toggle, or UI option, provide translations across all active localization dictionaries.
 
 ## Tests and documentation
 
