@@ -134,6 +134,32 @@ fn copper_grate_models_keep_fractional_texels_for_shader_sampling() {
 }
 
 #[test]
+fn fence_geometry_satisfies_the_installed_paint_order_contract() {
+    let quads = stair_quads(1);
+    let materials = [material(0), material(0)];
+    let pages = [page()];
+    for flags in [
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    ] {
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: quads.len() as u32,
+            flags,
+        }];
+        let mesh = shaped(
+            &stair(&quads, &templates, &materials, &pages),
+            &mut Atlas::new(7, 1),
+        )
+        .expect("a fence item becomes paint-ordered GUI geometry");
+        super::super::test_support::assert_block_model_order(
+            &mesh,
+            assets::gui_item::BlockModelOrder::Paint,
+        );
+    }
+}
+
+#[test]
 fn unsupported_materials_keep_the_thumbnail() {
     let templates = [ModelTemplate {
         quad_start: 0,
