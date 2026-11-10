@@ -1011,6 +1011,8 @@ display slot references the objective.
 Text-packet popups no longer replace SetTitle action bars. Ordinary popups use the
 item-text factory, while jukebox notifications keep their own text and factory clock.
 Both use the native two-line text and control names, and spectators do not see them.
+Empty selections keep popups dismissed after a newer item name supersedes them.
+Ordinary popups retain the existing HUD text budget.
 Clocked HUD controls recreate after a completed destruction animation when their request
 clock advances.
 The `ItemText` HUD element gate, the native popup background, matched native popup

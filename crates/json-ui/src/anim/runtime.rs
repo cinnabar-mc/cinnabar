@@ -82,6 +82,8 @@ struct Component {
 struct DestroyedRoot {
     met: bool,
     clock: Option<String>,
+    /// Control creation time used when its named clock is absent.
+    fallback_born: Option<f64>,
     born: Option<f64>,
 }
 
@@ -237,7 +239,12 @@ impl Animator {
         self.destroyed.retain(|root, removed| {
             if under(key, root) {
                 if let Some(clock) = &removed.clock
-                    && clocks.and_then(|clocks| clocks.get(clock)).copied() != removed.born
+                    && clocks
+                        .and_then(|clocks| clocks.get(clock))
+                        .copied()
+                        .or(removed.fallback_born)
+                        .or(self.origin)
+                        != removed.born
                 {
                     return false;
                 }
@@ -514,6 +521,7 @@ impl Component {
                         DestroyedRoot {
                             met: true,
                             clock: self.anims.clock.clone(),
+                            fallback_born: self.anims.born,
                             born: self.born,
                         },
                     );

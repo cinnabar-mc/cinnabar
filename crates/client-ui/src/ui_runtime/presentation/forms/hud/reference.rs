@@ -100,10 +100,7 @@ pub(super) fn hud_model(
                 .selected_item_changed_millis()
                 .is_none_or(|changed| text.started_millis >= changed)
         })
-        .map(|text| Timed {
-            text: bounded_visible_text(&text.text).to_owned(),
-            born: seconds(text.started_millis),
-        });
+        .map(timed);
     let chat_visible = !runtime.chat_focused() && !runtime.inventory_open();
     let horizon = seconds(now) - settings.chat_lifetime() - 1.0;
     let messages = runtime.chat().messages();

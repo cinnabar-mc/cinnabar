@@ -260,6 +260,69 @@ fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
 }
 
 #[test]
+fn superseded_popups_stay_dismissed_after_selecting_an_empty_slot() {
+    let mut fixture = Fixture::default();
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from("Old popup"), 1, 100);
+    fixture.frame.now_millis = 100;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert!(cache.model.popup.is_some());
+
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(Some((0, 1, 0)), 150);
+    fixture.frame.selected_item_name = Some(Arc::from("Item"));
+    fixture.frame.now_millis = 150;
+    fixture.check(&mut cache);
+    assert!(cache.model.popup.is_none());
+    assert_eq!(cache.model.item_name.as_ref().unwrap().text, "Item");
+
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(None, 200);
+    fixture.frame.selected_item_name = None;
+    for now in [200, 250] {
+        fixture.frame.now_millis = now;
+        fixture.check(&mut cache);
+        assert!(cache.model.popup.is_none());
+        assert!(cache.model.item_name.is_none());
+    }
+
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from("New popup"), 2, 300);
+    fixture.frame.now_millis = 300;
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.popup.as_ref().unwrap().text, "\nNew popup");
+}
+
+#[test]
+fn popups_preserve_formatted_text_up_to_the_hud_text_budget() {
+    let mut fixture = Fixture::default();
+    let line = "§aStatus 世界\n";
+    let payload_bytes = protocol::MAX_UI_TEXT_BYTES - "\n".len();
+    let mut text = line.repeat(payload_bytes / line.len());
+    text.push_str(&"x".repeat(payload_bytes - text.len()));
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from(text.as_str()), 1, 100);
+    fixture.frame.now_millis = 100;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    let popup = cache.model.popup.as_ref().unwrap();
+    assert_eq!(popup.text, format!("\n{text}"));
+    assert_eq!(popup.text.len(), protocol::MAX_UI_TEXT_BYTES);
+}
+
+#[test]
 fn spectators_receive_the_action_bar_but_no_popups() {
     let mut fixture = Fixture::default();
     fixture

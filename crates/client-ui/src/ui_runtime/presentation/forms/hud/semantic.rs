@@ -346,7 +346,7 @@ impl SemanticHud {
                     .selected_item_changed_millis()
                     .is_none_or(|changed| text.started_millis >= changed)
             })
-            .map(|text| (bounded_visible_text(&text.text), text.started_millis));
+            .map(|text| (text.text.as_ref(), text.started_millis));
         changed |= refresh_timed(&mut self.model.popup, popup);
         changed |= refresh_timed(
             &mut self.model.item_name,

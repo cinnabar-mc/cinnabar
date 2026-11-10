@@ -647,6 +647,37 @@ fn a_new_caller_clock_recreates_a_destroyed_factory_control() {
     }
 }
 
+// A missing named clock uses the control's birth time, then the animator origin.
+#[test]
+fn destroyed_controls_keep_fallback_clocks_when_the_named_clock_is_absent() {
+    for (birth_property, origin) in [(r#""anim_born": 0,"#, 10.0), ("", 0.0)] {
+        let nodes = draws(
+            &format!(
+                r#""fade": {{ "anim_type": "alpha", "from": 1, "to": 0, "duration": 1,
+                    "destroy_at_end": "dialog" }},
+                "dialog": {{ "type": "panel", "size": [50,50], "anim_clock": "repeat",
+                    {birth_property} "controls": [
+                    {{ "message": {{ "type": "image", "texture": "textures/ui/test", "size": [10,10],
+                        "alpha": "@audit.fade" }} }} ] }}"#
+            ),
+            "dialog",
+        );
+        let message = node(&nodes, "message");
+        let mut animator = Animator::starting_at(origin);
+        let mut clocks = std::collections::BTreeMap::new();
+        assert!(!message.animate(&mut animator, 0.1, None, None).hidden);
+        message.animate(&mut animator, 1.1, None, None);
+        animator.end_frame();
+        for clocks in [None, Some(&clocks)] {
+            assert!(message.animate(&mut animator, 1.2, clocks, None).hidden);
+            animator.end_frame();
+        }
+        clocks.insert("repeat".into(), 2.0);
+        let replacement = message.animate(&mut animator, 2.1, Some(&clocks), None);
+        assert!(!replacement.hidden && replacement.opacity > 0.8);
+    }
+}
+
 // Replays keep a destroyed control removed; a frame with neither brings it back.
 #[test]
 fn replays_keep_destroyed_controls_removed() {

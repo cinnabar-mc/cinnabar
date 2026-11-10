@@ -145,8 +145,8 @@ impl UiRuntime {
         }
     }
 
-    /// Millis timestamp when the selected slot or item identity last changed,
-    /// for the selected-item label fade.
+    /// Millis timestamp when a nonempty selected item last changed, for its label fade.
+    /// Empty selections preserve the clock so superseded popups stay dismissed.
     pub const fn selected_item_changed_millis(&self) -> Option<u64> {
         self.session.last_selected_identity_change_millis
     }
@@ -179,11 +179,9 @@ impl UiRuntime {
     ) {
         if identity != self.session.last_selected_identity {
             self.session.last_selected_identity = identity;
-            self.session.last_selected_identity_change_millis = if identity.is_some() {
-                Some(now_millis)
-            } else {
-                None
-            };
+            if identity.is_some() {
+                self.session.last_selected_identity_change_millis = Some(now_millis);
+            }
         }
     }
 
