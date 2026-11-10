@@ -30,6 +30,29 @@ fn bundle(title: &str) -> String {
     .to_string()
 }
 
+/// Compresses data as the single Brotli stream a compressed panel bundle carries.
+fn brotli(data: &[u8]) -> Vec<u8> {
+    let mut compressed = Vec::new();
+    brotli::BrotliCompress(
+        &mut &data[..],
+        &mut compressed,
+        &brotli::enc::BrotliEncoderParams::default(),
+    )
+    .unwrap();
+    compressed
+}
+
+/// Valid contents for each known section, so loops over every section admit each one.
+fn section_data(name: &str) -> Vec<u8> {
+    if name == mod_api::PANEL_BUNDLE_SECTION {
+        bundle("Local").into_bytes()
+    } else if name == mod_api::COMPRESSED_PANEL_BUNDLE_SECTION {
+        brotli(bundle("Local").as_bytes())
+    } else {
+        b"resource".to_vec()
+    }
+}
+
 #[test]
 fn static_assets_leave_executable_and_unrelated_metadata_bytes_unchanged() {
     let mut original = wat::parse_str("(component)").unwrap();
@@ -66,11 +89,7 @@ fn static_assets_leave_executable_and_unrelated_metadata_bytes_unchanged() {
 #[test]
 fn known_sections_are_singletons_top_level_and_versioned() {
     for name in mod_api::COMPONENT_ASSET_SECTIONS {
-        let data = if name == mod_api::PANEL_BUNDLE_SECTION {
-            bundle("Local").into_bytes()
-        } else {
-            b"font".to_vec()
-        };
+        let data = section_data(name);
         let mut duplicate = wat::parse_str("(component)").unwrap();
         section(&mut duplicate, name, &data);
         section(&mut duplicate, name, &data);
@@ -88,8 +107,44 @@ fn known_sections_are_singletons_top_level_and_versioned() {
         section(&mut core, name, &data);
         assert!(ComponentAssets::read(&core).is_err());
         let mut unknown_version = wat::parse_str("(component)").unwrap();
-        section(&mut unknown_version, &name.replace("@1", "@2"), &data);
+        let base = name.rsplit_once('@').unwrap().0;
+        section(&mut unknown_version, &format!("{base}@99"), &data);
         assert!(ComponentAssets::read(&unknown_version).is_err());
+    }
+}
+
+#[test]
+fn compressed_panel_bundles_load_like_uncompressed_ones_within_the_same_limit() {
+    let original = wat::parse_str("(component)").unwrap();
+    let json = bundle("Packed");
+    let mut source = original.clone();
+    section(
+        &mut source,
+        mod_api::COMPRESSED_PANEL_BUNDLE_SECTION,
+        &brotli(json.as_bytes()),
+    );
+    let assets = ComponentAssets::read(&source).unwrap();
+    assert_eq!(assets.executable.as_ref(), original);
+    assert_eq!(
+        assets.panel_bundle.as_ref().unwrap().panel.surface.screen,
+        "Packed.root"
+    );
+    let mut both = source.clone();
+    section(&mut both, mod_api::PANEL_BUNDLE_SECTION, json.as_bytes());
+    assert!(ComponentAssets::read(&both).is_err());
+    let mut truncated = brotli(json.as_bytes());
+    truncated.truncate(truncated.len() / 2);
+    // JSON permits trailing whitespace, so padding reaches the limit with a valid bundle.
+    let at_limit = json.clone() + &" ".repeat(ui::mod_panel::MAX_PANEL_BUNDLE_BYTES - json.len());
+    for (data, admitted) in [
+        (json.into_bytes(), false),
+        (truncated, false),
+        (brotli(at_limit.as_bytes()), true),
+        (brotli(format!("{at_limit} ").as_bytes()), false),
+    ] {
+        let mut bytes = original.clone();
+        section(&mut bytes, mod_api::COMPRESSED_PANEL_BUNDLE_SECTION, &data);
+        assert_eq!(ComponentAssets::read(&bytes).is_ok(), admitted);
     }
 }
 
@@ -201,12 +256,7 @@ fn directory_packages_retain_plain_components_and_reject_single_file_static_reso
     assert!(ComponentAssets::read_package(&plain).is_ok());
     for name in mod_api::COMPONENT_ASSET_SECTIONS {
         let mut bytes = plain.clone();
-        let data = if name == mod_api::PANEL_BUNDLE_SECTION {
-            bundle("Local").into_bytes()
-        } else {
-            b"resource".to_vec()
-        };
-        section(&mut bytes, name, &data);
+        section(&mut bytes, name, &section_data(name));
         assert!(ComponentAssets::read(&bytes).is_ok());
         assert!(ComponentAssets::read_package(&bytes).is_err());
     }

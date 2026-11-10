@@ -2,8 +2,15 @@
 //!
 //! Each mod retains one [`ModPresentation`]. The client merges every active mod's output in load
 //! order into one [`Presentation`]: the earliest mod that sets a single policy (nametag style,
-//! hurt overlay, chat actions) owns it; per-actor rows are owned per runtime ID and surface by the
-//! earliest mod whose grants admit that actor's kind; tooltip lines are appended in load order.
+//! nametag rules, the tint rules of one actor state, chat actions) owns it; annotations are
+//! owned per runtime ID and surface by the earliest mod whose grants admit that actor's kind;
+//! tooltip lines are appended in load order.
+
+mod rules;
+pub use rules::{
+    ActorFacts, ActorSelector, MAX_NAMETAG_RULES, MAX_TINT_RULES, NametagRule, NametagVisibility,
+    Tint, TintRule, TintState,
+};
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -16,8 +23,6 @@ pub const MAX_ANNOTATIONS: usize = 128;
 pub const MAX_ANNOTATION_SPANS: usize = 4;
 /// Most UTF-8 bytes in one annotation span.
 pub const MAX_ANNOTATION_SPAN_BYTES: usize = 32;
-/// Most tinted actors one mod retains.
-pub const MAX_ACTOR_TINTS: usize = 64;
 /// Most tooltip lines one mod retains, across every item.
 pub const MAX_TOOLTIP_LINES: usize = 256;
 /// Most mod lines appended to one item's tooltip, across every mod.
@@ -53,11 +58,6 @@ fn plain_text(text: &str, max: usize) -> bool {
 /// Parameters of the native nametag renderer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NametagStyle {
-    pub hide: bool,
-    pub hide_players: bool,
-    pub hide_passengers: bool,
-    pub show_self: bool,
-    pub show_when_hud_hidden: bool,
     /// Multiplies every tag's alpha, 0 through 1.
     pub opacity: f32,
     /// Uniform tag scale, 0.5 through 3.
@@ -77,11 +77,6 @@ impl Default for NametagStyle {
     /// Native nametags, with a half-pixel border width for when a border colour is set.
     fn default() -> Self {
         Self {
-            hide: false,
-            hide_players: false,
-            hide_passengers: false,
-            show_self: false,
-            show_when_hud_hidden: false,
             opacity: 1.,
             scale: 1.,
             shadow: false,
@@ -174,13 +169,6 @@ pub struct Annotation {
     pub roster: Option<Arc<Spans>>,
 }
 
-/// The native damage overlay colours; an absent channel keeps native.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct HurtOverlay {
-    pub body: Option<Rgba>,
-    pub armor: Option<Rgba>,
-}
-
 /// One extra line appended to the tooltip of matching items.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TooltipLine {
@@ -240,9 +228,9 @@ impl ChatAction {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModPresentation {
     pub nametag_style: Option<NametagStyle>,
+    pub nametag_rules: Vec<NametagRule>,
     pub annotations: BTreeMap<u64, Annotation>,
-    pub hurt_overlay: HurtOverlay,
-    pub tints: BTreeMap<u64, Rgba>,
+    pub tint_rules: Vec<TintRule>,
     pub tooltip_lines: Vec<TooltipLine>,
     pub chat_actions: Vec<ChatAction>,
 }
@@ -311,11 +299,13 @@ impl<T> ByKind<T> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Presentation {
     pub nametag_style: Option<NametagStyle>,
+    /// The owning mod's grants and nametag rules.
+    pub nametag_rules: (ActorGrants, Vec<NametagRule>),
     pub nametags: HashMap<u64, ByKind<Arc<Spans>>>,
     /// Player-list spans by player runtime ID; only mods with the players grant contribute.
     pub roster: HashMap<u64, Arc<Spans>>,
-    pub hurt_overlay: HurtOverlay,
-    pub tints: HashMap<u64, ByKind<Rgba>>,
+    /// For each [`TintState`] in order, its owning mod's grants and rules for that state.
+    pub tint_rules: [(ActorGrants, Vec<TintRule>); 2],
     pub tooltip_lines: Vec<TooltipLine>,
     pub chat_actions: Vec<ChatAction>,
 }
@@ -324,14 +314,23 @@ impl Presentation {
     /// Merges mods in load order with the actor kinds each one's grants admit.
     pub fn merge<'a>(mods: impl IntoIterator<Item = (ActorGrants, &'a ModPresentation)>) -> Self {
         let mut merged = Self::default();
-        let mut hurt_owned = false;
         for (grants, output) in mods {
             if merged.nametag_style.is_none() {
                 merged.nametag_style.clone_from(&output.nametag_style);
             }
-            if !hurt_owned && output.hurt_overlay != HurtOverlay::default() {
-                merged.hurt_overlay = output.hurt_overlay;
-                hurt_owned = true;
+            if merged.nametag_rules.1.is_empty() {
+                merged.nametag_rules = (grants, output.nametag_rules.clone());
+            }
+            for (state, owner) in [TintState::Hurt, TintState::NotHurt]
+                .into_iter()
+                .zip(&mut merged.tint_rules)
+            {
+                if owner.1.is_empty() {
+                    owner.0 = grants;
+                    owner
+                        .1
+                        .extend(output.tint_rules.iter().filter(|rule| rule.state == state));
+                }
             }
             for (&runtime_id, annotation) in &output.annotations {
                 if let Some(spans) = &annotation.nametag {
@@ -349,14 +348,6 @@ impl Presentation {
                 }
             }
             merged.nametags.retain(|_, entry| !entry.is_empty());
-            for (&runtime_id, color) in &output.tints {
-                merged
-                    .tints
-                    .entry(runtime_id)
-                    .or_default()
-                    .offer(grants, color);
-            }
-            merged.tints.retain(|_, entry| !entry.is_empty());
             merged
                 .tooltip_lines
                 .extend(output.tooltip_lines.iter().cloned());
@@ -372,9 +363,23 @@ impl Presentation {
         self.nametags.get(&runtime_id)?.get(player)
     }
 
-    /// The overlay tint for one actor of this kind.
-    pub fn tint(&self, runtime_id: u64, player: bool) -> Option<Rgba> {
-        self.tints.get(&runtime_id)?.get(player).copied()
+    /// The nametag visibility the owning mod's rules give `actor`.
+    pub fn nametag_visibility(&self, actor: &ActorFacts, hud_hidden: bool) -> NametagVisibility {
+        let (grants, rules) = &self.nametag_rules;
+        rules::nametag_visibility(rules, *grants, actor, hud_hidden)
+    }
+
+    /// Whether some rule can draw a tag while the HUD is hidden.
+    pub fn shows_nametags_with_hidden_hud(&self) -> bool {
+        self.nametag_rules.1.iter().any(|rule| {
+            rule.hud_hidden != Some(false) && rule.visibility != NametagVisibility::Hidden
+        })
+    }
+
+    /// The tint the owning mod's rules for `state` give `actor`.
+    pub fn tint(&self, actor: &ActorFacts, state: TintState) -> Option<Tint> {
+        let (grants, rules) = &self.tint_rules[state as usize];
+        rules::tint(rules, *grants, actor, state)
     }
 
     /// The first [`MAX_ITEM_TOOLTIP_LINES`] lines for one item, in load order.
@@ -406,6 +411,27 @@ mod tests {
         })
     }
 
+    /// A rule tinting the bodies of `actors` in `state`.
+    fn tint_rule(actors: ActorSelector, state: TintState, color: Rgba) -> TintRule {
+        TintRule {
+            actors,
+            state,
+            tint: Tint {
+                body: Some(color),
+                armor: None,
+            },
+        }
+    }
+
+    /// Facts of a remote actor of this kind.
+    fn actor(runtime_id: u64, player: bool) -> ActorFacts {
+        ActorFacts {
+            runtime_id,
+            player,
+            ..Default::default()
+        }
+    }
+
     const PLAYERS: ActorGrants = ActorGrants {
         players: true,
         entities: false,
@@ -430,7 +456,11 @@ mod tests {
                     roster: None,
                 },
             )]),
-            tints: BTreeMap::from([(7, [1., 0., 0., 1.])]),
+            tint_rules: vec![tint_rule(
+                ActorSelector::Actor(7),
+                TintState::NotHurt,
+                [1., 0., 0., 1.],
+            )],
             tooltip_lines: vec![TooltipLine {
                 identifier: "minecraft:apple".into(),
                 metadata: None,
@@ -448,11 +478,19 @@ mod tests {
                     roster: Some(spans("tab", SpanPosition::Above)),
                 },
             )]),
-            hurt_overlay: HurtOverlay {
-                body: Some([0., 0., 1., 1.]),
-                armor: None,
-            },
-            tints: BTreeMap::from([(7, [0., 1., 0., 1.])]),
+            nametag_rules: vec![NametagRule {
+                actors: ActorSelector::All,
+                hud_hidden: None,
+                visibility: NametagVisibility::Hidden,
+            }],
+            tint_rules: vec![
+                tint_rule(ActorSelector::All, TintState::Hurt, [0., 0., 1., 1.]),
+                tint_rule(
+                    ActorSelector::Actor(7),
+                    TintState::NotHurt,
+                    [0., 1., 0., 1.],
+                ),
+            ],
             tooltip_lines: vec![TooltipLine {
                 identifier: "minecraft:apple".into(),
                 metadata: Some(1),
@@ -476,10 +514,29 @@ mod tests {
             "second",
             "the first mod lacks entities, so the second owns non-player rows"
         );
-        assert_eq!(merged.tint(7, true), Some([1., 0., 0., 1.]));
-        assert_eq!(merged.tint(7, false), Some([0., 1., 0., 1.]));
+        let tint = |merged: &Presentation, actor: ActorFacts, state| {
+            merged.tint(&actor, state).and_then(|tint| tint.body)
+        };
+        assert_eq!(
+            tint(&merged, actor(7, true), TintState::NotHurt),
+            Some([1., 0., 0., 1.])
+        );
+        assert_eq!(
+            tint(&merged, actor(7, false), TintState::NotHurt),
+            None,
+            "the first mod owns not-hurt tints, and its grants do not admit other actors"
+        );
         assert_eq!(&*merged.roster[&7].spans[0].text, "tab");
-        assert_eq!(merged.hurt_overlay.body, Some([0., 0., 1., 1.]));
+        assert_eq!(
+            tint(&merged, actor(7, true), TintState::Hurt),
+            Some([0., 0., 1., 1.]),
+            "the second mod owns hurt tints, which the first left unset"
+        );
+        assert_eq!(
+            merged.nametag_visibility(&actor(7, true), false),
+            NametagVisibility::Hidden
+        );
+        assert!(!merged.shows_nametags_with_hidden_hud());
         assert_eq!(merged.chat_actions, second.chat_actions);
         let lines: Vec<_> = merged
             .tooltip_lines("minecraft:apple", 1)
@@ -506,16 +563,60 @@ mod tests {
                     roster: Some(spans("tab", SpanPosition::After)),
                 },
             )]),
-            tints: BTreeMap::from([(3, [1.; 4])]),
+            nametag_rules: vec![NametagRule {
+                actors: ActorSelector::Actor(3),
+                hud_hidden: None,
+                visibility: NametagVisibility::Hidden,
+            }],
+            tint_rules: vec![tint_rule(
+                ActorSelector::Actor(3),
+                TintState::NotHurt,
+                [1.; 4],
+            )],
             ..Default::default()
         };
         let merged = Presentation::merge([(ENTITIES, &output)]);
+        assert_eq!(
+            merged.nametag_visibility(&actor(3, false), false),
+            NametagVisibility::Hidden
+        );
+        assert_eq!(
+            merged.nametag_visibility(&actor(3, true), false),
+            NametagVisibility::Native
+        );
         assert!(merged.nametag(3, true).is_none());
         assert!(merged.nametag(3, false).is_some());
         assert!(merged.roster.is_empty());
-        assert!(merged.tint(3, true).is_none());
+        assert!(merged.tint(&actor(3, true), TintState::NotHurt).is_none());
+        assert!(merged.tint(&actor(3, false), TintState::NotHurt).is_some());
         let none = Presentation::merge([(ActorGrants::default(), &output)]);
-        assert!(none.nametags.is_empty() && none.tints.is_empty());
+        assert!(none.nametags.is_empty());
+        assert!(none.tint(&actor(3, false), TintState::NotHurt).is_none());
+    }
+
+    /// Only rules that can draw while the HUD is hidden make the client consider tags then.
+    #[test]
+    fn hidden_hud_tags_need_a_rule_that_can_show_them() {
+        let with = |rules: Vec<NametagRule>| {
+            Presentation::merge([(
+                PLAYERS,
+                &ModPresentation {
+                    nametag_rules: rules,
+                    ..Default::default()
+                },
+            )])
+            .shows_nametags_with_hidden_hud()
+        };
+        let rule = |hud_hidden, visibility| NametagRule {
+            actors: ActorSelector::Players,
+            hud_hidden,
+            visibility,
+        };
+        assert!(!with(Vec::new()));
+        assert!(with(vec![rule(Some(true), NametagVisibility::Native)]));
+        assert!(with(vec![rule(None, NametagVisibility::Shown)]));
+        assert!(!with(vec![rule(Some(false), NametagVisibility::Shown)]));
+        assert!(!with(vec![rule(None, NametagVisibility::Hidden)]));
     }
 
     /// Each item tooltip receives a bounded number of mod lines.

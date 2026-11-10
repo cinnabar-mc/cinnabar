@@ -1,6 +1,6 @@
 use super::*;
 use crate::runtime::world::ClientWorld;
-use bevy::ecs::system::RunSystemOnce;
+use bevy::ecs::{change_detection::DetectChanges, system::RunSystemOnce};
 use render_scene::{WorldPointLight, WorldPointLightSource};
 use std::sync::Arc;
 
@@ -54,6 +54,16 @@ fn emissive_stack() -> protocol::NetworkItemStack {
     }
 }
 
+/// A menu whose Dynamic Lights setting is `enabled`.
+fn dynamic_lights_menu(enabled: bool) -> client_shell::menu::MenuRuntime {
+    let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Tester".into());
+    menu.set_session_option(
+        launcher::menu::settings_options::SettingId::DynamicLights,
+        Some(i32::from(enabled)),
+    );
+    menu
+}
+
 #[test]
 fn held_light_requires_a_published_local_position_and_clears_on_reset() {
     let mut player = PlayerRuntime(player_state::PlayerState::new(1));
@@ -76,10 +86,11 @@ fn held_light_requires_a_published_local_position_and_clears_on_reset() {
     world.insert_resource(emissive_world());
     world.insert_resource(player);
     world.init_resource::<LocalPlayerFrameCarrier>();
+    world.init_resource::<client_presentation::actor_publication::ActorFramePartialTick>();
     world.init_resource::<WorldPointLight>();
 
     world
-        .run_system_once(crate::local_player::sync_world_point_light_from_local_player)
+        .run_system_once(crate::local_player::publish_world_point_lights)
         .unwrap();
     assert_eq!(
         world.resource::<WorldPointLight>().local,
@@ -93,7 +104,7 @@ fn held_light_requires_a_published_local_position_and_clears_on_reset() {
         .publish(sample)
         .unwrap();
     world
-        .run_system_once(crate::local_player::sync_world_point_light_from_local_player)
+        .run_system_once(crate::local_player::publish_world_point_lights)
         .unwrap();
     let local = world.resource::<WorldPointLight>().local;
     assert_eq!(local.position, position);
@@ -104,7 +115,7 @@ fn held_light_requires_a_published_local_position_and_clears_on_reset() {
         .resource_mut::<LocalPlayerFrameCarrier>()
         .reset(LocalPlayerFrameReset::Session);
     world
-        .run_system_once(crate::local_player::sync_world_point_light_from_local_player)
+        .run_system_once(crate::local_player::publish_world_point_lights)
         .unwrap();
     assert_eq!(
         world.resource::<WorldPointLight>().local,
@@ -146,13 +157,11 @@ fn additional_lights_require_a_published_position_even_without_a_local_light() {
     world.insert_resource(client);
     world.init_resource::<LocalPlayerFrameCarrier>();
     world.init_resource::<client_presentation::actor_publication::ActorFramePartialTick>();
-    world.insert_resource(WorldPointLight {
-        enabled: true,
-        ..Default::default()
-    });
+    world.insert_resource(dynamic_lights_menu(true));
+    world.init_resource::<WorldPointLight>();
 
     world
-        .run_system_once(crate::local_player::sync_remote_item_point_lights)
+        .run_system_once(crate::local_player::publish_world_point_lights)
         .unwrap();
     assert!(
         world
@@ -167,17 +176,47 @@ fn additional_lights_require_a_published_position_even_without_a_local_light() {
         .publish(frozen_local_player_sample())
         .unwrap();
     world
-        .run_system_once(crate::local_player::sync_remote_item_point_lights)
+        .run_system_once(crate::local_player::publish_world_point_lights)
         .unwrap();
     let lights = world.resource::<WorldPointLight>();
-    assert_eq!(lights.local, WorldPointLightSource::default());
+    assert!(lights.enabled);
+    assert_eq!(lights.local.intensity, 0.0);
     assert!(lights.additional[0].intensity > 0.0);
 
+    // Turning Dynamic Lights off clears the item lights and leaves the frame unchanged after.
+    world.insert_resource(dynamic_lights_menu(false));
+    world
+        .run_system_once(crate::local_player::publish_world_point_lights)
+        .unwrap();
+    let lights = world.resource::<WorldPointLight>();
+    assert!(!lights.enabled);
+    assert!(
+        lights
+            .additional
+            .iter()
+            .all(|light| *light == WorldPointLightSource::default())
+    );
+    let unchanged = world.change_tick();
+    world
+        .run_system_once(crate::local_player::publish_world_point_lights)
+        .unwrap();
+    assert!(
+        !world
+            .resource_ref::<WorldPointLight>()
+            .last_changed()
+            .is_newer_than(unchanged, world.change_tick())
+    );
+
+    world.insert_resource(dynamic_lights_menu(true));
+    world
+        .run_system_once(crate::local_player::publish_world_point_lights)
+        .unwrap();
+    assert!(world.resource::<WorldPointLight>().additional[0].intensity > 0.0);
     world
         .resource_mut::<LocalPlayerFrameCarrier>()
         .reset(LocalPlayerFrameReset::Dimension);
     world
-        .run_system_once(crate::local_player::sync_remote_item_point_lights)
+        .run_system_once(crate::local_player::publish_world_point_lights)
         .unwrap();
     assert!(
         world

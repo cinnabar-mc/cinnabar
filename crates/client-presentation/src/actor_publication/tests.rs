@@ -601,6 +601,7 @@ fn equipment_pack_fixture() -> (
         textures: Arc::from([]),
         bindings: Arc::from([]),
         equipment: Some(Arc::new(catalog)),
+        material_report: None,
     };
     let startup = render_model::ActorArtworkPages::default().with_actor_glint(
         render_model::EquipmentRaster {
@@ -717,54 +718,6 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
     assert_eq!(glint(scene.frame().artwork_pages()), [1, 2, 3, 255]);
 }
 
-/// Hurt colours apply only to actual damage; an undamaged actor shows its mod tint.
-#[test]
-fn tints_and_hurt_colors_follow_actual_damage_independently() {
-    let hurt = ui::mod_presentation::HurtOverlay {
-        body: Some([1., 0., 0., 0.4]),
-        armor: Some([0.5, 0., 0., 0.4]),
-    };
-    let tint = Some([0., 1., 0., 0.3]);
-    assert_eq!(
-        super::layers::cosmetic_overlay(&hurt, false, false, true, tint),
-        tint
-    );
-    assert_eq!(
-        super::layers::cosmetic_overlay(&hurt, true, false, true, tint),
-        hurt.body
-    );
-    assert_eq!(
-        super::layers::cosmetic_overlay(&hurt, true, true, true, tint),
-        hurt.armor
-    );
-    assert_eq!(
-        super::layers::cosmetic_overlay(&hurt, true, false, false, tint),
-        None
-    );
-    assert_eq!(
-        super::layers::cosmetic_overlay(&hurt, false, false, true, None),
-        None
-    );
-}
-
-/// Tints follow the runtime ID and the actor kind each mod's grants admitted.
-#[test]
-fn tints_apply_only_to_the_admitted_actor_kind() {
-    let output = ui::mod_presentation::ModPresentation {
-        tints: std::collections::BTreeMap::from([(1, [0., 1., 0., 0.5])]),
-        ..Default::default()
-    };
-    let entities_only = ui::mod_presentation::Presentation::merge([(
-        ui::mod_presentation::ActorGrants {
-            players: false,
-            entities: true,
-        },
-        &output,
-    )]);
-    assert_eq!(entities_only.tint(1, true), None);
-    assert_eq!(entities_only.tint(1, false), Some([0., 1., 0., 0.5]));
-}
-
 /// Final styling preserves submission order and pose storage without allocating.
 #[test]
 fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
@@ -821,11 +774,24 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
                 entities: false,
             },
             &ui::mod_presentation::ModPresentation {
-                hurt_overlay: ui::mod_presentation::HurtOverlay {
-                    body: Some(hurt_color),
-                    armor: Some(hurt_armor_color),
-                },
-                tints: std::collections::BTreeMap::from([(1, tint_color)]),
+                tint_rules: vec![
+                    ui::mod_presentation::TintRule {
+                        actors: ui::mod_presentation::ActorSelector::All,
+                        state: ui::mod_presentation::TintState::Hurt,
+                        tint: ui::mod_presentation::Tint {
+                            body: Some(hurt_color),
+                            armor: Some(hurt_armor_color),
+                        },
+                    },
+                    ui::mod_presentation::TintRule {
+                        actors: ui::mod_presentation::ActorSelector::LocalPlayer,
+                        state: ui::mod_presentation::TintState::NotHurt,
+                        tint: ui::mod_presentation::Tint {
+                            body: Some(tint_color),
+                            armor: Some(tint_color),
+                        },
+                    },
+                ],
                 ..Default::default()
             },
         )])),
@@ -975,6 +941,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment: None,
+        material_report: None,
     });
     let sprite = assets::IconSprite {
         width: 16,

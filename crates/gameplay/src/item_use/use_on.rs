@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Ticks a brush waits between the dust its uses on a block draw.
+const BRUSH_EFFECTS_COOLDOWN_TICKS: u64 = 8;
+
 impl ItemUseRuntime {
     /// Starts the held use an admitted item use on a block begins on its build tick, as
     /// vanilla's `BrushItem::_useOn` starts using the brush with its maximum use duration.
@@ -41,6 +44,17 @@ impl ItemUseRuntime {
         self.server_using = ServerUseState::Idle;
         self.deferred_button_release = false;
         self.local_using = Some(true);
+        true
+    }
+
+    /// Whether a brush's successful use on a block at `tick` draws its dust, as vanilla's
+    /// `BrushItem::_useOn` does once its `BrushEffectsCooldownComponent` tick has passed;
+    /// drawing restarts that cooldown.
+    pub fn brush_effects_due(&mut self, tick: u64) -> bool {
+        if self.brush_effects_until >= tick {
+            return false;
+        }
+        self.brush_effects_until = tick.saturating_add(BRUSH_EFFECTS_COOLDOWN_TICKS);
         true
     }
 }

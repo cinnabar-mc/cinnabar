@@ -61,7 +61,7 @@ other grants with the [development switches](https://github.com/cinnabar-mc/cinn
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |
-| Nametag style, actor annotations and tints, hurt overlay, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
+| Nametag style and visibility, actor annotations and tints, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
 | Item, food, potion and effect facts, and every installed food | WIT `facts`; `player-state`, with its own per-callback read budget |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
 | World primitives and post passes | WIT `render`; [render example](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/render-sample) |
@@ -186,9 +186,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
-line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
-hiding, and its bounds in GUI units when laid out.
+status effects, sidebar, hunger row or position line; `hud.read-elements` reports whether
+vanilla draws each element this frame, ignoring hiding, and its bounds in GUI units when
+laid out.
 
 ## Gameplay wheel input
 
@@ -259,6 +259,7 @@ from executable bytes; directory packages retain their own lifecycle.
 | Section | Payload/grant |
 | --- | --- |
 | `cinnabar:extension/panel-bundle@1` | Panel JSON; `controls` |
+| `cinnabar:extension/panel-bundle@2` | Panel JSON as one Brotli stream; `controls` |
 | `cinnabar:extension/font@1` | Outline font; `controls` |
 | `cinnabar:extension/menu-logo@1` | PNG; `environment` |
 | `cinnabar:extension/menu-title@1` | Single-line UTF-8 heading; `environment` |
@@ -266,6 +267,9 @@ from executable bytes; directory packages retain their own lifecycle.
 | `cinnabar:extension/icon@1` | PNG Mods-tab icon |
 
 [SDK constants](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs) define byte/image limits.
+A component carries at most one panel bundle version. Version 2 holds the same JSON
+compressed with Brotli; its decompressed JSON has the same byte limit as version 1.
+Earlier clients reject version 2 as an unsupported asset version.
 Duplicate, nested, malformed or oversized presentation resources are rejected;
 invalid icon/metadata affects only the card. `CINNABAR_MOD_FONT` and
 `CINNABAR_MOD_UI` sidecars override embedded font/panel data. Mod cards read standard

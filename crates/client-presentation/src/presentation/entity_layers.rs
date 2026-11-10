@@ -157,6 +157,24 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
     }
 }
 
+/// The glint of a `GLINT` layer at the actor's completed tick; publication then interpolates
+/// it and applies the glint settings. Other layers keep the placed body's own foil. The draw
+/// adds the client's actor glint; Bedrock's glint constants are unknown.
+fn layer_glint(
+    submission: &ActorRigSubmission,
+    layer: &RenderTextureLayer,
+) -> render_model::ActorGlint {
+    if !layer.material_state.is_some_and(|state| state.glint) {
+        // A native foil set on the placed body survives its controller's layers.
+        return submission.material.glint;
+    }
+    render_model::ActorGlint {
+        time_seconds: submission.input.completed_tick as f32
+            * simulation_clock::TICK_DURATION.as_secs_f32(),
+        ..Default::default()
+    }
+}
+
 /// Resolves one admitted controller layer for both body drawing and equipment styling.
 fn resolve_layer(
     submission: &ActorRigSubmission,
@@ -191,40 +209,48 @@ fn resolve_layer(
             current: cache.convert(&layer.pose)?,
         }),
     };
+    let rig = submission.input.rig;
+    // A player wears its runtime skin for the default skin raster, and for any other
+    // texture the catalog did not build; a built controller texture is drawn as authored.
+    let location = if player_skin && layer.runtime_skin {
+        None
+    } else if player_skin && layer.geometry.is_some() {
+        // Another model never falls back to the skin, which is laid out for the body.
+        Some(catalog_location(
+            layer,
+            |source| artwork.source_location(layer.pack, source),
+            |sources| artwork.source_multitexture_location(layer.pack, sources),
+        )?)
+    } else if player_skin {
+        artwork.source_location(layer.pack, layer.source)
+    } else {
+        Some(catalog_location(
+            layer,
+            |source| artwork.variant_location(rig, source),
+            |sources| artwork.multitexture_location(rig, sources),
+        )?)
+    };
+    let masks = layer
+        .masks
+        .zip(location)
+        .map_or(render_model::ActorMaterialMasks::NONE, |(masks, base)| {
+            render_model::ActorMaterialMasks::resolve(artwork, rig, base, &masks)
+        });
     Some(ResolvedLayer {
         material: render_model::ActorMaterial {
             color_mask: false,
-            // A native foil set on the placed body survives its controller's layers.
-            glint: submission.material.glint,
+            glint: layer_glint(submission, layer),
             kind: layer.material,
             state: layer.material_state,
+            render_state: layer.render_state,
             suppress_overlay: false,
             dissolve_multiplier: layer.overlay[3],
             light_color_multiplier: layer.light_color_multiplier,
+            masks,
         },
         model,
         ignore_lighting: layer.ignore_lighting,
-        // A player wears its runtime skin for the default skin raster, and for any other
-        // texture the catalog did not build; a built controller texture is drawn as authored.
-        location: if player_skin && layer.runtime_skin {
-            None
-        } else if player_skin && layer.geometry.is_some() {
-            // Another model never falls back to the skin, which is laid out for the body.
-            Some(catalog_location(
-                layer,
-                |source| artwork.source_location(layer.pack, source),
-                |sources| artwork.source_multitexture_location(layer.pack, sources),
-            )?)
-        } else if player_skin {
-            artwork.source_location(layer.pack, layer.source)
-        } else {
-            let rig = submission.input.rig;
-            Some(catalog_location(
-                layer,
-                |source| artwork.variant_location(rig, source),
-                |sources| artwork.multitexture_location(rig, sources),
-            )?)
-        },
+        location,
         tint: pack_layer_tint(layer.color),
         overlay: (layer.overlay[3] > 0.0).then(|| pack_overlay_rgba8(layer.overlay)),
         hidden_bones: Arc::clone(&layer.hidden_bones),
@@ -243,7 +269,7 @@ fn catalog_location(
         Some([second, third]) => multitexture([layer.source, second, third]).or_else(|| {
             layer
                 .material_state
-                .is_some_and(|state| state.masked_multitexture)
+                .is_some_and(|state| state.texture_mask)
                 .then(|| single(layer.source))
                 .flatten()
         }),
@@ -483,11 +509,13 @@ mod tests {
         let original_rig = batch.submissions[0].input.rig;
         let original_skin = batch.skin_layers[0].clone();
         let layer = RenderTextureLayer {
-            material: assets::EntityRenderMaterial::Default,
-            material_state: Some(assets::EntityRenderMaterialState {
-                blend: true,
+            masks: None,
+            render_state: Some(render_api::render_state::RenderState {
+                blend: Some(render_api::render_state::BlendState::ALPHA),
                 ..Default::default()
             }),
+            material: assets::EntityRenderMaterial::Default,
+            material_state: Some(assets::EntityRenderMaterialState::default()),
             source: 0,
             texture_slot: 0,
             multitexture: None,
@@ -525,7 +553,7 @@ mod tests {
         assert_eq!(body.texture_layer, 0);
         assert!(batch.artwork.is_empty());
         assert_eq!(body.tint, pack_layer_tint(layers[0].color));
-        assert!(body.material.state.unwrap().blend);
+        assert!(body.material.raster().blend.is_some());
         assert_eq!(body.input.current_bones[0].translation_scale[3], 1.0);
         assert!(
             body.input.current_bones[1..]
@@ -551,6 +579,8 @@ mod tests {
         let mut batch =
             super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
         let layer = |runtime_skin: bool, source: u32| RenderTextureLayer {
+            render_state: None,
+            masks: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             source,
@@ -578,6 +608,7 @@ mod tests {
                 rgba8: vec![255; 16].into(),
             }],
             &[],
+            &Default::default(),
         );
         let fresh = batch.submissions.clone();
         let layers = [layer(true, 0), layer(false, 23)];
@@ -626,6 +657,8 @@ mod tests {
     #[test]
     fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
         let layer = RenderTextureLayer {
+            render_state: None,
+            masks: None,
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
             source: 0,
@@ -744,6 +777,8 @@ mod tests {
         let layer = |runtime_skin: bool, source: u32, geometry: Option<u32>| RenderTextureLayer {
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
+            render_state: None,
+            masks: None,
             source,
             texture_slot: 0,
             multitexture: None,
@@ -775,8 +810,11 @@ mod tests {
             pixel_sha256: [source as u8; 32],
             rgba8: vec![255; 16].into(),
         };
-        let artwork =
-            ActorArtworkPages::default().with_pack_artwork(&[texture(23), texture(24)], &[]);
+        let artwork = ActorArtworkPages::default().with_pack_artwork(
+            &[texture(23), texture(24)],
+            &[],
+            &Default::default(),
+        );
         // The cosmetic samples a second catalog texture, as a two-texture material does.
         let mut hat = layer(false, 23, Some(7));
         hat.multitexture = Some([24, 24]);
@@ -841,6 +879,8 @@ mod tests {
         let morph = RenderTextureLayer {
             material: assets::EntityRenderMaterial::Default,
             material_state: None,
+            render_state: None,
+            masks: None,
             source: 23,
             texture_slot: 0,
             multitexture: None,
@@ -866,6 +906,7 @@ mod tests {
                 rgba8: vec![255; 16].into(),
             }],
             &[],
+            &Default::default(),
         );
         let layers = [morph];
         apply_render_layers_cached(

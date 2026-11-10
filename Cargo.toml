@@ -198,13 +198,13 @@ wit-parser = "=0.247.0"
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
 # Mobile input support; patches live on `cinnabar-v0.30`.
 winit = { git = "https://github.com/cinnabar-mc/winit", rev = "b1e59b0d5a63628cd4946575765a6c35d53d90df" }
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "a563736a1e8d600106f5dc520723b0f55c32bd28" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "a563736a1e8d600106f5dc520723b0f55c32bd28" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "a563736a1e8d600106f5dc520723b0f55c32bd28" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "a563736a1e8d600106f5dc520723b0f55c32bd28" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "a563736a1e8d600106f5dc520723b0f55c32bd28" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "bd959685a9df88cefdde287ae7525c2d0030eb83" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "a563736a1e8d600106f5dc520723b0f55c32bd28" }
 
 # Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
 bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "5f0dc3907cd7b7714c4298152efb6201684c02d5" }

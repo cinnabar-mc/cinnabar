@@ -11,7 +11,7 @@ use crate::codec::SessionFailure;
 use crate::packet_relay::PacketRelay;
 use crate::packet_relay::{BatchWriter, RelayLink, put_entry};
 use crate::packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap};
-use crate::raw_packet::{RawBatch, RawPacket, decode_batch_body};
+use crate::raw_packet::{RawBatch, RawPacket, UnknownPacket, decode_batch_body};
 use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
@@ -68,7 +68,7 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     prefer_injected: bool, // alternate ready upstream frames and relay injections
     startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
     received: VecDeque<RawPacket>, // packets split from a batch but not yet read
-    pending_batch: Option<(u64, std::iter::Enumerate<RawBatch>)>, // validated unread entries
+    pending_batch: Option<(u64, u32, RawBatch)>, // frame, next slot and validated unread entries
     ahead: VecDeque<Option<Result<Bytes, BridgeError>>>, // reader items `read_ahead` took
     joining: bool,         // retain the relay startup budget through spawn
     ahead_bytes: usize,    // frame bytes held in `ahead`
@@ -79,6 +79,7 @@ pub(crate) struct SessionTransport<R = FramedReader> {
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
     split_frames: u64,              // batch frames split so far; startup batches count as 0
+    unknown_packets: u64,           // well-formed entries skipped for an undefined packet ID
     delivered: crate::packet_tap::PacketOrigin, // frame and index of the packet `recv` returned last
 }
 
@@ -147,6 +148,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             tap: None,
             current: None,
             split_frames: 0,
+            unknown_packets: 0,
             delivered: Default::default(),
         }
     }
@@ -447,18 +449,32 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                 tap.reject_batch(len);
             }
         })?;
-        self.pending_batch = Some((frame, packets.enumerate()));
+        self.pending_batch = Some((frame, 0, packets));
         self.receive_window();
         Ok(())
     }
 
     /// Expands one bounded window, preserving batch slots and recording each packet once.
+    /// Entries with an ID this protocol does not define are recorded as skipped and dropped.
     fn receive_window(&mut self) {
-        let Some((frame, packets)) = &mut self.pending_batch else {
+        let Some((frame, slot, packets)) = &mut self.pending_batch else {
             return;
         };
-        for (index, mut packet) in packets.by_ref().take(RAW_PACKET_WINDOW) {
-            packet.trace_position = (*frame, index as u32);
+        for _ in 0..RAW_PACKET_WINDOW {
+            let Some(entry) = packets.next_entry() else {
+                break;
+            };
+            let index = *slot;
+            *slot += 1;
+            let mut packet = match entry {
+                Ok(packet) => packet,
+                Err(unknown) => {
+                    self.unknown_packets += 1;
+                    skip_unknown(self.tap.as_deref(), &unknown, self.unknown_packets);
+                    continue;
+                }
+            };
+            packet.trace_position = (*frame, index);
             if let Some(tap) = &self.tap {
                 let record = tap.record(
                     PacketDirection::Clientbound,
@@ -469,9 +485,14 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             }
             self.received.push_back(packet);
         }
-        if packets.len() == 0 {
+        if packets.remaining() == 0 {
             self.pending_batch = None;
         }
+    }
+
+    /// Number of well-formed server packets skipped because this protocol does not define their ID.
+    pub(crate) const fn unknown_packet_count(&self) -> u64 {
+        self.unknown_packets
     }
 
     /// Writes `packets` as one Batch frame after every send retained before it, resolving once
@@ -507,6 +528,29 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             }
         }
         Poll::Ready(Ok(()))
+    }
+}
+
+/// Records an entry whose packet ID this protocol does not define as skipped, warning on the
+/// session's first one; `count` includes it.
+fn skip_unknown(tap: Option<&dyn PacketTap>, unknown: &UnknownPacket, count: u64) {
+    if let Some(tap) = tap {
+        let body = PacketBody::whole(&unknown.body);
+        let record = tap.record(PacketDirection::Clientbound, unknown.id, body);
+        tap.reject(record, unknown.id, PacketOutcome::Skipped, body);
+    }
+    if count == 1 {
+        tracing::warn!(
+            packet_id = unknown.id,
+            body_len = unknown.body.len(),
+            "skipping a server packet with an ID this protocol does not define"
+        );
+    } else {
+        tracing::debug!(
+            packet_id = unknown.id,
+            count,
+            "skipping an unknown packet ID"
+        );
     }
 }
 

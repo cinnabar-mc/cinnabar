@@ -21,6 +21,18 @@ fn source(shader: &str, witness: &str) -> String {
     )
 }
 
+/// Packs one untextured, unanimated, unmasked GPU material record with the given variation range.
+fn unanimated_material(
+    variation_start: u32,
+    variation_count: u32,
+) -> [u32; crate::material_records::MATERIAL_WORDS] {
+    crate::material_records::material_words(assets::Material {
+        variation_start,
+        variation_count,
+        ..assets::Material::unvaried()
+    })
+}
+
 #[test]
 fn packed_decoder_witnesses_validate() {
     for (shader, witness) in [
@@ -64,7 +76,7 @@ fn packed_cube_vertex_preserves_section_biome_and_light_addresses() {
         storage,
     );
     let streams = gpu.words(&[0, 0, 0, 0, 0x0234_0123, 0x0846_0345], storage);
-    let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0].repeat(2), storage);
+    let materials = gpu.words(&unanimated_material(0, 0).repeat(2), storage);
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 8], storage);
     let clock = gpu.words(&[0; 4], uniform);
@@ -106,9 +118,9 @@ fn packed_model_rejects_masked_padded_and_invalid_references_before_vertex_use()
     let origins = gpu.words(&[16, 64, (-16_i32) as u32, 37, 0, 0, 0, 0], storage);
     let materials = gpu.words(
         &[
-            [0, 0, assets::NO_ANIMATION, 0, 0, 0],
-            [0, 0, assets::NO_ANIMATION, 2, 1, 0],
-            [0, 0, assets::NO_ANIMATION, 0, 0, 0],
+            unanimated_material(0, 0),
+            unanimated_material(2, 1),
+            unanimated_material(0, 0),
         ]
         .concat(),
         storage,
@@ -278,7 +290,7 @@ fn detail_quads_take_the_shade_face_their_light_carries() {
         geometry.extend([sample | (sample << 16); 2]);
     }
     let origins = gpu.words(&[0; 8], storage);
-    let materials = gpu.words(&[0, 0, assets::NO_ANIMATION, 0, 0, 0], storage);
+    let materials = gpu.words(&unanimated_material(0, 0), storage);
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 8], storage);
     let clock = gpu.words(&[0; 4], uniform);
@@ -368,9 +380,17 @@ fn cropped_model_faces_interpolate_exponent_shaded_source_corners() {
         assets::MATERIAL_FLAG_ALPHA_CUTOUT,
         assets::MATERIAL_FLAG_ALPHA_BLEND,
     ] {
-        for exponent in [0, 80] {
-            let flags = alpha | (exponent << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT);
-            let materials = gpu.words(&[0, flags, assets::NO_ANIMATION, 0, 0, 0], storage);
+        for exponent in [1.0_f32, 0.8] {
+            let flags = alpha;
+            let materials = gpu.words(
+                &crate::material_records::material_words(assets::Material {
+                    flags,
+                    animation: assets::NO_ANIMATION,
+                    ao_exponent: exponent.to_bits(),
+                    ..assets::Material::unvaried()
+                }),
+                storage,
+            );
             let bindings = [
                 (0, view.as_entire_binding()),
                 (2, origins.as_entire_binding()),
@@ -384,8 +404,7 @@ fn cropped_model_faces_interpolate_exponent_shaded_source_corners() {
             ]
             .map(|(binding, resource)| wgpu::BindGroupEntry { binding, resource });
             let values = gpu.compute_readback(&shader, &bindings, OUTPUT_BINDING, 8, 8);
-            let power = if exponent == 0 { 1.0 } else { 0.8 };
-            let source_shades = [1.0_f32, 0.8, 0.4, 0.2].map(|ao| (ao * 0.8).powf(power));
+            let source_shades = [1.0_f32, 0.8, 0.4, 0.2].map(|ao| (ao * 0.8).powf(exponent));
             for (corner, sample) in values[..4].iter().enumerate() {
                 for actual in sample.map(f32::from_bits) {
                     assert!((actual - source_shades[corner]).abs() < 1.0e-5);
@@ -477,9 +496,9 @@ fn packed_liquid_vertices_mask_route_flags_and_use_the_records_section_tint() {
     let geometry = gpu.words(&words, storage);
     let materials = gpu.words(
         &[
-            [0, 0, assets::NO_ANIMATION, 0, 0, 0],
-            [0, 0, assets::NO_ANIMATION, 2, 1, 0],
-            [0, 0, assets::NO_ANIMATION, 0, 0, 0],
+            unanimated_material(0, 0),
+            unanimated_material(2, 1),
+            unanimated_material(0, 0),
         ]
         .concat(),
         storage,
@@ -632,7 +651,11 @@ const MODEL_WITNESS: &str = r#"
     }
     for (var corner = 0u; corner < 4u; corner++) {
         let vertex = model_vertex(corner, query.x);
-        if (quad.valid != 0u) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
+        if (quad.valid != 0u) {
+            let flags = vertex.visibility.x;
+            let two_sided = select(0u, 1u, (flags & MODEL_TWO_SIDED) != 0u);
+            results[3u + corner] = vec4(flags & ~MODEL_TWO_SIDED, two_sided, vertex.biome_record, 0u);
+        }
         else { results[3u + corner] = bitcast<vec4<u32>>(vertex.clip_position); }
     }
 }

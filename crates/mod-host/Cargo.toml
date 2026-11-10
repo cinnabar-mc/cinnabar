@@ -39,6 +39,7 @@ mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 ui = { path = "../ui" }
 anyhow.workspace = true
+brotli-decompressor = "=6.0.1"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 png = "0.18"
 sha2 = { workspace = true }
@@ -68,6 +69,7 @@ rustix = { version = "=1.1.4", features = ["mm"] }
 libc = "0.2"
 
 [dev-dependencies]
+brotli = "=9.0.0"
 toml = "0.9"
 criterion.workspace = true
 test-alloc = { path = "../test-alloc" }

@@ -94,6 +94,58 @@ fn labpbr_preserves_dielectric_f0_metal_ids_height_ao_and_emission_sentinel() {
 }
 
 #[test]
+fn texture_set_byte_layers_decode_tga_using_their_resolved_filenames() {
+    let set = pack_compile_input::texture_set::parse_texture_set(&serde_json::json!({
+        "format_version": "1.16.100", "minecraft:texture_set": {
+            "color": "color", "normal": "normal", "metalness_emissive_roughness": "material"
+        }
+    }))
+    .unwrap();
+    for tga_layer in ["color", "normal", "material"] {
+        let texture = pbr_texture_from_texture_set(&set, &mut |name| {
+            let pixel = match name {
+                "color" => [10, 20, 30, 255],
+                "normal" => [128, 128, 255, 255],
+                "material" => [32, 64, 96, 255],
+                _ => panic!("unexpected layer {name}"),
+            };
+            let (extension, format) = if name == tga_layer {
+                ("tga", image::ImageFormat::Tga)
+            } else {
+                ("png", image::ImageFormat::Png)
+            };
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            rgba(pixel).write_to(&mut bytes, format).unwrap();
+            Some((
+                format!("textures/resolved_{name}.{extension}"),
+                bytes.into_inner(),
+            ))
+        })
+        .unwrap();
+        assert_eq!(texture.surface.color.get_pixel(0, 0).0, [10, 20, 30, 255]);
+        assert_eq!(
+            texture.surface.normal.get_pixel(0, 0).0,
+            [128, 128, 255, 128]
+        );
+        assert_eq!(texture.surface.material.get_pixel(0, 0).0, [32, 64, 96, 0]);
+        assert_eq!(
+            texture.surface.flags & (PBR_REF_NORMAL | PBR_REF_MATERIAL),
+            PBR_REF_NORMAL | PBR_REF_MATERIAL
+        );
+        let source = match tga_layer {
+            "color" => &texture.source.color,
+            "normal" => &texture.source.normal,
+            "material" => &texture.source.material,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            source.as_deref(),
+            Some(Path::new(&format!("textures/resolved_{tga_layer}.tga")))
+        );
+    }
+}
+
+#[test]
 fn texture_set_constants_follow_argb_mer_and_subsurface_dominance_rules() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory

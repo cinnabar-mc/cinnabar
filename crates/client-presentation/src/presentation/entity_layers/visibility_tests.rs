@@ -18,7 +18,7 @@ fn batch() -> ActorPresentationBatch {
 }
 
 #[test]
-fn visibility_all_false_suppresses_body_without_hiding_equipment() {
+fn inactive_and_no_draw_controllers_suppress_body_without_hiding_equipment() {
     let mut cache = LayerPoseCache::default();
     for controllers in [
         None,
@@ -26,6 +26,7 @@ fn visibility_all_false_suppresses_body_without_hiding_equipment() {
         Some(ControllerActivity::NoControllers),
         Some(ControllerActivity::Active),
         Some(ControllerActivity::Inactive),
+        Some(ControllerActivity::ActiveNoDraw),
         Some(ControllerActivity::Active),
     ] {
         let mut batch = batch();
@@ -56,7 +57,10 @@ fn visibility_all_false_suppresses_body_without_hiding_equipment() {
             &ActorArtworkPages::default(),
             &mut cache,
         );
-        let hidden = controllers == Some(ControllerActivity::Inactive);
+        let hidden = matches!(
+            controllers,
+            Some(ControllerActivity::Inactive | ControllerActivity::ActiveNoDraw)
+        );
         assert_eq!(
             batch.submissions[0].route,
             if hidden {

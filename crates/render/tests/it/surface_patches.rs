@@ -12,10 +12,12 @@ fn cube_and_cropped_model_faces_preserve_exponents_before_light_interpolation() 
     let production = include_str!("../../src/model.wesl");
     let coordinates = &production[production.find("fn surface_axes(").unwrap()
         ..production.find("/// Template-space position").unwrap()];
-    let lighting = &production[production
+    let lighting_start = production
         .find("    let ao = material_ambient_occlusion(")
-        .unwrap()
-        ..production.find("    out.visibility.y =").unwrap()];
+        .unwrap();
+    let lighting = &production[lighting_start..][..production[lighting_start..]
+        .find("    out.world_position = world;")
+        .unwrap()];
     let cube = include_str!("../../src/chunk.wesl");
     let cube_lighting = &cube[cube
         .find("    let ao = material_ambient_occlusion(")
@@ -25,8 +27,7 @@ fn cube_and_cropped_model_faces_preserve_exponents_before_light_interpolation() 
         include_str!("../../src/material.wesl"),
     )
     .replace("SURFACE_TILE_MASK", &format!("{}u", meshing::surface::TILE_MASK))
-    .replace("SURFACE_BORDER_REL_SHIFT", &format!("{}u", meshing::surface::BORDER_SHIFT - meshing::surface::TILE_SHIFT))
-    .replace("EXPONENT_FLAGS", &format!("{}u", 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT));
+    .replace("SURFACE_BORDER_REL_SHIFT", &format!("{}u", meshing::surface::BORDER_SHIFT - meshing::surface::TILE_SHIFT));
     for definitions in [&[][..], &["ENHANCED"][..]] {
         let shader = shader_source::standalone(&source, definitions);
         let pixels = gpu.render(
@@ -149,9 +150,9 @@ fn light_colour(sample: u32) -> vec3<f32> { return vec3(1.0); }
 fn sky_illumination(sample: u32) -> f32 { return 1.0; }
 /// Keeps native light coordinates constant while the production code crops them.
 fn terrain_light_levels(sample: u32) -> vec2<f32> { return vec2(1.0); }
-/// Runs the production lighting block with controlled face samples.
-fn patch_lighting(quad: ModelQuad, corner: u32, flags: u32) -> LightingOutput {
-    let material = MaterialGpu(0u, flags, 0u, 0u, 0u, 0u);
+/// Runs the production lighting block with controlled face samples and AO exponent bits.
+fn patch_lighting(quad: ModelQuad, corner: u32, exponent: u32) -> LightingOutput {
+    let material = MaterialGpu(0u, 0u, 0u, 0u, 0u, 0u, 0xffffffffu, 0xffffffffu, 0u, exponent);
     let light_sample = model_light_sample(quad, corner);
     let is_lily_pad = false;
     let pad_shade = 1.0;
@@ -168,18 +169,18 @@ const LIGHTING_WITNESS: &str = r#"
     var valid = true;
     for (var constant_samples = 0u; constant_samples < 2u; constant_samples += 1u) {
         for (var encoded = 0u; encoded < 2u; encoded += 1u) {
-            let flags = select(0u, EXPONENT_FLAGS, encoded != 0u);
+            let exponent = bitcast<u32>(select(1.0, 0.8, encoded != 0u));
             let face = ModelQuad(0u, 5u | (constant_samples << 8u));
-            let a = patch_lighting(face, 0u, flags).lighting.x;
-            let b = patch_lighting(face, 1u, flags).lighting.x;
-            let c = patch_lighting(face, 2u, flags).lighting.x;
-            let d = patch_lighting(face, 3u, flags).lighting.x;
+            let a = patch_lighting(face, 0u, exponent).lighting.x;
+            let b = patch_lighting(face, 1u, exponent).lighting.x;
+            let c = patch_lighting(face, 2u, exponent).lighting.x;
+            let d = patch_lighting(face, 3u, exponent).lighting.x;
             @if(ENHANCED)
             for (var corner = 0u; corner < 4u; corner += 1u) {
                 let sample = model_light_sample(face, corner);
                 let ao = array(0.2, 0.4, 0.6, 0.9)[sample >> 8u];
                 let expected = pow(ao * 0.8, select(1.0, 0.8, encoded != 0u));
-                let actual = cube_lighting(sample, flags);
+                let actual = cube_lighting(sample, exponent);
                 valid = valid && all(abs(actual.lighting - vec3(expected)) < vec3(0.00001));
                 valid = valid && abs(actual.lighting.x - array(a, b, c, d)[corner]) < 0.00001;
                 valid = valid && abs(actual.ambient_occlusion - ao) < 0.00001;
@@ -189,7 +190,7 @@ const LIGHTING_WITNESS: &str = r#"
                 for (var corner = 0u; corner < 4u; corner += 1u) {
                     let point = patch_coordinate(tile_quad, corner);
                     let expected = mix(mix(a, b, point.x), mix(d, c, point.x), point.y);
-                    let actual = patch_lighting(tile_quad, corner, flags);
+                    let actual = patch_lighting(tile_quad, corner, exponent);
                     valid = valid && all(abs(actual.lighting - vec3(expected)) < vec3(0.00001));
                     @if(!ENHANCED)
                     valid = valid && abs(actual.native_ao_face - expected) < 0.00001;
@@ -204,9 +205,9 @@ const LIGHTING_WITNESS: &str = r#"
 const CUBE_LIGHTING_FIXTURE: &str = r#"
 /// Supplies the same side normal as the model lighting witness.
 fn face_normal(face: u32) -> vec3<f32> { return vec3(0.0, 0.0, -1.0); }
-/// Runs the production cube lighting block with controlled face samples.
-fn cube_lighting(light_sample: u32, flags: u32) -> LightingOutput {
-    let material = MaterialGpu(0u, flags, 0u, 0u, 0u, 0u);
+/// Runs the production cube lighting block with controlled face samples and AO exponent bits.
+fn cube_lighting(light_sample: u32, exponent: u32) -> LightingOutput {
+    let material = MaterialGpu(0u, 0u, 0u, 0u, 0u, 0u, 0xffffffffu, 0xffffffffu, 0u, exponent);
     let face = 4u;
     var out: LightingOutput;
 "#;

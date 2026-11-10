@@ -1,5 +1,6 @@
 use super::*;
 use assets::material_keys::MaterialTextureSource;
+use image::{ImageBuffer, Rgba};
 
 #[test]
 fn inherited_material_tints_split_layers_until_the_winning_catalog_replaces_them() {

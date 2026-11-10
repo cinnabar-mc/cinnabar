@@ -73,6 +73,10 @@ pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
 pub const MAX_INVENTORY_REQUESTS: usize = 4;
 /// Optional top-level component data containing one existing personal panel bundle.
 pub const PANEL_BUNDLE_SECTION: &str = "cinnabar:extension/panel-bundle@1";
+/// Optional top-level component data containing the same panel bundle compressed as one
+/// Brotli stream. A component carries at most one of the two panel bundle versions, and
+/// the decompressed JSON keeps the uncompressed bundle's byte limit.
+pub const COMPRESSED_PANEL_BUNDLE_SECTION: &str = "cinnabar:extension/panel-bundle@2";
 /// Optional top-level component data containing one outline font for the personal panel.
 pub const PANEL_FONT_SECTION: &str = "cinnabar:extension/font@1";
 /// Maximum source bytes in an embedded or explicitly selected personal panel font.
@@ -113,8 +117,9 @@ pub const REVISION_UPDATE_SECTION: &str = "cinnabar:extension/revision-update@1"
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
 /// Every presentation asset section stripped from executable component bytes.
-pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
+pub const COMPONENT_ASSET_SECTIONS: [&str; 7] = [
     PANEL_BUNDLE_SECTION,
+    COMPRESSED_PANEL_BUNDLE_SECTION,
     PANEL_FONT_SECTION,
     MENU_LOGO_SECTION,
     MENU_TITLE_SECTION,

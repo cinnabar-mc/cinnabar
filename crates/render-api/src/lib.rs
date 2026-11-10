@@ -11,6 +11,7 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+pub mod render_state;
 mod shield;
 pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
 mod trim;

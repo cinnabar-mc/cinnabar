@@ -61,10 +61,23 @@ fn paint(
 /// A short distance must not let its wider annotation cover the selected widget or nearby keys.
 #[test]
 fn measurement_captions_keep_selected_and_neighboring_artwork_clear() {
-    let hud: Hud = serde_json::from_value(serde_json::json!({"cards":[
-        {"id":"fps","anchor":"top_left","offset":[12,37],"width":56,"row_height":18,"rows":[{"label":"FPS","value":"144"}]},
-        {"id":"keys","anchor":"top_left","offset":[0,60],"width":70,"row_height":26,"rows":[{"label":"W","value":""},{"label":"A S D","value":""},{"label":"SPACE","value":""}]}
-    ]})).unwrap();
+    let hud = Hud {
+        cards: vec![
+            ui::mod_hud::Card {
+                id: "fps".into(),
+                offset: [12., 37.],
+                editor_size: Some([56., 22.]),
+                ..Default::default()
+            },
+            ui::mod_hud::Card {
+                id: "keys".into(),
+                offset: [0., 60.],
+                editor_size: Some([70., 82.]),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
     let mut ui = HudEditor::new(&hud).unwrap();
     let editor = &mut ui;
     editor.viewport = [400., 240.];
@@ -313,7 +326,6 @@ fn fixed_touch_preview_retains_geometry_and_chrome_without_a_personal_panel() {
             anchor: ui::mod_hud::Anchor::BottomRight,
             offset: [12., 20.],
             width: 1.,
-            cells: vec![ui::mod_hud::Cell::default()],
             ..Default::default()
         }],
         ..Default::default()

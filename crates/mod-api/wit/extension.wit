@@ -30,20 +30,19 @@ interface hud {
     enum font { native, sans }
     /// Width of one line of text in GUI units at text scale 1, as a surface label lays it out.
     measure-text: func(text: string, font: font) -> result<f32, string>;
-    /// Vanilla HUD elements a mod may read and hide.
-    enum vanilla-element { crosshair, status-effects, sidebar, hunger }
+    /// Vanilla HUD elements a mod may read and hide. `position` is the position line the
+    /// `showcoordinates` rule or a held filled map shows.
+    enum vanilla-element { crosshair, status-effects, sidebar, hunger, position }
     /// A rectangle in GUI units from the top left of the HUD root.
     record rect { x: f32, y: f32, width: f32, height: f32 }
     /// Whether vanilla draws the element this frame, ignoring hiding, and where. `bounds`
     /// covers what vanilla draws: the drawn row of shanks for `hunger`, not its renderer
     /// node; the effect icons for `status-effects`; the cursor for `crosshair`; the sidebar's
-    /// rows for `sidebar`. None while vanilla lays the element out nowhere.
+    /// rows for `sidebar`; the line and its background for `position`. None while vanilla
+    /// lays the element out nowhere, which includes a hidden `sidebar` or `position`.
     record element-state { element: vanilla-element, visible: bool, bounds: option<rect> }
     /// Retained; the listed elements are not drawn. An empty list restores them all.
     set-hidden-elements: func(elements: list<vanilla-element>) -> result<_, string>;
-    /// Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
-    /// a held filled map) is not drawn. Independent of `set-hidden-elements`.
-    set-position-hidden: func(hidden: bool) -> result<_, string>;
     /// The current state of every vanilla element, in enum order.
     read-elements: func() -> result<list<element-state>, string>;
 }
@@ -96,30 +95,48 @@ interface clock {
     read-local-time: func() -> result<local-time, string>;
 }
 
-/// Mod-supplied parameters of native world presentation; requires hud authority, and nonempty
-/// per-actor lists also players or entities. Each call replaces this mod's retained value once
-/// the callback succeeds; a callback may make 8 presentation calls, and one more traps it.
+/// Mod-supplied parameters of native world presentation; requires hud authority, and lists that
+/// name actors by runtime ID also players or entities. Each call replaces this mod's retained
+/// value once the callback succeeds; a callback may make 8 presentation calls, and one more
+/// traps it.
 /// Limits are the constants in `mod_api::presentation`.
 ///
-/// The client merges loaded mods in load order. The earliest mod that sets a nametag style, a
-/// hurt overlay or chat actions owns that policy. For each runtime ID and surface, the earliest
-/// mod whose grants admit the actor's kind owns the row: players need the players grant, other
-/// actors the entities grant, and rows a mod's grants do not admit never apply. Tooltip lines
-/// append in load order.
+/// The client merges loaded mods in load order. The earliest mod that sets a nametag style,
+/// nametag rules or chat actions owns that policy, and for each tint state, the earliest mod
+/// with a tint rule for that state owns every tint rule for it. For each runtime ID and surface,
+/// the earliest mod whose grants admit the actor's kind owns the annotation: players need the
+/// players grant, other actors the entities grant. Rules and annotations a mod's grants do not
+/// admit never apply. Tooltip lines append in load order.
 /// Grants: `hud`; actor rows additionally require `players` or `entities` for their kind.
 interface presentation {
     use render.{rgba};
     /// Parameters of the native nametag renderer: opacity 0–1, scale 0.5–3, border width 0–8.
     /// Text colours replace the native ones when present; annotation spans keep their own.
     record nametag-style {
-        hide: bool, hide-players: bool, hide-passengers: bool,
-        show-self: bool, show-when-hud-hidden: bool,
         opacity: f32, scale: f32, shadow: bool, border-width: f32,
         text-color: option<rgba>, own-text-color: option<rgba>,
         border-color: option<rgba>, background-color: option<rgba>,
     }
     /// Retained; none restores native nametags.
     set-nametag-style: func(style: option<nametag-style>) -> result<_, string>;
+    /// Which actors a rule covers, by facts the client knows about them: every actor, players
+    /// (the local player included), other actors, the local player, actors riding another
+    /// actor, or one actor by nonzero runtime ID. Only `actor` needs an actor grant, and it
+    /// covers only the kinds the rule owner's grants admit.
+    variant actor-selector { all, players, non-players, local-player, riding, actor(u64) }
+    /// What a nametag rule does: `native` draws the tag as the client does, with the local
+    /// player's own tag only when the player's settings or an annotation show it; `shown` also
+    /// draws the local player's own tag; `hidden` removes the tag.
+    enum nametag-visibility { native, shown, hidden }
+    /// `hud-hidden` limits the rule to while the player has hidden the HUD (true) or shows it
+    /// (false); none applies either way.
+    record nametag-rule { actors: actor-selector, hud-hidden: option<bool>, visibility: nametag-visibility }
+    /// Retained; at most `MAX_NAMETAG_RULES`. Each tag starts at the client's own rule, `hidden`
+    /// while the HUD is hidden and `native` otherwise; then every rule that covers the actor
+    /// applies in list order, so the last one decides. Tags never draw while the HUD is hidden
+    /// and a menu is open, the own tag never draws in first person, and no rule draws a tag the
+    /// actor lacks or the player's name settings remove.
+    set-nametag-rules: func(rules: list<nametag-rule>) -> result<_, string>;
     /// Plain single-line text of at most `MAX_ANNOTATION_SPAN_BYTES`, without style codes.
     record text-span { text: string, color: rgba }
     /// Where annotation spans go relative to the native name. Spans draw end to end in list
@@ -142,13 +159,14 @@ interface presentation {
     }
     /// Retained; replaces every annotation from this mod, at most `MAX_ANNOTATIONS`.
     set-annotations: func(annotations: list<annotation>) -> result<_, string>;
-    /// Native damage overlay colours for actor bodies and their armour, while an actor is hurt;
-    /// none keeps native. One policy: the earliest mod setting either colour owns both.
-    set-hurt-overlay: func(body: option<rgba>, armor: option<rgba>) -> result<_, string>;
-    /// An overlay tint drawn while the actor is not hurt.
-    record actor-tint { runtime-id: u64, color: rgba }
-    /// Retained; replaces every tint from this mod, at most `MAX_ACTOR_TINTS` distinct nonzero
-    /// runtime IDs.
+    /// The actor state a tint applies in. `hurt` lasts as long as the native damage flash.
+    enum tint-state { hurt, not-hurt }
+    /// Overlay colours for the bodies of the covered actors and their armour; none keeps that
+    /// part native. While hurt, the body colour replaces the native damage overlay only where
+    /// that overlay draws. At least one colour is set.
+    record actor-tint { actors: actor-selector, state: tint-state, body: option<rgba>, armor: option<rgba> }
+    /// Retained; replaces every tint from this mod, at most `MAX_TINT_RULES`. For an actor in a
+    /// state, the last tint in the list that covers it and names that state decides.
     set-actor-tints: func(tints: list<actor-tint>) -> result<_, string>;
     /// One extra item tooltip line of plain text, at most `MAX_TOOLTIP_LINE_BYTES`; metadata
     /// none matches every variant. One item's tooltip shows at most `MAX_ITEM_TOOLTIP_LINES`.
