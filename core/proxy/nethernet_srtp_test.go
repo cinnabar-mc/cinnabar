@@ -34,9 +34,15 @@ func TestNetherNetDialConnectsWhenServerOffersNoSRTP(t *testing.T) {
 	defer cancel()
 
 	signaling := newOneServerSignaling(ctx)
-	received := make(chan []byte, 1)
-	serverErr := make(chan error, 1)
-	go func() { serverErr <- serveNoSRTPNetherNet(ctx, signaling, received) }()
+	type serverResult struct {
+		segment []byte
+		err     error
+	}
+	served := make(chan serverResult, 1)
+	go func() {
+		segment, err := serveNoSRTPNetherNet(ctx, signaling)
+		served <- serverResult{segment, err}
+	}()
 
 	dialer := remoteServerNetwork(slog.New(slog.DiscardHandler), nil, nil).NetherNet.Dialer
 	conn, err := dialer.DialContext(ctx, oneServerNetworkID, signaling)
@@ -50,12 +56,13 @@ func TestNetherNetDialConnectsWhenServerOffersNoSRTP(t *testing.T) {
 		t.Fatalf("write over the reliable channel: %v", err)
 	}
 	select {
-	case got := <-received:
-		if !bytes.Equal(got, payload) {
-			t.Fatalf("server received %q, want %q", got, payload)
+	case result := <-served:
+		if result.err != nil {
+			t.Fatalf("server: %v", result.err)
 		}
-	case err := <-serverErr:
-		t.Fatalf("server: %v", err)
+		if !bytes.Equal(result.segment, payload) {
+			t.Fatalf("server received %q, want %q", result.segment, payload)
+		}
 	case <-ctx.Done():
 		t.Fatal("server received no packet")
 	}
@@ -64,21 +71,21 @@ func TestNetherNetDialConnectsWhenServerOffersNoSRTP(t *testing.T) {
 const oneServerNetworkID = "server"
 
 // serveNoSRTPNetherNet answers one offer like a data-channel-only NetherNet server: it takes the
-// DTLS client role without SRTP profiles, then forwards the first reliable-channel segment.
-func serveNoSRTPNetherNet(ctx context.Context, signaling *oneServerSignaling, received chan<- []byte) error {
+// DTLS client role without SRTP profiles, then returns the first reliable-channel segment.
+func serveNoSRTPNetherNet(ctx context.Context, signaling *oneServerSignaling) ([]byte, error) {
 	var offer *nethernet.Signal
 	select {
 	case offer = <-signaling.offers:
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 	parsed := &sdp.SessionDescription{}
 	if err := parsed.UnmarshalString(offer.Data); err != nil {
-		return fmt.Errorf("decode offer: %w", err)
+		return nil, fmt.Errorf("decode offer: %w", err)
 	}
 	remote, err := nethernet.ParseDescription(parsed)
 	if err != nil {
-		return fmt.Errorf("parse offer: %w", err)
+		return nil, fmt.Errorf("parse offer: %w", err)
 	}
 
 	agent, err := ice.NewAgentWithOptions(
@@ -87,24 +94,24 @@ func serveNoSRTPNetherNet(ctx context.Context, signaling *oneServerSignaling, re
 		ice.WithIncludeLoopback(),
 	)
 	if err != nil {
-		return fmt.Errorf("create ICE agent: %w", err)
+		return nil, fmt.Errorf("create ICE agent: %w", err)
 	}
 	defer agent.Close()
 	candidates, err := gatherHostCandidates(ctx, agent)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ufrag, pwd, err := agent.GetLocalUserCredentials()
 	if err != nil {
-		return fmt.Errorf("local ICE credentials: %w", err)
+		return nil, fmt.Errorf("local ICE credentials: %w", err)
 	}
 	certificate, err := selfsign.GenerateSelfSigned()
 	if err != nil {
-		return fmt.Errorf("generate certificate: %w", err)
+		return nil, fmt.Errorf("generate certificate: %w", err)
 	}
 	answer, err := noSRTPAnswer(certificate, ufrag, pwd, candidates)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	signaling.deliver(&nethernet.Signal{
 		Type:         nethernet.SignalTypeAnswer,
@@ -115,28 +122,28 @@ func serveNoSRTPNetherNet(ctx context.Context, signaling *oneServerSignaling, re
 
 	iceConn, err := agent.Accept(ctx, remote.ICE.UsernameFragment, remote.ICE.Password)
 	if err != nil {
-		return fmt.Errorf("ICE accept: %w", err)
+		return nil, fmt.Errorf("ICE accept: %w", err)
 	}
 	// No dtls.WithSRTPProtectionProfiles: the ClientHello carries no use_srtp extension.
 	dtlsConn, err := dtls.ClientWithOptions(datagramConn{iceConn}, iceConn.RemoteAddr(),
 		dtls.WithCertificates(certificate), dtls.WithInsecureSkipVerify(true))
 	if err != nil {
-		return fmt.Errorf("DTLS client: %w", err)
+		return nil, fmt.Errorf("DTLS client: %w", err)
 	}
 	defer dtlsConn.Close()
 	if err := dtlsConn.HandshakeContext(ctx); err != nil {
-		return fmt.Errorf("DTLS handshake: %w", err)
+		return nil, fmt.Errorf("DTLS handshake: %w", err)
 	}
 	loggers := logging.NewDefaultLoggerFactory()
 	association, err := sctp.Client(sctp.Config{NetConn: dtlsConn, LoggerFactory: loggers})
 	if err != nil {
-		return fmt.Errorf("SCTP association: %w", err)
+		return nil, fmt.Errorf("SCTP association: %w", err)
 	}
 	defer association.Close()
 	for {
 		channel, err := datachannel.Accept(association, &datachannel.Config{LoggerFactory: loggers})
 		if err != nil {
-			return fmt.Errorf("accept data channel: %w", err)
+			return nil, fmt.Errorf("accept data channel: %w", err)
 		}
 		if channel.Config.Label != nethernet.MessageReliabilityReliable.Parameters().Label {
 			continue
@@ -144,14 +151,13 @@ func serveNoSRTPNetherNet(ctx context.Context, signaling *oneServerSignaling, re
 		segment := make([]byte, 1024)
 		n, err := channel.Read(segment)
 		if err != nil {
-			return fmt.Errorf("read reliable channel: %w", err)
+			return nil, fmt.Errorf("read reliable channel: %w", err)
 		}
 		// Each segment starts with its remaining-segment count.
 		if n == 0 || segment[0] != 0 {
-			return fmt.Errorf("unexpected segment % x", segment[:n])
+			return nil, fmt.Errorf("unexpected segment % x", segment[:n])
 		}
-		received <- segment[1:n]
-		return nil
+		return segment[1:n], nil
 	}
 }
 
