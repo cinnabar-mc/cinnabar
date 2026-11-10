@@ -43,6 +43,7 @@ fn panorama_artwork_profile_uses_account_banner_but_featured_image_wins() {
             for featured in [
                 None,
                 Some(IconRef {
+                    color_mask: None,
                     page: 30,
                     uv: [0, 0, 160, 90],
                     glint: false,

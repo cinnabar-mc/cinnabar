@@ -39,6 +39,7 @@ fn panorama_artwork_world_preview_yields_to_an_edited_world_thumbnail() {
     let artwork = HashMap::from([(
         thumbnail_key("fixture"),
         ui::IconRef {
+            color_mask: None,
             page: 30,
             uv: [0, 0, 320, 180],
             glint: false,
