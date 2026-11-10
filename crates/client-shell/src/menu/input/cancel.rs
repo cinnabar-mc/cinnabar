@@ -200,6 +200,49 @@ mod tests {
         assert!(app.world().resource::<MenuRuntime>().is_visible());
     }
 
+    #[test]
+    fn chat_settings_back_consumes_same_frame_enter_without_reopening_home() {
+        use bevy::input::keyboard::{Key, NativeKey};
+        use client_state::CursorFocus;
+
+        for enter in [KeyCode::Enter, KeyCode::NumpadEnter] {
+            let mut menu = MenuRuntime::new(false, 2, "Player".into());
+            menu.open_chat_settings();
+            let mut app = harness(menu);
+            let window = app
+                .world_mut()
+                .query_filtered::<Entity, With<PrimaryWindow>>()
+                .single(app.world())
+                .unwrap();
+            let mut focus = CursorFocus::default();
+            focus.begin_frame(false);
+            focus.begin_frame(true);
+            focus.record_activation(true);
+            app.insert_resource(focus);
+            for key_code in [KeyCode::Escape, enter] {
+                app.world_mut().write_message(KeyboardInput {
+                    key_code,
+                    logical_key: Key::Unidentified(NativeKey::Unidentified),
+                    state: ButtonState::Pressed,
+                    text: None,
+                    repeat: false,
+                    window,
+                });
+            }
+            app.update();
+            assert!(!app.world().resource::<MenuRuntime>().is_visible());
+            assert!(app.world().resource::<CursorFocus>().capture_allowed());
+
+            app.world_mut().resource_mut::<MenuRuntime>().open_pause();
+            app.update();
+            assert_eq!(
+                app.world().resource::<MenuRuntime>().scene(),
+                Some(MenuScreen::Pause),
+                "the consumed Enter must not activate Resume on the next frame"
+            );
+        }
+    }
+
     /// Runs production menu input with an original font fixture and a focused window.
     fn harness(menu: MenuRuntime) -> App {
         let mut app = App::new();
