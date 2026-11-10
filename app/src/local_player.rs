@@ -127,7 +127,6 @@ pub(crate) struct PointLightSources<'w> {
     partial_tick: Res<'w, ActorFramePartialTick>,
     player: Option<Res<'w, client_state::PlayerRuntime>>,
     ui: Option<Res<'w, client_shell::ui_resources::UiRuntimeResource>>,
-    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
 }
 
 /// Publishes the Dynamic Lights setting, the local held-item light and the nearest remote
@@ -135,18 +134,26 @@ pub(crate) struct PointLightSources<'w> {
 /// only when they change, so render extraction skips unchanged frames.
 pub(crate) fn publish_world_point_lights(
     sources: PointLightSources,
+    #[cfg(not(target_arch = "wasm32"))] menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    #[cfg(target_arch = "wasm32")] options: Res<crate::browser_input::BrowserOptions>,
     mut scratch: Local<ItemLightScratch>,
     light: Option<ResMut<render_scene::WorldPointLight>>,
 ) {
     let Some(mut light) = light else {
         return;
     };
-    let enabled = sources.menu.as_deref().is_some_and(|menu| {
+    #[cfg(not(target_arch = "wasm32"))]
+    let enabled = menu.as_deref().is_some_and(|menu| {
         menu.settings_snapshot()
             .0
             .value(launcher::menu::settings_options::SettingId::DynamicLights)
             != 0
     });
+    #[cfg(target_arch = "wasm32")]
+    let enabled = options
+        .0
+        .value(launcher::menu::settings_options::SettingId::DynamicLights)
+        != 0;
     if light.enabled != enabled {
         light.enabled = enabled;
     }
