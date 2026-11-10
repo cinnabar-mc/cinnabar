@@ -290,51 +290,54 @@ fn record_kind(
     }
 }
 
-/// Terrain draws whose depth prepass runs this frame.
-fn prepassed_terrain(pack: &PackGpu, geometry: &FrameGeometry<'_>) -> Vec<usize> {
-    [DrawKind::TerrainSolid, DrawKind::TerrainCutout]
-        .into_iter()
-        .filter_map(|kind| pack.draws.iter().position(|d| d.kind == kind))
-        .filter(|&index| {
-            let draw = &pack.draws[index];
-            draw.prepass.is_some() && draw.layout == Some(geometry.terrain.layout())
-        })
-        .collect()
+/// The terrain draw whose prepass matches the current vertex layout.
+fn terrain_prepass(pack: &PackGpu, geometry: &FrameGeometry<'_>, kind: DrawKind) -> Option<usize> {
+    pack.draws.iter().position(|draw| {
+        draw.kind == kind
+            && draw.prepass.is_some()
+            && draw.layout == Some(geometry.terrain.layout())
+    })
 }
 
-/// The sky may test the prepass depth when every prepassed terrain draw later overwrites,
-/// unblended, each buffer the sky writes: a sky fragment behind prepassed terrain is never
-/// seen, so culling it changes nothing.
+/// The sky may test solid terrain depth when that draw replaces all its outputs and
+/// the sky does not sample the attached depth texture.
 fn sky_behind_terrain(pack: &PackGpu, geometry: &FrameGeometry<'_>) -> bool {
-    let terrain = prepassed_terrain(pack, geometry);
-    if terrain.is_empty() {
+    let Some(terrain) = terrain_prepass(pack, geometry, DrawKind::TerrainSolid) else {
         return false;
-    }
+    };
     pack.draws
         .iter()
         .filter(|d| matches!(d.kind, DrawKind::Sky | DrawKind::Sunset))
         .all(|sky| {
             sky.behind_terrain.is_some()
                 && sky.emulation.is_none()
-                && terrain.iter().all(|&index| {
-                    super::depth_prepass::overwrites(&pack.draws[index].outputs, &sky.outputs)
+                && !pack.programs[sky.program].textures.iter().any(|source| {
+                    matches!(
+                        source,
+                        super::resources::TextureSource::Depth { index: 0, .. }
+                    )
                 })
+                && super::depth_prepass::overwrites(&pack.draws[terrain].outputs, &sky.outputs)
         })
 }
 
-/// Draws solid then cutout terrain depth-only with each draw's prepass pipeline, so their
-/// shading passes test against final depth (see [`super::depth_prepass`]).
+/// Records one terrain category's depth before shading it. Later categories must wait
+/// until earlier draws have written every output, even those the later draw never replaces.
 fn record_depth_prepass(
     encoder: &mut CommandEncoder,
     state: &ViewState,
     geometry: &FrameGeometry<'_>,
     depth: &TextureView,
+    kind: DrawKind,
 ) {
     let pack = &state.pack;
-    let draws = prepassed_terrain(pack, geometry);
-    if draws.is_empty() {
+    let Some(index) = terrain_prepass(pack, geometry, kind) else {
         return;
-    }
+    };
+    let draw = &pack.draws[index];
+    let Some(category) = draw.kind.category() else {
+        return;
+    };
     let render = pass(
         encoder,
         "shader pack terrain depth prepass",
@@ -342,23 +345,17 @@ fn record_depth_prepass(
         depth_attachment(depth, false),
     );
     let mut tracked = TrackedRenderPass::new(geometry.device, render);
-    for index in draws {
-        let draw = &pack.draws[index];
-        let Some(category) = draw.kind.category() else {
-            continue;
-        };
-        let raw = tracked.wgpu_pass();
-        raw.set_pipeline(draw.prepass.as_ref().expect("filtered on prepass"));
-        for (i, group) in state.bindings.draws[index].groups[state.targets.parity]
-            .iter()
-            .enumerate()
-        {
-            if let Some(group) = group {
-                raw.set_bind_group(i as u32, group, &[]);
-            }
+    let raw = tracked.wgpu_pass();
+    raw.set_pipeline(draw.prepass.as_ref().expect("filtered on prepass"));
+    for (i, group) in state.bindings.draws[index].groups[state.targets.parity]
+        .iter()
+        .enumerate()
+    {
+        if let Some(group) = group {
+            raw.set_bind_group(i as u32, group, &[]);
         }
-        geometry.terrain.draw(&mut tracked, category, false);
     }
+    geometry.terrain.draw(&mut tracked, category, false);
 }
 
 /// Copies a depth attachment into float targets with the host's copy pipeline.
@@ -602,7 +599,7 @@ pub(crate) fn record_opaque(
         return;
     };
     clear_depth(encoder, &view);
-    record_depth_prepass(encoder, state, geometry, &view);
+    record_depth_prepass(encoder, state, geometry, &view, DrawKind::TerrainSolid);
     if sky_behind {
         // Colour draw order is unchanged: the prepass writes depth only.
         record_sky(encoder, state, Some((&view, size)));
@@ -612,6 +609,9 @@ pub(crate) fn record_opaque(
         (DrawKind::TerrainCutout, RuntimeStage::GpuTerrainCutout),
     ] {
         within_stage(timestamps, stage, encoder, |encoder| {
+            if kind == DrawKind::TerrainCutout {
+                record_depth_prepass(encoder, state, geometry, &view, kind);
+            }
             record_kind(
                 encoder,
                 state,

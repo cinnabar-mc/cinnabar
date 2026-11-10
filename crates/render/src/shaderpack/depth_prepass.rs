@@ -2,9 +2,9 @@
 //! fragment programs, so every overdrawn fragment costs a full lighting evaluation. A
 //! depth-only pass first (the pack's own vertex stage and the pack's fragment stage with its
 //! colour outputs removed, so only its discards remain) lets the shading pass test against
-//! final depth and shade each visible pixel once. The result is identical when the shading
-//! pass neither blends nor has side effects, and both pipelines compute the same position,
-//! which [`invariant_position`] guarantees.
+//! each category's depth and shade each visible pixel once per category. The result is
+//! identical when the shading pass neither blends nor has side effects, and both pipelines
+//! compute the same position, which [`invariant_position`] guarantees.
 
 use naga::{Binding, BuiltIn, Expression, Handle, Module, ShaderStage, Statement, Type, TypeInner};
 
