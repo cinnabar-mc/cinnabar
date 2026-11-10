@@ -79,7 +79,7 @@ pub(crate) fn merged_touch_movement(frame: &DeviceFrame) -> [f32; 2] {
     let mut movement = [0.0_f32; 2];
     for contact in &frame.touches {
         let candidate = match contact.hit_id {
-            Some(crate::touch::JOYSTICK) => contact.delta,
+            Some(crate::touch::JOYSTICK | crate::touch::DPAD) => contact.delta,
             None if contact.position[0] <= 0.5 && contact.position[1] >= 0.5 => [
                 (contact.position[0] - 0.25) * 4.0,
                 (0.75 - contact.position[1]) * 4.0,

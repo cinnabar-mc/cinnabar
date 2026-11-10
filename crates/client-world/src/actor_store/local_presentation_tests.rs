@@ -28,7 +28,7 @@ fn presentation_feed_preserves_gameplay_metadata() {
     store.sync_local_player(1, -100, &feed);
     receive_flags(&mut store, 1, 1 << ActorFlag::Eating.wire_value());
     let canonical = store.get(1).unwrap().metadata.clone();
-    store.actors.get_mut(&1).unwrap().status.fluid = Some((true, false));
+    feed.swimming = true;
     feed.sneaking = true;
     feed.sprinting = true;
     feed.gliding = true;
@@ -127,4 +127,29 @@ fn dimension_reset_retires_presentation_flags() {
     store.sync_local_player(1, -100, &local_feed(0.0, 0.0));
     let actor = store.get(1).unwrap();
     assert!(!actor.is_using_item() && !actor.is_gliding());
+}
+
+#[test]
+fn local_swim_pose_follows_predicted_swimming_not_body_fluid_contact() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.sprinting = true;
+    feed.swimming = true;
+    for in_water in [true, false, true, false] {
+        if let Some(actor) = store.actors.get_mut(&1) {
+            actor.status.fluid = Some((in_water, false));
+        }
+        store.sync_local_player(1, -100, &feed);
+        assert!(
+            store.get(1).unwrap().flag(ActorFlag::Swimming.wire_value()),
+            "a surfacing body sample must not drop the swim pose"
+        );
+    }
+    feed.swimming = false;
+    store.actors.get_mut(&1).unwrap().status.fluid = Some((true, false));
+    store.sync_local_player(1, -100, &feed);
+    assert!(
+        !store.get(1).unwrap().flag(ActorFlag::Swimming.wire_value()),
+        "sprinting through water without the swimming pose stays upright"
+    );
 }

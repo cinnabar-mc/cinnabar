@@ -88,36 +88,46 @@ fn native_inline_options_navigate_without_commit_and_keep_each_choice_focus() {
     );
 }
 
+/// Repainting a world toggle keeps navigation on it through successive activations.
 #[test]
-fn native_gui_scale_choices_commit_only_on_select() {
+fn world_toggle_keeps_focus_across_two_activations() {
+    use launcher::local_worlds::{in_world::Action, options::WorldOption};
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.screen = MenuScreen::Settings;
-    menu.sync_gui_scale(
-        0,
-        ui::DesktopGuiScale::for_window([1920, 1080])
-            .choices()
-            .collect(),
-    );
-    let rows = [
-        (MenuAction::SettingsScale(-2), [0.0, 0.0, 30.0, 10.0]),
-        (MenuAction::SettingsScale(-1), [30.0, 0.0, 60.0, 10.0]),
-        (MenuAction::SettingsScale(0), [60.0, 0.0, 90.0, 10.0]),
-    ];
-    native_rows(&mut menu, &rows);
-    menu.focus_pointer(MenuAction::SettingsScale(-2));
-    menu.move_horizontal_focus(1);
-    assert_eq!(
-        menu.focus_actions()[menu.focused],
-        MenuAction::SettingsScale(-1)
-    );
-    assert_eq!(menu.gui_scale_offset(), 0);
-    menu.activate_focused();
-    assert_eq!(menu.gui_scale_offset(), -1);
-    native_rows(&mut menu, &rows);
-    assert_eq!(
-        menu.focus_actions()[menu.focused],
-        MenuAction::SettingsScale(-1)
-    );
+    let action = |value| MenuAction::WorldSettings(Action::Option(WorldOption::Pvp, value));
+    let rows = |value| {
+        [
+            (MenuAction::AddBack, [0.0, 0.0, 90.0, 10.0]),
+            (action(value), [0.0, 20.0, 90.0, 30.0]),
+        ]
+    };
+    native_rows(&mut menu, &rows(0));
+    menu.move_directional_focus(SettingsFocusAxis::Vertical, 1);
+    for value in [0, 1] {
+        assert_eq!(menu.focus_actions()[menu.focused], action(value));
+        menu.activate_focused();
+        assert_eq!(
+            menu.settings.control_activation.map(|(action, _)| action),
+            Some(action(value))
+        );
+        native_rows(&mut menu, &rows(1 - value));
+        assert_eq!(menu.focus_actions()[menu.focused], action(1 - value));
+    }
+}
+
+/// World option radio choices remain individually reachable by navigation.
+#[test]
+fn world_option_choices_keep_distinct_focus_targets() {
+    use launcher::local_worlds::{in_world::Action, options::WorldOption};
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.screen = MenuScreen::Settings;
+    let actions = [0, 1].map(|value| {
+        MenuAction::WorldSettings(Action::Option(WorldOption::PlayerWaypoints, value))
+    });
+    menu.refresh_settings_focus(actions);
+    assert_eq!(menu.focus_actions(), actions);
+    menu.move_focus(1);
+    assert_eq!(menu.focus_actions()[menu.focused], actions[1]);
 }
 
 #[test]
@@ -161,7 +171,7 @@ fn toggle_activation_reads_the_current_value_between_paints_and_arrows_do_not_co
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     let index = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.id == SettingId::KeyboardMouseAutojump)
+        .position(|option| option.id == SettingId::AlwaysSprint)
         .unwrap();
     let initial = menu.settings_options.get(index);
     menu.refresh_settings_focus([MenuAction::SettingsOption(index as u16, 1 - initial)]);
@@ -186,53 +196,56 @@ fn toggle_activation_reads_the_current_value_between_paints_and_arrows_do_not_co
     );
 }
 #[test]
-fn gui_scale_picker_commits_once_and_keeps_focus_through_responsive_layouts() {
+fn gui_scale_slider_adjusts_only_while_selected_and_stops_at_its_ends() {
     let mut menu = MenuRuntime::new(true, 2, "Test".into());
     menu.screen = MenuScreen::Settings;
+    menu.set_gui_scale_preference(None);
     menu.sync_gui_scale(
         0,
         ui::DesktopGuiScale::for_window([1920, 1080])
             .choices()
             .collect(),
     );
-    menu.settings_input.actions = vec![MenuAction::SettingsScale(0)];
-    menu.refresh_settings_focus([MenuAction::AddBack, MenuAction::SettingsScalePicker]);
+    let row = |offset| {
+        [
+            (MenuAction::AddBack, [0.0, 0.0, 100.0, 10.0]),
+            (MenuAction::SettingsScale(offset), [0.0, 20.0, 100.0, 30.0]),
+        ]
+    };
+    native_rows(&mut menu, &row(0));
+    menu.focused = 1;
     assert_eq!(
         menu.focus_actions()[menu.focused],
-        MenuAction::SettingsScalePicker
+        MenuAction::SettingsScale(0)
     );
+    menu.move_horizontal_focus(-1);
+    assert_eq!(
+        menu.gui_scale_offset(),
+        0,
+        "an unselected slider navigates instead of adjusting"
+    );
+    menu.focused = 1;
     menu.activate_focused();
-    menu.refresh_settings_focus([
-        MenuAction::SettingsScalePicker,
-        MenuAction::SettingsScale(-2),
-        MenuAction::SettingsScale(-1),
-        MenuAction::SettingsScale(0),
-    ]);
-    menu.move_focus(-1);
-    assert_eq!(menu.gui_scale_offset(), 0);
-    menu.activate_focused();
-    assert_eq!(menu.gui_scale_offset(), -1);
-    assert!(!menu.settings.scale_picker);
-    menu.refresh_settings_focus([MenuAction::AddBack, MenuAction::SettingsScalePicker]);
     assert_eq!(
-        menu.focus_actions()[menu.focused],
-        MenuAction::SettingsScalePicker
+        menu.gui_scale_offset(),
+        0,
+        "selecting the slider keeps its value"
     );
-    menu.refresh_settings_focus([
-        MenuAction::AddBack,
-        MenuAction::SettingsScale(-2),
-        MenuAction::SettingsScale(-1),
-        MenuAction::SettingsScale(0),
-    ]);
-    assert_eq!(
-        menu.focus_actions()[menu.focused],
-        MenuAction::SettingsScale(-1)
-    );
-    menu.activate(MenuAction::SettingsScalePicker);
-    menu.go_back();
-    assert!(!menu.settings.scale_picker);
+    for expected in [-1, -2, -2] {
+        menu.move_horizontal_focus(-1);
+        assert_eq!(menu.gui_scale_offset(), expected);
+        native_rows(&mut menu, &row(expected));
+        assert_eq!(
+            menu.focus_actions()[menu.focused],
+            MenuAction::SettingsScale(expected),
+            "the slider keeps focus and selection across the relayout"
+        );
+    }
+    menu.move_horizontal_focus(1);
     assert_eq!(menu.gui_scale_offset(), -1);
-    assert_eq!(menu.screen, MenuScreen::Settings);
+    assert!(menu.clear_settings_slider_selection());
+    menu.move_horizontal_focus(1);
+    assert_eq!(menu.gui_scale_offset(), -1);
 }
 #[test]
 fn review_settings_focus_reaches_visible_ordinary_controls() {

@@ -6,6 +6,7 @@ use json_ui::{HitRegion, ViewState};
 use ui::{UiNode, UiRect};
 
 use super::super::{UiPresentationError, UiPresentationRuntime, menu, rect};
+use super::menu_sounds::MenuSounds;
 use super::preview_renderer::PreviewRenderer;
 use crate::ui_runtime::UiRuntime;
 use launcher::menu::{MenuAction, MenuField, MenuView};
@@ -75,11 +76,16 @@ impl UiPresentationRuntime {
         }
         let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
-            "{:?}/{:?}/{:?}/{}",
-            shown.screen, shown.server_tab, shown.profile_tab, shown.settings.section
+            "{:?}/{:?}/{:?}",
+            shown.screen, shown.server_tab, shown.profile_tab
         ));
+        self.menu_scrolls
+            .begin_page(shown.settings.section, oreui::SETTINGS_SIDEBAR_SCROLL_KEY);
         self.menu_scrolls.clear_areas();
-        let drawn = if shown.visible {
+        let drawn = if shown.visible && shown.touch_editor_open {
+            self.append_touch_editor(runtime, shown, nodes, next, metrics, [width, height])
+                .map(|()| Some(Vec::new()))
+        } else if shown.visible {
             self.append_engine_menu(runtime, shown, nodes, next, metrics, width, height)
         } else {
             Ok(Some(Vec::new()))
@@ -246,6 +252,7 @@ impl UiPresentationRuntime {
                     | launcher::menu::MenuField::WorldSeed
                     | launcher::menu::MenuField::WorldOption(_)
                     | launcher::menu::MenuField::FriendQuery
+                    | launcher::menu::MenuField::StorageQuery
                     | launcher::menu::MenuField::SettingsQuery
                     | launcher::menu::MenuField::SkinName
                     | launcher::menu::MenuField::RealmCode
@@ -443,7 +450,7 @@ impl UiPresentationRuntime {
             }
         }
         self.add_menu_text_spots(spots);
-        self.screens.menu_sounds = sounds;
+        self.screens.menu_sounds = MenuSounds::Declared(sounds);
         // An owned dialog or the join's trust question takes all input over its screen.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
@@ -478,7 +485,7 @@ impl UiPresentationRuntime {
             Some(view.dialog?)
         };
         if has_native_dialog(dialog) {
-            self.screens.menu_sounds = Vec::new();
+            self.screens.menu_sounds = MenuSounds::OreUi;
             let rollback = (nodes.len(), *next);
             let drawn = if dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
                 self.append_oreui_minecraft_import(view, nodes, next, metrics, [width, height])
@@ -594,7 +601,7 @@ impl UiPresentationRuntime {
                 sounds.extend(region.sound.clone().map(|sound| (action, sound)));
             }
         }
-        self.screens.menu_sounds = sounds;
+        self.screens.menu_sounds = MenuSounds::Declared(sounds);
         Some((hits, keys))
     }
 }

@@ -68,7 +68,7 @@ fn expression(compiled: &mut CompiledEntityAssets, code: &[MolangOp], max_stack:
 fn held_fixture(effects: bool) -> (CompiledEntityAssets, u32) {
     let mut compiled = compiled_fixture(180.0);
     let life = add_query(&mut compiled, "query.life_time");
-    let size = find_symbol(&compiled, "variable.charge_amount");
+    let size = find_symbol(&compiled, "variable.counter");
     let body = find_symbol(&compiled, "query.body_y_rotation");
 
     let held = if effects {
@@ -205,13 +205,16 @@ fn sampled<'a>(
     if alpha < 0.5 {
         frame.layers(1).unwrap();
     }
-    let held = frame.sample_held_item_scale(tick).held_item_scale;
+    let held = frame.sample_equipment_properties(tick).held_item_scale;
     let layers = frame.layers_with_skin(1).unwrap();
     assert!(matches!(&layers.render, Cow::Owned(_)));
     assert_eq!(layers.held_item_scale, held);
     let remaining = frame.remaining_ops();
     assert!(remaining < MAX_MOLANG_OPS_PER_RENDER_FRAME);
-    assert_eq!(frame.sample_held_item_scale(tick).held_item_scale, held);
+    assert_eq!(
+        frame.sample_equipment_properties(tick).held_item_scale,
+        held
+    );
     frame.layers(1).unwrap();
     assert_eq!(frame.remaining_ops(), remaining);
     assert_eq!(authored_state(store), before);
@@ -331,7 +334,7 @@ fn held_effects_replay_once_in_both_motion_endpoints() {
         let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.5);
         frame.set_remaining_ops(budget);
         assert_eq!(
-            frame.sample_held_item_scale(tick).held_item_scale,
+            frame.sample_equipment_properties(tick).held_item_scale,
             tick.held_item_scale
         );
         assert_eq!(authored_state(&store), before);

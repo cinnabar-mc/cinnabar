@@ -3,7 +3,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::{
     Add, Entity, Has, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
 };
-use chunk_pipeline::{CaveVisibilityWork, CaveVisibleSet, WorldStream};
+use chunk_pipeline::{CaveVisibilityRebuild, CaveVisibilityWork, CaveVisibleSet, WorldStream};
 use render_scene::{
     ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler, shaderpack::ShaderPackRendering,
 };
@@ -25,6 +25,7 @@ pub(crate) struct CaveVisibilityCache {
     pub(crate) visible: CaveVisibleSet,
     next_visible: CaveVisibleSet,
     scratch: chunk_pipeline::CaveVisibilityScratch,
+    rebuild: CaveVisibilityRebuild,
     /// Rendered entity per sub-chunk; trusted keys use Bevy's fixed fast hasher, since every
     /// chunk spawn, despawn and visibility flip looks one up.
     pub(crate) rendered: HashMap<SubChunkKey, Entity>,
@@ -35,6 +36,23 @@ pub(crate) struct CaveVisibilityCache {
 }
 
 impl CaveVisibilityCache {
+    /// Restores hidden sections and discards the proof before culling can be enabled again.
+    fn show_all(&mut self, mut set: impl FnMut(Entity, bool)) {
+        if !self.initialized {
+            return;
+        }
+        for (key, &entity) in &self.rendered {
+            if !self.visible.contains(key) {
+                set(entity, true);
+            }
+        }
+        self.initialized = false;
+        self.visible_rendered = self.rendered.len();
+        self.camera = None;
+        self.graph_generation = None;
+        self.scratch = Default::default();
+    }
+
     pub(crate) fn is_visible(&self, key: SubChunkKey) -> bool {
         !self.initialized || self.visible.contains(&key)
     }
@@ -149,6 +167,8 @@ pub(crate) struct DiagnosticQuads(pub(crate) DiagnosticQuadTracker);
 /// [`chunk_pipeline::CaveVisibilityScratch::set_outward_only`].
 pub(crate) fn refresh_cave_visibility(
     client_world: Res<ClientWorld>,
+    settings: Res<client_state::RuntimeSettings>,
+    preference: Option<ResMut<render_scene::ChunkOcclusionCulling>>,
     camera: Query<(&Transform, Has<ShaderPackRendering>), With<FlyCamera>>,
     mut cache: ResMut<CaveVisibilityCache>,
     mut chunks: Query<&mut Visibility, With<ChunkRenderInstance>>,
@@ -157,6 +177,25 @@ pub(crate) fn refresh_cave_visibility(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::CaveVisibility));
+    let enabled = settings
+        .user_settings_update()
+        .1
+        .video
+        .chunk_occlusion_culling;
+    if let Some(mut preference) = preference
+        && preference.0 != enabled
+    {
+        preference.0 = enabled;
+    }
+    if !enabled {
+        cache.show_all(|entity, _| {
+            if let Ok(mut visibility) = chunks.get_mut(entity) {
+                *visibility = Visibility::Inherited;
+            }
+        });
+        cache.rebuild = CaveVisibilityRebuild::default();
+        return;
+    }
     #[cfg(feature = "developer-control")]
     let started = web_time::Instant::now();
     let work = match (client_world.stream.as_ref(), camera.single()) {
@@ -190,9 +229,11 @@ fn refresh_visible(
     chunks: &mut Query<&mut Visibility, With<ChunkRenderInstance>>,
 ) -> CaveVisibilityWork {
     let generation = stream.connectivity_generation();
+    // A superset left by removals keeps updating until a bounded rebuild makes it exact.
     if cache.camera == Some(camera_key)
         && cache.graph_generation == Some(generation)
         && cache.scratch.built_outward_only() == outward_only
+        && cache.scratch.is_exact()
         && cache.initialized
     {
         return CaveVisibilityWork::default();
@@ -200,6 +241,7 @@ fn refresh_visible(
 
     let rebuilt = stream.update_cave_visible_sub_chunks(
         camera_key,
+        &mut cache.rebuild,
         &mut cache.scratch,
         &mut cache.visible,
         &mut cache.next_visible,

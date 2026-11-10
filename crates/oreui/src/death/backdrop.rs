@@ -30,6 +30,7 @@ pub(super) fn draw(
     let vertices: Vec<_> = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
         .into_iter()
         .map(|position| UiMeshVertex {
+            terrain_mips: false,
             position,
             clip_z: 0.0,
             clip_w: 1.0,

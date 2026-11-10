@@ -13,6 +13,7 @@ struct Wire {
     fixed_tints: BTreeMap<String, [u8; 3]>,
     terrain: BTreeMap<Box<str>, serde_json::Value>,
     material_sources: BTreeMap<u32, MaterialTextureSource>,
+    raster_sizes: BTreeMap<String, [u32; 2]>,
     block_sources: Vec<BlockTextureSource>,
     flipbooks: Vec<FlipbookSource>,
     flipbook_selectors: BTreeMap<u32, (u32, u32)>,
@@ -38,6 +39,11 @@ impl MaterialKeys {
                 .collect(),
             terrain: self.terrain.clone(),
             material_sources: self.material_sources.clone(),
+            raster_sizes: self
+                .raster_sizes
+                .iter()
+                .map(|(raster, size)| (raster.to_string(), *size))
+                .collect(),
             block_sources: self.block_sources.clone(),
             fixed_tints: self
                 .fixed_tints
@@ -120,7 +126,12 @@ impl MaterialKeys {
                     .collect(),
                 ..Self::default()
             }
-            .with_sources(wire.terrain, wire.material_sources, wire.block_sources),
+            .with_sources(wire.terrain, wire.material_sources, wire.block_sources)
+            .with_raster_sizes(
+                wire.raster_sizes
+                    .into_iter()
+                    .map(|(raster, size)| (raster.into_boxed_str(), size)),
+            ),
         )
     }
 }

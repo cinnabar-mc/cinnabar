@@ -186,13 +186,18 @@ const REQUIRED_TERRAIN_SCENARIOS: [&str; 31] = [
 ];
 
 impl ScenarioWorld {
+    /// The registry every query against this fixture reports, keyed by its content.
+    fn registry(&self) -> CollisionRegistryIdentity {
+        CollisionRegistryIdentity {
+            protocol: 1001,
+            id_space: CollisionIdSpace::Sequential,
+            preg_sha256: self.content_digest(),
+        }
+    }
+
     fn identity(&self) -> WorldCollisionIdentity {
         WorldCollisionIdentity::new(
-            CollisionRegistryIdentity {
-                protocol: 1001,
-                id_space: CollisionIdSpace::Sequential,
-                preg_sha256: self.content_digest(),
-            },
+            self.registry(),
             [ChunkCollisionRevision {
                 chunk: ChunkKey::new(0, self.origin[0] >> 4, self.origin[2] >> 4),
                 revision: self.revision,
@@ -298,6 +303,10 @@ fn validate_physics(physics: BlockPhysicsFacts, line: usize) -> Result<(), Confo
 }
 
 impl CollisionWorld for ScenarioWorld {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        self.registry()
+    }
+
     /// Scenario colliders all carry the fixture's one homogeneous material.
     fn collision_boxes_with_provenance(
         &self,

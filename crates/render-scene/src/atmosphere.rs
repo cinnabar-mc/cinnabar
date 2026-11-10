@@ -221,8 +221,8 @@ pub fn cloud_distance_fade(distance: f32, fade_distance: f32) -> f32 {
 
 /// One deterministic, renderer-ready snapshot of the active Bedrock sky.
 ///
-/// The nine `vec4`-shaped records are also the complete GPU uniform. Keeping the
-/// CPU and GPU contracts identical avoids per-frame allocation or conversion.
+/// The nine `vec4`-shaped records form the shared GPU uniform prefix. The renderer
+/// appends derived values after applying all environment overrides.
 #[repr(C)]
 #[derive(
     Resource,

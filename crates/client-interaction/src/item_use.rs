@@ -4,7 +4,7 @@ use chunk_pipeline::WorldStream;
 use client_ui::ui_runtime::UiRuntime;
 use client_world::LocalItemUse;
 use gameplay::item_use::AirUse;
-use inventory::{crossbow_animation_frame, ranged_animation_frame};
+use inventory::{crossbow_animation_frame, held_animation_frame};
 use selection::selected_air_use_with_projectile;
 
 pub mod selection;
@@ -42,6 +42,44 @@ impl ItemUseRuntime {
     /// Exposes accepted-use state to the existing presentation adapters.
     pub fn is_using(&self) -> bool {
         self.0.is_using()
+    }
+
+    /// Whether an item in use makes the attack button do nothing now, as vanilla's build
+    /// action handler returns while the player uses an item. Derived from current state at each
+    /// admission point: the veto holds only while the selected slot still holds the item the
+    /// use started with, so any slot change, local or server-driven, ends it at once. A held
+    /// charged item, fishing rod or brush never vetoes, matching vanilla's exceptions.
+    pub fn vetoes_attack(
+        &self,
+        player_runtime: &client_state::PlayerRuntime,
+        stream: Option<&WorldStream>,
+    ) -> bool {
+        let Some(active) = self.0.active_selection() else {
+            return false;
+        };
+        let Some(selected) = player_runtime
+            .inventory
+            .selected_backing_stack_snapshot(player_runtime.facts.player_game_mode())
+        else {
+            return false;
+        };
+        let inventory::PlayerInventorySlot::Present(stack) = selected.state else {
+            return false;
+        };
+        if selected.slot != active.slot || stack.network_id != active.item.network_id() {
+            return false;
+        }
+        !stream
+            .and_then(|stream| stream.authority().canonical_item_stack(stack))
+            .is_some_and(|item| {
+                item.charged_projectile.is_some()
+                    || matches!(
+                        item.identifier.as_deref(),
+                        Some(
+                            assets::facts::FISHING_ROD_IDENTIFIER | assets::facts::BRUSH_IDENTIFIER
+                        )
+                    )
+            })
     }
 
     /// Native attachables read remaining ticks, not the actor animation's elapsed seconds.
@@ -85,19 +123,20 @@ impl ItemUseRuntime {
             .selected_stack()
             .map(|stack| stream.authority().item_use_profile(stack.network_id))
             .unwrap_or_default();
-        let animation_frame = if use_facts.animation == assets::item_use::ItemUseAnimation::Crossbow
-        {
-            let firework = ui.gameplay_hud().offhand_stack().is_some_and(|stack| {
-                stream
-                    .authority()
-                    .item_use_profile(stack.network_id)
-                    .projectile
-                    == assets::item_use::ItemProjectileRole::Firework
-            });
-            crossbow_animation_frame(use_elapsed_ticks, max_use_ticks, projectile, firework)
-        } else {
-            ranged_animation_frame(use_facts.animation, use_elapsed_ticks, max_use_ticks)
-        };
+        let firework = ui.local_offhand_stack(player_runtime).is_some_and(|stack| {
+            stream
+                .authority()
+                .item_use_profile(stack.network_id)
+                .projectile
+                == assets::item_use::ItemProjectileRole::Firework
+        });
+        let animation_frame = held_animation_frame(
+            use_facts.animation,
+            use_elapsed_ticks,
+            max_use_ticks,
+            projectile,
+            firework,
+        );
         actor_animation::AttachableAnimationInput {
             first_person: true,
             is_local_player: true,
@@ -146,7 +185,8 @@ impl ItemUseRuntime {
         Some(crossbow_animation_frame(None, 0, projectile, false))
     }
 
-    /// The local rig's use flag: set while a use runs, cleared while a held-use item idles.
+    /// The local rig's use flag: set while a use runs, cleared while a held-use item or a
+    /// brush idles.
     pub fn local_item_use(
         &self,
         player_runtime: &client_state::PlayerRuntime,
@@ -162,7 +202,11 @@ impl ItemUseRuntime {
             self.selected_projectile(player_runtime, ui),
         ) {
             Some(AirUse::Hold { .. } | AirUse::Instant { .. }) => LocalItemUse::Idle,
-            Some(AirUse::Throw { .. } | AirUse::GlideRocket) | None => LocalItemUse::Unpredicted,
+            // A brush's use starts and ends locally, so its idle state is predicted too.
+            _ if selection::selected_brush(player_runtime, stream) => LocalItemUse::Idle,
+            Some(AirUse::Swing | AirUse::Throw { .. } | AirUse::GlideRocket) | None => {
+                LocalItemUse::Unpredicted
+            }
         }
     }
     /// Resolves a charge prediction against the currently selected authoritative stack.

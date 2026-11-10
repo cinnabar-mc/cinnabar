@@ -28,12 +28,15 @@ impl HudEditor {
         ] {
             data.set_global(name, Scalar::Bool(value));
         }
+        for (name, available) in ["undo", "redo"].into_iter().zip(self.history.available()) {
+            data.set_global(
+                format!("#hud_{name}_alpha"),
+                Scalar::Num(if available { 1. } else { 0.35 }),
+            );
+        }
         data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
         data.set_global("#hud_viewport_w", Scalar::Num(self.viewport[0]));
         data.set_global("#hud_viewport_h", Scalar::Num(self.viewport[1]));
-        for &(index, fill) in &self.control_fills {
-            data.set_global(format!("#row_{index}_fill"), Scalar::Num(fill));
-        }
         self.write_geometry(&mut data);
         data
     }
@@ -54,7 +57,7 @@ impl HudEditor {
                 Scalar::Json(serde_json::json!(at)),
             );
         }
-        let style = self.draft.editor_style.unwrap_or_default();
+        let style = EditorStyle::default();
         let hovered = self.hovered_card();
         for (index, card) in self.draft.cards.iter().enumerate() {
             let visible = !self.hidden.contains(&card.id);
@@ -242,11 +245,6 @@ mod tests {
     /// Default chrome names one selection, leaving crowded widget bounds free of labels.
     #[test]
     fn contextual_caption_follows_selection_and_uses_an_identity_fallback() {
-        let mut ui = ModUi::default();
-        let panel = crate::test_support::sample_panel();
-        ui.set_mod_panel(crate::PanelUiOwner::Environment(0), Some(&panel))
-            .unwrap();
-        ui.set_mod_panel_open(true);
         let preview = Hud {
             cards: vec![ui::mod_hud::Card {
                 id: "fps".into(),
@@ -255,12 +253,12 @@ mod tests {
             }],
             ..Default::default()
         };
-        ui.open_mod_hud_editor(&preview).unwrap();
-        let editor = ui.mod_hud_editor.as_mut().unwrap();
+        let mut editor = HudEditor::new(&preview).unwrap();
         assert_eq!(editor.editor_label(), "Select a widget");
         editor.selected = Some(0);
         assert_eq!(editor.editor_label(), "Frame rate");
-        let catalog = template::catalog(&editor.draft, [400., 250.]).unwrap();
+        let catalog =
+            template::catalog(&editor.draft, [400., 250.], editor.history_buttons).unwrap();
         let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
             .control
             .unwrap();

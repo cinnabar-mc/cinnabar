@@ -44,6 +44,19 @@ pub(crate) struct FrameVariableLease<'a> {
     random: (u64, u64),
 }
 
+impl FrameVariableLease<'_> {
+    /// Runs changing setup scripts directly, retaining scratch buffers without read/effect journals.
+    pub(crate) fn without_expression_cache<T>(
+        &mut self,
+        run: impl FnOnce(&mut MolangVariables) -> T,
+    ) -> T {
+        let cache = self.variables.frame.as_mut().unwrap().cache.take();
+        let result = run(&mut self.variables);
+        self.variables.frame.as_mut().unwrap().cache = cache;
+        result
+    }
+}
+
 impl std::ops::Deref for FrameVariableLease<'_> {
     type Target = MolangVariables;
     fn deref(&self) -> &Self::Target {
@@ -63,11 +76,11 @@ impl Drop for FrameVariableLease<'_> {
         for (place, value) in undo.drain(..).rev() {
             variables.put(place, value);
         }
-        variables.live_temps.clear();
+        variables.buffers.live_temps.clear();
         variables.random = self.random.0;
         variables.random_draws = self.random.1;
         variables.capture_writes = false;
-        variables.writes.clear();
+        variables.buffers.writes.clear();
         variables.publication_random = None;
         variables.frame.as_mut().unwrap().undo = Some(undo);
         self.pool.0.push(variables);
@@ -104,7 +117,7 @@ impl MolangVariables {
         }
         buffers.frame.undo.get_or_insert_with(Vec::new).clear();
         self.frame = Some(buffers.frame);
-        let outer_writes = std::mem::replace(&mut self.writes, buffers.writes);
+        let outer_writes = std::mem::replace(&mut self.buffers.writes, buffers.writes);
         Isolation {
             random: (self.random, self.random_draws),
             publication: self.publication_random,
@@ -134,9 +147,10 @@ impl Drop for Isolation<'_> {
         for (place, value) in undo.drain(..).rev() {
             variables.put(place, value);
         }
-        variables.live_temps.clear();
-        variables.live_temps.extend(
+        variables.buffers.live_temps.clear();
+        variables.buffers.live_temps.extend(
             variables
+                .buffers
                 .temps
                 .iter()
                 .enumerate()
@@ -147,7 +161,7 @@ impl Drop for Isolation<'_> {
         variables.publication_random = self.publication;
         variables.capture_writes = self.capture;
         let mut writes = std::mem::replace(
-            &mut variables.writes,
+            &mut variables.buffers.writes,
             std::mem::take(&mut self.outer_writes),
         );
         writes.clear();

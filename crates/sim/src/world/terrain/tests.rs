@@ -307,3 +307,77 @@ fn piston_arm_selection_requires_a_loaded_owner_column() {
     store.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
     assert!(matches!(selection(&store), Some(TerrainShape::Known(_))));
 }
+
+/// Arm collision follows the owning piston's client progress and records the owner's column.
+#[test]
+fn piston_arm_collision_follows_owner_progress() {
+    use assets::block_shapes::{
+        CompiledBlockShapes, OutlineContext, PISTON_DIRECTIONS, PickRule, ShapeBox, ShapeFlags,
+    };
+    use world::{BlockEntityKey, BlockEntityNbt, NbtCompound, NbtValue};
+    const ARM: u32 = 5;
+    let facing = PISTON_DIRECTIONS
+        .iter()
+        .position(|direction| *direction == [1, 0, 0])
+        .unwrap();
+    let piece = ShapeBox::new([0.25; 3], [0.75; 3]);
+    let mut registry = registry();
+    registry.register(ARM, []).unwrap();
+    assert!(registry.set_compiled_selection(
+        ARM,
+        &CompiledBlockShapes {
+            state_identity: [3; 32],
+            actor_facing: Some(facing as u8),
+            actor_visual: None,
+            selection: Box::new([piece]),
+            selection_context: SelectionContext::PistonArm,
+            contextual_selection: Box::new([]),
+            outline: None,
+            connected_outline: None,
+            outline_context: OutlineContext::Static,
+            pick_rule: PickRule::Always,
+            flags: ShapeFlags::empty(),
+            door: None,
+            flow: None,
+            tags: Box::new([]),
+        },
+    ));
+    let mut store = ChunkStore::new();
+    for x in [0, 1] {
+        store.mark_chunk_loaded(ChunkKey::new(0, x, 0)).unwrap();
+    }
+    set(&mut store, [16, 0, 0], 0, ARM);
+    let collision = TerrainGeometry {
+        collision: true,
+        selection: false,
+    };
+    // Expanding for two ticks extends the arm; retracting for one draws it half a block in.
+    for (state, ticks, shift) in [(1_i8, 2, 0.0), (3, 1, -0.5)] {
+        let mut root = NbtCompound::default();
+        root.insert("id", NbtValue::String("PistonArm".into()));
+        root.insert("State", NbtValue::Byte(state));
+        let actor = BlockEntityNbt::decode_prefix(&root.encode_root().unwrap())
+            .unwrap()
+            .0;
+        store
+            .commit_block_entity_update(BlockEntityKey::new(0, 15, 0, 0), actor)
+            .unwrap();
+        store
+            .set_simulation_tick(store.simulation_tick() + ticks)
+            .unwrap();
+        let world = PaletteWorld::new(&store, &registry, 0, Default::default());
+        let sample = TerrainSampler::default()
+            .sample(&world, [16, 0, 0], [1, 1, 1], collision, 64)
+            .unwrap();
+        assert!(sample.columns.iter().any(|column| column.x == 0));
+        let Some(TerrainShape::Known(shape)) = sample.overrides[0].collision else {
+            panic!("arm collision is per cell");
+        };
+        let range = sample.shape_offsets[shape as usize] as usize
+            ..sample.shape_offsets[shape as usize + 1] as usize;
+        assert_eq!(
+            &sample.shape_boxes[range.start * 6..range.end * 6],
+            [0.25 + shift, 0.25, 0.25, 0.75 + shift, 0.75, 0.75]
+        );
+    }
+}

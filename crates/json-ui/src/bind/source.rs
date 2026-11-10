@@ -13,7 +13,7 @@ use crate::tree::ResolvedControl;
 #[derive(Clone)]
 pub(super) struct Src {
     tree: Arc<ResolvedControl>,
-    path: Vec<u32>,
+    path: smallvec::SmallVec<[u32; 16]>,
     pub(super) patch: Option<Arc<Patch>>,
 }
 
@@ -37,7 +37,7 @@ impl Src {
     pub(super) fn root(tree: Arc<ResolvedControl>) -> Self {
         Self {
             tree,
-            path: Vec::new(),
+            path: smallvec::SmallVec::new(),
             patch: None,
         }
     }
@@ -48,9 +48,9 @@ impl Src {
             .fold(&*self.tree, |node, &index| &node.children[index as usize])
     }
 
-    /// Extend the path with one allocation, reserving space for the child index.
+    /// Extends ordinary paths inline; deeper authored trees spill into heap storage.
     pub(super) fn child(&self, index: usize) -> Self {
-        let mut path = Vec::with_capacity(self.path.len() + 1);
+        let mut path = smallvec::SmallVec::with_capacity(self.path.len() + 1);
         path.extend_from_slice(&self.path);
         path.push(index as u32);
         Self {

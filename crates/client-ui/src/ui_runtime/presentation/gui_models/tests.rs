@@ -1,8 +1,24 @@
 use {super::*, ui::IconRef};
 
 mod cubes;
+mod held_routes;
 mod short_models;
 mod world_models;
+
+#[test]
+fn emissive_cube_faces_keep_their_texture_brightness() {
+    let identifier = "minecraft:sea_lantern";
+    let (mut presentation, entities) = cubes::catalog_for(identifier, 255, 255);
+    let world = short_models::world(entities.source_manifest_sha256(), 256, 255);
+    presentation.set_gui_models(&world, &entities).unwrap();
+    let icon = presentation.item_icon(identifier, 0).unwrap();
+    let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+    assert!(
+        mesh.vertices()
+            .iter()
+            .all(|vertex| vertex.color == [255; 4])
+    );
+}
 
 #[test]
 fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
@@ -29,8 +45,31 @@ fn source_atlas_keeps_original_pixels_and_deduplicates_sources() {
 }
 
 #[test]
+fn minified_source_edges_do_not_pick_up_neighboring_textures() {
+    let mut atlas = atlas::Atlas::new(8, MODEL_PAGES);
+    let sources = [[255, 0, 0, 255], [0, 0, 255, 255]].map(|color| {
+        let pixels = color.repeat(16 * 16);
+        (atlas.insert([16; 2], &pixels).unwrap(), color)
+    });
+    let (pages, _) = atlas.finish().unwrap();
+    for (icon, color) in sources {
+        for (level, (dimensions, pixels)) in pages[0].mip_levels().enumerate() {
+            let [left, top, right, bottom] =
+                icon.uv.map(|coordinate| usize::from(coordinate) >> level);
+            for y in top..bottom {
+                for x in left..right {
+                    let offset = (y * dimensions[0] as usize + x) * 4;
+                    assert_eq!(&pixels[offset..offset + 4], &color);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn carried_sheet_refs_preserve_face_order_and_pixel_edges() {
     let sheet = IconRef {
+        color_mask: None,
         page: 5,
         uv: [
             7,
@@ -59,16 +98,18 @@ fn atlas_rejects_invalid_sources_and_page_exhaustion() {
 #[test]
 fn mesh_modulation_preserves_geometry_and_adds_glint_without_baking() {
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
     };
-    let mesh = item_gui::cube([icon; 6]).unwrap();
+    let mesh = item_gui::cube([icon; 6], Default::default()).unwrap();
     assert!(Arc::ptr_eq(
         &mesh,
         &modulated(&mesh, [255; 4], false).unwrap()
     ));
     let faded = modulated(&mesh, [255, 255, 255, 127], true).unwrap();
+    assert!(faded.uses_compact_block_vertices());
     for (original, result) in mesh.vertices().iter().zip(faded.vertices()) {
         assert_eq!(original.position, result.position);
         assert_eq!(result.color[3], 127);
@@ -82,13 +123,18 @@ fn geometry_replacement_preserves_json_control_state_and_flat_sprites() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
     };
-    let mesh = item_gui::cube([icon; 6]).unwrap();
+    let mesh = item_gui::cube([icon; 6], Default::default()).unwrap();
     presentation.gui_models.enabled = true;
-    presentation.gui_models.models.insert(icon_key(icon), mesh);
+    presentation
+        .gui_models
+        .sources
+        .models
+        .insert(icon_key(icon), mesh);
     let bounds = UiRect::new(
         UiPoint::new(20.0, 30.0).unwrap(),
         UiPoint::new(36.0, 46.0).unwrap(),
@@ -127,16 +173,18 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
     use std::cell::Cell;
     use ui::{UiNodeId, UiPoint, UiRect};
     let preview = IconRef {
+        color_mask: None,
         page: 2,
         uv: [0, 0, 32, 32],
         glint: false,
     };
     let other = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
     };
-    let mesh = item_gui::cube([other; 6]).unwrap();
+    let mesh = item_gui::cube([other; 6], Default::default()).unwrap();
     let bounds = UiRect::new(
         UiPoint::new(0.0, 0.0).unwrap(),
         UiPoint::new(16.0, 16.0).unwrap(),
@@ -157,9 +205,14 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
     let models = |key: &IconKey| (*key == icon_key(other)).then_some(&mesh);
 
     let mut hud = vec![sprite(1, other), sprite(2, other)];
+    let targets = PreviewTargets {
+        key: icon_key(preview),
+        hud: 0..0,
+        in_hud: false,
+    };
     replace_model_icons(
         &mut hud,
-        Some(icon_key(preview)),
+        Some(&targets),
         &BTreeSet::new(),
         player,
         models,
@@ -174,7 +227,7 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
     let mut shown = vec![sprite(1, preview), sprite(2, preview)];
     replace_model_icons(
         &mut shown,
-        Some(icon_key(preview)),
+        Some(&targets),
         &BTreeSet::new(),
         player,
         models,
@@ -235,6 +288,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -247,22 +301,31 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
                     corners,
                     uvs,
                     material: 0,
+                    two_sided: false,
                 },
                 icon,
             )
         })
         .into();
     presentation.gui_models.enabled = true;
+    presentation.gui_models.sources.models.insert(
+        icon_key(icon),
+        item_gui::block_model(
+            &quads,
+            assets::gui_item::GuiShading::Inventory,
+            Default::default(),
+            assets::gui_item::BlockModelOrder::Depth,
+        )
+        .unwrap(),
+    );
     presentation
         .gui_models
-        .models
-        .insert(icon_key(icon), item_gui::block_model(&quads).unwrap());
-    presentation
-        .gui_models
+        .sources
         .optional_models
         .insert(icon_key(icon));
     presentation
         .gui_models
+        .sources
         .faded_thumbnails
         .insert(icon_key(icon));
     let bounds = UiRect::new(
@@ -298,4 +361,26 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
             }
         }
     }
+}
+
+#[test]
+fn menu_avatar_is_available_before_item_geometry_and_survives_its_publication() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    presentation.enable_player_preview();
+    let skin = vec![255; 64 * 64 * 4];
+    let identity = presentation
+        .set_gui_skin(&skin)
+        .expect("menu avatar does not need item geometry");
+    assert!(presentation.gui_models.sources.models.is_empty());
+    let page = presentation.gui_models.skin.as_ref().unwrap().clone();
+    presentation.install_gui_model_sources(PreparedGuiModels::default());
+    assert_eq!(
+        presentation.gui_models.skin.as_ref().unwrap().identity(),
+        identity
+    );
+    assert_eq!(
+        page.pixels(),
+        presentation.gui_models.skin.as_ref().unwrap().pixels()
+    );
 }

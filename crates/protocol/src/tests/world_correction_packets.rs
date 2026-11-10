@@ -3,9 +3,9 @@
 //! Split from `world_packets.rs` to keep each integration-test binary inside
 //! the architecture policy line limit.
 
-use bedrock_protocol_1_26_51::enums::RewindType as CorrectPlayerMovePredictionPacketPredictionType;
-use bedrock_protocol_1_26_51::packets::CorrectPlayerMovePrediction;
-use bedrock_protocol_1_26_51::types::PlayerInputTick;
+use bedrock_protocol_1_26_60::enums::RewindType as CorrectPlayerMovePredictionPacketPredictionType;
+use bedrock_protocol_1_26_60::packets::CorrectPlayerMovePrediction;
+use bedrock_protocol_1_26_60::types::PlayerInputTick;
 use protocol::{
     MovementCorrectionSubject, PlayerMovementCorrectionEvent, WorldEvent, into_world_event,
 };
@@ -32,6 +32,7 @@ fn normalizes_server_authoritative_movement_correction_to_the_local_player_surfa
                 subject: MovementCorrectionSubject::Player,
                 on_ground: true,
                 tick: 4_096,
+                vehicle_angular_velocity: None,
             }
         ))
     );
@@ -56,6 +57,7 @@ fn vehicle_prediction_correction_is_retained_with_its_rewind_subject() {
                 subject: MovementCorrectionSubject::Vehicle,
                 on_ground: false,
                 tick: 0,
+                vehicle_angular_velocity: None,
             }
         ))
     );

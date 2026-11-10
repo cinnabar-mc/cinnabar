@@ -6,8 +6,9 @@ pub(super) mod controls;
 mod gui_scale;
 mod labels;
 mod layout;
+mod localization;
 mod mods;
-mod picker;
+pub(super) mod picker;
 mod presets;
 mod renderer;
 mod resources;
@@ -17,7 +18,10 @@ mod services;
 mod shader_options;
 mod sidebar;
 mod updates;
+mod world;
 
+#[cfg(test)]
+mod localization_tests;
 #[cfg(test)]
 mod row_tests;
 
@@ -106,13 +110,14 @@ pub(super) fn draw(
     let panel = [body[0], top, body[1] - canvas.r(1.6), bottom];
     canvas.fill(panel, NEUTRAL.fill)?;
     canvas.frame(panel, EDGE, theme::BORDER)?;
-    let section =
-        SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
+    let section = SettingSection::from_index(view.settings.section)
+        .filter(|section| view.settings_section_shown(*section))
+        .unwrap_or(SettingSection::Accessibility);
     // The Shader Pack Settings screen keeps a footer below the option grid.
     let options = view
         .shader_options
         .as_deref()
-        .filter(|_| render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders);
+        .filter(|_| section == SettingSection::Shaders);
     let footer = options.map_or(0.0, |_| shader_options::footer_height(canvas));
     let viewport = [
         panel[0] + canvas.r(EDGE),
@@ -303,13 +308,7 @@ pub(super) struct Content<'a, 'b> {
 
 impl Content<'_, '_> {
     pub(super) fn word(&self, key: &str) -> String {
-        if key.is_empty() {
-            return String::new();
-        }
-        (self.translate)(key).map_or_else(
-            || sections::fallback(key).to_owned(),
-            |text| text.to_string(),
-        )
+        localization::word(key, self.view.settings_options.language(), self.translate)
     }
 
     pub(super) fn inset(&self) -> [f32; 2] {
@@ -353,10 +352,40 @@ impl Content<'_, '_> {
     pub(super) fn label(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let title = self.word(title);
         let description = self.word(description);
+        self.label_text(&title, &description)
+    }
+
+    /// Draws literal or already translated text without looking it up again.
+    pub(super) fn label_text(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let [left, right] = self.inset();
-        let b = self.row(&title, &description, right - left, None, 0.0)?;
-        self.texts(b, &title, &description, right - left, 0.0)?;
+        let b = self.row(title, description, right - left, None, 0.0)?;
+        self.texts(b, title, description, right - left, 0.0)?;
         Ok(())
+    }
+
+    /// Draws `text` above a determinate bar, both inside one row with the row's padding.
+    pub(super) fn progress_row(&mut self, text: &str, fraction: f32) -> Result<(), PaintError> {
+        let [left, right] = self.inset();
+        let bar = self.canvas.r(theme::PROGRESS_HEIGHT);
+        let pad = self.canvas.r(1.2);
+        let b = self.row("", text, right - left, None, bar + pad)?;
+        self.texts(b, "", text, right - left, bar + pad)?;
+        let bottom = b[3] - pad;
+        crate::progress::track(
+            self.canvas,
+            [left, bottom - bar, right, bottom],
+            Some(fraction),
+        )
+    }
+
+    fn title_height(&mut self, title: &str, width: f32) -> Result<f32, PaintError> {
+        if title.is_empty() {
+            return Ok(0.0);
+        }
+        Ok(self
+            .canvas
+            .measure_height(title, width.max(1.0), BODY)?
+            .max(self.canvas.r(BODY.line)))
     }
 
     fn row(
@@ -367,10 +396,7 @@ impl Content<'_, '_> {
         action: Option<MenuAction>,
         extra: f32,
     ) -> Result<Bounds, PaintError> {
-        let title_height = self
-            .canvas
-            .measure_height(title, width.max(1.0), BODY)?
-            .max(self.canvas.r(BODY.line));
+        let title_height = self.title_height(title, width)?;
         let description_height = if description.is_empty() {
             0.0
         } else {
@@ -392,6 +418,12 @@ impl Content<'_, '_> {
             MenuAction::SettingsOption(index, _) => SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .is_some_and(|option| matches!(option.kind, SettingKind::Toggle)),
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(id, _)) => {
+                matches!(
+                    id.definition().control,
+                    launcher::local_worlds::options::Control::Toggle
+                )
+            }
             _ => false,
         });
         let interaction = if is_switch {
@@ -429,10 +461,7 @@ impl Content<'_, '_> {
         extra: f32,
     ) -> Result<(), PaintError> {
         let left = self.inset()[0];
-        let title_height = self
-            .canvas
-            .measure_height(title, width.max(1.0), BODY)?
-            .max(self.canvas.r(BODY.line));
+        let title_height = self.title_height(title, width)?;
         let description_height = if description.is_empty() {
             0.0
         } else {
@@ -441,10 +470,13 @@ impl Content<'_, '_> {
                 .max(self.canvas.r(CAPTION.line))
         };
         let top = (b[1] + b[3] - extra - title_height - description_height) * 0.5;
-        let height = self
-            .canvas
-            .text(title, [left, top], width.max(1.0), BODY, TEXT, false)?
-            .max(self.canvas.r(BODY.line));
+        let height = if title.is_empty() {
+            0.0
+        } else {
+            self.canvas
+                .text(title, [left, top], width.max(1.0), BODY, TEXT, false)?
+                .max(self.canvas.r(BODY.line))
+        };
         if !description.is_empty() {
             self.canvas.text(
                 description,
@@ -496,18 +528,23 @@ impl Content<'_, '_> {
         let option = id.definition();
         let value = self.view.settings_options.get(index);
         let (title, description) = self.option_text(id);
+        if id == SettingId::Vsync
+            && let Some(on) = self.view.vsync_override
+        {
+            return self.boolean(
+                &title,
+                &description,
+                on,
+                MenuAction::SettingsOption(index as u16, i32::from(!on)),
+                false,
+            );
+        }
         match option.kind {
             SettingKind::Host => {
                 unreachable!("host controls are dispatched before option rendering")
             }
             SettingKind::Toggle => {
-                let (on, enabled) = match id {
-                    SettingId::Vsync => (
-                        self.view.vsync_override.unwrap_or(value != 0),
-                        self.view.vsync_override.is_none(),
-                    ),
-                    _ => (value != 0, true),
-                };
+                let (on, enabled) = (value != 0, true);
                 self.boolean(
                     &title,
                     &description,

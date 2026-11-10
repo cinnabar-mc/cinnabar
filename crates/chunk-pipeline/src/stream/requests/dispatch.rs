@@ -6,6 +6,7 @@ const _: () =
 
 impl WorldStream {
     /// Prepares the oldest admitted column intents without crossing a reservation.
+    /// Uses the preferred center when it fits, otherwise a live column's packet origin.
     pub fn prepare_sub_chunk_request(
         &mut self,
         center: [i32; 3],
@@ -31,23 +32,22 @@ impl WorldStream {
     /// Collects current slots once; rollback keeps the compact column intents.
     fn collect_request_intents(
         &mut self,
-        center: [i32; 3],
+        mut center: [i32; 3],
         intents: Vec<PendingSubChunkRequest>,
     ) -> Option<SubChunkRequestBatch> {
         let dimension = self.current_dimension();
         let mut members = Vec::new();
         let mut included = HashSet::new();
         let mut retained = Vec::new();
-        for intent in intents {
+        let mut intents = intents.into_iter();
+        while let Some(intent) = intents.next() {
             let before = members.len();
             for key in intent.keys() {
                 if !self.requests.matches_demand(key, intent.demand) {
                     continue;
                 }
                 let position = [key.x, key.y, key.z];
-                if key.dimension != dimension
-                    || sub_chunk_request_offset(center, position).is_none()
-                {
+                if key.dimension != dimension {
                     self.retire_unsent_request(key, intent.demand);
                 } else if !self.requests.admitted_replies.contains_key(&key) && included.insert(key)
                 {
@@ -60,6 +60,20 @@ impl WorldStream {
             if members.len() == before {
                 let _ = self.requests.queue.confirm_popped(&intent);
             } else {
+                if members[before..]
+                    .iter()
+                    .any(|member| sub_chunk_request_offset(center, member.position).is_none())
+                {
+                    if before != 0 {
+                        members.truncate(before);
+                        for deferred in std::iter::once(intent).chain(intents).rev() {
+                            self.requests.queue.retry_front(deferred);
+                        }
+                        break;
+                    }
+                    // One compact column fits around its first live height.
+                    center = members[0].position;
+                }
                 retained.push(intent);
             }
         }
@@ -73,6 +87,7 @@ impl WorldStream {
             members: members.into(),
         };
         Some(SubChunkRequestBatch {
+            center,
             receipt,
             intents: retained,
         })
@@ -235,7 +250,7 @@ impl WorldStream {
         debug_assert!(self.requests.deadlines.len() <= self.outstanding_sub_chunk_count());
     }
 
-    /// Retires an unencodable demand without publishing air or completing terrain.
+    /// Retires a different dimension's demand without publishing or completing terrain.
     fn retire_unsent_request(&mut self, key: SubChunkKey, demand: u64) {
         if !self.requests.matches_demand(key, demand) {
             return;

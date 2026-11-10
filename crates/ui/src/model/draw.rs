@@ -54,6 +54,9 @@ impl FrameAffine {
     fn apply(&self, vertices: &mut [UiVertex]) {
         let [a, b, c, d] = self.linear;
         for vertex in vertices {
+            if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX != 0 {
+                continue;
+            }
             let w = vertex.clip_w;
             if w == 0.0 {
                 continue;
@@ -101,8 +104,10 @@ fn emit_untransformed(
         UiVisual::TintedMesh { mesh, color } => {
             let start = vertices.len();
             mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches)?;
-            for vertex in &mut vertices[start..] {
-                vertex.color = *color;
+            if !mesh.is_skinned() {
+                for vertex in &mut vertices[start..] {
+                    vertex.color = *color;
+                }
             }
             Ok(())
         }
@@ -126,7 +131,52 @@ fn emit_untransformed(
                 batches,
             )
         }
+        UiVisual::ColorMaskSprite {
+            texture_page,
+            uv,
+            color,
+            tint,
+            glint,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let start = vertices.len();
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                *color,
+                if *glint { super::UI_STYLE_GLINT } else { 0 },
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[start..] {
+                vertex.style_flags |= render_api::UI_STYLE_SPRITE_COLOR_MASK;
+                vertex.overlay_color = [
+                    f32::from(tint[0]) / 255.0,
+                    f32::from(tint[1]) / 255.0,
+                    f32::from(tint[2]) / 255.0,
+                    0.0,
+                ];
+                vertex.alpha_cutoff = 1.0 / 255.0;
+            }
+            Ok(())
+        }
         UiVisual::Sprite {
+            texture_page,
+            uv,
+            color,
+        }
+        | UiVisual::RgbCoverageSprite {
             texture_page,
             uv,
             color,
@@ -144,6 +194,7 @@ fn emit_untransformed(
             } else {
                 0
             };
+            let start = vertices.len();
             emit_quad(
                 bounds,
                 [
@@ -160,7 +211,13 @@ fn emit_untransformed(
                 vertices,
                 indices,
                 batches,
-            )
+            )?;
+            if matches!(visual, UiVisual::RgbCoverageSprite { .. }) {
+                for vertex in &mut vertices[start..] {
+                    vertex.style_flags |= render_api::UI_STYLE_RGB_COVERAGE;
+                }
+            }
+            Ok(())
         }
         UiVisual::Gradient {
             texture_page,
@@ -259,7 +316,7 @@ fn emit_untransformed(
                 batches,
             )?;
             for vertex in &mut vertices[first..] {
-                vertex.style_flags |= *style;
+                vertex.style_flags |= u32::from(*style);
                 vertex.overlay_color = *source;
             }
             Ok(())
@@ -707,10 +764,15 @@ fn emit_colored_quad(
             clip_w,
             uv,
             color,
-            style_flags,
-            alpha_test: clip
-                .projection
-                .is_some_and(|projection| projection.alpha_test),
+            style_flags: u32::from(style_flags)
+                | if clip
+                    .projection
+                    .is_some_and(|projection| projection.alpha_test)
+                {
+                    render_api::UI_STYLE_ALPHA_TEST
+                } else {
+                    0
+                },
             alpha_cutoff: -1.0,
             model_light: 1.0,
             overlay_color: [0.0; 4],

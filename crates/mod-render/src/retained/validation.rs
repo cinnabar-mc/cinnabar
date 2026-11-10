@@ -4,6 +4,7 @@ use mod_api::*;
 /// Admits immutable topology and caches every fact needed by later instance validation.
 pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
     let (vertices, indices, closed, polyline) = match spec {
+        GeometrySpec::Blocks(grid) => return grid.admit(),
         GeometrySpec::Triangles { vertices, indices } => (vertices, indices, false, false),
         GeometrySpec::Polyline { vertices, closed } => (vertices, Vec::new(), closed, true),
     };
@@ -28,6 +29,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
     let mut distances = Vec::with_capacity(if polyline { vertices.len() } else { 0 });
     let mut previous = vertices[0].position;
     let mut distance = 0.;
+    let mut segments = 0;
     for vertex in &vertices {
         #[cfg(test)]
         super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
@@ -52,6 +54,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         radius_squared =
             radius_squared.max(vertex.position.iter().map(|v| f64::from(*v).powi(2)).sum());
         if polyline {
+            segments += usize::from(vertex.position != previous);
             distance += vertex
                 .position
                 .iter()
@@ -63,14 +66,26 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
             previous = vertex.position;
         }
     }
+    let mesh_vertices = if polyline {
+        segments += usize::from(closed && previous != vertices[0].position);
+        if segments == 0 {
+            0
+        } else {
+            segments * 6 + (segments + usize::from(!closed)) * drawing::ROUND_SEGMENTS * 3
+        }
+    } else {
+        indices.len()
+    };
     let bytes = vertices.len() * std::mem::size_of::<Vertex>()
         + indices.len() * std::mem::size_of::<u32>()
         + distances.len() * std::mem::size_of::<f32>();
     Ok(Geometry {
+        blocks: None,
         bounds,
         radius: radius_squared.sqrt() as f32,
         bytes,
         expanded_vertices,
+        mesh_vertices,
         vertices: vertices.into(),
         indices: indices.into(),
         distances: distances.into(),
@@ -89,14 +104,32 @@ pub(super) fn budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result
                 && !resources.geometry.values().any(|live| Arc::ptr_eq(g, live))
         }))
         .collect();
-    let vertex_work = resources
+    let block_cells: usize = geometries
+        .iter()
+        .filter_map(|g| g.blocks())
+        .map(|g| g.grid.cells.len())
+        .sum();
+    if block_cells > drawing::MAX_BLOCK_CELLS {
+        return Err(error(ErrorCode::BudgetExceeded, "block cells"));
+    }
+    let block_draw_work = resources
         .instances
         .values()
         .try_fold(0usize, |sum, instance| {
-            let geometry = resources.geometry.get(&instance.geometry)?;
-            sum.checked_add(geometry.expanded_vertices)
+            let triangles = resources
+                .geometry
+                .get(&instance.geometry)
+                .and_then(|geometry| geometry.blocks())
+                .and_then(|block| block.result())
+                .and_then(|result| result.as_ref().ok())
+                .map_or(0, |mesh| mesh.triangles);
+            sum.checked_add(triangles)
         })
-        .ok_or(error(ErrorCode::BudgetExceeded, "vertex work"))?;
+        .ok_or(error(ErrorCode::BudgetExceeded, "block draw triangles"))?;
+    if block_draw_work > drawing::MAX_BLOCK_DRAW_TRIANGLES {
+        return Err(error(ErrorCode::BudgetExceeded, "block draw triangles"));
+    }
+    let vertex_work = resources.static_triangle_work().saturating_mul(3);
     for (amount, limit, label) in [
         (vertex_work, MAX_DRAW_VERTEX_WORK, "vertex work"),
         (
@@ -160,6 +193,23 @@ pub(super) fn instance(
         .geometry
         .get(&instance.geometry)
         .ok_or(error(ErrorCode::StaleHandle, "geometry"))?;
+    if instance
+        .clip
+        .is_some_and(|id| !resources.clips.contains_key(&id))
+    {
+        return Err(error(ErrorCode::StaleHandle, "clip"));
+    }
+    if geometry.blocks.is_some() {
+        if !permissions.render_material {
+            return Err(error(ErrorCode::Denied, "block geometry"));
+        }
+        if instance.material.is_some() || instance.tint != [1.; 4] {
+            return Err(error(
+                ErrorCode::Invalid,
+                "block material and tint are host-owned",
+            ));
+        }
+    }
     let transform = instance.transform;
     let rotation_length = transform.rotation.iter().map(|v| v * v).sum::<f32>();
     if !transform
@@ -173,7 +223,7 @@ pub(super) fn instance(
         || !instance.width.is_finite()
         || instance.width <= 0.
         || instance.width > MAX_PRIMITIVE_EXTENT_BLOCKS
-        || !extent(geometry, transform)
+        || !extent(geometry, transform, instance.anchor)
     {
         return Err(error(
             ErrorCode::Invalid,
@@ -197,7 +247,14 @@ pub(super) fn instance(
 
 /// Checks cached box and sphere bounds in constant work, including nonuniform signed scales.
 /// The sphere is exact for uniform scales; either bound may admit a nonuniform scale.
-fn extent(geometry: &Geometry, transform: Transform) -> bool {
+fn extent(geometry: &Geometry, transform: Transform, anchor: Anchor) -> bool {
+    let limit = if geometry.blocks.is_some() {
+        drawing::MAX_BLOCK_EXTENT as f32 * 2.
+    } else if matches!(anchor, Anchor::Camera) {
+        MAX_PRIMITIVE_COORDINATE
+    } else {
+        MAX_PRIMITIVE_EXTENT_BLOCKS
+    };
     let translation = transform
         .translation
         .iter()
@@ -215,10 +272,10 @@ fn extent(geometry: &Geometry, transform: Transform) -> bool {
         .sum::<f32>()
         .sqrt()
         + translation;
-    bound <= MAX_PRIMITIVE_EXTENT_BLOCKS
+    bound <= limit
         || geometry.radius * transform.scale.iter().map(|s| s.abs()).fold(0., f32::max)
             + translation
-            <= MAX_PRIMITIVE_EXTENT_BLOCKS
+            <= limit
 }
 
 /// Requires finite linear RGBA with bounded coverage.

@@ -36,7 +36,8 @@ func cellStack(t *testing.T, exp string, data []byte) item.Stack {
 }
 
 // The probe's item is a custom item of the finalized registries, one to a stack, with its icon,
-// in the probe's creative group; "other"'s copy is another item.
+// left out of the creative inventory as its content rules unlist it; "other"'s copy is another
+// item.
 func TestItemsRegistered(t *testing.T) {
 	reg := registered(t)
 	cell, ok := reg.LookupItem(probeCell)
@@ -49,10 +50,10 @@ func TestItemsRegistered(t *testing.T) {
 	if cell.MaxCount() != 1 || cell.Name() != "Probe Cell" || cell.Texture() == nil {
 		t.Errorf("cell stacks to %d, is named %q, has texture %v", cell.MaxCount(), cell.Name(), cell.Texture() != nil)
 	}
-	if !slices.ContainsFunc(creative.Items(), func(i creative.Item) bool {
-		return i.Group == "probe" && i.Stack.Item() == world.Item(cell)
+	if slices.ContainsFunc(creative.Items(), func(i creative.Item) bool {
+		return i.Stack.Item() == world.Item(cell)
 	}) {
-		t.Error("the cell is not in the probe's creative group")
+		t.Error("the unlisted cell is in the creative inventory")
 	}
 	if other, ok := reg.LookupItem("other:cell"); !ok || other == cell {
 		t.Errorf("other:cell = %v, %v; want an item of its own", other, ok)
@@ -249,7 +250,7 @@ func TestCommitChecksSlots(t *testing.T) {
 	at := probePos(probeStacks)
 	f.place(probeCounter, at, nil)
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: at.cube(), actor: f.actor, call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: at.cube(), actor: f.actor, call: Call{
 		Interact: &InteractCall{Player: f.actorID(), Pos: at, Face: FaceUp},
 	}}
 	snap := f.snapshotOf(ev.call, at)
@@ -293,7 +294,7 @@ func TestCommitRefusesIneligibleOffhand(t *testing.T) {
 	source := cellStack(t, "probe", []byte{7})
 	f.do(func(tx *world.Tx) { _ = f.player(tx).Inventory().SetItem(0, source) })
 	call := Call{Interact: &InteractCall{Player: f.actorID(), Pos: at, Face: FaceUp}}
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: at.cube(), actor: f.actor, call: call}
+	ev := event{w: f.w, instance: f.instance, anchor: at.cube(), actor: f.actor, call: call}
 	snap := f.snapshotOf(call, at)
 	f.host.commit(context.Background(), f.host.dispatchers["probe"], ev, snap, []Op{
 		{SetSlot: &SetSlotOp{Slot: 0}},

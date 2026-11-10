@@ -23,6 +23,12 @@ impl SprintTrigger {
         self.previous_sneak = sneak_down;
     }
 
+    /// Forgets how the current sprint started, as every native stop request does.
+    pub(super) fn clear_latch(&mut self) {
+        self.started_by_button = false;
+        self.automatic_sprint = false;
+    }
+
     /// Updates the seven-tick forward latch and applies start/continuation conditions.
     pub(super) fn select(
         &mut self,
@@ -31,6 +37,16 @@ impl SprintTrigger {
         intent: ModeIntent,
         observed: ModeObservation,
     ) -> bool {
+        // Only sprint admission sees the direction projection; physics and wire axes stay intact.
+        let observed = if intent.movement_override {
+            ModeObservation {
+                move_forward: observed.move_sideways.hypot(observed.move_forward),
+                move_sideways: 0.0,
+                ..observed
+            }
+        } else {
+            observed
+        };
         self.double_tap_ticks = self.double_tap_ticks.saturating_sub(1);
         let forward = observed.move_forward >= SPRINT_THRESHOLD;
         let admission = forward
@@ -121,6 +137,7 @@ mod tests {
             liquid_contact_height: None,
             jump_edge: false,
             jump_down: false,
+            spinning: false,
         }
     }
 
@@ -332,9 +349,10 @@ mod tests {
         ));
     }
 
-    /// Sprint intent runs before sneak slowdown, and a crouch request does not cancel its action.
+    /// The trigger reads only the move vector it is given; a crouch blocks a sprint by scaling
+    /// that vector first (`ModeTracker::intent_vector`), not through the sneak request here.
     #[test]
-    fn a_sprint_button_can_start_while_crouch_is_requested() {
+    fn the_trigger_judges_the_given_vector_not_the_crouch_request() {
         let mut trigger = SprintTrigger::default();
         let mut observed = sprint(Vec3::ZERO, Vec3::ZERO);
         observed.sprint_down = true;

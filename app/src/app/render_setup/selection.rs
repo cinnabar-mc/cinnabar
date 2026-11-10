@@ -1,7 +1,7 @@
 //! Probes APIs separately, ranks eligible adapters, and exhausts device candidates.
 
 use anyhow::{Context, Result, bail};
-use launcher::graphics_backend::{Adapter, Backend, Platform, blocklist, default_order};
+use launcher::graphics_backend::{Adapter, Backend, Platform, blocklist};
 use launcher_host::renderer_startup::{Attempt, Stage, StartupGuard};
 
 use super::device::log;
@@ -30,7 +30,7 @@ pub(super) fn with_video_fallback<T>(
         return attempt(video, &[]).map(|renderer| (renderer, None));
     };
     let reason = if crashed == Some(requested) {
-        "it stopped an earlier launch before the first frame".to_owned()
+        launcher::graphics_backend::PREVIOUS_FAILURE_REASON.to_owned()
     } else {
         match attempt(video, &[]) {
             Ok(renderer) => return Ok((renderer, None)),
@@ -160,14 +160,14 @@ fn device_rank(kind: wgpu::DeviceType, preference: wgpu::PowerPreference) -> u8 
     }
 }
 
-/// Ranks device types by power preference, then uses the vendor's default backend order.
+/// Ranks device types by power preference, then uses the platform's default backend order.
 pub(super) fn rank<T>(
     candidates: &mut [Candidate<T>],
     platform: Platform,
     preference: wgpu::PowerPreference,
 ) {
+    let order = platform.backends();
     candidates.sort_by_key(|candidate| {
-        let order = default_order(platform, &candidate.identity);
         (
             device_rank(candidate.device_type, preference),
             order

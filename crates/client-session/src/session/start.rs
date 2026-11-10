@@ -83,6 +83,7 @@ fn network_channels<P>(
         readiness_ingress,
         experience_gate,
         unflushed: Default::default(),
+        pick_trace: Default::default(),
     };
     (handle, channels)
 }
@@ -119,7 +120,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
         };
         tracing::info!(
             base_game_version = %game_data.settings.base_game_version,
-            "world lighting compatibility version"
+            "level base game version"
         );
         let packs = match packs {
             None => return,
@@ -151,6 +152,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 session_generation,
                 identity: session.identity().clone(),
                 world: bootstrap,
+                player_rotation: game_data.player_rotation,
                 environment: game_data.environment,
                 custom_blocks,
                 inventory,
@@ -160,6 +162,8 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 player_game_mode_uses_world_default: settings.player_game_mode_uses_world_default,
                 server_authoritative_block_breaking: settings.server_authoritative_block_breaking,
                 rewind_history_size: settings.rewind_history_size,
+                base_game_version: protocol::BaseGameVersion::parse(&settings.base_game_version),
+                overworld_range: settings.overworld_range,
                 hardcore: settings.hardcore,
                 hud_rules: settings.hud_rules,
                 death_rules: settings.death_rules,
@@ -167,6 +171,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 packs,
                 terrain_before_spawn: session.terrain_before_spawn(),
                 level_identity: game_data.level_identity,
+                level_name: game_data.level_name,
             },
         )
         .await

@@ -1,13 +1,13 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P},
+    facts::{BlockFact, BlockProperty as P, ItemTraits},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{BlockUseRequest, ItemUseTrigger, SwingSource, VerifiedNetworkItemStack};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 // Held repeats are checked on simulation ticks against a monotonic deadline.
 const SLOW_REPEAT_MILLIS: u64 = 300;
@@ -42,6 +42,14 @@ fn interaction(fact: BlockFact) -> Option<Interaction> {
     } else {
         None
     }
+}
+
+/// Whether a use press aimed at `clicked` belongs to the block rather than the held
+/// item's own use, such as opening a held book or throwing a snowball. Vanilla gives an
+/// interactive block the press unless the player sneaks, whatever the player's abilities
+/// allow and whether or not the block's own use succeeds.
+pub fn block_takes_use_press(clicked: BlockFact, sneaking: bool) -> bool {
+    !sneaking && clicked.traits.contains(T::INTERACTIVE)
 }
 
 impl Interaction {
@@ -103,11 +111,18 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
-/// Empty vanilla buckets may pick liquid sources without making liquids selectable for mining.
+/// Empty vanilla buckets and glass bottles may pick liquid sources without making liquids
+/// selectable for mining.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
     !item.is_empty()
         && item.metadata() == 0
-        && identifier == Some(assets::facts::EMPTY_BUCKET_IDENTIFIER)
+        && identifier.is_some_and(|identifier| {
+            [
+                assets::facts::EMPTY_BUCKET_IDENTIFIER,
+                assets::facts::GLASS_BOTTLE_IDENTIFIER,
+            ]
+            .contains(&identifier)
+        })
 }
 
 /// World facts one local use depends on.
@@ -185,6 +200,9 @@ pub(crate) fn placed_collision_boxes(
 pub enum LocalUse {
     Interact,
     Place,
+    /// The held item's own use on the block succeeded without placing anything, as
+    /// vanilla's brush does; it starts a held use and does not swing.
+    UseItem,
     Nothing,
 }
 
@@ -212,6 +230,10 @@ impl LocalUse {
         if !caps.can_build || item.block_runtime_id() == 0 || item.count() == 0 {
             return Self::Nothing;
         }
+        // `LadderBlock::mayPlace` refuses a click on a top or bottom face before any other check.
+        if surroundings.held.traits.contains(T::LADDER) && face < 2 {
+            return Self::Nothing;
+        }
         let (cell, free) = surroundings.destination(clicked, face);
         let placed = surroundings
             .placed_boxes
@@ -227,15 +249,38 @@ impl LocalUse {
         }
     }
 
-    /// An actor use consumes the press only when the target offers an interaction;
-    /// otherwise the press falls through to item use after the interact transaction.
-    /// Players have no client-side interaction, so the server's interact text alone
-    /// decides; other actors' component interactions are not modelled and always interact.
-    pub const fn for_actor(target: &protocol::ActorKind, interact_text: bool) -> Self {
-        if interact_text || !matches!(target, protocol::ActorKind::Player { .. }) {
+    /// A verified absent offering falls through after the actor transaction. Unresolved
+    /// component or native state retains the conservative interaction behavior.
+    pub const fn for_actor(
+        target: &protocol::ActorKind,
+        interact_text: bool,
+        offered: assets::entity::offered_use::OfferedUse,
+    ) -> Self {
+        if interact_text
+            || (!matches!(target, protocol::ActorKind::Player { .. })
+                && !matches!(offered, assets::entity::offered_use::OfferedUse::Absent))
+        {
             Self::Interact
         } else {
             Self::Nothing
+        }
+    }
+
+    /// A held brush's use succeeds on any block that neither the block's own use nor a
+    /// placement took, as vanilla's `BrushItem::_useOn` does for every non-air block; a
+    /// clicked cell that is now air fails. Like other item use on a block, it needs the
+    /// build ability.
+    pub fn or_brush(
+        self,
+        brush: bool,
+        clicked_air: bool,
+        item: &VerifiedNetworkItemStack,
+        caps: &GameModeCapabilities,
+    ) -> Self {
+        if self == Self::Nothing && brush && !clicked_air && caps.can_build && item.count() > 0 {
+            Self::UseItem
+        } else {
+            self
         }
     }
 
@@ -243,7 +288,8 @@ impl LocalUse {
         match self {
             Self::Interact => Some(SwingSource::Interact),
             Self::Place => Some(SwingSource::Build),
-            Self::Nothing => None,
+            // Vanilla swings only for a use result carrying its swing bit; the brush's has none.
+            Self::UseItem | Self::Nothing => None,
         }
     }
 }
@@ -259,15 +305,16 @@ pub struct BlockUseRuntime {
     last_use: Option<Duration>,
     /// The last success was a block interaction.
     slow_repeat: bool,
-    last_attempt_tick: Option<u64>,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
-    /// The latest press was resolved as a block interaction.
-    press_interacted: bool,
+    /// The latest press was consumed by a block interaction or placement.
+    press_consumed: bool,
     position_authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
     rejected_tick: Option<u64>,
+    /// Failed held targets already sent in one tick, retained across transport retries.
+    failed_repeats: Option<(u64, HashSet<PlacementTarget>)>,
 }
 
 /// One held-use repeat's timing inputs.
@@ -374,17 +421,21 @@ impl BlockUseRuntime {
     }
 
     /// Commits the use schedule after transport admission, retaining refused presses for retry.
+    /// `takes_press` says whether the target's own use owns the press, so the held item's
+    /// use skips it.
+    #[allow(clippy::too_many_arguments)]
     pub fn admit(
         &mut self,
         trigger: ItemUseTrigger,
         due: Duration,
         tick: u64,
         local_use: LocalUse,
+        takes_press: bool,
         clock: RepeatClock,
         admitted: bool,
     ) -> bool {
         if admitted {
-            self.record(trigger, due, tick, local_use, clock);
+            self.record(trigger, due, tick, local_use, takes_press, clock);
         } else if trigger == ItemUseTrigger::PlayerInput {
             self.latched_press = true;
         }
@@ -406,11 +457,11 @@ impl BlockUseRuntime {
         self.position_authority = Some(authority);
     }
 
-    /// The trigger due now, with the repeat's due time; at most one attempt per tick.
+    /// The trigger due now; each buffered pick may use an elapsed repeat deadline.
     pub fn due(
         &self,
         held: bool,
-        tick: u64,
+        _tick: u64,
         clock: RepeatClock,
     ) -> Option<(ItemUseTrigger, Duration)> {
         if self.waiting_for_authority {
@@ -419,7 +470,7 @@ impl BlockUseRuntime {
         if self.latched_press {
             return Some((ItemUseTrigger::PlayerInput, clock.now));
         }
-        if !held || self.last_attempt_tick == Some(tick) {
+        if !held {
             return None;
         }
         let interval = repeat_interval_millis(
@@ -444,32 +495,34 @@ impl BlockUseRuntime {
         self.latched_press
     }
 
-    /// Whether the latest press was resolved as a block interaction, consuming it.
-    pub const fn press_interacted(&self) -> bool {
-        self.press_interacted
+    /// Whether the latest press went to the target's own use or placed something, so the held
+    /// item's use skips it.
+    pub const fn press_consumed(&self) -> bool {
+        self.press_consumed
     }
 
     /// A new press edge starts without the previous press's resolution.
     pub fn forget_press_resolution(&mut self) {
-        self.press_interacted = false;
+        self.press_consumed = false;
     }
 
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
-    /// retries (and resends its transaction) on the next tick.
+    /// remains eligible for the next buffered pick. `takes_press` is whether the target's
+    /// own use owns a press, whether or not that use succeeds.
     pub fn record(
         &mut self,
         trigger: ItemUseTrigger,
         due: Duration,
         tick: u64,
         local_use: LocalUse,
+        takes_press: bool,
         clock: RepeatClock,
     ) {
         self.rejected_tick = None;
         self.latched_press = false;
-        self.last_attempt_tick = Some(tick);
         if trigger == ItemUseTrigger::PlayerInput {
-            self.press_interacted = local_use == LocalUse::Interact;
-            if self.press_interacted {
+            self.press_consumed = takes_press || local_use != LocalUse::Nothing;
+            if local_use == LocalUse::Interact {
                 self.interacted_tick = Some(tick);
             }
         }
@@ -485,6 +538,24 @@ impl BlockUseRuntime {
         });
         self.slow_repeat = local_use == LocalUse::Interact;
     }
+}
+
+/// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
+/// uses need a predicted interaction, seed planting or item use on the block, such as a
+/// brush's, until their successful-use timing is modeled. Buckets refuse repeats.
+pub fn repeats_while_held(
+    item: &VerifiedNetworkItemStack,
+    bucket: bool,
+    local_use: LocalUse,
+    clicked: BlockFact,
+    traits: ItemTraits,
+) -> bool {
+    let passive_crop_use = clicked.family == ModelFamily::Crop
+        && (item.is_empty()
+            || traits.contains(ItemTraits::HOE)
+            || traits.contains(ItemTraits::PICKAXE));
+    item.block_runtime_id() != 0
+        || (!bucket && (local_use != LocalUse::Nothing || passive_crop_use))
 }
 
 /// The cell and state a switch use predicts within the observed world.
@@ -673,3 +744,12 @@ mod packets;
 pub use packets::HeldPlacementInventory;
 
 mod stopping;
+
+mod pick;
+pub use pick::{BlockPick, PickResult};
+
+mod seed;
+pub use seed::seed_planting_cell;
+
+mod paired_item;
+pub use paired_item::{paired_item_block, paired_item_fits};

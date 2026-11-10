@@ -352,10 +352,6 @@ fn carrier_v4_rejects_each_new_total_ceiling_plus_one() {
                 .into_boxed_slice();
     });
     assert_mutation_rejected(|c| {
-        c.rig_animations =
-            vec![c.rig_animations[0]; entity::MAX_ENTITY_RIG_ANIMATIONS + 1].into_boxed_slice();
-    });
-    assert_mutation_rejected(|c| {
         c.rig_controllers =
             vec![c.rig_controllers[0]; entity::MAX_ENTITY_RIG_CONTROLLERS + 1].into_boxed_slice();
     });
@@ -381,9 +377,9 @@ fn carrier_v4_preflights_every_retained_array_before_typed_allocation() {
     let blob = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
     let mut payload: serde_json::Value =
         serde_json::from_slice(&blob[80..blob.len() - 32]).unwrap();
-    payload["animation_channels"] = serde_json::Value::Array(vec![
+    payload["controller_animations"] = serde_json::Value::Array(vec![
         serde_json::Value::Null;
-        entity::MAX_ENTITY_ANIMATION_CHANNELS
+        entity::MAX_ENTITY_CONTROLLER_ANIMATIONS
             + 1
     ]);
     let payload = serde_json::to_vec(&payload).unwrap();

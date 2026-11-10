@@ -1,7 +1,7 @@
 //! Installed global packs and an editable, highest-priority-first selection.
 
 use crate::{
-    AdmissionError, MAX_ARCHIVE_BYTES, MAX_PACKS, ValidatedPackStack,
+    AdmissionError, MAX_ARCHIVE_BYTES, MAX_PACKS, ValidatedPackStack, manifest::Version,
     parser::validate_archive_parts, subpacks as tiers,
 };
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,7 @@ pub struct InstalledPack {
 }
 
 impl InstalledPack {
-    /// Formats the manifest version for archive admission.
+    /// Formats the numeric manifest version for archive filenames.
     pub(crate) fn version_text(&self) -> String {
         self.version.map(|part| part.to_string()).join(".")
     }
@@ -93,6 +93,8 @@ pub enum LibraryError {
     },
     #[error(transparent)]
     Admission(#[from] AdmissionError),
+    #[error(transparent)]
+    JavaPack(java_resource_pack::TranslateError),
     #[error("encrypted or password-protected packs are unsupported")]
     Encrypted,
     #[error("open a supported resource-pack archive")]
@@ -126,6 +128,7 @@ pub struct GlobalPackLibrary {
     catalog: Catalog,
     active: Vec<ActivePack>,
     memory_tier: u32,
+    missing: Vec<String>,
 }
 
 impl GlobalPackLibrary {
@@ -137,11 +140,12 @@ impl GlobalPackLibrary {
     pub fn open(root: impl Into<PathBuf>, engine_version: [u32; 3]) -> Result<Self, LibraryError> {
         let root = root.into();
         let path = root.join(CATALOG_FILE);
-        let catalog: Catalog = if path.exists() {
+        let mut catalog: Catalog = if path.exists() {
             serde_json::from_slice(&read_bounded(&path, MAX_CATALOG_BYTES)?)?
         } else {
             Catalog::default()
         };
+        let missing = storage::forget_missing(&root, &mut catalog);
         if catalog.active.len() > MAX_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
@@ -152,7 +156,13 @@ impl GlobalPackLibrary {
             catalog,
             active,
             memory_tier: 0,
+            missing,
         })
+    }
+
+    /// Names the packs this open removed because their archives no longer exist.
+    pub fn missing_packs(&self) -> &[String] {
+        &self.missing
     }
 
     /// Sets vanilla's memory tier for newly activated packs; manual selections remain intact.
@@ -184,8 +194,12 @@ impl GlobalPackLibrary {
         &self.active
     }
 
-    /// Imports independently valid resource halves; behavior halves are skipped.
+    /// Imports independently valid resource halves; behavior halves are skipped. A folder, such
+    /// as a dropped unpacked Bedrock or Java pack, goes through the same validation as an archive.
     pub fn import(&mut self, path: &Path) -> Result<ImportReport, LibraryError> {
+        if path.is_dir() {
+            return self.import_prepared(crate::prepare_import(path)?);
+        }
         if !crate::is_pack_import_path(path) {
             return Err(LibraryError::UnsupportedExtension);
         }
@@ -278,9 +292,15 @@ impl GlobalPackLibrary {
     /// Reads one installed pack's own icon without activating it or consulting overlays.
     pub fn pack_icon(&self, metadata: &InstalledPack) -> Result<Option<Box<[u8]>>, LibraryError> {
         let bytes = read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?;
-        let (pack, _) =
-            validate_archive_parts(metadata.id, &metadata.version_text(), "", bytes, None, None)?;
-        Ok(pack.read_file_with_limit("pack_icon.png", 4 * 1024 * 1024)?)
+        let (pack, _) = validate_archive_parts(
+            metadata.id,
+            Version(metadata.version),
+            "",
+            bytes,
+            None,
+            None,
+        )?;
+        Ok(pack.read_file_with_limit("pack_icon.png", crate::MAX_PACK_ICON_BYTES as u64)?)
     }
 
     /// Adds a pack at the top of the staged stack, without duplicating it.
@@ -400,17 +420,25 @@ impl GlobalPackLibrary {
             let bytes = if let Some((_, bytes)) = prepared {
                 bytes.clone()
             } else {
-                read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?
+                match read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES) {
+                    Ok(bytes) => bytes,
+                    // Bedrock ignores a configured pack it cannot find; the others still apply.
+                    Err(LibraryError::Io(error))
+                        if error.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
             };
             let (pack, _) = crate::parser::validate_archive_parts_cached(
                 active.id,
-                &metadata.version_text(),
                 &active.subpack,
                 bytes,
                 None,
                 None,
                 Arc::clone(&reads),
-                crate::manifest::IdentityPolicy::Manifest,
+                crate::manifest::IdentityPolicy::Manifest(Version(metadata.version)),
             )?;
             let next = ValidatedPackStack {
                 packs: vec![pack].into_boxed_slice(),

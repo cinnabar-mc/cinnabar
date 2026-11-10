@@ -13,6 +13,7 @@ use planning::{pack_settings, planned, storage_sizes};
 mod diagnostics;
 use diagnostics::{failure_line, log_program};
 
+use super::center_depth::{CenterDepthReaders, DepthSource};
 use super::draws::{GeometryDraw, GeometryStage, geometry_draws, select_draws};
 use super::effects::EffectSettings;
 use super::host_pipelines::{HostPipelines, host_pipelines};
@@ -33,20 +34,20 @@ use super::resources::{
 };
 use super::shadow_maps::{ShadowMaps, shadow_maps};
 use super::uniforms::PackSettings;
-use bevy::log::warn;
 use render_scene::shaderpack::LoadProgress;
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use shaderpack::OptionValues;
 use shaderpack::{
-    CustomUniform, Environment, OptionValues, ProgramGroup, ProgramKind, ProgramReflection,
-    ProgramTranslation, SamplerBinding, SamplerClass, ScaleRule, ShaderPack, StageKind,
-    TranslateConfig,
+    Environment, ProgramGroup, ProgramKind, ProgramReflection, ProgramTranslation, SamplerBinding,
+    SamplerClass, ScaleRule, ShaderPack, StageKind, TranslateConfig,
 };
 use std::path::Path;
 use std::sync::Arc;
 use wgpu::{TextureFormat, TextureUsages};
 
 /// Bumped when translated output or the cache layout changes, invalidating cached data.
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 
 /// The GPU pipeline of one program.
 pub(crate) enum ProgramPipeline {
@@ -81,6 +82,15 @@ pub(crate) struct GpuProgram {
 }
 
 impl GpuProgram {
+    /// The loose uniform block of a full-screen (or compute) program, which owns a uniform
+    /// buffer per view; geometry programs have one per draw instead.
+    pub fn fullscreen_uniforms(&self) -> Option<&shaderpack::UniformBlock> {
+        self.reflection
+            .uniforms
+            .as_ref()
+            .filter(|_| !matches!(self.pipeline, ProgramPipeline::Geometry))
+    }
+
     /// Bit per colour buffer the program both samples (`colortexN`) and writes as a storage
     /// image (`colorimgN`). Both bind the same side, which OpenGL allows and wgpu forbids
     /// within one pass, so the host samples a copy taken just before the pass.
@@ -115,6 +125,8 @@ impl GpuProgram {
 /// A loaded pack, immutable and shared by every view.
 pub(crate) struct PackGpu {
     pub name: String,
+    /// Program failures shown in the pack picker while the remaining programs run.
+    pub warnings: String,
     pub programs: Vec<GpuProgram>,
     pub frame: FramePlan,
     pub buffers: Vec<BufferPlan>,
@@ -139,7 +151,7 @@ pub(crate) struct PackGpu {
     /// Storage-buffer bindings with their byte sizes.
     pub shader_storage: Vec<(u32, u64)>,
     pub settings: PackSettings,
-    pub custom_uniforms: Vec<CustomUniform>,
+    pub custom_uniforms: shaderpack::CustomUniforms,
     /// One filtering sampler per [`SamplerClass`], in [`SamplerClass::ALL`] order.
     pub filtering: [wgpu::Sampler; SamplerClass::ALL.len()],
     pub comparison: wgpu::Sampler,
@@ -173,6 +185,8 @@ pub(crate) struct PackGpu {
     pub lightmap: Option<usize>,
     /// The pack's effect directives (clouds, sun, moon, stars, weather, particle ordering).
     pub effects: EffectSettings,
+    /// Full-screen programs reading `centerDepthSmooth`.
+    pub center_depth: CenterDepthReaders,
 }
 
 impl PackGpu {
@@ -214,8 +228,19 @@ pub(crate) fn content_key(pack: &ShaderPack, config: &TranslateConfig) -> String
 }
 
 /// The translation settings for this host.
+#[cfg(test)]
 pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateConfig {
-    let environment = Environment {
+    let environment = host_environment();
+    TranslateConfig {
+        folder: pack.dimension_folder(dimension, &environment),
+        environment,
+        ..TranslateConfig::default()
+    }
+}
+
+/// Supplies the current host's macros to both local fixtures and the isolated compiler.
+fn host_environment() -> Environment {
+    Environment {
         os: if cfg!(target_os = "windows") {
             shaderpack::HostOs::Windows
         } else if cfg!(target_os = "macos") {
@@ -226,12 +251,13 @@ pub(crate) fn translate_config(pack: &ShaderPack, dimension: &str) -> TranslateC
             shaderpack::HostOs::Other
         },
         ..Environment::default()
-    };
-    TranslateConfig {
-        folder: pack.dimension_folder(dimension, &environment),
-        environment,
-        ..TranslateConfig::default()
     }
+}
+
+/// Uses exact dot steps on DX12 and CPU adapters without requiring optional float64 support.
+fn software_fused_dot(gpu: &GpuContext) -> bool {
+    let info = gpu.adapter.get_info();
+    info.backend == wgpu::Backend::Dx12 || info.device_type == wgpu::DeviceType::Cpu
 }
 
 /// Stops retired workers before opening files or submitting another GPU construction batch.
@@ -248,6 +274,10 @@ fn check_cancelled(progress: &LoadProgress) -> Result<(), String> {
 /// `minecraft:` texture references. Saved values are normalized in memory; the option editor
 /// owns file writes so a load worker cannot overwrite a newer edit. Translation reports into
 /// `progress`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the load's paths, GPU and cancellation inputs"
+)]
 pub(crate) fn load(
     path: &Path,
     options: Option<&Path>,
@@ -256,61 +286,50 @@ pub(crate) fn load(
     gpu: &GpuContext,
     vanilla: &VanillaTextures,
     progress: &LoadProgress,
+    compiler: Option<&Path>,
 ) -> Result<PackGpu, String> {
+    super::kernels::validate_device(&gpu.device.limits())?;
     check_cancelled(progress)?;
-    let pack = ShaderPack::open(path).map_err(|e| e.to_string())?;
+    let started = std::time::Instant::now();
+    let request = shaderpack::worker::Request {
+        pack: path.to_owned(),
+        options: options.map(Path::to_owned),
+        dimension: dimension.to_owned(),
+        environment: host_environment(),
+        software_fused_dot: software_fused_dot(gpu),
+        purpose: shaderpack::worker::Purpose::Render,
+    };
+    let mut worker = shaderpack::worker::Running::start(compiler, &request)?;
+    let compiled = loop {
+        if let Some(result) = worker.poll(started.elapsed(), progress.is_cancelled()) {
+            break result?.into_translation()?;
+        }
+        std::thread::park_timeout(std::time::Duration::from_millis(10));
+    };
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
+        |name| name.to_string_lossy().into_owned(),
     );
-    let values = options.map_or_else(OptionValues::new, |file| saved_options(&pack, file));
-    build(
-        &pack, &name, dimension, &values, cache_dir, gpu, vanilla, progress,
-    )
-}
-
-/// Reads and normalizes the pack's saved values without changing the file; unreadable files
-/// load the defaults.
-fn saved_options(pack: &ShaderPack, file: &Path) -> OptionValues {
-    let saved = match shaderpack::read_option_file(file) {
-        Ok(saved) => saved,
-        Err(error) => {
-            warn!(
-                target: "cinnabar::shaderpack",
-                file = %file.display(),
-                "shader pack options unreadable, using defaults: {error}"
-            );
-            return OptionValues::new();
-        }
-    };
-    shaderpack::normalize_values(pack.options(), &saved)
+    build_translation(compiled, &name, cache_dir, gpu, vanilla, progress, started)
 }
 
 /// The enabled programs this host runs, in frame order, with validated destinations.
-/// Translation failures name each program and its first diagnostic.
+/// Failed translations are skipped; the loaded pack keeps their diagnostics as warnings.
 pub(crate) fn runnable_programs(
     translation: &shaderpack::PackTranslation,
 ) -> Result<(Vec<&ProgramTranslation>, Vec<PlannedProgram>), String> {
-    let mut failed = vec![];
     let mut runnable = vec![];
     let mut plans = vec![];
     for program in &translation.programs {
         if !program.enabled || !runs(program.program.group) {
             continue;
         }
-        match &program.reflection {
-            Some(reflection) => {
-                plans.push(planned(program, reflection, &translation.properties)?);
-                runnable.push(program);
-            }
-            None => failed.push(failure_line(program)),
+        if let Some(reflection) = &program.reflection {
+            plans.push(planned(program, reflection, &translation.properties)?);
+            runnable.push(program);
         }
     }
-    if failed.is_empty() {
-        Ok((runnable, plans))
-    } else {
-        Err(failed.join("\n"))
-    }
+    Ok((runnable, plans))
 }
 
 /// Translates and builds an opened pack with option `values`; translation reports into
@@ -319,6 +338,7 @@ pub(crate) fn runnable_programs(
     clippy::too_many_arguments,
     reason = "the pack, its option values and the load's host inputs"
 )]
+#[cfg(test)]
 pub(crate) fn build(
     pack: &ShaderPack,
     name: &str,
@@ -331,6 +351,7 @@ pub(crate) fn build(
 ) -> Result<PackGpu, String> {
     let config = TranslateConfig {
         options: values.clone(),
+        software_fused_dot: software_fused_dot(gpu),
         ..translate_config(pack, dimension)
     };
     let started = std::time::Instant::now();
@@ -342,6 +363,47 @@ pub(crate) fn build(
             || progress.is_cancelled(),
         )
         .ok_or_else(|| "shader pack load cancelled".to_owned())?;
+    build_translation(
+        shaderpack::worker::prepare_translation(pack.clone(), config, translation),
+        name,
+        cache_dir,
+        gpu,
+        vanilla,
+        progress,
+        started,
+    )
+}
+
+/// Builds GPU resources from a completed CPU translation; no pack metadata is compiled here.
+fn build_translation(
+    compiled: shaderpack::worker::Output,
+    name: &str,
+    cache_dir: Option<&Path>,
+    gpu: &GpuContext,
+    vanilla: &VanillaTextures,
+    progress: &LoadProgress,
+    started: std::time::Instant,
+) -> Result<PackGpu, String> {
+    super::kernels::validate_device(&gpu.device.limits())?;
+    let shaderpack::worker::Output {
+        pack,
+        config,
+        translation,
+        custom_uniforms: (custom_uniforms, errors),
+        ids,
+        block_ids,
+        options_warning,
+    } = compiled;
+    let pack = &pack;
+    if let Some(error) = options_warning {
+        bevy::log::warn!(target: "cinnabar::shaderpack", pack = name,
+            "shader pack options unreadable, using defaults: {error}");
+    }
+    for error in errors {
+        bevy::log::debug!(target: "cinnabar::shaderpack", pack = name, line = error.line,
+            name = %error.name, "custom uniform dropped: {}", error.message);
+    }
+    check_cancelled(progress)?;
     for diagnostic in &translation.properties.diagnostics {
         bevy::log::debug!(
             target: "cinnabar::shaderpack",
@@ -361,8 +423,7 @@ pub(crate) fn build(
                 .map_err(|error| format!("{}: {error}", program.program.name))?;
         }
     }
-    let (block_ids, actor_ids) =
-        super::ids::id_tables(pack.id_maps(&config.environment, &config.options), name);
+    let (block_ids, actor_ids) = super::ids::id_tables(ids, block_ids, name);
     let effects = EffectSettings::read(
         &translation.properties,
         runnable
@@ -466,7 +527,7 @@ pub(crate) fn build(
     });
 
     check_cancelled(progress)?;
-    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let scope = super::pipelines::RejectionScope::push(&gpu.device);
     let render_device = bevy::render::renderer::RenderDevice::from(gpu.device.clone());
     let loaded = crate::gpu_allocation::checked(&render_device, "shader pack load", 0, || {
         let key = content_key(pack, &config);
@@ -491,11 +552,15 @@ pub(crate) fn build(
         let mut programs = Vec::with_capacity(all.len());
         // Per geometry program: its pipeline layout, vertex module and fragment stage.
         let mut geometry_stages = vec![];
-        for (program, reflection) in all.iter().zip(&reflections) {
+        // Programs, geometry draws, then the host pipelines: the loading toast counts each.
+        let steps = all.len() + selected_draws.len() + 1;
+        for (built, (program, reflection)) in all.iter().zip(&reflections).enumerate() {
             check_cancelled(progress)?;
+            progress.record_built(built, steps);
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
+                program.released_overrides,
                 reflection,
                 &buffer_formats,
                 storage_buffers,
@@ -564,6 +629,25 @@ pub(crate) fn build(
                     layout: pipeline_layout,
                     vertex,
                     fragment,
+                    emulation: program.geometry.as_ref().map(|contract| {
+                        let stage = |kind| {
+                            program
+                                .stages
+                                .iter()
+                                .find(|s| s.stage == kind)
+                                .unwrap()
+                                .result
+                                .as_ref()
+                                .unwrap()
+                                .clone()
+                        };
+                        (
+                            stage(StageKind::Vertex),
+                            stage(StageKind::Geometry),
+                            contract.clone(),
+                        )
+                    }),
+                    layouts: layouts.clone(),
                 });
                 programs.push(GpuProgram {
                     name: program.program.name.clone(),
@@ -683,7 +767,8 @@ pub(crate) fn build(
             });
         }
         let shadow_slots = constants.shadow_slots();
-        check_cancelled(progress)?;
+        let mut geometry_failures = vec![];
+        progress.record_built(all.len(), steps);
         let draws = geometry_draws(
             gpu,
             pipeline_cache.as_ref().map(|c| &c.cache),
@@ -694,7 +779,9 @@ pub(crate) fn build(
             &effects,
             &buffer_formats,
             &shadow_slots,
-        );
+            progress,
+            &mut geometry_failures,
+        )?;
         // `shadowtex0` can be the attachment itself unless a shadow program samples it while
         // the pass draws.
         let shadowtex0 = shadow_slots.depth[0]
@@ -737,6 +824,13 @@ pub(crate) fn build(
             .map(|slot| constants.constant(*slot).texture.format())
             .collect();
         check_cancelled(progress)?;
+        let center_depth = CenterDepthReaders::plan(
+            programs
+                .iter()
+                .map(|program| (program.group, program.fullscreen_uniforms())),
+            &custom_uniforms,
+        );
+        progress.record_built(all.len() + selected_draws.len(), steps);
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,
@@ -745,6 +839,11 @@ pub(crate) fn build(
             super::targets::float_depths(draws.is_empty(), depth_sampled),
             &mipmap_formats,
             &shadow_depth_formats,
+            (!center_depth.is_empty()).then_some(if draws.is_empty() {
+                DepthSource::Scene
+            } else {
+                DepthSource::Geometry
+            }),
         );
         let shader_storage = storage_sizes(&reflections, &translation.properties)?;
         let max_uniform = reflections
@@ -781,6 +880,14 @@ pub(crate) fn build(
         let constants = constants.finish();
         let loaded = PackGpu {
             name: name.to_string(),
+            warnings: translation
+                .programs
+                .iter()
+                .filter(|p| p.enabled && p.reflection.is_none())
+                .map(failure_line)
+                .chain(geometry_failures)
+                .collect::<Vec<_>>()
+                .join("\n"),
             programs,
             frame,
             buffers,
@@ -796,7 +903,7 @@ pub(crate) fn build(
             atomic_images,
             shader_storage,
             settings,
-            custom_uniforms: translation.properties.custom_uniforms.clone(),
+            custom_uniforms,
             filtering,
             comparison,
             zero_uniforms,
@@ -818,13 +925,14 @@ pub(crate) fn build(
             atlas_placeholder,
             lightmap,
             effects,
+            center_depth,
         };
         Ok((loaded, pipeline_cache))
     });
-    let validation_error = bevy::tasks::block_on(scope.pop());
+    let rejected = scope.pop();
     let (loaded, pipeline_cache) =
         loaded.ok_or_else(|| "shader pack load ran out of GPU memory".to_owned())??;
-    if let Some(error) = validation_error {
+    if let Some(error) = rejected {
         return Err(format!("the device rejected the pack: {error}"));
     }
     check_cancelled(progress)?;
@@ -841,35 +949,3 @@ pub(crate) fn build(
 #[cfg(test)]
 #[path = "loader_validation_tests.rs"]
 mod validation_tests;
-
-#[cfg(test)]
-mod option_tests {
-    use super::*;
-
-    #[test]
-    fn loading_normalizes_options_without_writing_over_editor_saves() {
-        let pack = ShaderPack::new(shaderpack::PackSource::from_files([(
-            "final.fsh",
-            "#define QUALITY 2 // [1 2 3]\nvoid main() {}\n",
-        )]));
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("options.txt");
-        let saved = b"QUALITY=3\nREMOVED=true\n";
-        std::fs::write(&file, saved).unwrap();
-        assert_eq!(
-            saved_options(&pack, &file),
-            OptionValues::from([("QUALITY".into(), "3".into())])
-        );
-        assert_eq!(std::fs::read(&file).unwrap(), saved);
-        shaderpack::write_option_file(
-            &file,
-            pack.options(),
-            &OptionValues::from([("QUALITY".into(), "1".into())]),
-        )
-        .unwrap();
-        assert_eq!(
-            saved_options(&pack, &file),
-            OptionValues::from([("QUALITY".into(), "1".into())])
-        );
-    }
-}

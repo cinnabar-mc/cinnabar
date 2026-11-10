@@ -8,7 +8,8 @@ standard GITHUB_REF, GITHUB_SHA, GITHUB_REPOSITORY, GITHUB_OUTPUT, GH_TOKEN.
 Dispatch must check out TARGET_BRANCH with full history and tags. A nightly
 dispatch is read-only and limited to the default branch; a tagged
 dispatch writes a release commit/tag; GitHub's token does not trigger another
-tag workflow. Outputs: channel, track, tag, version, ref, commit. ref is a commit SHA.
+tag workflow. Outputs: channel, track, tag, version, ref, commit.
+ref is a commit SHA.
 """
 
 import os
@@ -160,7 +161,7 @@ def validate_api_origin() -> None:
 
 def prepare() -> dict[str, str]:
     validate_api_origin()
-    tagged_channel, _ = channel_for_track("tagged")
+    tagged_channel, tagged_release = channel_for_track("tagged")
     rolling_channel, rolling_release = channel_for_track("rolling")
     event = os.environ.get("EVENT_NAME", os.environ.get("GITHUB_EVENT_NAME", ""))
     default_branch = os.environ.get("DEFAULT_BRANCH", "main")

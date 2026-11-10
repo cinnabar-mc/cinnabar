@@ -3,9 +3,9 @@ use semantic_input::identity::InputAuthorityGeneration;
 
 use semantic_input::{
     Action, ActionBinding, AxisDirection, BindingError, ControlSettings, ControllerFrame,
-    DeviceFrame, FrameError, InputChord, InputContext, KeyboardMouseFrame, MAX_CONTROLLERS,
-    MAX_LOOK_DELTA_PER_FRAME, MAX_TOUCH_CONTROLS, ModifierChord, PhysicalControl, ReleaseReason,
-    RouterError, SemanticInputRouter, TouchAxis, TouchControl, TouchControlKind,
+    DeviceFrame, FrameError, InputChord, InputContext, InputMode, KeyboardMouseFrame,
+    MAX_CONTROLLERS, MAX_LOOK_DELTA_PER_FRAME, MAX_TOUCH_CONTROLS, ModifierChord, PhysicalControl,
+    ReleaseReason, RouterError, SemanticInputRouter, TouchAxis, TouchControl, TouchControlKind,
     TouchControlLayout, TouchLayoutError,
 };
 
@@ -64,6 +64,7 @@ include!("router/controller_arbitration.rs");
 include!("router/movement_lanes.rs");
 
 include!("router/control_consumption.rs");
+include!("router/mode_fallback.rs");
 
 #[path = "router/ordered_desktop.rs"]
 mod ordered_desktop;

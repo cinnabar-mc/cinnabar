@@ -1,10 +1,10 @@
 //! Equipment selection and fallback outcomes across mounts and catalog layers.
 
 use super::*;
-use crate::presentation::equipment::display::{
-    LAYER_CHESTPLATE, LAYER_HELMET, LAYER_MAIN_HAND, LAYER_OFF_HAND, head_block_display,
-};
+use crate::presentation::equipment::LAYER_MAIN_HAND;
+use crate::presentation::equipment::display::{LAYER_CHESTPLATE, LAYER_HELMET, LAYER_OFF_HAND};
 use assets::ArmorSlot;
+use render_model::equipment::head_block_display;
 
 #[derive(Clone, Copy, Debug)]
 enum Definition {
@@ -84,7 +84,7 @@ fn routing_pack(
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(bytes).unwrap();
         let mut description = json["minecraft:attachable"]["description"].clone();
-        let cost = assets::MAX_MOLANG_OPS_PER_EXPRESSION;
+        let cost = crate::selection_test_support::REJECTED_PREDICATE_OPS;
         let count = actor_animation::MAX_MOLANG_OPS_PER_ACTOR_TICK / cost;
         for index in 0..count {
             description["identifier"] = serde_json::json!(format!("fixture:rejected_{index}"));
@@ -272,6 +272,7 @@ fn equipment_routing_fallback_table() {
                             JavaGrip::default(),
                             1.0,
                             &mut fallback,
+                            false,
                         );
                     } else {
                         runtime.push_attached(

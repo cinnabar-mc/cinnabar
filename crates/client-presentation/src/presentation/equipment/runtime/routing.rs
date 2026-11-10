@@ -31,7 +31,7 @@ impl EquipmentRuntime {
         let slot = match slot {
             EquipmentSlot::Worn(slot) => slot,
             EquipmentSlot::Held { off_hand } => {
-                if self.uses_native_item_mesh(&item.identifier) {
+                if self.uses_native_item_mesh(&item.identifier, equipment.java.is_some()) {
                     return EquipmentRoute::NativeHeld;
                 }
                 let source = self
@@ -42,7 +42,9 @@ impl EquipmentRuntime {
                                 &item.identifier,
                                 source.catalog.bindings()[source.index].category
                             ),
-                            EquipmentCategory::Held | EquipmentCategory::Shield
+                            EquipmentCategory::Held
+                                | EquipmentCategory::ArmorAndHeld { .. }
+                                | EquipmentCategory::Shield
                         )
                     });
                 return EquipmentRoute::Held(source);
@@ -54,7 +56,11 @@ impl EquipmentRuntime {
             return EquipmentRoute::Skull(kind);
         }
         let Some(source) = self.worn_binding_source(item, equipment, animation, slot) else {
-            return if slot == ArmorSlot::Helmet && matches!(item.kind, HeldKind::Block(_)) {
+            return if slot == ArmorSlot::Helmet
+                && matches!(
+                    item.kind,
+                    HeldKind::Block(_) | HeldKind::RetainedBlock { .. }
+                ) {
                 EquipmentRoute::HeadBlock
             } else {
                 EquipmentRoute::Hidden
@@ -67,7 +73,10 @@ impl EquipmentRuntime {
             EquipmentCategory::Elytra if slot == ArmorSlot::Chestplate => {
                 EquipmentRoute::Elytra(source)
             }
-            EquipmentCategory::Armor { slot: admitted } if slot == admitted => {
+            EquipmentCategory::Armor { slot: admitted }
+            | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                if slot == admitted =>
+            {
                 EquipmentRoute::Armor(source)
             }
             _ => EquipmentRoute::Hidden,

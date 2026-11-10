@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds Cinnabar-<version>-<arch>.AppImage. Requires appimagetool (APPIMAGETOOL) and librsvg or ImageMagick.
-# Usage: build-appimage.sh [out_dir]. Env: CLIENT, CORE, LOCAL_SERVER, CXB, BINARIES, ASSETC, ARCH (default uname -m),
-# APPIMAGE_RUNTIME (pinned type2 runtime; appimagetool otherwise downloads the latest).
+# Usage: build-appimage.sh [out_dir]. Env: CLIENT, CORE, LOCAL_SERVER, CXB, SHADERPACK_WORKER, BINARIES, ASSETC,
+# ARCH (default uname -m), APPIMAGE_RUNTIME (pinned type2 runtime; appimagetool otherwise downloads the latest).
 set -euo pipefail
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # shellcheck source=../common/stage-payload.sh
