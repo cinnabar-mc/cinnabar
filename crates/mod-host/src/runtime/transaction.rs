@@ -29,7 +29,6 @@ impl State {
                 ..Default::default()
             },
             snapshot: self.snapshot.clone(),
-            gameplay_input_writes: 0,
             gameplay_reads: 0,
             camera_writes: 0,
             pending_camera: None,
@@ -70,7 +69,6 @@ impl State {
         let state = self;
         state.writes = 0;
         state.environment.begin_callback();
-        state.gameplay_input_writes = 0;
         state.gameplay_reads = 0;
         state.camera_writes = 0;
         state.player_state.begin_callback();
@@ -118,7 +116,6 @@ impl State {
             environment,
             motion,
             snapshot: _,
-            gameplay_input_writes: _,
             gameplay_reads: _,
             camera_writes: _,
             pending_camera,

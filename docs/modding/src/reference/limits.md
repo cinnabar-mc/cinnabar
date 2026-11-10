@@ -128,7 +128,6 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
-| `mod_api::MAX_GAMEPLAY_INPUT_PULSES` | 8 | Gameplay button taps per callback and across all mods per frame. |
 | `mod_api::MAX_CAMERA_DELTA_RADIANS` | 0.25 | Accumulated rotation per axis per callback, in radians. |
 | `mod_api::MAX_ENTITY_REACH_BLOCKS` | 6 | Local actor attack reach in blocks. |
 | `mod_api::MAX_PACKET_DELAY_MS` | 1000 | Post-login application packet delay in milliseconds. |

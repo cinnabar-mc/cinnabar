@@ -139,9 +139,6 @@ grants! {
     /// Allows local key edges, reserved bindings and the retained settings panel.
     #[permission("Controls", true)]
     pub controls: bool,
-    /// Allows one-frame semantic gameplay button taps and local hotbar selection.
-    #[permission("Gameplay input", true)]
-    pub gameplay_input: bool,
     /// Allows bounded host-rendered HUD cards and a local custom crosshair.
     #[permission("HUD", false)]
     pub hud: bool,
@@ -242,7 +239,6 @@ impl ModGrants {
             || self.players
             || self.camera
             || self.item_use
-            || self.gameplay_input
             || self.movement
             || self.interaction
             || self.inventory
@@ -259,18 +255,6 @@ impl ModGrants {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn gameplay_input_alone_receives_a_gameplay_frame() {
-        assert!(
-            ModGrants {
-                gameplay_input: true,
-                ..Default::default()
-            }
-            .needs_gameplay()
-        );
-    }
-
     #[test]
     fn signed_grant_subsets_compare_every_capability_and_command_value() {
         let ceiling = ModGrants {
@@ -338,7 +322,6 @@ mod tests {
         for name in [
             "camera",
             "item_use",
-            "gameplay_input",
             "interaction",
             "packet_delay",
             "packets",

@@ -35,7 +35,6 @@ impl State {
             environment,
             motion,
             snapshot: _,
-            gameplay_input_writes: _,
             gameplay_reads: _,
             camera_writes: _,
             pending_camera,

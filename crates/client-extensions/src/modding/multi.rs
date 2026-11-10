@@ -859,7 +859,6 @@ pub struct Merged {
     pub weather_override: Option<[f32; 2]>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
-    pub hotbar_slot: Option<u8>,
     /// Any active mod requesting an ordinary crosshair mining hold.
     pub block_mining: bool,
     pub block_mining_target: Option<mod_host::GameplayVector3>,
@@ -909,7 +908,6 @@ impl Merged {
         );
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
-        self.hotbar_slot = self.hotbar_slot.or(interaction.hotbar_slot);
         self.block_mining |= interaction.block_mining;
         self.block_mining_target = self.block_mining_target.or(interaction.block_mining_target);
         let delta = host.take_camera_delta();

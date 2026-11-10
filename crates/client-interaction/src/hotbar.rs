@@ -25,32 +25,11 @@ pub fn queue_hotbar_selection(
     input: Res<SemanticInputSnapshot>,
     scroll: Res<AccumulatedMouseScroll>,
     focus: Res<ScreenFocus>,
-    mut mod_selection: Option<ResMut<client_state::ModHotbarSelection>>,
 ) {
-    let mod_target = mod_selection
-        .as_deref_mut()
-        .and_then(|selection| selection.0.take());
-    let mod_target = mod_target.filter(|_| {
-        !focus.absorbs_input
-            && input
-                .snapshot()
-                .is_some_and(|snapshot| !snapshot.authority_released)
-    });
-    if let Some(ordered) = input
+    if input
         .snapshot()
-        .and_then(|snapshot| snapshot.ordered.as_ref())
+        .is_some_and(|snapshot| snapshot.ordered.is_some())
     {
-        if !ordered
-            .events()
-            .iter()
-            .any(|event| event.pressed && slot_for_action(event.action, 0).is_some())
-            && let Some(target) = mod_target
-        {
-            let game_mode = player_runtime.facts.player_game_mode();
-            player_runtime
-                .inventory
-                .queue_local_hotbar_selection(target, game_mode);
-        }
         return;
     }
     // Direct number-key selection. The router only resolves Hotbar1..9 in the Gameplay context,
@@ -89,10 +68,6 @@ pub fn queue_hotbar_selection(
         );
         let slots = i32::from(HOTBAR_SLOT_COUNT);
         requested = Some((((current + cycle) % slots + slots) % slots) as u8);
-    }
-
-    if requested.is_none() && cycle == 0 {
-        requested = mod_target;
     }
 
     if let Some(target) = requested {
