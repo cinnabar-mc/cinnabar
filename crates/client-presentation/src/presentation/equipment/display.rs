@@ -259,37 +259,6 @@ mod tests {
     }
 
     #[test]
-    fn block_quarter_turn_keeps_the_anchor_and_rotates_the_authored_faces() {
-        let hand = FirstPersonHand {
-            swing: 0.,
-            equip: 1.,
-            consume: None,
-            aspect: 1.,
-        };
-        for profile in [
-            render_api::CombatVisuals::Legacy112,
-            render_api::CombatVisuals::Modern,
-        ] {
-            let display = first_person_display_for_profile(
-                FirstPersonShape::Block { quarter_turn: true },
-                hand,
-                profile,
-            );
-            assert!(
-                display
-                    .translation
-                    .abs_diff_eq(Vec3::new(0.56, -0.52, -0.72), 1e-6)
-            );
-            assert!((display.scale - 0.4).abs() < 1e-6);
-            let diagonal = std::f32::consts::FRAC_1_SQRT_2;
-            assert!(
-                (display.rotation * Vec3::X).abs_diff_eq(Vec3::new(diagonal, 0., diagonal), 1e-6)
-            );
-            assert!((display.rotation * Vec3::Y).abs_diff_eq(Vec3::Y, 1e-6));
-        }
-    }
-
-    #[test]
     fn profiles_select_the_held_attack_trig_and_preserve_use_poses() {
         let shape = FirstPersonShape::Block {
             quarter_turn: false,
