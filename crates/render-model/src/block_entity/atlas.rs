@@ -509,9 +509,14 @@ impl DynamicCells {
         &self.layout
     }
 
-    /// Reserves the static artwork's rows; a reload that cannot retain live pages is refused.
+    /// Allocated rows plus room for every text page admitted with the artwork.
+    fn reserved_height(&self) -> u32 {
+        self.layout.height + (MAX_TEXT_PAGES - self.text.pages.len()) as u32 * TEXT_PAGE_HEIGHT
+    }
+
+    /// Reserves static rows without losing cached pages or future text capacity.
     pub(super) fn set_height_limit(&mut self, height: u32) -> Option<()> {
-        if height < self.layout.height {
+        if height < self.reserved_height() {
             return None;
         }
         self.height_limit = height;
@@ -554,8 +559,7 @@ impl DynamicCells {
     /// The map slot holding `key`; see [`CellPool::slot`].
     /// Growth leaves room for every text page admitted with the artwork.
     pub fn map_slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
-        let reserved_text = (MAX_TEXT_PAGES - self.text.pages.len()) as u32 * TEXT_PAGE_HEIGHT;
-        let can_grow = self.layout.height + MAP_STRIP_HEIGHT + reserved_text <= self.height_limit;
+        let can_grow = self.reserved_height() + MAP_STRIP_HEIGHT <= self.height_limit;
         self.maps.max_pages = self.maps.pages.len() + usize::from(can_grow);
         let slot = self.maps.slot(key, make);
         self.layout
@@ -767,6 +771,7 @@ mod tests {
         assert!(cells.map_slot(page_slots, canvas).is_some());
         assert_eq!(cells.layout.text, layout.text);
         assert_eq!(cells.layout.maps[0], layout.maps[0]);
+        assert!(cells.set_height_limit(reserved_height).is_none());
         assert!(cells.set_height_limit(initial_height).is_none());
     }
 

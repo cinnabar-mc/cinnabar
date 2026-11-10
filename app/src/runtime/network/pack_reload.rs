@@ -504,11 +504,12 @@ pub(crate) fn reload_resource_packs(
                     )
                     && !scene.reload_prepared_assets(art)
                 {
+                    reload.geometry = Default::default();
                     if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref()) {
                         gpu.cancel_except(current.binding_identity());
                     }
                     reload.error = Some(
-                        "Block-entity artwork cannot fit the cached sign and map canvases"
+                        "Block-entity artwork cannot fit cached canvases and sign capacity"
                             .to_owned(),
                     );
                     reload.applied = reload.revision;

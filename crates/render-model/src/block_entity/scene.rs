@@ -271,7 +271,7 @@ impl BlockEntityScene {
     }
 
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
-    /// Returns false without changing the scene if the retained pages do not fit.
+    /// Returns false without changing the scene if cached pages or text headroom do not fit.
     #[must_use]
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) -> bool {
         let mut atlas = artwork.atlas.clone();
@@ -282,7 +282,9 @@ impl BlockEntityScene {
             .set_height_limit(MAX_ATLAS_SIDE - atlas.static_height())
             .is_none()
         {
-            tracing::warn!("block-entity artwork reload cannot retain the live canvas pages");
+            tracing::warn!(
+                "block-entity artwork reload cannot retain canvas pages and text capacity"
+            );
             return false;
         }
         text.resize_width(atlas.size()[0])
