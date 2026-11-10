@@ -63,7 +63,7 @@ pub(super) fn declarations(
                     0,
                 ));
             }
-            let name = format!("iris_FragData{f}");
+            let name = legacy::frag_data_output(*f, lg.compatibility);
             builtin_io.push_str(&format!("layout(location = {f}) out vec4 {name};\n"));
             c.frag_outputs.push((*f, name));
         }

@@ -68,7 +68,7 @@ fn book_opening_waits_for_admission_and_initializes_only_once() {
         .unwrap()
         .clone();
     assert!(runtime.open_held_book(&mut player, Some([0.0, 70.0, 0.0]), |_| false));
-    assert!(runtime.screen.book.is_none());
+    assert!(runtime.session.screen.book.is_none());
     assert_eq!(
         player.inventory.ledger().displayed_stack(0),
         Some(&original)
@@ -80,7 +80,7 @@ fn book_opening_waits_for_admission_and_initializes_only_once() {
             true
         })
     );
-    assert!(runtime.screen.book.as_ref().unwrap().editable);
+    assert!(runtime.session.screen.book.as_ref().unwrap().editable);
     let initialized = player
         .inventory
         .ledger()
@@ -102,7 +102,13 @@ fn book_opening_waits_for_admission_and_initializes_only_once() {
             .is_empty(),
         "an initialized book uses the item without another initialization"
     );
-    runtime.screen.book.as_mut().unwrap().type_text("saved");
+    runtime
+        .session
+        .screen
+        .book
+        .as_mut()
+        .unwrap()
+        .type_text("saved");
     runtime.finish_book(&mut player, false);
     packets.push(runtime.take_client_packet().unwrap());
     assert!(runtime.take_client_packet().is_none());
@@ -123,7 +129,7 @@ fn book_opening_waits_for_admission_and_initializes_only_once() {
 fn fresh_book_does_not_open_without_a_pose_or_while_its_slot_has_a_pending_drop() {
     let (mut player, mut runtime) = held_book();
     assert!(runtime.open_held_book(&mut player, None, |_| panic!("missing pose must not send")));
-    assert!(runtime.screen.book.is_none());
+    assert!(runtime.session.screen.book.is_none());
     player
         .inventory
         .ledger_mut()
@@ -134,7 +140,7 @@ fn fresh_book_does_not_open_without_a_pose_or_while_its_slot_has_a_pending_drop(
             "pending drop must not send"
         ))
     );
-    assert!(runtime.screen.book.is_none());
+    assert!(runtime.session.screen.book.is_none());
 }
 
 #[test]
@@ -153,11 +159,11 @@ fn an_unencodable_page_preserves_the_editor_and_publishes_no_partial_commit() {
         let pages = book.pages.clone();
         runtime.open_book(book);
         assert!(!runtime.commit_book(sign));
-        assert!(runtime.inventory_open);
-        assert_eq!(runtime.screen.book.as_ref().unwrap().pages, pages);
+        assert!(runtime.session.inventory_open);
+        assert_eq!(runtime.session.screen.book.as_ref().unwrap().pages, pages);
         assert!(runtime.take_client_packet().is_none());
 
-        runtime.screen.book.as_mut().unwrap().pages[1] = "repaired".into();
+        runtime.session.screen.book.as_mut().unwrap().pages[1] = "repaired".into();
         assert!(runtime.commit_book(sign));
         for (page, text) in [(0, "valid change"), (1, "repaired")] {
             assert_eq!(
@@ -184,7 +190,7 @@ fn an_unencodable_page_preserves_the_editor_and_publishes_no_partial_commit() {
                 )
             );
         }
-        assert!(runtime.screen.book.is_none());
+        assert!(runtime.session.screen.book.is_none());
         assert!(runtime.take_client_packet().is_none());
     }
 }
@@ -202,7 +208,10 @@ fn an_unencodable_signature_does_not_publish_valid_page_edits() {
     book.type_text(" change");
     runtime.open_book(book);
     assert!(!runtime.commit_book(true));
-    assert_eq!(runtime.screen.book.as_ref().unwrap().pages[0], "old change");
+    assert_eq!(
+        runtime.session.screen.book.as_ref().unwrap().pages[0],
+        "old change"
+    );
     assert!(runtime.take_client_packet().is_none());
     assert!(runtime.commit_book(false));
     assert_eq!(
@@ -237,8 +246,8 @@ fn book_commit_retains_edits_until_the_whole_batch_can_be_queued() {
     book.type_text(" edit");
     runtime.open_book(book);
     runtime.finish_book(&mut player_runtime, true);
-    assert!(runtime.screen.book.is_none());
-    assert!(!runtime.inventory_open);
+    assert!(runtime.session.screen.book.is_none());
+    assert!(!runtime.session.inventory_open);
     let mut count = 0;
     while runtime.take_client_packet().is_some() {
         count += 1;
@@ -269,7 +278,7 @@ fn large_book_commit_drains_in_order_without_losing_the_final_packet() {
         count += 1;
     }
     assert_eq!(count, MAX_BOOK_PAGES + 1);
-    assert!(runtime.screen.book.is_none());
+    assert!(runtime.session.screen.book.is_none());
 }
 
 #[test]
@@ -288,11 +297,14 @@ fn a_second_book_commit_keeps_its_editor_until_the_first_commit_drains() {
         runtime.open_book(book);
         runtime.finish_book(&mut player_runtime, false);
     }
-    assert!(runtime.inventory_open);
-    assert_eq!(runtime.screen.book.as_ref().unwrap().pages[0], "old edit");
+    assert!(runtime.session.inventory_open);
+    assert_eq!(
+        runtime.session.screen.book.as_ref().unwrap().pages[0],
+        "old edit"
+    );
     assert!(runtime.take_client_packet().is_some());
     runtime.finish_book(&mut player_runtime, false);
-    assert!(!runtime.inventory_open);
+    assert!(!runtime.session.inventory_open);
     assert!(runtime.take_client_packet().is_some());
     assert!(runtime.take_client_packet().is_none());
 }
@@ -347,6 +359,6 @@ fn review_regression_inventory_updates_preserve_the_book_screen() {
         .unwrap();
     runtime.drain_pending_inventory(&mut player);
     assert!(runtime.inventory_open());
-    assert!(runtime.screen.book.as_ref().unwrap().editable);
+    assert!(runtime.session.screen.book.as_ref().unwrap().editable);
     assert!(!player.inventory.ledger().personal_inventory_desired_open());
 }

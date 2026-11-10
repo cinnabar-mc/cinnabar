@@ -20,7 +20,7 @@ fn repeated_chest_open_acknowledges_delivery_before_menu_clicks() {
         acknowledgement,
         protocol::repeated_container_open_warning_packet()
     );
-    ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+    ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
     assert_eq!(ledger.pending_batch().unwrap().unwrap().0, acknowledgement);
     assert!(ledger.mark_transport_enqueued(0));
     assert_ne!(ledger.pending_batch().unwrap().unwrap().0, acknowledgement);
@@ -91,7 +91,7 @@ fn repeated_chest_open_keeps_contents_and_pending_requests() {
         ledger.apply(&content(menu));
         let generation = ledger.storage_generation();
         let request = pending.then(|| {
-            let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+            let request = ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
             assert!(ledger.mark_transport_enqueued(0));
             request
         });
@@ -125,10 +125,10 @@ fn repeated_chest_open_keeps_contents_and_pending_requests() {
             ));
         }
         assert_eq!(
-            ledger.storage_stack((MENU_CELLS - 1) as u8),
+            ledger.storage_stack((MENU_CELLS - 1) as u16),
             Some(&stack(100))
         );
-        assert!(ledger.begin_storage_click((MENU_CELLS - 1) as u8).is_ok());
+        assert!(ledger.begin_storage_click((MENU_CELLS - 1) as u16).is_ok());
     }
 }
 

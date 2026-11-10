@@ -94,6 +94,72 @@ fn a_stair_item_draws_its_template_quads_instead_of_the_thumbnail() {
 }
 
 #[test]
+fn copper_grate_models_keep_fractional_texels_for_shader_sampling() {
+    let quads = stair_quads(1);
+    let templates = [ModelTemplate {
+        quad_start: 0,
+        quad_count: quads.len() as u32,
+        flags: 0,
+    }];
+    for flags in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        let materials = [material(0), material(flags)];
+        let pages = [TexturePage::new(TextureArray {
+            layers: 1,
+            mips: vec![TextureMip {
+                size: SIDE,
+                rgba8: [200, 100, 80, 64].repeat((SIDE * SIDE) as usize).into(),
+            }]
+            .into(),
+        })];
+        let mut shape = stair(&quads, &templates, &materials, &pages);
+        shape.render_kind = assets::facts::BlockRenderKind::CopperGrate;
+        let mut atlas = Atlas::new(7, 1);
+        let mesh = shaped(&shape, &mut atlas).expect("covered models accept fractional alpha");
+        assert!(
+            mesh.batches().iter().all(|batch| batch.alpha_cutoff
+                == Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD))
+        );
+        let (pages, _) = atlas.finish().unwrap();
+        assert!(
+            pages[0]
+                .pixels()
+                .as_chunks::<4>()
+                .0
+                .contains(&[200, 100, 80, 64])
+        );
+    }
+}
+
+#[test]
+fn fence_geometry_satisfies_the_installed_paint_order_contract() {
+    let quads = stair_quads(1);
+    let materials = [material(0), material(0)];
+    let pages = [page()];
+    for flags in [
+        assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+        assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    ] {
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: quads.len() as u32,
+            flags,
+        }];
+        let mesh = shaped(
+            &stair(&quads, &templates, &materials, &pages),
+            &mut Atlas::new(7, 1),
+        )
+        .expect("a fence item becomes paint-ordered GUI geometry");
+        super::super::test_support::assert_block_model_order(
+            &mesh,
+            assets::gui_item::BlockModelOrder::Paint,
+        );
+    }
+}
+
+#[test]
 fn unsupported_materials_keep_the_thumbnail() {
     let templates = [ModelTemplate {
         quad_start: 0,
@@ -117,6 +183,36 @@ fn unsupported_materials_keep_the_thumbnail() {
     let mut shape = stair(&quads, &templates, &materials, &pages);
     shape.template = Some(4);
     assert!(shaped(&shape, &mut Atlas::new(7, 1)).is_none());
+}
+
+#[test]
+fn fence_meshes_keep_surface_order_for_both_fence_shapes() {
+    let materials = [material(0), material(0)];
+    let pages = [page()];
+    for (flags, render_kind) in [
+        (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD, Default::default()),
+        (assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER, Default::default()),
+        (
+            assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+            assets::facts::BlockRenderKind::BambooFence,
+        ),
+    ] {
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags,
+        }];
+        let mut shape = stair(&[], &templates, &materials, &pages);
+        shape.render_kind = render_kind;
+        shape.faces = [1; 6];
+        let mesh = shaped(&shape, &mut Atlas::new(7, 1)).unwrap();
+        assert!(!mesh.batches().is_empty());
+        assert!(
+            mesh.batches()
+                .iter()
+                .all(|batch| !batch.depth_test && !batch.depth_write)
+        );
+    }
 }
 
 #[test]

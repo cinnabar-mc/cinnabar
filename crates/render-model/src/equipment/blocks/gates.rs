@@ -69,5 +69,5 @@ pub(super) fn model(
             }
         });
     }
-    template_quads(&quads)
+    template_quads(&quads, false)
 }

@@ -121,13 +121,37 @@ impl LocalPhysicsController {
             attribute, sprinting,
         );
         let mut changed = false;
-        for input in self.history.retained_inputs_after_mut(tick) {
+        for (index, (input, frame)) in self
+            .history
+            .retained_inputs_after_mut(tick)
+            .zip(
+                self.controller_history
+                    .iter_mut()
+                    .filter(|frame| frame.tick > tick),
+            )
+            .enumerate()
+        {
+            if index == 0 {
+                let update =
+                    crate::movement::speed_authority::MovementSpeedUpdate::Attribute(attribute);
+                changed |= frame.speed_updates.as_slice() != [update];
+                frame.speed_updates.clear();
+                frame.speed_updates.push(update);
+            }
+            for update in &frame.speed_updates {
+                update.apply(&mut speed);
+            }
+            speed.adopt_server_sprinting(frame.server_sprinting);
+            if frame.start_sprinting {
+                speed.set_sprinting(true);
+            }
             speed.set_sprinting(input.sprinting);
             let predicted = speed.prediction_speed();
             if input.movement_speed != predicted {
                 input.movement_speed = predicted;
                 changed = true;
             }
+            frame.speed = speed;
         }
         Some((changed.then_some(tick), speed))
     }
@@ -276,6 +300,8 @@ impl LocalPhysicsController {
 pub struct ServerControlFlags {
     pub sprinting: Option<bool>,
     pub sneaking: Option<bool>,
+    /// Stamp of pending posture; comparison with the completed tick identifies live authority.
+    sprint_stamp: u64,
 }
 
 impl LocalPhysicsController {
@@ -312,7 +338,8 @@ impl LocalPhysicsController {
         };
         let Some(tick) = rewind else {
             self.adopt_live_server_flags(tick, FlagWrite::from_flags(&flags));
-            self.adopt_live_flags(flags);
+            let latest = self.state.as_ref()?.tick;
+            self.adopt_live_flags(flags, latest.max(tick), false);
             return climber_rewind;
         };
         let anchor = *self.history.input_at(tick)?;
@@ -340,16 +367,9 @@ impl LocalPhysicsController {
                 uniform,
             );
         }
-        if let Some(sprinting) = flags.sprinting.filter(|value| *value != anchor.sprinting) {
-            let (edited, reached) = rewrite_run(
-                self.history.retained_inputs_after_mut(tick),
-                |input| input.sprinting == anchor.sprinting && (!sprinting || input.forward > 0.0),
-                |input| {
-                    let previous = input.sprinting;
-                    input.sprinting = sprinting;
-                    crate::movement::speed_authority::preserve_effective_speed(input, previous);
-                },
-            );
+        if let Some(sprinting) = flags.sprinting
+            && let Some((edited, reached)) = self.rewrite_sprint(tick, anchor.sprinting, sprinting)
+        {
             changed |= edited;
             present.sprinting = reached.then_some(sprinting);
         }
@@ -364,8 +384,94 @@ impl LocalPhysicsController {
             changed |= edited;
             present.sneaking = reached.then_some(sneaking);
         }
-        self.adopt_live_flags(present);
+        self.adopt_live_flags(present, tick, true);
         changed.then_some(tick).or(climber_rewind)
+    }
+
+    /// Records a delayed sprint write stamped `tick`. Native applies each write
+    /// once, in arrival order, on the following frame; continuation and later stop
+    /// intents then decide the rest of the run. Without an earlier write on that
+    /// frame, the client's own value at `tick` is the base, so a later client
+    /// transition still wins. An earlier write's frame value is replaced, and its
+    /// rewritten run becomes the base. Returns whether anything changed and
+    /// whether the run reached the newest input, or `None` when nothing applies.
+    fn rewrite_sprint(&mut self, tick: u64, anchor: bool, sprinting: bool) -> Option<(bool, bool)> {
+        let event = self
+            .controller_history
+            .iter()
+            .find(|frame| frame.tick == tick + 1)
+            .and_then(|frame| frame.server_sprinting);
+        let base = match event {
+            Some(_) => self
+                .history
+                .input_at(tick + 1)
+                .map_or(anchor, |input| input.sprinting),
+            None => anchor,
+        };
+        let replaces_event = event.is_some_and(|event| event != sprinting);
+        if base == sprinting && !replaces_event {
+            return None;
+        }
+        let (edited, reached) = if base == sprinting {
+            (false, false)
+        } else {
+            rewrite_run(
+                self.history.retained_inputs_after_mut(tick),
+                |input| input.sprinting == base && (!sprinting || input.forward > 0.0),
+                |input| {
+                    let previous = input.sprinting;
+                    input.sprinting = sprinting;
+                    crate::movement::speed_authority::preserve_effective_speed(input, previous);
+                },
+            )
+        };
+        if (edited || replaces_event)
+            && let Some(frame) = self
+                .controller_history
+                .iter_mut()
+                .find(|frame| frame.tick == tick + 1)
+        {
+            frame.server_sprinting = Some(sprinting);
+        }
+        Some((edited || replaces_event, reached))
+    }
+
+    /// Returns only genuine live metadata awaiting a completed tick, excluding replay handoffs.
+    pub(in crate::movement) fn unrecorded_live_sprinting(&self) -> Option<bool> {
+        self.live_posture.sprinting.filter(|_| {
+            self.state
+                .as_ref()
+                .is_some_and(|state| self.live_posture.sprint_stamp >= state.tick)
+        })
+    }
+
+    /// Publishes changed replay controls without creating another server write.
+    pub(super) fn settle_rewound_sprint(&mut self, previous: Option<bool>) {
+        if let Some(sprinting) = self.unrecorded_live_sprinting() {
+            self.modes
+                .restore_controls(sprinting, self.modes.sneaking());
+        } else {
+            self.live_posture.sprinting = None;
+            // A delayed handoff is already retained at its original input boundary.
+            for write in &mut self.sync_pending {
+                match write {
+                    posture::ServerWrite::Flags(flags) | posture::ServerWrite::Controls(flags) => {
+                        flags.sprinting = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let sprinting = self.modes.sprinting();
+        if previous.is_some_and(|previous| previous != sprinting) {
+            self.server_control_flags.get_or_insert_default().sprinting = Some(sprinting);
+        }
+        let Some(pending) = &mut self.server_control_flags else {
+            return;
+        };
+        if pending.sprinting != Some(sprinting) {
+            pending.sprinting = None;
+        }
     }
 
     /// Takes the sprint/sneak states the control latches must adopt.
@@ -373,8 +479,21 @@ impl LocalPhysicsController {
         self.server_control_flags.take()
     }
 
-    /// Adopts present control flags after retained local transitions have been reconciled.
-    pub(super) fn adopt_live_flags(&mut self, flags: client_world::MovementFlagUpdate) {
+    /// Adopts flags stamped `stamp` into the live latches. Live writes apply in
+    /// arrival order; a delayed write older than an unrecorded live sprint leaves
+    /// that newer sprint in place until a tick records it.
+    pub(super) fn adopt_live_flags(
+        &mut self,
+        mut flags: client_world::MovementFlagUpdate,
+        stamp: u64,
+        rewound: bool,
+    ) {
+        if rewound
+            && self.live_posture.sprinting.is_some()
+            && self.live_posture.sprint_stamp > stamp
+        {
+            flags.sprinting = None;
+        }
         let flags = self
             .modes
             .adopt_actor_flags(client_world::MovementFlagUpdate {
@@ -382,8 +501,12 @@ impl LocalPhysicsController {
                 sprinting: flags.sprinting,
                 ..Default::default()
             });
-        self.sync_pending
-            .push(posture::ServerWrite::Controls(flags));
+        self.sync_pending.push(posture::ServerWrite::Controls(
+            client_world::MovementFlagUpdate {
+                sprinting: if rewound { None } else { flags.sprinting },
+                ..flags
+            },
+        ));
         if flags.sprinting.is_none() && flags.sneaking.is_none() {
             return;
         }
@@ -394,6 +517,9 @@ impl LocalPhysicsController {
         });
         self.live_posture.sprinting = flags.sprinting.or(self.live_posture.sprinting);
         self.live_posture.sneaking = flags.sneaking.or(self.live_posture.sneaking);
+        if flags.sprinting.is_some() {
+            self.live_posture.sprint_stamp = stamp;
+        }
         let pending = self.server_control_flags.get_or_insert_default();
         pending.sprinting = flags.sprinting.or(pending.sprinting);
         pending.sneaking = flags.sneaking.or(pending.sneaking);

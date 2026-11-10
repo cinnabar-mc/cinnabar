@@ -81,7 +81,7 @@ impl WorldPreparation {
 
 /// Starts after the menu report and publishes a complete bundle for the next Update.
 fn poll(world: &mut World) {
-    if !world.resource::<WorldWorkAdmission>().is_admitted() {
+    if !world.resource::<WorldWorkAdmission>().can_prepare_assets() {
         return;
     }
     let Some(mut pending) = world.remove_resource::<PendingWorld>() else {
@@ -230,15 +230,8 @@ fn prepare(input: WorldInput, ui: WorldUi) -> Result<CommandQueue> {
         let flame = particles
             .as_deref()
             .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE));
-        if let Err(error) = presentation
-            .install_gui_model_sources(gui)
-            .and_then(|()| presentation.set_gui_fire_texture(flame))
-        {
-            world
-                .resource_mut::<crate::runtime::shutdown::FatalError>()
-                .0 = Some(format!("GUI startup failed: {error}"));
-            return;
-        }
+        presentation.install_gui_model_sources(gui);
+        presentation.set_gui_fire_texture(flame);
         let mut ui_runtime = world.resource_mut::<UiRuntimeResource>();
         ui_runtime.set_item_fuel_catalog(Arc::clone(&entities));
         ui_runtime.set_food_catalog(equipment);
@@ -312,12 +305,16 @@ mod tests {
         assert_eq!(count.load(Ordering::Relaxed), 0);
         assert!(world.resource::<PendingWorld>().worker.is_none());
         assert!(!world.contains_resource::<WorldReady>());
-        admission.admit();
+        admission.menu_presented();
         test_time::eventually("complete world bundle published", || {
             world.run_system_once(poll).unwrap();
             world.contains_resource::<WorldReady>()
         });
         world.run_system_once(poll).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 1);
+        assert!(
+            admission.is_admitted(),
+            "completed menu admits background GPU preparation too"
+        );
     }
 }

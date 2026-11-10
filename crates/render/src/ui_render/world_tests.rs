@@ -134,6 +134,7 @@ fn publish(app: &mut App, revision: u64, modes: &[(bool, bool)]) {
         );
     }
     let input = UiRenderInput {
+        models: Default::default(),
         revision,
         viewport_size: [SIDE; 2],
         safe_area: [0; 4],

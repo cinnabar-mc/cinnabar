@@ -196,6 +196,9 @@ fn personal_gesture_waits_for_open_admission_and_uses_empty_stack_id_zero() {
     assert_eq!(destination.stack_network_id, 0);
     assert_eq!(source.container, StackRequestContainer::PlayerInventory);
     assert_eq!(destination.container, StackRequestContainer::Cursor);
+    assert_eq!(ledger.pending_batch().unwrap(), None);
+    ledger.apply(&InventoryEvent::Open(personal_open(2)));
+    assert!(ledger.pending_batch().unwrap().is_some());
 }
 
 #[test]
@@ -260,6 +263,9 @@ fn failed_transport_retries_each_control_and_mutation_without_duplicate_admissio
             .flush_inventory_send(31, |_| Ok::<_, &str>(()))
             .unwrap()
     );
+    runtime
+        .ledger_mut()
+        .apply(&InventoryEvent::Open(personal_open(2)));
 
     assert_eq!(runtime.ledger_mut().begin_click(0).unwrap(), -3);
     let mut mutation_attempts = 0;

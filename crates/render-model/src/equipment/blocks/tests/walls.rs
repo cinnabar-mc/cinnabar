@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn carried_walls_preserve_directional_materials_on_posts_and_rails() {
+    let mut source = overlay(BlockFlags::empty(), 0, 16);
+    source.materials = vec![source.materials[1]; BlockFace::ALL.len()];
+    source.visuals[0].faces = BlockFace::ALL.map(|face| face as u32);
+    source.visuals[0].kind = VisualKind::Model;
+    source.visuals[0].model_template = 0;
+    source.light_properties = vec![assets::LightProperties::OPAQUE_DARK];
+    source.model_templates.push(assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 1,
+        flags: 0,
+    });
+    source.model_quads.push(assets::ModelQuad {
+        positions: [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        uvs: [[0, 4096], [0, 0], [4096, 0], [4096, 4096]],
+        material: 0,
+        flags: 0,
+    });
+    let base = RuntimeAssets::diagnostic();
+    let visual = base.visual_count() as u32;
+    let world = base.with_block_overlay(visual, &source).unwrap();
+    let block = world.resolve(NetworkIdMode::Sequential, visual);
+    let expected = BlockFace::ALL.map(|face| block.face(face).material_id());
+    let (materials, vertices) = super::super::walls::model(&world, visual).unwrap();
+    assert_eq!(vertices.len(), 144);
+    let rects = face_rects([0., 0., 1., 1.]);
+    for vertex in vertices {
+        let face = match vertex.normal {
+            [-1., 0., 0.] => BlockFace::West,
+            [1., 0., 0.] => BlockFace::East,
+            [0., -1., 0.] => BlockFace::Down,
+            [0., 1., 0.] => BlockFace::Up,
+            [0., 0., -1.] => BlockFace::North,
+            [0., 0., 1.] => BlockFace::South,
+            normal => panic!("unexpected wall normal {normal:?}"),
+        };
+        let slot = rects
+            .iter()
+            .position(|rect| vertex.glint_origin == [rect[0], rect[1]])
+            .unwrap();
+        assert_eq!(materials[slot], expected[face as usize], "{face:?}");
+    }
+}
+
+#[test]
 fn carried_walls_keep_two_posts_and_two_rail_halves_on_their_carried_axis() {
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;

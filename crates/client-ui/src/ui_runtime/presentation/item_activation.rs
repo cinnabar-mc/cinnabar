@@ -13,7 +13,7 @@ impl UiPresentationRuntime {
         viewport: [f32; 2],
         origin: [f32; 2],
     ) -> Result<(), UiPresentationError> {
-        let Some(activation) = runtime.item_activation.as_ref() else {
+        let Some(activation) = runtime.session.item_activation.as_ref() else {
             return Ok(());
         };
         let Some(progress) = activation.progress() else {

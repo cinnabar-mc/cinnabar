@@ -34,7 +34,7 @@ pub(in crate::inventory_ledger) fn craft_result(
         aux: i32::from(output.aux),
         count: u16::from(output.count),
         block_runtime_id: output.block_runtime_id,
-        user_data: user_data(output),
+        user_data: output.user_data.bytes(),
     }
 }
 
@@ -44,7 +44,7 @@ pub(in crate::inventory_ledger) fn created_stack(
     count: u16,
     request_id: i32,
 ) -> NetworkItemStack {
-    let user_data = user_data(output);
+    let user_data = output.user_data.bytes();
     NetworkItemStack {
         network_id: output.network_id,
         metadata: u32::from(output.aux),
@@ -53,14 +53,6 @@ pub(in crate::inventory_ledger) fn created_stack(
         nbt_digest: Sha256::digest(&user_data).into(),
         block_runtime_id: i32::from_ne_bytes(output.block_runtime_id.to_ne_bytes()),
         extra_data: user_data,
-    }
-}
-
-fn user_data(output: RecipeOutput) -> Arc<[u8]> {
-    if output.empty_envelope {
-        Arc::from([0; 10])
-    } else {
-        Arc::from([])
     }
 }
 

@@ -1,6 +1,8 @@
 //! Renderer ownership at the session boundary.
 
-use super::{MenuView, menu_reference};
+use json_ui::vanilla::Reference;
+
+use super::{MenuScreen, MenuView};
 
 /// Declares the flow states and their exhaustive traversal together.
 macro_rules! menu_flows {
@@ -46,4 +48,23 @@ impl MenuView {
             menu_reference(self.screen)
         }
     }
+}
+
+/// The vanilla screen family used by both menu history and scene composition.
+pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
+    Some(match screen {
+        MenuScreen::Death => Reference::DeathDeathScreen.as_str(),
+        MenuScreen::Pause => Reference::PausePauseScreen.as_str(),
+        MenuScreen::Home => Reference::StartStartScreen.as_str(),
+        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
+            Reference::PlayPlayScreen.as_str()
+        }
+        MenuScreen::AddServer => Reference::AddExternalServerAddExternalServerScreenNew.as_str(),
+        MenuScreen::Settings => Reference::SettingsScreenControlsAndSettings.as_str(),
+        MenuScreen::Invite => Reference::InviteInviteScreen.as_str(),
+        MenuScreen::Profile
+        | MenuScreen::DressingRoom
+        | MenuScreen::Inbox
+        | MenuScreen::Friends => return None,
+    })
 }

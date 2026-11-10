@@ -20,36 +20,57 @@ fn carried_walls_keep_their_first_person_model_origin() {
         Arc::make_mut(&mut runtime.blocks.source)
             .sheets
             .insert(record.sequential_id, 0);
-        item.identifier = record.name.clone().into();
-        item.kind = HeldKind::Block(record.sequential_id);
-        for profile in [
-            render_api::CombatVisuals::Legacy112,
-            render_api::CombatVisuals::Modern,
+        for kind in [
+            HeldKind::Block(record.sequential_id),
+            HeldKind::RetainedBlock {
+                state: Some(record.sequential_id),
+                item: Some(record.sequential_id),
+            },
+            HeldKind::RetainedBlock {
+                state: None,
+                item: Some(record.sequential_id),
+            },
+            HeldKind::RetainedBlock {
+                state: Some(u32::MAX),
+                item: Some(record.sequential_id),
+            },
         ] {
-            let first = runtime
-                .first_person_item_for_profile(
-                    &body,
-                    &item,
-                    ItemAnimationState::default().into(),
-                    profile,
-                )
+            item.identifier = record.name.clone().into();
+            item.kind = kind;
+            item.metadata = if matches!(kind, HeldKind::Block(_)) {
+                0
+            } else {
+                15
+            };
+            for profile in [
+                render_api::CombatVisuals::Legacy112,
+                render_api::CombatVisuals::Modern,
+            ] {
+                let first = runtime
+                    .first_person_item_for_profile(
+                        &body,
+                        &item,
+                        ItemAnimationState::default().into(),
+                        profile,
+                    )
+                    .unwrap();
+                let pose = first.presentation.submission.input.current_bones[0];
+                let anchor = Vec3::from_array(pose.translation_scale[..3].try_into().unwrap());
+                assert!(
+                    anchor.abs_diff_eq(Vec3::new(0.8428427, -0.32, -0.72), 1.0e-6),
+                    "{} kind={kind:?} profile={profile:?}: {anchor:?}",
+                    item.identifier
+                );
+                assert!((pose.translation_scale[3] - 0.4).abs() < 1.0e-6);
+            }
+            item.identifier = Arc::from("custom:ordinary");
+            let ordinary = runtime
+                .first_person_item(&body, &item, ItemAnimationState::default())
                 .unwrap();
-            let pose = first.presentation.submission.input.current_bones[0];
+            let pose = ordinary.presentation.submission.input.current_bones[0];
             let anchor = Vec3::from_array(pose.translation_scale[..3].try_into().unwrap());
-            assert!(
-                anchor.abs_diff_eq(Vec3::new(0.8428427, -0.32, -0.72), 1.0e-6),
-                "{} profile={profile:?}: {anchor:?}",
-                item.identifier
-            );
-            assert!((pose.translation_scale[3] - 0.4).abs() < 1.0e-6);
+            assert!(anchor.abs_diff_eq(Vec3::new(0.56, -0.52, -0.72), 1.0e-6));
         }
-        item.identifier = Arc::from("custom:ordinary");
-        let ordinary = runtime
-            .first_person_item(&body, &item, ItemAnimationState::default())
-            .unwrap();
-        let pose = ordinary.presentation.submission.input.current_bones[0];
-        let anchor = Vec3::from_array(pose.translation_scale[..3].try_into().unwrap());
-        assert!(anchor.abs_diff_eq(Vec3::new(0.56, -0.52, -0.72), 1.0e-6));
     }
     assert!(!names.is_empty());
 }

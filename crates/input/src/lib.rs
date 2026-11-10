@@ -2,8 +2,6 @@
 
 mod action;
 pub mod action_filter;
-mod click_limit;
-pub use click_limit::ClickLimiter;
 mod axes;
 mod binding;
 mod button_events;
@@ -77,6 +75,9 @@ pub mod touch {
     pub const DEBUG_OVERLAY: u16 = 38;
     pub const PLAYER_LIST: u16 = 39;
     pub const DISMISS_UTILITIES: u16 = 40;
+    /// The classic D-pad; the contact delta is the digital direction of the cell under the
+    /// finger, positive Y forward.
+    pub const DPAD: u16 = 41;
     /// Mod-registered buttons, one per presented slot. They complete as taps in the app and
     /// never enter the gameplay router's layout.
     pub const MOD_BUTTONS: std::ops::Range<u16> = 64..80;
@@ -99,6 +100,8 @@ pub mod touch {
 
 mod touch_controls;
 pub use touch_controls::{TouchBounds, TouchControlRegion, TouchControlState};
+mod touch_interact;
+pub use touch_interact::{TouchControlMode, TouchGesture, TouchGestures};
 
 pub mod cursor_focus;
 

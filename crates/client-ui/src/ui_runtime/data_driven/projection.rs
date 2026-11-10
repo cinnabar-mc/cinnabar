@@ -62,6 +62,7 @@ impl UiRuntime {
 
     pub(super) fn project_screen(&self, active: &ActiveScreen) -> Option<Projection> {
         let property = self
+            .session
             .data_driven
             .stores()
             .property(protocol::ddui::SCRIPT_STORE, &active.property)?;

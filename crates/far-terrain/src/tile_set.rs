@@ -355,30 +355,41 @@ impl FarTiles {
         }
     }
 
-    /// Drops a fallback only when settled replacements prove coverage of its known columns.
+    /// Retires overlapping fallbacks together once their replacements cover every known column.
     fn retire_covered(&mut self) {
-        let selected = &self.selected;
-        let before = self.retired.len();
-        self.retired.retain(|old| {
-            selected.iter().any(|(key, tile)| {
-                old.key.overlaps(*key)
-                    && (tile.dirty
-                        || tile.building.is_some()
-                        || tile.mesh.as_ref().is_none_or(|mesh| {
-                            !matches!(&mesh.coverage, TileCoverage::Complete)
-                                && old
-                                    .covered_columns()
-                                    .filter(|column| {
-                                        TileKey::containing(
-                                            key.level,
-                                            column.x * COLUMN_SIDE as i32,
-                                            column.z * COLUMN_SIDE as i32,
-                                        ) == *key
-                                    })
-                                    .any(|column| !mesh.covers(column))
-                        }))
+        if self.retired.is_empty() {
+            return;
+        }
+        // A selected tile stays hidden while any fallback overlaps it, so it cannot
+        // replace just one of those fallbacks while another still needs to be drawn.
+        let blocked: Vec<_> = self
+            .selected
+            .iter()
+            .filter(|(key, tile)| {
+                self.retired.iter().any(|old| {
+                    old.key.overlaps(**key)
+                        && (tile.dirty
+                            || tile.building.is_some()
+                            || tile.mesh.as_ref().is_none_or(|mesh| {
+                                !matches!(&mesh.coverage, TileCoverage::Complete)
+                                    && old
+                                        .covered_columns()
+                                        .filter(|column| {
+                                            TileKey::containing(
+                                                key.level,
+                                                column.x * COLUMN_SIDE as i32,
+                                                column.z * COLUMN_SIDE as i32,
+                                            ) == **key
+                                        })
+                                        .any(|column| !mesh.covers(column))
+                            }))
+                })
             })
-        });
+            .map(|(key, _)| *key)
+            .collect();
+        let before = self.retired.len();
+        self.retired
+            .retain(|old| blocked.iter().any(|key| old.key.overlaps(*key)));
         if self.retired.len() != before {
             self.revision += 1;
         }

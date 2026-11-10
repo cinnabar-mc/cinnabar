@@ -1,6 +1,6 @@
 //! App schedule and borrowed observations for presentation audio.
 use bevy::prelude::IntoScheduleConfigs;
-use bevy::prelude::{App, Local, MessageReader, Res, ResMut, Time, Update};
+use bevy::prelude::{App, Local, MessageReader, Real, Res, ResMut, Time, Update};
 use client_audio::audio::{
     AudioSettings,
     local::LocalMotion,
@@ -42,7 +42,9 @@ pub(crate) fn configure(app: &mut App) {
             .after(crate::item_use::produce_item_use),
         drive_consume_audio,
         drive_actor_audio,
-        pump_audio.after(client_state::ClientFrameSet::Camera),
+        pump_audio
+            .after(client_state::ClientFrameSet::Camera)
+            .after(client_state::ModCameraInputSet),
     )
         .chain()
         .after(crate::named_audio::drain_live_named_audio);
@@ -195,9 +197,14 @@ pub(crate) fn drive_weather_and_particles(
 }
 
 /// Samples the published listener and attributes only the output pump's work to audio.
+/// The pump owns the output device each frame, so it also raises the toast for an output
+/// that stays unopenable.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pump_audio(
     time: Res<Time>,
+    real_time: Res<Time<Real>>,
+    ui: Option<ResMut<client_shell::ui_resources::UiRuntimeResource>>,
+    mut outage: Local<launcher::menu::audio_output::OutageNotice>,
     view: Res<LocalViewPose>,
     camera: bevy::prelude::Query<
         &bevy::prelude::Transform,
@@ -206,20 +213,44 @@ pub(crate) fn pump_audio(
     server_camera: Option<Res<client_presentation::camera::ServerCameraView>>,
     settings: Res<AudioSettings>,
     engine: ResMut<AudioEngine>,
-    device: Option<bevy::prelude::NonSendMut<client_audio::named_audio::AudioDevice>>,
+    mut device: Option<bevy::prelude::NonSendMut<client_audio::named_audio::AudioDevice>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    #[cfg(not(target_arch = "wasm32"))] mut mods: Option<ResMut<crate::modding::ModRuntime>>,
 ) {
+    if let (Some(device), Some(ui)) = (device.as_deref_mut(), ui) {
+        crate::named_audio::notify_audio_output_unavailable(
+            device,
+            ui,
+            real_time.elapsed(),
+            &mut outage,
+        );
+    }
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::Audio));
     let listener = client_audio::audio::listener::camera_listener(
         view.eye_translation(),
-        view.camera_rotation(),
+        view.player_camera_rotation(),
         camera.single().ok(),
         server_camera
             .as_deref()
             .and_then(|camera| camera.active_listener()),
     );
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(hosts) = mods
+        .as_deref_mut()
+        .and_then(crate::modding::ModRuntime::sound_handlers)
+    {
+        client_audio::audio::systems::pump_audio_filtered(
+            time,
+            listener,
+            settings,
+            engine,
+            device,
+            |events| Some(super::filter::apply(hosts, events)),
+        );
+        return;
+    }
     client_audio::audio::systems::pump_audio(time, listener, settings, engine, device);
 }
 
@@ -235,6 +266,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(profiler.clone())
             .init_resource::<Time>()
+            .init_resource::<Time<bevy::prelude::Real>>()
             .init_resource::<LocalViewPose>()
             .init_resource::<AudioSettings>()
             .init_resource::<AudioEngine>()
