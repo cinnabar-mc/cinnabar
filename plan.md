@@ -1784,6 +1784,10 @@ signaling's ICE servers. Confirmed gap: the relay config's TURN server answers a
 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar drops the TURN URL
 (trying it held every offer about 8 s for no candidate) and never relays a join; vanilla can
 relay when no direct path exists. NAT and relay-only join acceptance remain open.
+NetherNet connections keep a 5 MiB SCTP receive window, the default libwebrtc's dcsctp
+transport keeps, so one server message up to that size completes as it does in vanilla;
+pion's 1 MiB default stalled such a message with the association open. The value comes from
+libwebrtc source and BDS's dcsctp build; the client binary's window is unverified.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
