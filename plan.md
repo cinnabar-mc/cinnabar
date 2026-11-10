@@ -994,6 +994,8 @@ and version-matched in-game acceptance remain incomplete.
   Legacy filled-bucket aux values select their matching named bucket artwork rather than
   treating the aux value as an atlas-array index.
   Redstone-torch icons select lit artwork independently of their placement power state.
+  Twisting and weeping vine icons select their stem face independently of the growing tip;
+  pointed dripstone and sulfur spike icons select their hanging tip face.
   Missing lit block or carried texture entries select pack diagnostic artwork; rendered
   acceptance of these fallbacks remains incomplete.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
