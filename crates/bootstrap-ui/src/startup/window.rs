@@ -35,25 +35,45 @@ struct Screen {
     gpu: Option<Gpu>,
     epoch: Instant,
     next_redraw: Instant,
+    reveal: Reveal,
     shown: bool,
     submitted: bool,
     completed: Arc<AtomicBool>,
     failure: Option<anyhow::Error>,
 }
 
+/// Keeps the window unmapped and unpainted until its deadline, so readiness that arrives first
+/// retires the helper without it ever appearing.
+struct Reveal {
+    at: Instant,
+    revealed: bool,
+}
+
+impl Reveal {
+    /// Returns true exactly once, on the first call at or after the deadline.
+    fn due(&mut self, now: Instant) -> bool {
+        if self.revealed || now < self.at {
+            return false;
+        }
+        self.revealed = true;
+        true
+    }
+}
+
 /// Runs until readiness, parent EOF, cancellation, or a display error.
 pub(super) fn run() -> Result<()> {
-    let dimensions = std::env::args()
-        .skip(2)
-        .map(|value| value.parse::<f64>())
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let arguments: Vec<_> = std::env::args().skip(2).collect();
+    let [width, height, reveal_millis] = arguments.as_slice() else {
+        anyhow::bail!("startup screen needs a width, height and reveal delay");
+    };
+    let dimensions = [width.parse::<f64>()?, height.parse::<f64>()?];
     anyhow::ensure!(
-        dimensions.len() == 2
-            && dimensions
-                .iter()
-                .all(|value| value.is_finite() && *value > 0.0),
+        dimensions
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0),
         "startup screen needs a valid width and height"
     );
+    let reveal_in = Duration::from_millis(reveal_millis.parse()?);
     let layout = InstallLayout::discover()?;
     let mut screen = Screen {
         model: Model::default(),
@@ -65,6 +85,10 @@ pub(super) fn run() -> Result<()> {
         gpu: None,
         epoch: Instant::now(),
         next_redraw: Instant::now(),
+        reveal: Reveal {
+            at: Instant::now() + reveal_in,
+            revealed: false,
+        },
         shown: false,
         submitted: false,
         completed: Arc::default(),
@@ -184,9 +208,9 @@ fn artwork_scale(
 }
 
 /// The loading window stacks like any other window, so players can bring the game or other
-/// apps in front of it while the game initializes.
+/// apps in front of it while the game initializes. It starts hidden until its reveal deadline.
 fn loading_window_attributes(size: LogicalSize<f64>) -> WindowAttributes {
-    crate::window::attributes(size)
+    crate::window::attributes(size).with_visible(false)
 }
 
 impl ApplicationHandler<Option<Message>> for Screen {
@@ -239,6 +263,8 @@ impl ApplicationHandler<Option<Message>> for Screen {
                     gpu.resize(size.width, size.height);
                 }
             }
+            // Wayland maps a window on its first frame, so painting early would reveal it.
+            WindowEvent::RedrawRequested if !self.reveal.revealed => {}
             WindowEvent::RedrawRequested => match self.paint() {
                 Ok(drawn) => {
                     if let Some(gpu) = &self.gpu {
@@ -266,10 +292,19 @@ impl ApplicationHandler<Option<Message>> for Screen {
     /// Limits feedback to twenty frames per second while initialization runs independently.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        if now >= self.next_redraw {
-            if let Some(window) = &self.window {
-                window.request_redraw();
+        let Some(window) = &self.window else {
+            return;
+        };
+        if !self.reveal.revealed {
+            if !self.reveal.due(now) {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(self.reveal.at));
+                return;
             }
+            window.set_visible(true);
+            self.next_redraw = now;
+        }
+        if now >= self.next_redraw {
+            window.request_redraw();
             self.next_redraw = now + Duration::from_millis(appearance().layout.frame_millis);
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_redraw));
@@ -323,5 +358,25 @@ mod tests {
     fn loading_window_does_not_stay_above_other_windows() {
         let attributes = loading_window_attributes(LogicalSize::new(1280.0, 720.0));
         assert_eq!(attributes.window_level, winit::window::WindowLevel::Normal);
+    }
+
+    #[test]
+    fn loading_window_opens_hidden() {
+        let attributes = loading_window_attributes(LogicalSize::new(1280.0, 720.0));
+        assert!(!attributes.visible);
+    }
+
+    #[test]
+    fn loading_window_reveals_once_at_its_deadline() {
+        let start = Instant::now();
+        let mut reveal = Reveal {
+            at: start + Duration::from_millis(500),
+            revealed: false,
+        };
+        assert!(!reveal.due(start));
+        assert!(!reveal.revealed);
+        assert!(reveal.due(start + Duration::from_millis(500)));
+        assert!(reveal.revealed);
+        assert!(!reveal.due(start + Duration::from_secs(1)));
     }
 }
