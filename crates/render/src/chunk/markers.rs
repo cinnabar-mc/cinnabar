@@ -330,6 +330,11 @@ impl MarkerFaces {
     }
 }
 
+/// The page placement of `texture` and the scales that sample its exposed cell as terrain does.
+///
+/// Source sizes count the exposed cell's pixels. Terrain encodes the whole grid,
+/// `size << grid`, and multiplies by the cell's `2^-grid` UV scale, so both select mips
+/// by `size / page` per block.
 fn marker_texture(assets: &RuntimeAssets, texture: TextureRef) -> MarkerTexture {
     let page = assets
         .texture_pages()

@@ -1,5 +1,5 @@
 use super::*;
-use assets::{TerrainMarker, TextureRef};
+use assets::{TerrainMarker, TextureArray, TextureMip, TextureRef};
 use meshing::MeshLightSample;
 
 /// The block whose art the test resolver knows, and that art's index.
@@ -220,4 +220,42 @@ fn weighted_marker_art_picks_each_cells_alternative() {
     };
     assert_eq!(at([0, 0, 0]), expected(2));
     assert_eq!(at([-1, 0, -1]), expected(3));
+}
+
+/// Gridded pack art samples its exposed cell and picks mips by that cell's source pixels, the
+/// same per-block scale terrain reaches from the whole grid's size.
+#[test]
+fn gridded_marker_art_samples_its_cell_at_source_resolution() {
+    let page = TextureArray {
+        layers: 1,
+        mips: [64, 32, 16, 8, 4, 2, 1]
+            .map(|size| TextureMip {
+                size,
+                rgba8: vec![255; (size * size * 4) as usize].into(),
+            })
+            .into(),
+    };
+    let texture = TextureRef::new(1, 0).unwrap();
+    let overlay = assets::BlockOverlay {
+        visuals: vec![assets::BlockVisual::diagnostic(
+            assets::BlockFlags::empty(),
+            assets::ContributorRole::Primary,
+        )],
+        light_properties: vec![assets::LightProperties::default()],
+        materials: vec![Material {
+            texture,
+            ..Material::unvaried()
+        }],
+        textures: vec![page],
+        texture_source_sizes: vec![[16; 2]],
+        texture_source_grids: vec![1],
+        ..Default::default()
+    };
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    let marker = marker_texture(&assets, texture);
+    assert_eq!(marker.uv_scale, 0.5);
+    // Terrain: (16 << 1) / 64 * 0.5.
+    assert_eq!(marker.gradient_scale, [0.25; 2]);
 }
