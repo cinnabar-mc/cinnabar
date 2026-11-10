@@ -7,11 +7,11 @@ use crate::actor_store::ActorStore;
 use actor_animation::{MAX_MOLANG_OPS_PER_RENDER_FRAME, test_support};
 
 mod camera_tests;
+mod dye_color_tests;
 mod first_presentation_tests;
 mod multi_tick_tests;
 mod orb_tests;
 mod sheep_color_tests;
-mod wolf_color_tests;
 
 /// Spawns one completed counting rig with the ordinary material contract.
 fn fixture() -> ActorStore {

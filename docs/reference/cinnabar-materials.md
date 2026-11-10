@@ -32,16 +32,21 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   `vector` (two to four numbers), `color` (RGBA) or `boolean`.
 - Two texture names draw masks on the base texture's coordinates, scaled by the `strength`
   scalar (default 1):
-  - `glow_mask` adds `rgb × alpha × strength` after lighting, so it shows in the dark;
-  - `emissive_mask` draws texels unlit, weighted by `alpha × strength`.
+  - `glow_mask` adds `rgb × alpha × strength` after lighting, so it shows in the dark. Its RGB
+    is the glow colour, not only its alpha: a black texel adds nothing at any alpha;
+  - `emissive_mask` draws the base texture's texels unlit, weighted by `alpha × strength`; only
+    its alpha is read.
   On entities the value is a texture path and the mask must be the same size as the texture it
   masks. On blocks the value is a `terrain_texture.json` key, as material instances name their
   textures; weighted-variation faces and sorted blended model faces draw without masks.
 - Bindings apply in document order and the last match wins. `entity` matches an entity or
   attachable identifier exactly; `render_controller` and `bone` are `*` patterns, and omitting one
   matches everything. A binding without `bone` replaces the controller's whole material.
-- `block` bindings take an exact block identifier, an exact-value subset of its `states` and a
-  `material_instance` pattern. Vanilla blocks bind as a whole, with no `material_instance` or
+- `block` bindings take an exact block identifier, an exact-value subset of its `states`, a
+  `material_instance` pattern and an optional `condition`: Molang over the block's states
+  (`q.block_state('name')`), read like a permutation condition. The binding applies in states where
+  it rounds to a nonzero value; a condition that cannot evaluate, for example one naming a state
+  the block lacks, does not apply. Vanilla blocks bind as a whole, with no `material_instance` or
   `*`: untinted full cubes through their faces, and model blocks (stairs, panes, fences, doors,
   plants and their pot contents included) through every quad they can draw; tinted full cubes,
   nether portals, lily pads and models drawing art outside `terrain_texture.json` keep their base
@@ -50,6 +55,48 @@ an invalid copy is ignored whole (the client logs why) and Bedrock materials sta
   take that sidedness. Block passes have no other blend factors, depth functions or write masks; a
   binding that needs them draws approximately and counts as an approximated material in the
   session's block report.
+- Entity bindings take no `condition`. The schema rejects one; the client still applies such a
+  binding, unconditionally, and counts the ignored condition in the pack's entity material
+  diagnostics, logged once per compiled pack.
+
+The [JSON Schema](cinnabar-material-bindings-1.0.0.schema.json) (Draft 2020-12) describes format
+1.0.0. A test keeps it in step with the client's parser. The client also rejects a binding that names
+an undeclared material and parameter numbers that are not finite 32-bit floats, and it counts name
+and pattern limits in UTF-8 bytes; the schema cannot express these.
+
+Each server pack generation counts, once, an ignored invalid document, entity bindings no entity
+and render controller match, entity mask textures that name no raster, block bindings no block state
+matches and block mask keys no terrain texture resolves. The entity counts appear in the developer
+actor snapshot, also for packs restored from the disk cache; all of them are logged with the pack's
+other material counts.
+
+The [sample pack](cinnabar-material-sample/README.md) binds a glow mask to an entity bone and to a
+custom block state; it ships no images.
 
 Status: entity and block bindings render with their masks. Other textures and parameters are
 validated but not drawn.
+
+## Inspecting why a surface draws as it does
+
+- In a developer build, the developer-control state snapshot's `actor_draw.materials` section
+  lists each entity material the session's server pack draws:
+  - its pack-relative source file (or `client base`) and inheritance chain;
+  - the variant it draws (`skinning` or `base`);
+  - which defines are drawn and which are only carried;
+  - its bound texture slots, shading flags and render state;
+  - why it draws approximately, if it does.
+- The same section's `blocks` list shows the session's custom block materials with their blend,
+  cutout, masks, AO exponent and whether server texture-set surfaces back them.
+  `entity_materials` and `pipeline_fallbacks` give the pack's counted diagnostics and the materials
+  the GPU drew with the plain pipeline instead.
+- For the vanilla carrier, `assetc entity-assets` writes the same per-material record to its report's
+  `material_provenance` (schema 6).
+- Server pack loads log one line of material counts for entities and one for blocks.
+
+## Retained drawing materials
+
+Mod drawing materials (`create-material`, which needs both the `world_draw` and `render_material`
+grants; see [drawing materials](../modding/src/appendix/drawing-materials.md)) shade only the mod's
+own retained drawings. They do not draw entity or block surfaces, and a resource pack's material
+bindings never grant them. Moving a retained-drawing effect to a world surface means expressing it as a binding in this
+file, with its states, defines, masks and parameters.

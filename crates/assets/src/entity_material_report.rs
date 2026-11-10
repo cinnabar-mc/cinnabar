@@ -2,7 +2,9 @@
 //! generation. Entity compilation fills these counts; reports and diagnostics read them.
 
 /// Counted list entries the client loads nothing from or reads only in part.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct MaterialListReport {
     /// Entries carrying `tag`, which Bedrock logs as no longer supported and ignores.
     pub ignored_tags: u32,
@@ -25,7 +27,9 @@ impl MaterialListReport {
 }
 
 /// One compiled pack's entity material counts.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct EntityMaterialDiagnostics {
     /// Distinct state names no Bedrock state matches. Bedrock asserts on them; the client
     /// ignores them.
@@ -52,6 +56,16 @@ pub struct EntityMaterialDiagnostics {
     pub unlisted_files: u32,
     /// List entries the client read in part or loaded nothing from.
     pub list: MaterialListReport,
+    /// `cinnabar/material-bindings.json` documents ignored whole because they are invalid.
+    pub invalid_extension_documents: u32,
+    /// Entity bindings no compiled entity and render controller match.
+    pub unmatched_extension_bindings: u32,
+    /// Mask textures of entity-bound extension materials that name no loaded raster.
+    pub unresolved_extension_textures: u32,
+    /// Entity bindings naming a `condition`, which entity bindings do not take; each binds
+    /// unconditionally.
+    #[serde(default)]
+    pub ignored_extension_conditions: u32,
 }
 
 impl EntityMaterialDiagnostics {
@@ -61,3 +75,37 @@ impl EntityMaterialDiagnostics {
         *self == Self::default()
     }
 }
+
+/// Where one client-entity material an actor draws came from, and how it draws.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EntityMaterialProvenance {
+    /// The material name a client-entity definition or Cinnabar binding names.
+    pub name: Box<str>,
+    /// The carrier material-table index the actor draws with.
+    pub definition: u32,
+    /// The pack-relative file declaring it, `cinnabar/material-bindings.json` for an extension
+    /// material, or `client base` for a base the client declares itself.
+    pub source: Box<str>,
+    /// The material, then each parent it derives from; a client-declared base ends the chain.
+    pub chain: EntityMaterialChain,
+    /// `skinning` when the draw uses the material's skinning variant, else `base`.
+    pub variant: Box<str>,
+    /// Actor defines the client draws.
+    pub applied_defines: Box<[Box<str>]>,
+    /// Defines the client carries without drawing.
+    pub carried_defines: Box<[Box<str>]>,
+    /// Why the draw is approximate or falls back, when it is.
+    pub reason: Option<Box<str>>,
+}
+
+/// One compiled pack's entity material counts and per-material provenance.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EntityMaterialReport {
+    pub diagnostics: EntityMaterialDiagnostics,
+    /// Materials actors draw, sorted by name.
+    pub materials: Box<[EntityMaterialProvenance]>,
+}
+
+#[path = "entity_material_chain.rs"]
+mod chain;
+pub use chain::EntityMaterialChain;

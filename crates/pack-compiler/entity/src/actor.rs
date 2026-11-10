@@ -144,6 +144,19 @@ fn layer_sources<'a>(
         })
 }
 
+/// The glow and emissive mask sources of `layer`'s Cinnabar material, which its draw samples
+/// beside its base texture.
+fn layer_mask_sources<'a>(
+    render: &'a assets::EntityRenderData,
+    layer: &'a assets::EntityRenderLayer,
+) -> impl Iterator<Item = u32> + 'a {
+    layer
+        .material_masks
+        .and_then(|index| render.material_masks.get(index as usize))
+        .into_iter()
+        .flat_map(|masks| [masks.glow, masks.emissive].into_iter().flatten())
+}
+
 /// Decodes each source once under the artwork build's alpha contract.
 struct SourceDecoder {
     lenient: bool,
@@ -284,6 +297,18 @@ fn build_artwork<B: AsRef<[u8]> + Send>(
             reject(&mut fallbacks, "no_render_layer");
             continue;
         }
+        // Masks are admitted with the rig's art so its draws can sample them; they never route
+        // a geometry.
+        let sources: Vec<u32> = sources
+            .iter()
+            .copied()
+            .chain(
+                layers
+                    .iter()
+                    .flat_map(|layer| layer_mask_sources(render, layer))
+                    .filter(|source| !sources.contains(source)),
+            )
+            .collect();
         // The body route is the base controller's first texture; a conditional overlay's (such
         // as the charged creeper's armor) must never stand in for it.
         let base_slot = layers

@@ -137,8 +137,11 @@ pub fn collect_files(
     collect_files_reporting(view, vanilla, vanilla_pack_dir).0
 }
 
-/// `(pack-relative path, bytes)` files entity compilation reads.
-pub type CollectedFiles = Vec<(Box<str>, Vec<u8>)>;
+/// One `(pack-relative path, bytes)` file entity compilation reads.
+pub type CollectedFile = (Box<str>, Vec<u8>);
+
+/// The files entity compilation reads.
+pub type CollectedFiles = Vec<CollectedFile>;
 
 /// [`collect_files`] with the counts collection notices: the entity material lists' entries
 /// it read in part or not at all.
@@ -291,7 +294,9 @@ pub(super) fn collect_files_for_graphics_unless(
             .into_iter()
             .map(|(path, bytes)| (path.into(), bytes)),
     );
-    files.extend(material_bindings(view));
+    let (bindings, invalid) = bindings::collect(view);
+    report.invalid_extension_documents = u32::from(invalid);
+    files.extend(bindings);
     files.extend(attachables);
     files.extend(geometry);
     textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
@@ -444,19 +449,6 @@ fn texture_set_colour(
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
 fn canonical_json(bytes: &[u8]) -> Option<Vec<u8>> {
     serde_json::to_vec(&parse_pack_json(bytes)?).ok()
-}
-
-/// The winning `cinnabar/material-bindings.json`, canonicalised. It shadows lower copies even
-/// when invalid; the compiler then ignores it and the reason is logged here.
-fn material_bindings(view: &LayeredPackView) -> Option<(Box<str>, Vec<u8>)> {
-    let document = material_bindings_document(view)?;
-    if let Err(reason) = pack_entity_compiler::validate_material_bindings(&document) {
-        tracing::warn!(%reason, "ignoring the pack's material bindings");
-    }
-    Some((
-        pack_entity_compiler::MATERIAL_BINDINGS_PATH.into(),
-        serde_json::to_vec(&document).ok()?,
-    ))
 }
 
 /// Texture paths the stack's material bindings name, so their rasters reach the entity catalog.
@@ -988,6 +980,7 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
 }
 
 mod attachables;
+mod bindings;
 
 #[cfg(test)]
 mod harness_tests;

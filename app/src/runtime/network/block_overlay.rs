@@ -65,6 +65,12 @@ pub(crate) struct OverlayGaps {
     pub(crate) invalid_legacy_bindings: u32,
     /// Routes refused because the overlay texture array had no layer left.
     pub(crate) saturated_textures: u32,
+    /// Cinnabar block bindings no block state matched.
+    #[serde(default)]
+    pub(crate) unmatched_material_bindings: u32,
+    /// Distinct Cinnabar binding mask texture keys no terrain texture resolves.
+    #[serde(default)]
+    pub(crate) unresolved_binding_masks: u32,
     /// Server texture sets whose surface layers did not decode or fit the terrain budget; they
     /// keep only their colour.
     #[serde(default)]
@@ -175,6 +181,7 @@ pub(super) fn compile_block_overlay_with_textures(
         slots: TextureSlots::default(),
         materials: HashMap::new(),
         state_masks: bindings::StateMasks::default(),
+        unresolved_masks: Default::default(),
         pbr: Default::default(),
         visuals: HashMap::new(),
         gaps: OverlayGaps {
@@ -212,8 +219,8 @@ pub(super) fn compile_block_overlay_with_textures(
                 let physics = block.physics_for_state(index as u32);
                 visual.components.random_offset = physics.random_offset;
                 legacy.apply(&block.name, &mut visual.components);
-                bindings.apply(block, Some(&state.values), &mut visual.components);
-                builder.state_masks = bindings.state_masks(block, Some(&state.values));
+                builder.state_masks =
+                    bindings.apply(block, Some(&state.values), &mut visual.components);
                 builder.push_state(
                     &visual,
                     &geometries,
@@ -233,8 +240,7 @@ pub(super) fn compile_block_overlay_with_textures(
             let physics = block.physics_for_state(state);
             visual.components.random_offset = physics.random_offset;
             legacy.apply(&block.name, &mut visual.components);
-            bindings.apply(block, values.as_deref(), &mut visual.components);
-            builder.state_masks = bindings.state_masks(block, values.as_deref());
+            builder.state_masks = bindings.apply(block, values.as_deref(), &mut visual.components);
             builder.push_state(
                 &visual,
                 &geometries,
@@ -256,6 +262,8 @@ pub(super) fn compile_block_overlay_with_textures(
         builder.override_marker_bindings(keys, &legacy);
         builder.bind_vanilla_blocks(keys, &bindings);
     }
+    builder.gaps.unmatched_material_bindings = bindings.unmatched();
+    builder.gaps.unresolved_binding_masks = builder.unresolved_masks.len() as u32;
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
         && builder.overlay.face_overrides.is_empty()
@@ -333,6 +341,8 @@ struct Builder<'a> {
     materials: HashMap<(String, u32, u32, [u32; 3]), u32>,
     /// Mask textures bindings assign to the state being pushed.
     state_masks: bindings::StateMasks,
+    /// Binding mask keys that resolved to no texture, counted once each.
+    unresolved_masks: std::collections::HashSet<Box<str>>,
     /// Textures whose colour came from a server texture set, for their surface layers.
     pbr: pbr::PbrCandidates,
     visuals: HashMap<String, BlockVisual>,

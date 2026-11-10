@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Cinnabar material sample",
+    "description": "Glowing pig eyes and a glowing lamp block, for Cinnabar clients.",
+    "uuid": "42365ae6-6745-4c3e-bd2e-31fce4e5d805",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "ac46030e-34b9-457a-b336-52782c897c0e",
+      "version": [1, 0, 0]
+    }
+  ]
+}

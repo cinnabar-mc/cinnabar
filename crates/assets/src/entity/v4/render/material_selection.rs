@@ -4,6 +4,8 @@ use super::*;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", deny_unknown_fields)]
 pub enum EntityRenderMaterialSelection {
+    /// This choice has no drawable material.
+    Empty,
     Raster {
         material: EntityRenderMaterial,
         state: Option<EntityRenderMaterialState>,
@@ -13,6 +15,9 @@ pub enum EntityRenderMaterialSelection {
         /// Index into [`EntityRenderData::material_masks`] for a Cinnabar material with masks.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         masks: Option<u32>,
+        /// Whether this material applies the controller's UV animation.
+        #[serde(default = "default_uv_anim")]
+        uv_anim: bool,
     },
     Branch {
         condition: u32,
@@ -25,11 +30,16 @@ pub enum EntityRenderMaterialSelection {
     },
 }
 
+/// Older selection leaves keep the controller's UV animation enabled.
+fn default_uv_anim() -> bool {
+    true
+}
+
 impl EntityRenderMaterialSelection {
     /// The expression evaluated by this decision; raster leaves read no Molang state.
     pub fn expression(&self) -> Option<u32> {
         match self {
-            Self::Raster { .. } => None,
+            Self::Empty | Self::Raster { .. } => None,
             Self::Branch { condition, .. } => Some(*condition),
             Self::Array { index, .. } => Some(*index),
         }
@@ -39,11 +49,11 @@ impl EntityRenderMaterialSelection {
     fn children(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match self {
             Self::Branch { yes, no, .. } => [Some(*yes), Some(*no)],
-            Self::Raster { .. } | Self::Array { .. } => [None; 2],
+            Self::Empty | Self::Raster { .. } | Self::Array { .. } => [None; 2],
         };
         let choices = match self {
             Self::Array { choices, .. } => choices.as_ref(),
-            Self::Raster { .. } | Self::Branch { .. } => &[],
+            Self::Empty | Self::Raster { .. } | Self::Branch { .. } => &[],
         };
         pair.into_iter().flatten().chain(choices.iter().copied())
     }

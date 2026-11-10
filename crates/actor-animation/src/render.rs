@@ -7,13 +7,15 @@ use super::{
 };
 use assets::entity_render_pattern_matches as pattern_matches;
 
-/// Controller activation is independent of whether selected artwork can be drawn.
+/// Controller activation distinguishes intentional no-draw from unavailable artwork.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ControllerActivity {
     #[default]
     NotEvaluated,
     NoControllers,
     Active,
+    /// Active controllers selected no draw, with no unavailable artwork needing fallback.
+    ActiveNoDraw,
     Inactive,
 }
 
@@ -26,9 +28,12 @@ pub struct RenderVisibility {
 }
 
 impl RenderVisibility {
-    /// Only a completed all-false controller evaluation suppresses the base body.
+    /// Completed inactive or intentional no-draw controllers suppress the base body.
     pub fn hides_body(self) -> bool {
-        self.controllers == ControllerActivity::Inactive
+        matches!(
+            self.controllers,
+            ControllerActivity::Inactive | ControllerActivity::ActiveNoDraw
+        )
     }
 
     /// Held equipment follows its own description property, independently of the body.
@@ -274,20 +279,6 @@ pub(super) fn carry_layer_poses(
     }
 }
 
-/// Controller texture slots a material samples beside its base, as Bedrock binds them:
-/// `MatTexture1` for `GLINT`, `MULTIPLICATIVE_TINT`, `USE_MULTITEXTURE` and
-/// `MASKED_MULTITEXTURE`, and `MatTexture2` for `USE_MULTITEXTURE`. Glint draws with the
-/// client's own glint raster, so a glint material's tint or mask texture is the slot after its
-/// glint texture (provisional: the controller-to-sampler order is unknown).
-fn extra_samplers(state: Option<assets::EntityRenderMaterialState>) -> &'static [usize] {
-    match state {
-        Some(state) if state.multitexture => &[1, 2],
-        Some(state) if (state.texture_tint || state.texture_mask) && state.glint => &[2],
-        Some(state) if state.texture_tint || state.texture_mask => &[1],
-        _ => &[],
-    }
-}
-
 /// The `uv_anim` value of a controller without one.
 const IDENTITY_UV_ANIM: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
@@ -361,6 +352,7 @@ pub(super) fn evaluate_render_cached(
     output.clear();
     let mut unresolved_artwork = false;
     let mut active = false;
+    let mut no_draw = false;
     let symbol = assets
         .rig_bindings()
         .get(rig.binding)
@@ -371,14 +363,13 @@ pub(super) fn evaluate_render_cached(
             super::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
         });
     for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
-        if let Some(cache) = cache.as_deref_mut() {
+        let status = if let Some(cache) = cache.as_deref_mut() {
             let evaluated =
                 cache.sample(index, evaluator, variables, rig, layer, actor_color, budget)?;
-            active |= evaluated.status != LayerStatus::Inactive;
-            unresolved_artwork |= evaluated.status == LayerStatus::UnresolvedArtwork;
             output.extend_from_slice(&evaluated.layers);
+            evaluated.status
         } else {
-            let status = evaluate_layer_into(
+            evaluate_layer_into(
                 evaluator,
                 variables,
                 rig,
@@ -386,10 +377,11 @@ pub(super) fn evaluate_render_cached(
                 actor_color,
                 &mut output,
                 budget,
-            )?;
-            active |= status != LayerStatus::Inactive;
-            unresolved_artwork |= status == LayerStatus::UnresolvedArtwork;
-        }
+            )?
+        };
+        active |= status != LayerStatus::Inactive;
+        unresolved_artwork |= status == LayerStatus::UnresolvedArtwork;
+        no_draw |= status == LayerStatus::NoDraw;
     }
     let hide_held_items = assets
         .rig_bindings()
@@ -405,6 +397,8 @@ pub(super) fn evaluate_render_cached(
     let visibility = RenderVisibility {
         controllers: if assets.render_layers(rig.binding).is_empty() {
             ControllerActivity::NoControllers
+        } else if output.is_empty() && no_draw && !unresolved_artwork {
+            ControllerActivity::ActiveNoDraw
         } else if active {
             ControllerActivity::Active
         } else {
@@ -469,11 +463,12 @@ pub(crate) struct LayerOutput {
     status: LayerStatus,
 }
 
-/// Inactive controllers never become missing-artwork fallbacks.
+/// Intentional empty selections and inactive controllers never become artwork fallbacks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LayerStatus {
     Inactive,
     Active,
+    NoDraw,
     UnresolvedArtwork,
 }
 
@@ -532,13 +527,20 @@ fn evaluate_layer_into(
     {
         return Ok(LayerStatus::Inactive);
     }
-    let SelectedMaterial {
+    let Some(SelectedMaterial {
         material,
         state: material_state,
         definition: material_definition,
         masks: material_masks,
-    } = selected_material(evaluator, variables, layer, budget)?;
-    let mut samplers = extra_samplers(material_state);
+        uv_anim: material_uv_anim,
+    }) = selected_material(evaluator, variables, layer, budget)?
+    else {
+        return Ok(LayerStatus::NoDraw);
+    };
+    let mut samplers = material_state.map_or(
+        &[] as &[usize],
+        assets::EntityRenderMaterialState::extra_texture_slots,
+    );
     // A masked material with one texture has no second sampler to mask; it draws plainly.
     if layer.slot_count < 2 && material_state.is_some_and(|state| state.texture_mask) {
         samplers = &[];
@@ -588,7 +590,11 @@ fn evaluate_layer_into(
             .truthy();
         for (index, name) in bone_names.iter().enumerate() {
             if pattern_matches(&rule.pattern, name) {
-                hidden[index] = !visible;
+                if rule.hide_only {
+                    hidden[index] |= !visible;
+                } else {
+                    hidden[index] = !visible;
+                }
             }
         }
     }
@@ -603,7 +609,16 @@ fn evaluate_layer_into(
         .filter(|(_, hidden)| **hidden)
         .map(|(index, _)| index as u32)
         .collect();
-    let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
+    // Only colour-mask materials and multitextures dyeing their third texture read the actor's
+    // change colour; other layers start white.
+    let default_tint = if material_state
+        .is_some_and(|state| state.color_mask || (state.multitexture && state.color_second_texture))
+    {
+        actor_color
+    } else {
+        [1.0; 4]
+    };
+    let tint = color(evaluator, variables, layer.color, default_tint, budget)?;
     let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
     let overlay = if evaluator.actor.shows_damage() {
         color(evaluator, variables, layer.hurt_color, overlay, budget)?
@@ -613,7 +628,7 @@ fn evaluate_layer_into(
     let uv_anim = color(
         evaluator,
         variables,
-        layer.uv_anim,
+        layer.uv_anim.filter(|_| material_uv_anim),
         IDENTITY_UV_ANIM,
         budget,
     )?;
@@ -723,6 +738,7 @@ struct SelectedMaterial {
     definition: Option<u32>,
     /// Index into the carrier's Cinnabar mask table.
     masks: Option<u32>,
+    uv_anim: bool,
 }
 
 /// Evaluates one whole-model material decision before executing the controller body once.
@@ -731,32 +747,36 @@ fn selected_material(
     variables: &mut MolangVariables,
     layer: &assets::EntityRenderLayer,
     budget: &mut EvalBudget<'_>,
-) -> Result<SelectedMaterial, EvalError> {
+) -> Result<Option<SelectedMaterial>, EvalError> {
     use assets::EntityRenderMaterialSelection as Node;
     let Some(mut selected) = layer.material_selection else {
-        return Ok(SelectedMaterial {
+        return Ok(Some(SelectedMaterial {
             material: layer.material,
             state: layer.material_state,
             definition: layer.material_definition,
             masks: layer.material_masks,
-        });
+            uv_anim: true,
+        }));
     };
     let nodes = &evaluator.assets.render_data().material_selections;
     loop {
         budget.charge_work()?;
         selected = match nodes.get(selected as usize).ok_or(EvalError::Invalid)? {
+            Node::Empty => return Ok(None),
             Node::Raster {
                 material,
                 state,
                 definition,
                 masks,
+                uv_anim,
             } => {
-                return Ok(SelectedMaterial {
+                return Ok(Some(SelectedMaterial {
                     material: *material,
                     state: *state,
                     definition: *definition,
                     masks: *masks,
-                });
+                    uv_anim: *uv_anim,
+                }));
             }
             Node::Branch { condition, yes, no } => {
                 if evaluator

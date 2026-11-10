@@ -69,6 +69,8 @@ pub struct EntityPackCompilation {
     pub skipped: EntityPackSkips,
     /// Counted entity material behaviour the client skips, ignores or approximates.
     pub material_diagnostics: assets::EntityMaterialDiagnostics,
+    /// How each material actors draw was declared and draws.
+    pub material_provenance: Box<[assets::entity::material_report::EntityMaterialProvenance]>,
     /// Retained source bytes by pack-relative path, for consumers that read rasters.
     pub payloads: BTreeMap<Box<str>, Box<[u8]>>,
 }
@@ -444,6 +446,7 @@ fn compile_selected(
                     ..skipped
                 },
                 material_diagnostics: compilation.material_diagnostics,
+                material_provenance: compilation.material_provenance,
                 payloads,
             })
         }),

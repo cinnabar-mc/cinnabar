@@ -167,6 +167,7 @@ fn compile_encoded(
     }
     let mut materials = compiled.material_diagnostics;
     materials.list.add(collected.list);
+    materials.invalid_extension_documents += collected.invalid_extension_documents;
     if !materials.is_empty() {
         tracing::info!(
             unknown_states = materials.unknown_states,
@@ -179,6 +180,10 @@ fn compile_encoded(
             skipped_draws = materials.skipped_draws,
             unlisted_files = materials.unlisted_files,
             list = ?materials.list,
+            invalid_extension_documents = materials.invalid_extension_documents,
+            unmatched_extension_bindings = materials.unmatched_extension_bindings,
+            unresolved_extension_textures = materials.unresolved_extension_textures,
+            ignored_extension_conditions = materials.ignored_extension_conditions,
             "server pack entity materials draw in part"
         );
     }
@@ -237,7 +242,12 @@ fn compile_encoded(
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment,
-        material_diagnostics: Some(materials),
+        material_report: Some(Arc::new(
+            assets::entity::material_report::EntityMaterialReport {
+                diagnostics: materials,
+                materials: std::mem::take(&mut compiled.material_provenance),
+            },
+        )),
     });
     Some((Some(pack), blob))
 }

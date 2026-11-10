@@ -161,6 +161,20 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   budget or page capacity are dropped, and their set draws colour only. That budget is an
   implementation limit, not a verified native one; deferred or streamed admission of the
   remaining layers is incomplete. Only the disabled Enhanced renderer reads these layers.
+- [x] Cinnabar material binding conditions: block bindings take a `condition` evaluated once per
+  block state by the existing block-state Molang evaluator, as permutation conditions are. Entity
+  bindings take none: the schema rejects one, and the client binds unconditionally and counts the
+  ignored condition in its aggregate entity material diagnostics.
+- [ ] Stencil state stays partial: entity materials carry the complete stencil fields, but scene
+  depth (Bevy's `CORE_3D_DEPTH_FORMAT`) has no stencil aspect, so stencil tests and writes are not
+  rendered. The stencil rows close only with a stencil-capable scene depth target.
+- [x] Material robustness covers malformed or removed packs, back-to-back generations and
+  adapters that cannot represent a material. Device loss is an app-wide gap tracked under
+  acceptance and release qualification, not a material one.
+- [x] Offline material previews are not planned. `ui-snapshot` rasterizes UI meshes on the CPU and
+  owns no actor or terrain pipeline; the developer-control snapshot's `materials` section explains
+  a live session's choices, and the actor fragment's readback tests in
+  `crates/render/tests/it/actor_colour.rs` pin define-driven draws.
 - [ ] Material performance acceptance is missing. The join, streaming and frame-budget gates in
   `docs/agents/live-testing.md` need release captures on the reference M3 Pro and low-end laptop
   (pinned 30-player replay, three 120 s runs, cold and warm caches, Tracy with GPU timestamps);
@@ -1248,14 +1262,18 @@ vertex transforms cannot separate their depth surfaces. Paired dissolve material
 retain their dedicated renderer contracts; applying their generated states to held
 and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the default
-branch. Whole-model material arrays and ternaries retain one controller layer and
-evaluate each material decision once, after activation and before authored part
-visibility. Bone material bindings preserve that selection on unbound bones; material-only
-bindings load installed entity definitions and their referenced resources.
-Render-controller expressions share frame dependency analysis, keeping
-camera-driven choices live between ticks. Dynamic per-bone material rules, selector
-admission and in-world qualification remain incomplete. The samples omit the iron
-golem's body controller; it is completed from the pack's default controller until a
+branch. Material arrays and ternaries retain one decision tree per authored rule;
+last-match bone ownership partitions layers without repeating selector expressions.
+Whole-model selectors retain one controller layer and evaluate each decision once,
+after activation and before authored part visibility. Bone material bindings preserve
+that selection on unbound bones; material-only bindings load installed entity definitions
+and their referenced resources. Render-controller expressions share frame dependency
+analysis, keeping camera-driven choices live between ticks.
+Unresolved selector members and choices lacking required controller textures draw nothing;
+actor presentation preserves that outcome without substituting the base body, while unavailable
+artwork retains its fallback. Valid sibling choices retain their own material and bone ownership.
+Per-bone selector admission and in-world qualification remain incomplete. The samples
+omit the iron golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
 Thrown tridents draw their pack model placed by the native flight rotation, with the
 item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
@@ -2764,6 +2782,9 @@ frame, and runs a pending frame ahead of queued input once pointer moves have he
 1 ms. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
 screens with a free cursor still receive every raw report. Raw reports in gameplay are still
 handled one message at a time and are not bounded the same way; buffered reads are unmeasured.
+- [ ] GPU device loss is an app-wide gap: the renderer has no device-loss path or test seam, so no
+  subsystem recovers a lost device. Pipelines, bind groups and uploaded textures, materials and
+  Enhanced maps included, are lost with it.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

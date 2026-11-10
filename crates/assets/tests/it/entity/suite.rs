@@ -723,6 +723,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             visibility: Box::new([entity::EntityRenderVisibility {
                 pattern: "root".into(),
                 condition: 0,
+                hide_only: false,
             }]),
             geometries: Box::new([]),
             materials: Box::new([]),
@@ -1119,6 +1120,7 @@ fn material_selection_graph_is_optional_and_validated() {
         state: None,
         definition: None,
         masks: None,
+        uv_anim: true,
     }]
     .into();
     compiled.render.layers[0].material_selection = Some(0);

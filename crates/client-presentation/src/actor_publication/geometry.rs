@@ -244,6 +244,7 @@ mod authored_raster_tests {
                 state: None,
                 definition: Some(1),
                 masks: None,
+                uv_anim: true,
             }]),
             ..Default::default()
         };
@@ -276,6 +277,7 @@ mod authored_raster_tests {
                 state: Some(state),
                 definition: Some(0),
                 masks: None,
+                uv_anim: true,
             }]),
             ..Default::default()
         };
