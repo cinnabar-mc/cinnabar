@@ -52,11 +52,13 @@ pub(super) fn translate(
         }
         iface.set_geometry_output_interface(stage != StageKind::Vertex);
         let names = ResourceNames {
+            software_fused_dot: cx.software_fused_dot,
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
             normalize_legacy: normalize_legacy(stage, source),
             geometry: true,
             vertex_clip: false,
+            bound_core_inputs: bound_core_inputs(&out.program.name, source),
         };
         let (source, stage) = if stage == StageKind::Geometry {
             (&lowered.compute, StageKind::Compute)
@@ -75,11 +77,13 @@ pub(super) fn translate(
         }
     }
     let names = ResourceNames {
+        software_fused_dot: cx.software_fused_dot,
         image_formats: cx.image_formats,
         sampler_classes: cx.sampler_classes,
         normalize_legacy: false,
         geometry: true,
         vertex_clip: true,
+        bound_core_inputs: true,
     };
     iface.set_geometry_output_interface(true);
     let raster = match transform(&lowered.vertex, StageKind::Vertex, &mut iface, &names) {

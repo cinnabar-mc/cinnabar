@@ -20,6 +20,8 @@ use bevy::{
 
 const WIDTH: u32 = 256;
 const HEIGHT: u32 = 192;
+/// Each poll renders a frame, which a software adapter on a loaded runner can take seconds to do.
+const RENDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 struct Capture {
     app: App,
@@ -253,18 +255,22 @@ fn dimension_round_trip_renders_no_previous_world_in_any_frame() {
         surface(&mut capture.app, ColumnPos::new(x, z), 96, [20, 240, 20]);
     }
     let mut before = Vec::new();
-    test_time::eventually("old world's far columns are rendered", || {
-        before = capture.frame();
-        old_pixels(&before) > 50
-            && [(30, 0), (32, 0), (30, 2)].into_iter().all(|(x, z)| {
-                capture
-                    .app
-                    .world()
-                    .resource::<FarTerrain>()
-                    .tiles
-                    .ready(ColumnPos::new(x, z))
-            })
-    });
+    test_time::eventually_within(
+        RENDER_TIMEOUT,
+        "old world's far columns are rendered",
+        || {
+            before = capture.frame();
+            old_pixels(&before) > 50
+                && [(30, 0), (32, 0), (30, 2)].into_iter().all(|(x, z)| {
+                    capture
+                        .app
+                        .world()
+                        .resource::<FarTerrain>()
+                        .tiles
+                        .ready(ColumnPos::new(x, z))
+                })
+        },
+    );
     save("world-a", &before);
     assert!(has_near(&mut capture.app, old_near));
     round_trip(&mut capture.app);
@@ -305,7 +311,7 @@ fn dimension_round_trip_renders_no_previous_world_in_any_frame() {
     }
     let mut after = Vec::new();
     let mut frame = 8;
-    test_time::eventually("destination terrain is rendered", || {
+    test_time::eventually_within(RENDER_TIMEOUT, "destination terrain is rendered", || {
         after = capture.frame();
         save(&format!("transfer-{frame:02}"), &after);
         let count = old_pixels(&after);

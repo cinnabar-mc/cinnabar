@@ -62,7 +62,9 @@ impl Observer {
                         .map(|mut registration| {
                             for entry in &mut registration.mods {
                                 entry.component =
-                                    super::selection::resolved_component(&entry.component);
+                                    launcher_host::mod_library::paths::resolved_component(
+                                        &entry.component,
+                                    );
                             }
                             Some(registration)
                         })

@@ -1,4 +1,6 @@
 //! Composition adapters for the presentation audio plugin.
+#[cfg(not(target_arch = "wasm32"))]
+mod filter;
 mod predicted;
 mod synchronized;
 mod systems;

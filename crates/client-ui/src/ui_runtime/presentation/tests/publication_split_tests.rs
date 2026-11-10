@@ -64,8 +64,8 @@ fn captured_inventory_keeps_pre_send_pixels_and_restores_post_send_authority() {
     );
     let captured = runtime.capture_presentation_inventory(&player_runtime);
     runtime.server_forms_mut().clear();
-    runtime.inventory_open = true;
-    runtime.inventory_pointer_gui = Some([23.0, 42.0]);
+    runtime.session.inventory_open = true;
+    runtime.session.inventory_pointer_gui = Some([23.0, 42.0]);
     player_runtime.inventory.ledger_mut().begin_session(2);
     let after_send = inventory_state(&player_runtime, &runtime);
     let actual = runtime.with_presentation_inventory(
@@ -94,8 +94,8 @@ fn inventory_authority_is_restored_on_render_error_and_unwind() {
     let mut runtime = UiRuntime::new(1);
     for unwind in [false, true] {
         let captured = runtime.capture_presentation_inventory(&player_runtime);
-        runtime.inventory_open = !runtime.inventory_open;
-        runtime.inventory_pointer_gui = Some([37.0, 19.0]);
+        runtime.session.inventory_open = !runtime.session.inventory_open;
+        runtime.session.inventory_pointer_gui = Some([37.0, 19.0]);
         player_runtime.inventory.ledger_mut().begin_session(2);
         let after_send = inventory_state(&player_runtime, &runtime);
         if unwind {

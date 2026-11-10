@@ -4,7 +4,7 @@ use crate::compile::{CompiledStage, OutputMap, compile};
 use crate::diagnostics::{Diagnostic, Phase};
 use crate::options::{OptionKind, OptionValues, PackOption};
 use crate::preprocess::{ConstDirective, LineMap, Preprocessed, expand, preprocess};
-use crate::programs::{ProgramKind, ProgramSource, StageKind};
+use crate::programs::{LINE_PROGRAM, ProgramKind, ProgramSource, StageKind};
 use crate::properties::ProgramRule;
 use crate::reflect::{StageNames, reflect};
 use crate::reflection::ProgramReflection;
@@ -71,6 +71,8 @@ impl ProgramTranslation {
 
 /// Inputs shared by every program of one translation.
 pub(crate) struct Context<'a> {
+    pub software_fused_dot: bool,
+    pub cancelled: &'a (dyn Fn() -> bool + Sync),
     pub source: &'a PackSource,
     pub options: &'a [PackOption],
     pub values: &'a OptionValues,
@@ -179,6 +181,9 @@ pub(crate) fn translate_program(
     let mut vertex_targets = None;
     let mut preprocessed = Vec::new();
     for (i, (stage, path)) in program.stages.iter().enumerate() {
+        if (cx.cancelled)() {
+            return out;
+        }
         out.stages.push(StageTranslation {
             stage: *stage,
             path: path.clone(),
@@ -221,6 +226,9 @@ pub(crate) fn translate_program(
     }
     let mut attempted = HashSet::new();
     let drafts = loop {
+        if (cx.cancelled)() {
+            return out;
+        }
         let (drafts, mut unknown) =
             compile_stages(cx, &preprocessed, program.group.draws_geometry(), &mut out);
         unknown.retain(|name| attempted.insert(name.clone()));
@@ -317,12 +325,17 @@ fn compile_stages(
     let mut iface = ProgramInterface::default();
     let mut drafts = Vec::new();
     for (i, pp) in preprocessed {
+        if (cx.cancelled)() {
+            return (drafts, HashSet::new());
+        }
         let names = ResourceNames {
+            software_fused_dot: cx.software_fused_dot,
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
             normalize_legacy: normalize_legacy(out.stages[*i].stage, pp),
             geometry,
             vertex_clip: true,
+            bound_core_inputs: bound_core_inputs(&out.program.name, pp),
         };
         match transform(pp, out.stages[*i].stage, &mut iface, &names) {
             Ok(draft) => drafts.push((*i, draft, pp.map.clone())),
@@ -349,6 +362,9 @@ fn compile_stages(
     };
     let mut unknown = HashSet::new();
     for (i, draft, map) in &drafts {
+        if (cx.cancelled)() {
+            return (drafts, unknown);
+        }
         let (glsl, origins) = assemble(draft, &ubo, &locations);
         let output = OutputMap {
             glsl: &glsl,
@@ -370,4 +386,12 @@ fn normalize_legacy(stage: StageKind, source: &Preprocessed) -> bool {
     stage == StageKind::Compute
         || source.profile.as_deref() != Some("core")
             && (source.version < 150 || source.profile.as_deref() == Some("compatibility"))
+}
+
+/// Whether declared core-profile vertex inputs (`vaPosition`, …) read vertex data. Iris's
+/// core-profile transformer, which also compiles the line program whatever its version,
+/// renames them to the inputs it binds; its compatibility-profile transformers leave them as
+/// declared and bind nothing to them.
+pub(crate) fn bound_core_inputs(program: &str, source: &Preprocessed) -> bool {
+    program == LINE_PROGRAM || !normalize_legacy(StageKind::Vertex, source)
 }

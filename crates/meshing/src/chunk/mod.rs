@@ -3,5 +3,5 @@ mod cube_materials;
 mod leaves;
 mod liquids;
 pub(crate) mod models;
-mod opaque;
+pub(crate) mod opaque;
 mod seasonal_foliage;

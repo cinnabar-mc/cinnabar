@@ -56,6 +56,13 @@ pub(super) fn plan_segment(
     current: &UiRenderInput,
     segment: Range<usize>,
 ) -> UiDamage {
+    if !current.models.is_empty()
+        && current.shares_draw_buffers(previous)
+        && segment.start <= segment.end
+        && segment.end <= current.batches.len()
+    {
+        return model_damage(previous, current, &segment);
+    }
     if previous.viewport_size != current.viewport_size
         || previous.safe_area != current.safe_area
         || !Arc::ptr_eq(&previous.textures, &current.textures)
@@ -70,9 +77,9 @@ pub(super) fn plan_segment(
     if bytemuck::cast_slice::<_, u8>(&previous.vertices)
         == bytemuck::cast_slice::<_, u8>(&current.vertices)
     {
-        return UiDamage::Unchanged;
+        return model_damage(previous, current, &segment);
     }
-    let mut damage = None;
+    let mut damage = model_damage(previous, current, &segment);
     // Backdrops draw into the scene, never into a retained layer.
     for batch in current.batches[segment]
         .iter()
@@ -87,6 +94,31 @@ pub(super) fn plan_segment(
             }) {
                 continue;
             }
+            if triangle.iter().any(|&index| {
+                (previous.vertices[index as usize].style_flags
+                    | current.vertices[index as usize].style_flags)
+                    & render_api::UI_STYLE_MODEL_VERTEX
+                    != 0
+            }) {
+                if triangle.iter().any(|&index| {
+                    (previous.vertices[index as usize].style_flags
+                        ^ current.vertices[index as usize].style_flags)
+                        & render_api::UI_STYLE_MODEL_VERTEX
+                        != 0
+                }) {
+                    return UiDamage::Full;
+                }
+                for input in [previous, current] {
+                    if let Some(pose) = input
+                        .models
+                        .iter()
+                        .find(|pose| Some(pose.scope) == batch.isolated_depth_scope)
+                    {
+                        damage = damage.union(UiDamage::Rect(pose.bounds));
+                    }
+                }
+                continue;
+            }
             let mut bounds = [
                 f64::INFINITY,
                 f64::INFINITY,
@@ -96,22 +128,52 @@ pub(super) fn plan_segment(
             for input in [previous, current] {
                 for &index in triangle {
                     let vertex = &input.vertices[index as usize];
-                    for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
-                        bounds[axis] = bounds[axis].min(pixel);
-                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
-                    }
+                    include_vertex(&mut bounds, vertex);
                 }
             }
             if let Some(rect) = clipped(bounds, batch.scissor, current.viewport_size) {
-                damage = Some(match damage {
-                    Some(previous) => union(previous, rect),
-                    None => rect,
-                });
+                damage = damage.union(UiDamage::Rect(rect));
             }
         }
     }
-    damage.map_or(UiDamage::Unchanged, UiDamage::Rect)
+    damage
+}
+
+/// Includes both retired and incoming model coverage when a palette changes in this segment.
+fn model_damage(
+    previous: &UiRenderInput,
+    current: &UiRenderInput,
+    segment: &Range<usize>,
+) -> UiDamage {
+    let mut damage = UiDamage::Unchanged;
+    for pose in current.models.iter().chain(previous.models.iter()) {
+        if !current.batches[segment.clone()]
+            .iter()
+            .any(|batch| batch.isolated_depth_scope == Some(pose.scope))
+        {
+            continue;
+        }
+        let old = previous.models.iter().find(|old| old.scope == pose.scope);
+        let new = current.models.iter().find(|new| new.scope == pose.scope);
+        if old != new && pose.bounds.width != 0 && pose.bounds.height != 0 {
+            damage = damage.union(UiDamage::Rect(pose.bounds));
+        }
+    }
+    damage
+}
+
+/// Refreshes existing glint coverage from model bounds without visiting resident model vertices.
+pub(super) fn update_model_animation_damage(input: &UiRenderInput, damage: &mut [UiDamage]) {
+    for (batch, damage) in input.batches.iter().zip(damage) {
+        if *damage != UiDamage::Unchanged
+            && let Some(pose) = input
+                .models
+                .iter()
+                .find(|pose| Some(pose.scope) == batch.isolated_depth_scope)
+        {
+            *damage = UiDamage::Rect(pose.bounds);
+        }
+    }
 }
 
 /// Precomputes glint triangles once on admission; clocks and glint texture/settings changes
@@ -148,6 +210,20 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
                 }
                 if vertices
                     .iter()
+                    .any(|vertex| vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX != 0)
+                {
+                    let Some(pose) = input
+                        .models
+                        .iter()
+                        .find(|pose| Some(pose.scope) == batch.isolated_depth_scope)
+                    else {
+                        return UiDamage::Full;
+                    };
+                    damage = damage.union(UiDamage::Rect(pose.bounds));
+                    continue;
+                }
+                if vertices
+                    .iter()
                     .any(|vertex| !supported_vertex(vertex, input.viewport_size))
                     || batch.scissor.x.checked_add(batch.scissor.width).is_none()
                     || batch.scissor.y.checked_add(batch.scissor.height).is_none()
@@ -161,11 +237,7 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
                     f64::NEG_INFINITY,
                 ];
                 for vertex in vertices {
-                    for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
-                        bounds[axis] = bounds[axis].min(pixel);
-                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
-                    }
+                    include_vertex(&mut bounds, vertex);
                 }
                 if let Some(rect) = clipped(bounds, batch.scissor, input.viewport_size) {
                     damage = damage.union(UiDamage::Rect(rect));
@@ -273,12 +345,32 @@ fn supported_vertex(vertex: &UiRenderVertex, viewport: [u32; 2]) -> bool {
             let position = vertex.position[axis];
             let scaled = position / viewport[axis] as f32;
             let clip = scaled * 2.0 - vertex.clip_w;
+            // Binary16 rounds its upper midpoint and larger magnitudes to infinity.
+            let finite_xy = vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY == 0
+                || position.abs() < 65_520.0;
             // Shaders may flush subnormal inputs or intermediates to zero.
-            (position == 0.0 || (position.is_normal() && scaled.is_normal()))
+            finite_xy
+                && (position == 0.0 || (position.is_normal() && scaled.is_normal()))
                 && (clip == 0.0 || clip.is_normal())
                 && (position / vertex.clip_w).is_finite()
                 && (clip / vertex.clip_w).is_finite()
         })
+}
+
+/// Includes binary16 rounding error before dividing the shader's coordinates by W.
+fn include_vertex(bounds: &mut [f64; 4], vertex: &UiRenderVertex) {
+    for axis in 0..2 {
+        let position = f64::from(vertex.position[axis]);
+        let error = if vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0 {
+            // Half a normal ULP is at most |position| / 2048; subnormals use 2^-25.
+            (position.abs() / 2048.0).max(1.0 / 33_554_432.0)
+        } else {
+            0.0
+        };
+        let w = f64::from(vertex.clip_w);
+        bounds[axis] = bounds[axis].min((position - error) / w);
+        bounds[axis + 2] = bounds[axis + 2].max((position + error) / w);
+    }
 }
 
 /// Adds a pixel for shader projection rounding, then clips outward-rounded coverage.

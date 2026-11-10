@@ -70,11 +70,12 @@ func discoveryServers(items []playfab.Item) []FeaturedServer {
 		if json.Unmarshal(item.DisplayProperties, &props) != nil {
 			continue
 		}
+		// The experience wins over the published address, as in vanilla's Servers tab.
 		address := ""
-		if host := strings.TrimSpace(props.Host); host != "" && props.Port != 0 {
-			address = net.JoinHostPort(host, strconv.Itoa(int(props.Port)))
-		} else if id, err := uuid.Parse(props.ExperienceID); err == nil && id != uuid.Nil {
+		if id, err := uuid.Parse(props.ExperienceID); err == nil && id != uuid.Nil {
 			address = GatheringTargetPrefix + id.String()
+		} else if host := strings.TrimSpace(props.Host); host != "" && props.Port != 0 {
+			address = net.JoinHostPort(host, strconv.Itoa(int(props.Port)))
 		}
 		if address == "" || seen[address] {
 			continue

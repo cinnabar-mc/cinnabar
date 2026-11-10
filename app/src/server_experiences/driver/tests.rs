@@ -87,7 +87,7 @@ fn offer() -> VerifiedOffer {
 fn join_app(state: State) -> App {
     use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
     let mut runtime = UiRuntime::new(1);
-    runtime.experiences.session.state = state;
+    runtime.session.experiences.session.state = state;
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(UiRuntimeResource(runtime))
@@ -179,6 +179,7 @@ fn popup_keys_answer_the_offer_and_then_release_input() {
             matches!(
                 app.world()
                     .resource::<UiRuntimeResource>()
+                    .session
                     .experiences
                     .session
                     .state,
@@ -338,9 +339,9 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         expires_unix: u64::MAX,
     };
     let mut runtime = UiRuntime::new(1);
-    runtime.experiences.epoch = old_epoch;
-    runtime.experiences.active = true;
-    runtime.experiences.session.state = State::Granted(grant.clone());
+    runtime.session.experiences.epoch = old_epoch;
+    runtime.session.experiences.active = true;
+    runtime.session.experiences.session.state = State::Granted(grant.clone());
     let mut app = App::new();
     app.insert_resource(MenuRuntime::new(false, 2, "Test".into()))
         .insert_resource(UiRuntimeResource(runtime))
@@ -384,7 +385,11 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         .unwrap(),
     );
     app.update();
-    let extension = &app.world().resource::<UiRuntimeResource>().experiences;
+    let extension = &app
+        .world()
+        .resource::<UiRuntimeResource>()
+        .session
+        .experiences;
     assert_eq!(extension.epoch, new_epoch);
     assert!(matches!(extension.session.state, State::Disabled));
     assert!(!extension.active);
@@ -523,6 +528,7 @@ fn consent_answer_retains_capture_return_through_its_owned_frame() {
         assert!(!matches!(
             app.world()
                 .resource::<UiRuntimeResource>()
+                .session
                 .experiences
                 .session
                 .state,

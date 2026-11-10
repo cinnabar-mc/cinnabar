@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	shared "github.com/cinnabar-mc/protocolgen/generated/data"
@@ -12,7 +11,7 @@ import (
 
 // exportCompilerFacts emits source identities and library facts without client admission or movement policy.
 func exportCompilerFacts(path string) error {
-	records, err := v2193SourceRecords()
+	records, err := v2225SourceRecords()
 	if err != nil {
 		return err
 	}
@@ -22,10 +21,8 @@ func exportCompilerFacts(path string) error {
 		if err != nil {
 			return err
 		}
-		boxes, ok := sharedblock.Shape(p.CollisionShape)
-		if !ok {
-			return fmt.Errorf("missing source collision shape for %s", r.Name)
-		}
+		shape, boxes, _ := sharedCollision(r, p)
+		p.CollisionShape = shape
 		blocks = append(blocks, blockFact(r, p, boxes))
 	}
 	var biomes []map[string]any

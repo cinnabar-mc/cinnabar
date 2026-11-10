@@ -867,6 +867,116 @@ fn boolean_storage_assignments_keep_boolean_values_and_boundaries() {
 }
 
 #[test]
+fn software_fused_dot_preserves_overloads_constants_and_helper_names() {
+    let source = "#version 450
+out vec4 color;
+const float k = dot(vec2(1.0), vec2(2.0));
+float iris_dot_fma(float x) { return x; }
+float iris_dot_left(float x) { return x; }
+float dot(vec2 x) { return x.x; }
+void main() {
+    vec4 p = gl_FragCoord;
+    color = vec4(dot(p.xy, p.xy), dot(p.xyz, p.xyz), dot(p, p),
+                 dot(p.xy) + iris_dot_fma(k) + iris_dot_left(k));
+}";
+    for software_fused_dot in [false, true] {
+        let translated = ShaderPack::new(PackSource::from_files([
+            ("composite.vsh", VERTEX),
+            ("composite.fsh", source),
+        ]))
+        .translate(&TranslateConfig {
+            software_fused_dot,
+            ..Default::default()
+        });
+        reflection(program(&translated, "composite"));
+    }
+}
+
+/// Backend compilers inline every call, so the fused steps run once per software dot, in a
+/// loop over the components, and select instead of branching: DXC spent minutes on the
+/// branches of three copies per `dot(vec3, vec3)` across a large pack's programs.
+#[test]
+fn software_dot_inlines_one_branch_free_fused_step_per_call() {
+    fn statements(block: &naga::Block) -> Vec<&naga::Statement> {
+        let mut all = vec![];
+        for statement in block.iter() {
+            all.push(statement);
+            match statement {
+                naga::Statement::Block(inner) => all.extend(statements(inner)),
+                naga::Statement::If { accept, reject, .. } => {
+                    all.extend(statements(accept));
+                    all.extend(statements(reject));
+                }
+                naga::Statement::Switch { cases, .. } => {
+                    all.extend(cases.iter().flat_map(|case| statements(&case.body)));
+                }
+                naga::Statement::Loop {
+                    body, continuing, ..
+                } => {
+                    all.extend(statements(body));
+                    all.extend(statements(continuing));
+                }
+                _ => {}
+            }
+        }
+        all
+    }
+    let source = "#version 450
+out vec4 color;
+void main() {
+    vec4 p = gl_FragCoord;
+    color = vec4(dot(p.x, p.y), dot(p.xy, p.xy), dot(p.xyz, p.xyz), dot(p, p));
+}";
+    let translated = ShaderPack::new(PackSource::from_files([
+        ("composite.vsh", VERTEX),
+        ("composite.fsh", source),
+    ]))
+    .translate(&TranslateConfig {
+        software_fused_dot: true,
+        ..Default::default()
+    });
+    let module = &program(&translated, "composite")
+        .stages
+        .iter()
+        .find(|stage| stage.stage == shaderpack::StageKind::Fragment)
+        .unwrap()
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let fma = module
+        .functions
+        .iter()
+        .find(|(_, function)| function.name.as_deref() == Some("iris_dot_fma"))
+        .map(|(handle, _)| handle)
+        .expect("the software step is declared");
+    let mut dots = 0;
+    for (_, function) in module.functions.iter() {
+        let name = function.name.as_deref().unwrap_or_default();
+        let body = statements(&function.body);
+        if name == "iris_dot" {
+            dots += 1;
+            let steps = body
+                .iter()
+                .filter(|s| matches!(s, naga::Statement::Call { function, .. } if *function == fma))
+                .count();
+            assert_eq!(steps, 1, "{:?} inlines one fused step", function.arguments);
+        } else if name.starts_with("iris_dot") {
+            assert!(
+                !body.iter().any(|s| matches!(
+                    s,
+                    naga::Statement::If { .. }
+                        | naga::Statement::Switch { .. }
+                        | naga::Statement::Loop { .. }
+                )),
+                "{name} branches"
+            );
+        }
+    }
+    assert_eq!(dots, 4, "every overload is routed");
+}
+
+#[test]
 fn dot_calls_preserve_required_constant_contexts() {
     success(
         VERTEX,
