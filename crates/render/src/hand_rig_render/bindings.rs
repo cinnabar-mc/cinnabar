@@ -11,6 +11,11 @@ pub(crate) fn hand_artwork_format(light: &render_model::HandRigLight) -> wgpu::T
     }
 }
 
+/// Bedrock SDR hands blend over the scene's gamma bytes through its compatible raw view.
+pub(super) fn hand_uses_encoded_color(light: &render_model::HandRigLight, hdr: bool) -> bool {
+    !hdr && light.java_lights[0][3] == 0.0
+}
+
 pub(crate) struct HandFragmentBindings<'a> {
     pub(crate) instances: &'a Buffer,
     pub(crate) skins: &'a TextureView,

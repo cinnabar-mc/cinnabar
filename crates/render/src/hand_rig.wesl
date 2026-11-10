@@ -260,6 +260,9 @@ fn hand_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @lo
     if native && !blend {
         gamma = round(gamma * 255.0) / 255.0;
     }
-    let lit = tint_to_linear(vec4(gamma, 1.0)).rgb;
-    return vec4(lit, select(1.0, color.a, blend));
+@if(ENCODED_HAND_COLOR) return vec4(gamma, select(1.0, color.a, blend));
+    @if(!ENCODED_HAND_COLOR) {
+        let lit = tint_to_linear(vec4(gamma, 1.0)).rgb;
+        return vec4(lit, select(1.0, color.a, blend));
+    }
 }

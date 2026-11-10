@@ -177,7 +177,7 @@ impl EquipmentRuntime {
         {
             return true;
         }
-        let HeldKind::Block(visual) = item.kind else {
+        let Some(visual) = self.held_block_visual(item.kind) else {
             return false;
         };
         if assets::registry::pinned_block_model_family(visual) == Some(assets::ModelFamily::Stair)
@@ -200,7 +200,7 @@ impl EquipmentRuntime {
         if !block {
             return 0;
         }
-        let HeldKind::Block(visual) = item.kind else {
+        let Some(visual) = self.held_block_visual(item.kind) else {
             return 0;
         };
         self.blocks.source.world.as_deref().map_or(0, |world| {

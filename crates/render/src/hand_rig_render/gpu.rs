@@ -9,6 +9,9 @@ use super::*;
 use crate::actor::gpu::ArtworkRawViews;
 use bevy::prelude::Entity;
 
+const PIPELINE_SAMPLE_VARIANTS: usize = 4;
+const PIPELINE_VARIANTS: usize = PIPELINE_SAMPLE_VARIANTS * 2 * 2;
+
 pub(super) struct HandRigDepth {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
@@ -70,7 +73,7 @@ pub(super) struct HandRigGpu {
     failed_depth: crate::gpu_allocation::FailedRequests<([u32; 2], u32)>,
     pub(super) bind_group: Option<BindGroup>,
     pub(super) pipeline: Option<CachedRenderPipelineId>,
-    pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; 8],
+    pub(super) pipeline_variants: [Option<CachedRenderPipelineId>; PIPELINE_VARIANTS],
     pub(super) geometry_revision: Option<u64>,
     pub(super) revision: Option<u64>,
     pub(super) maximum_vertex_count: u32,
@@ -136,7 +139,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         failed_depth: default(),
         bind_group: None,
         pipeline: None,
-        pipeline_variants: [None; 8],
+        pipeline_variants: [None; PIPELINE_VARIANTS],
         geometry_revision: None,
         revision: None,
         maximum_vertex_count: 0,
@@ -203,8 +206,9 @@ pub(super) fn prepare(
     build_bind_group(&mut gpu, &uploads.device, &cache);
     let gpu = &mut *gpu;
     let layout = gpu.layout.clone();
-    gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, || {
-        cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr))
+    let encoded = bindings::hand_uses_encoded_color(&frame.light, hdr);
+    gpu.pipeline = memoized_pipeline(&mut gpu.pipeline_variants, samples, hdr, encoded, || {
+        cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, hdr, encoded))
     });
     if gpu.bind_group.is_none() || gpu.pipeline.is_none() {
         gpu.maximum_vertex_count = 0;
@@ -721,11 +725,12 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
     ));
 }
 
-/// Keeps one pipeline per supported sample count and colour format.
+/// Keeps each supported sample count, colour format and blend space independently.
 pub(super) fn memoized_pipeline<T: Copy>(
-    entries: &mut [Option<T>; 8],
+    entries: &mut [Option<T>; PIPELINE_VARIANTS],
     samples: u32,
     hdr: bool,
+    encoded: bool,
     create: impl FnOnce() -> T,
 ) -> Option<T> {
     let sample = match samples {
@@ -735,7 +740,9 @@ pub(super) fn memoized_pipeline<T: Copy>(
         8 => 3,
         _ => return None,
     };
-    let entry = &mut entries[sample + usize::from(hdr) * 4];
+    let entry = &mut entries[sample
+        + usize::from(hdr) * PIPELINE_SAMPLE_VARIANTS
+        + usize::from(encoded) * PIPELINE_SAMPLE_VARIANTS * 2];
     Some(*entry.get_or_insert_with(create))
 }
 
@@ -744,6 +751,7 @@ pub(super) fn specialized_pipeline(
     layout: BindGroupLayoutDescriptor,
     samples: u32,
     hdr: bool,
+    encoded: bool,
 ) -> RenderPipelineDescriptor {
     let mut descriptor = pipeline_descriptor(layout);
     descriptor.multisample.count = samples;
@@ -755,6 +763,12 @@ pub(super) fn specialized_pipeline(
     } else {
         render_scene::SCENE_COLOR_FORMAT
     };
+    if encoded {
+        let fragment = descriptor.fragment.as_mut().unwrap();
+        let target = fragment.targets[0].as_mut().unwrap();
+        target.format = target.format.remove_srgb_suffix();
+        fragment.shader_defs.push("ENCODED_HAND_COLOR".into());
+    }
     descriptor
 }
 
@@ -930,11 +944,27 @@ impl crate::pipeline_warmup::PrewarmPipelines for HandRigGpu {
     ) -> Result<(), BevyError> {
         let layout = &self.layout;
         let samples = view.msaa.samples();
-        let id = memoized_pipeline(&mut self.pipeline_variants, samples, view.hdr, || {
-            cache.queue_render_pipeline(specialized_pipeline(layout.clone(), samples, view.hdr))
-        })
-        .ok_or("unsupported hand rig pipeline sample count")?;
-        ids.push(id);
+        for encoded in [false, true]
+            .into_iter()
+            .filter(|encoded| !encoded || !view.hdr)
+        {
+            let id = memoized_pipeline(
+                &mut self.pipeline_variants,
+                samples,
+                view.hdr,
+                encoded,
+                || {
+                    cache.queue_render_pipeline(specialized_pipeline(
+                        layout.clone(),
+                        samples,
+                        view.hdr,
+                        encoded,
+                    ))
+                },
+            )
+            .ok_or("unsupported hand rig pipeline sample count")?;
+            ids.push(id);
+        }
         Ok(())
     }
 }

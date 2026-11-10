@@ -90,9 +90,12 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
     + MAX_UI_NATIVE_SHEET_BYTES
-    + (MAX_UI_SHIELD_PAGES + MAX_UI_TRIM_PAGES + MAX_UI_PACK_EQUIPMENT_PAGES)
+    + (MAX_UI_SHIELD_PAGES + MAX_UI_TRIM_PAGES)
         * (UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
             - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
+        * UiTextureFormat::Rgba8.bytes_per_texel()
+    + MAX_UI_PACK_EQUIPMENT_PAGES
+        * (model_atlas_texels() - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
         * UiTextureFormat::Rgba8.bytes_per_texel()
     + (MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
         - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
