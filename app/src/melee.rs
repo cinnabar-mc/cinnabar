@@ -104,6 +104,16 @@ pub(crate) struct LocalCues<'w> {
     attack: bevy::prelude::MessageWriter<'w, client_audio::audio::predicted::LocalAttackCue>,
 }
 
+/// State shared by attack admission and held mining.
+#[derive(SystemParam)]
+struct AttackState<'w> {
+    runtime: ResMut<'w, MeleeRuntime>,
+    mining: ResMut<'w, client_interaction::survival_mining::SurvivalMiningRuntime>,
+    swings: ResMut<'w, SwingTracker>,
+    item_use: Res<'w, client_interaction::item_use::ItemUseRuntime>,
+    block_use: Option<ResMut<'w, client_interaction::block_use::BlockUseRuntime>>,
+}
+
 /// Publishes frame inputs and resolves presses through the single published-frame pick.
 /// Open screens, spectator mode and an item in use cancel the press.
 pub(crate) fn prepare_melee(
@@ -253,17 +263,18 @@ fn maintain_attacks(
     mut player: ResMut<client_state::PlayerRuntime>,
     mut context: MeleeContext,
     target: Res<MeleeTarget>,
-    state: (
-        ResMut<MeleeRuntime>,
-        ResMut<client_interaction::survival_mining::SurvivalMiningRuntime>,
-        ResMut<SwingTracker>,
-        Res<client_interaction::item_use::ItemUseRuntime>,
-    ),
+    state: AttackState,
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     mut cues: LocalCues,
 ) {
-    let (mut runtime, mut mining, mut swings, item_use) = state;
+    let AttackState {
+        mut runtime,
+        mut mining,
+        mut swings,
+        item_use,
+        mut block_use,
+    } = state;
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let mut attack = (|| {
         if context
@@ -476,6 +487,13 @@ fn maintain_attacks(
         .mining
         .settle_inventory(player.inventory.ledger_mut());
     if let Some(hit) = admitted.actor_attack {
+        if let Some(block_use) = block_use.as_deref_mut() {
+            block_use.record_actor_use(
+                context.ui.session_id(),
+                hit.runtime_id,
+                context.time.elapsed(),
+            );
+        }
         cues.attack.write(attack_cue(&context, hit.runtime_id));
     }
     requested_breaks::apply(&player, &mut context, &mut movement, active);
