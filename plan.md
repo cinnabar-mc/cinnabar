@@ -1029,7 +1029,8 @@ and version-matched in-game acceptance remain incomplete.
   face materials and their first-person model origin, including retained block stacks.
   Rendered wall acceptance remains open.
   Ordinary held fence gates retain carried post-cap and rail artwork independently of
-  their placed orientation. Rendered gate and bamboo gate acceptance remain open.
+  their placed orientation. Held bamboo gates reuse their separate piece regions with
+  carried cap and end-face directions. Rendered gate acceptance remains open.
   Bedrock hand rigs shade posed normals in world space and interpolate their combined
   directional and eye light in gamma space. Held block emission supplies a minimum
   light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
