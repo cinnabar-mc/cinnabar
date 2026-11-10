@@ -74,6 +74,7 @@ impl RuntimeAssets {
             biomes,
             provenance,
             retextured_visuals: Box::new([]),
+            server_enhanced: None,
             missing: AtomicU64::new(0),
         };
         // Prepare numeric block-entity routes before the carrier reaches the live world.

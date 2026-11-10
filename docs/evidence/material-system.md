@@ -35,7 +35,17 @@ Confirmed gaps against the current client:
   provisional.
 - `*_to_opaque` methods render as their near-distance method everywhere; the distance threshold is
   unknown.
-- Server texture sets contribute only their colour layer.
+- Server block texture sets keep their normal or height and MER or MERS layers in sparse Enhanced
+  pages keyed by the overlay texture their colour occupies, charged to the terrain byte budget.
+  Server-authored slots win over local Enhanced maps. Only builds that can draw Enhanced decode
+  them, and the Enhanced renderer is disabled, so non-Enhanced draws use colour only, as Bedrock
+  does outside Vibrant Visuals. A set that does not decode or fit keeps its colour and is counted;
+  the fit is an unverified implementation budget, and deferred admission is incomplete. Their
+  images join the block reload fingerprint, so an unchanged reload neither decodes nor combines
+  them again, and a changed pack releases the previous maps.
+- Entity texture references resolve through a same-pack texture set to its colour layer, which is
+  all an entity draws outside Vibrant Visuals. Entity MER/MERS and normal layers are not carried
+  yet; a future Enhanced actor path would need them.
 - Entity material files load through the entity material list, `materials/fancy.json` with the
   Graphics Mode option on Fancy (the default) and `materials/sad.json` on Simple, as Bedrock's
   switchable group does; a change applies from the next pack application. Every pack's copy is
@@ -104,4 +114,5 @@ These questions remain unresolved:
 - the backend addressing and filtering a material's sampler states select;
 - the order in which packs' copies of the entity material list are processed, and which files the
   vanilla lists name;
-- the separate `metalness`/`emissive`/`roughness` texture-set form.
+- the separate `metalness`/`emissive`/`roughness` texture-set form;
+- whether a flipbook texture resolves through a texture set and how its surface layers animate.

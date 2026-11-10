@@ -1,4 +1,4 @@
-//! Entity material list, material file and Cinnabar binding collection.
+//! Entity material list, material file, texture-set and Cinnabar binding collection.
 use super::*;
 
 #[test]
@@ -257,4 +257,128 @@ fn actor_material_collector_retains_custom_inheritance_and_highest_layer_child()
         json!({"-defines":["FANCY"]})
     );
     assert!(definitions.get("fixture:entity_alphatest").is_none());
+}
+
+#[test]
+fn entity_texture_sets_validate_colour_images_before_replacing_plain_rasters() {
+    let mut plain = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([200, 0, 0, 255]))
+        .write_to(&mut plain, image::ImageFormat::Png)
+        .unwrap();
+    let set = json!({"format_version": "1.16.100", "minecraft:texture_set": {
+        "color": "moth_color"
+    }})
+    .to_string();
+    for (extension, format) in [
+        ("png", image::ImageFormat::Png),
+        ("tga", image::ImageFormat::Tga),
+    ] {
+        let mut valid = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 20, 30, 255]))
+            .write_to(&mut valid, format)
+            .unwrap();
+        let color_path = format!("textures/entity/moth_color.{extension}");
+        for (color, corrupt) in [
+            (valid.get_ref().as_slice(), false),
+            (b"corrupt image".as_slice(), true),
+        ] {
+            let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[
+                ("textures/entity/moth.texture_set.json", set.as_bytes()),
+                (&color_path, color),
+                ("textures/entity/moth.png", plain.get_ref()),
+            ]));
+            let (path, bytes) = super::super::texture_file(
+                &view,
+                None,
+                "textures/entity/moth",
+                &mut super::super::TextureSetColours::default(),
+            )
+            .expect("the entity keeps a usable raster");
+            assert_eq!(
+                path.as_ref(),
+                format!(
+                    "textures/entity/moth.{}",
+                    if corrupt { "png" } else { extension }
+                )
+            );
+            assert_eq!(
+                bytes.as_slice(),
+                if corrupt {
+                    plain.get_ref().as_slice()
+                } else {
+                    color
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn entity_textures_resolve_through_a_same_pack_texture_set_to_its_colour() {
+    let pixel = |rgba: [u8; 4]| {
+        let image = image::RgbaImage::from_pixel(2, 2, image::Rgba(rgba));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    };
+    let entity = json!({"format_version": "1.10.0", "minecraft:client_entity": {"description": {
+        "identifier": "example:moth", "textures": {"default": "textures/entity/moth"}
+    }}});
+    for (set, plain_wins) in [
+        (
+            json!({"format_version": "1.16.100", "minecraft:texture_set": {
+            "color": "moth_color", "metalness_emissive_roughness": [0, 0, 255]}}),
+            false,
+        ),
+        (
+            json!({"format_version": "9.9.9", "minecraft:texture_set": {"color": "moth_color"}}),
+            true,
+        ),
+        (
+            json!({"format_version": "1.16.100", "minecraft:texture_set": {"color": "moth_absent"}}),
+            true,
+        ),
+    ] {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let manifest = json!({"format_version":2,"header":{"uuid":"00000000-0000-0000-0000-000000000009",
+            "version":[1,0,0]},"modules":[{"type":"resources"}]});
+        for (path, bytes) in [
+            ("manifest.json", serde_json::to_vec(&manifest).unwrap()),
+            (
+                "entity/moth.entity.json",
+                serde_json::to_vec(&entity).unwrap(),
+            ),
+            (
+                "textures/entity/moth.texture_set.json",
+                serde_json::to_vec(&set).unwrap(),
+            ),
+            ("textures/entity/moth_color.png", pixel([10, 20, 30, 255])),
+            ("textures/entity/moth.png", pixel([200, 0, 0, 255])),
+        ] {
+            zip.start_file(path, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(&bytes).unwrap();
+        }
+        let archive = protocol::ResourcePackArchive::unencrypted(
+            "00000000-0000-0000-0000-000000000009".parse().unwrap(),
+            "1.0.0".into(),
+            String::new(),
+            zip.finish().unwrap().into_inner(),
+        );
+        let view = resource_pack::LayeredPackView::new(resource_pack::validate_handoff(
+            protocol::ResourcePackHandoff::from_archives(vec![archive]),
+        ));
+        let files = super::super::collect_files(&view, None, None);
+        let (_, bytes) = files
+            .iter()
+            .find(|(path, _)| path.as_ref() == "textures/entity/moth.png")
+            .expect("the entity raster is collected");
+        let decoded = image::load_from_memory(bytes).unwrap().into_rgba8();
+        let expected = if plain_wins {
+            [200, 0, 0, 255]
+        } else {
+            [10, 20, 30, 255]
+        };
+        assert_eq!(decoded.get_pixel(0, 0).0, expected);
+    }
 }

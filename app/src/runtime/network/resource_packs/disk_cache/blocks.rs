@@ -31,6 +31,29 @@ pub(in crate::runtime::network) struct BlockOverlay {
     template_overrides: Vec<(u32, u32)>,
     biomes: Option<CompiledBiomeAssets>,
     max_page_layers: u32,
+    #[serde(with = "shared_maps")]
+    enhanced: Option<std::sync::Arc<assets::texture::EnhancedTextureAssets>>,
+}
+
+/// Shared server texture-set maps, stored by value and revalidated when read back.
+mod shared_maps {
+    use std::sync::Arc;
+
+    use assets::texture::EnhancedTextureAssets;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(
+        maps: &Option<Arc<EnhancedTextureAssets>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        maps.as_deref().serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Arc<EnhancedTextureAssets>>, D::Error> {
+        Ok(Option::<EnhancedTextureAssets>::deserialize(deserializer)?.map(Arc::new))
+    }
 }
 
 /// Cache-only representation; the component and axis conversions name every public field.
