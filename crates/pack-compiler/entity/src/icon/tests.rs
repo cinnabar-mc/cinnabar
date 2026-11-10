@@ -85,12 +85,12 @@ fn world_isotropy_preserves_short_model_icons() {
     }]
     .into();
     let plain = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
-    let expected = model::Model::read(&plain, BlockVisualId(1))
+    let expected = model::Model::read(&plain, BlockVisualId(1), Default::default())
         .unwrap()
         .raster();
     source.materials[1].flags |= MATERIAL_FLAG_ISOTROPIC;
     let isotropic = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
-    let actual = model::Model::read(&isotropic, BlockVisualId(1))
+    let actual = model::Model::read(&isotropic, BlockVisualId(1), Default::default())
         .unwrap()
         .raster();
     assert_eq!(actual.rgba8, expected.rgba8);
@@ -114,16 +114,16 @@ fn world_isotropy_preserves_general_cube_icons() {
     for flags in [0, MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT] {
         let plain = cube_world(flags);
         let isotropic = cube_world(flags | MATERIAL_FLAG_ISOTROPIC);
-        let expected = model::Model::read(&plain, BlockVisualId(1))
+        let expected = model::Model::read(&plain, BlockVisualId(1), Default::default())
             .unwrap()
             .raster();
-        let actual = model::Model::read(&isotropic, BlockVisualId(1))
+        let actual = model::Model::read(&isotropic, BlockVisualId(1), Default::default())
             .expect("world rotation preserves general icon admission")
             .raster();
         assert_eq!(actual.rgba8, expected.rgba8);
     }
     let unsupported = cube_world(MATERIAL_FLAG_ISOTROPIC | MATERIAL_FLAG_GRASS_TINT);
-    assert!(model::Model::read(&unsupported, BlockVisualId(1)).is_err());
+    assert!(model::Model::read(&unsupported, BlockVisualId(1), Default::default()).is_err());
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
         }
     }
     let world = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
-    let raster = model::Model::read(&world, BlockVisualId(1))
+    let raster = model::Model::read(&world, BlockVisualId(1), Default::default())
         .unwrap()
         .raster();
     let shade = assets::gui_item::CUBE_FACES[0].3;
@@ -205,7 +205,7 @@ fn review_identical_thumbnails_keep_distinct_full_resolution_models() {
     let world = RuntimeAssets::decode(&encode_blob(&source).unwrap()).unwrap();
     assert!(
         raster
-            == model::Model::read(&world, BlockVisualId(2))
+            == model::Model::read(&world, BlockVisualId(2), Default::default())
                 .unwrap()
                 .raster(),
         "a change to an unsampled texel preserves the thumbnail"

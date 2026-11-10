@@ -56,6 +56,7 @@ fn stair<'a>(
     pages: &'a [TexturePage],
 ) -> Shape<'a> {
     Shape {
+        render_kind: Default::default(),
         kind: VisualKind::Model,
         faces: [0; 6],
         template: Some(0),

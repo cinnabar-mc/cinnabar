@@ -314,6 +314,7 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
             &quads,
             assets::gui_item::GuiShading::Inventory,
             Default::default(),
+            item_gui::BlockModelOrder::Depth,
         )
         .unwrap(),
     );
