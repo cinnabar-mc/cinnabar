@@ -3,6 +3,81 @@
 use super::*;
 
 #[test]
+fn long_multiline_chat_history_preserves_raw_and_translated_message_tails() {
+    let text = crate::test_support::long_chat_message();
+    assert!(text.len() > crate::text::MAX_PRESENTED_TEXT_BYTES);
+    assert!(text.len() < protocol::MAX_UI_TEXT_BYTES);
+    let mut catalog = json_ui::Catalog::default();
+    catalog.overlay_text(
+        "ui/long_chat.json",
+        r##"{
+        "namespace": "chat",
+        "history": {"type": "panel", "factory": {
+            "name": "messages_factory",
+            "control_ids": {"chat_screen_messages": "@chat.row"}
+        }},
+        "row": {"type": "label", "text": "#text", "localize": false,
+            "bindings": [{"binding_name": "#text"}]}
+    }"##,
+    );
+    let context = crate::menu_screens::retail_context();
+    let root = json_ui::resolve(&catalog, "chat.history", &context)
+        .control
+        .unwrap();
+    let library = json_ui::CatalogLibrary {
+        catalog: &catalog,
+        context: &context,
+    };
+    let editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES).unwrap();
+    let clocks = BTreeMap::new();
+    for kind in [
+        ui::ChatMessageKind::System,
+        ui::ChatMessageKind::Translation,
+    ] {
+        let messages = VecDeque::from([ui::ChatMessage {
+            fifo_sequence: 1,
+            received_millis: 0,
+            kind,
+            source: None,
+            message: if kind == ui::ChatMessageKind::Translation {
+                "test.guide".into()
+            } else {
+                text.as_str().into()
+            },
+            parameters: if kind == ui::ChatMessageKind::Translation {
+                Arc::from([Arc::from(text.as_str())])
+            } else {
+                Arc::from([])
+            },
+        }]);
+        let input = ChatInput {
+            local_player: "Alex",
+            editor: &editor,
+            messages: &messages,
+            first_message_id: 1,
+            suggestions: &[],
+            usage: None,
+            selected_suggestion: None,
+            annotations: &[],
+            clocks: &clocks,
+            now_millis: 100,
+        };
+        let data = chat_data(&input, &ChatSettings::default(), &|key| {
+            (key == "test.guide").then(|| Arc::from("%s"))
+        });
+        let bound = json_ui::bind(&root, &data, &library);
+        let label = bound
+            .find(&|control| control.control_type.as_deref() == Some("label"))
+            .unwrap();
+        assert_eq!(
+            label.properties["text"].as_str(),
+            Some(text.as_str()),
+            "{kind:?}"
+        );
+    }
+}
+
+#[test]
 fn only_chat_history_background_follows_opacity_on_rebind() {
     use json_ui::{BindState, Catalog, EmptyLibrary, bind_stateful};
     use launcher::menu::settings_options::SettingsOptions;

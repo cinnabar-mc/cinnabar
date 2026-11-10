@@ -737,6 +737,53 @@ fn stale_local_offhand_echo_keeps_the_inventory_offhand() {
 }
 
 #[test]
+fn long_multiline_chat_hud_preserves_raw_and_translated_message_tails() {
+    let text = ui_screens::test_support::long_chat_message();
+    assert!(text.len() > ui_screens::text::MAX_PRESENTED_TEXT_BYTES);
+    for kind in [ChatMessageKind::System, ChatMessageKind::Translation] {
+        let mut fixture = Fixture::default();
+        fixture.runtime.session.chat.push_local(ChatMessage {
+            fifo_sequence: 0,
+            received_millis: 0,
+            kind,
+            source: None,
+            message: if kind == ChatMessageKind::Translation {
+                "test.guide".into()
+            } else {
+                text.as_str().into()
+            },
+            parameters: if kind == ChatMessageKind::Translation {
+                Arc::from([Arc::from(text.as_str())])
+            } else {
+                Arc::from([])
+            },
+        });
+        let bytes = assets::encode_lang_catalog(
+            [3; 32],
+            [4; 32],
+            &[assets::LangEntry {
+                key: "test.guide".into(),
+                value: "%s".into(),
+            }],
+        )
+        .unwrap();
+        fixture.runtime.set_active_language(Some(Arc::new(
+            assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+        )));
+        let mut cache = SemanticHud::default();
+        fixture.check(&mut cache);
+        assert_eq!(cache.model.chat[0].text, text, "{kind:?}");
+        let before = cache.constructions;
+        fixture.frame.now_millis = 100;
+        assert!(!fixture.check(&mut cache).chat);
+        assert_eq!(
+            cache.constructions, before,
+            "unchanged long rows stay retained"
+        );
+    }
+}
+
+#[test]
 fn chat_translation_and_duration_refresh_without_rebuilding_hotbar() {
     let mut fixture = Fixture::default();
     fixture.runtime.session.chat.push_local(ChatMessage {

@@ -1287,6 +1287,10 @@ remain available for local presentation and text resolution.
 Open chat follows incoming messages while at the bottom and preserves a surviving
 message's position while reading history, including wrapped rows and history eviction.
 Version-matched native scroll acceptance remains unverified.
+Incoming messages retain complete resolved text in HUD notifications and open
+history instead of using the compact-label byte prefix. Synthetic multiline and
+translation regressions and inspected CPU snapshots cover both paths; contributor
+gameplay captures show a previously truncated server guide footer in HUD chat.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
 Action-bar controller inputs remain until explicit clear/reset so server controls
