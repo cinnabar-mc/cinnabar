@@ -21,6 +21,8 @@ fn owner_held_scale_applies_once_to_native_weapon_stages() {
             let input = ActorEquipmentInput {
                 main: (!off).then_some(stack.clone()),
                 off: off.then_some(stack),
+                // Java's hand stack is where a texture-only pack bow draws natively.
+                java: Some(JavaGrip::default()),
                 ..Default::default()
             };
             let layers = runtime.layers_for(

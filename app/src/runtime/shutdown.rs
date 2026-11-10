@@ -55,9 +55,16 @@ impl TerminalCause {
             .get_or_insert(cause);
     }
 
-    /// The process failure for an error exit, naming its cause when one was recorded.
+    /// The process failure for an error exit, naming its recorded cause, else the latest panic:
+    /// a panic on the render thread reaches the app only as a bare error exit.
     pub(crate) fn exit_message(&self) -> String {
-        let cause = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let cause = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        let cause = cause.or_else(launcher_host::lifecycle::crash::last_panic);
         match cause.as_deref() {
             Some(cause) => format!("Bevy app exited after a fatal runtime error: {cause}"),
             None => "Bevy app exited after a fatal runtime error".to_owned(),
@@ -104,8 +111,7 @@ pub(crate) fn exit_on_gpu_failure(
 /// Explains a terminal graphics failure in the crash window.
 fn gpu_failure_cause(driver: &str) -> String {
     format!(
-        "the graphics device stopped working: the driver reset, the GPU was removed, or it ran \
-         out of video memory. Restart to continue. Driver report: {driver}"
+        "rendering stopped after a graphics error. Restart to continue. Error details: {driver}"
     )
 }
 
@@ -253,13 +259,14 @@ mod tests {
         app.update();
         assert!(app.should_exit().is_none());
 
-        app.world_mut()
-            .resource_mut::<render::GpuFailure>()
-            .record("DXGI_ERROR_DEVICE_REMOVED");
+        app.world_mut().resource_mut::<render::GpuFailure>().record(
+            bevy::render::error_handler::ErrorType::DeviceLost,
+            "DXGI_ERROR_DEVICE_REMOVED",
+        );
         assert!(app.run().is_error());
         let message = terminal.exit_message();
         assert!(
-            message.contains("graphics device stopped working"),
+            message.contains("rendering stopped after a graphics error"),
             "{message}"
         );
         assert!(message.ends_with("DXGI_ERROR_DEVICE_REMOVED"), "{message}");
@@ -288,11 +295,128 @@ mod tests {
         assert!(matches!(policy, RenderErrorPolicy::StopRendering));
         assert!(app.run().is_error());
         let message = terminal.exit_message();
-        assert!(message.contains("out of video memory"), "{message}");
+        assert!(message.contains("out-of-memory"), "{message}");
         assert!(message.contains("Restart to continue"), "{message}");
         assert!(
             message.ends_with("uncaptured GPU out-of-memory error"),
             "{message}"
+        );
+    }
+
+    /// Validation failures retain their cause without being described as device loss.
+    #[test]
+    fn validation_and_internal_errors_preserve_their_actual_cause() {
+        use bevy::render::error_handler::{ErrorType, RenderError, RenderErrorHandler};
+        for ty in [ErrorType::Validation, ErrorType::Internal] {
+            let mut app = App::new();
+            render::install_error_policy(&mut app);
+            app.add_systems(Update, exit_on_gpu_failure);
+            let terminal = TerminalCause::install(&mut app);
+            app.update();
+            let handler = app.world().resource::<RenderErrorHandler>().0;
+            handler(
+                &RenderError {
+                    ty,
+                    description: "pipeline binding report".into(),
+                    source: None,
+                },
+                app.world_mut(),
+                &mut bevy::ecs::world::World::new(),
+            );
+            assert!(app.should_exit().is_none());
+            app.update();
+            assert!(app.should_exit().is_some_and(|exit| exit.is_error()));
+            let message = terminal.exit_message();
+            assert!(message.ends_with("pipeline binding report"), "{message}");
+            assert!(!message.contains("driver reset"), "{message}");
+            assert!(!message.contains("out of video memory"), "{message}");
+        }
+    }
+
+    /// Names the data root for [`render_thread_panic_fixture`] in its child process.
+    #[cfg(not(target_arch = "wasm32"))]
+    const RENDER_PANIC_FIXTURE: &str = "CINNABAR_RENDER_PANIC_FIXTURE";
+
+    /// Runs pipelined rendering whose render schedule panics, with the client's crash capture
+    /// installed, in a disposable process; the parent test reads its verdict from the exit status.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn render_thread_panic_fixture() {
+        use bevy::{
+            app::{SubApp, TaskPoolPlugin},
+            ecs::schedule::{Schedule, ScheduleLabel},
+            render::{Render, RenderApp, pipelined_rendering::PipelinedRenderingPlugin},
+        };
+        use launcher_host::lifecycle::crash::{self, LogHooks};
+
+        let Some(root) = std::env::var_os(RENDER_PANIC_FIXTURE) else {
+            return;
+        };
+        let mut layout = launcher::test_support::checkout();
+        layout.user_data_root = root.into();
+        let identity = crash_report::report::Identity {
+            session_id: "0123456789abcdef".into(),
+            started_at_ms: 0,
+            release: "0.0.0".into(),
+            commit: "fixture".into(),
+            build_profile: "debug".into(),
+        };
+        let hooks = LogHooks {
+            log_panic: |_| {},
+            flush: || {},
+            drain_on_signal: || {},
+        };
+        crash::install(&layout, identity, hooks, None);
+
+        let mut app = App::new();
+        app.add_plugins(TaskPoolPlugin::default());
+        let mut render_app = SubApp::new();
+        render_app.update_schedule = Some(Render.intern());
+        render_app
+            .add_schedule(Schedule::new(Render))
+            .add_systems(Render, || panic!("fixture render failure"));
+        app.insert_sub_app(RenderApp, render_app);
+        app.add_plugins(PipelinedRenderingPlugin);
+        let terminal = TerminalCause::install(&mut app);
+        // The first update hands the render world over; a later one finds its thread gone.
+        app.set_runner(|mut app| {
+            app.finish();
+            app.cleanup();
+            for _ in 0..16 {
+                app.update();
+                if let Some(exit) = app.should_exit() {
+                    return exit;
+                }
+            }
+            AppExit::Success
+        });
+        assert!(app.run().is_error());
+        let message = terminal.exit_message();
+        // The render schedule may run the system on a task-pool thread, which names the panic.
+        assert!(message.contains(" panicked at "), "{message}");
+        assert!(message.ends_with("fixture render failure"), "{message}");
+    }
+
+    /// A render-thread panic ends the app with a bare error exit; its message must still reach
+    /// the failure dialog, the only report an Android player sees.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn render_thread_panic_names_the_panic_in_the_exit_message() {
+        let root = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "runtime::shutdown::tests::render_thread_panic_fixture",
+                "--nocapture",
+            ])
+            .env(RENDER_PANIC_FIXTURE, root.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 

@@ -29,7 +29,7 @@ pub(super) enum GraphChange {
 }
 
 /// The latest graph changes, dropping the oldest past [`MAX_CHANGES`].
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ChangeJournal {
     changes: VecDeque<GraphChange>,
     /// Changes dropped from the front since the layout last changed.
@@ -72,6 +72,9 @@ pub(super) enum Slot {
 /// Face connectivity on a toroidal grid indexed by sub-chunk coordinates.
 ///
 /// Invariant: an overflow key's home cell is occupied, so an empty cell is a definite miss.
+/// Clones retain revision identity for immutable worker snapshots. Independent live grids
+/// must be created through `Default` instead.
+#[derive(Clone)]
 pub(crate) struct ConnectivityGrid {
     xz_bits: u32,
     y_bits: u32,

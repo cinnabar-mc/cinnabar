@@ -101,11 +101,18 @@ fn run_with(
             next += 1;
             continue;
         }
-        let capacity = warm_left / MAX_MOLANG_OPS_PER_ACTOR_TICK;
         let (mut end, mut count) = (next, 0);
-        if credits.min(available) > 0 && capacity >= 2 {
-            while end < jobs.len() && count < capacity {
-                count += usize::from(jobs[end].warm_candidate);
+        let mut reserved = 0;
+        if credits.min(available) > 0 {
+            while let Some(job) = jobs.get(end) {
+                if job.warm_candidate {
+                    let allowance = job.molang_budget(catalogs.view());
+                    if allowance > warm_left - reserved {
+                        break;
+                    }
+                    reserved += allowance;
+                    count += 1;
+                }
                 end += 1;
             }
         }
@@ -123,8 +130,7 @@ fn run_with(
             continue;
         }
         credits -= helpers;
-        // With L >= count * B, every serial allowance is at least B. Private full caps
-        // therefore preserve actor-first errors; only actual usage reduces the next allowance.
+        // Every full actor allowance fits; only actual usage reduces the next allowance.
         dispatch(
             &mut jobs[next..end],
             catalogs.clone(),

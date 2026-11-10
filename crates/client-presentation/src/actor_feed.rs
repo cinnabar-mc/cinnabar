@@ -61,6 +61,7 @@ pub fn build_local_player_feed(
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: matches!(physics.mode(), sim::MovementMode::Flying),
         gliding: matches!(physics.mode(), sim::MovementMode::Gliding),
+        swimming: matches!(physics.mode(), sim::MovementMode::Swimming),
         spinning: state.spin_attack_ticks.is_some(),
         fall_fly_ticks: physics.fall_fly_ticks(),
         teleported: false,

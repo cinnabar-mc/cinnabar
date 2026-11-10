@@ -13,15 +13,15 @@ use sha2::{Digest, Sha256};
 use std::{fmt, sync::LazyLock};
 use thiserror::Error;
 
-pub const FILENAME: &str = "java-mapping-v2193.bin";
-pub const SOURCE_PATH: &str = "crates/assets/data/java-mapping-v2193.bin";
+pub const FILENAME: &str = "java-mapping-v2225.bin";
+pub const SOURCE_PATH: &str = "crates/assets/data/java-mapping-v2225.bin";
 /// The pinned GeyserMC source the generator reads.
 pub const SOURCE_MANIFEST: &str = "assets/geyser-mappings-source.json";
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAGIC: &[u8; 8] = b"JAVAMAP4";
-const SOURCE_BYTES: &[u8] = include_bytes!("../../data/java-mapping-v2193.bin");
-const SOURCE_SHA256: &str = include_str!("../../data/java-mapping-v2193.sha256");
-const BIOME_REGISTRY_BYTES: &[u8] = include_bytes!("../../data/biome-registry-v2193.bin");
+const SOURCE_BYTES: &[u8] = include_bytes!("../../data/java-mapping-v2225.bin");
+const SOURCE_SHA256: &str = include_str!("../../data/java-mapping-v2225.sha256");
+const BIOME_REGISTRY_BYTES: &[u8] = include_bytes!("../../data/biome-registry-v2225.bin");
 const SOURCE_MANIFEST_BYTES: &[u8] =
     include_bytes!("../../../../assets/geyser-mappings-source.json");
 

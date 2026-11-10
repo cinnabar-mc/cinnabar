@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_51::packets::PlayerSkin as PlayerSkinPacket;
-use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::PlayerSkin as PlayerSkinPacket;
+use bedrock_protocol_1_26_60::types::{SerializedSkin, SerializedSkinImage};
+use bedrock_protocol_1_26_60::wire;
 use protocol::{ActorEvent, PlayerSkin, WorldEvent, into_world_event};
 use render_api::CLASSIC_SKIN_SIDE;
 
@@ -8,8 +8,8 @@ use render_api::CLASSIC_SKIN_SIDE;
 fn player_skin_packet_reaches_the_actor_pipeline() {
     let packet = PlayerSkinPacket {
         uuid: uuid::Uuid::from_bytes([7; 16]),
-        serialized_skin: SerializedSkinRef {
-            image_data: SkinImage {
+        serialized_skin: SerializedSkin {
+            image_data: SerializedSkinImage {
                 width: wire::U32LE(CLASSIC_SKIN_SIDE as u32),
                 height: wire::U32LE(CLASSIC_SKIN_SIDE as u32),
                 image_bytes: vec![255; CLASSIC_SKIN_SIDE * CLASSIC_SKIN_SIDE * 4].into(),
