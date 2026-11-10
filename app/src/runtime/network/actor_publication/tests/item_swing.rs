@@ -146,6 +146,80 @@ fn final_publication_preserves_authored_swing_ticks_without_attack_input() {
 }
 
 #[test]
+fn final_publication_resamples_mod_swing_speed_in_both_animation_modes() {
+    for java in [false, true] {
+        for speed in [0.5, 2.0] {
+            let mut world = custom_emotes::fixture();
+            let authored_ticks = 19;
+            select_authored_swing(&mut world, authored_ticks);
+            let mut user = ui::UserSettings::default();
+            user.video.java_animations = java;
+            let mut settings =
+                world.resource_mut::<client_presentation::camera::CameraSettingsAuthority>();
+            settings.replace(1, &user).unwrap();
+            settings.set_hand_motion(Some(client_presentation::camera::HandMotion {
+                swing_speed: speed,
+                ..Default::default()
+            }));
+            world.init_resource::<client_interaction::movement::MovementTicker>();
+            world.init_resource::<client_interaction::movement::LocalMovementEffectTimeline>();
+            world.init_resource::<client_interaction::melee::SwingTracker>();
+            for tick in 1..=16_u64 {
+                let mut ticker = client_interaction::movement::MovementTicker::default();
+                *ticker = gameplay::test_support::survival_mining::ticker_with_ticks(tick);
+                let authority = ticker.interaction_authority_identity();
+                world.insert_resource(ticker);
+                let mut effects = world
+                    .resource_mut::<client_interaction::movement::LocalMovementEffectTimeline>();
+                effects.begin_frame();
+                MovementEffectSource::commit_successful_tick(&mut **effects);
+                world
+                    .resource_mut::<Time<bevy::time::Real>>()
+                    .advance_by(Duration::from_millis(50));
+                world.run_system_cached(super::advance_actor_frame).unwrap();
+                if tick == 1 {
+                    let mut tracker =
+                        world.resource_mut::<client_interaction::melee::SwingTracker>();
+                    tracker.sync_ticks_for_item(
+                        authority,
+                        tick,
+                        &Default::default(),
+                        Some(authored_ticks),
+                    );
+                    assert!(tracker.try_swing(tick, authored_ticks as i32));
+                }
+                world.run_system_cached(prepare_actor_render_frame).unwrap();
+                let alpha = client_presentation::observations::PhysicsObservation::tick_alpha(
+                    &*world.resource::<client_interaction::movement::LocalPhysicsController>(),
+                );
+                let elapsed = tick.saturating_sub(2) as f32 + if tick > 1 { alpha } else { 0.0 };
+                let expected = |duration: f32| {
+                    let phase = elapsed / duration * speed;
+                    if phase < 1.0 { phase } else { 0.0 }
+                };
+                let rig = world
+                    .resource::<ClientWorld>()
+                    .stream
+                    .as_ref()
+                    .unwrap()
+                    .authority()
+                    .actor_rig(1)
+                    .unwrap();
+                for hand in rig.hand {
+                    assert!((hand.attack_time - expected(authored_ticks as f32)).abs() < 1e-6);
+                }
+                assert!(
+                    (rig.java.swing_progress(alpha)
+                        - expected(actor_animation::ACTOR_SWING_TICKS as f32))
+                    .abs()
+                        < 1e-6
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn server_swings_preserve_the_independent_java_restart_guard() {
     let mut world = custom_emotes::fixture();
     let (network, mut captured) = client_runtime::network::NetworkHandle::<

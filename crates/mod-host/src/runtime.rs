@@ -717,11 +717,9 @@ impl Instance {
             .flatten()
     }
 
-    /// Successful frame-local hand presentation, like a view tilt.
+    /// Successful hand fields are merged independently of whole-camera ownership.
     pub(super) fn camera_hand_motion(&self) -> Option<mod_api::native_camera::HandMotion> {
-        (!self.store.data().exclusive.camera)
-            .then_some(self.store.data().camera_policy.committed_hand_motion)
-            .flatten()
+        self.store.data().camera_policy.committed_hand_motion
     }
 
     /// Consumes the committed cancellation once.

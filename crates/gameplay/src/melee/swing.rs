@@ -26,6 +26,9 @@ struct Counter {
     counter: Option<i32>,
     progress: [f32; 2],
     duration: i32,
+    elapsed: Option<u64>,
+    presentation: [f32; 2],
+    presentation_duration: i32,
 }
 
 impl Default for Counter {
@@ -35,6 +38,9 @@ impl Default for Counter {
             counter: None,
             progress: [0.0; 2],
             duration: actor_animation::ACTOR_SWING_TICKS,
+            elapsed: None,
+            presentation: [0.0; 2],
+            presentation_duration: actor_animation::ACTOR_SWING_TICKS,
         }
     }
 }
@@ -47,6 +53,9 @@ impl Counter {
             .is_none_or(|counter| counter < 0 || counter >= duration.max(1) / 2);
         if accepted {
             self.counter = Some(-1);
+            self.elapsed = Some(0);
+            self.presentation = [0.0; 2];
+            self.presentation_duration = duration.max(1);
         }
         accepted
     }
@@ -57,6 +66,24 @@ impl Counter {
             return;
         }
         self.duration = duration.max(1);
+        if self.counter.is_some() {
+            self.presentation_duration = self.duration;
+        }
+        if let Some(elapsed) = self.elapsed {
+            let value = |steps: u64| {
+                elapsed.saturating_add(steps).saturating_sub(1) as f32
+                    / self.presentation_duration as f32
+            };
+            self.presentation = [
+                if count == 1 {
+                    self.presentation[1]
+                } else {
+                    value(count - 1)
+                },
+                value(count),
+            ];
+            self.elapsed = Some(elapsed.saturating_add(count));
+        }
         let counter = self.counter;
         let value = |steps: u64| {
             counter.and_then(|counter| {
@@ -278,6 +305,29 @@ impl SwingTracker {
         self.progress()
     }
 
+    /// Resamples the published animation without changing admission or committed motion samples.
+    /// Retained elapsed ticks let a slowed swing finish after the gameplay counter returns to rest.
+    pub fn presentation_progress(&self, speed: f32, alpha: f32) -> LocalSwingProgress {
+        let alpha = if alpha.is_finite() {
+            alpha.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let mut progress = self.progress();
+        progress.frame_alpha = Some(alpha);
+        if !speed.is_finite() || speed <= 0.0 || speed == 1.0 {
+            return progress;
+        }
+        let sample = |counter: &Counter| {
+            let [previous, current] = counter.presentation;
+            let phase = (previous + (current - previous) * alpha) * speed;
+            [if phase < 1.0 { phase.max(0.0) } else { 0.0 }; 2]
+        };
+        progress.bedrock = sample(&self.states[0]);
+        progress.java = sample(&self.states[1]);
+        progress
+    }
+
     /// Retains each recent completed tick's samples for local motion on the same physics clock.
     pub fn committed_samples(&self) -> impl Iterator<Item = (u64, LocalSwingProgress)> + '_ {
         let last = self.completed_tick.unwrap_or(0);
@@ -419,6 +469,74 @@ impl SwingTracker {
 mod tests {
     use super::SwingTracker;
     use crate::movement::MiningEffects;
+
+    #[test]
+    fn presentation_speed_resamples_both_swings_without_changing_admission() {
+        let mut tracker = SwingTracker::default();
+        let mut native = SwingTracker::default();
+        let java_ticks = actor_animation::ACTOR_SWING_TICKS;
+        assert!(tracker.try_swing_guarded(1, 12, Some(java_ticks), false));
+        assert!(native.try_swing_guarded(1, 12, Some(java_ticks), false));
+        for tick in 1..=50_u64 {
+            assert_eq!(
+                tracker.published_progress(tick),
+                native.published_progress(tick)
+            );
+            for speed in [0.25, 0.5, 2.0, 4.0] {
+                for alpha in [0.0, 0.5, 1.0] {
+                    let displayed = tracker.presentation_progress(speed, alpha);
+                    let elapsed =
+                        tick.saturating_sub(2) as f32 + if tick > 1 { alpha } else { 0.0 };
+                    for (samples, duration) in [
+                        (displayed.bedrock, 12.0),
+                        (displayed.java, java_ticks as f32),
+                    ] {
+                        let expected = elapsed / duration * speed;
+                        let expected = if expected < 1.0 { expected } else { 0.0 };
+                        let actual = actor_animation::LocalSwingProgress {
+                            bedrock: samples,
+                            ..displayed
+                        }
+                        .bedrock_progress(alpha);
+                        assert!(
+                            (actual - expected).abs() < 1e-6,
+                            "tick {tick}, speed {speed}, duration {duration}, alpha {alpha}"
+                        );
+                    }
+                    let mut expected = native.progress();
+                    expected.frame_alpha = Some(alpha);
+                    assert_eq!(tracker.presentation_progress(1.0, alpha), expected);
+                }
+            }
+            assert_eq!(
+                tracker.committed_samples().collect::<Vec<_>>(),
+                native.committed_samples().collect::<Vec<_>>()
+            );
+        }
+        for tick in 51..70 {
+            assert_eq!(tracker.try_swing(tick, 12), native.try_swing(tick, 12));
+            tracker.presentation_progress(0.25, 0.5);
+            assert_eq!(tracker.take_started(), native.take_started());
+            assert_eq!(
+                tracker.published_progress(tick),
+                native.published_progress(tick)
+            );
+        }
+    }
+
+    #[test]
+    fn completed_presentation_does_not_restart_when_the_idle_duration_changes() {
+        let mut tracker = SwingTracker::default();
+        assert!(tracker.try_swing(1, actor_animation::ACTOR_SWING_TICKS));
+        tracker.published_progress(50);
+        tracker
+            .states
+            .iter_mut()
+            .for_each(|state| state.advance(1, 100));
+        let displayed = tracker.presentation_progress(0.5, 0.5);
+        assert_eq!(displayed.bedrock, [0.0; 2]);
+        assert_eq!(displayed.java, [0.0; 2]);
+    }
 
     /// With Conduit Power, pre-tick swings keep the Java duration for the Java animation and
     /// the shortened Bedrock duration for the wire swing.

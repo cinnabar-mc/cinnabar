@@ -171,6 +171,7 @@ impl State {
         if current_frame {
             self.motion.pending_jump = motion.pending_jump;
             self.motion.pending_jump_cancel = motion.pending_jump_cancel;
+            self.camera_policy.pending_hand_motion = camera_policy.pending_hand_motion;
             if !self.exclusive.camera {
                 self.pending_camera = pending_camera;
                 self.camera_policy = camera_policy;

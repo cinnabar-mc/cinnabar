@@ -153,11 +153,8 @@ pub fn prepare_local_player_feed(
             .selected_stack()
             .map(|stack| stack.stack_network_id)
             .filter(|id| *id > 0);
-        // A mod's hand swing speed changes only how fast this local animation plays.
-        let speed = settings.hand_motion().swing_speed;
-        let scaled = |ticks: i32| ((ticks as f32 / speed).round() as i32).max(1);
-        feed.bedrock_swing_ticks = scaled(swing_ticks.0);
-        feed.java_swing_ticks = scaled(swing_ticks.1);
+        feed.bedrock_swing_ticks = swing_ticks.0;
+        feed.java_swing_ticks = swing_ticks.1;
     }
     local_feed
 }

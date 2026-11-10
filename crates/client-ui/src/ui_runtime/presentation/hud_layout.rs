@@ -34,7 +34,6 @@ mod windows;
 pub use pinned::{BOSS_TINTS, effect_icon_role};
 use pinned::{BOTTOM_STACK_HEIGHT, HOTBAR_WIDTH, hsv_to_rgb};
 pub use sleep::SleepTimeline;
-use ui::gui_scale;
 use ui_screens::inventory_capture::{CraftingFrame, Durability, InventoryIcons, StorageIcons};
 pub(super) use windows::{TooltipLine, WindowIcons, WindowText, title_key};
 
@@ -160,7 +159,7 @@ impl HudGeometry {
             physical_size,
             dpi_scale,
             safe_area,
-            gui_scale(physical_size, preference) as f32,
+            ui::gui_scale(physical_size, preference) as f32,
         )
     }
 

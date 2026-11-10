@@ -13,6 +13,7 @@ use protocol::ActorStatusKind;
 const WALK_BLOCKS_PER_TICK: f32 = 0.2;
 
 mod damage_shake_tests;
+mod hand_motion_tests;
 mod sleep_tests;
 
 #[derive(Resource)]

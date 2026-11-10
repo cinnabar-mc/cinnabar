@@ -157,6 +157,52 @@ fn view_tilt_is_current_frame_only_and_revoked_with_the_guest() {
 }
 
 #[test]
+fn hand_fields_compose_independently_of_whole_camera_ownership() {
+    use mod_api::native_camera::HandMotion;
+
+    for camera_owner in [false, true] {
+        let yaw = if camera_owner {
+            "f32.const 30 i32.const 256 call $yaw-offset"
+        } else {
+            ""
+        };
+        let first_frame = format!(
+            "{yaw} i32.const 1 i32.const 1 f32.const 0.25 i32.const 0 f32.const 0 \
+             i32.const 0 f32.const 0 i32.const 256 call $hand-motion"
+        );
+        let (_first_dir, mut first) = load(&first_frame, true);
+        view_frame(&mut first, true, false, true).unwrap();
+        assert_eq!(first.has_camera_output(), camera_owner);
+
+        let (_later_dir, mut later) = load(
+            "i32.const 1 i32.const 1 f32.const 0.75 i32.const 1 f32.const 0 \
+             i32.const 1 f32.const 2 i32.const 256 call $hand-motion \
+             i32.const 256 i32.load8_u if unreachable end",
+            true,
+        );
+        later.set_frame_authority(
+            CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+            first.has_camera_output(),
+            false,
+        );
+        view_frame(&mut later, true, false, true).unwrap();
+        let motion = first
+            .camera_hand_motion()
+            .unwrap()
+            .or(later.camera_hand_motion().unwrap());
+        assert_eq!(
+            motion,
+            HandMotion {
+                sway: Some(0.25),
+                bob: Some(0.0),
+                swing_speed: Some(2.0)
+            }
+        );
+        assert_eq!(later.refused_outputs(), 0);
+    }
+}
+
+#[test]
 fn view_scale_validates_finite_bounds_and_requires_camera_grant() {
     let (_dir, mut denied) = load(&view_call("0.25", "0.25", true), false);
     view_frame(&mut denied, true, false, true).unwrap();

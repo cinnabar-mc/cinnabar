@@ -304,6 +304,7 @@ pub(crate) struct ActorFinalObservations<'w> {
     world: ResMut<'w, ClientWorld>,
     player: Option<Res<'w, client_state::PlayerRuntime>>,
     physics: Res<'w, LocalPhysicsController>,
+    settings: Res<'w, client_presentation::camera::CameraSettingsAuthority>,
     effects: Option<Res<'w, client_interaction::movement::LocalMovementEffectTimeline>>,
     swings: Option<ResMut<'w, client_interaction::melee::SwingTracker>>,
     movement: Option<Res<'w, MovementTicker>>,
@@ -320,6 +321,7 @@ pub(crate) fn prepare_actor_render_frame(
         mut world,
         player,
         physics,
+        settings,
         effects,
         mut swings,
         movement,
@@ -343,8 +345,9 @@ pub(crate) fn prepare_actor_render_frame(
                 item_swing_ticks,
             );
         }
-        let mut progress = swings.published_progress(movement.completed_tick());
-        progress.frame_alpha = Some(physics.tick_alpha());
+        swings.published_progress(movement.completed_tick());
+        let progress =
+            swings.presentation_progress(settings.hand_motion().swing_speed, physics.tick_alpha());
         bevy::log::trace!(
             tick = movement.completed_tick(),
             alpha = physics.tick_alpha(),
