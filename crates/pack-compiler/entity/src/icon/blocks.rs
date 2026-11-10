@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
+use assets::facts::pack::PackTexture;
 use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
@@ -111,6 +112,19 @@ impl IconBlocks {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if record.model_family == ModelFamily::Torch
+            && let Some(lit_name) = record.name.strip_prefix("minecraft:unlit_")
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.model_family == ModelFamily::Torch
+                        && candidate.name.strip_prefix("minecraft:") == Some(lit_name)
+                        && candidate.canonical_state == record.canonical_state
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if pack_compile_input::lightning_rod::is_record(record) {
             return self
                 .records
@@ -137,6 +151,27 @@ impl IconBlocks {
                     candidate.name == record.name
                         && state[BlockProperty::FacingDirection.name()]["value"] == 5
                         && state[BlockProperty::ButtonPressedBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if matches!(
+            assets::facts::pack::face_slots(&record.name),
+            Some(assets::facts::pack::FaceSlots::Pumpkin)
+        ) {
+            // The item routes to the north state, whose carved or lit face lands on the side the
+            // GUI cube hides. The icon shows the placed south pose, with that face on the left.
+            return self
+                .records
+                .iter()
+                .filter(|candidate| candidate.name == record.name)
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    state[assets::facts::BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                        == "south"
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -378,9 +413,12 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    /// Keeps a flat carried override only for pane-family shapes without an item model.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+        let record = self.records.get(visual.0 as usize)?;
+        if record.model_family != ModelFamily::Pane
+            || !assets::facts::block_render_fact(&record.name).flat_icon
+        {
             return None;
         }
         self.texture_path(visual)
@@ -388,7 +426,7 @@ impl IconBlocks {
 
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let material = self.carried_material(visual, None)?;
+        let material = self.carried_material(self.icon_state(visual), None)?;
         material.overlay.is_none().then(|| material.path.into())
     }
 
@@ -429,7 +467,16 @@ impl IconBlocks {
                     })?
                     .into()
             }
-            None => resolve_carried_down_key(&pack.blocks, record)?,
+            None => resolve_carried_down_key(&pack.blocks, record).or_else(|| {
+                resolve_texture_key(&pack.blocks, record, icon_face)
+                    .key
+                    .map(|key| Cow::Owned(key.into_string()))
+            })?,
+        };
+        let key = if pack.terrain.get(&key).is_some() {
+            key
+        } else {
+            PackTexture::Missing.key().into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
@@ -649,3 +696,7 @@ mod button_tests;
 #[cfg(test)]
 #[path = "blocks/lectern_tests.rs"]
 mod lectern_tests;
+
+#[cfg(test)]
+#[path = "blocks/pumpkin_tests.rs"]
+mod pumpkin_tests;

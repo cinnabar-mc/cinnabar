@@ -182,6 +182,98 @@ fn positive_homogeneous_coordinates_are_divided_before_bounding() {
     );
 }
 
+/// A half-precision quad whose viewport includes both sides of the rounding boundary.
+fn half_precision_quad([low, high]: [f32; 2], w: f32) -> UiRenderInput {
+    let mut input = quad();
+    input.viewport_size = [24_576; 2];
+    let [width, height] = input.viewport_size;
+    Arc::make_mut(&mut input.batches)[0].scissor = UiScissor::new(0, 0, width, height);
+    for (vertex, position) in Arc::make_mut(&mut input.vertices).iter_mut().zip([
+        [low, low],
+        [high, low],
+        [high, high],
+        [low, high],
+    ]) {
+        vertex.position = position;
+        vertex.clip_w = w;
+        vertex.style_flags = render_api::UI_STYLE_HALF_FLOAT_XY;
+    }
+    input
+}
+
+/// Requires a partial replay covering every pixel in the shader's projected bounds.
+fn assert_covers(damage: UiDamage, expected: UiScissor) {
+    let UiDamage::Rect(actual) = damage else {
+        panic!("expected partial damage covering {expected:?}, got {damage:?}");
+    };
+    assert!(actual.x <= expected.x && actual.y <= expected.y);
+    assert!(actual.x + actual.width >= expected.x + expected.width);
+    assert!(actual.y + actual.height >= expected.y + expected.height);
+}
+
+#[test]
+fn half_precision_motion_damage_covers_old_and_new_edges_before_dividing_by_w() {
+    for w in [0.5, 1.0, 2.0] {
+        let previous = half_precision_quad([4098.0, 4099.0], w);
+        let next = moved(&previous, [8.0; 2]);
+        // The old edges round to 4096 and 4100; the new edges to 4104 and 4108.
+        let low = (4096.0 / w) as u32;
+        let size = (12.0 / w) as u32;
+        assert_covers(
+            plan_segment(&previous, &next, 0..1),
+            UiScissor::new(low, low, size, size),
+        );
+    }
+}
+
+#[test]
+fn half_precision_glint_damage_covers_rounded_edges_and_respects_scissors() {
+    for w in [0.5, 1.0, 2.0] {
+        let mut input = half_precision_quad([4098.0, 4099.0], w);
+        for vertex in Arc::make_mut(&mut input.vertices) {
+            vertex.style_flags |= UI_STYLE_GLINT;
+        }
+        let low = (4096.0 / w) as u32;
+        let size = (4.0 / w) as u32;
+        assert_covers(
+            animated_batches(&input)[0],
+            UiScissor::new(low, low, size, size),
+        );
+        let scissor = UiScissor::new(low, low, 1, 1);
+        Arc::make_mut(&mut input.batches)[0].scissor = scissor;
+        assert_eq!(animated_batches(&input), [UiDamage::Rect(scissor)]);
+    }
+}
+
+#[test]
+fn half_precision_subnormal_rounding_still_bounds_homogeneous_coverage() {
+    let mut previous = half_precision_quad(
+        [1.0 / 33_554_432.0, 3.0 / 33_554_432.0],
+        1.0 / 137_438_953_472.0,
+    );
+    for vertex in Arc::make_mut(&mut previous.vertices) {
+        vertex.style_flags |= UI_STYLE_GLINT;
+    }
+    let mut next = previous.clone();
+    Arc::make_mut(&mut next.vertices)[0].color[0] = 128;
+    // The coordinates round to 0 and 2^-23, projecting to 0 and 16384.
+    let expected = UiScissor::new(0, 0, 16_384, 16_384);
+    assert_covers(plan_segment(&previous, &next, 0..1), expected);
+    assert_covers(animated_batches(&previous)[0], expected);
+}
+
+#[test]
+fn half_precision_overflow_falls_back_to_full_damage() {
+    for coordinate in [65_520.0, -65_520.0, f32::MAX] {
+        let mut input = half_precision_quad([coordinate; 2], 1.0);
+        for vertex in Arc::make_mut(&mut input.vertices) {
+            vertex.style_flags |= UI_STYLE_GLINT;
+        }
+        assert_eq!(plan_segment(&input, &input, 0..1), UiDamage::Full);
+        assert_eq!(animated_batches(&input), [UiDamage::Full]);
+    }
+}
+
 #[test]
 fn invalid_coordinates_and_projected_content_never_retain() {
     for change in 0..10 {

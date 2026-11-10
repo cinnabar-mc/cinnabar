@@ -114,6 +114,9 @@ mod style_tests {
                         | UI_STYLE_ADDITIVE
                         | UI_STYLE_PARTICLE
                         | render_api::UI_STYLE_ALPHA_TEST
+                        | render_api::UI_STYLE_TERRAIN_MIPS
+                        | render_api::UI_STYLE_HALF_FLOAT_XY
+                        | render_api::UI_STYLE_UNORM16_UV
                         | UI_STYLE_RADIAL_GRADIENT
                         | UI_STYLE_GLINT),
                 0,

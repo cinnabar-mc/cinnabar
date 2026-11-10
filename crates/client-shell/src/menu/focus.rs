@@ -86,6 +86,17 @@ impl MenuRuntime {
         let Some(action) = actions.get(self.focused).copied() else {
             return;
         };
+        if let MenuAction::Navigate(screen) = action
+            && play_tab(self.screen)
+            && play_tab(screen)
+        {
+            // Switching play tabs keeps focus on the tab bar; the open tab does nothing.
+            if screen != self.screen {
+                self.activate_from_navigation(action);
+            }
+            self.focus_pointer(action);
+            return;
+        }
         if self.screen == MenuScreen::Settings
             && self.dialog.is_none()
             && self.settings.dropdown.is_none()
@@ -234,6 +245,9 @@ impl MenuRuntime {
             if next != value {
                 self.activate_from_navigation(MenuAction::SettingsOption(index, next));
             }
+            return;
+        }
+        if self.dialog.is_none() && self.move_in_regions(axis, direction) {
             return;
         }
         if self.screen != MenuScreen::Settings
@@ -470,6 +484,9 @@ impl MenuRuntime {
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
                 ],
+                MenuDialog::LeaveRealm(id) => {
+                    vec![MenuAction::ConfirmLeaveRealm(id), MenuAction::DismissDialog]
+                }
             };
         }
         if let Some(actions) = self.join_request_focus_actions() {
@@ -493,10 +510,12 @@ impl MenuRuntime {
                 MenuAction::OpenExitDialog,
             ]
         };
+        if self.uses_painted_focus()
+            && let Some(actions) = self.navigation_focus.painted_actions(self.screen)
+        {
+            return actions.to_vec();
+        }
         match self.screen {
-            MenuScreen::Home if self.navigation_focus.home_actions().is_some() => {
-                self.navigation_focus.home_actions().unwrap().to_vec()
-            }
             MenuScreen::Home => {
                 let mut actions = nav();
                 actions[4] = MenuAction::OpenAccounts;
@@ -540,8 +559,34 @@ impl MenuRuntime {
                         launcher::menu::realm_membership::Action::Open,
                     ));
                 }
-                actions.push(MenuAction::RefreshCatalog);
-                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
+                let mut first = None;
+                for member in [false, true] {
+                    for (index, _) in self
+                        .realms
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, realm)| realm.member == member)
+                    {
+                        first.get_or_insert(index);
+                        actions.push(MenuAction::SelectRealm(index));
+                    }
+                }
+                if let Some(index) = self
+                    .feeds
+                    .selected_realm
+                    .filter(|index| *index < self.realms.len())
+                    .or(first)
+                {
+                    let realm = &self.realms[index];
+                    if realm.can_play() {
+                        actions.push(MenuAction::PlayRealm(index));
+                    }
+                    if self.realm_leave.leaving().is_none()
+                        && let Some(id) = realm.leave_id()
+                    {
+                        actions.push(MenuAction::LeaveRealmDialog(id));
+                    }
+                }
                 actions
             }
             MenuScreen::Servers => {
@@ -716,6 +761,15 @@ impl MenuRuntime {
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }
+}
+
+/// The Worlds, Realms and Servers tabs of the play route, whose arrow keys
+/// also follow the painted focus regions.
+pub(super) fn play_tab(screen: MenuScreen) -> bool {
+    matches!(
+        screen,
+        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers
+    )
 }
 
 /// Radio choices are distinct controls; toggle values and slider stops share one control.

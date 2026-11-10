@@ -240,14 +240,7 @@ fn desktop_home_aligns_panel_headings_and_keeps_account_in_footer() {
     let heading_y = |value: &str| {
         let node = nodes.iter().find(|node| matches!(node.visual(), UiVisual::Text { layout, .. }
             if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().replace(' ', "") == value)).unwrap();
-        let mut y = node.bounds().min().y();
-        let mut parent = node.parent();
-        while let Some(id) = parent {
-            let node = nodes.iter().find(|node| node.id() == id).unwrap();
-            y += node.bounds().min().y();
-            parent = node.parent();
-        }
-        y
+        screen_origin(&nodes, node)[1]
     };
     assert!((heading_y("LET'SPLAY") - heading_y("YOURCHARACTER")).abs() < 0.001);
     assert!(

@@ -32,6 +32,8 @@ pub enum LevelParticle {
         effect: ParticleEffect,
         spell_color: Option<[f32; 4]>,
     },
+    /// A note: the note particle tinted by its pitch (`variable.note_color`).
+    Note { color: [f32; 3] },
     /// Block break pieces textured from the block with this network runtime id.
     BlockBreak { runtime_id: i32 },
     /// Block crack pieces from a face of the block being mined.
@@ -59,6 +61,16 @@ fn argb(data: i32) -> [f32; 4] {
             (bits >> 24) as f32 / 255.0
         },
     ]
+}
+
+/// A note's colour for pitch `data` (0..=24 around the hue wheel; 0 is green).
+#[must_use]
+pub fn note_color(data: i32) -> [f32; 3] {
+    let turn = data.rem_euclid(25) as f32 / 24.0;
+    std::array::from_fn(|channel| {
+        let phase = (turn + channel as f32 / 3.0) * std::f32::consts::TAU;
+        (phase.sin() * 0.65 + 0.35).max(0.0)
+    })
 }
 
 /// Classifies a `LevelEvent` id; `None` for events with no particle presentation.
@@ -134,6 +146,9 @@ fn classify_particle_type(particle_type: i32, data: i32) -> Option<LevelParticle
         ParticleType::SnowballPoof => {
             fixed_icon(assets::facts::VanillaItem::Snowball.identifier(), 1)
         }
+        ParticleType::Note => Some(LevelParticle::Note {
+            color: note_color(data),
+        }),
         ParticleType::Slime => fixed_icon(
             assets::facts::VanillaItem::SlimeBall.identifier(),
             ITEM_ICON_PARTICLES,
@@ -164,7 +179,24 @@ pub fn is_particle_level_event(event_id: i32) -> bool {
 }
 
 fn vec3_members(prefix: &str, value: &Value, out: &mut Vec<(String, f32)>) {
+    // Typed values ({"type", "value"}); structs are member_arrays of {"name", "value"}.
+    if let (Some(_), Some(inner)) = (value.get("type"), value.get("value")) {
+        return vec3_members(prefix, inner, out);
+    }
     match value {
+        Value::Array(items)
+            if items.iter().all(|item| item.get("name").is_some()) && !items.is_empty() =>
+        {
+            for item in items {
+                let (Some(name), Some(inner)) =
+                    (item.get("name").and_then(Value::as_str), item.get("value"))
+                else {
+                    continue;
+                };
+                let member = name.trim_start_matches('.').to_ascii_lowercase();
+                vec3_members(&format!("{prefix}.{member}"), inner, out);
+            }
+        }
         Value::Number(number) => {
             if let Some(number) = number.as_f64() {
                 out.push((prefix.to_owned(), number as f32));
@@ -486,6 +518,9 @@ pub fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
 }
 
 #[cfg(test)]
+mod legacy_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -546,6 +581,65 @@ mod tests {
     }
 
     #[test]
+    fn legacy_notes_carry_their_pitch_colour() {
+        let Some(LevelParticle::Note { color }) = classify_level_event(
+            LEVEL_EVENT_PARTICLE_FLAG | ParticleType::Note.wire_value(),
+            0,
+        ) else {
+            panic!("a legacy note is a note");
+        };
+        // Pitch 0 is vanilla's green note.
+        assert!(
+            (color[0] - 0.35).abs() < 1e-3 && color[1] > 0.9 && color[2] == 0.0,
+            "{color:?}"
+        );
+        assert_ne!(note_color(12), note_color(0));
+        assert_eq!(note_color(25), note_color(0));
+    }
+
+    #[test]
+    fn legacy_ids_follow_the_protocol_particle_types() {
+        // Ids from the protocol's ParticleType enum.
+        for (id, effect) in [
+            (9, ParticleEffect::CandleFlameParticle),
+            (10, ParticleEffect::LavaParticle),
+            (18, ParticleEffect::BreezeWindExplosionEmitter),
+            (19, ParticleEffect::MobflameSingle),
+            (20, ParticleEffect::HeartParticle),
+            (28, ParticleEffect::WaterDripParticle),
+            (29, ParticleEffect::LavaDripParticle),
+            (44, ParticleEffect::NoteParticle),
+            (73, ParticleEffect::SoulParticle),
+            (75, ParticleEffect::PortalReverseParticle),
+            (82, ParticleEffect::ElectricSparkParticle),
+            (84, ParticleEffect::SculkSoulParticle),
+            (88, ParticleEffect::DustPlume),
+            (89, ParticleEffect::WhiteSmokeParticle),
+        ] {
+            assert_eq!(
+                legacy_particle_effect(id),
+                Some(effect),
+                "legacy particle {id}"
+            );
+        }
+        assert_eq!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 21, 9),
+            Some(LevelParticle::Terrain { runtime_id: 9 })
+        );
+        assert!(matches!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 38, 0),
+            Some(LevelParticle::FixedItemIcon {
+                identifier: "minecraft:slime_ball",
+                ..
+            })
+        ));
+        assert!(matches!(
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 33, 0x00ff_0000u32 as i32),
+            Some(LevelParticle::Named { effect: ParticleEffect::FallingDust, spell_color: Some(color) }) if color[0] == 1.0
+        ));
+    }
+
+    #[test]
     fn level_events_classify_by_kind() {
         assert_eq!(
             classify_level_event(2001, 77),
@@ -581,6 +675,16 @@ mod tests {
             Some(LevelParticle::ItemIcon {
                 network_id: 300,
                 aux: 0
+            })
+        );
+        assert_eq!(
+            classify_level_event(
+                LEVEL_EVENT_PARTICLE_FLAG | ParticleType::SnowballPoof.wire_value(),
+                0
+            ),
+            Some(LevelParticle::FixedItemIcon {
+                identifier: assets::facts::VanillaItem::Snowball.identifier(),
+                count: 1
             })
         );
     }
@@ -640,6 +744,22 @@ mod tests {
         );
         assert_eq!(array, vec![("size".to_owned(), 4.0)]);
         assert!(parse_molang_variables("not json").is_empty());
+    }
+
+    #[test]
+    fn member_array_structs_flatten_to_their_members() {
+        // Geyser's colour variable for glow, wax and scrape particles.
+        let colour = parse_molang_variables(
+            r#"[{ "name": "variable.color", "value": { "type": "member_array", "value": [{"name": ".r", "value": { "type": "float", "value": 0.6}},{"name": ".g", "value": {"type": "float", "value": 1.0}},{"name": ".b", "value": {"type": "float", "value": 0.8}}]}}]"#,
+        );
+        assert_eq!(
+            colour,
+            vec![
+                ("color.r".to_owned(), 0.6),
+                ("color.g".to_owned(), 1.0),
+                ("color.b".to_owned(), 0.8)
+            ]
+        );
     }
 
     #[test]

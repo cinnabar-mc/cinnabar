@@ -419,7 +419,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "particles"
 path = "crates/particles"
-allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids"]
+allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -957,6 +957,11 @@ producer = "crates/client-ui/src/diagnostic_markers.rs"
 
 [[markers]]
 literal = "CINNABAR_SHUTDOWN_COMPLETED"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
+literal = "CINNABAR_SHUTDOWN_PHASE"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 

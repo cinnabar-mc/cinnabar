@@ -2,6 +2,7 @@
 //! pushes and pops screens, and how the menu sits in the scene stack.
 
 mod focus;
+mod regions;
 pub(super) use focus::NavigationFocus;
 
 use {
@@ -126,7 +127,7 @@ impl MenuRuntime {
     /// Opens `screen` over the current one, or returns to it when it is already
     /// open below; a tab of an open vanilla screen takes that screen's place.
     pub(super) fn enter(&mut self, screen: MenuScreen) {
-        use launcher::menu::menu_reference;
+        use launcher::menu::flow::menu_reference;
         self.remember_navigation_focus();
         let returning = screen != self.screen && self.history.screens().contains(&screen);
         let same = |open: MenuScreen| {
@@ -151,6 +152,36 @@ impl MenuRuntime {
         if returning {
             self.restore_navigation_focus();
         }
+    }
+
+    /// Moves `step` tabs along the Play screen's tab bar, as Bedrock's
+    /// view-scoped `button.menu_tab_left` and `button.menu_tab_right` (`[` and
+    /// `]`, or the bumpers). It acts only on the tab list itself, never past an
+    /// end, under a dialog or prompt, while joining, or while a field takes text.
+    pub(super) fn step_play_tab(&mut self, step: isize) {
+        if !self.visible
+            || self.is_connecting()
+            || self.local_ui.progress_open()
+            || self.dialog.is_some()
+            || self.field.is_some()
+            || self.disconnect_message.is_some()
+            || self.realm_membership.state.is_some()
+            || self.sign_in_focus().is_some()
+            || self.join_request_prompted()
+            || self.local_screen_open()
+        {
+            return;
+        }
+        let tabs = launcher::menu::play::PLAY_TABS;
+        let Some(target) = tabs
+            .iter()
+            .position(|tab| *tab == self.screen)
+            .and_then(|index| index.checked_add_signed(step))
+            .and_then(|index| tabs.get(index))
+        else {
+            return;
+        };
+        self.activate(MenuAction::Navigate(*target));
     }
 
     /// Shows the history's top screen with fresh focus.

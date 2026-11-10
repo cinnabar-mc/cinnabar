@@ -97,6 +97,9 @@ mod harvesting_tests;
 #[path = "published_tests/held_book.rs"]
 mod held_book_tests;
 
+#[path = "published_tests/brush.rs"]
+mod brush_tests;
+
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
     let mut payload = vec![1, 2];
@@ -288,6 +291,7 @@ fn fixture_with_entity_assets(
     world.init_resource::<SwingTracker>();
     world.init_resource::<client_interaction::item_use::ItemUseRuntime>();
     world.insert_resource(movement);
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     world.spawn((
         Window {
             focused: true,
@@ -646,7 +650,6 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
-    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 

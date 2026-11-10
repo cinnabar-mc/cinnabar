@@ -28,6 +28,7 @@ fn item(position: [f32; 3]) -> DroppedItemView {
         render_scale: 1.0,
         yaw_radians: 0.0,
         item: CanonicalItemStack {
+            trim: None,
             use_animation: Default::default(),
             grip: Default::default(),
             glint: Default::default(),

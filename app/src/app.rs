@@ -113,7 +113,7 @@ use {
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, log_shutdown_phase,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -173,7 +173,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
                 .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
-        .add_systems(Update, crate::named_audio::notify_audio_output_unavailable)
         .add_systems(
             Update,
             crate::named_audio::drain_live_named_audio
@@ -586,8 +585,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         catalog: ui_catalog,
         block_entity_font,
     } = interface;
-    let mut ui_presentation = ui_presentation;
-    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
     ));
@@ -870,15 +867,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    log_shutdown_phase("runner_returned");
     PlatformClipboard::shutdown();
+    log_shutdown_phase("clipboard");
     client_shell::discord_presence::shutdown(&mut app);
+    log_shutdown_phase("discord");
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()
     {
         network.shutdown();
     }
+    log_shutdown_phase("network");
     drop(app);
+    log_shutdown_phase("world_dropped");
     bridge::latency_trace::finish();
     let _ = writeln!(
         diagnostics::console::stderr(),

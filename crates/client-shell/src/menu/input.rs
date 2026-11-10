@@ -4,6 +4,7 @@ pub(super) mod clipboard;
 pub(super) mod command_macros;
 pub mod context;
 mod death;
+pub(super) mod mode;
 mod modifiers;
 use modifiers::MenuModifiers;
 pub(super) mod fields;
@@ -19,6 +20,7 @@ mod touch_editor;
 
 use clipboard::MenuClipboard;
 use context::MenuInputContext;
+use mode::MenuInputMode;
 use settings_pointer::{native_release_action, update_slider};
 
 use bevy::{
@@ -45,29 +47,6 @@ pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
     (KeyCode::F1, SettingId::HideHud),
     (KeyCode::F8, SettingId::HidePaperdoll),
 ];
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) enum MenuInputMode {
-    #[default]
-    Mouse,
-    Touch,
-    Keyboard,
-    Gamepad,
-}
-
-impl MenuInputMode {
-    pub(super) fn mouse(self) -> bool {
-        matches!(self, Self::Mouse)
-    }
-
-    pub(super) fn navigation(self) -> bool {
-        matches!(self, Self::Keyboard | Self::Gamepad)
-    }
-
-    pub(super) fn gamepad(self) -> bool {
-        matches!(self, Self::Gamepad)
-    }
-}
 
 /// Retains physical button state because menu input clears Bevy's buttons
 /// after consumption, and retains slider capture across UI scale relayout.
@@ -841,6 +820,12 @@ pub fn drive_menu_input(
         if gamepad.just_pressed(GamepadButton::DPadRight) {
             menu.move_horizontal_focus(1);
         }
+        if gamepad.just_pressed(GamepadButton::LeftTrigger) {
+            menu.step_play_tab(-1);
+        }
+        if gamepad.just_pressed(GamepadButton::RightTrigger) {
+            menu.step_play_tab(1);
+        }
         if gamepad.just_pressed(GamepadButton::DPadUp) {
             menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1);
         }
@@ -876,6 +861,8 @@ pub fn drive_menu_input(
                 | KeyCode::ArrowUp
                 | KeyCode::ArrowDown
                 | KeyCode::Tab
+                | KeyCode::BracketLeft
+                | KeyCode::BracketRight
         ) {
             menu.input_mode = MenuInputMode::Keyboard;
         }
@@ -935,6 +922,12 @@ pub fn drive_menu_input(
             }
             KeyCode::ArrowRight => menu.move_horizontal_focus(1),
             KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
+            KeyCode::BracketLeft if !input.repeat && !menu.has_focused_field() => {
+                menu.step_play_tab(-1)
+            }
+            KeyCode::BracketRight if !input.repeat && !menu.has_focused_field() => {
+                menu.step_play_tab(1)
+            }
             KeyCode::Enter | KeyCode::NumpadEnter if menu.field == Some(MenuField::SkinName) => {
                 menu.activate(launcher::menu::MenuAction::DressingRoom(
                     launcher::dressing_room::Action::SaveRename,
@@ -951,6 +944,9 @@ pub fn drive_menu_input(
             }
             _ => {}
         }
+    }
+    if let Some((point, notches)) = menu.navigation_focus.regions.take_scroll() {
+        presentation.scroll_menu(point, notches, false);
     }
     if (!menu.is_visible()
         || (!gameplay_pending && menu.gameplay_return_pending())
@@ -986,6 +982,9 @@ mod sign_in_tests;
 
 #[cfg(test)]
 mod death_tests;
+
+#[cfg(test)]
+mod play_tab_tests;
 
 #[cfg(test)]
 mod press_sound_tests;

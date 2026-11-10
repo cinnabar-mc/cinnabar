@@ -7282,6 +7282,7 @@
   },
   "pack_rules": {
     "textures": {
+      "Missing": "missing",
       "PaleMossCarpetSide": "pale_moss_carpet_side",
       "BambooFenceGate": "bamboo_fence_gate",
       "BeaconCore": "beacon_core",

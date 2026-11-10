@@ -110,7 +110,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            item_gui::block_model(&placed, shading)
+            item_gui::block_model(&placed, shading, Default::default())
         },
     )
 }
