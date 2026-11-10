@@ -210,7 +210,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["pack-json", "assets"]
+allowed_dependencies = ["pack-json", "assets", "protocol-ids"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -419,7 +419,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "particles"
 path = "crates/particles"
-allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids"]
+allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -651,7 +651,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "shaderpack", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "semantic-input", "shaderpack", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -957,6 +957,11 @@ producer = "crates/client-ui/src/diagnostic_markers.rs"
 
 [[markers]]
 literal = "CINNABAR_SHUTDOWN_COMPLETED"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
+literal = "CINNABAR_SHUTDOWN_PHASE"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 
@@ -1787,7 +1792,7 @@ literal = "_sword"
 reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
-path = "app/src/runtime/network/block_overlay.rs"
+path = "app/src/runtime/network/block_overlay/materials.rs"
 literal = "water"
 reason = "Material tint_method schema value; this selects a tint channel, not a block identity."
 
@@ -2366,6 +2371,11 @@ forbidden_dependencies = ["bevy", "wgpu"]
 path = "tools/mod-docs/src/types.rs"
 literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/texture_set.rs"
+literal = "color"
+reason = "Layer key of the Bedrock texture_set.json schema, not a block or item identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/experience-runtime/src/protocol/visuals.rs"

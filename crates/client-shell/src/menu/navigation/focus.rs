@@ -2,7 +2,13 @@
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use {
-    super::super::{MenuRuntime, focus::same_control},
+    super::{
+        super::{
+            MenuRuntime,
+            focus::{play_tab, same_control},
+        },
+        regions::FocusRegions,
+    },
     launcher::menu::{MenuAction, MenuScreen},
 };
 
@@ -11,13 +17,18 @@ pub(in crate::menu) struct NavigationFocus {
     retained: Vec<(MenuScreen, MenuAction)>,
     pending: bool,
     requested_action: Option<MenuAction>,
-    home_actions: Option<Vec<MenuAction>>,
+    /// The last painted focus order of each screen that follows one.
+    painted: Vec<(MenuScreen, Vec<MenuAction>)>,
+    pub(in crate::menu) regions: FocusRegions,
 }
 
 impl NavigationFocus {
-    /// Uses the painted Home controls once they are available, including an empty screen.
-    pub(in crate::menu) fn home_actions(&self) -> Option<&[MenuAction]> {
-        self.home_actions.as_deref()
+    /// The painted focus order of `screen` once that screen has been drawn,
+    /// including an empty one; `None` until then or for another screen.
+    pub(in crate::menu) fn painted_actions(&self, screen: MenuScreen) -> Option<&[MenuAction]> {
+        self.painted
+            .iter()
+            .find_map(|(painted, actions)| (*painted == screen).then_some(actions.as_slice()))
     }
 
     /// Newer explicit input updates the outstanding request before its validation.
@@ -114,29 +125,51 @@ impl MenuRuntime {
         self.refresh_settings_focus(presentation.visible_menu_actions());
         let (targets, landmarks) = presentation.settings_focus_geometry();
         self.refresh_settings_focus_geometry(targets, landmarks);
-        if !self.navigation_focus.pending && (self.screen != MenuScreen::Home || popup) {
+        let painted_order = self.uses_painted_focus() && !popup;
+        if !painted_order && !popup {
+            self.navigation_focus.regions.clear();
+        }
+        if !self.navigation_focus.pending && !painted_order {
             return;
         }
         let visible: Vec<_> = presentation.visible_menu_actions().collect();
-        if self.screen == MenuScreen::Home && !popup {
+        if painted_order {
+            let screen = self.screen;
             let previous = self.focus_actions().get(self.focused).copied();
-            let mut home_actions = Vec::with_capacity(visible.len());
+            // Reuse the screen's last order to avoid a fresh allocation every frame.
+            let mut painted = self
+                .navigation_focus
+                .painted
+                .iter()
+                .position(|(painted, _)| *painted == screen)
+                .map(|index| self.navigation_focus.painted.swap_remove(index).1)
+                .unwrap_or_default();
+            painted.clear();
             for action in visible.iter().copied() {
-                if !home_actions
+                if !painted
                     .iter()
                     .any(|candidate| same_control(*candidate, action))
                 {
-                    home_actions.push(action);
+                    painted.push(action);
                 }
             }
             self.focused = previous
                 .and_then(|action| {
-                    home_actions
+                    painted
                         .iter()
                         .position(|candidate| same_control(*candidate, action))
                 })
                 .unwrap_or(0);
-            self.navigation_focus.home_actions = Some(home_actions);
+            self.navigation_focus.painted.push((screen, painted));
+            if play_tab(screen) {
+                self.navigation_focus
+                    .regions
+                    .update(screen, targets, landmarks, |point| {
+                        presentation.menu_scroll_extent(point)
+                    });
+            } else {
+                self.navigation_focus.regions.clear();
+            }
         }
         if !self.navigation_focus.pending {
             return;
@@ -159,6 +192,16 @@ impl MenuRuntime {
         } else {
             // No enabled control can take focus until a later presentation publishes one.
             self.focused = actions.len();
+        }
+    }
+
+    /// Whether keyboard focus uses the controls and order published by the screen.
+    /// The local-world forms opened from the Worlds tab keep their own order.
+    pub(in crate::menu) fn uses_painted_focus(&self) -> bool {
+        match self.screen {
+            MenuScreen::Home => true,
+            MenuScreen::Play => self.local_focus_actions().is_none(),
+            screen => play_tab(screen),
         }
     }
 }

@@ -213,6 +213,11 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
         "entity_static" => state.disable_overlay = true,
         "entity_nocull" => state.cull = false,
         "entity_alphatest_one_sided" => state.alpha_test = true,
+        "entity_multitexture_masked" => {
+            state.alpha_test = true;
+            state.cull = false;
+            state.masked_multitexture = true;
+        }
         "entity_emissive" => state.emissive = true,
         "entity_emissive_alpha" => {
             state.emissive = true;
@@ -244,6 +249,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     }
     if replace_defines {
         state.alpha_test = false;
+        state.masked_multitexture = false;
         state.emissive = false;
         state.only_emissive = false;
         state.disable_overlay = true;
@@ -277,6 +283,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
         for value in values.as_array()? {
             match value.as_str()? {
                 "ALPHA_TEST" => state.alpha_test = enabled,
+                "MASKED_MULTITEXTURE" => state.masked_multitexture = enabled,
                 "USE_EMISSIVE" => state.emissive = enabled,
                 "USE_ONLY_EMISSIVE" => state.only_emissive = enabled,
                 "USE_OVERLAY" => state.disable_overlay = !enabled,

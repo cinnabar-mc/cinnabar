@@ -1,6 +1,8 @@
 use super::*;
 use crate::presentation::equipment::{LAYER_MAIN_HAND, display::LAYER_OFF_HAND};
-use render_model::equipment::{held_block_display_for_hand, held_sprite_display_for_hand};
+use render_model::equipment::{
+    SpriteGrip, held_block_display_for_hand, held_sprite_display_for_hand,
+};
 
 /// Gives both item bones the same pose so only the hand's display transform separates the draws.
 fn two_hand_fixture(
@@ -66,7 +68,7 @@ fn third_person_offhand_uses_its_own_native_grip() {
             let display = if matches!(kind, HeldKind::Block(_)) {
                 held_block_display_for_hand(off_hand)
             } else {
-                held_sprite_display_for_hand(upright, off_hand)
+                held_sprite_display_for_hand(SpriteGrip::new(upright, false), off_hand)
             };
             let expected = attach_to_bone(body.input.current_bones[0], display).unwrap();
             let actual = layers
@@ -101,7 +103,7 @@ fn native_and_icon_fallback_sprites_keep_the_offhand_grip() {
         assert_eq!(layers.len(), 2);
         let expected = attach_to_bone(
             body.input.current_bones[1],
-            held_sprite_display_for_hand(upright, true),
+            held_sprite_display_for_hand(SpriteGrip::new(upright, false), true),
         )
         .unwrap();
         for draw in layers {

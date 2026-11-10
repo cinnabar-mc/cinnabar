@@ -40,7 +40,7 @@ fn start_children_at_normal_priority() -> std::io::Result<()> {
     let param = libc::sched_param { sched_priority: 0 };
     // SAFETY: Thread ID zero addresses the calling thread, and `param` outlives the call.
     let status = unsafe {
-        libc::sched_setscheduler(0, libc::SCHED_OTHER | libc::SCHED_RESET_ON_FORK, &param)
+        libc::sched_setscheduler(0, libc::SCHED_NORMAL | libc::SCHED_RESET_ON_FORK, &param)
     };
     if status == 0 {
         Ok(())

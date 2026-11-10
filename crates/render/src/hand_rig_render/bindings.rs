@@ -2,6 +2,20 @@
 
 use wgpu::{BindGroupEntry, BindingResource, Buffer, Sampler, TextureView};
 
+/// Keeps Bedrock hand artwork in gamma space until lighting is composed.
+pub(crate) fn hand_artwork_format(light: &render_model::HandRigLight) -> wgpu::TextureFormat {
+    if light.java_lights[0][3] == 0.0 {
+        wgpu::TextureFormat::Rgba8Unorm
+    } else {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    }
+}
+
+/// Bedrock SDR hands blend over the scene's gamma bytes through its compatible raw view.
+pub(super) fn hand_uses_encoded_color(light: &render_model::HandRigLight, hdr: bool) -> bool {
+    !hdr && light.java_lights[0][3] == 0.0
+}
+
 pub(crate) struct HandFragmentBindings<'a> {
     pub(crate) instances: &'a Buffer,
     pub(crate) skins: &'a TextureView,

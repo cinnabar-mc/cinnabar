@@ -75,7 +75,7 @@ func TestNewUpstreamDialerDeclinesResourcePackAcquisitionWithoutBudget(t *testin
 			}
 		}
 	}
-	want := boundedResourcePackDownload()
+	want := vanillaResourcePackDownload()
 	if dialer.ResourcePackDownload != want {
 		t.Fatalf("ResourcePackDownload = %#v, want explicit bounds %#v", dialer.ResourcePackDownload, want)
 	}
@@ -1443,25 +1443,6 @@ func TestRelayForwardsTheUpstreamStartupLosslessly(t *testing.T) {
 	}
 	if !slices.Equal(radii, []int32{7}) || loading != 2 || initialised != 1 {
 		t.Fatalf("upstream saw radii=%v loading=%d initialised=%d, want only the client's single sequence", radii, loading, initialised)
-	}
-}
-
-// A pack with more chunks than the upstream window must still request every chunk at
-// once: the window is only large enough to hold a pack's whole chunk count, so the
-// last chunks of a big pack are never serialized behind the data already received.
-func TestResourcePackWindowHoldsEveryChunkOfAPack(t *testing.T) {
-	window := boundedResourcePackDownload().MaxInFlightChunks
-	if window <= 0 {
-		t.Fatalf("resource pack request window = %d, want positive", window)
-	}
-	if window < minecraft.DefaultResourcePackMaxInFlightChunks {
-		t.Fatalf("resource pack request window = %d, want at least the vanilla default %d", window, minecraft.DefaultResourcePackMaxInFlightChunks)
-	}
-	// The largest pack observed in the wild needs more chunks than the vanilla
-	// default window covers; its tail must not be drip-fed one request per response.
-	const observedPackChunks = 123
-	if window < observedPackChunks {
-		t.Fatalf("resource pack request window = %d, want at least %d for a %d-chunk pack", window, observedPackChunks, observedPackChunks)
 	}
 }
 

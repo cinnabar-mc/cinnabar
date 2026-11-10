@@ -143,6 +143,8 @@ pub enum CommittedControlEvent {
     MovePlayer {
         sequence: u64,
         movement: MovePlayerEvent,
+        /// Whether the riding ID resolved to an actor at this packet's ordered commit.
+        riding_actor_resolved: bool,
         resolved: ResolvedServerPosition,
         source_cohort: Option<ViewCohort>,
     },

@@ -257,7 +257,7 @@ fn remote_failure_projects_an_oreui_reason_and_keeps_navigation_actions() {
             [MenuAction::Reconnect, MenuAction::DismissDialog]
         );
         if gamepad {
-            menu.input_mode = super::input::MenuInputMode::Gamepad;
+            menu.input_mode = super::input::mode::MenuInputMode::Gamepad;
         }
         menu.activate_focused();
         assert_eq!(menu.take_join_intent().unwrap().address, "example.invalid");

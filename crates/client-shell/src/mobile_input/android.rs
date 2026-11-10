@@ -1,4 +1,4 @@
-//! Android controllers through winit's input filter, and mouse capture through the activity.
+//! Android controllers through winit's input filter.
 
 use std::{
     collections::HashMap,
@@ -29,7 +29,7 @@ static CONTROLLERS: Mutex<Option<HashMap<u64, ControllerState>>> = Mutex::new(No
 /// names it before its input is forwarded.
 static NEW_DEVICE: AtomicBool = AtomicBool::new(true);
 
-/// Installs the controller filter and the frame systems that forward and capture input.
+/// Installs the controller filter and forwards controller input.
 pub(super) fn configure(app: &mut App) {
     if !winit::platform::android::set_input_event_filter(filter) {
         warn!("Another Android input filter is installed; controllers are unavailable");
@@ -40,8 +40,7 @@ pub(super) fn configure(app: &mut App) {
         scan_devices
             .before(gamepads::NativeGamepadInput)
             .before(bevy::input::InputSystems),
-    )
-    .add_systems(Last, sync_pointer_capture);
+    );
 }
 
 /// Consumes controller key and joystick events; everything else stays with winit.
@@ -220,32 +219,6 @@ fn connected_controllers(env: &mut JNIEnv) -> jni::errors::Result<Vec<Controller
         });
     }
     Ok(controllers)
-}
-
-/// Asks the activity to capture the mouse while gameplay owns the pointer, so it reports
-/// relative motion for looking around and its cursor stays hidden.
-fn sync_pointer_capture(
-    focus: Option<Res<client_state::CursorFocus>>,
-    mut requested: Local<Option<bool>>,
-    _main_thread: NonSendMarker,
-) {
-    let wanted = focus.is_some_and(|focus| focus.0.grab_free_capture());
-    if *requested == Some(wanted) {
-        return;
-    }
-    *requested = Some(wanted);
-    if let Err(error) = with_activity(|env, activity| {
-        env.call_method(
-            activity,
-            "setPointerCaptureWanted",
-            "(Z)V",
-            &[wanted.into()],
-        )
-        .map(drop)
-    }) {
-        static WARNING: std::sync::Once = std::sync::Once::new();
-        WARNING.call_once(|| warn!("Cannot change Android mouse capture: {error}"));
-    }
 }
 
 /// Runs a JNI call with the client activity, clearing any Java exception it raises.

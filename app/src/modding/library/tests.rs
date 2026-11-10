@@ -1,4 +1,5 @@
 mod batch_grants;
+mod marketplace;
 
 use super::backend::AppBackend;
 use super::*;
@@ -1033,6 +1034,7 @@ fn bevy_adapter_consumes_menu_actions_and_publishes_the_service_selection() {
     fs::write(mods.join("zoom.wasm"), b"fixture").unwrap();
     let watcher = registration::Watcher::start(config.clone()).unwrap();
     let removal = watcher.removal_client();
+    let authority = watcher.marketplace.clone();
     let layout = launcher::test_support::scratch_at(
         if cfg!(windows) {
             launcher::install_layout::Platform::Windows
@@ -1050,7 +1052,7 @@ fn bevy_adapter_consumes_menu_actions_and_publishes_the_service_selection() {
     );
     let mut app = App::new();
     app.insert_resource(menu).insert_resource(watcher);
-    configure(&mut app, mods, config.clone(), removal);
+    configure(&mut app, mods, config.clone(), removal, authority);
     test_time::eventually("library worker publishes its initial card", || {
         app.update();
         app.world()

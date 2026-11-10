@@ -203,7 +203,7 @@ impl PreviewParticles {
             return false;
         }
         let side = system.atlas().side();
-        self.page = UiTexturePage::owned([side; 2], Arc::from(system.atlas().pixels())).ok();
+        self.page = UiTexturePage::owned([side; 2], system.atlas().pixels()).ok();
         self.patch_seq = Some(seq);
         true
     }
@@ -271,6 +271,7 @@ fn particle_mesh(draw: &particles::DrawLists, page: u16, side: u32) -> Option<Ar
                 ]
                 .map(|v| v * side as f32);
                 vertices.push(UiMeshVertex {
+                    terrain_mips: false,
                     position: [
                         (player_preview::PREVIEW_WIDTH as f32 * 0.5
                             + point[0] * player_preview::PREVIEW_PIXELS_PER_BLOCK)

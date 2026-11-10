@@ -5,7 +5,7 @@ use mod_api::drawing::{
     MaskEntity,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -48,6 +48,9 @@ pub struct MaskStore {
     session: DrawingSession,
     targets: Arc<BTreeMap<DrawingHandle, (MaskEntity, u64)>>,
     candidates: BTreeMap<MaskEntity, u64>,
+    /// The bounded set `entity_observe` discloses, which limits lookup without through-wall
+    /// authority; rendered candidates can reach further.
+    observed: BTreeSet<MaskEntity>,
     committed: Arc<[Mask]>,
     staged: Option<Vec<Mask>>,
     pending_targets: BTreeMap<DrawingHandle, (MaskEntity, u64)>,
@@ -69,6 +72,7 @@ impl MaskStore {
             session: self.session,
             targets: Arc::clone(&self.targets),
             candidates: self.candidates.clone(),
+            observed: self.observed.clone(),
             committed: Arc::clone(&self.committed),
             staged: None,
             pending_targets: BTreeMap::new(),
@@ -96,6 +100,7 @@ impl MaskStore {
             session: DrawingSession::default(),
             targets: Arc::default(),
             candidates: BTreeMap::new(),
+            observed: BTreeSet::new(),
             committed: Arc::from([]),
             staged: None,
             pending_targets: BTreeMap::new(),
@@ -131,6 +136,12 @@ impl MaskStore {
         }
     }
 
+    /// Replaces the actors `entity_observe` currently discloses to this owner.
+    pub fn publish_observed(&mut self, observed: impl IntoIterator<Item = MaskEntity>) {
+        self.observed.clear();
+        self.observed.extend(observed);
+    }
+
     /// Includes retained memberships and frozen candidates in native lifetime checks.
     pub fn entity_keys(&self) -> impl Iterator<Item = MaskEntity> + '_ {
         self.targets
@@ -154,6 +165,7 @@ impl MaskStore {
         self.pending_targets
             .retain(|_, (key, _)| !despawned.contains(key));
         self.candidates.retain(|key, _| !despawned.contains(key));
+        self.observed.retain(|key| !despawned.contains(key));
         // Committed and staged masks are pruned separately, so this never publishes staging.
         let prune = |mask: &mut Mask| mask.entities.retain(|key| !despawned.contains(key));
         if self
@@ -170,13 +182,12 @@ impl MaskStore {
         }
     }
 
-    /// Resolves only explicitly consented unfiltered observations; a frustum is not occlusion.
+    /// Resolves a rendered actor. Without through-wall authority only the set `entity_observe`
+    /// already discloses resolves, and any other actor reads as unknown; a frustum is not
+    /// occlusion. Through-wall coverage stays gated on `always` masks.
     pub fn entity(&mut self, runtime_id: u64) -> Result<DrawingHandle, MaskError> {
         let permissions = self.session.permissions;
-        if !permissions.entity_highlight
-            || !permissions.entity_observe
-            || !permissions.render_through_walls
-        {
+        if !permissions.entity_highlight || !permissions.entity_observe {
             return Err(MaskError::Denied);
         }
         let (&key, &vertices) = self
@@ -184,6 +195,9 @@ impl MaskStore {
             .iter()
             .find(|(key, _)| key.runtime_id == runtime_id)
             .ok_or(MaskError::StaleHandle)?;
+        if !permissions.render_through_walls && !self.observed.contains(&key) {
+            return Err(MaskError::StaleHandle);
+        }
         if let Some(handle) = self
             .targets
             .iter()
@@ -331,6 +345,7 @@ impl MaskStore {
         Arc::make_mut(&mut self.targets).clear();
         self.pending_targets.clear();
         self.candidates.clear();
+        self.observed.clear();
         self.staged = None;
         self.committed = Arc::from([]);
         self.session = DrawingSession::default();
@@ -344,6 +359,7 @@ impl MaskStore {
             session: _,
             targets,
             candidates: _,
+            observed: _,
             committed,
             staged,
             pending_targets,

@@ -3,7 +3,7 @@
 use {
     super::*,
     render_model::equipment::{
-        BoneChannels, ItemDisplay, attach_to_bone, held_block_display_for_hand,
+        BoneChannels, ItemDisplay, SpriteGrip, attach_to_bone, held_block_display_for_hand,
         held_sprite_display_for_hand,
     },
 };
@@ -234,8 +234,9 @@ impl EquipmentRuntime {
                     (index, MeshKey::SessionBlock(index), placement, location)
                 }
                 ItemArtwork::SessionSprite => {
+                    let (identifier, metadata) = runtime.session_icon_key(item);
                     let (index, placement, location) =
-                        runtime.session_sprite(&item.identifier, item.metadata)?;
+                        runtime.session_sprite(identifier, metadata)?;
                     (index, MeshKey::Session(index), placement, location)
                 }
                 ItemArtwork::StartupCube => {
@@ -273,9 +274,8 @@ impl EquipmentRuntime {
         &mut self,
         item: &WornItem,
     ) -> Option<(EntityRigId, ActorArtworkLocation, [f32; 2])> {
-        if let Some((index, placement, location)) =
-            self.session_sprite(&item.identifier, item.metadata)
-        {
+        let (identifier, metadata) = self.session_icon_key(item);
+        if let Some((index, placement, location)) = self.session_sprite(identifier, metadata) {
             let mesh = self.mesh_for(MeshKey::Session(index), index, placement)?;
             return Some((mesh, location, glint_span(placement.uv_rect(), false)));
         }
@@ -307,7 +307,7 @@ impl EquipmentRuntime {
         dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
     ) -> ItemDisplay {
         let placement = held_sprite_placement(item, false);
-        let upright = item.grip.upright().unwrap_or(false);
+        let grip = SpriteGrip::from(item.grip);
         let side = if off_hand {
             render_api::HeldItemHandSide::Off
         } else {
@@ -318,11 +318,11 @@ impl EquipmentRuntime {
             .flatten()
             .and_then(|dimensions| {
                 render_model::equipment::offset_held_display(
-                    placement, upright, side, dimensions, scale,
+                    placement, grip, side, dimensions, scale,
                 )
             });
         offset.unwrap_or_else(|| {
-            let mut retail = held_sprite_display_for_hand(upright, off_hand);
+            let mut retail = held_sprite_display_for_hand(grip, off_hand);
             retail.scale *= scale;
             retail
         })
@@ -330,8 +330,9 @@ impl EquipmentRuntime {
 
     /// Texel size of the sprite `held_icon_mesh` draws for this item.
     pub(super) fn held_icon_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        let (identifier, metadata) = self.session_icon_key(item);
         let sprite = self
-            .session_sprite(&item.identifier, item.metadata)
+            .session_sprite(identifier, metadata)
             .and_then(|(index, _, _)| self.session_sprite_pixels(index))
             .or_else(|| {
                 self.held_icon_index(item)
@@ -456,7 +457,7 @@ impl EquipmentRuntime {
             .as_ref()
             .map(|selected| selected.texture.as_ref())
             .unwrap_or(&binding.texture.identifier);
-        let Some((_, _, location)) = self.draw_artwork(texture, &source) else {
+        let Some((artwork, texture_index, location)) = self.draw_artwork(texture, &source) else {
             return;
         };
         let geometry_identifier = selected
@@ -615,6 +616,17 @@ impl EquipmentRuntime {
             };
             super::style::LayerStyle::from_layer(&selected.layer)
                 .apply(&mut presentation.submission);
+        }
+        if item.trim.is_some() {
+            self.trims.remember_worn(
+                presentation.submission.input.identity,
+                trims::WornSource {
+                    catalog: Arc::clone(catalog),
+                    binding: index,
+                    artwork,
+                    texture: texture_index,
+                },
+            );
         }
         layers.push(presentation);
     }

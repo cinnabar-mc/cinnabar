@@ -8,8 +8,8 @@ use bedrock_protocol_1_26_60::{
 use protocol::{
     ActorUseAction, ActorUseRequest, BlockItemInteraction, BlockUseRequest, HeldItemRequest,
     ItemUseHand, ItemUseTrigger, NetworkItemStack, PlayerAuthInputInteractions,
-    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PredictedSlotChange,
-    VerifiedNetworkItemStack,
+    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+    PredictedSlotChange, VerifiedNetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
@@ -224,6 +224,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     }
 }
@@ -233,7 +234,7 @@ fn embedded_selection_omits_identity_and_preserves_contents() {
     for stack in stacks() {
         for interaction in [
             BlockItemInteraction::Use(block_request(stack.clone())),
-            BlockItemInteraction::Destroy(block_request(stack.clone())),
+            BlockItemInteraction::Destroy(block_request(stack.clone()), None),
         ] {
             let packet = protocol::player_auth_input_with_interactions(
                 movement(),

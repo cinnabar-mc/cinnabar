@@ -26,6 +26,7 @@ mod digger;
 mod display;
 mod equipment;
 mod facts;
+mod fireworks;
 mod render_offsets;
 mod seed;
 mod shield;
@@ -34,7 +35,7 @@ pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_sl
 mod icons;
 mod map;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
-pub use map::item_map_id;
+pub use map::{item_map_id, map_id_from_decimal};
 mod nbt_edit;
 mod nbt_equal;
 mod registry;
@@ -49,11 +50,12 @@ pub use display::{
     ItemBook, ItemDisplay, MAX_BOOK_PAGES, item_book, item_bundle_id, item_display,
     item_enchantment_mask, item_has_enchantment_list, item_id_aux,
 };
+pub use fireworks::{FireworkExplosion, ItemFireworks, item_firework_star, item_fireworks};
 pub(crate) use icons::item_icon_keys;
 pub use nbt_edit::{
-    ItemAnvilData, ItemNbtEdit, apply_banner_to_shield, book_init_extra, book_needs_init,
-    edit_item_extra, item_anvil_data, item_custom_name, item_filtered_custom_name, item_has_trim,
-    item_repair_cost,
+    ItemAnvilData, ItemNbtEdit, ItemTrim, apply_banner_to_shield, apply_item_trim, book_init_extra,
+    book_needs_init, edit_item_extra, item_anvil_data, item_custom_name, item_filtered_custom_name,
+    item_has_trim, item_repair_cost, item_trim,
 };
 pub use registry::{
     ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, vanilla_item_registry,
@@ -503,8 +505,6 @@ pub enum ItemPacketError {
     InvalidItemNbt,
     #[error("item packet has malformed or truncated canonical wire data")]
     MalformedWire,
-    #[error("failed to encode validated item data")]
-    ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
     #[error("equipment container ID {0} is unknown")]
@@ -596,24 +596,6 @@ fn make_stack(
     })
 }
 
-/// Encodes `value` through a writer capped at [`MAX_ITEM_EXTRA_BYTES`].
-fn encode_extra<T: wire::Encode>(value: &T) -> Result<Vec<u8>, ItemPacketError> {
-    let mut bytes = Vec::new();
-    match value.encode(&mut wire::Writer::with_limit(
-        &mut bytes,
-        MAX_ITEM_EXTRA_BYTES,
-    )) {
-        Ok(()) => Ok(bytes),
-        Err(wire::EncodeError::OutputLimitExceeded { needed, .. }) => {
-            Err(ItemPacketError::ItemExtraTooLarge {
-                bytes: needed,
-                max: MAX_ITEM_EXTRA_BYTES,
-            })
-        }
-        Err(_) => Err(ItemPacketError::ItemEncodingFailed),
-    }
-}
-
 /// Bounds an item's user-data buffer and checks the compound it may carry.
 ///
 /// The generated decoder hands this over as opaque bytes, so the header
@@ -688,7 +670,9 @@ pub(crate) fn normalize_item_registry(
         }
         let network_id = i32::from(item.item_id.0);
         validate_registry_nbt(&item.item_component_data)?;
-        let component_bytes = encode_extra(&item.item_component_data)?;
+        // Bedrock reads the component compound straight from the packet with no
+        // size cap of its own, so any size the packet carries is admitted.
+        let component_bytes = item.item_component_data.0;
         let version = match item.item_version {
             ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
             ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,

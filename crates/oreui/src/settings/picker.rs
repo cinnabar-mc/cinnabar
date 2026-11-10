@@ -6,7 +6,7 @@ use super::super::modal::{self, Modal};
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, EDGE, TEXT};
 use super::super::widgets::{Interaction, MenuItem};
-use super::{button, gui_scale, localization};
+use super::{button, localization};
 use crate::images::CHEVRON_DOWN_IMAGE;
 use launcher::menu::{
     MenuAction, MenuView,
@@ -26,9 +26,6 @@ pub(super) fn draw(
     size: [f32; 2],
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
-    if view.settings.scale_picker {
-        return gui_scale::draw_picker(canvas, view, size, translate);
-    }
     let Some(index) = view.settings.dropdown else {
         return Ok(());
     };
