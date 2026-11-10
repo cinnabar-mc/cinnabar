@@ -2,7 +2,7 @@
 
 use actor_animation::{
     ActorRigSnapshot, AttachableAnimationInput,
-    attachment::{compose_parent, parent_for_root},
+    attachment::{OwnerSkeleton, compose_parent, parent_for_root},
 };
 use client_world::ActorSnapshot;
 
@@ -188,6 +188,7 @@ impl EquipmentRuntime {
                 assets: &assets,
                 bones: &body_bones,
                 owner_names: owner_rig.bone_names,
+                owner_layers: owner_rig.render,
                 geometry: (geometry_index, evaluated.geometry),
                 local: pose,
                 paired: !input.first_person,
@@ -212,9 +213,12 @@ impl EquipmentRuntime {
                 }
                 compose_parent(
                     parent_for_root(
-                        &body.input.previous_bones,
-                        &body.input.current_bones,
-                        &body_bones.names,
+                        OwnerSkeleton::body(
+                            &body.input.previous_bones,
+                            &body.input.current_bones,
+                            &body_bones.names,
+                        )
+                        .with_layers(owner_rig),
                         if input.first_person {
                             input
                         } else {

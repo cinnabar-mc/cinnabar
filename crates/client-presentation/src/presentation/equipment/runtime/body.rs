@@ -68,6 +68,7 @@ impl EquipmentRuntime {
                 assets: &assets,
                 bones: &bones,
                 owner_names: animation.rig.bone_names,
+                owner_layers: animation.rig.render,
                 geometry: (geometry_index, evaluated.geometry),
                 local,
                 paired: false,
@@ -87,9 +88,12 @@ impl EquipmentRuntime {
                 }
                 actor_animation::attachment::compose_parent(
                     actor_animation::attachment::parent_for_root(
-                        &body.input.previous_bones,
-                        &body.input.current_bones,
-                        &bones.names,
+                        actor_animation::attachment::OwnerSkeleton::body(
+                            &body.input.previous_bones,
+                            &body.input.current_bones,
+                            &bones.names,
+                        )
+                        .with_layers(animation.rig),
                         input,
                         evaluated.bone_parent(geometry_index, index)?,
                         scale,

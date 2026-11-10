@@ -687,6 +687,7 @@ impl EquipmentRuntime {
                     assets: &assets,
                     bones,
                     owner_names: animation.rig.bone_names,
+                    owner_layers: animation.rig.render,
                     geometry: (geometry_index, evaluated.geometry),
                     local,
                     paired: false,
@@ -720,9 +721,12 @@ impl EquipmentRuntime {
                         return Some(hidden_bone());
                     }
                     let Some(parent) = actor_animation::attachment::parent_for_root(
-                        &body.input.previous_bones,
-                        &body.input.current_bones,
-                        &bones.names,
+                        actor_animation::attachment::OwnerSkeleton::body(
+                            &body.input.previous_bones,
+                            &body.input.current_bones,
+                            &bones.names,
+                        )
+                        .with_layers(animation.rig),
                         input,
                         root,
                         evaluated.axis_scale.map(|axis| axis * evaluated.scale),

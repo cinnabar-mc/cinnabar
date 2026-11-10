@@ -2,7 +2,7 @@
 use super::{super::UiPresentationRuntime, live_player::ModelGeometry};
 use actor_animation::{
     AttachableAnimationInput,
-    attachment::{compose_parent, parent_for_root},
+    attachment::{OwnerSkeleton, compose_parent, parent_for_root},
 };
 use render_model::{ActorRigGeometry, EntityRigId, UiTexturePage};
 use std::sync::Arc;
@@ -152,10 +152,9 @@ impl UiPresentationRuntime {
                     .enumerate()
                     .map(|(index, bone)| {
                         compose_parent(
+                            // The preview draws only the body, so roots follow its bones.
                             parent_for_root(
-                                &live.bones,
-                                &live.bones,
-                                rig.bone_names,
+                                OwnerSkeleton::body(&live.bones, &live.bones, rig.bone_names),
                                 input,
                                 evaluated.bone_parent(geometry, index)?,
                                 scale,

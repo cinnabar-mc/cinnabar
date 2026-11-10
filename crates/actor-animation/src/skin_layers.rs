@@ -223,8 +223,9 @@ fn metadata(
                 return None;
             }
             let body_index = (*body_index)?;
+            // Controllers drawing their own model hide bones of that model, not the body's.
             render
-                .and_then(|layers| layers.first())
+                .and_then(|layers| layers.iter().find(|layer| layer.geometry.is_none()))
                 .is_some_and(|body| body.hidden_bones.binary_search(&body_index).is_ok())
                 .then_some(index as u32)
         })

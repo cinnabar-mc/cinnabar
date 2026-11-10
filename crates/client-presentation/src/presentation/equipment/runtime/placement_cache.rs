@@ -7,6 +7,8 @@ pub(super) struct Inputs<'a> {
     pub assets: &'a Arc<RuntimeEntityAssets>,
     pub bones: &'a BodyBones,
     pub owner_names: &'a [Box<str>],
+    /// The owner's controller layers; roots may follow bones of the models they draw.
+    pub owner_layers: &'a [actor_animation::RenderTextureLayer],
     pub geometry: (u32, u32),
     pub local: &'a [BoneTransform],
     pub hidden: &'a Arc<[u32]>,
@@ -20,6 +22,7 @@ struct Entry {
     assets: Arc<RuntimeEntityAssets>,
     bones: BodyBones,
     owner_names: Vec<Box<str>>,
+    owner_layers: Vec<OwnerLayer>,
     geometry: (u32, u32),
     local: Vec<BoneTransform>,
     hidden: Arc<[u32]>,
@@ -57,6 +60,7 @@ impl PlacementCache {
             assets,
             bones,
             owner_names,
+            owner_layers,
             geometry,
             local,
             hidden,
@@ -77,6 +81,12 @@ impl PlacementCache {
             && Arc::ptr_eq(&entry.assets, assets)
             && entry.bones == *bones
             && entry.owner_names == owner_names
+            && entry.owner_layers.len() == owner_models(owner_layers).count()
+            && entry
+                .owner_layers
+                .iter()
+                .zip(owner_models(owner_layers))
+                .all(|(a, b)| a.same(b))
             && entry.geometry == geometry
             && entry.hidden == *hidden
             && entry.scale == scale.map(f32::to_bits)
@@ -119,6 +129,7 @@ impl PlacementCache {
                 assets: Arc::clone(assets),
                 bones: bones.clone(),
                 owner_names: owner_names.to_vec(),
+                owner_layers: owner_models(owner_layers).map(OwnerLayer::new).collect(),
                 geometry,
                 local: local.to_vec(),
                 hidden: Arc::clone(hidden),
@@ -132,6 +143,39 @@ impl PlacementCache {
         );
         Some(poses)
     }
+}
+
+/// An owner controller model and the pose allocations an attachment root may follow.
+struct OwnerLayer {
+    geometry: u32,
+    previous: Arc<[BoneTransform]>,
+    current: Arc<[BoneTransform]>,
+}
+
+impl OwnerLayer {
+    fn new(layer: &actor_animation::RenderTextureLayer) -> Self {
+        Self {
+            geometry: layer.geometry.unwrap_or_default(),
+            previous: Arc::clone(&layer.previous_pose),
+            current: Arc::clone(&layer.pose),
+        }
+    }
+
+    /// Whether `layer` draws the same model from the same pose allocations.
+    fn same(&self, layer: &actor_animation::RenderTextureLayer) -> bool {
+        layer.geometry == Some(self.geometry)
+            && Arc::ptr_eq(&self.previous, &layer.previous_pose)
+            && Arc::ptr_eq(&self.current, &layer.pose)
+    }
+}
+
+/// Owner layers drawing their own models, in controller order; only these add root bones.
+fn owner_models(
+    layers: &[actor_animation::RenderTextureLayer],
+) -> impl Iterator<Item = &actor_animation::RenderTextureLayer> {
+    layers
+        .iter()
+        .filter(|layer| layer.texture_slot == 0 && layer.geometry.is_some())
 }
 
 /// Floating-point bits retain signed-zero and NaN identity in pose inputs.
