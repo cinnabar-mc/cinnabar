@@ -81,7 +81,7 @@ use {
             },
             world::{
                 ClientWorld, WorldStreamFramePoll, camera_environment::update_camera_medium,
-                drive_world_stream, reconcile_world_stream_before_physics,
+                publication::drive_world_stream, reconcile_world_stream_before_physics,
             },
         },
         semantic_controls::{

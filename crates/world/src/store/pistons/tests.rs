@@ -46,20 +46,24 @@ fn moving_arms_revise_their_column_each_tick_until_they_settle() {
     let mut revision = store.collision_revision(key.chunk());
     for tick in [11, 12] {
         let snapshot = store.collision_snapshot();
+        let generation = store.collision_generation();
         store.set_simulation_tick(tick).unwrap();
         assert_ne!(
             store.collision_revision(key.chunk()),
             revision,
             "tick {tick}"
         );
+        assert_ne!(store.collision_generation(), generation, "tick {tick}");
         assert!(!std::sync::Arc::ptr_eq(
             &snapshot,
             &store.collision_snapshot()
         ));
         revision = store.collision_revision(key.chunk());
     }
+    let generation = store.collision_generation();
     store.set_simulation_tick(13).unwrap();
     assert_eq!(store.collision_revision(key.chunk()), revision);
+    assert_eq!(store.collision_generation(), generation);
     assert!(store.moving_pistons.is_empty());
 }
 

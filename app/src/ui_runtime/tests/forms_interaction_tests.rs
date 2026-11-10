@@ -28,7 +28,7 @@ fn production_committed_stream_poll_precedes_form_input_authority_without_moving
         crate::{
             app::configure_client_production_frame_systems,
             runtime::world::{
-                drain_committed_ui_before_authority, drive_world_stream,
+                drain_committed_ui_before_authority, publication::drive_world_stream,
                 reconcile_world_stream_before_physics,
             },
         },
