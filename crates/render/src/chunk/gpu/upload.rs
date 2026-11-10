@@ -740,6 +740,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     upload_stats.model_streams_validated = model_streams_validated;
     upload_stats.range_plans = range_plans;
     upload_stats.candidates_deferred = selected.len().saturating_sub(successful_updates.len());
+    upload_stats.publication_complete = result.is_ok() && upload_stats.candidates_deferred == 0;
     upload_stats.time_limited = time_limited;
     #[cfg(feature = "tracy")]
     if let Some(client) = tracy_client::Client::running() {
