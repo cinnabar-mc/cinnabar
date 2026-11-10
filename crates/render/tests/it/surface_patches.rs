@@ -5,8 +5,8 @@ use crate::{
 };
 
 #[test]
-fn cropped_model_patches_preserve_exponents_before_light_interpolation() {
-    let Some(gpu) = Gpu::for_fixture("cropped model AO exponents") else {
+fn cube_and_cropped_model_faces_preserve_exponents_before_light_interpolation() {
+    let Some(gpu) = Gpu::for_fixture("cube and cropped model AO exponents") else {
         return;
     };
     let production = include_str!("../../src/model.wesl");
@@ -16,8 +16,12 @@ fn cropped_model_patches_preserve_exponents_before_light_interpolation() {
         .find("    let ao = material_ambient_occlusion(")
         .unwrap()
         ..production.find("    out.visibility.y =").unwrap()];
+    let cube = include_str!("../../src/chunk.wesl");
+    let cube_lighting = &cube[cube
+        .find("    let ao = material_ambient_occlusion(")
+        .unwrap()..cube.find("    // Native RenderChunk").unwrap()];
     let source = format!(
-        "{}\n{FIXTURE}\n{coordinates}\n{LIGHTING_FIXTURE}\n{lighting}\nreturn out;\n}}\n{LIGHTING_WITNESS}",
+        "{}\n{FIXTURE}\n{coordinates}\n{LIGHTING_FIXTURE}\n{lighting}\nreturn out;\n}}\n{CUBE_LIGHTING_FIXTURE}\n{cube_lighting}\nreturn out;\n}}\n{LIGHTING_WITNESS}",
         include_str!("../../src/material.wesl"),
     )
     .replace("SURFACE_TILE_MASK", &format!("{}u", meshing::surface::TILE_MASK))
@@ -170,6 +174,16 @@ const LIGHTING_WITNESS: &str = r#"
             let b = patch_lighting(face, 1u, flags).lighting.x;
             let c = patch_lighting(face, 2u, flags).lighting.x;
             let d = patch_lighting(face, 3u, flags).lighting.x;
+            @if(ENHANCED)
+            for (var corner = 0u; corner < 4u; corner += 1u) {
+                let sample = model_light_sample(face, corner);
+                let ao = array(0.2, 0.4, 0.6, 0.9)[sample >> 8u];
+                let expected = pow(ao * 0.8, select(1.0, 0.8, encoded != 0u));
+                let actual = cube_lighting(sample, flags);
+                valid = valid && all(abs(actual.lighting - vec3(expected)) < vec3(0.00001));
+                valid = valid && abs(actual.lighting.x - array(a, b, c, d)[corner]) < 0.00001;
+                valid = valid && abs(actual.ambient_occlusion - ao) < 0.00001;
+            }
             for (var tile = 0u; tile < 9u; tile += 1u) {
                 let patch = ModelQuad(tile | (16u << 4u), face.quad_flags);
                 for (var corner = 0u; corner < 4u; corner += 1u) {
@@ -185,4 +199,14 @@ const LIGHTING_WITNESS: &str = r#"
     }
     return select(vec4(1.0, 0.0, 0.0, 1.0), vec4(0.0, 1.0, 0.0, 1.0), valid);
 }
+"#;
+
+const CUBE_LIGHTING_FIXTURE: &str = r#"
+/// Supplies the same side normal as the model lighting witness.
+fn face_normal(face: u32) -> vec3<f32> { return vec3(0.0, 0.0, -1.0); }
+/// Runs the production cube lighting block with controlled face samples.
+fn cube_lighting(light_sample: u32, flags: u32) -> LightingOutput {
+    let material = MaterialGpu(0u, flags, 0u, 0u, 0u, 0u);
+    let face = 4u;
+    var out: LightingOutput;
 "#;

@@ -209,6 +209,28 @@ mod tests {
     }
 
     #[test]
+    fn heightmaps_accept_only_image_references() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../docs/evidence/material-fixtures/texture-pack/textures/height_uniform.texture_set.json"
+        ))
+        .unwrap();
+        for version in ["1.16.100", "1.21.30"] {
+            let mut document = fixture.clone();
+            document["format_version"] = json!(version);
+            assert_eq!(
+                parse_texture_set(&document),
+                Err(TextureSetError::InvalidLayer),
+                "{version}: scalar heightmaps discard the set"
+            );
+            document["minecraft:texture_set"]["heightmap"] = json!("height");
+            assert_eq!(
+                parse_texture_set(&document).unwrap().heightmap.as_deref(),
+                Some("height")
+            );
+        }
+    }
+
+    #[test]
     fn schema_violations_discard_the_whole_set() {
         for (format, set) in [
             (
