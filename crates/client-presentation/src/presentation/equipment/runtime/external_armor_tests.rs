@@ -65,8 +65,9 @@ fn aliased_pack_armor_registers_the_geometry_its_rig_uses() {
         EntityDependencyResolution::External
     );
     let registered = EquipmentRuntime::pack_geometries(&pack, &catalog);
-    let (mut runtime, pages, _) = block_fixture();
-    let (_, locations) = pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    let (mut runtime, _, _) = block_fixture();
+    let (_, locations) = ActorArtworkPages::default()
+        .with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
     runtime.set_pack_layer(Some((pack, Some(catalog), locations)));
     let rig = runtime.pack_armor_geometry_for(alias).unwrap().rig;
     let geometry = registered
