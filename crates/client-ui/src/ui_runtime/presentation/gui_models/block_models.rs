@@ -3,10 +3,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{
-    GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, block_gui_uses_paint_order,
-    material_tile,
-};
+use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, material_tile};
 use assets::{
     BlockFace, BlockVisualId, Material, ModelQuad, ModelTemplate, NetworkIdMode, RuntimeAssets,
     TexturePage, VisualKind,
@@ -117,7 +114,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            let order = if block_gui_uses_paint_order(
+            let order = if assets::gui_item::block_gui_uses_paint_order(
                 shape
                     .template
                     .and_then(|id| shape.templates.get(id as usize)),

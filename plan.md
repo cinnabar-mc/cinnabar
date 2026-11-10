@@ -191,7 +191,8 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   coverage before implementing a missing case. Keep conservative culling and connectivity
   until exact face-coverage behavior is verified separately. Inventory fences draw the
   native two-post shape, with separately textured rear and front rail halves and ordered
-  surface overlap. Acacia texture-boundary sampling remains unqualified.
+  surface overlap in meshes and fallback thumbnails. Acacia texture-boundary sampling
+  remains unqualified.
   Walls use the carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
   and fresh integrated-frame acceptance remain unverified. World bamboo fences and bamboo
