@@ -23,6 +23,12 @@ mod gamepads;
 mod hid_keys;
 #[cfg(target_os = "ios")]
 mod ios;
+#[cfg_attr(
+    not(target_os = "ios"),
+    allow(dead_code, reason = "iOS-only forwarding, tested on every host")
+)]
+#[cfg(any(target_os = "ios", test))]
+mod window_events;
 
 /// Installs the platform's native input sources.
 pub(crate) fn configure(app: &mut bevy::prelude::App) {

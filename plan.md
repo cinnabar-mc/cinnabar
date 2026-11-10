@@ -1907,7 +1907,9 @@ mouse input and capture use the activity's hybrid input path described below. De
 acceptance with Xbox, PlayStation and generic controllers remains incomplete, as do
 controllers whose right stick uses `AXIS_RX`/`AXIS_RY`.
 iOS reads physical keys, mouse motion, buttons and scrolling, and extended-profile controllers
-through the Game Controller framework. Gameplay locks the iPadOS pointer through the winit fork
+through the Game Controller framework. Keyboard and mouse callbacks reach both Bevy's typed
+messages and ordered window stream. UIKit hover updates the unlocked menu pointer in window
+coordinates. Gameplay locks the iPadOS pointer through the winit fork
 so mouse clicks do not also arrive as touches. While text input is enabled, the keyboard's
 Backspace yields to winit's text path. Device acceptance remains incomplete, including mouse
 delta and scroll directions and scales, Enter handling in focused text fields, and micro-profile

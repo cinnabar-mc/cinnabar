@@ -8,18 +8,7 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-use bevy::{
-    ecs::system::NonSendMarker,
-    input::{
-        ButtonState,
-        keyboard::KeyboardInput,
-        mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
-        touch::TouchPhase,
-    },
-    prelude::*,
-    window::PrimaryWindow,
-    winit::WINIT_WINDOWS,
-};
+use bevy::{ecs::system::NonSendMarker, prelude::*, window::PrimaryWindow, winit::WINIT_WINDOWS};
 use block2::RcBlock;
 use objc2::{rc::Retained, runtime::Bool};
 use objc2_game_controller::{
@@ -33,40 +22,46 @@ use super::{
         self, GamepadInput, NativeGamepadEvent, NativeGamepadInput, PendingNativeGamepadEvents,
         changed_inputs,
     },
-    hid_keys,
+    window_events::{self, NativeWindowEvent, PendingWindowEvents},
 };
+
+mod hover;
 
 /// Installs device discovery, event forwarding and pointer locking.
 pub(super) fn configure(app: &mut App) {
     gamepads::configure(app);
-    app.add_systems(
-        PreUpdate,
-        (attach_devices, forward_keyboard_mouse)
-            .chain()
-            .before(NativeGamepadInput)
-            .before(bevy::input::InputSystems),
-    )
-    .add_systems(Last, sync_pointer_lock);
+    app.init_resource::<PendingWindowEvents>()
+        .add_systems(
+            PreUpdate,
+            (
+                attach_devices,
+                hover::attach,
+                take_window_events,
+                window_events::forward,
+            )
+                .chain()
+                .before(NativeGamepadInput)
+                .before(bevy::input::InputSystems),
+        )
+        .add_systems(Last, sync_pointer_lock);
 }
 
-/// Keyboard and mouse callbacks queued until the next frame's input update.
-#[derive(Default)]
-struct Queued {
-    keys: Vec<(GCKeyCode, bool)>,
-    motion: Vec2,
-    buttons: Vec<(MouseButton, bool)>,
-    scroll: Vec<Vec2>,
+/// Keyboard and mouse callbacks in arrival order until the next input update.
+static QUEUED: Mutex<Vec<NativeWindowEvent>> = Mutex::new(Vec::new());
+
+/// Retains one callback without reordering it against other input kinds.
+fn queue(event: NativeWindowEvent) {
+    QUEUED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(event);
 }
 
-static QUEUED: Mutex<Option<Queued>> = Mutex::new(None);
-
-fn queued(apply: impl FnOnce(&mut Queued)) {
-    apply(
-        QUEUED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get_or_insert_with(Queued::default),
-    );
+/// Moves callbacks to the frame's input batch before forwarding them.
+fn take_window_events(mut pending: ResMut<PendingWindowEvents>) {
+    pending
+        .0
+        .append(&mut QUEUED.lock().unwrap_or_else(PoisonError::into_inner));
 }
 
 /// Framework devices with installed callbacks, and polled controllers.
@@ -122,6 +117,7 @@ fn attach_devices(mut pending: ResMut<PendingNativeGamepadEvents>, _main_thread:
     });
 }
 
+/// Installs the physical key callback when the coalesced keyboard changes.
 fn attach_keyboard(devices: &mut Devices) {
     // SAFETY: Main-thread framework getters return retained objects or none.
     let input =
@@ -135,7 +131,12 @@ fn attach_keyboard(devices: &mut Devices) {
              _: NonNull<GCControllerButtonInput>,
              key: GCKeyCode,
              pressed: Bool| {
-                queued(|queued| queued.keys.push((key, pressed.as_bool())));
+                if let Ok(usage) = u16::try_from(key) {
+                    queue(NativeWindowEvent::Key {
+                        usage,
+                        pressed: pressed.as_bool(),
+                    });
+                }
             },
         );
         // SAFETY: The framework copies the block, whose captures are empty.
@@ -144,6 +145,7 @@ fn attach_keyboard(devices: &mut Devices) {
     devices.keyboard = input;
 }
 
+/// Installs relative motion, scroll and button callbacks on new mice.
 fn attach_mice(devices: &mut Devices) {
     // SAFETY: Main-thread framework getters return retained objects.
     let connected = unsafe { GCMouse::mice() };
@@ -157,10 +159,10 @@ fn attach_mice(devices: &mut Devices) {
         }
         let moved = RcBlock::new(|_: NonNull<GCMouseInput>, x: f32, y: f32| {
             // Game Controller deltas point up; Bevy's point down.
-            queued(|queued| queued.motion += Vec2::new(x, -y));
+            queue(NativeWindowEvent::Motion(Vec2::new(x, -y)));
         });
         let scroll = RcBlock::new(|_: NonNull<GCControllerDirectionPad>, x: f32, y: f32| {
-            queued(|queued| queued.scroll.push(Vec2::new(x, y)));
+            queue(NativeWindowEvent::Scroll(Vec2::new(x, y)));
         });
         // SAFETY: The framework copies each block, whose captures are plain values; the
         // buttons are retained by their mouse input.
@@ -177,7 +179,10 @@ fn attach_mice(devices: &mut Devices) {
                 let Some(button) = button else { continue };
                 let handler = RcBlock::new(
                     move |_: NonNull<GCControllerButtonInput>, _: f32, pressed: Bool| {
-                        queued(|queued| queued.buttons.push((mouse_button, pressed.as_bool())));
+                        queue(NativeWindowEvent::Button {
+                            button: mouse_button,
+                            pressed: pressed.as_bool(),
+                        });
                     },
                 );
                 button.setPressedChangedHandler(RcBlock::as_ptr(&handler));
@@ -269,68 +274,6 @@ fn controller_values(controller: &GCController) -> Option<[f32; CONTROLLER_INPUT
             held(pad.leftThumbstickButton()),
             held(pad.rightThumbstickButton()),
         ])
-    }
-}
-
-/// Writes queued keyboard and mouse callbacks as Bevy input messages for the primary window.
-///
-/// While text input is enabled, winit's text path already reports Backspace with the same
-/// physical key, so the keyboard's Backspace is dropped there.
-fn forward_keyboard_mouse(
-    window: Option<Single<(Entity, &Window), With<PrimaryWindow>>>,
-    mut keys: MessageWriter<KeyboardInput>,
-    mut buttons: MessageWriter<MouseButtonInput>,
-    mut motion: MessageWriter<MouseMotion>,
-    mut wheel: MessageWriter<MouseWheel>,
-) {
-    let Some(queued) = QUEUED.lock().unwrap_or_else(PoisonError::into_inner).take() else {
-        return;
-    };
-    let Some(window) = window else { return };
-    let (entity, window) = *window;
-    let state = |pressed: bool| {
-        if pressed {
-            ButtonState::Pressed
-        } else {
-            ButtonState::Released
-        }
-    };
-    for (usage, pressed) in queued.keys {
-        let Some(key_code) = u16::try_from(usage).ok().and_then(hid_keys::key_code) else {
-            continue;
-        };
-        if window.ime_enabled && key_code == KeyCode::Backspace {
-            continue;
-        }
-        keys.write(KeyboardInput {
-            key_code,
-            logical_key: hid_keys::logical_key(key_code),
-            state: state(pressed),
-            text: None,
-            repeat: false,
-            window: entity,
-        });
-    }
-    if queued.motion != Vec2::ZERO {
-        motion.write(MouseMotion {
-            delta: queued.motion,
-        });
-    }
-    for (button, pressed) in queued.buttons {
-        buttons.write(MouseButtonInput {
-            button,
-            state: state(pressed),
-            window: entity,
-        });
-    }
-    for scroll in queued.scroll {
-        wheel.write(MouseWheel {
-            unit: MouseScrollUnit::Line,
-            x: scroll.x,
-            y: scroll.y,
-            window: entity,
-            phase: TouchPhase::Moved,
-        });
     }
 }
 
