@@ -28,7 +28,7 @@ fn panorama_artwork_world_preview_yields_to_an_edited_world_thumbnail() {
         game_mode: bridge::GameMode::Survival,
         generator: Generator::Normal,
         difficulty: Difficulty::Normal,
-        backend: bridge::Backend::Dragonfly,
+        backend: bridge::Backend::Bds,
         seed: 0,
         options: Default::default(),
         options_unavailable: false,
