@@ -264,6 +264,15 @@ fn action_panel(
         view,
         [x, y, right, y + row],
         Variant::Secondary,
+        "Mod marketplace",
+        Some(MenuAction::Mods(launcher::mods::Action::BrowseMarketplace)),
+    )?;
+    y += row_step;
+    widgets::button(
+        canvas,
+        view,
+        [x, y, right, y + row],
+        Variant::Secondary,
         "Realms",
         Some(MenuAction::Navigate(MenuScreen::Social)),
     )?;
