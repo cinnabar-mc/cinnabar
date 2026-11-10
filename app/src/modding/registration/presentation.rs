@@ -22,9 +22,11 @@ pub(in crate::modding) fn refresh_presentation(world: &mut World) {
             .mod_ui_mut()
             .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
         let hidden = runtime.hosts.hidden_hud_elements();
+        let sidebar_placement = runtime.hosts.sidebar_placement();
         let mod_ui = presentation.mod_ui_mut();
         mod_ui.set_hud_surfaces(runtime.hud_surfaces());
         mod_ui.set_hidden_hud_elements(hidden);
+        mod_ui.set_sidebar_placement(sidebar_placement);
         presentation.set_mod_presentation(runtime.hosts.merged_presentation());
         let _ = presentation
             .mod_ui_mut()
@@ -72,6 +74,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         presentation
             .mod_ui_mut()
             .set_hidden_hud_elements(Default::default());
+        presentation.mod_ui_mut().set_sidebar_placement(None);
         let _ = presentation.mod_ui_mut().set_mod_label(None);
         presentation.set_mod_presentation(Default::default());
         if let Err(error) = presentation.set_mod_panel_font(None) {

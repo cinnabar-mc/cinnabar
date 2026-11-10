@@ -243,7 +243,18 @@ fn paint_nodes(
     let view = art.view;
     let mut top: Vec<Range<usize>> = Vec::new();
     let overlay_start = render.nodes.len();
+    let root = [
+        f64::from(canvas.screen[2] / canvas.px),
+        f64::from(canvas.screen[3] / canvas.px),
+    ];
+    let placed = art
+        .placement
+        .and_then(|placement| placement.shift(render, root, canvas.metrics.gui_scale));
     for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
+        let shift = placed
+            .as_ref()
+            .filter(|_| index < overlay_start)
+            .and_then(|placed| placed.for_node(node));
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             canvas.enter_filter(node)?;
             let start = canvas.nodes.len();
@@ -252,13 +263,13 @@ fn paint_nodes(
                 .filter(|observer| node.paint_region == Some(observer.region))
             {
                 let (painted, bounds) =
-                    canvas.capture_paint_bounds(|canvas| canvas.paint(node, renderers));
+                    canvas.capture_paint_bounds(|canvas| canvas.paint(node, shift, renderers));
                 if let Some(bounds) = bounds {
                     observer.bounds.include(bounds);
                 }
                 painted?;
             } else {
-                canvas.paint(node, renderers)?;
+                canvas.paint(node, shift, renderers)?;
             }
             let lifted = index >= overlay_start
                 || matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);

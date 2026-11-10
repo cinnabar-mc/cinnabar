@@ -42,6 +42,8 @@ pub use paint_bounds::{PaintBounds, PaintObserver};
 pub mod layout_task;
 mod paint_transform;
 pub mod pixel_snap;
+mod placement;
+pub use placement::ControlPlacement;
 mod render;
 mod retained_paint;
 pub use retained_paint::RetainedPaint;
@@ -439,6 +441,8 @@ pub struct ScreenArt<'a> {
     pub edit: Option<host_edit::Feedback>,
     /// Caller nodes painted above the screen (the held stack).
     pub overlay: &'a [DrawNode],
+    /// Moves one control's paint without changing its layout.
+    pub placement: Option<ControlPlacement<'a>>,
 }
 
 impl ScreenArt<'_> {
@@ -671,10 +675,11 @@ impl Canvas<'_> {
     fn paint(
         &mut self,
         node: &DrawNode,
+        shift: Option<[f64; 2]>,
         renderers: &mut [&mut dyn CustomRenderer],
     ) -> Result<(), PaintError> {
         let start = self.nodes.len();
-        let painted = self.paint_draw(node, renderers);
+        let painted = self.paint_draw(node, shift, renderers);
         self.transform_painted(start);
         self.tag_filtered(start);
         self.length_scale = 1.0;
@@ -684,6 +689,7 @@ impl Canvas<'_> {
     fn paint_draw(
         &mut self,
         node: &DrawNode,
+        shift: Option<[f64; 2]>,
         renderers: &mut [&mut dyn CustomRenderer],
     ) -> Result<(), PaintError> {
         if let Draw::Sprite { texture, .. } = &node.draw
@@ -703,12 +709,15 @@ impl Canvas<'_> {
         {
             return Ok(());
         }
-        let drawn = node.animate(
+        let mut drawn = node.animate(
             &mut self.animator,
             self.now,
             self.art.clocks,
             Some(&self.textures),
         );
+        if let Some(shift) = shift {
+            placement::translate(&mut drawn, shift);
+        }
         let floats =
             matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == tooltip::RENDERER);
         let clip = if floats {

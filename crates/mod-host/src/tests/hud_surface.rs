@@ -124,6 +124,28 @@ fn hidden_elements_are_retained_until_replaced() {
 }
 
 #[test]
+fn the_sidebar_placement_is_retained_validated_and_needs_hud_authority() {
+    let placed = ui::mod_hud::ElementPlacement {
+        anchor: [1., 0.5],
+        offset: [-4., 8.],
+    };
+    let (_dir, mut host) = load("call $place-sidebar", "call $restore-sidebar", true);
+    assert_eq!(host.sidebar_placement(), Some(placed));
+    host.frame(false).unwrap();
+    assert_eq!(host.sidebar_placement(), None);
+    let (_dir, mut host) = load("call $place-sidebar", "call $reject-sidebar", true);
+    host.frame(false).unwrap();
+    assert_eq!(
+        host.sidebar_placement(),
+        Some(placed),
+        "rejected values change nothing"
+    );
+    let (_dir, mut host) = load("", "call $place-sidebar", false);
+    host.frame(false).unwrap();
+    assert_eq!(host.sidebar_placement(), None);
+}
+
+#[test]
 fn the_position_line_is_hidden_independently_of_elements() {
     let (_dir, mut host) = load("call $hide-position call $hide-two", "call $show-all", true);
     let hidden = host.hidden_hud_elements();

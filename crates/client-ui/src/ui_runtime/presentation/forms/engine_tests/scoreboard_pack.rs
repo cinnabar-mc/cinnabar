@@ -314,3 +314,70 @@ fn indexed_scoreboard_pack_survives_apply_switch_remove_at_two_gui_scales() {
         }
     }
 }
+
+/// A placed sidebar paints the pack's own sidebar elsewhere: its art, labels and missing score
+/// column stay, its layout does not move, and it stays on screen.
+#[test]
+fn placed_sidebar_keeps_the_pack_and_only_moves_its_paint() {
+    const PLACED: [u32; 2] = [VIEWPORT[0] - 148, VIEWPORT[1] - 88];
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = session(&mut player);
+    let mut presentation = presentation();
+    presentation.set_gui_scale_preference(Some(1));
+    runtime.set_server_ui(Some(Arc::new(pack(false))));
+    let laid_out = |presentation: &UiPresentationRuntime| {
+        presentation
+            .hud_draw_nodes()
+            .iter()
+            .filter(|node| node.key.contains("/sidebar/"))
+            .map(|node| (node.dest.x, node.dest.y))
+            .collect::<Vec<_>>()
+    };
+
+    let input = render(&mut presentation, &player, &runtime);
+    let pixels = snapshot::rasterize(&input);
+    region(&pixels, 1, [10, 10], GREEN);
+    region(&pixels, 1, [PLACED[0] + 2, PLACED[1] + 2], BACKDROP);
+    let bounds = laid_out(&presentation);
+    assert!(!bounds.is_empty());
+
+    presentation
+        .mod_ui_mut()
+        .set_sidebar_placement(Some(ui::mod_hud::ElementPlacement {
+            anchor: [1., 1.],
+            offset: [-8., -8.],
+        }));
+    let input = render(&mut presentation, &player, &runtime);
+    let pixels = snapshot::rasterize(&input);
+    region(&pixels, 1, [10, 10], BACKDROP);
+    region(&pixels, 1, [PLACED[0] + 2, PLACED[1] + 2], GREEN);
+    region(&pixels, 1, [PLACED[0] + 137, PLACED[1] + 77], GREEN);
+    assert_eq!(laid_out(&presentation), bounds, "layout stays where it was");
+    let labels: Vec<_> = presentation
+        .hud_draw_nodes()
+        .iter()
+        .filter_map(|node| match &node.draw {
+            Draw::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(labels.contains(&"Amber"), "{labels:?}");
+    assert!(
+        !labels.contains(&"791"),
+        "the pack hides scores: {labels:?}"
+    );
+
+    presentation
+        .mod_ui_mut()
+        .set_sidebar_placement(Some(ui::mod_hud::ElementPlacement {
+            anchor: [0., 0.],
+            offset: [100_000., 100_000.],
+        }));
+    let input = render(&mut presentation, &player, &runtime);
+    let pixels = snapshot::rasterize(&input);
+    region(&pixels, 1, [VIEWPORT[0] - 5, VIEWPORT[1] - 5], GREEN);
+
+    presentation.mod_ui_mut().set_sidebar_placement(None);
+    let input = render(&mut presentation, &player, &runtime);
+    region(&snapshot::rasterize(&input), 1, [10, 10], GREEN);
+}

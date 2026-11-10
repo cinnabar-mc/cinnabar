@@ -2,22 +2,26 @@
   (type $viewport (record (field "width" f32) (field "height" f32) (field "scale" f32)))
   (type $font (enum "native" "sans"))
   (type $element (enum "crosshair" "status-effects" "sidebar" "hunger"))
+  (type $placement (record (field "anchor-x" f32) (field "anchor-y" f32) (field "x" f32) (field "y" f32)))
   (import "$HUD" (instance $hud
     (export "viewport" (type $v (eq $viewport)))
     (export "font" (type $f (eq $font)))
     (export "vanilla-element" (type $e (eq $element)))
+    (export "sidebar-placement" (type $p (eq $placement)))
     (export "set-surface" (func (param "json" string) (result (result (error string)))))
     (export "update-surface" (func (param "json" string) (result (result (error string)))))
     (export "read-viewport" (func (result (option $v))))
     (export "measure-text" (func (param "text" string) (param "font" $f) (result (result f32 (error string)))))
     (export "set-hidden-elements" (func (param "elements" (list $e)) (result (result (error string)))))
-    (export "set-position-hidden" (func (param "hidden" bool) (result (result (error string)))))))
+    (export "set-position-hidden" (func (param "hidden" bool) (result (result (error string)))))
+    (export "set-sidebar-placement" (func (param "placement" (option $p)) (result (result (error string)))))))
   (alias export $hud "set-surface" (func $set))
   (alias export $hud "update-surface" (func $update))
   (alias export $hud "read-viewport" (func $viewport))
   (alias export $hud "measure-text" (func $measure))
   (alias export $hud "set-hidden-elements" (func $hide))
   (alias export $hud "set-position-hidden" (func $position))
+  (alias export $hud "set-sidebar-placement" (func $placement))
   (core module $memory-module
     (memory (export "memory") 4)
     (func (export "realloc") (param i32 i32 i32 i32) (result i32) i32.const 131072))
@@ -30,6 +34,7 @@
   (core func $lower-measure (canon lower (func $measure) (memory $memory) (realloc $realloc)))
   (core func $lower-hide (canon lower (func $hide) (memory $memory) (realloc $realloc)))
   (core func $lower-position (canon lower (func $position) (memory $memory) (realloc $realloc)))
+  (core func $lower-placement (canon lower (func $placement) (memory $memory) (realloc $realloc)))
   (core module $code
     (import "host" "set" (func $set (param i32 i32 i32)))
     (import "host" "update" (func $update (param i32 i32 i32)))
@@ -37,6 +42,7 @@
     (import "host" "measure" (func $measure (param i32 i32 i32 i32)))
     (import "host" "hide" (func $hide (param i32 i32 i32)))
     (import "host" "position" (func $position (param i32 i32)))
+    (import "host" "placement" (func $placement (param i32 f32 f32 f32 f32 i32)))
     (import "host" "memory" (memory 4))
     (data (i32.const 0) "$SURFACE")
     (data (i32.const 65536) "$PATCH")
@@ -62,6 +68,17 @@
     (func $show-position
       i32.const 0 i32.const 98560 call $position
       i32.const 98560 i32.load8_u i32.const $ERROR i32.ne if unreachable end)
+    (func $place-sidebar
+      i32.const 1 f32.const 1 f32.const 0.5 f32.const -4 f32.const 8 i32.const 98560 call $placement
+      i32.const 98560 i32.load8_u i32.const $ERROR i32.ne if unreachable end)
+    (func $restore-sidebar
+      i32.const 0 f32.const 0 f32.const 0 f32.const 0 f32.const 0 i32.const 98560 call $placement
+      i32.const 98560 i32.load8_u i32.const $ERROR i32.ne if unreachable end)
+    (func $reject-sidebar
+      i32.const 1 f32.const 2 f32.const 0 f32.const 0 f32.const 0 i32.const 98560 call $placement
+      i32.const 98560 i32.load8_u i32.const 1 i32.ne if unreachable end
+      i32.const 1 f32.const 0 f32.const 0 f32.const nan f32.const 0 i32.const 98560 call $placement
+      i32.const 98560 i32.load8_u i32.const 1 i32.ne if unreachable end)
     (func $require-viewport
       i32.const 98600 call $viewport
       i32.const 98600 i32.load8_u i32.eqz if unreachable end
@@ -83,6 +100,7 @@
     (export "measure" (func $lower-measure))
     (export "hide" (func $lower-hide))
     (export "position" (func $lower-position))
+    (export "placement" (func $lower-placement))
     (export "memory" (memory $memory)))
   (core instance $run (instantiate $code (with "host" (instance $host))))
   (func (export "init") (canon lift (core func $run "init")))

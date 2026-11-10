@@ -49,6 +49,7 @@ pub(super) struct PaintInputs {
     nearest_sampling: bool,
     pixel_snap_offset: [f64; 2],
     clocks: Option<BTreeMap<String, f64>>,
+    placement: Option<[[f64; 2]; 2]>,
 }
 
 impl PaintInputs {
@@ -65,6 +66,9 @@ impl PaintInputs {
             nearest_sampling: art.nearest_sampling,
             pixel_snap_offset: art.pixel_snap_offset,
             clocks: art.clocks.cloned(),
+            placement: art
+                .placement
+                .map(|placement| [placement.anchor, placement.offset]),
         }
     }
 
@@ -77,6 +81,10 @@ impl PaintInputs {
             && self.language == frame.language
             && self.font == frame.font.identity()
             && self.nearest_sampling == art.nearest_sampling
+            && self.placement
+                == art
+                    .placement
+                    .map(|placement| [placement.anchor, placement.offset])
             && self.pixel_snap_offset == art.pixel_snap_offset
             && self.clocks.as_ref() == art.clocks
     }

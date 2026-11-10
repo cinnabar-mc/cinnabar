@@ -4,7 +4,7 @@
 use super::{MAX_IMPORT_WRITES, State};
 use anyhow::{Result, bail};
 use std::sync::Arc;
-use ui::mod_hud::{ElementStates, HiddenElements, HudViewport};
+use ui::mod_hud::{ElementPlacement, ElementStates, HiddenElements, HudViewport};
 #[path = "hud/surface.rs"]
 pub(super) mod surface;
 #[cfg(test)]
@@ -29,6 +29,8 @@ pub(super) struct HudState {
     index: ui::mod_panel::HudIndex,
     pub hidden: HiddenElements,
     pending_hidden: Option<HiddenElements>,
+    pub sidebar_placement: Option<ElementPlacement>,
+    pending_sidebar_placement: Option<Option<ElementPlacement>>,
     pub local_messages: Vec<String>,
     pending_messages: Vec<String>,
     /// Text measurements the running callback made.
@@ -50,6 +52,8 @@ impl HudState {
             index: self.index.clone(),
             hidden: self.hidden,
             pending_hidden: None,
+            sidebar_placement: self.sidebar_placement,
+            pending_sidebar_placement: None,
             local_messages: self.local_messages.clone(),
             pending_messages: Vec::new(),
             measures: 0,
@@ -66,6 +70,7 @@ impl HudState {
             self.index = transaction.index;
         }
         self.pending_hidden = transaction.pending_hidden;
+        self.pending_sidebar_placement = transaction.pending_sidebar_placement;
         self.pending_messages = transaction.pending_messages;
     }
 
@@ -100,6 +105,8 @@ impl HudState {
             index,
             hidden: _,
             pending_hidden,
+            sidebar_placement: _,
+            pending_sidebar_placement,
             local_messages: _,
             pending_messages,
             measures,
@@ -109,6 +116,7 @@ impl HudState {
         } = self;
         *pending_surface = None;
         *pending_hidden = None;
+        *pending_sidebar_placement = None;
         pending_messages.clear();
         *measures = 0;
         *index = surface
@@ -135,6 +143,11 @@ impl HudState {
         };
     }
 
+    /// Stages where the vanilla sidebar draws.
+    pub(super) fn stage_sidebar_placement(&mut self, placement: Option<ElementPlacement>) {
+        self.pending_sidebar_placement = Some(placement);
+    }
+
     /// The hidden set this callback has staged, or the committed one.
     pub(super) fn staged_hidden(&self) -> HiddenElements {
         self.pending_hidden.unwrap_or(self.hidden)
@@ -156,6 +169,9 @@ impl HudState {
         }
         if let Some(hidden) = self.pending_hidden.take() {
             self.hidden = hidden;
+        }
+        if let Some(placement) = self.pending_sidebar_placement.take() {
+            self.sidebar_placement = placement;
         }
     }
 }

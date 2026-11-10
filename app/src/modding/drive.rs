@@ -647,9 +647,11 @@ pub(super) fn drive_mod(
         warn!("Cinnabar extension HUD rejected: {error}");
     }
     let hidden = extension.hosts.hidden_hud_elements();
+    let sidebar_placement = extension.hosts.sidebar_placement();
     let mod_ui = presentation.mod_ui_mut();
     mod_ui.set_hud_surfaces(extension.hud_surfaces());
     mod_ui.set_hidden_hud_elements(hidden);
+    mod_ui.set_sidebar_placement(sidebar_placement);
     let mod_presentation = extension.hosts.merged_presentation();
     if let Some(style) = actor_style.as_mut()
         && !std::sync::Arc::ptr_eq(&style.presentation, &mod_presentation)

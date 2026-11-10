@@ -98,6 +98,13 @@ impl ModHost {
         }
     }
 
+    /// Where the committed output draws the vanilla sidebar.
+    pub fn sidebar_placement(&self) -> Option<ui::mod_hud::ElementPlacement> {
+        self.is_active()
+            .then(|| self.instance.sidebar_placement())
+            .flatten()
+    }
+
     /// Records the last laid-out HUD root and vanilla element states that `read-viewport` and
     /// `read-elements` report to later callbacks.
     pub fn observe_hud(

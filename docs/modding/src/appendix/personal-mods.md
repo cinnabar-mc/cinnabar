@@ -188,7 +188,8 @@ it to spread large work, such as encoding a document, over later callbacks.
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
 status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
 line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
-hiding, and its bounds in GUI units when laid out.
+hiding, and its bounds in GUI units when laid out. `hud.set-sidebar-placement` moves the
+drawn sidebar without changing its layout, so a resource pack's sidebar keeps its look.
 
 ## Gameplay wheel input
 
