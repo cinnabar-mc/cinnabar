@@ -53,7 +53,7 @@ pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 
 /// Exclusive bound for guest time overrides: ticks in one Bedrock day.
 pub const BEDROCK_DAY_TICKS: u32 = 24_000;
-/// Maximum remote players exposed by one local gameplay snapshot.
+/// Maximum remote players in one native packet-mod frame.
 pub const MAX_GAMEPLAY_PLAYERS: usize = 128;
 /// Fixed player inventory and worn armor lengths in local player-state snapshots.
 pub const PLAYER_STATE_INVENTORY_SLOTS: usize = 36;
@@ -122,10 +122,6 @@ pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     ICON_SECTION,
 ];
 
-/// Maximum nearby mobs in one snapshot, and the radius they are drawn from.
-pub const MAX_GAMEPLAY_MOBS: usize = 64;
-pub const MAX_MOB_RANGE_BLOCKS: f32 = 64.0;
-pub const MAX_MOB_TYPE_BYTES: usize = 64;
 /// Camera rig bounds: |right| and up/down offset, boom length, |roll| and |FOV change|.
 pub const MAX_RIG_SIDE_BLOCKS: f32 = 2.0;
 pub const MAX_RIG_VERTICAL_BLOCKS: f32 = 2.0;
@@ -262,6 +258,8 @@ pub const MAX_DRAW_EXPANDED_VERTICES: usize = MAX_DRAW_INDICES;
 
 /// Current actor observations and retained actor references, per drawing owner.
 pub const MAX_DRAW_ENTITIES: usize = MAX_OBSERVED_ACTORS;
+/// Radius around the view within which actors are offered as drawing references, in blocks.
+pub const MAX_DRAW_ENTITY_RANGE_BLOCKS: f32 = 64.0;
 
 /// Caps submitted vertex work as well as resident mesh sizes, including repeated instances.
 pub const MAX_DRAW_VERTEX_WORK: usize = MAX_DRAW_EXPANDED_VERTICES * 4;

@@ -92,9 +92,7 @@ pub(super) fn render() -> String {
         mod_api::drawing::MAX_CLIP_ATTACHMENT_BYTES => "Private clip attachment bytes across personal views.",
     );
     section!("World and player observations",
-        mod_api::MAX_GAMEPLAY_PLAYERS => "Remote player poses per gameplay snapshot.",
-        mod_api::MAX_GAMEPLAY_MOBS => "Nearby non-player poses.",
-        mod_api::MAX_MOB_RANGE_BLOCKS => "Non-player observation radius in blocks.",
+        mod_api::MAX_GAMEPLAY_PLAYERS => "Remote player poses per native packet-mod frame.",
         mod_api::MAX_OBSERVED_ACTORS => "Actor observations per read.",
         mod_api::MAX_OBSERVED_ACTOR_BOXES => "Boxes per observed actor.",
         mod_api::MAX_ACTOR_LIFE_READS => "Actor IDs per life lookup.",
@@ -148,6 +146,7 @@ pub(super) fn render() -> String {
         mod_api::MAX_DRAW_VERTEX_WORK => "Submitted vertex work, including repeated instances.",
         mod_api::MAX_DRAW_GROUP_NAME_BYTES => "Frame group name bytes.",
         mod_api::MAX_DRAW_ENTITIES => "Retained actor references per owner.",
+        mod_api::MAX_DRAW_ENTITY_RANGE_BLOCKS => "Actor reference radius around the view, in blocks.",
         mod_api::MAX_DRAW_MATERIALS => "Retained materials, including retiring resources.",
         mod_api::MAX_MATERIAL_COMPILES_PER_CALLBACK => "Material validation attempts per callback.",
         mod_api::MAX_MATERIAL_PIPELINE_COMPILES_PER_FRAME => "Native material compilations per render frame across all mods.",

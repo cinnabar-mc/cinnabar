@@ -575,6 +575,7 @@ fn observed_actor(runtime_id: u64, player: bool) -> crate::ObservedActor {
             health: Some(10.),
         },
         max_health: Some(40.),
+        unique_id: -(runtime_id as i64),
     }
 }
 
@@ -829,9 +830,35 @@ fn combat_lives_follow_event_grants_bounds_order_and_callback_lifetime() {
     assert_eq!(state.read_combat_lives(vec![2]).unwrap().unwrap(), [None]);
 }
 
-/// Identifier queries omit unknown cells and preserve unknown offhand identity separately.
+/// Known inventory cells holding `identifier` and whether the offhand does, none when its
+/// identity is unknown: what a mod computes from `read-equipment` to match one item.
+fn equipment_matches(
+    equipment: &cinnabar::extension::player_state::Equipment,
+    identifier: &str,
+) -> (Vec<u8>, Option<bool>) {
+    let matches = |slot: &PlayerStateSlot| -> Option<bool> {
+        if !slot.known {
+            return None;
+        }
+        slot.item.as_ref().map_or(Some(false), |item| {
+            item.identifier
+                .as_deref()
+                .map(|name| name == identifier && item.count > 0)
+        })
+    };
+    let inventory = equipment
+        .inventory
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, item)| (matches(item) == Some(true)).then_some(slot as u8))
+        .collect();
+    (inventory, matches(&equipment.offhand))
+}
+
+/// Exact identifier matching stays expressible through equipment reads, and the equipment
+/// token lets a mod skip copying equipment while it is unchanged.
 #[test]
-fn compact_equipment_queries_are_exact_granted_and_session_bound() {
+fn equipment_reads_express_identifier_matching_and_unchanged_tokens() {
     let mut state = State::new(
         ModGrants {
             player_state: true,
@@ -862,14 +889,24 @@ fn compact_equipment_queries_are_exact_granted_and_session_bound() {
         .player_state
         .set_snapshot(Some(input.clone()))
         .unwrap();
-    let answer = state
-        .read_equipment_matches("test:match".into())
-        .unwrap()
-        .unwrap()
+    let token = state.read_revisions().unwrap().unwrap().unwrap().equipment;
+    let equipment = state.read_equipment().unwrap().unwrap().unwrap();
+    assert_eq!(equipment.session, input.session);
+    assert_eq!(
+        equipment_matches(&equipment, "test:match"),
+        (vec![35], None)
+    );
+    assert_eq!(equipment_matches(&equipment, "test:mat"), (vec![], None));
+    state.player_state.begin_frame();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
         .unwrap();
-    assert_eq!(answer.inventory, [35]);
-    assert_eq!(answer.offhand, None);
-    assert_eq!(answer.revisions.session, input.session);
+    assert_eq!(
+        state.read_revisions().unwrap().unwrap().unwrap().equipment,
+        token,
+        "unchanged equipment keeps its token, so the previous matches still hold"
+    );
     input.offhand = PlayerStateSlot {
         known: true,
         item: Some(item),
@@ -879,57 +916,62 @@ fn compact_equipment_queries_are_exact_granted_and_session_bound() {
         .player_state
         .set_snapshot(Some(input.clone()))
         .unwrap();
-    assert_eq!(
-        state
-            .read_equipment_matches("test:match".into())
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .offhand,
-        Some(true)
+    assert_ne!(
+        state.read_revisions().unwrap().unwrap().unwrap().equipment,
+        token
     );
-    assert!(
-        state
-            .read_equipment_matches("test:mat".into())
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .inventory
-            .is_empty()
+    let equipment = state.read_equipment().unwrap().unwrap().unwrap();
+    assert_eq!(
+        equipment_matches(&equipment, "test:match"),
+        (vec![35], Some(true))
     );
     input.offhand.item.as_mut().unwrap().identifier = None;
     state.player_state.begin_frame();
     state.player_state.set_snapshot(Some(input)).unwrap();
+    let equipment = state.read_equipment().unwrap().unwrap().unwrap();
+    assert_eq!(equipment_matches(&equipment, "test:match").1, None);
+}
+
+/// A nearer full set of player rows leaves an entities-only mod the nearest other actors,
+/// with the identity, type, health and maximum the removed mob read carried.
+#[test]
+fn entity_rows_survive_nearer_players_with_every_former_mob_fact() {
+    let mut state = State::new(
+        ModGrants {
+            entities: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    state.player_state.observations.actors = (1..=mod_api::MAX_OBSERVED_ACTORS as u64)
+        .map(|runtime_id| observed_actor(runtime_id, true))
+        .chain([observed_actor(100, false), observed_actor(101, false)])
+        .collect();
+    let rows = state
+        .read_actors_limited(mod_api::MAX_OBSERVED_ACTORS as u32)
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        state
-            .read_equipment_matches("test:match".into())
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .offhand,
-        None
+        rows.iter()
+            .map(|row| (row.actor.runtime_id, row.unique_id))
+            .collect::<Vec<_>>(),
+        [(100, -100), (101, -101)]
     );
-    state.player_state.begin_frame();
-    assert!(
-        state
-            .read_equipment_matches("test:match".into())
-            .unwrap()
-            .unwrap()
-            .is_none()
+    let row = &rows[0];
+    assert!(!row.actor.player);
+    assert_eq!(
+        (
+            row.actor.identifier.as_str(),
+            row.actor.health,
+            row.max_health
+        ),
+        ("fixture:actor", Some(10.), Some(40.))
     );
-    assert!(
-        state
-            .read_equipment_matches(String::new())
-            .unwrap()
-            .is_err()
-    );
-    state.grants.player_state = false;
-    assert!(
-        state
-            .read_equipment_matches("test:match".into())
-            .unwrap()
-            .is_err()
-    );
+    state.grants.players = true;
+    let rows = state.read_actors().unwrap().unwrap();
+    assert_eq!(rows.len(), mod_api::MAX_OBSERVED_ACTORS);
+    assert!(rows.iter().all(|row| row.player));
 }
 
 /// The selection read is session-scoped, granted, and bounded by its own allowance, so it

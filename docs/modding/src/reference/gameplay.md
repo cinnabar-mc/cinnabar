@@ -6,7 +6,7 @@
 
 Explicit local gameplay capabilities; no raw packet access.
 
-**Grants:** Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `entities`, `commands` or `packet_delay`; see each function.
+**Grants:** Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `commands` or `packet_delay`; see each function.
 
 ## Types
 
@@ -50,26 +50,6 @@ record block-position {
 | `y` | `s32` |  |
 | `z` | `s32` |  |
 
-<a id="type-player"></a>
-
-### `player`
-
-Remote player feet in world coordinates, without names or network access.
-
-```wit
-record player {
-    runtime-id: u64,
-    position: vector3,
-}
-```
-
-| Member | Type | Description |
-| --- | --- | --- |
-| `runtime-id` | `u64` |  |
-| `position` | `vector3` |  |
-
-Types: [`vector3`](gameplay.md#type-vector3).
-
 <a id="type-snapshot"></a>
 
 ### `snapshot`
@@ -84,7 +64,6 @@ record snapshot {
     yaw: f32,
     pitch: f32,
     frame-seconds: f32,
-    players: list<player>,
 }
 ```
 
@@ -96,9 +75,8 @@ record snapshot {
 | `yaw` | `f32` |  |
 | `pitch` | `f32` |  |
 | `frame-seconds` | `f32` |  |
-| `players` | `list<player>` |  |
 
-Types: [`player`](gameplay.md#type-player), [`vector3`](gameplay.md#type-vector3).
+Types: [`vector3`](gameplay.md#type-vector3).
 
 <a id="type-movement-snapshot"></a>
 
@@ -218,34 +196,6 @@ record camera-pose {
 
 Types: [`vector3`](gameplay.md#type-vector3).
 
-<a id="type-mob"></a>
-
-### `mob`
-
-A nearby non-player actor; health comes from its replicated health attribute.
-
-```wit
-record mob {
-    runtime-id: u64,
-    unique-id: s64,
-    type-id: string,
-    position: vector3,
-    health: option<f32>,
-    max-health: option<f32>,
-}
-```
-
-| Member | Type | Description |
-| --- | --- | --- |
-| `runtime-id` | `u64` |  |
-| `unique-id` | `s64` |  |
-| `type-id` | `string` |  |
-| `position` | `vector3` |  |
-| `health` | `option<f32>` |  |
-| `max-health` | `option<f32>` |  |
-
-Types: [`vector3`](gameplay.md#type-vector3).
-
 <a id="type-camera-rig"></a>
 
 ### `camera-rig`
@@ -278,7 +228,7 @@ Types: [`vector3`](gameplay.md#type-vector3).
 read-frame: func() -> result<option<snapshot>, string>;
 ```
 
-Requires players or terrain; player rows require players. None means gameplay does not own input.
+Requires players or terrain. None means gameplay does not own input.
 
 Types: [`snapshot`](gameplay.md#type-snapshot).
 
@@ -503,18 +453,6 @@ read-camera: func() -> result<option<camera-pose>, string>;
 Requires players or terrain, as read-frame. None means gameplay does not own input.
 
 Types: [`camera-pose`](gameplay.md#type-camera-pose).
-
-<a id="read-mobs"></a>
-
-### `read-mobs`
-
-```wit
-read-mobs: func() -> result<list<mob>, string>;
-```
-
-Requires the entities grant and a current frame; nearest first, bounded by count and range.
-
-Types: [`mob`](gameplay.md#type-mob).
 
 <a id="set-camera-rig"></a>
 

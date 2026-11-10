@@ -30,7 +30,7 @@ fn frame_result(
             chat_events: &[],
             gameplay_facts: Default::default(),
         },
-        |_| (Some(snapshot()), Vec::new(), None),
+        |_| (Some(snapshot()), None),
         |index, error| failures.push((index, error)),
     );
     (merged, failures)

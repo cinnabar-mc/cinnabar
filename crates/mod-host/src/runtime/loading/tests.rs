@@ -174,7 +174,6 @@ fn stage_world_output(state: &mut State) -> Result<()> {
         pitch: 0.,
         attack_held: true,
         frame_seconds: 0.016,
-        players: Vec::new(),
     });
     state.gameplay_facts.use_held = true;
     state.controls.frame.focused = true;

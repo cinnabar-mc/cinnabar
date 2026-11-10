@@ -6,8 +6,7 @@ use client_presentation::{
     local_player::LocalViewPose,
 };
 use mod_host::{
-    CameraDelta, GameplayMob, GameplayMovementSnapshot, GameplayPlayer, GameplaySnapshot,
-    GameplayVector3, ModGrants,
+    CameraDelta, GameplayMovementSnapshot, GameplaySnapshot, GameplayVector3, ModGrants,
 };
 
 use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
@@ -73,8 +72,9 @@ impl GameplayContext<'_> {
         })
     }
 
-    /// Native packet frames share the current input snapshot and connected-world fences. The
-    /// native camera fills in the look and real time since the previous frame.
+    /// Native packet frames share the current input snapshot and connected-world fences, and
+    /// list the nearest remote players. The native camera fills in the look and real time since
+    /// the previous frame.
     pub(super) fn native_frame(
         &self,
         allowed: bool,
@@ -120,6 +120,8 @@ impl GameplayContext<'_> {
             });
         };
         let input = self.input.as_deref();
+        let eye = Vec3::new(snapshot.eye.x, snapshot.eye.y, snapshot.eye.z);
+        let players = nearest_players(world.stream.as_ref()?.authority().remote_actors(), eye);
         Some(mod_host::NativeFrame {
             version: mod_api::native_frame::VERSION,
             session: snapshot.session,
@@ -137,14 +139,7 @@ impl GameplayContext<'_> {
             descend: input.is_some_and(|input| input.phase(semantic_input::Action::Sneak).held),
             elapsed: 0.0,
             suspended: false,
-            players: snapshot
-                .players
-                .into_iter()
-                .map(|player| mod_api::native_frame::Player {
-                    runtime_id: player.runtime_id,
-                    feet: [player.position.x, player.position.y, player.position.z],
-                })
-                .collect(),
+            players,
         })
     }
 
@@ -331,11 +326,6 @@ impl GameplayContext<'_> {
         let view = self.view.as_ref()?;
         let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
         let eye = view.eye_translation();
-        let players = if grants.players {
-            nearest_players(authority.remote_actors(), eye)
-        } else {
-            Vec::new()
-        };
         Some(GameplaySnapshot {
             session: authority.actor_session_id(),
             dimension: authority.current_dimension(),
@@ -347,24 +337,7 @@ impl GameplayContext<'_> {
                 .as_ref()
                 .map_or(0.0, |time| time.delta_secs().clamp(0.0, 1.0)),
             attack_held: input.phases[semantic_input::Action::Attack as usize].held,
-            players,
         })
-    }
-
-    /// Nearby mobs around the snapshot eye, only with the entities grant.
-    pub(super) fn mobs(
-        &self,
-        snapshot: Option<&GameplaySnapshot>,
-        grants: &ModGrants,
-    ) -> Vec<GameplayMob> {
-        let (Some(frame), true) = (snapshot, grants.entities) else {
-            return Vec::new();
-        };
-        let Some(stream) = self.world.as_ref().and_then(|world| world.stream.as_ref()) else {
-            return Vec::new();
-        };
-        let eye = Vec3::new(frame.eye.x, frame.eye.y, frame.eye.z);
-        nearest_mobs(stream.authority().remote_actors(), eye)
     }
 
     /// Captures the facts gameplay capabilities read: the last presented camera and the use
@@ -574,58 +547,15 @@ impl Ord for Candidate<'_> {
 fn nearest_players<'a>(
     actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
     eye: Vec3,
-) -> Vec<GameplayPlayer> {
+) -> Vec<mod_api::native_frame::Player> {
     let eligible = actors
         .filter(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }))
         .filter(|actor| actor.runtime_id != 0 && Vec3::from_array(actor.position).is_finite());
     nearest_actors(eligible, eye, mod_api::MAX_GAMEPLAY_PLAYERS)
         .into_iter()
-        .map(|actor| GameplayPlayer {
+        .map(|actor| mod_api::native_frame::Player {
             runtime_id: actor.runtime_id,
-            position: vector(Vec3::from_array(actor.position)),
-        })
-        .collect()
-}
-
-/// Non-player actors within the published range, nearest first; health is the replicated attribute.
-fn nearest_mobs<'a>(
-    actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
-    eye: Vec3,
-) -> Vec<GameplayMob> {
-    let range = mod_api::MAX_MOB_RANGE_BLOCKS * mod_api::MAX_MOB_RANGE_BLOCKS;
-    let eligible = actors.filter(|actor| {
-        let protocol::ActorKind::Entity { identifier } = &actor.kind else {
-            return false;
-        };
-        let position = Vec3::from_array(actor.position);
-        if actor.runtime_id == 0
-            || !position.is_finite()
-            || position.distance_squared(eye) > range
-            || identifier.is_empty()
-            || identifier.len() > mod_api::MAX_MOB_TYPE_BYTES
-        {
-            return false;
-        }
-        true
-    });
-    nearest_actors(eligible, eye, mod_api::MAX_GAMEPLAY_MOBS)
-        .into_iter()
-        .map(|actor| {
-            let protocol::ActorKind::Entity { identifier } = &actor.kind else {
-                unreachable!()
-            };
-            let health = actor
-                .attributes
-                .get("minecraft:health")
-                .filter(|health| health.current.is_finite() && health.max.is_finite());
-            GameplayMob {
-                runtime_id: actor.runtime_id,
-                unique_id: actor.unique_id,
-                type_id: identifier.to_string(),
-                position: vector(Vec3::from_array(actor.position)),
-                health: health.map(|health| health.current),
-                max_health: health.map(|health| health.max),
-            }
+            feet: actor.position,
         })
         .collect()
 }

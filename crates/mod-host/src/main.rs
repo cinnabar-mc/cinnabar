@@ -100,7 +100,6 @@ fn probe_render(path: &Path) -> Result<()> {
             pitch: 0.0,
             attack_held: frame % 20 < 3,
             frame_seconds: 1.0 / 60.0,
-            players: Vec::new(),
         };
         let mut controls = mod_host::empty_controls();
         controls.seconds = 1.0 / 60.0;

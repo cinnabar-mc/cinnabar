@@ -379,9 +379,8 @@ pub(super) fn drive_mod(
         },
         |grants| {
             let snapshot = gameplay.snapshot(captured && !absorbed, grants);
-            let mobs = gameplay.mobs(snapshot.as_ref(), grants);
             let movement = gameplay.movement_snapshot(captured && !absorbed, grants, &ui);
-            (snapshot, mobs, movement)
+            (snapshot, movement)
         },
         |index, error| {
             callback_failures.push((index, error));
