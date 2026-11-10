@@ -482,6 +482,22 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 system.spawn(&eating_item_request(notice.eating_position, tile));
             }
         }
+        ActorStatusKind::FireworksExplode => {
+            burst(
+                system,
+                assets::facts::ParticleEffect::SparklerEmitter.identifier(),
+                notice.position,
+                32,
+                seed,
+            );
+            burst(
+                system,
+                assets::facts::ParticleEffect::ExplosionParticle.identifier(),
+                notice.position,
+                8,
+                seed,
+            );
+        }
         ActorStatusKind::FishHookPosition
         | ActorStatusKind::FishHookBite
         | ActorStatusKind::FishHookTease => route_fishing(system, routing, notice),
@@ -777,6 +793,26 @@ fn drive_particles(
     }
     for notice in inbox.notices.drain(..) {
         route_notice(&mut system, &routing, &notice);
+    }
+    for actor in stream.authority().remote_actors() {
+        if let client_world::ActorKind::Entity { identifier } = &actor.kind {
+            if identifier.as_ref() == "minecraft:fireworks_rocket" {
+                system.spawn(&SpawnRequest {
+                    effect: assets::facts::ParticleEffect::SparklerEmitter.identifier().to_string(),
+                    position: actor.position,
+                    particle_count: 2,
+                    seed: actor.runtime_id.wrapping_add((time.elapsed_secs_f64() * 1000.0) as u64),
+                    ..SpawnRequest::default()
+                });
+                system.spawn(&SpawnRequest {
+                    effect: assets::facts::ParticleEffect::BasicSmokeParticle.identifier().to_string(),
+                    position: actor.position,
+                    particle_count: 1,
+                    seed: actor.runtime_id.wrapping_add(1),
+                    ..SpawnRequest::default()
+                });
+            }
+        }
     }
     for cue in eating_cues.read() {
         spawn_local_bite(&mut system, &routing, transform, first_person, cue);
