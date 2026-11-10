@@ -5,6 +5,8 @@ use crate::runtime::network::resource_packs::PackApplication;
 use client_presentation::environment::{WeatherState, WorldClock};
 use client_runtime::network::NetworkHandle;
 mod bindings;
+#[cfg(test)]
+mod chord_border_tests;
 mod details;
 mod entities;
 mod lines;
@@ -13,7 +15,7 @@ mod spatial;
 #[cfg(test)]
 mod tests;
 
-use std::{fmt::Write, time::Duration};
+use std::{fmt::Write, sync::Arc, time::Duration};
 
 use lines::{Column, Lines, warm_buffers};
 
@@ -55,6 +57,8 @@ struct FrameTiming {
 #[derive(Resource, Default)]
 pub(super) struct DebugOverlayState {
     bindings: bindings::DebugBindings,
+    chords: bindings::DebugChords,
+    chunk_border_geometry: Option<ChunkBorderGeometry>,
     visible: bool,
     pub show_chunk_borders: bool,
     f3_chord_used: bool,
@@ -103,10 +107,34 @@ impl DebugOverlayState {
 pub(super) fn configure(app: &mut App) {
     app.init_resource::<DebugOverlayState>().add_systems(
         Update,
-        publish_debug_overlay
-            .after(ClientFrameSet::UiPreparation)
-            .before(ClientFrameSet::UiPublication),
+        (
+            collect_debug_chords.before(ClientFrameSet::RawInput),
+            publish_debug_overlay
+                .after(ClientFrameSet::UiPreparation)
+                .before(ClientFrameSet::UiPublication),
+        )
+            .chain(),
     );
+}
+
+/// Takes debug chord presses before ordinary input can use them as gameplay shortcuts.
+fn collect_debug_chords(
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mouse: Option<Res<ButtonInput<MouseButton>>>,
+    menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    mut state: ResMut<DebugOverlayState>,
+) {
+    let settings = menu
+        .as_deref()
+        .map(client_shell::menu::MenuRuntime::settings_snapshot);
+    state
+        .bindings
+        .update(settings.as_ref().map(|(settings, _)| settings));
+    state.chords = if menu.is_some_and(|menu| menu.is_remapping_key()) {
+        bindings::DebugChords::default()
+    } else {
+        state.bindings.take_chords(&mut keys, mouse.as_deref())
+    };
 }
 
 /// Format already-collected GPU statistics without sorting an allocated list.
@@ -223,10 +251,12 @@ fn publish_debug_overlay(
     if !f3_is_down {
         state.f3_chord_used = false;
     } else {
-        let chord_g = keys.just_pressed(KeyCode::KeyG);
-        let chord_a = keys.just_pressed(KeyCode::KeyA);
-        let chord_d = keys.just_pressed(KeyCode::KeyD);
-        let chord_q = keys.just_pressed(KeyCode::KeyQ);
+        let bindings::DebugChords {
+            chunk_borders: chord_g,
+            reload_chunks: chord_a,
+            clear_chat: chord_d,
+            help: chord_q,
+        } = state.chords;
 
         if chord_g || chord_a || chord_d || chord_q {
             if !state.f3_chord_used {
@@ -300,7 +330,12 @@ fn publish_debug_overlay(
         }
     }
 
-    update_debug_visuals(state.show_chunk_borders, &context, &mut mod_scene);
+    update_debug_visuals(
+        state.show_chunk_borders,
+        &mut state.chunk_border_geometry,
+        &context,
+        &mut mod_scene,
+    );
     // The overlay names the slowest passes once per refresh, so one timed frame per refresh
     // suffices; it is read back before the next refresh.
     let wanted = state.visible && (toggled || timing_updated);
@@ -455,111 +490,158 @@ fn append_debug_box(
     }
 }
 
-/// Publishes chunk-border geometry or clears it when the toggle is off.
+/// Inputs that determine the chunk-border vertex buffer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ChunkBorderKey {
+    section: [i32; 3],
+    dimension: i32,
+    range: protocol::DimensionRange,
+}
+
+impl ChunkBorderKey {
+    /// Reads the player's section and the active stream's admitted height range.
+    fn from_context(context: &DebugContext) -> Option<Self> {
+        let (pos, _, _) = spatial::player_origins(&context.frame, context.view.as_deref())?;
+        let stream = context.client_world.stream.as_ref()?;
+        let dimension = stream.current_dimension();
+        let side = world::SUB_CHUNK_SIDE as f32;
+        Some(Self {
+            section: pos
+                .to_array()
+                .map(|coordinate| (coordinate / side).floor() as i32),
+            dimension,
+            range: stream.dimension_range(dimension)?,
+        })
+    }
+}
+
+/// Retains geometry while the player's section and dimension bounds stay unchanged.
+struct ChunkBorderGeometry {
+    key: ChunkBorderKey,
+    vertices: Arc<[mod_render::geometry::ModVertex]>,
+}
+
+/// Publishes cached chunk borders, clearing them when hidden or no world is available.
 fn update_debug_visuals(
     show_chunk_borders: bool,
+    cache: &mut Option<ChunkBorderGeometry>,
     context: &DebugContext,
     mod_scene: &mut Option<ResMut<render_scene::ModRenderScene>>,
 ) {
     let Some(scene) = mod_scene.as_mut() else {
         return;
     };
-    if !show_chunk_borders {
+    let key = show_chunk_borders
+        .then(|| ChunkBorderKey::from_context(context))
+        .flatten();
+    let Some(key) = key else {
         if !scene.debug_vertices.is_empty() {
             crate::modding::render::update_overlay(scene, |s| {
-                s.set_debug_vertices(std::sync::Arc::from([]));
+                s.set_debug_vertices(Arc::from([]));
             });
         }
         return;
-    }
-    let mut debug_vertices = Vec::new();
-    if show_chunk_borders {
-        if let Some((pos, _, _)) = spatial::player_origins(&context.frame, context.view.as_deref())
-        {
-            let cx = (pos.x / 16.0).floor() as i32;
-            let cz = (pos.z / 16.0).floor() as i32;
-            let min_x = cx as f32 * 16.0;
-            let max_x = min_x + 16.0;
-            let min_z = cz as f32 * 16.0;
-            let max_z = min_z + 16.0;
-
-            append_debug_line(
-                &mut debug_vertices,
-                [min_x, -64.0, min_z],
-                [min_x, 320.0, min_z],
-                [1.0, 1.0, 0.0, 1.0],
-                1.5,
-            );
-            append_debug_line(
-                &mut debug_vertices,
-                [max_x, -64.0, min_z],
-                [max_x, 320.0, min_z],
-                [1.0, 1.0, 0.0, 1.0],
-                1.5,
-            );
-            append_debug_line(
-                &mut debug_vertices,
-                [min_x, -64.0, max_z],
-                [min_x, 320.0, max_z],
-                [1.0, 1.0, 0.0, 1.0],
-                1.5,
-            );
-            append_debug_line(
-                &mut debug_vertices,
-                [max_x, -64.0, max_z],
-                [max_x, 320.0, max_z],
-                [1.0, 1.0, 0.0, 1.0],
-                1.5,
-            );
-
-            let mut y = -64.0;
-            while y <= 320.0 {
-                append_debug_box(
-                    &mut debug_vertices,
-                    [min_x, y - 0.01, min_z],
-                    [max_x, y + 0.01, max_z],
-                    [1.0, 1.0, 0.0, 0.7],
-                    1.0,
-                );
-                y += 16.0;
-            }
-
-            let sub_y = ((pos.y + 64.0) / 16.0).floor() * 16.0 - 64.0;
-            let sub_top = sub_y + 16.0;
-            for step in 1..8 {
-                let offset = step as f32 * 2.0;
-                append_debug_line(
-                    &mut debug_vertices,
-                    [min_x + offset, sub_y, min_z],
-                    [min_x + offset, sub_top, min_z],
-                    [1.0, 0.2, 0.2, 0.5],
-                    1.0,
-                );
-                append_debug_line(
-                    &mut debug_vertices,
-                    [min_x + offset, sub_y, max_z],
-                    [min_x + offset, sub_top, max_z],
-                    [1.0, 0.2, 0.2, 0.5],
-                    1.0,
-                );
-                append_debug_line(
-                    &mut debug_vertices,
-                    [min_x, sub_y, min_z + offset],
-                    [min_x, sub_top, min_z + offset],
-                    [0.2, 0.6, 1.0, 0.5],
-                    1.0,
-                );
-                append_debug_line(
-                    &mut debug_vertices,
-                    [max_x, sub_y, min_z + offset],
-                    [max_x, sub_top, min_z + offset],
-                    [0.2, 0.6, 1.0, 0.5],
-                    1.0,
-                );
-            }
+    };
+    let vertices = match cache {
+        Some(cached) if cached.key == key => Arc::clone(&cached.vertices),
+        _ => {
+            let vertices = chunk_border_vertices(key);
+            *cache = Some(ChunkBorderGeometry {
+                key,
+                vertices: Arc::clone(&vertices),
+            });
+            vertices
         }
-    }
+    };
     crate::modding::render::update_overlay(scene, |s| {
-        s.set_debug_vertices(debug_vertices.into());
+        s.set_debug_vertices(vertices);
     });
+}
+
+/// Builds the dimension grid and the finer lines around the player's current section.
+fn chunk_border_vertices(key: ChunkBorderKey) -> Arc<[mod_render::geometry::ModVertex]> {
+    let mut debug_vertices = Vec::new();
+    let [cx, section_y, cz] = key.section;
+    let side = world::SUB_CHUNK_SIDE as f32;
+    let min_y = key.range.base_sub_chunk_y as f32 * side;
+    let max_y = min_y + key.range.sub_chunk_count as f32 * side;
+    let min_x = cx as f32 * side;
+    let max_x = min_x + side;
+    let min_z = cz as f32 * side;
+    let max_z = min_z + side;
+
+    append_debug_line(
+        &mut debug_vertices,
+        [min_x, min_y, min_z],
+        [min_x, max_y, min_z],
+        [1.0, 1.0, 0.0, 1.0],
+        1.5,
+    );
+    append_debug_line(
+        &mut debug_vertices,
+        [max_x, min_y, min_z],
+        [max_x, max_y, min_z],
+        [1.0, 1.0, 0.0, 1.0],
+        1.5,
+    );
+    append_debug_line(
+        &mut debug_vertices,
+        [min_x, min_y, max_z],
+        [min_x, max_y, max_z],
+        [1.0, 1.0, 0.0, 1.0],
+        1.5,
+    );
+    append_debug_line(
+        &mut debug_vertices,
+        [max_x, min_y, max_z],
+        [max_x, max_y, max_z],
+        [1.0, 1.0, 0.0, 1.0],
+        1.5,
+    );
+
+    for section in 0..=key.range.sub_chunk_count {
+        let y = min_y + section as f32 * side;
+        append_debug_box(
+            &mut debug_vertices,
+            [min_x, y - 0.01, min_z],
+            [max_x, y + 0.01, max_z],
+            [1.0, 1.0, 0.0, 0.7],
+            1.0,
+        );
+    }
+
+    let sub_y = section_y as f32 * side;
+    let sub_top = sub_y + side;
+    for step in 1..8 {
+        let offset = step as f32 * 2.0;
+        append_debug_line(
+            &mut debug_vertices,
+            [min_x + offset, sub_y, min_z],
+            [min_x + offset, sub_top, min_z],
+            [1.0, 0.2, 0.2, 0.5],
+            1.0,
+        );
+        append_debug_line(
+            &mut debug_vertices,
+            [min_x + offset, sub_y, max_z],
+            [min_x + offset, sub_top, max_z],
+            [1.0, 0.2, 0.2, 0.5],
+            1.0,
+        );
+        append_debug_line(
+            &mut debug_vertices,
+            [min_x, sub_y, min_z + offset],
+            [min_x, sub_top, min_z + offset],
+            [0.2, 0.6, 1.0, 0.5],
+            1.0,
+        );
+        append_debug_line(
+            &mut debug_vertices,
+            [max_x, sub_y, min_z + offset],
+            [max_x, sub_top, min_z + offset],
+            [0.2, 0.6, 1.0, 0.5],
+            1.0,
+        );
+    }
+    debug_vertices.into()
 }
