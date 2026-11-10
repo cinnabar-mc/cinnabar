@@ -17,7 +17,7 @@
   "breeze_wind": {"alpha_test":true,"cull":false,"blend":true,"depth_write":false,"disable_overlay":true},
   "camel": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "camera": {"alpha_test":false,"cull":true,"blend":false,"depth_write":true},
-  "cat": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true,"disable_alpha_write":true},
+  "cat": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true,"disable_alpha_write":true,"color_mask":true},
   "charged_creeper": {"alpha_test":true,"cull":false,"blend":true,"depth_write":true,"disable_overlay":true,"additive":true},
   "chicken": {"alpha_test":false,"cull":true,"blend":false,"depth_write":true},
   "chicken_cold": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},

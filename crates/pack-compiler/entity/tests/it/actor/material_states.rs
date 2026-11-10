@@ -587,3 +587,10 @@ fn depth_and_channel_write_states_inherit_and_reset_independently() {
         json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"depth_always":true})
     );
 }
+
+#[test]
+fn cat_material_is_a_color_mask_alpha_test() {
+    let cat = state("cat", None);
+    assert_eq!(cat["alpha_test"], true);
+    assert_eq!(cat["color_mask"], true);
+}

@@ -1226,7 +1226,9 @@ Actor art keeps its alpha when every material drawing it alpha-tests, or any ble
 lights by it; otherwise alpha rounds at 0.5. Generated declaration states cover the
 pinned entity material vocabulary except cushion. They preserve emissive body and
 invisible-eye alpha, culling, blending, depth comparison and target-channel writes.
-These states are provisional (older declaration, current behaviour unverified);
+An alpha-tested colour mask (the `cat` material) rejects only zero alpha, so tamed cats
+keep their low-alpha fur; their collar dye and the other declared colour-mask materials
+in the table remain unverified. These states are provisional (older declaration, current behaviour unverified);
 current shader and rendered-frame qualification remain open. Cushion retains
 provisional rounding until its declaration is available. Invisible body and eye
 layers require the actor's render-when-invisible flag; material flags do not bypass

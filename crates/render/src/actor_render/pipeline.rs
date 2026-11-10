@@ -581,6 +581,7 @@ impl ActorPipelineKey {
                 && !state.masked_multitexture
                 && !state.blend
                 && !state.emissive
+                && !state.color_mask
                 && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
                 && self.material & assets::EntityRenderMaterialState::KIND_MASK
                     != assets::EntityRenderMaterial::Dragon as u32

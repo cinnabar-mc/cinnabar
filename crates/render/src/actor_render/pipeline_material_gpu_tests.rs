@@ -741,3 +741,86 @@ fn authored_depth_equal_and_channel_writes_reach_the_pipeline() {
         );
     }
 }
+
+/// An alpha-tested `USE_COLOR_MASK` material, as the tamed cat's `cat` material declares.
+fn color_mask_alpha_test(color_mask: bool) -> render_model::ActorMaterial {
+    render_model::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            alpha_test: true,
+            cull: false,
+            disable_alpha_write: true,
+            color_mask,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn color_mask_alpha_test_keeps_low_dye_weight_and_rejects_only_zero_alpha() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
+        "color_mask_alpha_test_keeps_low_dye_weight_and_rejects_only_zero_alpha",
+    ) else {
+        return;
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let draw = |color_mask: bool, alpha: u8| {
+        actor_raster::raster_material_target(
+            &gpu,
+            &plane,
+            color_mask_alpha_test(color_mask),
+            false,
+            [[200, 120, 40, alpha]; 2],
+            true,
+            false,
+        )
+    };
+    let clear = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        color_mask_alpha_test(true),
+        false,
+        [[0; 4]; 2],
+        true,
+        false,
+    );
+    let opaque = draw(false, 255);
+    // Tamed cat fur stores its collar dye weight as alpha 4 of 255.
+    let fur = draw(true, 4);
+    for (actual, expected) in center(&fur)[..3].iter().zip(&center(&opaque)[..3]) {
+        assert!(
+            (i32::from(*actual) - i32::from(*expected)).abs() <= 1,
+            "a low dye weight must keep the texel: got {:?}, expected {:?}",
+            &center(&fur)[..3],
+            &center(&opaque)[..3]
+        );
+    }
+    assert_eq!(center(&draw(true, 0))[..3], center(&clear)[..3]);
+    assert_eq!(
+        center(&draw(false, 4))[..3],
+        center(&clear)[..3],
+        "an ordinary alpha test still rejects low alpha"
+    );
+}
+
+#[test]
+fn color_mask_alpha_test_never_uses_alpha_to_coverage() {
+    for color_mask in [false, true] {
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Sample4,
+                    hdr: false,
+                    enhanced: false,
+                    material: color_mask_alpha_test(color_mask).gpu_word(),
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        assert_eq!(
+            descriptor.multisample.alpha_to_coverage_enabled,
+            !color_mask
+        );
+    }
+}
