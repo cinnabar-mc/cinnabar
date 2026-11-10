@@ -523,6 +523,7 @@ fn prepare_markers(
 }
 
 /// Binds the uploaded batch once the GPU texture pages match the assets it was built from.
+#[allow(clippy::too_many_arguments, reason = "Bevy system parameters")]
 fn prepare_marker_bind_group(
     batch: Res<MarkerBatch>,
     device: Res<RenderDevice>,
