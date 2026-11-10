@@ -13,11 +13,11 @@ fn authored_attach_and_detach_retain_committed_transparent_snapshots() {
         }]
         .into(),
     };
-    let maps = render_scene::EnhancedTextureAssets::new(
+    let maps = assets::texture::EnhancedTextureAssets::new(
         [array.clone(), array.clone()],
         [array.clone(), array.clone()],
         [array.clone(), array],
-        vec![u32::MAX; render_scene::EnhancedTextureAssets::REFERENCE_BASE_WORDS]
+        vec![u32::MAX; assets::texture::EnhancedTextureAssets::REFERENCE_BASE_WORDS]
             .into_boxed_slice(),
     )
     .unwrap();

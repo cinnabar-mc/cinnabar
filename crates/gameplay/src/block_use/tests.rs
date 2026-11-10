@@ -138,6 +138,87 @@ fn placement_targets_the_clicked_face_neighbor() {
     );
 }
 
+#[test]
+fn frogspawn_uses_the_liquid_aware_pick() {
+    let item = verified(network_item(2, 77));
+    assert!(super::uses_liquid_pick(
+        &item,
+        Some(assets::facts::FROG_SPAWN_IDENTIFIER)
+    ));
+    assert!(!super::uses_liquid_pick(&item, Some("minecraft:stone")));
+    assert!(!super::uses_liquid_pick(&item, None));
+}
+
+#[test]
+fn frogspawn_rejects_unsupported_liquid_targets() {
+    use assets::facts::{BlockFacts, BlockProperty, StateValue};
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let facts = BlockFacts::new(&records).unwrap();
+    let item = verified(network_item(2, 77));
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
+    for record in records.iter().filter(|record| {
+        record
+            .traits
+            .intersects(assets::registry::BlockTraits::WATER | assets::registry::BlockTraits::LAVA)
+    }) {
+        let around = UseSurroundings {
+            clicked: facts.get(record.sequential_id),
+            held: block_fact("minecraft:frog_spawn"),
+            ..surroundings("minecraft:air", "minecraft:air")
+        };
+        let occupied = UseSurroundings {
+            neighbor: block_fact("minecraft:short_grass"),
+            ..around.clone()
+        };
+        assert_eq!(
+            LocalUse::resolve(&item, [2, 63, 0], 1, &occupied, &survival),
+            LocalUse::Nothing
+        );
+        for face in 0..6 {
+            let accepted = record.traits.contains(assets::registry::BlockTraits::WATER)
+                && record.property(BlockProperty::LiquidDepth) == Some(&StateValue::Int(0))
+                && face == 1;
+            let outcome = LocalUse::resolve(&item, [2, 63, 0], face, &around, &survival);
+            assert_eq!(
+                outcome,
+                if accepted {
+                    LocalUse::Place
+                } else {
+                    LocalUse::Nothing
+                },
+                "{} {} face={face}",
+                record.name,
+                record.canonical_state
+            );
+            let observed = crate::interaction_authority::FrozenBlockObservation::fixture(
+                [2, 63, 0],
+                face,
+                item.clone(),
+            );
+            let packets = use_packets(
+                (&observed, record.sequential_id),
+                [0.5, 65.62, 0.5],
+                ItemUseTrigger::PlayerInput,
+                outcome,
+                None,
+                None,
+                42,
+                |_| true,
+                101,
+            );
+            let envelope =
+                protocol::test_support::transactions::observe_transaction(packets.last().unwrap())
+                    .unwrap();
+            assert_eq!(envelope.item_use().unwrap().predicted_success, accepted);
+            assert_eq!(packets.len(), if accepted { 2 } else { 1 });
+        }
+    }
+}
+
 fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
     UseSurroundings {
         clicked: block_fact(clicked),

@@ -280,6 +280,11 @@ impl UiRuntime {
         &self.session.chat
     }
 
+    /// Clears displayed chat while preserving server ordering, input and pending sends.
+    pub fn clear_chat_messages(&mut self) {
+        self.session.chat.clear_messages();
+    }
+
     pub const fn scoreboards(&self) -> &ScoreboardStore {
         &self.session.scoreboards
     }

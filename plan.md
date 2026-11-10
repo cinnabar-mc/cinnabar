@@ -149,6 +149,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
 
 ### Terrain, materials and biome acceptance
 
+- [ ] Close server-pack block and entity material parity. The behavior baseline, native
+  evidence and confirmed gaps are tracked in the
+  [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
+  is `implemented` with a named test.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
@@ -400,6 +404,23 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
+  An experimental vanilla point light follows the local player body at one block above
+  the feet, independent of camera perspective. Vanilla fragments convert source falloff
+  into fractional block-light levels and sample the existing lightmap, preserving sky
+  light and texture shading without chunk rebuilds. Video settings expose a default-off
+  toggle; the Quality preset enables it. Strength and range are not public settings. Each held
+  or dropped item receives a profile derived from its resolved Bedrock block emission:
+  normalized emission controls strength and maps to a provisional 2–8 block radius.
+  Up to eight sources (the local player plus the nearest seven remote-player or dropped-item
+  sources within the configured render distance) are uploaded and fade to zero at its edge.
+  Third-person actor models and dropped item models receive the dynamic lightmap
+  contribution at their world positions; the first-person hand keeps vanilla lighting.
+  The lightmap-based shader path is a prototype; rendered
+  texture contrast and source blending still need visual acceptance. The strength/radius
+  curve is an incomplete approximation pending a version-matched behavior reference;
+  source color is fixed, there is no occlusion or
+  shadowing, shader-pack and Enhanced renderers are not integrated, and visual/performance
+  acceptance remains incomplete.
 - [ ] Classify and remove moving bands/static under camera motion using coherent
   resident, frustum, submitted and GPU-completed identities. Change culling only when
   evidence proves a missing draw.
@@ -942,7 +963,15 @@ and version-matched in-game acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
+  Framed filled maps retain signed numeric and decimal-string map IDs, request missing
+  images, and wait for image data without displaying their inventory icon.
   Framed filled maps wait for image data without displaying their inventory icon.
+  Received framed maps select the full-face rim even without a server map bit. Map and
+  text canvas pages grow without moving live pixel rects; the former 16-map ceiling is removed.
+  Map growth reserves capacity for every admitted sign page. Artwork reloads that cannot
+  retain the cached canvases report an error before publishing the replacement pack.
+  Moving-camera map-wall qualification and overflow beyond the atlas texture-side budget
+  remain incomplete.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
   inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
@@ -1137,6 +1166,11 @@ visibility. Atlas text retains formatting and line slots, with guarded cell edge
 repacking before UV publication. Capacity repacks reuse unchanged line pixels; font
 and palette changes invalidate them. Rejected label bounds stay cached independently
 of shared text layouts. In-world visual qualification remains open.
+Video customization exposes persisted name-tag background opacity from 0–100%, with
+the existing opacity as its default. Text opacity is unchanged; explicit mod background
+colours retain precedence. Windows headless checks at 1280×720 and scale 1 cover
+0%, 25% and 100% output, slider input, settings re-entry and persistence; other
+platforms and display scales remain unverified.
 Name tag colours compose after Enhanced and shader-pack world effects with the scene's
 depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
 and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
@@ -1272,6 +1306,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Profile banners and the Create World preview use prepared perspective views of the
+  fetched panorama, with featured screenshots and saved-world thumbnails taking priority.
+  Optional panorama views use the capacity left after other UI textures; budget fallback
+  preserves existing artwork.
+  Broader menu visual acceptance remains open.
   Mods use explicit open, close and toggle requests for their panels; the latest opening owns
   input and closes other panels. Panel content rejects the removed shortcut metadata.
   Play tabs switch with `[` / `]` and the bumpers, as Bedrock's view-scoped
@@ -1592,8 +1631,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
   obsolete saved typeface values are ignored. Chat and mention colors apply to decoded
   message labels without changing server pack inputs. Mention tokens preserve surrounding
-  formatting and match the current local display name or the all-player mention. Full
-  live mention acceptance remains incomplete.
+  formatting and completion name spellings. The target setting colors all names or only
+  the current local display name and the all-player mention. Full live mention acceptance
+  remains incomplete.
   Emote filtering and narration remain unavailable and store preferences only.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
@@ -1860,6 +1900,15 @@ HID-only controllers retain their existing backend, with duplicate native delive
 Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
 macOS, including gameplay input, remains incomplete.
 
+Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
+winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
+look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
+gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
+winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
+PlayStation and generic controllers remains incomplete, as do controllers whose right stick
+uses `AXIS_RX`/`AXIS_RY`. iOS still lacks hardware keyboard keys, mouse capture and
+controllers.
+
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
 
@@ -1880,6 +1929,16 @@ existing fallback policy, including failures after the first completed frame. Me
 and ordinary exits do not exclude an API; settings changes and exhausted-candidate retries
 retain their existing recovery behavior. Native Windows startup, update and crash-restart
 acceptance, including device-loss recovery on affected hardware, remains incomplete.
+
+Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain and actor
+fragment interfaces fit the fifteen inter-stage variables V3DV exposes, including
+front-facing. Clean-install and displayed-frame acceptance across supported Pi
+models remain incomplete.
+
+Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
+updates to Flatpak only in its own sandbox. Clean-install, login, rendering, local-world,
+import, Discord integration and update acceptance inside the sandbox, and a stable-release
+Flathub submission remain incomplete.
 
 ## Experimental hosts and extensions
 
@@ -1905,8 +1964,13 @@ acceptance, including device-loss recovery on affected hardware, remains incompl
   r51p0 offline compiler faults on the model and transparent terrain vertex programs because
   bool struct members merge across returns. Those flags are now `u32`, and a test keeps
   terrain structs free of bools. Mali phones have not confirmed the fix, so these vendor
-  workarounds and target-device visual acceptance stay incomplete. Terrain has a
-  four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  workarounds and target-device visual acceptance stay incomplete.
+  Qualcomm's proprietary Adreno driver (not Mesa Turnip) also takes the device lock: Snapdragon
+  tombstones from v0.1.29 to v0.1.31 show two pipeline-creation threads in its compiler, in half of
+  them both faulting at the same instruction, with the failing program changing between launches. No
+  Adreno phone has confirmed that serializing avoids the crash; if it persists, the single
+  compiling thread identifies the failing program.
+  Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
@@ -2053,7 +2117,14 @@ acceptance, including device-loss recovery on affected hardware, remains incompl
   New packet grants take effect after reconnecting; sessions without packet mods retain
   caching. Live server qualification remains incomplete.
   Local mods and server experiences still need runtime/input isolation, reload/reorder/
-  removal, consent, custom screen transitions and media qualification. Source polling
+  removal, consent, custom screen transitions and media qualification. Server Experience
+  helpers have a restricted launch on Linux only (Landlock, seccomp, delegated cgroup memory
+  and task limits, resource limits, descriptor audit, contained compilation, fault-injection
+  tests); macOS and Windows refuse it, Linux without delegated memory and pids controllers
+  refuses it, CPU time stays unbounded where the cpu controller is not delegated, path
+  metadata, inotify and robust-list reads remain a known information leak, the Linux launch
+  awaits independent security review, and the client does not call it, so production execution
+  stays closed. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Authority changes
@@ -2226,6 +2297,10 @@ acceptance, including device-loss recovery on affected hardware, remains incompl
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
+- Gameplay wheel observations preserve line/pixel axes under Controls authority.
+  Transactional physical-chord reservations follow mod load order and suppress both
+  hotbar input paths. UI and unfocused input stay outside the guest. Targeted regression
+  checks are included; physical-device and multi-platform acceptance remain incomplete.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
 - Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on

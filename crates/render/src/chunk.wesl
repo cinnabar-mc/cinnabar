@@ -1,12 +1,12 @@
 import render::chunk_records::{chunk_origins, animations, animation_frames, clock};
 
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_ao_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
 import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
-import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
 @if(ENHANCED)
@@ -409,7 +409,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(face_normal(face), (light_sample & 2048u) != 0u, material.flags);
     @if(ENHANCED)
-    out.lighting = light_colour(light_sample) * ao * dimming;
+    out.lighting = light_colour(light_sample) * material_ao_shade(ao * dimming, material.flags);
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
     @if(ENHANCED)
@@ -420,7 +420,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     @if(!ENHANCED)
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
-    out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    out.native_ao_face = material_ao_shade(ao * dimming, material.flags);
     @if(!ENHANCED)
     out.uniform_tint_gamma = vec4(0.0);
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)
@@ -817,7 +817,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        terrain_light_colour(in.native_light_levels),
+        point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
         atmosphere.fog_gamma.rgb,
         distance_fog_amount(in.world_position),
     );

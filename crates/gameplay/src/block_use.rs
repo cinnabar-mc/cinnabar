@@ -1,7 +1,7 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P, ItemTraits},
+    facts::{BlockFact, BlockProperty as P, ItemTraits, PlacementRule as R, SupportKind},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
@@ -111,14 +111,14 @@ pub(crate) fn overlaps(
 
 const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 
-/// Empty vanilla buckets and glass bottles may pick liquid sources without making liquids
-/// selectable for mining.
+/// Items that use liquid sources pick them without making liquids selectable for mining.
 pub fn uses_liquid_pick(item: &VerifiedNetworkItemStack, identifier: Option<&str>) -> bool {
     !item.is_empty()
         && item.metadata() == 0
         && identifier.is_some_and(|identifier| {
             [
                 assets::facts::EMPTY_BUCKET_IDENTIFIER,
+                assets::facts::FROG_SPAWN_IDENTIFIER,
                 assets::facts::GLASS_BOTTLE_IDENTIFIER,
             ]
             .contains(&identifier)
@@ -160,6 +160,15 @@ impl UseSurroundings {
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
+        // Frogspawn needs the air cell above a water source.
+        if self.held.placement == R::FrogSpawn && self.clicked.traits.intersects(T::WATER | T::LAVA)
+        {
+            if face == 1 && self.clicked.support == SupportKind::WaterSource {
+                let cell = placement_cell(clicked, face);
+                return (cell, self.neighbor.traits.contains(T::AIR));
+            }
+            return (clicked, false);
+        }
         if self.clicked.traits.contains(T::REPLACEABLE) {
             (clicked, true)
         } else {

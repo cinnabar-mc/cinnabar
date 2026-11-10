@@ -133,13 +133,16 @@ fn backgrounds(control: &json_ui::ResolvedControl, viewport: [f64; 2], alpha: f3
 }
 
 #[test]
-fn input_background_spans_the_viewport_independently_of_history_width() {
+fn settings_button_and_input_background_fit_independently_of_history_width() {
     for viewport in [[360.0, 240.0], [640.0, 360.0], [960.0, 540.0]] {
         for history_width in [180.0, 330.0] {
             let root = chat("", 0, &[], history_width);
             assert_eq!(
                 backgrounds(&root, viewport, 128.0 / 255.0),
-                [Rect::new(2.0, viewport[1] - 14.0, viewport[0] - 4.0, 12.0)]
+                [
+                    Rect::new(2.0, viewport[1] - 14.0, 12.0, 12.0),
+                    Rect::new(16.0, viewport[1] - 14.0, viewport[0] - 18.0, 12.0),
+                ]
             );
         }
     }
@@ -155,7 +158,7 @@ fn suggestion_rows_fit_the_longest_text_at_the_completion_start() {
         let root = chat(draft, cursor, &["@Alex", "@Charlotte", "@Bo"], 180.0);
         let rects = backgrounds(&root, [640.0, 360.0], 208.0 / 255.0);
         let width = Resources.extent(longest)[0] + 1.0;
-        let left = Resources.extent(prefix)[0] + 3.0;
+        let left = Resources.extent(prefix)[0] + 17.0;
         assert_eq!(rects.len(), 3);
         for rect in &rects {
             assert_eq!((rect.x, rect.w, rect.h), (left, width, 12.0));

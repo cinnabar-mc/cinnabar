@@ -1,6 +1,13 @@
 //! Contained item identity and decoration retained for fixed world placements.
 use super::*;
 
+/// Reads the same signed numeric or string map identity as an inventory item.
+pub(super) fn map_id(stack: &NbtCompound) -> Option<i64> {
+    let tag = stack.compound("tag")?;
+    tag.integer("map_uuid")
+        .or_else(|| protocol::map_id_from_decimal(tag.string("map_uuid")?.as_bytes()))
+}
+
 /// Reads a usable retained item stack.
 pub(super) fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
     let name = stack.string("Name").filter(|name| !name.is_empty())?;

@@ -279,7 +279,7 @@ fn load(
             color: colors.map(Page::finish),
             normal: normals.map(Page::finish),
             material: materials.map(Page::finish),
-            references: render_scene::EnhancedTextureAssets::material_references(references),
+            references: assets::texture::EnhancedTextureAssets::material_references(references),
         }),
         audit_aliases,
     )
@@ -295,7 +295,7 @@ fn reference_slot(texture: u32) -> Option<usize> {
 pub(crate) fn load_optional_enhanced_textures(
     runtime: &RuntimeAssets,
     keys: &MaterialKeys,
-) -> Option<Arc<render_scene::EnhancedTextureAssets>> {
+) -> Option<Arc<assets::texture::EnhancedTextureAssets>> {
     let packs: Vec<_> = config::selected_packs()?
         .into_iter()
         .map(|pack| pack.with_terrain_aliases(keys.aliases()))
@@ -317,12 +317,12 @@ pub(crate) fn load_optional_enhanced_textures(
         &fingerprint.unwrap_or([0; 32]),
         aliases,
         payload.as_ref().map_or(0, |payload| {
-            render_scene::EnhancedTextureAssets::reference_values(&payload.references)
+            assets::texture::EnhancedTextureAssets::reference_values(&payload.references)
                 .filter(|&reference| reference != REF_FALLBACK)
                 .count()
         }),
         payload.as_ref().map_or(0, |payload| {
-            render_scene::EnhancedTextureAssets::reference_values(&payload.references)
+            assets::texture::EnhancedTextureAssets::reference_values(&payload.references)
                 .filter(|&reference| reference != REF_FALLBACK)
                 .map(|reference| (reference >> 31, reference & AUTHORED_LAYER_MASK))
                 .collect::<std::collections::BTreeSet<_>>()
@@ -372,7 +372,7 @@ mod tests {
 
     /// Reads an authored layer's first albedo texel through the production reference lookup.
     pub(super) fn albedo(
-        maps: &render_scene::EnhancedTextureAssets,
+        maps: &assets::texture::EnhancedTextureAssets,
         runtime: &RuntimeAssets,
         id: u32,
     ) -> Option<[u8; 4]> {

@@ -12,6 +12,8 @@ mod dependencies;
 mod identifiers;
 mod input_owner;
 mod markers;
+#[cfg(test)]
+mod material_evidence;
 mod modules;
 mod paths;
 mod platforms;

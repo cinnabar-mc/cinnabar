@@ -151,26 +151,27 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
 /// must reach a held cube's tile rather than cost the block its sheet.
 #[test]
 fn a_rotated_face_material_turns_its_held_tile() {
-    const MARK: [u8; 4] = [250, 10, 10, 255];
-    let side = usize::from(BLOCK_ITEM_FACE_SIDE);
-    let mut source = overlay(
-        BlockFlags::CUBE_GEOMETRY,
+    for flags in [
         assets::MATERIAL_FLAG_UV_ROTATE_180,
-        16,
-    );
-    let mip = &mut source.textures[0].mips[0];
-    let mut pixels = mip.rgba8.to_vec();
-    let layer_one = 16 * 16 * 4;
-    pixels[layer_one..layer_one + 4].copy_from_slice(&MARK);
-    mip.rgba8 = pixels.into();
-    let sheet = overlay_sheet(&source, 0, None).expect("a rotated face keeps its held sheet");
-    let width = usize::from(sheet.width);
-    let pixel = |x: usize, y: usize| {
-        let start = (y * width + x) * 4;
-        <[u8; 4]>::try_from(&sheet.rgba8[start..start + 4]).unwrap()
-    };
-    assert_eq!(pixel(side - 1, side - 1), MARK);
-    assert_ne!(pixel(0, 0), MARK);
+        assets::MATERIAL_FLAG_UV_INVERT | assets::MATERIAL_FLAG_ISOTROPIC,
+    ] {
+        const MARK: [u8; 4] = [250, 10, 10, 255];
+        let side = usize::from(BLOCK_ITEM_FACE_SIDE);
+        let mut source = overlay(BlockFlags::CUBE_GEOMETRY, flags, 16);
+        let mip = &mut source.textures[0].mips[0];
+        let mut pixels = mip.rgba8.to_vec();
+        let layer_one = 16 * 16 * 4;
+        pixels[layer_one..layer_one + 4].copy_from_slice(&MARK);
+        mip.rgba8 = pixels.into();
+        let sheet = overlay_sheet(&source, 0, None).expect("a rotated face keeps its held sheet");
+        let width = usize::from(sheet.width);
+        let pixel = |x: usize, y: usize| {
+            let start = (y * width + x) * 4;
+            <[u8; 4]>::try_from(&sheet.rgba8[start..start + 4]).unwrap()
+        };
+        assert_eq!(pixel(side - 1, side - 1), MARK);
+        assert_ne!(pixel(0, 0), MARK);
+    }
 }
 
 #[test]
@@ -193,6 +194,26 @@ fn world_isotropy_preserves_carried_cube_face_pixels() {
         assert_eq!(actual.rgba8, expected.rgba8);
         source.materials[1].flags |= assets::MATERIAL_FLAG_FOLIAGE_TINT;
         assert!(overlay_sheet(&source, 0, None).is_none());
+    }
+}
+
+#[test]
+fn ao_exponents_preserve_carried_cube_face_pixels() {
+    for flags in [
+        0,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    ] {
+        let mut source = overlay(
+            BlockFlags::CUBE_GEOMETRY,
+            flags,
+            BLOCK_ITEM_FACE_SIDE.into(),
+        );
+        let expected = overlay_sheet(&source, 0, None).unwrap();
+        source.materials[1].flags |= 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
+        let actual = overlay_sheet(&source, 0, None)
+            .expect("world lighting metadata preserves carried face admission");
+        assert_eq!(actual, expected);
     }
 }
 

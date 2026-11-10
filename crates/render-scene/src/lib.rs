@@ -88,10 +88,10 @@ pub use chunk::schedule::ChunkRenderApplySet;
 pub use chunk::texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub use chunk::textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    ChunkTextureBindingIdentity, EnhancedTextureAssets, TextureArrayLimits, TextureLimitError,
-    TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
-    greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
-    select_animation_frames, texture_asset_needs_rebuild,
+    ChunkTextureBindingIdentity, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
+    TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
+    enhanced_maps_fit_device_limits, greedy_texture_uv, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 pub use chunk::transparent_witness::{
     TransparentWitnessEvent, TransparentWitnessEvidence, TransparentWitnessIncompleteEvent,
@@ -104,14 +104,14 @@ pub use cloud_config::{
     CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
-pub use cloud_visibility::CloudVisibility;
+pub use cloud_visibility::{CloudDistanceChunks, CloudVisibility};
 pub use dropped_item::DroppedItemScene;
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
 pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
 pub use gpu_times::GpuFrameTimes;
 pub use hand_rig::HandRigScene;
-pub use lighting::{WorldFullbright, WorldLighting};
+pub use lighting::{WorldFullbright, WorldLighting, WorldPointLight, WorldPointLightSource};
 pub use lightning::{
     BoltRecord, BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, LightningScene,
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,

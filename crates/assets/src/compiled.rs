@@ -94,6 +94,8 @@ pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
 pub const MATERIAL_FLAG_UV_ROTATE_270: u32 = 3;
 /// The rotation code within `MATERIAL_FLAG_UV_MASK`; the remaining bits reflect U and V.
 pub const MATERIAL_FLAG_UV_ROTATION_MASK: u32 = 0x0000_0003;
+/// Reflects both UV axes, keeping a half-turn independent of positional rotation.
+pub const MATERIAL_FLAG_UV_INVERT: u32 = MATERIAL_FLAG_UV_MASK & !MATERIAL_FLAG_UV_ROTATION_MASK;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
@@ -125,7 +127,7 @@ pub const MATERIAL_FLAG_DISABLE_FACE_DIMMING: u32 = 1 << 26;
 pub const MATERIAL_FLAG_CAULDRON_WATER: u32 = 1 << 27;
 /// Packed vertex colour used by ordinary cauldron water, including its translucency.
 pub const CAULDRON_WATER_COLOUR: [u8; 4] = [52, 81, 89, 191];
-/// Compact world-leaf AO exponent. Zero selects the native omitted default (1).
+/// Compact authored AO exponent in hundredths. Zero selects the native omitted default (1).
 pub const MATERIAL_LEAF_AO_EXPONENT_SHIFT: u32 = 17;
 pub const MATERIAL_LEAF_AO_EXPONENT_MAX: u32 = u8::MAX as u32;
 pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
@@ -133,6 +135,19 @@ pub const MATERIAL_LEAF_AO_EXPONENT_MASK: u32 =
 pub const MATERIAL_LEAF_AO_EXPONENT_SCALE: u32 = 100;
 pub const MATERIAL_LEAF_METADATA_MASK: u32 =
     MATERIAL_FLAG_ISOTROPIC | MATERIAL_LEAF_AO_EXPONENT_MASK;
+
+/// Coverage flags one block render method selects: blend, cutout, or neither for opaque layers.
+/// Two-sidedness depends on the caller's geometry; see [`protocol_ids::BlockRenderMethod::two_sided`].
+#[must_use]
+pub const fn block_render_method_flags(method: protocol_ids::BlockRenderMethod) -> u32 {
+    if method.blends() {
+        MATERIAL_FLAG_ALPHA_BLEND
+    } else if method.alpha_tests() {
+        MATERIAL_FLAG_ALPHA_CUTOUT
+    } else {
+        0
+    }
+}
 
 /// Decodes admitted pack-authored hundredths, without changing the native default.
 #[must_use]
@@ -184,8 +199,6 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
                 }))
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
-        && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & (MATERIAL_FLAG_NATIVE_LEAF_COLOUR | crate::stem::MATERIAL_FLAG) != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)

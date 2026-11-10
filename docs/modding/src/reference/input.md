@@ -227,6 +227,28 @@ record bindings {
 
 Types: [`action-binding`](input.md#type-action-binding).
 
+<a id="type-scroll"></a>
+
+### `scroll`
+
+Native wheel deltas with line and pixel units kept separate.
+
+```wit
+record scroll {
+    line-x: f32,
+    line-y: f32,
+    pixel-x: f32,
+    pixel-y: f32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `line-x` | `f32` |  |
+| `line-y` | `f32` |  |
+| `pixel-x` | `f32` |  |
+| `pixel-y` | `f32` |  |
+
 ## Functions
 
 <a id="read-container-screen"></a>
@@ -353,3 +375,29 @@ reserve-keys: func(keys: list<string>) -> result<_, string>;
 ```
 
 Physical key names reserved before the ordinary gameplay router samples them.
+
+<a id="read-scroll"></a>
+
+### `read-scroll`
+
+```wit
+read-scroll: func() -> result<scroll, string>;
+```
+
+Current captured-gameplay frame only; positive Y scrolls up. Requires controls.
+Line and pixel units remain separate. Repeated reads are stable; no events replay.
+Returns zero while unfocused, in a screen, or after an earlier mod claims scrolling.
+
+Types: [`scroll`](input.md#type-scroll).
+
+<a id="reserve-scroll"></a>
+
+### `reserve-scroll`
+
+```wit
+reserve-scroll: func(keys: list<string>) -> result<_, string>;
+```
+
+Claims gameplay wheel input while every listed physical key is held in this frame's snapshot.
+Empty releases the claim. Does not reserve the keys themselves or affect UI scrolling.
+Committed after a successful callback; first active matching mod wins in load order.

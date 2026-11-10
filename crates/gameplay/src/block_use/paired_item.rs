@@ -51,7 +51,10 @@ pub fn paired_item_fits(
                 !fact.traits.contains(T::AIR)
                     && !matches!(
                         fact.support,
-                        SupportKind::Air | SupportKind::Water | SupportKind::Lava
+                        SupportKind::Air
+                            | SupportKind::Water
+                            | SupportKind::WaterSource
+                            | SupportKind::Lava
                     )
             })
     };
@@ -182,6 +185,55 @@ mod tests {
             assert!(!fits("minecraft:bed", yaw, &[(head, "minecraft:stone")]));
             let below = [head[0], 0, head[2]];
             assert!(!fits("minecraft:bed", yaw, &[(below, "minecraft:air")]));
+        }
+    }
+
+    #[test]
+    fn paired_items_reject_every_liquid_support_state() {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let facts = assets::facts::BlockFacts::new(&records).unwrap();
+        let surroundings = surroundings("minecraft:stone", "minecraft:air");
+        for (block, clicked, face, below) in [
+            ("minecraft:bed", [0, 1, 0], 5, [1, 0, 0]),
+            ("minecraft:bed", [0, 1, 0], 5, [1, 0, 1]),
+            ("minecraft:wooden_door", [0, 0, 0], 1, [0, 0, 0]),
+        ] {
+            let fits = |support| {
+                paired_item_fits(
+                    block_fact(block),
+                    clicked,
+                    face,
+                    0.0,
+                    &surroundings,
+                    BUILD_HEIGHT,
+                    |cell| {
+                        if cell == below {
+                            Some(support)
+                        } else {
+                            world(&[], cell)
+                        }
+                    },
+                )
+            };
+            assert!(fits(block_fact("minecraft:stone")));
+            let mut liquids = 0;
+            for record in records
+                .iter()
+                .filter(|record| record.traits.intersects(T::WATER | T::LAVA))
+            {
+                assert!(
+                    !fits(facts.get(record.sequential_id)),
+                    "{block} on {} state {} at {below:?}",
+                    record.name,
+                    record.sequential_id,
+                );
+                liquids += 1;
+            }
+            assert!(liquids > 0);
         }
     }
 

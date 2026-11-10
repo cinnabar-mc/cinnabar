@@ -368,8 +368,10 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     if tint.is_some() {
         sampled.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
     }
-    let rotated =
-        material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+    let rotated = matches!(
+        material.flags & assets::MATERIAL_FLAG_UV_MASK,
+        assets::MATERIAL_FLAG_UV_ROTATE_180 | assets::MATERIAL_FLAG_UV_INVERT
+    );
     if rotated {
         sampled.flags &= !assets::MATERIAL_FLAG_UV_MASK;
     }
@@ -718,7 +720,7 @@ mod review_tests {
         }
     }
 
-    /// Full cubes declared through the versioned geometry turn their bottom face's UVs.
+    /// Both half-turn encodings preserve thumbnail admission and turn the sampled UVs.
     #[test]
     fn a_rotated_cube_face_keeps_the_cube_drawable_with_turned_uvs() {
         let plain = assets::TextureRef::new(1, 0).unwrap();
@@ -727,7 +729,7 @@ mod review_tests {
             flags,
             ..Material::unvaried()
         };
-        let overlay = BlockOverlay {
+        let mut overlay = BlockOverlay {
             visuals: vec![assets::BlockVisual {
                 faces: [1, 1, 2, 1, 1, 1],
                 kind: VisualKind::Cube,
@@ -752,31 +754,38 @@ mod review_tests {
             }],
             ..Default::default()
         };
-        assert!(
-            Model::overlay(&overlay, 0, None, None).is_ok(),
-            "a hidden rotated face must not cost the cube its icon"
-        );
-        let parts = Parts {
-            materials: &overlay.materials,
-            templates: &overlay.model_templates,
-            quads: &overlay.model_quads,
-            textures: Textures::Overlay(&overlay, None),
-            tint: None,
-        };
-        let uvs = |faces| {
-            Model::build(parts, VisualKind::Cube, faces, None, Default::default())
-                .ok()
-                .unwrap()
-                .faces
-                .iter()
-                .map(|face| face.uvs)
-                .collect::<Vec<_>>()
-        };
-        let (upright, turned) = (uvs([1; 6]), uvs([2; 6]));
-        assert!(!upright.is_empty());
-        for (upright, turned) in upright.iter().zip(&turned) {
-            for (upright, turned) in upright.iter().zip(turned) {
-                assert_eq!(*turned, upright.map(|component| 1.0 - component));
+        for flags in [
+            assets::MATERIAL_FLAG_UV_ROTATE_180,
+            assets::MATERIAL_FLAG_UV_INVERT,
+            assets::MATERIAL_FLAG_UV_INVERT | assets::MATERIAL_FLAG_ISOTROPIC,
+        ] {
+            overlay.materials[2].flags = flags;
+            assert!(
+                Model::overlay(&overlay, 0, None, None).is_ok(),
+                "a hidden rotated face must not cost the cube its icon"
+            );
+            let parts = Parts {
+                materials: &overlay.materials,
+                templates: &overlay.model_templates,
+                quads: &overlay.model_quads,
+                textures: Textures::Overlay(&overlay, None),
+                tint: None,
+            };
+            let uvs = |faces| {
+                Model::build(parts, VisualKind::Cube, faces, None, Default::default())
+                    .ok()
+                    .unwrap()
+                    .faces
+                    .iter()
+                    .map(|face| face.uvs)
+                    .collect::<Vec<_>>()
+            };
+            let (upright, turned) = (uvs([1; 6]), uvs([2; 6]));
+            assert!(!upright.is_empty());
+            for (upright, turned) in upright.iter().zip(&turned) {
+                for (upright, turned) in upright.iter().zip(turned) {
+                    assert_eq!(*turned, upright.map(|component| 1.0 - component));
+                }
             }
         }
     }

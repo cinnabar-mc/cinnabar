@@ -8,6 +8,14 @@ use client_shell::physical_input::{keyboard_usage, mouse_button_code};
 use launcher::menu::settings_options::{SettingsOptions, key_name};
 use semantic_input::PhysicalControl;
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct DebugChords {
+    pub chunk_borders: bool,
+    pub reload_chunks: bool,
+    pub clear_chat: bool,
+    pub help: bool,
+}
+
 pub(super) struct DebugBindings {
     settings: Option<Arc<SettingsOptions>>,
     control: Option<PhysicalControl>,
@@ -58,6 +66,46 @@ impl DebugBindings {
                     .any(|pressed| mouse_button_code(*pressed) == Some(button))
             }),
             _ => false,
+        }
+    }
+
+    /// Whether the debug overlay key/button is currently held down.
+    pub(super) fn is_down(
+        &self,
+        keys: &ButtonInput<KeyCode>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> bool {
+        match self.control {
+            Some(PhysicalControl::KeyboardUsage(usage)) => keys
+                .get_pressed()
+                .any(|key| keyboard_usage(*key) == Some(usage)),
+            Some(PhysicalControl::MouseButton(button)) => mouse.is_some_and(|mouse| {
+                mouse
+                    .get_pressed()
+                    .any(|pressed| mouse_button_code(*pressed) == Some(button))
+            }),
+            _ => false,
+        }
+    }
+
+    /// Takes fresh chord suffixes, leaving the configured modifier's own press intact.
+    pub(super) fn take_chords(
+        &self,
+        keys: &mut ButtonInput<KeyCode>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> DebugChords {
+        if !self.is_down(keys, mouse) {
+            return DebugChords::default();
+        }
+        let mut take = |key| {
+            self.control != keyboard_usage(key).map(PhysicalControl::KeyboardUsage)
+                && keys.clear_just_pressed(key)
+        };
+        DebugChords {
+            chunk_borders: take(KeyCode::KeyG),
+            reload_chunks: take(KeyCode::KeyA),
+            clear_chat: take(KeyCode::KeyD),
+            help: take(KeyCode::KeyQ),
         }
     }
 

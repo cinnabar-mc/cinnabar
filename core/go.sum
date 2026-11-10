@@ -4,6 +4,8 @@ github.com/cenkalti/backoff/v7 v7.0.0 h1:ZP+QAaaOnVUHo+ufFpZ835hbT3x2fy+h2lecVEo
 github.com/cenkalti/backoff/v7 v7.0.0/go.mod h1:qcKBGwsu4hpxHtQ8tWYsQ+ifzx2+sS+Xx/3jfe30lI8=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+github.com/cinnabar-mc/webrtc/v4 v4.0.0-20261110082859-ca6ad8c9ad75 h1:saOgoOtA8JC59l9HaTeywSfQc9en4mI8hKoltdzxOVQ=
+github.com/cinnabar-mc/webrtc/v4 v4.0.0-20261110082859-ca6ad8c9ad75/go.mod h1:vH5Fn0zOZ8LuLhIPEtsLkoYkwnvubV4TX+ZtjV5Jqgk=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=
@@ -68,8 +70,6 @@ github.com/pion/transport/v5 v5.1.4 h1:j0E5QIPyv28YnWxa8yE9AyDmrxVnwhZ109c7Dpt48
 github.com/pion/transport/v5 v5.1.4/go.mod h1:Qxw6fCEjFWQkRDZOhS4Vf+neJBcihauvA3uyEa1J1F0=
 github.com/pion/turn/v5 v5.1.3 h1:dxBq+M6o5DCxIjtiBQNvtHkKshS+xlJbXwgc1MKzBH8=
 github.com/pion/turn/v5 v5.1.3/go.mod h1:ocKg/4W5d4N9hvpADSwoc5HdU53/4i966FIU1qJL0tY=
-github.com/pion/webrtc/v4 v4.2.26 h1:RX3FUQVHhr488sgPFJWthbbtxpuYNm3XAgYDEj4RDyQ=
-github.com/pion/webrtc/v4 v4.2.26/go.mod h1:vH5Fn0zOZ8LuLhIPEtsLkoYkwnvubV4TX+ZtjV5Jqgk=
 github.com/quic-go/go-ossfuzz-seeds v0.1.0 h1:APacT+iIaNF6fd8AGEiN3bT/Jtkd2jz4v4TzM7MFjy0=
 github.com/quic-go/go-ossfuzz-seeds v0.1.0/go.mod h1:3IOHRbJIc+L6YKMwfDtJAM9Vj9k0YY4muhuyUYk5tbk=
 github.com/quic-go/qpack v0.6.0 h1:g7W+BMYynC1LbYLSqRt8PBg5Tgwxn214ZZR34VIOjz8=

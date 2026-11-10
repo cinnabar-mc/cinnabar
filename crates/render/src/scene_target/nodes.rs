@@ -25,7 +25,8 @@ type SceneOpaqueQuery = (
     Option<&'static bevy::render::view::ViewUniformOffset>,
 );
 
-/// Draws opaque and cutout geometry while retaining the sky samples for later world passes.
+/// Draws the sky when this pass hosts it, then opaque and cutout geometry, retaining the
+/// samples for later world passes.
 pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<SceneOpaqueQuery>,
@@ -41,18 +42,20 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     }
     let (camera, view, target, scene, depth, resolution, sky_pipeline, sky_group, offset) =
         query.into_inner();
-    let (Some(opaque), Some(cutout)) = (
-        world.get_resource::<ViewBinnedRenderPhases<Opaque3d>>(),
-        world.get_resource::<ViewBinnedRenderPhases<AlphaMask3d>>(),
-    ) else {
+    use crate::atmosphere_render::sky_pass;
+    let draws_sky =
+        !AFTER_PACK && draw_native && sky_pass::host(world, entity) == sky_pass::SkyHost::Opaque;
+    let phases = world
+        .get_resource::<ViewBinnedRenderPhases<Opaque3d>>()
+        .zip(world.get_resource::<ViewBinnedRenderPhases<AlphaMask3d>>())
+        .and_then(|(opaque, cutout)| {
+            opaque
+                .get(&view.retained_view_entity)
+                .zip(cutout.get(&view.retained_view_entity))
+        });
+    if phases.is_none() && !draws_sky {
         return;
-    };
-    let (Some(opaque), Some(cutout)) = (
-        opaque.get(&view.retained_view_entity),
-        cutout.get(&view.retained_view_entity),
-    ) else {
-        return;
-    };
+    }
     let color = scene.map_or_else(
         || target.get_color_attachment(),
         |scene| scene.color_attachment(target, false),
@@ -65,6 +68,7 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
     );
     let sky = scene.is_none() && (sky_pipeline.is_some() || sky_group.is_some());
     if draw_native
+        && let Some((opaque, cutout)) = phases
         && crate::gpu_timing::draw_categories(
             world,
             &mut context,
@@ -106,6 +110,13 @@ pub(crate) fn scene_opaque<const AFTER_PACK: bool>(
         }
         None => {}
     }
+    if draws_sky {
+        sky_pass::draw(world, entity, &mut pass);
+    }
+    let Some((opaque, cutout)) = phases else {
+        span.end(&mut pass);
+        return;
+    };
     if !opaque.is_empty()
         && let Err(error) = opaque.render(&mut pass, world, entity)
     {

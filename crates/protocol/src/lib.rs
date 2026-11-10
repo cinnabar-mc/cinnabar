@@ -186,7 +186,7 @@ pub use item::{
     item_extra_slot_locked, item_extra_unbreakable, item_filtered_custom_name, item_firework_star,
     item_fireworks, item_has_enchantment_list, item_has_trim, item_id_aux, item_map_id,
     item_repair_cost, item_shield_pattern, item_stack_damage, item_trim, item_use_progress_packet,
-    item_user_data_equal, offhand_equipment_packet, select_hotbar_slot_packet,
+    item_user_data_equal, map_id_from_decimal, offhand_equipment_packet, select_hotbar_slot_packet,
     vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
