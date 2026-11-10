@@ -9,9 +9,20 @@ impl ModUi {
     }
 }
 
+/// A pointer press on a declared control and its hit box in panel units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Press {
+    pub(super) control: usize,
+    pub(super) rect: [f32; 4],
+    pub(super) held: bool,
+}
+
 impl ModPanel {
     /// Releases captured movement and visual pointer states without closing the panel.
     pub(super) fn cancel_pointer_input(&mut self) {
+        if let Some(press) = &mut self.press {
+            press.held = false;
+        }
         self.drag = None;
         self.vector_drag = None;
         self.scroll_drag = None;
@@ -37,6 +48,13 @@ impl ModPanel {
         if !self.open || !position.iter().all(|value| value.is_finite()) {
             self.cancel_pointer_input();
             return Vec::new();
+        }
+        // A press stays held wherever the pointer goes, inside or outside the panel, until the
+        // button is released.
+        if pressed {
+            self.press = None;
+        } else if !held && let Some(press) = &mut self.press {
+            press.held = false;
         }
         if let Some(edit::Editor::Field { state, .. }) = &mut self.edit
             && state.dragging
@@ -95,6 +113,18 @@ impl ModPanel {
         let action = pressed
             .then(|| hit.and_then(|hit| hit.pressed.as_deref()))
             .flatten();
+        if pressed {
+            self.press = hit.zip(
+                action
+                    .and_then(|action| action.strip_prefix("mod.control:"))
+                    .and_then(|index| index.parse::<usize>().ok()),
+            )
+            .map(|(hit, control)| Press {
+                control,
+                rect: [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h].map(|v| v as f32),
+                held,
+            });
+        }
         if pressed {
             if action == Some("mod.dismiss") {
                 self.cancel_edit();

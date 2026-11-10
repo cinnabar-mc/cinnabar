@@ -9,7 +9,8 @@ mod elements;
 mod geometry;
 pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
 pub use elements::{
-    ElementState, ElementStates, HiddenElements, HudViewport, PanelLayout, VanillaElement,
+    ElementState, ElementStates, HiddenElements, HudViewport, PanelLayout, PanelPress,
+    VanillaElement,
 };
 pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
 /// Bound for one read-only server text field crossing an extension callback.

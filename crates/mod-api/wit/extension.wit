@@ -403,6 +403,16 @@ interface panel {
     record panel-layout { width: f32, height: f32, scale: f32, offset: tuple<f32, f32> }
     /// Requires controls authority; none without it and while this mod's panel is not open.
     read-layout: func() -> option<panel-layout>;
+    /// The last pointer press on one of this panel's declared controls: its control `id` and
+    /// the box, in panel units, where that control was laid out when pressed (scrolling
+    /// included). `held` stays true while the button is held, wherever the pointer moves, even
+    /// outside the control or the panel, and is false from the release until the next press;
+    /// a press elsewhere clears it. With `input.read-controls` pointer and `read-layout`, a mod
+    /// follows a press, drag and release relative to its own control.
+    record panel-press { id: string, x: f32, y: f32, width: f32, height: f32, held: bool }
+    /// Requires controls authority; none without it, while this mod's panel is not open, or
+    /// before a press on a declared control.
+    read-press: func() -> option<panel-press>;
 }
 
 /// Read-only introspection of this instance's explicitly granted capabilities.

@@ -135,6 +135,19 @@ pub struct PanelLayout {
     pub offset: [f32; 2],
 }
 
+/// The panel control the pointer last pressed and where it was laid out at that press, so a mod
+/// can follow a press, drag and release relative to its own control: a panel point `p` lies at
+/// `(p - [x, y]) / [width, height]` of the control's box.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelPress {
+    /// The pressed control's declared identifier.
+    pub id: String,
+    /// The pressed control's laid-out box in panel units: `[x, y, width, height]`.
+    pub rect: [f32; 4],
+    /// Whether the press is still held; false from its release until the next press.
+    pub held: bool,
+}
+
 impl PanelLayout {
     /// Finite positive size and scale, and a finite offset.
     pub fn valid(self) -> bool {

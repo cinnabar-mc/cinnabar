@@ -178,6 +178,11 @@ scale and a `reference_size` fitted to a small window. `panel.read-layout`, with
 `controls`, reports the open panel root's size in panel units, the HUD GUI units one
 panel unit spans and the root's offset from the HUD root, so a pointer `p` from
 `input.read-controls` lies at `(p - offset) / scale` in panel units.
+`panel.read-press` reports the last pointer press on one of the panel's declared controls:
+its `id`, the box where that control was laid out when pressed, in panel units, and whether
+the button is still `held`. The press stays held while the pointer leaves the control or the
+panel, so a mod can draw its own sliders and other pointer widgets: on a press event it maps
+each frame's pointer into the pressed control's box until `held` turns false.
 
 `budget.remaining-fuel` returns the fuel left in the running callback, roughly the
 instructions it may still execute. It needs no grant and exposes no game state; use

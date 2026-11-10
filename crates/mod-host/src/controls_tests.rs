@@ -327,6 +327,31 @@ fn panel_layout_reads_need_controls_authority_and_an_open_panel() {
     }
 }
 
+#[test]
+fn panel_press_reads_need_controls_authority_and_an_open_panel() {
+    let press = ui::mod_hud::PanelPress {
+        id: "strength".into(),
+        rect: [10., 20., 120., 16.],
+        held: true,
+    };
+    for controls in [true, false] {
+        let mut state = state(ModGrants {
+            controls,
+            ..Default::default()
+        });
+        state.set_content(panel()).unwrap().ok();
+        state.controls.commit();
+        state.controls.press = Some(press.clone());
+        assert!(state.read_press().unwrap().is_none(), "the panel is closed");
+        state.controls.open = true;
+        let read = state.read_press().unwrap();
+        assert_eq!(
+            read.map(|read| (read.id, [read.x, read.y, read.width, read.height], read.held)),
+            controls.then(|| ("strength".to_owned(), [10., 20., 120., 16.], true))
+        );
+    }
+}
+
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 1,

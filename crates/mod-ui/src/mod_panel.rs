@@ -76,6 +76,8 @@ pub(super) struct ModPanel {
     projected: std::collections::BTreeMap<String, Option<[f64; 2]>>,
     /// Where the panel was last laid out over the HUD root.
     layout: Option<ui::mod_hud::PanelLayout>,
+    /// The last pointer press on a declared control, for `panel.read-press`.
+    press: Option<input::Press>,
 }
 
 impl ModUi {
@@ -196,6 +198,7 @@ impl ModUi {
                     current.motion.transitions = transitions;
                 }
                 current.pointer = None;
+                current.press = None;
                 current.prepared = prepared.clone();
                 current.catalog = prepared.as_ref().map(|route| Arc::clone(&route.catalog));
             }
@@ -248,6 +251,7 @@ impl ModUi {
                 icons: Vec::new(),
                 projected: Default::default(),
                 layout: None,
+                press: None,
             });
         }
         if (self.reduced_motion || !panel.motion)
@@ -287,6 +291,21 @@ impl ModUi {
     pub fn mod_panel_layout(&self) -> Option<(PanelUiOwner, ui::mod_hud::PanelLayout)> {
         let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
         Some((panel.owner, panel.layout?))
+    }
+
+    /// The open panel's owner and its last pointer press on a declared control, for
+    /// `panel.read-press`; none while no panel is open or before any such press.
+    pub fn mod_panel_press(&self) -> Option<(PanelUiOwner, ui::mod_hud::PanelPress)> {
+        let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
+        let press = panel.press?;
+        Some((
+            panel.owner,
+            ui::mod_hud::PanelPress {
+                id: panel.panel.controls.get(press.control)?.id().to_owned(),
+                rect: press.rect,
+                held: press.held,
+            },
+        ))
     }
 
     /// Whether the active panel retains resource-pack HUD content for placement or inspection.
