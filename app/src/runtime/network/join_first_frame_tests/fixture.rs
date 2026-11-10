@@ -94,6 +94,7 @@ pub(super) fn bootstrap(
         server_authoritative_block_breaking: true,
         rewind_history_size: 20,
         base_game_version: protocol::BaseGameVersion::Any,
+        overworld_range: protocol::MODERN_OVERWORLD_RANGE,
         hardcore: false,
         hud_rules: Default::default(),
         death_rules: Default::default(),
