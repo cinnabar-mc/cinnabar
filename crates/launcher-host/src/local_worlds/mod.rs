@@ -12,6 +12,7 @@ mod download;
 mod import;
 mod junction;
 mod level_dat;
+mod local_terrain;
 mod manager;
 mod ports;
 mod process;

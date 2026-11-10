@@ -41,6 +41,7 @@ client-session = { path = "../client-session" }
 client-state = { path = "../client-state" }
 json-ui = { path = "../json-ui" }
 launcher-host = { path = "../launcher-host" }
+mod-api = { path = "../mod-api" }
 pack-runtime = { path = "../pack-runtime" }
 render-scene = { path = "../render-scene" }
 resource-pack = { path = "../resource-pack" }

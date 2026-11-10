@@ -365,7 +365,7 @@ fn a_trapped_event_revokes_committed_and_staged_geometry_and_masks() {
     let result = instance.run(CALLBACK_FUEL, commit_event, |_, store| {
         store.data_mut().create_geometry(mesh(3))?.unwrap();
         masks::Host::create(store.data_mut(), masks::DepthPolicy::Always)?.unwrap();
-        bail!("guest trap after staging geometry")
+        anyhow::bail!("guest trap after staging geometry")
     });
     assert!(result.is_err());
     assert!(!instance.is_active());

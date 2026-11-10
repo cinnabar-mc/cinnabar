@@ -14,6 +14,7 @@ impl State {
                 refused: 0,
             },
             terrain: self.terrain.transaction(),
+            local_terrain: self.local_terrain.clone(),
             limits: self.limits.clone(),
             pressed: self.pressed,
             label: None,
@@ -104,6 +105,7 @@ impl State {
         let Self {
             exclusive,
             terrain,
+            local_terrain: _,
             limits: _,
             pressed: _,
             label: _,

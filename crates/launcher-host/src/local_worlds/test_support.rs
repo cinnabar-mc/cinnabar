@@ -62,6 +62,7 @@ pub(crate) fn spec(dir: &Path) -> StartSpec {
         view_distance: None,
         options_unapplied: false,
         host_xuid: None,
+        local_terrain: false,
     }
 }
 

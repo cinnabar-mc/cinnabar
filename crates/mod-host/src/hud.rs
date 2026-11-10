@@ -1,7 +1,8 @@
 //! Transactional HUD output: the mod's JSON-UI surface, hidden vanilla elements and local
 //! feedback, with no input or world authority.
 
-use super::{MAX_IMPORT_WRITES, State};
+use super::{MAX_IMPORT_WRITES, State, cinnabar};
+use crate::MAX_LABEL_BYTES;
 use anyhow::{Result, bail};
 use std::sync::Arc;
 use ui::mod_hud::{ElementStates, HiddenElements, HudViewport};
@@ -10,6 +11,63 @@ pub(super) mod surface;
 #[cfg(test)]
 #[path = "hud/surface_tests.rs"]
 mod surface_tests;
+
+impl cinnabar::extension::hud::Host for State {
+    fn local_message(&mut self, text: String) -> Result<Result<(), String>> {
+        local_message(self, text)
+    }
+    /// Stages the mod's retained surface; it publishes when the callback succeeds.
+    fn set_surface(&mut self, json: String) -> Result<Result<(), String>> {
+        surface::set(self, json)
+    }
+
+    /// Patches the staged or committed surface's bindings and collection order.
+    fn update_surface(&mut self, json: String) -> Result<Result<(), String>> {
+        surface::update(self, json)
+    }
+
+    fn read_viewport(&mut self) -> Result<Option<cinnabar::extension::hud::Viewport>> {
+        Ok(surface::viewport(self))
+    }
+
+    fn measure_text(
+        &mut self,
+        text: String,
+        font: cinnabar::extension::hud::Font,
+    ) -> Result<Result<f32, String>> {
+        Ok(surface::measure(self, &text, font))
+    }
+
+    fn set_hidden_elements(
+        &mut self,
+        elements: Vec<cinnabar::extension::hud::VanillaElement>,
+    ) -> Result<Result<(), String>> {
+        surface::set_hidden(self, elements)
+    }
+
+    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
+        surface::set_position_hidden(self, hidden)
+    }
+
+    fn read_elements(
+        &mut self,
+    ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
+        Ok(surface::elements(self))
+    }
+
+    /// Stages bounded plain text; nothing is published until the guest returns.
+    fn set_label(&mut self, text: String) -> Result<Result<(), String>> {
+        self.writes += 1;
+        if self.writes > MAX_IMPORT_WRITES {
+            bail!("HUD import budget exhausted");
+        }
+        if text.len() > MAX_LABEL_BYTES || text.chars().any(|c| c.is_control() || c == '§') {
+            return Ok(Err("label must be short plain text".into()));
+        }
+        self.pending = Some(text);
+        Ok(Ok(()))
+    }
+}
 
 /// Measures one line of surface label text as the host lays it out.
 pub trait HudTextMeasure: Send + Sync {
@@ -179,7 +237,7 @@ pub(super) fn local_message(state: &mut State, text: String) -> Result<Result<()
         return Ok(Err(error));
     }
     if text.is_empty()
-        || text.len() > super::MAX_LABEL_BYTES
+        || text.len() > MAX_LABEL_BYTES
         || text.chars().any(|c| c.is_control() || c == '§')
     {
         return Ok(Err("local message must be short plain text".into()));
