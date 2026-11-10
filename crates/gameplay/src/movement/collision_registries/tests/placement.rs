@@ -187,37 +187,51 @@ fn cobweb_prediction_keeps_independent_support_in_both_identity_modes() {
 }
 
 #[test]
-fn frogspawn_prediction_places_above_a_water_source_only() {
+fn frogspawn_prediction_checks_water_depth_for_top_and_shoreline_clicks() {
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        let mut store = store(mode);
-        store
-            .update_block(
-                SubChunkKey::new(0, 0, 0, 0),
-                BlockUpdate::new(8, 8, 8, 0, id(record("minecraft:water", &[]), mode)),
-                id(record("minecraft:air", &[]), mode),
-            )
-            .unwrap();
-        let mut around = surroundings();
-        around.clicked = block_fact("minecraft:water");
-        around.held = block_fact("minecraft:frog_spawn");
-        let result = predict("minecraft:frog_spawn", &store, mode, &context(&around))
-            .expect("frogspawn should be placeable on a water source");
-        assert_eq!(result.position, [8, 9, 8]);
-        assert_eq!(
-            fixtures().1.block_identifier(mode, result.block),
-            Some("minecraft:frog_spawn")
-        );
+        for name in ["minecraft:water", "minecraft:flowing_water"] {
+            for depth in [0, 1] {
+                let mut store = store(mode);
+                let water = id(record(name, &[("liquid_depth", depth.into())]), mode);
+                let air = id(record("minecraft:air", &[]), mode);
+                store
+                    .update_block(
+                        SubChunkKey::new(0, 0, 0, 0),
+                        BlockUpdate::new(8, 8, 8, 0, water),
+                        air,
+                    )
+                    .unwrap();
+                let mut around = surroundings();
+                around.clicked = fixtures().1.block_facts(mode, water);
+                around.held = block_fact("minecraft:frog_spawn");
+                let expected = (depth == 0)
+                    .then_some(([8, 9, 8], id(record("minecraft:frog_spawn", &[]), mode)));
+                assert_eq!(
+                    predict("minecraft:frog_spawn", &store, mode, &context(&around))
+                        .map(|placement| (placement.position, placement.block)),
+                    expected,
+                    "top: {name} depth={depth} mode={mode:?}"
+                );
 
-        let mut flowing = store;
-        flowing
-            .update_block(
-                SubChunkKey::new(0, 0, 0, 0),
-                BlockUpdate::new(8, 8, 8, 0, id(record("minecraft:flowing_water", &[]), mode)),
-                id(record("minecraft:air", &[]), mode),
-            )
-            .unwrap();
-        around.clicked = block_fact("minecraft:flowing_water");
-        assert!(predict("minecraft:frog_spawn", &flowing, mode, &context(&around)).is_none());
+                store
+                    .update_block(
+                        SubChunkKey::new(0, 0, 0, 0),
+                        BlockUpdate::new(7, 9, 8, 0, id(record("minecraft:stone", &[]), mode)),
+                        air,
+                    )
+                    .unwrap();
+                around.clicked = block_fact("minecraft:stone");
+                let mut side = context(&around);
+                side.clicked = [7, 9, 8];
+                side.input.face = 5;
+                assert_eq!(
+                    predict("minecraft:frog_spawn", &store, mode, &side)
+                        .map(|placement| (placement.position, placement.block)),
+                    expected,
+                    "shoreline: {name} depth={depth} mode={mode:?}"
+                );
+            }
+        }
     }
 }
 

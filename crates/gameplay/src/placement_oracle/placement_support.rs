@@ -220,6 +220,7 @@ pub(crate) fn accepts_support(identifier: &str, support_identifier: &str, full_c
 pub(crate) fn support_acceptance(
     identifier: &str,
     support_identifier: &str,
+    support_liquid_depth: Option<i32>,
     full_cube: bool,
 ) -> Option<bool> {
     if identifier == "minecraft:vine" {
@@ -244,8 +245,8 @@ pub(crate) fn support_acceptance(
     }
     if identifier == "minecraft:frog_spawn" {
         return match support_identifier {
-            "minecraft:water" => Some(true),
-            "minecraft:air" | "minecraft:flowing_water" => Some(false),
+            "minecraft:water" | "minecraft:flowing_water" => Some(support_liquid_depth == Some(0)),
+            "minecraft:air" => Some(false),
             _ => None,
         };
     }

@@ -1182,7 +1182,7 @@ minecraft:warped_stem	Axis	Vanilla	-
 minecraft:warped_trapdoor	Trapdoor	Vanilla	-
 minecraft:warped_wall_sign	WallSign	Vanilla	minecraft:warped_standing_sign
 minecraft:warped_wart_block	Identity	Vanilla	-
-minecraft:water	Unresolved	WaterSource	-
+minecraft:water	Unresolved	Water	-
 minecraft:waterlily	Identity	Vanilla	-
 minecraft:waxed_chiseled_copper	Identity	Vanilla	-
 minecraft:waxed_copper	Identity	Vanilla	-

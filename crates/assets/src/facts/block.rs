@@ -138,7 +138,14 @@ impl BlockFacts {
                         super::property_domains_generated::block_domains(&r.name);
                     if let Some(entry) = catalog.get(r.name.as_ref()) {
                         fact.placement = entry.rule;
-                        fact.support = entry.support;
+                        fact.support = if entry.support == super::SupportKind::Water
+                            && r.property(super::BlockProperty::LiquidDepth)
+                                == Some(&super::StateValue::Int(0))
+                        {
+                            super::SupportKind::WaterSource
+                        } else {
+                            entry.support
+                        };
                         fact.alternate = entry
                             .alternate
                             .as_deref()

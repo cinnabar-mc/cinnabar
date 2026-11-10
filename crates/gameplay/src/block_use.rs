@@ -1,7 +1,7 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P, ItemTraits, PlacementRule as R},
+    facts::{BlockFact, BlockProperty as P, ItemTraits, PlacementRule as R, SupportKind},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
@@ -149,12 +149,12 @@ impl UseSurroundings {
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
-        // Water is replaceable for ordinary blocks, but frogspawn is placed on
-        // the air cell above a water source rather than replacing the source.
-        if self.held.placement == R::FrogSpawn && self.clicked.traits.contains(T::WATER) {
-            if face == 1 {
+        // Frogspawn needs the air cell above a water source.
+        if self.held.placement == R::FrogSpawn && self.clicked.traits.intersects(T::WATER | T::LAVA)
+        {
+            if face == 1 && self.clicked.support == SupportKind::WaterSource {
                 let cell = placement_cell(clicked, face);
-                return (cell, self.neighbor.traits.contains(T::REPLACEABLE));
+                return (cell, self.neighbor.traits.contains(T::AIR));
             }
             return (clicked, false);
         }
