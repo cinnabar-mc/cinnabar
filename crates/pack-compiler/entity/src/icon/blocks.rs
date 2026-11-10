@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
+use assets::facts::pack::PackTexture;
 use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
@@ -37,9 +38,6 @@ const FLAT_FAMILIES: [ModelFamily; 10] = [
 /// Blocks whose vanilla block shape the item renderer cannot tessellate, so their items show
 /// the carried texture flat: barrier and the light blocks.
 const FLAT_TRAITS: BlockTraits = BlockTraits::INVISIBLE.union(BlockTraits::LIGHT_BLOCK);
-
-/// Terrain destination used when a carried texture key is absent.
-const MISSING_TEXTURE_KEY: &str = "missing";
 
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
@@ -478,7 +476,7 @@ impl IconBlocks {
         let key = if pack.terrain.get(&key).is_some() {
             key
         } else {
-            MISSING_TEXTURE_KEY.into()
+            PackTexture::Missing.key().into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))

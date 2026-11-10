@@ -70,7 +70,7 @@ fn redstone_torch_icons_use_diagnostic_artwork_when_lit_material_is_absent() {
             (pack_compile_input::pack::MISSING_TILE_TEXTURE_KEY): {
                 "textures": "textures/blocks/unlisted",
             },
-            (MISSING_TEXTURE_KEY): {"textures": "textures/blocks/missing"},
+            (PackTexture::Missing.key()): {"textures": "textures/blocks/missing"},
         }});
         write_pack(
             root.path(),
