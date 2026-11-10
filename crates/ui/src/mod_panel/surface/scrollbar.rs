@@ -51,7 +51,7 @@ pub(super) fn validate(kind: &str, object: &Map<String, Value>) -> Result<(), St
                 "surface {name} belongs on a scrollbar_box or scroll_track"
             ));
         }
-        if !value.as_str().is_some_and(|child| super::identifier(child)) {
+        if !value.as_str().is_some_and(super::identifier) {
             return Err(format!("surface {name} must name a child control"));
         }
     }
