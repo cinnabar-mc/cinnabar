@@ -193,10 +193,7 @@ pub(super) fn slider(
     } else {
         0.0
     };
-    let index = match actions[0] {
-        MenuAction::SettingsOption(index, _) => Some(index),
-        _ => None,
-    };
+    let index = actions[0].settings_slider_row();
     let pointer = view
         .settings
         .slider_pointer

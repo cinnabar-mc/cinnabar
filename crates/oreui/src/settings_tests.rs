@@ -375,26 +375,54 @@ fn settings_long_choice_picker_owns_pointer_input_and_scroll_views() {
 }
 
 #[test]
-fn settings_scale_picker_owns_input_and_keeps_each_modifier_action() {
-    let mut view = settings_view("video_forced_index");
-    view.gui_scale_choices = ui::DesktopGuiScale::for_window([1920, 1080])
+fn settings_gui_scale_is_one_slider_with_a_stop_per_modifier_at_every_width() {
+    let mut view = settings_view("accessibility_forced_index");
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
         .choices()
         .collect();
-    view.settings.scale_picker = true;
-    let frame = paint(&view, [640.0, 720.0], HashMap::new());
-    assert_eq!(frame.areas.len(), 1);
-    assert!(frame.hits.iter().all(|(action, _)| matches!(
-        action,
-        MenuAction::SettingsScale(_) | MenuAction::SettingsScalePicker
-    )));
-    for choice in &view.gui_scale_choices {
-        let action = MenuAction::SettingsScale(choice.offset);
-        let bounds = frame
-            .hits
+    assert!(view.gui_scale_choices.len() > 2);
+    view.gui_scale_offset = view.gui_scale_choices[0].offset;
+    for width in [640.0, 1280.0] {
+        let mut tracks = Vec::new();
+        let (_, hits, _) = super::review_tests::paint(HashMap::new(), |canvas| {
+            settings::draw(
+                canvas,
+                &view,
+                [width, 2000.0],
+                &|_| None,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap();
+            tracks.extend(
+                canvas
+                    .slider_tracks
+                    .iter()
+                    .filter(|(action, _, _)| matches!(action, MenuAction::SettingsScale(_)))
+                    .map(|(_, track, _)| *track),
+            );
+        });
+        let [track] = tracks[..] else {
+            panic!("the GUI-scale row draws exactly one slider track at width {width}");
+        };
+        let stops: Vec<_> = view
+            .gui_scale_choices
             .iter()
-            .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
-            .expect("each GUI modifier is independently selectable");
-        assert_eq!(hit(&frame.hits, centre(bounds)), Some(action));
+            .map(|choice| {
+                let action = MenuAction::SettingsScale(choice.offset);
+                let bounds = hits
+                    .iter()
+                    .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
+                    .expect("each GUI modifier has its own slider stop");
+                assert_eq!(hit(&hits, centre(bounds)), Some(action));
+                assert!(bounds.min().y() <= track.min().y() && bounds.max().y() >= track.max().y());
+                centre(bounds).x()
+            })
+            .collect();
+        assert!(
+            stops.windows(2).all(|pair| pair[0] < pair[1]),
+            "modifier stops run left to right in order at width {width}"
+        );
     }
 }
 

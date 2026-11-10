@@ -1,4 +1,4 @@
-//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.50.04).
+//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.60.04).
 use super::super::icons::{self, Icon};
 use super::super::theme::{BORDER, CAPTION, HEADER5, NEUTRAL100, TEXT_DIMMER, TEXT_DIMMEST};
 use {
@@ -82,6 +82,11 @@ pub(super) fn draw(
     ];
     if let Some(icon) = featured {
         canvas.icon_ref_cover(icon, banner_bounds)?;
+    } else {
+        canvas.cover_sprite(
+            crate::images::panorama::profile_key(&view.feeds.profile.xuid),
+            banner_bounds,
+        )?;
     }
     if let Some(icon) = character {
         let model_width = canvas.r(14.8);
@@ -265,3 +270,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod panorama_tests;

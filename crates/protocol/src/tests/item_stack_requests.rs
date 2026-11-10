@@ -4,7 +4,7 @@ use protocol::{
     item_stack_request_packet,
 };
 
-fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
+fn slot(container: StackRequestContainer, slot: u16, stack_network_id: i32) -> StackRequestSlot {
     StackRequestSlot {
         container,
         slot,
@@ -174,7 +174,7 @@ fn builder_rejects_ids_amounts_counts_and_slots() {
 }
 
 /// Native sparse ownership allows earlier negative odd request references on
-/// either cell. This request's own id is reserved for its newly created output.
+/// either cell. This request's own id needs created output or an earlier action's result.
 /// Vanilla stamps cells with the request id and resolves those references
 /// when validating request slots.
 #[test]
@@ -183,7 +183,7 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
         amount: 1,
         source: slot(
             StackRequestContainer::CreatedOutput,
-            CREATED_OUTPUT_SLOT,
+            u16::from(CREATED_OUTPUT_SLOT),
             id,
         ),
         destination: slot(StackRequestContainer::Cursor, 0, 0),
@@ -200,7 +200,7 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
             amount: 1,
             source: slot(
                 StackRequestContainer::CreatedOutput,
-                CREATED_OUTPUT_SLOT,
+                u16::from(CREATED_OUTPUT_SLOT),
                 -7,
             ),
             destination: slot(StackRequestContainer::Cursor, 0, -5),
@@ -208,8 +208,8 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
     ];
     let packet = item_stack_request_packet(-7, &chained).unwrap();
     let mut packets = decode_batch(encode(&packet).unwrap()).unwrap();
-    use bedrock_protocol_1_26_51::packets::Packet as WirePacket;
-    use bedrock_protocol_1_26_51::types::StackRequestAction as Action;
+    use bedrock_protocol_1_26_60::packets::Packet as WirePacket;
+    use bedrock_protocol_1_26_60::types::StackRequestAction as Action;
     let WirePacket::ItemStackRequest(decoded) = *packets.pop().unwrap().data else {
         panic!()
     };

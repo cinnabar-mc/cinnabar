@@ -103,7 +103,7 @@ impl IngestState {
             self.stream = session;
             self.epoch = epoch;
             self.records.clear();
-            engine.stop_all();
+            engine.stop_world_sounds();
         }
     }
 
@@ -176,7 +176,7 @@ impl IngestState {
 }
 
 /// Level sound events the client also voices itself: block events by cell, actor events by actor.
-const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
+const ECHOED_BLOCK_EVENTS: [&str; 1] = ["break"];
 const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
 pub const BLOCK_ECHO_SECONDS: f64 = 0.6;
 pub const ACTOR_ECHO_SECONDS: f64 = 0.4;
@@ -196,9 +196,7 @@ pub fn ingest_audio_events(
     mut state: Local<IngestState>,
 ) {
     for cue in cues.read() {
-        if client_ui::sound_requests::interface_sound_enabled(cue.0) {
-            engine.enqueue(SoundRequest::new(cue.0));
-        }
+        engine.enqueue(SoundRequest::new(cue.0));
     }
     let sounds = client_ui::sound_requests::take_sounds();
     for (name, volume, pitch) in sounds {
@@ -209,7 +207,7 @@ pub fn ingest_audio_events(
         if state.stream != 0 {
             state.stream = 0;
             state.records.clear();
-            engine.stop_all();
+            engine.stop_world_sounds();
             engine.clear_server_if_current();
         }
         return;
@@ -426,9 +424,10 @@ pub fn drive_local_motion(
                     LocalCue::Swim { volume } => {
                         (tables.entity(PLAYER, "swim", None), Some(volume))
                     }
-                    LocalCue::Splash { volume } => {
-                        (tables.entity(PLAYER, "splash", None), Some(volume))
-                    }
+                    LocalCue::Splash { volume } => (
+                        tables.entity(PLAYER, super::route::SPLASH_EVENT, None),
+                        Some(volume),
+                    ),
                 };
                 route.map(|route| {
                     let volume = volume.map_or(route.volume, |value| assets::FloatRange {
@@ -574,6 +573,20 @@ pub fn pump_audio(
 ) {
     engine.poll_server();
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
+    engine.submit_sources(sources, device.as_deref_mut());
+}
+
+/// Applies optional sound decisions before submitting admitted sources to the device.
+pub fn pump_audio_filtered(
+    time: Res<Time>,
+    listener: super::engine::Listener,
+    settings: Res<AudioSettings>,
+    mut engine: ResMut<AudioEngine>,
+    mut device: Option<NonSendMut<AudioDevice>>,
+    filter: impl FnMut(&[super::engine::SoundEvent]) -> Option<Vec<bool>>,
+) {
+    engine.poll_server();
+    let sources = engine.pump_filtered(Some(listener), time.delta_secs(), &settings, filter);
     engine.submit_sources(sources, device.as_deref_mut());
 }
 

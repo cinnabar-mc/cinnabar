@@ -240,6 +240,10 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         return variant;
     }
     match name.descriptor().handler {
+        // An actor with no limited life syncs a negative span, which reads as zero.
+        MolangQueryHandler::IntegerMetadata(key) if name == Q::LifeSpan => {
+            return metadata_number(actor, key).unwrap_or(0.0).max(0.0);
+        }
         MolangQueryHandler::IntegerMetadata(key) => {
             return metadata_number(actor, key).unwrap_or(0.0);
         }
@@ -295,25 +299,25 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
-        // Native actor-state position, before the actor store removes collision offsets.
         Q::Position if arguments.len() == 1 => {
+            let position = native_position(actor, input);
             argument(0)
                 .filter(|axis| axis.is_finite())
                 .map_or(0.0, |axis| match axis as i32 {
-                    0 => input.position[0],
-                    1 => input.position[1] + actor.network_position_offset(),
-                    2 => input.position[2],
+                    0 => position[0],
+                    1 => position[1],
+                    2 => position[2],
                     _ => 0.0,
                 })
         }
         Q::Position => 0.0,
         Q::RotationToCamera => argument(0).map_or(0.0, |axis| {
-            rotation_to_camera(input.position, context.camera_position, axis)
+            rotation_to_camera(native_position(actor, input), context.camera_position, axis)
         }),
-        Q::DistanceFromCamera => distance_from_camera(input, context),
+        Q::DistanceFromCamera => distance_from_camera(native_position(actor, input), context),
         Q::CameraDistanceRangeLerp => match arguments {
             [start, end] => camera_distance_range_lerp(
-                distance_from_camera(input, context),
+                distance_from_camera(native_position(actor, input), context),
                 start.number(),
                 end.number(),
             ),
@@ -403,6 +407,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         }),
         Q::IsOnGround => truth(input.on_ground),
         Q::IsRiding => truth(input.is_riding),
+        Q::IsAttachedToEntity => truth(attached_to_entity(actor)),
         Q::IsMoving => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
         Q::IsAlive => truth(health(actor).is_none_or(|health| health > 0.0)),
         Q::Health => health(actor).unwrap_or(0.0),
@@ -443,9 +448,16 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
     }
 }
 
-fn distance_from_camera(input: &ActorTickInput, context: &ActorTickContext) -> f32 {
+/// The native actor-state position queries measure from, before the actor store removes
+/// collision offsets: a player's sits at eye height, its network offset above the feet.
+fn native_position(actor: &dyn AnimatedActor, input: &ActorTickInput) -> [f32; 3] {
+    let [x, y, z] = input.position;
+    [x, y + actor.network_position_offset(), z]
+}
+
+fn distance_from_camera(position: [f32; 3], context: &ActorTickContext) -> f32 {
     (0..3)
-        .map(|axis| (context.camera_position[axis] - input.position[axis]).powi(2))
+        .map(|axis| (context.camera_position[axis] - position[axis]).powi(2))
         .sum::<f32>()
         .sqrt()
 }
@@ -606,6 +618,11 @@ fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
         .iter()
         .position(|bound| value <= bound)
         .unwrap_or(UPPER_BOUNDS.len()) as f32
+}
+
+/// A boosting rocket names the glider it follows; an unattached rocket leaves the default of -1.
+fn attached_to_entity(actor: &dyn AnimatedActor) -> bool {
+    matches!(actor.metadata().get(&ActorDataKey::CustomDisplay.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
 }
 
 pub(super) fn has_target(actor: &dyn AnimatedActor) -> bool {

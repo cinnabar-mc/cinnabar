@@ -2,7 +2,7 @@
 
 # World drawing: assets
 
-`cinnabar:world-draw/assets@0.1.0`
+`cinnabar:world-draw/assets@0.2.0`
 
 Reads only immutable package files verified by the host, without filesystem access.
 

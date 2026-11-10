@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, ready};
 
 use crate::packet_relay::{BatchWriter, PreparedBatch};
-use bedrock_protocol_1_26_51::{packets::PacketId, wire};
+use bedrock_protocol_1_26_60::{packets::PacketId, wire};
 use bridge::{BridgeError, FrameWritten};
 use bytes::Bytes;
 use simulation_clock::Moment;

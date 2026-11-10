@@ -243,7 +243,8 @@ fn more_specific_chords_win_and_follow_replaced_bindings() {
         .unwrap()
     };
     let mut sequence = 0;
-    let mut held = |router: &mut SemanticInputRouter, keys: Vec<u16>, modifiers| {
+    let mut held = |router: &mut SemanticInputRouter, mut keys: Vec<u16>, modifiers: ModifierChord| {
+        if modifiers.control { keys.push(0xe0); }
         sequence += 1;
         router
             .route(DeviceFrame {

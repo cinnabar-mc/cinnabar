@@ -14,6 +14,9 @@ impl MenuAction {
             Self::EditSkinName => Some(MenuField::SkinName),
             Self::SearchFriends => Some(MenuField::FriendQuery),
             Self::SearchSettings => Some(MenuField::SettingsQuery),
+            Self::SettingsStorage(super::settings_storage::StorageAction::Search) => {
+                Some(MenuField::StorageQuery)
+            }
             Self::LocalWorld(action) => action.field(),
             Self::WorldSettings(crate::local_worlds::in_world::Action::OptionField(id)) => {
                 Some(MenuField::WorldOption(id))

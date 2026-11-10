@@ -315,9 +315,11 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.chatColor" => "Chat Color",
         "chat.settings.chatColor.description" => "Default color for chat text",
         "chat.settings.mentionsColor" => "Mentions Color",
-        "chat.settings.mentionsColor.description" => {
-            "Saved preference; mention highlighting is not available yet"
-        }
+        "chat.settings.mentionsColor.description" => "Color used to highlight chat mentions",
+        "chat.settings.mentionsTarget" => "Highlight Mentions",
+        "chat.settings.mentionsTarget.description" => "Choose which player mentions to highlight",
+        "chat.settings.mentionsTarget.everyone" => "Everyone",
+        "chat.settings.mentionsTarget.self" => "Only Me",
         "options.nametagBackgroundOpacity" => "Nametag Background Opacity",
         "options.nametagBackgroundOpacity.description" => {
             "Adjust the opacity of nametag backgrounds. 0% hides the background."
@@ -387,6 +389,10 @@ pub(super) fn fallback(key: &str) -> &str {
         }
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
+        "Chat Input" => "Chat Input",
+        "Chat Input.description" => {
+            "Type in Java's input line over the game, or in Bedrock's full chat screen"
+        }
         "hbui.Settings.category.general" => "General",
         "menu.accessibility.tab.title" | "options.accessibility" => "Accessibility",
         "menu.accessibility.tab.description" => "Minecraft is for everyone, including you",
@@ -503,6 +509,19 @@ pub(super) fn fallback(key: &str) -> &str {
         }
         "hudScreen.controlCustomization.tooltip.notouch" => {
             "Use a touch device to customize controls"
+        }
+        "options.controlMode.name" => "Control mode",
+        "options.controlMode.touchLabel" => "Joystick & tap to interact",
+        "options.controlMode.classicLabel" => "D-Pad & tap to interact",
+        "options.controlMode.crosshairLabel" => "Joystick & aim crosshair",
+        "options.controlMode.touch.description" => {
+            "Drag joystick to move. Drag anywhere else to look around. Tap and hold blocks to interact with them."
+        }
+        "options.controlMode.classic.description" => {
+            "Tap arrows to move. Drag anywhere else to look around. Tap and hold blocks to interact with them."
+        }
+        "options.controlMode.crosshair.description" => {
+            "Drag joystick to move. Drag anywhere else to look around. Aim crosshair and use buttons to interact with blocks."
         }
         "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => {
             "Global Resources"

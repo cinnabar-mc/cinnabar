@@ -18,7 +18,7 @@ fn fixture() -> &'static (Box<[RegistryRecord]>, PhysicsRegistry) {
         let version = assets::active_content_registry_protocol();
         let records = assets::read_registry_for_protocol(breg, version).unwrap();
         let physics = assets::read_physics_registry_seed_for_protocol(
-            include_bytes!("../../../assets/data/block-physics-seed-v2193.bin"),
+            include_bytes!("../../../assets/data/block-physics-seed-v2225.bin"),
             breg,
             &records,
             version,
@@ -95,7 +95,7 @@ fn reviewed_foliage_routes_compile_without_changing_movement() {
 fn carrier_geometry_retains_interaction_facts_and_unaffected_collision() {
     let (records, seed) = fixture();
     let carrier = assets::read_physics_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../assets/data/block-physics-v2225.bin"),
         assets::pinned_block_registry_bytes(),
         records,
         assets::active_content_registry_protocol(),

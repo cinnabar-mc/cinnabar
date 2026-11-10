@@ -1,8 +1,18 @@
 mod action_filter;
-mod input_host;
+mod handlers;
+mod input_bindings;
+pub(super) mod input_host;
+pub(crate) mod legacy_input;
+mod observations;
 mod output_lifecycle;
 mod presentation;
 mod recovery;
+mod suspension;
+mod transaction;
+use transaction::{commit, commit_event, commit_frame_outputs};
+mod world_entry;
+#[cfg(test)]
+mod world_entry_tests;
 mod world_lifecycle;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
@@ -25,7 +35,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/filtered-player-mod@0.1.0",
+    world: "cinnabar:extension/handled-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
     with: { "cinnabar:extension/budget@0.1.0": crate::runtime::budget_host },
@@ -58,6 +68,7 @@ mod item_use;
 mod loading;
 #[path = "masks.rs"]
 mod masks;
+mod permissions;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -123,18 +134,10 @@ pub(crate) struct State {
     inventory: inventory::InventoryRequests,
     events: player_mod::EventContext,
     touch: touch::TouchState,
+    clock: Option<cinnabar::extension::clock::LocalTime>,
 }
 
 impl State {
-    /// Derives camera ownership from current transient policy and the retained rig.
-    fn camera_output(&self) -> bool {
-        self.world.rig.is_some()
-            || self.camera_delta.is_some()
-            || self.camera_policy.committed
-            || self.camera_policy.committed_view_scale.is_some()
-            || self.camera_policy.committed_view_tilt.is_some()
-    }
-
     pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
@@ -185,6 +188,7 @@ impl State {
             inventory: Default::default(),
             events: Default::default(),
             touch: Default::default(),
+            clock: None,
         }
     }
 }
@@ -220,6 +224,10 @@ impl cinnabar::extension::hud::Host for State {
         elements: Vec<cinnabar::extension::hud::VanillaElement>,
     ) -> Result<Result<(), String>> {
         hud::surface::set_hidden(self, elements)
+    }
+
+    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
+        hud::surface::set_position_hidden(self, hidden)
     }
 
     fn read_elements(
@@ -291,19 +299,23 @@ impl cinnabar::extension::clock::Host for State {
         if !self.grants.clock {
             return Ok(Err("clock capability denied".into()));
         }
-        let now = chrono::Local::now();
-        Ok(Ok(cinnabar::extension::clock::LocalTime {
-            unix_ms: u64::try_from(now.timestamp_millis()).unwrap_or(0),
-            utc_offset_seconds: now.offset().local_minus_utc(),
-        }))
+        let time = self.clock.get_or_insert_with(|| {
+            let now = chrono::Local::now();
+            cinnabar::extension::clock::LocalTime {
+                unix_ms: u64::try_from(now.timestamp_millis()).unwrap_or(0),
+                utc_offset_seconds: now.offset().local_minus_utc(),
+            }
+        });
+        Ok(Ok(*time))
     }
 }
 
 /// Recoverable fuel traps retain output but cannot enter the trapped component again.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InstanceStatus {
     Running,
     Recovering,
+    Cancelled,
     Revoked,
     Quarantined,
 }
@@ -316,67 +328,18 @@ pub(super) struct Instance {
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
+    frame_owner: crate::FrameOwner,
     filter_identity: u64,
     consecutive_frame_overruns: u32,
+    world_entry: world_entry::WorldEntry,
+    continuation: Option<suspension::Continuation>,
+    ui_generation: u64,
 }
 
 impl Instance {
-    /// Validates presentation observations before they enter the callback sandbox.
-    pub(super) fn observe_presentation(
-        &mut self,
-        world: Option<crate::WorldObservation>,
-        fps: Option<f32>,
-        sidebar: Option<crate::SidebarSnapshot>,
-        chat: Vec<crate::ObservedChatMessage>,
-    ) -> Result<()> {
-        anyhow::ensure!(
-            world.as_ref().is_none_or(|w| w.session != 0
-                && !w.world.is_empty()
-                && w.world.len() <= mod_api::MAX_WORLD_IDENTITY_BYTES
-                && !w.world.chars().any(char::is_control)
-                && [w.position.0, w.position.1, w.position.2]
-                    .iter()
-                    .all(|v| v.is_finite())),
-            "invalid world observation"
-        );
-        anyhow::ensure!(
-            fps.is_none_or(|value| value.is_finite() && (0.0..=100000.0).contains(&value)),
-            "invalid frame observation"
-        );
-        anyhow::ensure!(
-            sidebar.as_ref().is_none_or(|s| s.rows.len() <= 15
-                && s.title.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES
-                && s.rows
-                    .iter()
-                    .all(|r| r.label.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES)),
-            "invalid sidebar observation"
-        );
-        anyhow::ensure!(
-            chat.len() <= ui::mod_hud::MAX_OBSERVED_CHAT_MESSAGES
-                && chat
-                    .iter()
-                    .all(|m| m.text.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES)
-                && chat
-                    .windows(2)
-                    .all(|pair| pair[0].sequence < pair[1].sequence),
-            "invalid chat observation"
-        );
-        let state = self.store.data_mut();
-        state.player_state.world = world;
-        state.player_state.fps = fps;
-        state.player_state.sidebar = sidebar;
-        state.player_state.chat = chat;
-        Ok(())
-    }
-
-    /// Validates native cosmetic facts before exposing any current callback data.
-    pub(super) fn observe_modules(
-        &mut self,
-        observations: crate::module_observations::ModuleObservations,
-    ) -> Result<()> {
-        super::module_observations::validate(&observations)?;
-        self.store.data_mut().player_state.observations = observations;
-        Ok(())
+    /// Borrows the last successfully committed terrain surface policy.
+    pub(super) fn terrain_surface_rules(&self) -> &[mod_api::terrain_surface::Rule] {
+        &self.store.data().environment.surface_rules
     }
 
     /// Clears transient outputs even when no guest callback can execute this frame.
@@ -399,6 +362,13 @@ impl Instance {
         state.exclusive.camera_claimed = state.camera_output();
         state.pressed = false;
         state.controls.frame = crate::empty_controls();
+        state.controls.native_editing = false;
+    }
+
+    /// Releases retained movement output the guest could not renew under this frame's controls,
+    /// including frames spent recovering from a fuel overrun.
+    pub(super) fn release_unrenewable_movement(&mut self, controls: &crate::ControlFrame) {
+        self.store.data_mut().world.release_unrenewable(controls);
     }
 
     /// Validates client facts for the next frame callback only.
@@ -419,6 +389,9 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.scroll = crate::empty_scroll();
+        state.controls.native_editing = false;
+        state.controls.native_editing_next = false;
         state.pressed = false;
     }
 
@@ -435,7 +408,9 @@ impl Instance {
         // Deferred events may stage frame-only output; only this callback may publish it.
         self.begin_frame();
         if !self.is_active() {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Ok(());
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
@@ -444,7 +419,9 @@ impl Instance {
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
         if let Err(error) = validation {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Err(error);
         }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
@@ -462,6 +439,7 @@ impl Instance {
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
+        state.controls.native_editing = std::mem::take(&mut state.controls.native_editing_next);
         Ok(())
     }
 
@@ -470,19 +448,36 @@ impl Instance {
         if !self.is_active() {
             return Ok(());
         }
+        let continuing = self.continuation.is_some();
         self.store.data_mut().controls.begin_text_frame();
         self.store.data_mut().touch.begin_frame();
         let result = match delivery {
+            CallbackOutcome::Executed if self.continuation.is_some() || self.can_suspend() => {
+                self.run_frame_slice()
+            }
             CallbackOutcome::Executed => {
                 self.run(FRAME_FUEL, commit, |exports, store| exports.frame(store))
             }
-            CallbackOutcome::Deferred => Ok(CallbackOutcome::Deferred),
+            CallbackOutcome::Deferred | CallbackOutcome::Suspended
+                if self.continuation.is_some() =>
+            {
+                self.run_frame_slice()
+            }
+            outcome => Ok(outcome),
         };
-        let deferred = matches!(&result, Ok(CallbackOutcome::Deferred));
+        let deferred = matches!(
+            &result,
+            Ok(CallbackOutcome::Deferred | CallbackOutcome::Suspended)
+        );
         let state = self.store.data_mut();
-        state.controls.finish_text_frame(deferred);
+        state.controls.finish_text_frame(deferred || continuing);
         state.touch.finish_frame(deferred);
         result.map(|_| ())
+    }
+
+    /// Fences a native screen edit before it can wait behind an in-flight transaction.
+    pub(super) fn screen_edited(&mut self) {
+        self.ui_generation = self.ui_generation.wrapping_add(1);
     }
 
     /// Checks event authority and payload bounds before admitting deferred state.
@@ -497,6 +492,9 @@ impl Instance {
             return Ok(CallbackOutcome::Executed);
         }
         self.validate_event(event)?;
+        if self.continuation.is_some() {
+            return Ok(CallbackOutcome::Suspended);
+        }
         if !self.exports.handles_event(event) {
             return Ok(CallbackOutcome::Executed);
         }
@@ -516,48 +514,68 @@ impl Instance {
         publish: fn(&mut Store<State>),
         call: impl FnOnce(&exports::Exports, &mut Store<State>) -> Result<()>,
     ) -> Result<CallbackOutcome> {
-        if self.status == InstanceStatus::Recovering {
+        if matches!(
+            self.status,
+            InstanceStatus::Recovering | InstanceStatus::Cancelled
+        ) {
             self.last_fuel = 0;
             return Ok(CallbackOutcome::Deferred);
         }
-        let allowance = self
-            .callback_budget
-            .as_ref()
-            .map_or(Some(fuel), |budget| budget.reserve(fuel));
+        let world_entry = fuel == FRAME_FUEL && self.world_entry.available(self.store.data());
+        let limit = if world_entry {
+            crate::WORLD_ENTRY_FRAME_FUEL
+        } else {
+            fuel
+        };
+        let allowance = self.callback_budget.as_ref().map_or(Some(limit), |budget| {
+            if world_entry {
+                budget
+                    .reserve_world_entry_frame()
+                    .or_else(|| budget.reserve(fuel))
+            } else {
+                budget.reserve(fuel)
+            }
+        });
         let Some(allowance) = allowance else {
             self.last_fuel = 0;
             return Ok(CallbackOutcome::Deferred);
         };
-        let state = self.store.data_mut();
-        state.writes = 0;
-        state.environment.begin_callback();
-        state.gameplay_reads = 0;
-        state.camera_writes = 0;
-        state.motion.begin_callback();
-        state.packet_delay_writes = 0;
-        state.controls.reset_budget();
-        state.calls = 0;
-        state.output = 0;
-        state.pending_screens = None;
-        state.inventory.begin();
-        state.hud.begin_callback();
-        state.render.begin_callback();
-        state.touch.begin_callback();
-        state.presentation.begin();
-        state.facts.begin();
-        crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
+        if world_entry && allowance == crate::WORLD_ENTRY_FRAME_FUEL {
+            self.world_entry.consume();
+        }
+        let timing = self.callback_timing();
+        self.store.data_mut().begin_callback();
+        if fuel == FRAME_FUEL && !self.exports.requires_synchronous_frames() {
+            let epoch_yields = self
+                .callback_budget
+                .as_ref()
+                .is_none_or(|budget| budget.time.epoch_yields());
+            crate::execution::arm_resumable(&mut self.store, allowance, epoch_yields)?;
+        } else {
+            crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
+        }
         let called = call(&self.exports, &mut self.store);
         self.last_fuel = allowance - self.store.get_fuel().unwrap_or(0).min(allowance);
         if fuel <= FRAME_FUEL
             && let Some(budget) = &self.callback_budget
         {
-            budget.refund(allowance - self.last_fuel);
+            budget.refund(allowance.saturating_sub(self.last_fuel));
         }
         if let Err(error) = called {
+            self.charge_callback_time(timing);
+            if fuel == FRAME_FUEL
+                && let Some(budget) = &self.callback_budget
+            {
+                budget.time.completed(self.frame_owner);
+            }
             return Err(self.callback_failure(fuel, error));
         }
         publish(&mut self.store);
+        self.charge_callback_time(timing);
         if fuel == FRAME_FUEL {
+            if let Some(budget) = &self.callback_budget {
+                budget.time.completed(self.frame_owner);
+            }
             self.consecutive_frame_overruns = 0;
         }
         Ok(CallbackOutcome::Executed)
@@ -569,8 +587,13 @@ impl Instance {
         budget: crate::CallbackBudget,
         camera: bool,
         environment: bool,
-        owner: usize,
     ) {
+        if let Some(previous) = &self.callback_budget
+            && !previous.time.shares_with(&budget.time)
+        {
+            previous.forget_frame(self.frame_owner);
+            self.cancel_continuation();
+        }
         self.callback_budget = Some(budget);
         let state = self.store.data_mut();
         if camera && !state.exclusive.camera && state.exclusive.camera_claimed {
@@ -586,7 +609,6 @@ impl Instance {
         state.exclusive.camera_claimed |= state.camera_output();
         state.exclusive.camera = camera;
         state.exclusive.environment = environment;
-        state.exclusive.owner = owner;
     }
 
     /// Remembers camera output even after its one-shot delta has been consumed by the app.
@@ -604,7 +626,7 @@ impl Instance {
     pub(super) fn is_active(&self) -> bool {
         matches!(
             self.status,
-            InstanceStatus::Running | InstanceStatus::Recovering
+            InstanceStatus::Running | InstanceStatus::Recovering | InstanceStatus::Cancelled
         )
     }
 
@@ -613,9 +635,12 @@ impl Instance {
         self.status == InstanceStatus::Revoked
     }
 
-    /// Whether callbacks must wait for a fresh guest after a frame fuel trap.
+    /// Whether callbacks need a fresh guest after fuel exhaustion or continuation cancellation.
     pub(super) fn is_recovering(&self) -> bool {
-        self.status == InstanceStatus::Recovering
+        matches!(
+            self.status,
+            InstanceStatus::Recovering | InstanceStatus::Cancelled
+        )
     }
 
     /// Revokes a running guest without reclassifying an existing trap as recoverable.
@@ -628,6 +653,10 @@ impl Instance {
 
     /// Disables callbacks and drops everything the guest presented or staged.
     pub(super) fn quarantine(&mut self) {
+        if let Some(budget) = &self.callback_budget {
+            budget.forget_frame(self.frame_owner);
+        }
+        self.continuation = None;
         self.status = InstanceStatus::Quarantined;
         let state = self.store.data_mut();
         state.exclusive.camera_claimed = false;
@@ -661,8 +690,18 @@ impl Instance {
         self.is_active() && self.store.data().item_use_policy.pulse
     }
 
-    pub(super) fn preserves_teleport_rotation(&self) -> bool {
-        !self.store.data().exclusive.camera && self.store.data().camera_policy.committed
+    /// Current-frame relative camera heading from a successful focused gameplay callback.
+    pub(super) fn camera_yaw_offset(&self) -> Option<f32> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_yaw_offset)
+            .flatten()
+    }
+
+    /// Only a successful, focused gameplay callback publishes a perspective override.
+    pub(super) fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_perspective)
+            .flatten()
     }
 
     /// Only a successful, focused gameplay callback publishes a view multiplier.
@@ -818,6 +857,7 @@ impl Instance {
             self.is_active() && self.store.data().grants.controls,
             "controls capability denied"
         );
+        self.ui_generation = self.ui_generation.wrapping_add(1);
         let controls = &mut self.store.data_mut().controls;
         controls.panel = Some(bundle.panel.clone());
         controls.bundle = Some(bundle);
@@ -827,12 +867,21 @@ impl Instance {
     pub(super) fn panel_bundle(&self) -> Option<Arc<ui::mod_panel::PanelBundle>> {
         self.store.data().controls.bundle.clone()
     }
+    pub(super) fn panel_open_order(&self) -> u64 {
+        self.store.data().controls.open_order
+    }
+    pub(super) fn take_panel_open_request(&mut self) -> bool {
+        std::mem::take(&mut self.store.data_mut().controls.open_requested)
+    }
     pub(super) fn panel_open(&self) -> bool {
         self.store.data().controls.open
     }
     pub(super) fn set_panel_open(&mut self, open: bool) {
         let active = self.is_active();
         let state = self.store.data_mut();
+        if state.controls.open != open {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
+        }
         state.controls.open =
             open && active && state.grants.controls && state.controls.panel.is_some();
     }
@@ -870,6 +919,9 @@ impl Instance {
     /// The open container screen's layout that `screen.layout` returns; none also closes the
     /// view, as closing the container returns from it.
     pub(super) fn set_layout(&mut self, layout: Option<HostLayout>) {
+        if self.store.data().layout != layout {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
+        }
         let state = self.store.data_mut();
         if layout.is_none() && state.screens.view.is_some() {
             state.screens.view = None;
@@ -883,6 +935,7 @@ impl Instance {
         let screens = &mut self.store.data_mut().screens;
         let open = screens.view.take().is_some();
         if open {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
             screens.data.revision += 1;
         }
         open
@@ -896,17 +949,37 @@ impl Instance {
         self.last_fuel
     }
 
-    /// Returns only the movement intents committed by the current successful frame.
-    pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
-        self.store.data().world.movement_intents
+    /// Returns the granted complete movement input from the last callback completed in its frame.
+    pub(super) fn movement_input(&self) -> Option<crate::GameplayMovementInput> {
+        self.store
+            .data()
+            .world
+            .movement_input
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the control modes committed by the current successful frame.
+    /// Returns the granted movement intents from the last callback completed in its frame.
+    pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
+        self.store
+            .data()
+            .world
+            .movement_intents
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
+    }
+
+    /// Returns the granted control modes from the last callback completed in its frame.
     pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
-        self.store.data().world.control_modes
+        self.store
+            .data()
+            .world
+            .control_modes
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
+        if !Arc::ptr_eq(&self.store.data().session, &session) {
+            self.cancel_continuation();
+        }
         self.store.data_mut().session = session;
     }
 
@@ -919,57 +992,6 @@ impl Instance {
     /// The installation's food table, which a replacement instance inherits.
     pub(super) fn food_catalog(&self) -> Option<Arc<assets::RuntimeEquipmentCatalog>> {
         self.store.data().facts.food()
-    }
-}
-
-/// Publishes retained presentation changes after the entire callback succeeds.
-fn commit(store: &mut Store<State>) {
-    let state = store.data_mut();
-    state.motion.commit_frame();
-    state.terrain.commit();
-    // Retained drawing is committed once, by `commit_event`, so frame groups survive.
-    state.render.commit_primitives();
-    state.world.commit();
-    state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
-    state.camera_policy.committed_view_scale = (state.snapshot.is_some()
-        && state.controls.frame.focused
-        && !state.controls.frame.panel_open)
-        .then_some(state.camera_policy.pending_view_scale)
-        .flatten();
-    state.camera_policy.committed_view_tilt = state.camera_policy.pending_view_tilt;
-    state.item_use_policy.commit(state.snapshot.is_some());
-    state.camera_delta = state.pending_camera.take();
-    state.exclusive.camera_claimed = state.camera_output();
-    if let Some(delay) = state.pending_packet_delay.take() {
-        state.packet_delay_ms = delay;
-    }
-    commit_event(store);
-}
-
-/// Publishes retained drawing, label, visual time, panel, settings and screen changes.
-/// Immediate primitives, camera and command output belong to `frame` alone;
-/// an event's staged changes to those outputs are dropped by the next frame.
-fn commit_event(store: &mut Store<State>) {
-    let state = store.data_mut();
-    if !state.world_output_available() {
-        state.clear_world_output();
-    }
-    state.render.commit_retained();
-    state.hud.commit();
-    state.presentation.commit();
-    state.controls.commit();
-    state.touch.commit();
-    state.inventory.commit();
-    state.environment.commit();
-    if let Some(text) = state.pending.take() {
-        state.label = (!text.is_empty()).then_some(text);
-    }
-    if let Some(screens) = state
-        .pending_screens
-        .take()
-        .and_then(player_mod::ScreenTransaction::commit)
-    {
-        state.screens = screens;
     }
 }
 

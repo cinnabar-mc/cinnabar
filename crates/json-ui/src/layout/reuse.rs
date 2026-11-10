@@ -28,6 +28,7 @@ pub(super) struct Inputs {
     pub(super) layer: i32,
     pub(super) shown: bool,
     pub(super) packed: bool,
+    pub(super) replaced: bool,
     pub(super) allows: bool,
     pub(super) enabled: bool,
     /// Whether every ancestor shows, so the subtree emits.
@@ -49,6 +50,7 @@ impl Inputs {
             && self.layer == other.layer
             && self.shown == other.shown
             && self.packed == other.packed
+            && self.replaced == other.replaced
             && self.allows == other.allows
             && self.enabled == other.enabled
             && self.emitting == other.emitting
@@ -204,6 +206,7 @@ fn vacant_hit() -> HitRegion {
         clip: none,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: None,
         control_name: None,
         collection_index: None,
@@ -212,6 +215,7 @@ fn vacant_hit() -> HitRegion {
         checked: None,
         max_length: None,
         group_index: None,
+        radio_index: None,
         renderer: None,
         drag_axes: [false; 2],
         sound: None,

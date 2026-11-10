@@ -212,3 +212,70 @@ fn updates_controls_belong_to_their_own_settings_tab() {
         _ => false,
     }));
 }
+
+/// Flatpak keeps mod preferences available while delegating app updates to its package manager.
+#[test]
+fn flatpak_updates_keep_mod_preferences_without_app_update_actions() {
+    let mut view = MenuView::new(true, "Player".into());
+    view.settings.section = SettingSection::Updates.definition().index;
+    view.updates.managed = true;
+    let expected = [SettingId::ModUpdateChecks, SettingId::ModAutoUpdate]
+        .map(|setting| MenuAction::SettingsOption(setting.index() as u16, 0));
+    for active in [false, true] {
+        view.updates.active = active;
+        for width in [320.0, 800.0] {
+            let (actions, text) = render(&view, width);
+            assert_eq!(actions.len(), expected.len());
+            assert!(expected.iter().all(|action| actions.contains(action)));
+            assert!(text.contains("UpdatesaremanagedbyFlatpak"));
+            assert!(text.contains(&installed_version(&view.updates.running).replace(' ', "")));
+        }
+    }
+}
+
+/// The download bar sits inside its own row's padding instead of on the next row's edge.
+#[test]
+fn download_bar_stays_inside_its_row() {
+    use launcher::menu::updates::DownloadProgress;
+    let mut view = MenuView::new(true, "Player".into());
+    view.settings.section = SettingSection::Updates.definition().index;
+    view.updates.status = Status::Downloading;
+    view.updates.download = Some(DownloadProgress {
+        received_bytes: 25,
+        total_bytes: 100,
+    });
+    let width = 800.0;
+    let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [0.0, width],
+            column_width: width,
+            y: 0.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        super::super::sections::draw(&mut content, SettingSection::Updates).unwrap();
+    });
+    let solids = crate::test_support::solids(&nodes);
+    let track = solids
+        .iter()
+        .find(|(b, color)| *color == crate::theme::NEUTRAL100 && b[2] - b[0] > width * 0.5)
+        .expect("download bar")
+        .0;
+    let row = solids
+        .iter()
+        .find(|(b, color)| {
+            *color == crate::theme::NEUTRAL.fill
+                && b[0] == 0.0
+                && b[2] == width
+                && b[1] < track[1]
+                && track[3] < b[3]
+        })
+        .expect("download bar inside a row")
+        .0;
+    assert!(
+        row[3] - track[3] >= 1.0,
+        "bar touches the row edge: {track:?} in {row:?}"
+    );
+}

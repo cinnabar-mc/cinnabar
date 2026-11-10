@@ -33,7 +33,7 @@ fn java_pack_geometry_on_a_real_viewport() {
     let nodes = presentation.hud_draw_nodes();
     // 1280x750 at scale 3: a 426.67x250 GUI-px screen.
     let centre = 1280.0 / 3.0 / 2.0;
-    let slots = customs(nodes, "hotbar_renderer");
+    let slots = customs(nodes, HOTBAR_SLOTS);
     assert!(
         (slots[0].dest.x - (centre - 90.0)).abs() < 1e-3,
         "{:?} vs centre {centre}",
@@ -115,7 +115,7 @@ fn bedrock_hotbar_setting_raises_the_painted_hud_and_focused_chat() {
         build(&player_runtime, &mut presentation, &runtime, 10);
         let nodes = presentation.hud_draw_nodes();
         let hud = [
-            customs(nodes, "hotbar_renderer")[0].dest.y,
+            customs(nodes, HOTBAR_SLOTS)[0].dest.y,
             customs(nodes, "heart_renderer")[0].dest.y,
             text(nodes, "hotbar proof").expect("HUD chat").dest.y,
         ];
@@ -157,7 +157,7 @@ fn default_settings_place_the_painted_hotbar_at_bedrock_height() {
     let mut slot_y = |settings: launcher::menu::settings_options::SettingsOptions| {
         presentation.set_chat_settings_snapshot((std::sync::Arc::new(settings), None));
         build(&player_runtime, &mut presentation, &runtime, 10);
-        customs(presentation.hud_draw_nodes(), "hotbar_renderer")[0]
+        customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS)[0]
             .dest
             .y
     };

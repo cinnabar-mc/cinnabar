@@ -47,6 +47,8 @@ pub(in crate::ui_runtime::presentation) struct HudModel {
     spare_placed: Vec<Arc<[UiModelBone]>>,
     fire_vertices: Vec<UiMeshVertex>,
     fire_batches: Vec<UiMeshBatch>,
+    /// Controls drawing this model's mesh in the current frame.
+    scopes: Vec<u32>,
 }
 
 impl HudModel {
@@ -73,6 +75,7 @@ impl HudModel {
                     },
                 );
                 UiMeshVertex {
+                    terrain_mips: false,
                     position: projected.position,
                     clip_z: projected.clip_z,
                     clip_w: projected.clip_w,
@@ -187,6 +190,7 @@ impl HudModel {
                 normal: rows.map(|row| [row[0], row[1], row[2], 0.0]),
                 overlay,
                 uv_rect: icon.uv.map(f32::from),
+                uv_transform: [0., 0., 1., 1.],
                 styles: [0; 4],
                 uv_cross: [0.; 4],
                 tint: {
@@ -385,6 +389,7 @@ impl HudModel {
                 let start = vertices.len() as u32;
                 for vertex in source.vertices.iter() {
                     vertices.push(UiMeshVertex {
+                        terrain_mips: false,
                         position: [vertex.position[0], vertex.position[1]],
                         clip_z: vertex.position[2],
                         clip_w: (base + source.palette_indices[vertex.bone_index as usize] + 1)
@@ -438,6 +443,7 @@ impl HudModel {
             let start = vertices.len() as u32;
             vertices.extend(
                 [UiMeshVertex {
+                    terrain_mips: false,
                     position: [0.; 2],
                     clip_z: 0.5,
                     clip_w: 1.,
@@ -464,96 +470,130 @@ impl HudModel {
         ))
     }
 
+    /// Forgets the controls that drew this model, before a frame records its own.
+    pub(super) fn clear_scopes(&mut self) {
+        self.scopes.clear();
+    }
+
+    /// Records a control drawing this model, whose palette `model_poses` places for it.
+    pub(super) fn add_scope(&mut self, scope: u32) {
+        self.scopes.push(scope);
+    }
+
     /// Places the small palette using the retained control's actual laid-out bounds.
-    pub(in crate::ui_runtime::presentation) fn poses(
+    fn pose(
         &mut self,
-        draw: &ui::RetainedDraw,
-        nodes: &[UiNode],
+        position: usize,
+        node: &UiNode,
+        bounds: ui::UiRect,
+        color: [u8; 4],
         dpi: f32,
         viewport: [u32; 2],
-    ) -> Arc<[UiModelPose]> {
-        let mut poses = std::mem::take(&mut self.pose_scratch);
-        poses.clear();
-        for (index, node) in nodes.iter().enumerate() {
-            let (mesh, color) = match node.visual() {
-                ui::UiVisual::Mesh(mesh) => (mesh, [255; 4]),
-                ui::UiVisual::TintedMesh { mesh, color } => (mesh, *color),
-                _ => continue,
-            };
-            if !mesh.is_skinned() {
-                continue;
-            }
-            let bounds = draw.node_bounds(index).expect("retained model placement");
-            let mut placement =
-                Mat4::from_translation(Vec3::new(bounds.min().x(), bounds.min().y(), 0.))
-                    * Mat4::from_scale(Vec3::new(bounds.width(), bounds.height(), 1.));
-            if let Some(transform) = node.transform() {
-                let [a, b, c, d] = transform.linear;
-                let origin = Vec3::new(bounds.min().x(), bounds.min().y(), 0.);
-                let linear = Mat4::from_cols(
-                    Vec3::new(a, b, 0.).extend(0.),
-                    Vec3::new(c, d, 0.).extend(0.),
-                    Vec3::Z.extend(0.),
-                    glam::Vec4::W,
-                );
-                placement = Mat4::from_translation(
-                    origin + Vec3::new(transform.translation[0], transform.translation[1], 0.),
-                ) * linear
-                    * Mat4::from_translation(-origin)
-                    * placement;
-            }
-            placement = Mat4::from_scale(Vec3::new(dpi, dpi, 1.)) * placement;
-            let mut bones = std::mem::take(&mut self.pose_bones);
-            bones.clear();
-            bones.extend_from_slice(&self.palette);
-            for bone in &mut bones {
-                bone.tint = [0, 1, 2, 3].map(|channel| {
-                    let source = (bone.tint[channel] * 255.).round() as u16;
-                    f32::from((source * u16::from(color[channel]) / 255) as u8) / 255.
-                });
-                bone.screen =
-                    (placement * Mat4::from_cols_array_2d(&bone.screen)).to_cols_array_2d();
-            }
-            // Every palette is small; the frame pool retains its allocation across publications.
-            let position = poses.len();
-            if position == self.placed.len() {
-                self.placed.push(Arc::from([]));
-            }
-            reuse_slice(&mut self.placed[position], &mut self.spare_placed, &bones);
-            self.pose_bones = bones;
-            let bones = Arc::clone(&self.placed[position]);
-            let coverage = [
-                Vec3::new(self.low.x, self.low.y, 0.),
-                Vec3::new(self.high.x, self.low.y, 0.),
-                Vec3::new(self.low.x, self.high.y, 0.),
-                Vec3::new(self.high.x, self.high.y, 0.),
-            ]
-            .map(|point| placement.transform_point3(point));
-            let low = coverage
-                .into_iter()
-                .fold(Vec3::splat(f32::INFINITY), Vec3::min);
-            let high = coverage
-                .into_iter()
-                .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
-            let left = (low.x.floor() - 1.).max(0.).min(viewport[0] as f32) as u32;
-            let top = (low.y.floor() - 1.).max(0.).min(viewport[1] as f32) as u32;
-            let right = (high.x.ceil() + 1.).max(0.).min(viewport[0] as f32) as u32;
-            let bottom = (high.y.ceil() + 1.).max(0.).min(viewport[1] as f32) as u32;
-            poses.push(UiModelPose {
-                scope: node.id().get(),
-                bones,
-                bounds: render_model::UiScissor::new(
-                    left.min(viewport[0]),
-                    top.min(viewport[1]),
-                    right.min(viewport[0]).saturating_sub(left),
-                    bottom.min(viewport[1]).saturating_sub(top),
-                ),
-            });
+    ) -> UiModelPose {
+        let mut placement =
+            Mat4::from_translation(Vec3::new(bounds.min().x(), bounds.min().y(), 0.))
+                * Mat4::from_scale(Vec3::new(bounds.width(), bounds.height(), 1.));
+        if let Some(transform) = node.transform() {
+            let [a, b, c, d] = transform.linear;
+            let origin = Vec3::new(bounds.min().x(), bounds.min().y(), 0.);
+            let linear = Mat4::from_cols(
+                Vec3::new(a, b, 0.).extend(0.),
+                Vec3::new(c, d, 0.).extend(0.),
+                Vec3::Z.extend(0.),
+                glam::Vec4::W,
+            );
+            placement = Mat4::from_translation(
+                origin + Vec3::new(transform.translation[0], transform.translation[1], 0.),
+            ) * linear
+                * Mat4::from_translation(-origin)
+                * placement;
         }
-        reuse_slice(&mut self.poses, &mut self.spare_poses, &poses);
-        self.pose_scratch = poses;
-        Arc::clone(&self.poses)
+        placement = Mat4::from_scale(Vec3::new(dpi, dpi, 1.)) * placement;
+        let mut bones = std::mem::take(&mut self.pose_bones);
+        bones.clear();
+        bones.extend_from_slice(&self.palette);
+        for bone in &mut bones {
+            bone.tint =
+                [0, 1, 2, 3].map(|channel| bone.tint[channel] * (f32::from(color[channel]) / 255.));
+            bone.screen = (placement * Mat4::from_cols_array_2d(&bone.screen)).to_cols_array_2d();
+        }
+        // Every palette is small; the frame pool retains its allocation across publications.
+        if position == self.placed.len() {
+            self.placed.push(Arc::from([]));
+        }
+        reuse_slice(&mut self.placed[position], &mut self.spare_placed, &bones);
+        self.pose_bones = bones;
+        let bones = Arc::clone(&self.placed[position]);
+        let coverage = [
+            Vec3::new(self.low.x, self.low.y, 0.),
+            Vec3::new(self.high.x, self.low.y, 0.),
+            Vec3::new(self.low.x, self.high.y, 0.),
+            Vec3::new(self.high.x, self.high.y, 0.),
+        ]
+        .map(|point| placement.transform_point3(point));
+        let low = coverage
+            .into_iter()
+            .fold(Vec3::splat(f32::INFINITY), Vec3::min);
+        let high = coverage
+            .into_iter()
+            .fold(Vec3::splat(f32::NEG_INFINITY), Vec3::max);
+        let left = (low.x.floor() - 1.).max(0.).min(viewport[0] as f32) as u32;
+        let top = (low.y.floor() - 1.).max(0.).min(viewport[1] as f32) as u32;
+        let right = (high.x.ceil() + 1.).max(0.).min(viewport[0] as f32) as u32;
+        let bottom = (high.y.ceil() + 1.).max(0.).min(viewport[1] as f32) as u32;
+        UiModelPose {
+            scope: node.id().get(),
+            bones,
+            bounds: render_model::UiScissor::new(
+                left.min(viewport[0]),
+                top.min(viewport[1]),
+                right.min(viewport[0]).saturating_sub(left),
+                bottom.min(viewport[1]).saturating_sub(top),
+            ),
+        }
     }
+}
+
+#[cfg(test)]
+mod tests;
+
+/// Places each skinned control with the palette of the doll model that drew it.
+pub(in crate::ui_runtime::presentation) fn model_poses(
+    hud: &std::sync::Mutex<HudModel>,
+    screen: &std::sync::Mutex<HudModel>,
+    draw: &ui::RetainedDraw,
+    nodes: &[UiNode],
+    dpi: f32,
+    viewport: [u32; 2],
+) -> Arc<[UiModelPose]> {
+    let mut hud = hud.lock().unwrap_or_else(|error| error.into_inner());
+    let mut screen = screen.lock().unwrap_or_else(|error| error.into_inner());
+    let mut poses = std::mem::take(&mut hud.pose_scratch);
+    poses.clear();
+    let mut placed = [0; 2];
+    for (index, node) in nodes.iter().enumerate() {
+        let (mesh, color) = match node.visual() {
+            ui::UiVisual::Mesh(mesh) => (mesh, [255; 4]),
+            ui::UiVisual::TintedMesh { mesh, color } => (mesh, *color),
+            _ => continue,
+        };
+        if !mesh.is_skinned() {
+            continue;
+        }
+        let scope = node.id().get();
+        let (model, slot) = if screen.scopes.contains(&scope) {
+            (&mut *screen, 1)
+        } else {
+            (&mut *hud, 0)
+        };
+        let bounds = draw.node_bounds(index).expect("retained model placement");
+        poses.push(model.pose(placed[slot], node, bounds, color, dpi, viewport));
+        placed[slot] += 1;
+    }
+    let hud = &mut *hud;
+    reuse_slice(&mut hud.poses, &mut hud.spare_poses, &poses);
+    hud.pose_scratch = poses;
+    Arc::clone(&hud.poses)
 }
 
 /// Recycles immutable publication storage after every consumer releases its earlier frame.
@@ -668,151 +708,4 @@ fn armor_source(slot: usize) -> Arc<[ActorRigVertex]> {
     Arc::clone(&SOURCES[slot])
 }
 
-impl UiPresentationRuntime {
-    /// Draws the live actor from resident source vertices and freshly evaluated bone frames.
-    pub(super) fn hud_player_mesh(
-        &self,
-        held: [Option<PreviewHeldModel>; 2],
-        admit: impl FnMut(&HudModel, [bool; 2], usize, usize) -> bool,
-    ) -> Option<Arc<UiMesh>> {
-        let live = &self.gui_models.live_player;
-        let skin = self.gui_models.skin.as_ref()?;
-        let [width, height] = skin.dimensions();
-        let icon = IconRef {
-            color_mask: None,
-            page: (self.textures.dynamic_start() + super::SKIN_PAGE) as u16,
-            uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
-            glint: false,
-        };
-        let mut cache = self
-            .gui_models
-            .hud_model
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        cache.begin();
-        let mut rig = Rig::new(
-            self.player_preview_pose.unwrap_or_default(),
-            PreviewView::Hud,
-            self.player_preview_bob,
-            held.each_ref().map(Option::is_some),
-        );
-        rig.parts = live.parts;
-        let (screen, light) = projection(&rig, 6);
-        let mut model = |model: &super::live_player::ModelGeometry, icon: IconRef| -> Option<()> {
-            let geometry = model.geometry.as_ref()?;
-            cache.layer(
-                &geometry.vertices,
-                model
-                    .transforms
-                    .iter()
-                    .map(|frame| screen * Mat4::from(*frame)),
-                model
-                    .transforms
-                    .iter()
-                    .map(|frame| normal_frame(light * Mat3::from(frame.matrix3), true)),
-                icon,
-                None,
-                live.overlay_color,
-            )
-        };
-        model(&live.body, icon)?;
-        if self.menu_preview_model.cape_key.is_some()
-            && !self.gui_models.wearing_elytra
-            && let Some(icon) = self
-                .menu_preview_model
-                .cape_key
-                .as_ref()
-                .and_then(|key| self.menu_artwork_icon(key))
-            && live.cape.geometry.is_some()
-        {
-            model(&live.cape, icon)?;
-        }
-        for item in &self.menu_preview_model.cosmetics {
-            if let Some(model_source) = live
-                .hats
-                .get(item)
-                .filter(|source| source.geometry.is_some())
-                && let Some(icon) = model_source
-                    .texture_key
-                    .as_deref()
-                    .and_then(|key| self.menu_artwork_icon(key))
-            {
-                model(model_source, icon)?;
-            }
-        }
-        for slot in 0..4 {
-            let Some(texture) = &self.player_preview_gear.armor[slot] else {
-                continue;
-            };
-            let icon = self.gui_models.pack_equipment.region(slot).or_else(|| {
-                self.gui_models
-                    .sources
-                    .textures
-                    .get(&super::atlas::key(
-                        [texture.width, texture.height],
-                        &texture.rgba,
-                    ))
-                    .copied()
-            });
-            let Some(icon) = icon else { continue };
-            let frames = [0, 1, 2, 3, 4, 5].map(|part| projection(&rig, part));
-            cache.layer(
-                &armor_source(slot),
-                frames.iter().map(|frame| frame.0),
-                frames.iter().map(|frame| normal_frame(frame.1, false)),
-                icon.with_glint(self.player_preview_gear.armor_glint[slot]),
-                texture.tint,
-                live.overlay_color,
-            )?;
-        }
-        for (hand, model) in held.iter().enumerate() {
-            let Some(model) = model else { continue };
-            let (bone, pivot) = player_preview::geometry::held::placement(model, hand)?;
-            let rotation = glam::Quat::from_array(bone.rotation).normalize();
-            let scale = Vec3::from_slice(&bone.axis_scale[..3]) * bone.translation_scale[3];
-            let frame = Affine3A::from_scale(Vec3::new(-1., 1., -1.))
-                * Affine3A::from_scale_rotation_translation(
-                    scale,
-                    rotation,
-                    Vec3::from_slice(&bone.translation_scale[..3]),
-                )
-                * Affine3A::from_translation(-pivot);
-            let (screen, light) = projection(&rig, if hand == 0 { 2 } else { 3 });
-            cache.layer(
-                &model.vertices,
-                std::iter::once(screen * Mat4::from(frame)),
-                std::iter::once(light * Mat3::from(frame.matrix3)),
-                model.source,
-                None,
-                [0.; 4],
-            )?;
-            let index = cache.cursor - 1;
-            cache.sources[index].hand = Some(hand);
-        }
-        if let Some(fire) = self.gui_fire_frame(PreviewView::Hud) {
-            let mut vertices = std::mem::take(&mut cache.fire_vertices);
-            let mut batches = std::mem::take(&mut cache.fire_batches);
-            vertices.clear();
-            batches.clear();
-            let prepared =
-                player_preview::geometry::fire::append(&mut vertices, &mut batches, fire).and_then(
-                    |()| {
-                        batches
-                            .iter()
-                            .try_for_each(|batch| cache.effect(&vertices, None, batch))
-                    },
-                );
-            cache.fire_vertices = vertices;
-            cache.fire_batches = batches;
-            prepared?;
-        }
-        if self.player_preview_view == PreviewView::Hud
-            && let Some(particles) = self.gui_models.particles.mesh.as_deref()
-        {
-            for batch in particles.batches() {
-                cache.effect(particles.vertices(), Some(particles.indices()), batch)?;
-            }
-        }
-        cache.finish(admit)
-    }
-}
+mod live;

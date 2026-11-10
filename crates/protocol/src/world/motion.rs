@@ -1,7 +1,7 @@
 //! Normalizers for server packets that move or correct actors and the local player.
 
-use bedrock_protocol_1_26_51::enums::MovementEffectType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::MovementEffectType;
+use bedrock_protocol_1_26_60::packets::{
     CorrectPlayerMovePrediction, MovePlayer, MovementEffect, SetActorMotion,
 };
 

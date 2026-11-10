@@ -1,8 +1,9 @@
 //! Block geometry from pack `.geo.json` files, reduced to axis-aligned cube faces.
 //!
 //! Geometry X is mirrored relative to world X, as authoring tools export it;
-//! face names are world directions. Faces map `u` to the viewer's right and
-//! `v` downward, with up textures top-north and down textures top-south.
+//! face names are world directions. Side faces map `u` to the viewer's right and
+//! `v` downward. An up face starts its texture at the south-east corner and a down
+//! face at the north-east corner, each with `v` running along Z.
 
 use std::collections::HashMap;
 
@@ -36,6 +37,8 @@ pub struct Cube {
     /// Rotations to apply in order (cube, then each ancestor bone), in block-local pixels:
     /// a pivot and X/Y/Z angles in the world frame's authored convention.
     pub rotations: Vec<([f32; 3], [f32; 3])>,
+    /// Authored with per-face UVs, the only mapping a block's legacy top rotation changes.
+    pub per_face_uv: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -48,6 +51,8 @@ pub struct Geometry {
 
 impl Geometry {
     /// Full-block faces for a component that needs position-dependent model displacement.
+    ///
+    /// Up and down reverse their UVs so the displaced cube samples like an undisplaced one.
     pub fn full_block() -> Self {
         Self {
             texture_size: [16.0; 2],
@@ -55,14 +60,20 @@ impl Geometry {
                 bone: String::new(),
                 min: [0.0; 3],
                 max: [16.0; 3],
-                faces: std::array::from_fn(|_| {
+                faces: std::array::from_fn(|face| {
+                    let (uv, size) = if matches!(face, 2 | 3) {
+                        ([16.0; 2], [-16.0; 2])
+                    } else {
+                        ([0.0; 2], [16.0; 2])
+                    };
                     Some(FaceUv {
-                        uv: [0.0; 2],
-                        size: [16.0; 2],
+                        uv,
+                        size,
                         material_instance: None,
                     })
                 }),
                 rotations: Vec::new(),
+                per_face_uv: false,
             }],
             skipped_cubes: 0,
         }
@@ -213,6 +224,7 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
     if !min.iter().chain(&max).all(|value| value.is_finite()) {
         return None;
     }
+    let per_face_uv = cube["uv"].is_object();
     let faces = match &cube["uv"] {
         Value::Object(faces) => FACE_NAMES.map(|name| {
             let face = faces.get(name)?;
@@ -243,6 +255,7 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
         max,
         faces,
         rotations: Vec::new(),
+        per_face_uv,
     })
 }
 
@@ -260,7 +273,7 @@ fn box_uv(offset: [f32; 2], size: [f32; 3]) -> [Option<FaceUv>; 6] {
     [
         face([u + d + w, v + d], [d, h]),
         face([u, v + d], [d, h]),
-        face([u + d + w, v], [w, d]),
+        face([u + d + w, v + d], [w, -d]),
         face([u + d, v], [w, d]),
         face([u + d, v + d], [w, h]),
         face([u + d + w + d, v + d], [w, h]),
@@ -303,8 +316,8 @@ impl Cube {
             let uvs = match face {
                 0 => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
                 1 => [[u1, v1], [u1, v0], [u0, v0], [u0, v1]],
-                2 => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
-                3 => [[u0, v0], [u0, v1], [u1, v1], [u1, v0]],
+                2 => [[u1, v0], [u0, v0], [u0, v1], [u1, v1]],
+                3 => [[u1, v1], [u1, v0], [u0, v0], [u0, v1]],
                 4 => [[u1, v1], [u1, v0], [u0, v0], [u0, v1]],
                 _ => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
             };
@@ -324,3 +337,6 @@ impl Cube {
 
 mod catalog;
 pub use catalog::{BlockGeometryCatalog, parse_geometry_file};
+
+#[cfg(test)]
+mod tests;

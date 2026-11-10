@@ -34,6 +34,10 @@ tokio.workspace = true
 launcher-host = { path = "../launcher-host" }
 redb = "4.3"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+raw-window-handle = "0.6"
+wayland-client = { version = "0.31", features = ["system", "dlopen"] }
+
 [dev-dependencies]
 protocol-ids = { path = "../protocol-ids" }
 test-time = { path = "../test-time" }

@@ -12,11 +12,13 @@ Experimental developer contract; no WASI or ambient operating-system access.
 
 ### Imports
 
-- [cinnabar:world-draw/drawing@0.1.0](world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.1.0](world-draw-masks.md)
-- [cinnabar:world-draw/assets@0.1.0](world-draw-assets.md)
+- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
+- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
 - [cinnabar:extension/terrain@0.1.0](terrain.md)
 - [cinnabar:extension/player-state@0.1.0](player-state.md)
+- [cinnabar:session/items@0.1.0](session-items.md)
+- [cinnabar:extension/inventory@0.1.0](inventory.md)
 - [cinnabar:extension/item-use@0.1.0](item-use.md)
 - [cinnabar:extension/camera@0.1.0](camera.md)
 - [cinnabar:extension/hud@0.1.0](hud.md)
@@ -32,6 +34,7 @@ Experimental developer contract; no WASI or ambient operating-system access.
 - [cinnabar:extension/events@0.1.0](events.md)
 - [cinnabar:extension/settings@0.1.0](settings.md)
 - [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
 
 ### Exports
 
@@ -53,7 +56,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="filtered-player-mod"></a>
@@ -68,13 +74,13 @@ Existing player-mod components remain supported and do not claim filter ownershi
 - [cinnabar:server-experience/ui@1.5.0](server-experience-ui.md)
 - [cinnabar:extension/screen@0.1.0](screen.md)
 - [cinnabar:session/items@0.1.0](session-items.md)
-- [cinnabar:extension/inventory@0.1.0](inventory.md)
 - [cinnabar:session/recipes@0.1.0](session-recipes.md)
-- [cinnabar:world-draw/drawing@0.1.0](world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.1.0](world-draw-masks.md)
-- [cinnabar:world-draw/assets@0.1.0](world-draw-assets.md)
+- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
+- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
 - [cinnabar:extension/terrain@0.1.0](terrain.md)
 - [cinnabar:extension/player-state@0.1.0](player-state.md)
+- [cinnabar:extension/inventory@0.1.0](inventory.md)
 - [cinnabar:extension/item-use@0.1.0](item-use.md)
 - [cinnabar:extension/camera@0.1.0](camera.md)
 - [cinnabar:extension/hud@0.1.0](hud.md)
@@ -90,6 +96,7 @@ Existing player-mod components remain supported and do not claim filter ownershi
 - [cinnabar:extension/events@0.1.0](events.md)
 - [cinnabar:extension/settings@0.1.0](settings.md)
 - [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
 - [cinnabar:extension/action-filter@0.1.0](action-filter.md)
 <a id="filtered-player-mod-type-data-source"></a>
 
@@ -123,7 +130,8 @@ filter-actions: func(frame: action-frame) -> action-verdict;
 
 Optional and explicitly exported by filtering modules; requires controls authority.
 The earliest active exporting module is the sole owner. Runs after ordinary frame
-callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+host-import calls. Called for transitions and every
 frame with a retained hold. No callback is needed for an idle physical hold.
 Suppressing a release retains its hold. Suppressing its following press joins that
 hold; accepting that press completes the outstanding release before a fresh press.
@@ -249,7 +257,243 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
+
+
+<a id="handled-player-mod"></a>
+
+## handled-player-mod
+
+A personal component with the action filter, every event handler, and ordinary frame and
+UI callbacks. A component needing fewer composes its own world from `player-mod` or
+`filtered-player-mod` and the handler worlds it implements.
+
+### Imports
+
+- [cinnabar:server-experience/ui@1.5.0](server-experience-ui.md)
+- [cinnabar:extension/screen@0.1.0](screen.md)
+- [cinnabar:session/items@0.1.0](session-items.md)
+- [cinnabar:session/recipes@0.1.0](session-recipes.md)
+- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
+- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
+- [cinnabar:extension/terrain@0.1.0](terrain.md)
+- [cinnabar:extension/player-state@0.1.0](player-state.md)
+- [cinnabar:extension/inventory@0.1.0](inventory.md)
+- [cinnabar:extension/item-use@0.1.0](item-use.md)
+- [cinnabar:extension/camera@0.1.0](camera.md)
+- [cinnabar:extension/hud@0.1.0](hud.md)
+- [cinnabar:extension/clock@0.1.0](clock.md)
+- [cinnabar:extension/facts@0.1.0](facts.md)
+- [cinnabar:extension/gameplay@0.1.0](gameplay.md)
+- [cinnabar:extension/render@0.1.0](render.md)
+- [cinnabar:extension/presentation@0.1.0](presentation.md)
+- [cinnabar:extension/panel@0.1.0](panel.md)
+- [cinnabar:extension/input@0.1.0](input.md)
+- [cinnabar:extension/touch@0.1.0](touch.md)
+- [cinnabar:extension/environment@0.1.0](environment.md)
+- [cinnabar:extension/events@0.1.0](events.md)
+- [cinnabar:extension/settings@0.1.0](settings.md)
+- [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
+- [cinnabar:extension/action-filter@0.1.0](action-filter.md)
+- [cinnabar:extension/sound-handling@0.1.0](sound-handling.md)
+- [cinnabar:extension/teleport-handling@0.1.0](teleport-handling.md)
+<a id="handled-player-mod-type-data-source"></a>
+
+### `data-source`
+
+What a `data-changed` reports as changed. Closed: changing it would refuse every built
+`data-changed`, so a new kind of change arrives as a new optional export instead.
+
+```wit
+enum data-source {
+    items,
+    recipes,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `items` |  |  |
+| `recipes` |  |  |
+
+
+### Exports
+
+<a id="handled-player-mod-filter-actions"></a>
+
+### `filter-actions`
+
+```wit
+filter-actions: func(frame: action-frame) -> action-verdict;
+```
+
+Optional and explicitly exported by filtering modules; requires controls authority.
+The earliest active exporting module is the sole owner. Runs after ordinary frame
+callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+host-import calls. Called for transitions and every
+frame with a retained hold. No callback is needed for an idle physical hold.
+Suppressing a release retains its hold. Suppressing its following press joins that
+hold; accepting that press completes the outstanding release before a fresh press.
+Suppressing a fresh press blocks its gesture until release. Rejected repeats leave
+the existing hold intact. Native never creates a press without an observed source.
+Traps or invalid verdicts quarantine the module and complete retained releases;
+owner loss and input-authority interruptions do the same. Suppressed physical holds
+stay suppressed until release. No duration or filtering policy is imposed by the host.
+
+Types: [`action-frame`](action-filter.md#type-action-frame), [`action-verdict`](action-filter.md#type-action-verdict).
+
+<a id="handled-player-mod-screen-changed"></a>
+
+### `screen-changed`
+
+```wit
+screen-changed: func(layout: option<screen-layout>);
+```
+
+A container screen opened, closed (`none`) or was laid out anew.
+
+Types: [`screen-layout`](screen.md#type-screen-layout).
+
+<a id="handled-player-mod-action"></a>
+
+### `action`
+
+```wit
+action: func(id: string, collection-index: option<u32>);
+```
+
+A primary press on an overlay or view control mapped to a declared action; the index is
+the control's row in its nearest collection.
+
+<a id="handled-player-mod-secondary-action"></a>
+
+### `secondary-action`
+
+```wit
+secondary-action: func(id: string, collection-index: option<u32>);
+```
+
+A secondary press (a right click) on a control that maps `button.menu_secondary_select`
+to a declared action.
+
+<a id="handled-player-mod-scrolled"></a>
+
+### `scrolled`
+
+```wit
+scrolled: func(delta: f64, x: f64, y: f64, modifiers: modifiers);
+```
+
+The wheel turned `delta` notches (one per detent; a pixel-precise wheel reports its
+pixels / 16) with the pointer at `x`, `y` in GUI units, over the overlay's drawn area or
+the view, with `modifiers` held. Positive scrolls down, towards the end.
+
+Types: [`modifiers`](screen.md#type-modifiers).
+
+<a id="handled-player-mod-text-changed"></a>
+
+### `text-changed`
+
+```wit
+text-changed: func(control: string, text: string);
+```
+
+The text of the edit box named `control`, a declared action, changed.
+
+<a id="handled-player-mod-key"></a>
+
+### `key`
+
+```wit
+key: func(id: string, hovered: option<stack>, row: option<tuple<string, u32>>);
+```
+
+A declared key was pressed while a container screen or the view was up and no edit box
+had focus. `hovered` is the vanilla slot's stack under the pointer; `row` is the
+collection name and index of the mod's control under the pointer, overlay or view, by
+the rule `action` uses (its nearest collection).
+
+Types: [`stack`](session-items.md#type-stack).
+
+<a id="handled-player-mod-data-changed"></a>
+
+### `data-changed`
+
+```wit
+data-changed: func(sources: list<data-source>);
+```
+
+The listed session sources changed revision, each listed once. It gets the load fuel
+budget, as does `init` of a component that exports it.
+
+Types: [`data-source`](worlds.md#handled-player-mod-type-data-source).
+
+<a id="handled-player-mod-view-closed"></a>
+
+### `view-closed`
+
+```wit
+view-closed: func();
+```
+
+The host closed the view (Escape, or the container closing), not the mod.
+
+<a id="handled-player-mod-init"></a>
+
+### `init`
+
+```wit
+init: func();
+```
+
+Creates the initial retained UI state.
+
+<a id="handled-player-mod-frame"></a>
+
+### `frame`
+
+```wit
+frame: func();
+```
+
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
+
+<a id="handled-player-mod-handle-sound"></a>
+
+### `handle-sound`
+
+```wit
+handle-sound: func(ctx: sound-context) -> sound-context;
+```
+
+One call per new playback request, at most 256 per audio frame; excess and oversized
+requests play unhandled. Approved starts waiting for decoding are not offered again.
+Playing voices are not retroactively stopped; managed loops are offered again when they
+next need a start.
+
+Types: [`sound-context`](sound-handling.md#type-sound-context).
+
+<a id="handled-player-mod-handle-teleport"></a>
+
+### `handle-teleport`
+
+```wit
+handle-teleport: func(ctx: teleport-context) -> teleport-context;
+```
+
+One call per committed local-player MovePlayer with a finite rotation, before it applies.
+The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
+
+Types: [`teleport-context`](teleport-handling.md#type-teleport-context).
 
 
 <a id="packet-mod"></a>
@@ -331,13 +575,13 @@ a built component keeps working. `init` and `frame` stay required.
 - [cinnabar:server-experience/ui@1.5.0](server-experience-ui.md)
 - [cinnabar:extension/screen@0.1.0](screen.md)
 - [cinnabar:session/items@0.1.0](session-items.md)
-- [cinnabar:extension/inventory@0.1.0](inventory.md)
 - [cinnabar:session/recipes@0.1.0](session-recipes.md)
-- [cinnabar:world-draw/drawing@0.1.0](world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.1.0](world-draw-masks.md)
-- [cinnabar:world-draw/assets@0.1.0](world-draw-assets.md)
+- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
+- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
 - [cinnabar:extension/terrain@0.1.0](terrain.md)
 - [cinnabar:extension/player-state@0.1.0](player-state.md)
+- [cinnabar:extension/inventory@0.1.0](inventory.md)
 - [cinnabar:extension/item-use@0.1.0](item-use.md)
 - [cinnabar:extension/camera@0.1.0](camera.md)
 - [cinnabar:extension/hud@0.1.0](hud.md)
@@ -353,6 +597,7 @@ a built component keeps working. `init` and `frame` stay required.
 - [cinnabar:extension/events@0.1.0](events.md)
 - [cinnabar:extension/settings@0.1.0](settings.md)
 - [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
 <a id="player-mod-type-data-source"></a>
 
 ### `data-source`
@@ -489,7 +734,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="server-bundle"></a>
@@ -508,12 +756,12 @@ still runs.
 - [cinnabar:server-experience/scene@1.5.0](server-experience-scene.md)
 - [cinnabar:server-experience/media@1.5.0](server-experience-media.md)
 - [cinnabar:session/items@0.1.0](session-items.md)
-- [cinnabar:world-draw/drawing@0.1.0](world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.1.0](world-draw-masks.md)
+- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
 - [cinnabar:extension/gameplay@0.1.0](gameplay.md)
 - [cinnabar:extension/render@0.1.0](render.md)
 - [cinnabar:extension/environment@0.1.0](environment.md)
-- [cinnabar:world-draw/assets@0.1.0](world-draw-assets.md)
+- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
 
 ### Exports
 
@@ -631,3 +879,65 @@ shift-changed: func(held: bool);
 Shift was pressed or released while the modal had focus, or the modal gained or lost
 focus with Shift held: `held` is whether it is held now. A screen can show what it shows
 on Shift, as Java screens' `hasShiftDown` does.
+
+
+<a id="sound-handler"></a>
+
+## sound-handler
+
+The optional event handlers. Each receives a context of the event's facts and changeable
+values and returns it; the host applies only the changeable values. Handlers run in load
+order, each receiving the previous handler's changes. They cannot call host imports and
+each call has full callback fuel within a shared per-event allowance; handlers without a
+full allowance are skipped. Denial and absence pass the event through unchanged. Traps and
+invalid values quarantine the component and keep the context it received.
+A component exporting a handler world must implement every handler in it; include only
+the handlers a component uses.
+
+### Imports
+
+- [cinnabar:extension/sound-handling@0.1.0](sound-handling.md)
+
+### Exports
+
+<a id="sound-handler-handle-sound"></a>
+
+### `handle-sound`
+
+```wit
+handle-sound: func(ctx: sound-context) -> sound-context;
+```
+
+One call per new playback request, at most 256 per audio frame; excess and oversized
+requests play unhandled. Approved starts waiting for decoding are not offered again.
+Playing voices are not retroactively stopped; managed loops are offered again when they
+next need a start.
+
+Types: [`sound-context`](sound-handling.md#type-sound-context).
+
+
+<a id="teleport-handler"></a>
+
+## teleport-handler
+
+See `sound-handler` for the shared handler contract.
+
+### Imports
+
+- [cinnabar:extension/teleport-handling@0.1.0](teleport-handling.md)
+
+### Exports
+
+<a id="teleport-handler-handle-teleport"></a>
+
+### `handle-teleport`
+
+```wit
+handle-teleport: func(ctx: teleport-context) -> teleport-context;
+```
+
+One call per committed local-player MovePlayer with a finite rotation, before it applies.
+The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
+
+Types: [`teleport-context`](teleport-handling.md#type-teleport-context).

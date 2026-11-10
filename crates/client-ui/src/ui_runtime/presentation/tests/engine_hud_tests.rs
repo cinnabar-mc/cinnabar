@@ -19,6 +19,7 @@ mod death_screen;
 mod effects;
 mod experience_spacing;
 mod geometry;
+mod locator;
 mod menu_crosshair;
 mod offhand;
 mod pack_snapshots;
@@ -41,6 +42,9 @@ fn text<'a>(nodes: &'a [DrawNode], wanted: &str) -> Option<&'a DrawNode> {
         .iter()
         .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == wanted))
 }
+
+/// The desktop hotbar paints every slot frame from one control.
+const HOTBAR_SLOTS: &str = json_ui::vanilla::Renderer::HotbarSlotsRenderer.as_str();
 
 fn customs<'a>(nodes: &'a [DrawNode], renderer: &str) -> Vec<&'a DrawNode> {
     nodes
@@ -204,7 +208,7 @@ fn select_slot(player_runtime: &mut player_state::PlayerState, runtime: &mut UiR
     );
 }
 
-// The crosshair spans 15 GUI px and stays on physical pixels near the safe viewport's center.
+// The crosshair spans 15 GUI px and stays on physical pixels near the viewport's center.
 #[test]
 fn crosshair_aligns_to_pixels_across_scales_dpi_and_insets() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -253,11 +257,7 @@ fn crosshair_aligns_to_pixels_across_scales_dpi_and_insets() {
         );
         let bounds =
             crosshair(&input, 15.0 * k).unwrap_or_else(|| panic!("crosshair at {physical:?}"));
-        let logical = [physical[0] as f32 / dpi, physical[1] as f32 / dpi];
-        let centre = [
-            (safe.left() + (logical[0] - safe.left() - safe.right()) / 2.0) * dpi,
-            (safe.top() + (logical[1] - safe.top() - safe.bottom()) / 2.0) * dpi,
-        ];
+        let centre = physical.map(|size| size as f32 / 2.0);
         assert!(
             ((bounds[0] + bounds[2]) / 2.0 - centre[0]).abs() <= 0.5 + 1e-3,
             "{physical:?}"
@@ -298,8 +298,8 @@ fn game_mode_matrix_gates_each_surface_exactly() {
         build(&player_runtime, &mut presentation, &runtime, 0);
         let nodes = presentation.hud_draw_nodes();
         assert_eq!(
-            customs(nodes, "hotbar_renderer").len(),
-            if hotbar { 9 } else { 0 },
+            customs(nodes, HOTBAR_SLOTS).len(),
+            usize::from(hotbar),
             "{mode:?}"
         );
         assert_eq!(
@@ -344,8 +344,8 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
     player_runtime.inventory.set_local_selected_slot(2);
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert_eq!(
-        customs(presentation.hud_draw_nodes(), "hotbar_renderer").len(),
-        9
+        customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS).len(),
+        1
     );
     runtime
         .apply(
@@ -367,7 +367,7 @@ fn live_spectator_switch_drops_the_hotbar_despite_a_retained_slot() {
         "slot retained"
     );
     build(&player_runtime, &mut presentation, &runtime, 0);
-    assert!(customs(presentation.hud_draw_nodes(), "hotbar_renderer").is_empty());
+    assert!(customs(presentation.hud_draw_nodes(), HOTBAR_SLOTS).is_empty());
 }
 
 // The hotbar keeps 182 GUI px at every auto scale, centred.
@@ -811,14 +811,12 @@ fn titles_and_chat_carry_their_fades() {
     assert_eq!(presentation.hud_fade(chat, 9.0), 1.0);
     assert!(presentation.hud_fade(chat, 10.5) < 1.0);
     assert_eq!(presentation.hud_fade(chat, 11.0), 0.0);
-    // A re-sent title starts a fresh title control while preserving the chat fade.
-    let passes = presentation.hud_passes();
+    // A re-sent title restarts its fade while preserving the chat fade.
     runtime
         .session
         .hud
         .set_title(Arc::from("Victory"), 3, 2_000);
     build(&player_runtime, &mut presentation, &runtime, 2_100);
-    assert_eq!(presentation.hud_passes(), passes + 1);
     let title = text(presentation.hud_draw_nodes(), "Victory").unwrap();
     assert!((presentation.hud_fade(title, 2.25) - 0.5).abs() < 1e-3);
     let chat = text(presentation.hud_draw_nodes(), "gg").unwrap();

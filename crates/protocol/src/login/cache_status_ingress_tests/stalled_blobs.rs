@@ -1,7 +1,7 @@
 use super::*;
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::SubChunk;
-use bedrock_protocol_1_26_51::types::{DimensionType, SubChunkData, SubChunkPos};
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::SubChunk;
+use bedrock_protocol_1_26_60::types::{DimensionType, SubChunkData, SubChunkPos};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -132,8 +132,8 @@ fn send_packets(send: &mpsc::UnboundedSender<Bytes>, packets: &[Packet]) {
 
 /// Completes one missing body with its actual verified hash.
 fn body_response(body: &[u8]) -> Packet {
-    Packet::new(bedrock_protocol_1_26_51::packets::ClientCacheMissResponse {
-        missing_blobs: vec![bedrock_protocol_1_26_51::types::MissingBlobData {
+    Packet::new(bedrock_protocol_1_26_60::packets::ClientCacheMissResponse {
+        missing_blobs: vec![bedrock_protocol_1_26_60::types::MissingBlobData {
             blob_id: wire::U64LE(crate::client_blob_hash(body)),
             blob_data: Bytes::copy_from_slice(body),
         }],

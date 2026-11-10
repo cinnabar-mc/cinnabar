@@ -589,7 +589,10 @@ fn session_glyph_sheets_extend_the_font_and_reset_with_the_session() {
     assert_ne!(before.records[1].rect, changed.records[1].rect);
     let glyph = *presentation.font.glyph('\u{e005}').expect("sheet glyph");
     let dynamic_start = presentation.textures.dynamic_start();
-    assert_eq!(usize::from(glyph.page), dynamic_start + 10);
+    assert_eq!(
+        usize::from(glyph.page),
+        dynamic_start + ui_engine::pages::FIRST_GLYPH_PAGE
+    );
     assert_eq!(glyph.advance_64, 18 * 64);
     let page = &presentation.textures.pages()[usize::from(glyph.page)];
     let [left, top, ..] = glyph.uv;
@@ -789,7 +792,8 @@ fn real_carriers_keep_icons_drawable_with_session_pages() {
     session_glyphs::observe(&mut presentation, Some(&sheets));
     assert!(presentation.font.glyph('\u{e005}').is_some());
     assert_icon_drawable(&presentation, &sample);
-    let installed = presentation.textures.pages()[presentation.textures.dynamic_start() + 10]
+    let installed = presentation.textures.pages()
+        [presentation.textures.dynamic_start() + ui_engine::pages::FIRST_GLYPH_PAGE]
         .pixels()
         .iter()
         .any(|byte| *byte != 0);

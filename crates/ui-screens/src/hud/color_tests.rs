@@ -98,13 +98,15 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                 ..Default::default()
             };
             let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
-            for (index, (color, local_player)) in [
-                (0, "Alex"),
-                (1, "Alex"),
-                (0, "Alex"),
-                (0, "Steve"),
-                (0, "Alex"),
-                (0, ""),
+            for (index, (color, local_player, only_self)) in [
+                (0, "Alex", true),
+                (1, "Alex", true),
+                (0, "Alex", true),
+                (0, "Steve", true),
+                (0, "Alex", true),
+                (0, "", true),
+                (0, "", false),
+                (0, "", true),
             ]
             .into_iter()
             .enumerate()
@@ -119,6 +121,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                 model.chat_local_player = Arc::from(local_player);
                 let mut options = SettingsOptions::default();
                 options.set(SettingId::ChatColor.index(), color);
+                options.set(SettingId::MentionsTarget.index(), i32::from(only_self));
                 options.set(
                     SettingId::MentionsColor.index(),
                     if index == 1 { 0 } else { 5 },
@@ -162,7 +165,6 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     .paint(
                         &engine,
                         HudInput {
-                            capture_keep_out: false,
                             renderers_unchanged: index != 0,
                             crosshair: false,
                             catalog: engine.catalog(),
@@ -196,7 +198,9 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     let mention = glyphs.iter().find(|glyph| glyph.codepoint == '@').unwrap();
                     assert_eq!(
                         mention.style.color,
-                        if local_player.is_empty() || !caption.contains(&format!("@{local_player}"))
+                        if only_self
+                            && (local_player.is_empty()
+                                || !caption.contains(&format!("@{local_player}")))
                         {
                             selected
                         } else if index == 1 {

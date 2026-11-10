@@ -9,7 +9,11 @@ fn at(millis: u64) -> Duration {
 }
 
 fn loading(pack: &str, programs: Option<(u32, u32)>) -> PackLoad<'_> {
-    PackLoad::Loading { pack, programs }
+    PackLoad::Loading {
+        pack,
+        programs,
+        pipelines: None,
+    }
 }
 
 fn titles(toast: Option<PackToast>) -> Option<(String, String)> {
@@ -19,6 +23,27 @@ fn titles(toast: Option<PackToast>) -> Option<(String, String)> {
         }
         PackToast::Withdraw => Some(("withdraw".to_owned(), String::new())),
     }
+}
+
+#[test]
+fn a_standing_toast_counts_built_pipelines() {
+    let mut notices = PackNotices::default();
+    let building = |built| PackLoad::Loading {
+        pack: "Dusk.zip",
+        programs: None,
+        pipelines: Some((built, 31)),
+    };
+    assert_eq!(notices.observe(building(0), at(0), true), None);
+    for (built, millis) in [(0, SLOW), (7, SLOW + at(16))] {
+        assert_eq!(
+            titles(notices.observe(building(built), millis, true)),
+            Some((
+                "Loading shader pack Dusk…".to_owned(),
+                format!("Built {built} of 31 pipelines")
+            ))
+        );
+    }
+    assert_eq!(notices.observe(building(7), SLOW + at(32), true), None);
 }
 
 #[test]

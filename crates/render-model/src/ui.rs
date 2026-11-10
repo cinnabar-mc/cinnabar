@@ -109,10 +109,14 @@ mod style_tests {
             assert_eq!(
                 u32::from(rendering.style_flags())
                     & (UI_STYLE_COLOR_MASK
+                        | render_api::UI_STYLE_RGB_COVERAGE
                         | render_api::UI_STYLE_SPRITE_COLOR_MASK
                         | UI_STYLE_ADDITIVE
                         | UI_STYLE_PARTICLE
                         | render_api::UI_STYLE_ALPHA_TEST
+                        | render_api::UI_STYLE_TERRAIN_MIPS
+                        | render_api::UI_STYLE_HALF_FLOAT_XY
+                        | render_api::UI_STYLE_UNORM16_UV
                         | UI_STYLE_RADIAL_GRADIENT
                         | UI_STYLE_GLINT),
                 0,

@@ -48,10 +48,12 @@ pub fn pack_label(name: &str) -> &str {
 pub enum PackLoad<'a> {
     /// No pack requested: Vanilla draws.
     Idle,
-    /// `programs` is `(translated, total)` once the load knows its program count.
+    /// `programs` is `(translated, total)` once the load knows its program count, and
+    /// `pipelines` is `(built, total)` once its GPU build has started.
     Loading {
         pack: &'a str,
         programs: Option<(u32, u32)>,
+        pipelines: Option<(u32, u32)>,
     },
     Ready {
         pack: &'a str,
@@ -138,8 +140,8 @@ impl Seen {
 #[derive(Debug)]
 struct LoadingToast {
     stands_at: Duration,
-    /// The progress on the standing toast; `None` until it stands.
-    shown: Option<Option<(u32, u32)>>,
+    /// The progress line on the standing toast; `None` until it stands.
+    shown: Option<String>,
 }
 
 impl PackNotices {
@@ -194,7 +196,14 @@ impl PackNotices {
                 }
             }
         }
-        let (PackLoad::Loading { pack, programs }, Some(loading)) = (load, self.loading.as_mut())
+        let (
+            PackLoad::Loading {
+                pack,
+                programs,
+                pipelines,
+            },
+            Some(loading),
+        ) = (load, self.loading.as_mut())
         else {
             return None;
         };
@@ -202,19 +211,23 @@ impl PackNotices {
             loading.shown = None;
             return None;
         }
-        if now < loading.stands_at || loading.shown == Some(programs) {
+        let message = progress_line(programs, pipelines);
+        if now < loading.stands_at || loading.shown.as_ref() == Some(&message) {
             return None;
         }
-        loading.shown = Some(programs);
+        loading.shown = Some(message.clone());
         Some(PackToast::Loading {
             title: format!("Loading shader pack {}…", pack_label(pack)),
-            message: progress_line(programs),
+            message,
         })
     }
 }
 
 /// The loading toast's second line.
-fn progress_line(programs: Option<(u32, u32)>) -> String {
+fn progress_line(programs: Option<(u32, u32)>, pipelines: Option<(u32, u32)>) -> String {
+    if let Some((built, total)) = pipelines {
+        return format!("Built {built} of {total} pipelines");
+    }
     match programs {
         Some((translated, total)) if translated < total => {
             format!("Translated {translated} of {total} programs")
