@@ -13,6 +13,7 @@ reads = [
     "assets/vanilla-source.json",
     "crates/assets/data/*",
     "crates/mod-api/wit/extension.wit",
+    "crates/client-extensions/src/modding/scroll_probe.wat",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
