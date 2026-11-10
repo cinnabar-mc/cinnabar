@@ -237,23 +237,20 @@ impl Panel {
                     max,
                     step,
                     ..
-                } => {
-                    if ![value, min, max, step]
-                        .iter()
-                        .all(|number| number.is_finite())
-                        || min >= max
-                        || value < min
-                        || value > max
-                        || *step <= 0.0
-                        || step > &(max - min)
-                        || !(max - min).is_finite()
-                        || ((max - min) / step) > 1_000_000.0
-                    {
-                        return Err(
-                            "panel slider requires finite, ordered bounds and a positive step"
-                                .into(),
-                        );
-                    }
+                } if ![value, min, max, step]
+                    .iter()
+                    .all(|number| number.is_finite())
+                    || min >= max
+                    || value < min
+                    || value > max
+                    || *step <= 0.0
+                    || step > &(max - min)
+                    || !(max - min).is_finite()
+                    || ((max - min) / step) > 1_000_000.0 =>
+                {
+                    return Err(
+                        "panel slider requires finite, ordered bounds and a positive step".into(),
+                    );
                 }
                 _ => {}
             }
