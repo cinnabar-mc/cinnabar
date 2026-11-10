@@ -583,11 +583,17 @@ fn review_item_declaration_priority_survives_moves_between_files() {
         ],
     ]);
     let keys = super::catalog::icon_keys(&view, &[]);
+    // Short-name aliases follow the same winning declaration.
     assert_eq!(
         keys.iter()
             .map(|(id, key)| (id.as_ref(), key.as_ref()))
             .collect::<Vec<_>>(),
-        [("t:a", "upper_a"), ("t:b", "upper_b")]
+        [
+            ("a", "upper_a"),
+            ("b", "upper_b"),
+            ("t:a", "upper_a"),
+            ("t:b", "upper_b")
+        ]
     );
 }
 
