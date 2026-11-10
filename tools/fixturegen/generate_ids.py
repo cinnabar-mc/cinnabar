@@ -67,13 +67,14 @@ def enchantments(target):
 def particle_types(target):
     """Read the native legacy particle enum, which must be re-verified for each target version."""
     data = json.loads((OWNER / "data/particle-types.json").read_text())
-    if data["game_version"] != target["game_version"]:
+    if (data["game_version"], data["wire_protocol"]) != (
+        target["game_version"], target["wire_protocol"]
+    ):
         raise ValueError(
-            f"particle-types.json was verified for {data['game_version']}, but the target is "
-            f"{target['game_version']}; re-check the native ParticleType enum and update it")
+            "particle type contract does not match the active Bedrock target")
     values = data["values"]
-    if len(set(values.values())) != len(values) or min(values.values()) < 1:
-        raise ValueError("particle types need unique positive wire values")
+    if len(set(values.values())) != len(values) or min(values.values()) < 0:
+        raise ValueError("particle types need unique nonnegative wire values")
     return dict(sorted(values.items()))
 
 

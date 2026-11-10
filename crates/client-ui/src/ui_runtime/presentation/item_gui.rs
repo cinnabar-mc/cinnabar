@@ -80,8 +80,8 @@ pub(super) fn cutout_cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option
     });
     block_model(
         &quads,
-        lighting,
         assets::gui_item::GuiShading::Inventory,
+        lighting,
         BlockModelOrder::Depth,
     )
 }

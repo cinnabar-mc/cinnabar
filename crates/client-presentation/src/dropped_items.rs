@@ -393,31 +393,6 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
-    /// The model an actor draws a carried block with. Cubes use their composed carried faces
-    /// (a grass block's tinted side overlay over dirt) unless a session pack retextured them;
-    /// other shapes, such as crossed plants, and retextured cubes use their world model. A
-    /// retextured cube whose world model cannot be built keeps its startup faces.
-    fn actor_carried_block_model(
-        cache: &mut ModelCache,
-        icons: &UiPresentationRuntime,
-        assets: &RuntimeAssets,
-        mode: NetworkIdMode,
-        id: u32,
-    ) -> Option<u32> {
-        let startup_art = match mode {
-            NetworkIdMode::Sequential => Some(id),
-            NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
-        }
-        .is_some_and(|visual| !assets.is_retextured(assets::BlockVisualId(visual)));
-        if startup_art {
-            Self::carried_block_model(cache, icons, assets, mode, id)
-                .or_else(|| Self::block_model(cache, assets, mode, id))
-        } else {
-            Self::block_model(cache, assets, mode, id)
-                .or_else(|| Self::carried_block_model(cache, icons, assets, mode, id))
-        }
-    }
-
     /// Shares a session block's admitted geometry and artwork across static and dropped items.
     fn session_block_model(
         cache: &mut ModelCache,
@@ -817,7 +792,8 @@ impl DroppedItemPublisher<'_, '_> {
                         }
                         CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
                     };
-                    let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
+                    let model =
+                        special::carried_block_model(cache, icons, assets, held_models, mode, id);
                     let Some(model) = cache.count_item(model) else {
                         continue;
                     };

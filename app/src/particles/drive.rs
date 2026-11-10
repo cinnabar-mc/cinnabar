@@ -41,6 +41,9 @@ use {
 };
 
 #[cfg(test)]
+#[path = "drive/baby_age_tests.rs"]
+mod baby_age_tests;
+#[cfg(test)]
 #[path = "drive/bite_tests.rs"]
 mod bite_tests;
 #[cfg(test)]
@@ -98,6 +101,8 @@ const BLOCK_BREAK_EFFECT: &str = assets::facts::ParticleEffect::BlockDestruct.id
 const RAIN_SPLASH_EFFECT: &str = assets::facts::ParticleEffect::RainSplashParticle.identifier();
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
+/// Height fraction of an actor's box where body-centred effects originate.
+const BODY_HEIGHT_FRACTION: f32 = 0.5;
 /// Item pieces per icon-crack event.
 const ITEM_ICON_PIECES: f32 = ITEM_ICON_PARTICLES as f32;
 
@@ -321,6 +326,16 @@ fn route_level_event(
         }) => {
             system.spawn(&native_request(effect, position, spell_color));
         }
+        Some(LevelParticle::Note { color }) => {
+            let mut request =
+                native_request(assets::facts::ParticleEffect::NoteParticle, position, None);
+            request.variables = vec![
+                ("note_color.r".into(), color[0]),
+                ("note_color.g".into(), color[1]),
+                ("note_color.b".into(), color[2]),
+            ];
+            system.spawn(&request);
+        }
         Some(LevelParticle::BlockBreak { runtime_id }) => {
             route_block_break(
                 system,
@@ -421,6 +436,17 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 seed,
             );
         }
+        // Provisional: pmmp's protocol definition describes event 60 as green particles like
+        // bone meal on crops, so this reuses that effect; the native origin and count are unmeasured.
+        ActorStatusKind::BabyAge => {
+            let mut body = notice.position;
+            body[1] += height * BODY_HEIGHT_FRACTION;
+            system.spawn(&native_request(
+                assets::facts::ParticleEffect::CropGrowthEmitter,
+                body,
+                None,
+            ));
+        }
         ActorStatusKind::TotemActivate => {
             if notice.runtime_id == routing.stream.authority().local_player_runtime_id()
                 && let Some(actor) = routing.stream.authority().actor(notice.runtime_id)
@@ -438,13 +464,13 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 .authority()
                 .item_use_profile(notice.data >> 16)
                 .consumption;
-            // Local admitted food uses scatter from their predicted eating cues.
-            if client_audio::audio::predicted::predicts_bites(consumption)
-                && notice.runtime_id != routing.stream.local_player_runtime_id()
-                && let Some(identifier) = routing
-                    .stream
-                    .authority()
-                    .item_identifier(notice.data >> 16)
+            if feed_scatters_crumbs(
+                consumption,
+                notice.runtime_id == routing.stream.local_player_runtime_id(),
+            ) && let Some(identifier) = routing
+                .stream
+                .authority()
+                .item_identifier(notice.data >> 16)
                 && let Some(icons) = routing.icons
                 && let Some(tile) = item_tile(icons, &identifier, (notice.data & 0xffff) as u32)
             {
@@ -493,6 +519,15 @@ fn route_fishing(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Ac
         }
         _ => {}
     }
+}
+
+/// Whether a `Feed` notice scatters crumbs of its item. Every fed item scatters, including animal
+/// food players cannot eat, except drinks and the local player's own food, whose bites already
+/// scatter from its predicted eating cues.
+fn feed_scatters_crumbs(consumption: assets::item_use::ItemConsumption, local: bool) -> bool {
+    let drink = actor_animation::consumables::consume_animation(consumption)
+        == Some(actor_animation::consumables::ConsumeAnimation::Drink);
+    !drink && !(local && client_audio::audio::predicted::predicts_bites(consumption))
 }
 
 /// How far ahead of and below the first-person camera the local player's crumbs scatter, so

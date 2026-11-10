@@ -30,7 +30,7 @@ fn synthetic_blob_with_world_provenance(mutify: impl FnOnce(&mut BlobProvenance)
         model_quads: Box::new([]),
         animations: Box::new([]),
         animation_frames: Box::new([]),
-        texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
+        texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips: mips.into() })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
         provenance: compiled_provenance,
     })

@@ -56,7 +56,13 @@ pub fn run<B: Backend>(
                     vec![UpdateProgress::stage(download.id, UpdatePhase::Installing)];
                 let _ = outgoing.send(library.clone());
                 match update::install::<B>(mods, &download) {
-                    Ok(installed) => {
+                    Ok(mut installed) => {
+                        if let Some(previous) =
+                            library.installed.iter().find(|item| item.id == download.id)
+                        {
+                            installed.review_new_requests::<B>(previous, registration);
+                        }
+                        let completed = installed.message.clone();
                         let message = format!(
                             "Installed update {}. Reloading enabled mods…",
                             download.version
@@ -75,16 +81,7 @@ pub fn run<B: Backend>(
                                 reloads.push(pending);
                                 message
                             }
-                            Ok(None) => format!(
-                                "Updated {} to {}.",
-                                library
-                                    .installed
-                                    .iter()
-                                    .find(|item| item.id == download.id)
-                                    .map(|item| item.file.as_str())
-                                    .unwrap_or("mod"),
-                                download.version
-                            ),
+                            Ok(None) => completed,
                             Err(error) => error,
                         }
                     }
@@ -227,7 +224,8 @@ pub fn perform<B: Backend>(
             )
             .map(|()| String::new())
         }
-        Action::ReadMore(_)
+        Action::BrowseMarketplace
+        | Action::ReadMore(_)
         | Action::Update(_)
         | Action::ViewUpdates
         | Action::OpenUpdate(_)

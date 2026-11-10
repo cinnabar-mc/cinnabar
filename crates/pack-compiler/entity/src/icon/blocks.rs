@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
+use assets::facts::pack::PackTexture;
 use assets::registry::BlockTraits;
 use assets::{
     AssetError, BlockFace, BlockFlags, BlockVisualId, IconSprite, ModelFamily, NetworkIdMode,
@@ -477,9 +478,12 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    /// Keeps a flat carried override only for pane-family shapes without an item model.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+        let record = self.records.get(visual.0 as usize)?;
+        if record.model_family != ModelFamily::Pane
+            || !assets::facts::block_render_fact(&record.name).flat_icon
+        {
             return None;
         }
         self.texture_path(visual)
@@ -535,7 +539,16 @@ impl IconBlocks {
                     })?
                     .into()
             }
-            None => resolve_carried_down_key(&pack.blocks, record)?,
+            None => resolve_carried_down_key(&pack.blocks, record).or_else(|| {
+                resolve_texture_key(&pack.blocks, record, icon_face)
+                    .key
+                    .map(|key| Cow::Owned(key.into_string()))
+            })?,
+        };
+        let key = if pack.terrain.get(&key).is_some() {
+            key
+        } else {
+            PackTexture::Missing.key().into()
         };
         // The world key's variant stands in for the block's variant.
         let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(icon_face))
@@ -753,13 +766,13 @@ mod lightning_rod_tests;
 mod button_tests;
 
 #[cfg(test)]
+#[path = "blocks/lectern_tests.rs"]
+mod lectern_tests;
+
+#[cfg(test)]
 #[path = "blocks/pumpkin_tests.rs"]
 mod pumpkin_tests;
 
 #[cfg(test)]
 #[path = "blocks/bookshelf_tests.rs"]
 mod bookshelf_tests;
-
-#[cfg(test)]
-#[path = "blocks/lectern_tests.rs"]
-mod lectern_tests;

@@ -28,6 +28,7 @@ pub use input_state::TickInput;
 mod evidence;
 pub mod local_facts;
 mod locomotion;
+mod mining_inventory;
 mod outbox;
 mod physics;
 mod prediction_sync;
@@ -63,6 +64,7 @@ use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 pub use locomotion::{ModeIntent, RideKind};
+pub use mining_inventory::MiningRevocations;
 pub use outbox::MovementSendError;
 pub use outbox::OUTBOX_CAPACITY;
 #[cfg(any(test, feature = "test-support"))]
@@ -171,6 +173,7 @@ pub struct MovementTicker {
     unmarked_move_players_observed: u64,
     epoch_publisher: watch::Sender<PositionAuthorityGeneration>,
     mining_epoch_publisher: watch::Sender<u64>,
+    revoked_mining: MiningRevocations,
     held_release: Option<outbox::HeldRelease>,
     /// A sent release keeps its launch until the following movement reaches the socket.
     admitted_riptide: Option<physics::RiptideRequest>,
@@ -227,6 +230,7 @@ impl MovementTicker {
             unmarked_move_players_observed: 0,
             epoch_publisher,
             mining_epoch_publisher,
+            revoked_mining: MiningRevocations::default(),
             held_release: None,
             admitted_riptide: None,
             written_riptide_tick: None,
@@ -256,6 +260,7 @@ impl MovementTicker {
         self.previous_input = HeldInput::default();
         self.outbox.clear();
         self.pending_sends.clear();
+        self.revoked_mining = MiningRevocations::default();
         self.sent_history.clear();
         self.tick_evidence.clear();
         self.dropped_tick_count = 0;
@@ -910,9 +915,11 @@ impl MovementTicker {
                         pending.sample.snapshot.tick <= plan.corrected_tick
                             && pending.sample.mining.is_some()
                     });
+                let mut revoked = Vec::new();
                 let mut replacement = VecDeque::with_capacity(self.outbox.len());
                 for mut pending in self.outbox.drain(..) {
                     if replay_sample(&mut pending)?.is_none() {
+                        revoked.extend(pending.mining.take());
                         continue;
                     }
                     replacement.push_back(pending);
@@ -922,6 +929,9 @@ impl MovementTicker {
                     let _ = replay_sample(&mut pending.sample)?;
                 }
 
+                for mining in revoked {
+                    self.revoked_mining.record(mining, true);
+                }
                 self.correction_authority_changed(drops_interactions);
                 for pending in &mut self.pending_sends {
                     pending.retry_after_cancellation =

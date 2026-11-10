@@ -4,7 +4,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bedrock_protocol_1_26_60::enums::InputMode;
 use serde_json::{Value, json};
-use std::num::NonZeroI64;
+use std::{borrow::Cow, net::Ipv6Addr, num::NonZeroI64};
 
 use crate::PlayerInputMode;
 
@@ -164,7 +164,7 @@ pub(crate) fn login_client_data(
         "PlatformOnlineId": "",
         "PlatformType": 0,
         "PlayFabId": "",
-        "ServerAddress": settings.server_address,
+        "ServerAddress": login_server_address(&settings.server_address),
         "ThirdPartyName": display_name,
         "UIProfile": 0,
     });
@@ -199,6 +199,26 @@ pub(crate) fn login_client_data(
     claims
 }
 
+/// Adds the default port to bare login hosts, preserving URLs and opaque service targets.
+fn login_server_address(address: &str) -> Cow<'_, str> {
+    let address = address.trim();
+    if address.is_empty() || address.contains('/') {
+        return Cow::Borrowed(address);
+    }
+    let host = address
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(address);
+    let port = bridge::contract::DEFAULT_BEDROCK_PORT_TEXT;
+    if host.parse::<Ipv6Addr>().is_ok() {
+        Cow::Owned(format!("[{host}]:{port}"))
+    } else if !address.contains(':') {
+        Cow::Owned(format!("{address}:{port}"))
+    } else {
+        Cow::Borrowed(address)
+    }
+}
+
 /// The wire value of `mode`, as the generated codec encodes it.
 fn input_mode_value(mode: PlayerInputMode) -> u32 {
     let mode = match mode {
@@ -212,6 +232,60 @@ fn input_mode_value(mode: PlayerInputMode) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn login_server_addresses_include_the_default_port_for_bare_hosts() {
+        let port = bridge::contract::DEFAULT_BEDROCK_PORT_TEXT;
+        for (address, expected) in [
+            (
+                "play.example.invalid",
+                format!("play.example.invalid:{port}"),
+            ),
+            ("127.0.0.1", format!("127.0.0.1:{port}")),
+            ("::1", format!("[::1]:{port}")),
+            ("[2001:db8::1]", format!("[2001:db8::1]:{port}")),
+            (
+                " play.example.invalid ",
+                format!("play.example.invalid:{port}"),
+            ),
+        ] {
+            let settings = LoginSettings {
+                server_address: address.into(),
+                ..Default::default()
+            };
+            let claims =
+                login_client_data("Fixture", ClientRandomId::new(1).unwrap(), None, &settings);
+            assert_eq!(claims["ServerAddress"], expected, "{address}");
+            assert_eq!(settings.server_address, address);
+        }
+    }
+
+    #[test]
+    fn login_server_addresses_preserve_ports_urls_and_service_targets() {
+        for address in [
+            "",
+            "play.example.invalid:19133",
+            "[2001:db8::1]:19133",
+            "https://play.example.invalid:19133/v1/join",
+            "https://play.example.invalid/v1/join",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .chain([
+            format!("{}42", bridge::contract::REALM_TARGET_PREFIX),
+            format!("{}42", bridge::contract::FRIEND_TARGET_PREFIX),
+            format!("{}42", bridge::contract::GATHERING_TARGET_PREFIX),
+            format!("{}42", bridge::contract::NETHERNET_TARGET_PREFIX),
+        ]) {
+            let settings = LoginSettings {
+                server_address: address.clone(),
+                ..Default::default()
+            };
+            let claims =
+                login_client_data("Fixture", ClientRandomId::new(1).unwrap(), None, &settings);
+            assert_eq!(claims["ServerAddress"], address);
+        }
+    }
 
     /// Join requests leave device-derived identity to the core and reuse the selected skin model ID.
     #[test]

@@ -128,11 +128,7 @@ pub(super) fn plan_segment(
             for input in [previous, current] {
                 for &index in triangle {
                     let vertex = &input.vertices[index as usize];
-                    for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
-                        bounds[axis] = bounds[axis].min(pixel);
-                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
-                    }
+                    include_vertex(&mut bounds, vertex);
                 }
             }
             if let Some(rect) = clipped(bounds, batch.scissor, current.viewport_size) {
@@ -241,11 +237,7 @@ pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
                     f64::NEG_INFINITY,
                 ];
                 for vertex in vertices {
-                    for axis in 0..2 {
-                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
-                        bounds[axis] = bounds[axis].min(pixel);
-                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
-                    }
+                    include_vertex(&mut bounds, vertex);
                 }
                 if let Some(rect) = clipped(bounds, batch.scissor, input.viewport_size) {
                     damage = damage.union(UiDamage::Rect(rect));
@@ -353,12 +345,32 @@ fn supported_vertex(vertex: &UiRenderVertex, viewport: [u32; 2]) -> bool {
             let position = vertex.position[axis];
             let scaled = position / viewport[axis] as f32;
             let clip = scaled * 2.0 - vertex.clip_w;
+            // Binary16 rounds its upper midpoint and larger magnitudes to infinity.
+            let finite_xy = vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY == 0
+                || position.abs() < 65_520.0;
             // Shaders may flush subnormal inputs or intermediates to zero.
-            (position == 0.0 || (position.is_normal() && scaled.is_normal()))
+            finite_xy
+                && (position == 0.0 || (position.is_normal() && scaled.is_normal()))
                 && (clip == 0.0 || clip.is_normal())
                 && (position / vertex.clip_w).is_finite()
                 && (clip / vertex.clip_w).is_finite()
         })
+}
+
+/// Includes binary16 rounding error before dividing the shader's coordinates by W.
+fn include_vertex(bounds: &mut [f64; 4], vertex: &UiRenderVertex) {
+    for axis in 0..2 {
+        let position = f64::from(vertex.position[axis]);
+        let error = if vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0 {
+            // Half a normal ULP is at most |position| / 2048; subnormals use 2^-25.
+            (position.abs() / 2048.0).max(1.0 / 33_554_432.0)
+        } else {
+            0.0
+        };
+        let w = f64::from(vertex.clip_w);
+        bounds[axis] = bounds[axis].min((position - error) / w);
+        bounds[axis + 2] = bounds[axis + 2].max((position + error) / w);
+    }
 }
 
 /// Adds a pixel for shader projection rounding, then clips outward-rounded coverage.

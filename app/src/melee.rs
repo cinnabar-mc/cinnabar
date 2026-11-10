@@ -472,9 +472,9 @@ fn maintain_attacks(
             },
         },
     );
-    for request in admitted.cancelled_mining_requests {
-        player.inventory.ledger_mut().cancel_mining_request(request);
-    }
+    admitted
+        .mining
+        .settle_inventory(player.inventory.ledger_mut());
     if let Some(hit) = admitted.actor_attack {
         cues.attack.write(attack_cue(&context, hit.runtime_id));
     }

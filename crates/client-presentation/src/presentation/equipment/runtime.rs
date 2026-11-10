@@ -43,6 +43,7 @@ mod routing;
 mod session;
 mod shield;
 mod style;
+mod trims;
 mod types;
 pub use block_items::{BlockItemPreparer, PreparedBlockItems};
 pub use java::java_draws_attachable;
@@ -99,12 +100,24 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
 const STARTUP_MESH_ID_CAPACITY: usize =
     render_model::ITEM_MESH_RIG_ID_CAPACITY - session::MAX_SESSION_MESHES - ReservedItemMesh::COUNT;
 
+/// Maps generic humanoid armor geometries used by third-party attachables to the native player armor rig.
+pub(super) fn canonical_armor_geometry_identifier(identifier: &str) -> &str {
+    match identifier {
+        "geometry.humanoid.armor.helmet" => "geometry.player.armor.helmet",
+        "geometry.humanoid.armor.chestplate" => "geometry.player.armor.chestplate",
+        "geometry.humanoid.armor.leggings" => "geometry.player.armor.leggings",
+        "geometry.humanoid.armor.boots" => "geometry.player.armor.boots",
+        other => other,
+    }
+}
+
 /// Body bone index per armor bone; `None` where the body lacks it.
 type ArmorBoneMap = Arc<[Option<usize>]>;
 
 #[derive(Resource)]
 pub struct EquipmentRuntime {
     shield_patterns: shield::Patterns,
+    trims: trims::Trims,
     assets: Arc<RuntimeEntityAssets>,
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
@@ -302,6 +315,7 @@ impl EquipmentRuntime {
         );
         let runtime = Self {
             shield_patterns: Default::default(),
+            trims: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
             native_meshes: BTreeMap::new(),
@@ -618,17 +632,20 @@ impl EquipmentRuntime {
         if let Some(entry) = self.armor_geometry.get(identifier) {
             return entry.clone();
         }
-        let entry = find_geometry_index(&self.assets, identifier).and_then(|index| {
-            Some(Arc::new(ArmorGeometry {
-                rig: equipment_rig_id(index),
-                names: geometry_bone_names(&self.assets, index as usize)?,
-                pivots: geometry_bone_pivots(&self.assets, index as usize)?,
-                binding_expressions: geometry_bone_binding_expressions(
-                    &self.assets,
-                    index as usize,
-                )?,
-            }))
-        });
+        let canonical = canonical_armor_geometry_identifier(identifier);
+        let entry = find_geometry_index(&self.assets, identifier)
+            .or_else(|| find_geometry_index(&self.assets, canonical))
+            .and_then(|index| {
+                Some(Arc::new(ArmorGeometry {
+                    rig: equipment_rig_id(index),
+                    names: geometry_bone_names(&self.assets, index as usize)?,
+                    pivots: geometry_bone_pivots(&self.assets, index as usize)?,
+                    binding_expressions: geometry_bone_binding_expressions(
+                        &self.assets,
+                        index as usize,
+                    )?,
+                }))
+            });
         self.armor_geometry.insert(identifier.into(), entry.clone());
         entry
     }
