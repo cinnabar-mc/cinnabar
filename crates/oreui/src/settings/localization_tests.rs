@@ -44,6 +44,14 @@ fn french_settings_text_preserves_accents_and_punctuation() {
         ("options.cinnabar.advanced", "Avancé"),
         ("menu.accessibility.tab.tts.title", "Synthèse vocale"),
         (
+            "chat.settings.muteEmotes.description",
+            "Préférence enregistrée ; le filtrage des émotes n'est pas encore disponible",
+        ),
+        (
+            "chat.settings.tts.description",
+            "Préférence enregistrée ; la lecture vocale du chat n'est pas encore disponible",
+        ),
+        (
             "options.cinnabar.worldsFolder.description",
             "Emplacement où vos mondes sont enregistrés",
         ),
@@ -120,7 +128,7 @@ fn settings_text_preserves_catalog_and_fallback_resolution() {
         );
         assert_eq!(
             localization::word("options.renderDistanceFormat", language, &translate),
-            "%s chunks"
+            "%s tronçons"
         );
         assert_eq!(
             localization::word("unknown.setting", language, &translate),
@@ -130,30 +138,34 @@ fn settings_text_preserves_catalog_and_fallback_resolution() {
     }
 }
 
-/// Cloud rows retain their localized title and help through the shared label resolver.
+/// Cloud rows display localized titles, help and distance values without a catalog.
 #[test]
 fn cloud_distance_labels_use_the_selected_language() {
-    for (locale, title, help) in [
+    for (locale, title, help, value) in [
         (
             "fr_FR",
             "Distance des nuages",
             "Ajustez la distance d'affichage des nuages jusqu'à 128 tronçons avec fondu dans le brouillard.",
+            "64 tronçons",
         ),
         (
             "fr_CA",
             "Distance des nuages",
             "Ajustez la distance d'affichage des nuages jusqu'à 128 tronçons avec fondu dans le brouillard.",
+            "64 tronçons",
         ),
         (
             "en_US",
             "Cloud Distance",
             "Adjust how far clouds render in chunks (up to 128 chunks) with smooth distance fog fade.",
+            "64 chunks",
         ),
     ] {
         let mut view = MenuView::new(true, "Player".into());
         assert!(Arc::make_mut(&mut view.settings_options).set_language(locale));
-        paint(HashMap::new(), |canvas| {
-            let content = Content {
+        Arc::make_mut(&mut view.settings_options).set(SettingId::CloudDistance.index(), 64);
+        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
                 canvas,
                 view: &view,
                 span: [0.0, 1000.0],
@@ -165,6 +177,22 @@ fn cloud_distance_labels_use_the_selected_language() {
             let (label, description) = content.option_text(SettingId::CloudDistance);
             assert_eq!(label, title, "{locale}");
             assert_eq!(description, help, "{locale}");
+            content.option(SettingId::CloudDistance).unwrap();
         });
+        let text: String = nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                ui::UiVisual::Text { layout, .. } => Some(
+                    layout
+                        .glyphs()
+                        .iter()
+                        .map(|glyph| glyph.codepoint)
+                        .collect::<String>(),
+                ),
+                _ => None,
+            })
+            .collect::<String>()
+            .replace(' ', "");
+        assert!(text.contains(&value.replace(' ', "")), "{locale}: {text}");
     }
 }

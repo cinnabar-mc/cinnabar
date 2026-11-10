@@ -24,6 +24,7 @@ pub(super) fn locale_text(key: &str, language: Option<&str>) -> Option<&'static 
 /// Returns built-in French settings text for supported localization keys.
 pub(super) fn french_text(key: &str) -> Option<&'static str> {
     Some(match key {
+        "options.renderDistanceFormat" => "%s tronçons",
         "options.cloudDistance" | "options.cloudDistance.name" => "Distance des nuages",
         "options.cloudDistance.description" => {
             "Ajustez la distance d'affichage des nuages jusqu'à 128 tronçons avec fondu dans le brouillard."
@@ -38,9 +39,13 @@ pub(super) fn french_text(key: &str) -> Option<&'static str> {
         "chat.settings.muteAll" => "Masquer le chat",
         "chat.settings.muteAll.description" => "Masquer tous les messages de chat entrants",
         "chat.settings.muteEmotes" => "Masquer les émotes",
-        "chat.settings.muteEmotes.description" => "Filtrer les messages d'émotes dans le chat",
+        "chat.settings.muteEmotes.description" => {
+            "Préférence enregistrée ; le filtrage des émotes n'est pas encore disponible"
+        }
         "chat.settings.tts" => "Synthèse vocale pour le chat",
-        "chat.settings.tts.description" => "Lire à voix haute les messages du chat",
+        "chat.settings.tts.description" => {
+            "Préférence enregistrée ; la lecture vocale du chat n'est pas encore disponible"
+        }
         "chat.settings.fontSize" => "Taille de la police",
         "chat.settings.fontSize.description" => "Ajuster l'échelle et la taille du texte du chat",
         "chat.settings.lineSpacing" => "Espacement des lignes",
