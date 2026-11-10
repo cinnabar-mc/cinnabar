@@ -144,6 +144,7 @@ impl GuiModelPreparation {
         }
         let mut optional_models = BTreeSet::new();
         let mut faded_thumbnails = BTreeSet::new();
+        let mut gui_thumbnails = BTreeSet::new();
         for entry in icons.entries() {
             let Some(definition) = entities.item_visuals().iter().find(|visual| {
                 visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
@@ -153,6 +154,13 @@ impl GuiModelPreparation {
             let ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route else {
                 continue;
             };
+            if icons
+                .gui_block_sheets()
+                .binary_search_by_key(&block_visual.0, |sheet| sheet.visual.0)
+                .is_ok()
+            {
+                gui_thumbnails.insert(entry.sprite);
+            }
             let Some(icon) = self
                 .icon_refs
                 .as_deref()
@@ -235,6 +243,10 @@ impl GuiModelPreparation {
         }
         if let Some(refs) = self.icon_refs.as_deref() {
             for thumbnail in icons.block_models() {
+                // Independent GUI artwork must not fall back to the held world model.
+                if gui_thumbnails.contains(&thumbnail.sprite) {
+                    continue;
+                }
                 if let Some(icon) = refs.get(thumbnail.sprite as usize)
                     && !models.contains_key(&icon_key(*icon))
                     && let Some(mesh) = block_models::mesh(world, thumbnail.visual, &mut atlas)
