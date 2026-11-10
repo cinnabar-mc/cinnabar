@@ -60,7 +60,6 @@ impl GuiModelPreparation {
                 icons.sprites()[sheet.sprite as usize].clone(),
             );
         }
-        let mut meshes = BTreeMap::new();
         let unshaded_visuals = entities
             .item_visuals()
             .iter()
@@ -80,20 +79,11 @@ impl GuiModelPreparation {
                 assets::gui_item::CubeLighting::Directional
             }
         };
-        for sheet in icons.gui_block_sheets() {
-            sources.insert(
-                sheet.visual.0,
-                icons.sprites()[sheet.sprite as usize].clone(),
-            );
-        }
         for (visual, sprite) in &sources {
             if !cube_shape_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
-            let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
-            if let Some(mesh) = item_gui::cube(sheet_faces(icon), lighting_for_visual(*visual)) {
-                meshes.insert(*visual, (mesh, false));
-            }
+            atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
         }
         let mut models = BTreeMap::new();
         let mut shield = None;
@@ -134,6 +124,24 @@ impl GuiModelPreparation {
             world,
         )?;
         let required_pages = atlas.page_count();
+        for sheet in icons.gui_block_sheets() {
+            sources.insert(
+                sheet.visual.0,
+                icons.sprites()[sheet.sprite as usize].clone(),
+            );
+        }
+        let mut meshes = BTreeMap::new();
+        for (visual, sprite) in &sources {
+            if !cube_shape_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
+                continue;
+            }
+            // Shared held artwork stays required; new GUI artwork uses the optional path below.
+            if let Some(icon) = atlas.get([sprite.width, sprite.height], &sprite.rgba8)
+                && let Some(mesh) = item_gui::cube(sheet_faces(icon), lighting_for_visual(*visual))
+            {
+                meshes.insert(*visual, (mesh, false));
+            }
+        }
         let mut optional_models = BTreeSet::new();
         let mut faded_thumbnails = BTreeSet::new();
         for entry in icons.entries() {
@@ -172,11 +180,15 @@ impl GuiModelPreparation {
                 (Arc::clone(mesh), *optional)
             } else {
                 // World model thumbnails retain full-resolution tiles and directional UVs.
-                // Only authored carried sheets define the canonical cube shortcut.
+                // Only authored carried or GUI sheets define the canonical cube shortcut.
                 if icons
                     .block_sheets()
                     .binary_search_by_key(&block_visual.0, |sheet| sheet.visual.0)
                     .is_err()
+                    && icons
+                        .gui_block_sheets()
+                        .binary_search_by_key(&block_visual.0, |sheet| sheet.visual.0)
+                        .is_err()
                 {
                     continue;
                 }
@@ -186,6 +198,7 @@ impl GuiModelPreparation {
                 if !cube_shape_admitted(&ordinary, block_visual.0) {
                     continue;
                 }
+                let opaque = ordinary_cube_sheet(&sprite.rgba8);
                 // Normalize alpha-tested faces using their material mode. Fractional blended
                 // faces retain the thumbnail's composited texels.
                 let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {
@@ -196,10 +209,12 @@ impl GuiModelPreparation {
                 let Some(mesh) = atlas.try_insert(
                     [([sprite.width, sprite.height], sprite.rgba8.as_ref())],
                     |icons| {
-                        item_gui::cutout_cube(
-                            sheet_faces(icons[0]),
-                            lighting_for_visual(block_visual.0),
-                        )
+                        let build = if opaque {
+                            item_gui::cube
+                        } else {
+                            item_gui::cutout_cube
+                        };
+                        build(sheet_faces(icons[0]), lighting_for_visual(block_visual.0))
                     },
                 ) else {
                     continue;
@@ -210,7 +225,12 @@ impl GuiModelPreparation {
             models.insert(key, mesh);
             if optional {
                 optional_models.insert(key);
-                faded_thumbnails.insert(key);
+                if sources
+                    .get(&block_visual.0)
+                    .is_some_and(|sprite| !ordinary_cube_sheet(&sprite.rgba8))
+                {
+                    faded_thumbnails.insert(key);
+                }
             }
         }
         if let Some(refs) = self.icon_refs.as_deref() {
