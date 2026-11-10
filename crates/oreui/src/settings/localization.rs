@@ -437,9 +437,11 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.chatColor" => "Chat Color",
         "chat.settings.chatColor.description" => "Default color for chat text",
         "chat.settings.mentionsColor" => "Mentions Color",
-        "chat.settings.mentionsColor.description" => {
-            "Saved preference; mention highlighting is not available yet"
-        }
+        "chat.settings.mentionsColor.description" => "Color used to highlight chat mentions",
+        "chat.settings.mentionsTarget" => "Highlight Mentions",
+        "chat.settings.mentionsTarget.description" => "Choose which player mentions to highlight",
+        "chat.settings.mentionsTarget.everyone" => "Everyone",
+        "chat.settings.mentionsTarget.self" => "Only Me",
         "options.chatBackgroundOpacity" => "Chat Background Opacity",
         "options.chatBackgroundOpacity.description" => {
             "Adjust the opacity of the chat background box"

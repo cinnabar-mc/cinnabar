@@ -22,6 +22,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 
 pub(super) const STATES: &[State] = &[
     State {
+        name: "profile-loaded",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::profile_loaded,
+    },
+    State {
         name: "chat-incoming-while-scrolled",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -751,6 +757,20 @@ pub(super) const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || updates::settings(launcher::menu::updates::Status::UpToDate),
+    },
+    State {
+        name: "settings-updates-flatpak",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = updates::settings(launcher::menu::updates::Status::Idle)
+            else {
+                unreachable!()
+            };
+            view.updates.managed = true;
+            view.updates.active = false;
+            Fixture::Menu(view)
+        },
     },
     State {
         name: "settings-updates-downloading",
