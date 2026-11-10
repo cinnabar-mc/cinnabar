@@ -1031,6 +1031,7 @@ fn owner_layer(
     current: actor_animation::BoneTransform,
 ) -> actor_animation::RenderTextureLayer {
     actor_animation::RenderTextureLayer {
+        render_state: None,
         material: Default::default(),
         material_state: None,
         source: 0,
