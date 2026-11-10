@@ -23,6 +23,46 @@ fn overlay_app() -> App {
 }
 
 #[test]
+fn reload_chunks_reports_whether_a_world_is_loaded() {
+    for world_loaded in [false, true] {
+        let mut app = overlay_app();
+        if world_loaded {
+            app.world_mut().resource_mut::<ClientWorld>().stream =
+                Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+                    dimension: 0,
+                    local_player_runtime_id: 1,
+                    local_player_unique_id: 1,
+                    player_position: [0.0; 3],
+                    world_spawn_position: [0; 3],
+                    air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+                    block_network_ids_are_hashes: false,
+                }));
+        }
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.press(KeyCode::F3);
+            keys.press(KeyCode::KeyA);
+        }
+        app.update();
+        let messages = app
+            .world()
+            .resource::<UiRuntimeResource>()
+            .session
+            .chat
+            .messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].message.as_ref(),
+            if world_loaded {
+                "[Debug] Reloading all chunks"
+            } else {
+                "[Debug] Cannot reload chunks: no world is loaded"
+            }
+        );
+    }
+}
+
+#[test]
 fn debug_help_does_not_drop_the_held_stack() {
     for modifier_first in [false, true] {
         let mut app = overlay_app();

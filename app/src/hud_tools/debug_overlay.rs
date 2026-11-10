@@ -291,14 +291,14 @@ fn publish_debug_overlay(
                 }
             }
             if chord_a {
-                if let Some(stream) = context.client_world.stream.as_mut() {
-                    let _ = stream.remesh_all_resident(chunk_pipeline::web_time::Instant::now());
-                }
+                let message = if let Some(stream) = context.client_world.stream.as_mut() {
+                    stream.remesh_all_resident(chunk_pipeline::web_time::Instant::now());
+                    "[Debug] Reloading all chunks"
+                } else {
+                    "[Debug] Cannot reload chunks: no world is loaded"
+                };
                 if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(
-                        std::sync::Arc::from("[Debug] Reloading all chunks"),
-                        now,
-                    );
+                    ui.push_local_chat_line(std::sync::Arc::from(message), now);
                 }
             }
             if chord_d {
