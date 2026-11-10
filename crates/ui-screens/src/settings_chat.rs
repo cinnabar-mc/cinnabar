@@ -166,6 +166,7 @@ pub fn apply_hud(settings: &SettingsOptions, model: &mut HudModel) {
     model.chat_lifetime = settings.chat_lifetime();
     model.chat_color = default_color(settings);
     model.chat_mention_color = Some(settings.mentions_color_code());
+    model.chat_mentions_only_self = settings.mentions_only_self();
 }
 
 /// The saved font size and line spacing shared by closed-chat notifications and the open chat screen.
@@ -194,7 +195,7 @@ pub(crate) fn message_text(
     text: &str,
     color: Option<char>,
     mention: Option<char>,
-    local_player: &str,
+    only_self: Option<&str>,
 ) -> Option<String> {
     if !key
         .split('/')
@@ -203,16 +204,13 @@ pub(crate) fn message_text(
         return None;
     }
     if color.is_none() {
-        return match crate::text::highlight_mentions(text, local_player, mention?) {
+        return match crate::text::highlight_mentions(text, only_self, mention?) {
             std::borrow::Cow::Owned(text) => Some(text),
             std::borrow::Cow::Borrowed(_) => None,
         };
     }
     Some(crate::text::format_chat_label(
-        text,
-        color,
-        mention,
-        local_player,
+        text, color, mention, only_self,
     ))
 }
 
