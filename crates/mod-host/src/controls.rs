@@ -90,6 +90,7 @@ pub(super) struct ControlState {
     pub scroll: crate::ScrollFrame,
     pub scroll_keys: Vec<String>,
     pub bindings: Option<Arc<crate::InputBindings>>,
+    pub(crate) binding_writes: super::input_bindings::BindingWrites,
     pub text_events: Vec<ui::mod_panel::TextEvent>,
     pub field_events: Vec<ui::mod_panel::FieldEvent>,
     in_frame_callback: bool,
@@ -128,6 +129,7 @@ impl ControlState {
             scroll: self.scroll,
             scroll_keys: self.scroll_keys.clone(),
             bindings: self.bindings.clone(),
+            binding_writes: self.binding_writes.transaction(),
             text_events: self.text_events.clone(),
             field_events: self.field_events.clone(),
             in_frame_callback: self.in_frame_callback,
@@ -160,6 +162,7 @@ impl ControlState {
             self.pending_panel = transaction.pending_panel;
         }
         self.pending_settings = transaction.pending_settings;
+        self.binding_writes.accept(transaction.binding_writes);
         self.pending_keys = transaction.pending_keys;
         self.pending_scroll_keys = transaction.pending_scroll_keys;
         if current_frame && same_ui {
@@ -189,6 +192,7 @@ impl ControlState {
             scroll: _,
             scroll_keys: _,
             bindings: _,
+            binding_writes,
             text_events: _,
             field_events: _,
             in_frame_callback: _,
@@ -214,6 +218,7 @@ impl ControlState {
             writes: _,
         } = self;
         pointer.rollback();
+        binding_writes.rollback();
         *pending_panel = None;
         *pending_open = None;
         *pending_keys = None;
@@ -232,6 +237,7 @@ impl ControlState {
             scroll: crate::empty_scroll(),
             scroll_keys: Vec::new(),
             bindings: None,
+            binding_writes: Default::default(),
             text_events: Vec::new(),
             field_events: Vec::new(),
             in_frame_callback: false,
@@ -274,6 +280,7 @@ impl ControlState {
 
     pub fn commit(&mut self) {
         self.pointer.commit();
+        self.binding_writes.commit();
         if let Some(panel) = self.pending_panel.take() {
             self.panel = panel;
             if self.panel.is_none() {
@@ -302,6 +309,7 @@ impl ControlState {
 
     pub fn revoke(&mut self) {
         self.pointer = Default::default();
+        self.binding_writes = Default::default();
         self.text_events.clear();
         self.field_events.clear();
         self.in_frame_callback = false;

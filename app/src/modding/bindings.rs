@@ -1,7 +1,14 @@
-//! Projects current player chords into the physical names observable by personal mods.
+//! Projects current player chords into the physical names observable by personal mods, and
+//! applies the binding changes mods request through the Controls settings.
 
-use mod_host::{BindingContext, BindingModifiers, InputActionBinding, InputBindings};
-use semantic_input::{ActionBinding, ControlSettings, InputContext, PhysicalControl};
+use bevy::prelude::{ResMut, debug};
+use client_shell::menu::MenuRuntime;
+use launcher::menu::settings_options::KeyBindingChange;
+use mod_host::{
+    BindingContext, BindingModifiers, InputActionBinding, InputBindingChange, InputBindingWrite,
+    InputBindings,
+};
+use semantic_input::{Action, ActionBinding, ControlSettings, InputContext, PhysicalControl};
 use std::sync::Arc;
 
 const _: () = assert!(semantic_input::MAX_BINDINGS == mod_api::MAX_INPUT_BINDINGS);
@@ -71,6 +78,59 @@ pub(super) fn physical_name(control: PhysicalControl) -> Option<String> {
                 .to_owned(),
         ),
         _ => None,
+    }
+}
+
+/// Resolves a physical name from the controls naming contract back to its control.
+pub(super) fn physical_control(name: &str) -> Option<PhysicalControl> {
+    if let Some((_, key)) = client_shell::physical_input::DESKTOP_KEYS
+        .iter()
+        .find(|(code, _)| format!("{code:?}") == name)
+    {
+        return key.usage().map(PhysicalControl::KeyboardUsage);
+    }
+    let (button, _) = super::input::POINTER_BUTTONS
+        .iter()
+        .find(|(_, button)| *button == name)?;
+    client_shell::physical_input::mouse_button_code(*button).map(PhysicalControl::MouseButton)
+}
+
+/// Translates a mod's binding request into a Controls row edit for a known action and control.
+fn key_change(write: &InputBindingWrite) -> Result<(Action, KeyBindingChange), &'static str> {
+    let action = Action::from_binding_name(&write.action).ok_or("unknown action")?;
+    let change = match &write.change {
+        InputBindingChange::Assign(key) => {
+            KeyBindingChange::Assign(physical_control(key).ok_or("unknown physical key")?)
+        }
+        InputBindingChange::Unbind => KeyBindingChange::Unbind,
+        InputBindingChange::Reset => KeyBindingChange::Reset,
+    };
+    Ok((action, change))
+}
+
+/// Applies player binding changes committed by successful mod callbacks, in load order, as
+/// the player's own Controls edits. Without settings, such as before the menu exists, the
+/// requests are dropped; refused ones leave the bindings unchanged.
+pub(super) fn apply_binding_writes(
+    extension: Option<ResMut<super::ModRuntime>>,
+    mut menu: Option<ResMut<MenuRuntime>>,
+) {
+    let Some(mut extension) = extension else {
+        return;
+    };
+    for index in 0..extension.hosts.host_count() {
+        for write in extension.hosts.host_mut(index).take_input_binding_writes() {
+            let Some(menu) = menu.as_deref_mut() else {
+                continue;
+            };
+            let result = key_change(&write).and_then(|(action, change)| {
+                menu.change_action_key(action, change)
+                    .map_err(|_| "refused by the Controls settings")
+            });
+            if let Err(error) = result {
+                debug!(action = %write.action, error, "mod binding change refused");
+            }
+        }
     }
 }
 

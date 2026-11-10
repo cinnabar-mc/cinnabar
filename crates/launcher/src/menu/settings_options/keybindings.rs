@@ -22,7 +22,49 @@ pub fn custom_key_label(name: &str) -> Option<&'static str> {
     BindingId::from_name(name)?.definition().label
 }
 
+/// An edit to one action's keyboard and mouse row, as the Controls settings make it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KeyBindingChange {
+    Assign(PhysicalControl),
+    Unbind,
+    Reset,
+}
+
+/// Why a keyboard and mouse row edit was refused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KeyBindingRejected {
+    /// The action has no remappable keyboard and mouse row.
+    NoKeyboardRow,
+    /// The Controls settings refuse this edit, such as a gamepad control or an invalid set.
+    Refused,
+}
+
 impl SettingsOptions {
+    /// Applies a keyboard and mouse row edit for a remappable action through the same rules
+    /// as the Controls settings. Returns whether the saved bindings changed, so repeating an
+    /// applied edit is a no-op; a refused edit leaves the bindings unchanged.
+    pub fn change_action_key(
+        &mut self,
+        action: Action,
+        change: KeyBindingChange,
+    ) -> Result<bool, KeyBindingRejected> {
+        let index = BindingId::from_action(action)
+            .and_then(|id| id.row(false))
+            .ok_or(KeyBindingRejected::NoKeyboardRow)?;
+        let before = self.keys.clone();
+        let accepted = match change {
+            // An assignment already in effect keeps the saved layout, including its defaults.
+            KeyBindingChange::Assign(control) if self.key_control(index) == Some(control) => true,
+            KeyBindingChange::Assign(control) => self.remap(index, control),
+            KeyBindingChange::Unbind => self.unbind_key(index),
+            KeyBindingChange::Reset => self.reset_key(index),
+        };
+        if !accepted {
+            return Err(KeyBindingRejected::Refused);
+        }
+        Ok(self.keys != before)
+    }
+
     /// Captures active yielding defaults before a remap can change their conflicts.
     fn active_late_defaults(&self) -> [(Action, Option<PhysicalControl>); LATE_DEFAULTS.len()] {
         LATE_DEFAULTS.map(|action| {

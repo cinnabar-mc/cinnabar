@@ -51,9 +51,10 @@ pub use settings::{SettingsSnapshot, settings_companion};
 pub use packet_mod::NativeFrame;
 pub use runtime::HudTextMeasure;
 pub use runtime::cinnabar::extension::input::{
-    ActionBinding as InputActionBinding, BindingContext, BindingModifiers,
-    Bindings as InputBindings,
+    ActionBinding as InputActionBinding, BindingChange as InputBindingChange, BindingContext,
+    BindingModifiers, Bindings as InputBindings,
 };
+pub use runtime::input_bindings::InputBindingWrite;
 pub use runtime::legacy_input::{
     MovementSnapshot as GameplayMovementSnapshot, Snapshot as GameplaySnapshot,
 };

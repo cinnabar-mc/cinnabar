@@ -4,6 +4,8 @@
 pub const MAX_INPUT_BINDINGS: usize = 128;
 /// Maximum physical chords copied by one binding read.
 pub const MAX_INPUT_BINDINGS_PER_READ: usize = 16;
+/// Maximum actions whose player binding one callback may change.
+pub const MAX_INPUT_BINDING_WRITES: usize = 8;
 /// Maximum bytes in a stable action name in an input binding.
 pub const MAX_INPUT_ACTION_BYTES: usize = 32;
 /// Maximum physical keys in one controls sample or reservation.

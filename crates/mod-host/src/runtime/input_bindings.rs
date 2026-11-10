@@ -1,9 +1,89 @@
 //! Bounded physical binding observations, shared across guest frame callbacks.
 
 use super::State;
-use crate::{InputBindings, ModHost};
+use crate::{InputBindingChange, InputBindings, ModHost};
 use anyhow::{Result, ensure};
 use std::sync::Arc;
+
+/// One requested change to the player's own binding for a named action, committed by a
+/// successful callback. The embedder validates it against its settings before applying it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputBindingWrite {
+    pub action: String,
+    pub change: InputBindingChange,
+}
+
+/// Transactional player binding changes: staged by a callback, published on its success and
+/// consumed once by the embedder.
+#[derive(Default)]
+pub(crate) struct BindingWrites {
+    pending: Vec<InputBindingWrite>,
+    committed: Vec<InputBindingWrite>,
+}
+
+impl BindingWrites {
+    /// Starts a callback with no staged writes, leaving committed ones with the instance.
+    pub(crate) fn transaction(&self) -> Self {
+        Self::default()
+    }
+
+    /// Takes a finished callback's staged writes.
+    pub(crate) fn accept(&mut self, transaction: Self) {
+        self.pending = transaction.pending;
+    }
+
+    /// Validates the request shape and keeps one change per action, the latest.
+    fn stage(&mut self, action: String, change: InputBindingChange) -> Result<(), String> {
+        if !action_name_valid(&action) {
+            return Err("invalid input action name".into());
+        }
+        if let InputBindingChange::Assign(key) = &change
+            && !mod_api::control_key_valid(key)
+        {
+            return Err("invalid physical key name".into());
+        }
+        merge(&mut self.pending, InputBindingWrite { action, change })
+    }
+
+    /// Publishes a successful callback's writes, replacing unconsumed ones for the same action.
+    pub(crate) fn commit(&mut self) {
+        for write in std::mem::take(&mut self.pending) {
+            // Pending holds at most the cap, so a full committed list only drops new actions.
+            let _ = merge(&mut self.committed, write);
+        }
+    }
+
+    /// Drops a failed callback's staged writes.
+    pub(crate) fn rollback(&mut self) {
+        self.pending.clear();
+    }
+
+    /// Consumes the committed writes in staging order.
+    pub(crate) fn take(&mut self) -> Vec<InputBindingWrite> {
+        std::mem::take(&mut self.committed)
+    }
+}
+
+/// Replaces the write for the same action, or appends one below MAX_INPUT_BINDING_WRITES.
+fn merge(writes: &mut Vec<InputBindingWrite>, write: InputBindingWrite) -> Result<(), String> {
+    if let Some(existing) = writes.iter_mut().find(|old| old.action == write.action) {
+        *existing = write;
+    } else if writes.len() < mod_api::MAX_INPUT_BINDING_WRITES {
+        writes.push(write);
+    } else {
+        return Err("too many input binding writes".into());
+    }
+    Ok(())
+}
+
+/// Whether an action name fits the stable kebab-case binding name contract.
+fn action_name_valid(action: &str) -> bool {
+    !action.is_empty()
+        && action.len() <= mod_api::MAX_INPUT_ACTION_BYTES
+        && action
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
 
 impl ModHost {
     /// Admits a complete host settings snapshot (`total == entries.len()`); imports return
@@ -35,13 +115,7 @@ fn validate(bindings: &InputBindings) -> Result<()> {
     );
     ensure!(
         bindings.entries.iter().all(|binding| {
-            !binding.action.is_empty()
-                && binding.action.len() <= mod_api::MAX_INPUT_ACTION_BYTES
-                && binding
-                    .action
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-                && mod_api::control_key_valid(&binding.key)
+            action_name_valid(&binding.action) && mod_api::control_key_valid(&binding.key)
         }),
         "invalid physical input binding"
     );
@@ -78,6 +152,35 @@ pub(super) fn read(
         total: bindings.total,
         entries: bindings.entries[start..end].to_vec(),
     })))
+}
+
+/// Stages a player binding change under controls authority and the controls write budget.
+pub(super) fn write(
+    state: &mut State,
+    action: String,
+    change: InputBindingChange,
+) -> Result<Result<(), String>> {
+    state.controls.budget(false)?;
+    if !state.grants.controls {
+        return Ok(Err("controls capability denied".into()));
+    }
+    Ok(state.controls.binding_writes.stage(action, change))
+}
+
+impl ModHost {
+    /// Consumes player binding changes committed by successful callbacks of an active mod
+    /// that still holds controls authority.
+    pub fn take_input_binding_writes(&mut self) -> Vec<InputBindingWrite> {
+        let allowed = self.is_active() && self.grants().controls;
+        let writes = self
+            .instance
+            .store
+            .data_mut()
+            .controls
+            .binding_writes
+            .take();
+        if allowed { writes } else { Vec::new() }
+    }
 }
 
 #[cfg(test)]
@@ -199,6 +302,102 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(empty.entries.is_empty());
+    }
+
+    /// Binding writes need controls, validate their shape, keep the latest change per action
+    /// and publish only after a successful callback.
+    #[test]
+    fn binding_writes_are_granted_validated_and_transactional() {
+        let mut state = State::new(ModGrants::default(), String::new(), Declared::default());
+        let assign = |key: &str| InputBindingChange::Assign(key.into());
+        assert!(
+            state
+                .write_binding("freelook".into(), assign("KeyG"))
+                .unwrap()
+                .is_err()
+        );
+        state.grants.controls = true;
+        state.controls.reset_budget();
+        for (action, change) in [
+            ("", InputBindingChange::Reset),
+            ("Freelook", InputBindingChange::Reset),
+            ("freelook", assign("")),
+            ("freelook", assign("Key G")),
+        ] {
+            assert!(state.write_binding(action.into(), change).unwrap().is_err());
+        }
+        state.controls.reset_budget();
+        state
+            .write_binding("freelook".into(), assign("KeyG"))
+            .unwrap()
+            .unwrap();
+        state.controls.rollback();
+        state.controls.commit();
+        assert!(state.controls.binding_writes.take().is_empty());
+        state
+            .write_binding("freelook".into(), assign("KeyG"))
+            .unwrap()
+            .unwrap();
+        state
+            .write_binding("jump".into(), InputBindingChange::Unbind)
+            .unwrap()
+            .unwrap();
+        state
+            .write_binding("freelook".into(), InputBindingChange::Reset)
+            .unwrap()
+            .unwrap();
+        state.controls.commit();
+        assert_eq!(
+            state.controls.binding_writes.take(),
+            [
+                InputBindingWrite {
+                    action: "freelook".into(),
+                    change: InputBindingChange::Reset,
+                },
+                InputBindingWrite {
+                    action: "jump".into(),
+                    change: InputBindingChange::Unbind,
+                },
+            ]
+        );
+        assert!(state.controls.binding_writes.take().is_empty());
+    }
+
+    /// One callback changes at most MAX_INPUT_BINDING_WRITES actions, and revocation drops
+    /// unconsumed writes.
+    #[test]
+    fn binding_writes_are_bounded_and_revoked() {
+        let mut writes = BindingWrites::default();
+        for index in 0..mod_api::MAX_INPUT_BINDING_WRITES {
+            writes
+                .stage(format!("hotbar-{index}"), InputBindingChange::Unbind)
+                .unwrap();
+        }
+        assert!(
+            writes
+                .stage("freelook".into(), InputBindingChange::Unbind)
+                .is_err()
+        );
+        writes
+            .stage("hotbar-0".into(), InputBindingChange::Reset)
+            .unwrap();
+        writes.commit();
+        assert_eq!(writes.committed.len(), mod_api::MAX_INPUT_BINDING_WRITES);
+        let mut state = State::new(
+            ModGrants {
+                controls: true,
+                ..Default::default()
+            },
+            String::new(),
+            Declared::default(),
+        );
+        state
+            .write_binding("freelook".into(), InputBindingChange::Unbind)
+            .unwrap()
+            .unwrap();
+        state.controls.commit();
+        state.controls.revoke();
+        assert!(state.controls.binding_writes.take().is_empty());
     }
 
     /// The parsed current contract exposes physics and pose without importing action holds.
