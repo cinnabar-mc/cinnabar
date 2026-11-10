@@ -151,6 +151,8 @@ pub(super) fn drive_mod(
         let source = output.as_ref().map_or(0, |output| output.camera_sequence);
         let effects = output.and_then(|output| output.camera);
         if let Some(camera) = camera.as_deref_mut() {
+            camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(
                 effects
                     .as_ref()
@@ -202,6 +204,8 @@ pub(super) fn drive_mod(
             packets.native_frame(None);
         }
         if let Some(camera) = camera.as_deref_mut() {
+            camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(None);
             native_camera.apply(
                 camera,
@@ -214,6 +218,12 @@ pub(super) fn drive_mod(
         }
         clear_touch_buttons(&mut presentation);
         return;
+    }
+    // Screen authority and cursor capture may change after wheel input was staged.
+    if absorbed || !captured {
+        for host in extension.hosts.iter_mut() {
+            host.observe_scroll(mod_host::empty_scroll());
+        }
     }
     // Taps completed this frame reach their owners before frame callbacks read them.
     for (owner, id) in presentation.take_mod_touch_taps() {
@@ -356,7 +366,6 @@ pub(super) fn drive_mod(
             chat_events: &chat_events,
             gameplay_facts: gameplay.facts(
                 captured && !absorbed,
-                &ui,
                 cameras.single().ok().map(|(camera, _)| camera),
                 world_observation
                     .as_ref()
@@ -597,6 +606,16 @@ pub(super) fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         let native_effects = native_effects.as_ref().filter(|_| !regular_camera);
+        camera.set_view_yaw_offset(merged.yaw_offset);
+        camera.set_mod_perspective(merged.perspective.map(|view| {
+            use mod_api::native_camera::Perspective as Mod;
+            use semantic_input::PerspectiveMode as Native;
+            match view {
+                Mod::FirstPerson => Native::FirstPerson,
+                Mod::ThirdPersonBack => Native::ThirdPersonBack,
+                Mod::ThirdPersonFront => Native::ThirdPersonFront,
+            }
+        }));
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
         camera.set_view_tilt(

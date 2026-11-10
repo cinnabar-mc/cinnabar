@@ -203,20 +203,46 @@ impl UiPresentationRuntime {
                 }
             }
         }
+        if body_visible
+            && let Some(model) = self.preview_head_block()
+            && let Some(parent) = live.head_bone
+        {
+            let bone = render_model::equipment::attach_to_bone(
+                parent,
+                render_model::equipment::head_block_display(),
+            )?;
+            let frame = live.frame * super::super::live_player::render_matrix(&bone)?;
+            // The block turns with the head when a screen's renderer looks toward the pointer.
+            let frame = turn.map_or(frame, |turn| turn * frame);
+            let (screen, light) = projection(&rig, 6);
+            cache.layer(
+                &model.vertices,
+                std::iter::once(screen * Mat4::from(frame)),
+                std::iter::once(light * Mat3::from(frame.matrix3)),
+                model.source,
+                None,
+                live.overlay_color,
+            )?;
+        }
         for slot in 0..4 {
             let Some(texture) = &self.player_preview_gear.armor[slot] else {
                 continue;
             };
-            let icon = self.gui_models.pack_equipment.region(slot).or_else(|| {
-                self.gui_models
-                    .sources
-                    .textures
-                    .get(&super::super::atlas::key(
-                        [texture.width, texture.height],
-                        &texture.rgba,
-                    ))
-                    .copied()
-            });
+            let icon = self
+                .gui_models
+                .trim_icons
+                .region(texture)
+                .or_else(|| self.gui_models.pack_equipment.region(slot))
+                .or_else(|| {
+                    self.gui_models
+                        .sources
+                        .textures
+                        .get(&super::super::atlas::key(
+                            [texture.width, texture.height],
+                            &texture.rgba,
+                        ))
+                        .copied()
+                });
             let Some(icon) = icon else { continue };
             let frames = [0, 1, 2, 3, 4, 5].map(|part| projection(&rig, part));
             cache.layer(
@@ -270,6 +296,10 @@ impl UiPresentationRuntime {
                 [0.; 4],
             )?;
             let index = cache.cursor - 1;
+            let cutoff = model.alpha_cutoff();
+            let changed = cache.sources[index].material.3 != cutoff;
+            cache.sources[index].material.3 = cutoff;
+            cache.dirty |= changed;
             cache.sources[index].hand = Some(hand);
         }
         if let Some(fire) = self.gui_fire_frame(view) {

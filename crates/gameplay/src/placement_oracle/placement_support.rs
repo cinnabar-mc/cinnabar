@@ -184,6 +184,9 @@ pub(crate) fn support_requirement(
             None => SupportRequirement::Unsupported,
         };
     }
+    if identifier == "minecraft:frog_spawn" {
+        return SupportRequirement::Face(0);
+    }
     if is_carpet(identifier) {
         return SupportRequirement::Face(0);
     }
@@ -217,6 +220,7 @@ pub(crate) fn accepts_support(identifier: &str, support_identifier: &str, full_c
 pub(crate) fn support_acceptance(
     identifier: &str,
     support_identifier: &str,
+    support_liquid_depth: Option<i32>,
     full_cube: bool,
 ) -> Option<bool> {
     if identifier == "minecraft:vine" {
@@ -236,6 +240,13 @@ pub(crate) fn support_acceptance(
             | "minecraft:flowing_water"
             | "minecraft:lava"
             | "minecraft:flowing_lava" => Some(false),
+            _ => None,
+        };
+    }
+    if identifier == "minecraft:frog_spawn" {
+        return match support_identifier {
+            "minecraft:water" | "minecraft:flowing_water" => Some(support_liquid_depth == Some(0)),
+            "minecraft:air" => Some(false),
             _ => None,
         };
     }

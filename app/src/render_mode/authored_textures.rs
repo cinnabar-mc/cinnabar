@@ -5,11 +5,12 @@ use std::{
     sync::{Arc, Mutex, mpsc},
 };
 
+use assets::texture::EnhancedTextureAssets;
 use assets::{RuntimeAssets, material_keys::MaterialKeys};
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use render_model::ENHANCED_RENDERING_ENABLED;
-use render_scene::{ChunkTextureAssets, ChunkTextureReload, EnhancedTextureAssets};
+use render_scene::{ChunkTextureAssets, ChunkTextureReload};
 use ui::RenderMode;
 
 use client_state::RuntimeSettings;
@@ -100,7 +101,7 @@ impl AuthoredTextureLoading {
     /// Drops unsupported cached maps so future server carriers cannot inherit them.
     fn discard_unsupported(&mut self, limits: &wgpu::Limits) {
         if let Loading::Complete(Some(maps)) = &self.loading
-            && !maps.fits_device_limits(limits)
+            && !render_scene::enhanced_maps_fit_device_limits(maps, limits)
         {
             warn!("unsupported authored Enhanced maps; retained carrier materials");
             self.loading = Loading::Complete(None);
@@ -121,9 +122,9 @@ fn spawn(
         .spawn(move || {
             let maps =
                 enhanced_textures::load_optional_enhanced_textures(&base, &keys).filter(|maps| {
-                    let supported = limits
-                        .as_ref()
-                        .is_none_or(|limits| maps.fits_device_limits(limits));
+                    let supported = limits.as_ref().is_none_or(|limits| {
+                        render_scene::enhanced_maps_fit_device_limits(maps, limits)
+                    });
                     if !supported {
                         warn!("unsupported authored Enhanced maps; retained carrier materials");
                     }
@@ -187,7 +188,7 @@ mod tests {
                 size: 1,
                 rgba8: vec![128, 128, 255, 255].into_boxed_slice(),
             }]
-            .into_boxed_slice(),
+            .into(),
         };
         Arc::new(
             EnhancedTextureAssets::new(
@@ -285,10 +286,11 @@ mod tests {
         let base = Arc::new(RuntimeAssets::diagnostic());
         let array = assets::texture::TextureArray {
             layers: 2,
-            mips: Box::new([assets::texture::TextureMip {
+            mips: [assets::texture::TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let authored = Arc::new(
             EnhancedTextureAssets::new(

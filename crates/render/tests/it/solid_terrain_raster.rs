@@ -161,8 +161,9 @@ fn culled_solid_runs_match_the_two_sided_discard_path_from_every_side() {
         &meshing::biome_lattice::query_table_words(),
         wgpu::BufferUsages::UNIFORM,
     );
-    let mut atmosphere = [0.0; 32];
+    let mut atmosphere = [0.0; 40];
     atmosphere[16..19].copy_from_slice(&[0.6, 0.7, 0.9]);
+    atmosphere[36..39].copy_from_slice(&render_model::celestial::rgb_to_gamma([0.6, 0.7, 0.9]));
     atmosphere[19] = 8.0;
     atmosphere[20] = 60.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);

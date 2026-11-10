@@ -348,6 +348,7 @@ fn compile_pack_sources(
             || assets::facts::block_render_fact(&record.name).kind
                 == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
+            || visuals::literal::terrain_marker(record).is_some()
             || visuals::bubble_column::is_record(record)
             || visuals::beacon::is_record(record)
             || visuals::cube::is_hash_only(record)
@@ -935,7 +936,7 @@ fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, Asse
             layers: u32::try_from(chunk.len()).map_err(|_| AssetError::BlobSizeOverflow {
                 section: "texture page layers",
             })?,
-            mips: mips.into_boxed_slice(),
+            mips: mips.into(),
         }));
     }
     Ok(pages.into_boxed_slice())

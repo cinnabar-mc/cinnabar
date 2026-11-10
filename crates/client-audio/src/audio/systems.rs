@@ -424,9 +424,10 @@ pub fn drive_local_motion(
                     LocalCue::Swim { volume } => {
                         (tables.entity(PLAYER, "swim", None), Some(volume))
                     }
-                    LocalCue::Splash { volume } => {
-                        (tables.entity(PLAYER, "splash", None), Some(volume))
-                    }
+                    LocalCue::Splash { volume } => (
+                        tables.entity(PLAYER, super::route::SPLASH_EVENT, None),
+                        Some(volume),
+                    ),
                 };
                 route.map(|route| {
                     let volume = volume.map_or(route.volume, |value| assets::FloatRange {

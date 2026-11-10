@@ -22,6 +22,7 @@ struct SnapshotData {
     dimension: i32,
     unloaded_collision_barriers: bool,
     actor_colliders: Option<Arc<[Aabb]>>,
+    dimension_bottom: Option<i32>,
 }
 
 impl Clone for CollisionSnapshot {
@@ -51,6 +52,7 @@ impl CollisionSnapshot {
                 dimension: world.dimension,
                 unloaded_collision_barriers: world.unloaded_collision_barriers,
                 actor_colliders: world.actor_colliders.clone(),
+                dimension_bottom: world.dimension_bottom,
             }),
             tick: AtomicU64::new(world.tick()),
         }
@@ -67,6 +69,7 @@ impl CollisionSnapshot {
         );
         world.unloaded_collision_barriers = data.unloaded_collision_barriers;
         world.actor_colliders = data.actor_colliders.clone();
+        world.dimension_bottom = data.dimension_bottom;
         world.begin_tick(self.tick.load(Ordering::Relaxed));
         world
     }

@@ -316,7 +316,7 @@ fn chevron(canvas: &mut Canvas<'_>, centre: [f32; 2], fraction: f32) -> Result<(
 }
 
 /// A card's artwork icon, else the base-pack or missing-icon placeholder.
-fn thumbnail(
+pub(super) fn thumbnail(
     content: &mut Content<'_, '_>,
     bounds: Bounds,
     icon: Option<&str>,

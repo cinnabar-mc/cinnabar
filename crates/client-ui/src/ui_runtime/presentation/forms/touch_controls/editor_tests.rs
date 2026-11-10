@@ -275,6 +275,107 @@ fn touch_editor_saved_positions_move_every_control_hit_area() {
     }
 }
 
+/// A corner drag grows the drawn control and its gameplay touch area together, keeping the
+/// opposite corner fixed, and the saved scale survives a settings round trip.
+#[test]
+fn touch_editor_corner_resize_scales_drawn_and_active_regions_and_survives_reload() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("jump").unwrap();
+    let index = p.touch_editor_card_index("jump").unwrap();
+    // The top-left handle grows the control up and left from its bottom-right corner.
+    let [x, y, w, h] = p
+        .touch_editor_action_bounds(&format!("hud.resize:{index}:0"))
+        .expect("resizable touch controls paint corner handles");
+    let at = [x + w / 2., y + h / 2.];
+    let to = [at[0] - original[2] / 2., at[1] - original[3] / 2.];
+    p.touch_editor_pointer(at, true, true);
+    p.touch_editor_pointer(to, false, true);
+    p.touch_editor_pointer(to, false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    let resized = p.touch_editor_bounds("jump").unwrap();
+    assert!(resized[2] > original[2] * 1.3, "{resized:?} {original:?}");
+    assert!(((resized[2] / resized[3]) - (original[2] / original[3])).abs() < 0.01);
+    for axis in 0..2 {
+        let far = |rect: [f32; 4]| rect[axis] + rect[axis + 2];
+        assert!(
+            (far(resized) - far(original)).abs() < 1.5,
+            "{resized:?} {original:?}"
+        );
+    }
+    p.touch_editor_key("Enter", Default::default());
+    let layout = p.take_touch_editor_result().unwrap().unwrap();
+    let scale = layout.scale("jump");
+    assert!((scale - resized[2] / original[2]).abs() < 0.01, "{scale}");
+    let mut settings = SettingsOptions::default();
+    settings.set_touch_layout(layout);
+    let decoded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(decoded.touch_layout().scale("jump"), scale);
+    p.set_chat_settings_snapshot((Arc::new(decoded), None));
+    p.set_menu_view(None);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    // The grown area beyond the original top-left corner now presses jump.
+    let inside_growth = [
+        (resized[0] + (original[0] - resized[0]) / 2.) / 1280.,
+        (resized[1] + (original[1] - resized[1]) / 2.) / 720.,
+    ];
+    let region = p
+        .gameplay_touch_region(inside_growth, [1280., 720.])
+        .unwrap();
+    assert_eq!(region.hit_id, touch::JUMP);
+    let painted = [
+        region.bounds.min[0] * 1280.,
+        region.bounds.min[1] * 720.,
+        (region.bounds.max[0] - region.bounds.min[0]) * 1280.,
+        (region.bounds.max[1] - region.bounds.min[1]) * 720.,
+    ];
+    for axis in 0..4 {
+        assert!(
+            (painted[axis] - resized[axis]).abs() < 1.5,
+            "{painted:?} {resized:?}"
+        );
+    }
+}
+
+/// Returning a resized control to its authored size restores its drawn touch area, and the
+/// factory measurement never inherits a scale from an earlier paint.
+#[test]
+fn touch_controls_return_to_unit_scale_after_a_resize() {
+    let Some(mut p) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::menu_runtime();
+    p.set_touch_control_mode(TouchControlMode::Crosshair);
+    let jump_width = |p: &UiPresentationRuntime| {
+        let frame = p.screens.touch.frame.as_ref().unwrap();
+        let hit = frame
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(touch::JUMP))
+            .unwrap();
+        region_bounds(frame, hit, [1280., 720.], touch::JUMP)
+            .map(|region| region.bounds.max[0] - region.bounds.min[0])
+            .unwrap()
+    };
+    let mut scaled = TouchLayout::default();
+    scaled.set_scaled("jump", [0.5, 0.5], 2.);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    let unit = jump_width(&p);
+    p.screens.touch.saved = scaled;
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - 2. * unit).abs() < 0.002);
+    // A new viewport remeasures the factory geometry through the same retained screen.
+    paint_overlay(&mut p, &runtime, [1000, 720]);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - 2. * unit).abs() < 0.002);
+    let mut placed = TouchLayout::default();
+    placed.set("jump", [0.5, 0.5]);
+    p.screens.touch.saved = placed;
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - unit).abs() < 0.002);
+}
+
 /// Snap, undo, redo and Reset use the same completed gesture history as mod layout editing.
 #[test]
 fn touch_editor_alignment_history_and_reset_keep_factory_layout_available() {

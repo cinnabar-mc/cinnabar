@@ -1,5 +1,7 @@
 //! State-aware material replacement and block-specific texture rebinding.
 
+use assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+
 use super::*;
 
 impl Builder<'_> {
@@ -209,6 +211,66 @@ impl Builder<'_> {
                 });
             } else {
                 self.rollback_textures(checkpoint);
+            }
+        }
+    }
+
+    /// Rebinds the art of barrier, light-block and structure-void markers that a pack remaps.
+    ///
+    /// Markers are invisible terrain, so the cube route above skips them. As the offline
+    /// compiler does, sprites take the up face's world art, or carried art when no pack gives
+    /// the block world art, and structure-void boxes take each face's own art.
+    pub(super) fn override_marker_bindings(
+        &mut self,
+        keys: &MaterialKeys,
+        bindings: &legacy::TextureBindings,
+    ) {
+        let Some(base) = self.base_assets else {
+            return;
+        };
+        for source in keys.block_sources() {
+            let block = base.resolve(assets::NetworkIdMode::Sequential, source.visual);
+            let Some(marker) = assets::TerrainMarker::from_variant(block.kind(), block.variant())
+            else {
+                continue;
+            };
+            let mut faces = [None; 6];
+            for face in assets::BlockFace::ALL {
+                let art_face = if marker.is_camera_facing() {
+                    assets::BlockFace::Up
+                } else {
+                    face
+                } as usize;
+                // World art wins over carried art, including world art the session packs
+                // inherit from the base pack, as the offline compiler resolves it.
+                let world = |key: &&str| *key != pack_compile_input::pack::MISSING_TILE_TEXTURE_KEY;
+                let Some(key) = bindings
+                    .texture(&source.name, &source.binding_name, art_face, false)
+                    .filter(world)
+                    .or(source.carried_fallback_keys[art_face]
+                        .as_deref()
+                        .filter(world))
+                    .or_else(|| {
+                        bindings.texture(&source.name, &source.binding_name, art_face, true)
+                    })
+                else {
+                    continue;
+                };
+                let id = block.face(face).material_id();
+                let original = keys.material_source(id);
+                if original.is_some_and(|original| original.key.as_ref() == key) {
+                    continue;
+                }
+                let variant = original.map_or(0, |original| original.variant);
+                let flags = if id == DIAGNOSTIC_MATERIAL {
+                    MATERIAL_FLAG_ALPHA_CUTOUT
+                } else {
+                    base.material(id).flags
+                };
+                faces[face as usize] = self.terrain_material(keys, key, variant, flags);
+            }
+            if faces.iter().any(Option::is_some) {
+                self.overlay.face_overrides.push((source.visual, faces));
             }
         }
     }

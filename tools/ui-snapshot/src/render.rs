@@ -29,6 +29,8 @@ mod tiled_image;
 mod touch_editor;
 #[cfg(feature = "test-support")]
 mod touch_utilities;
+#[cfg(feature = "test-support")]
+mod trims;
 
 use std::{
     collections::HashMap,
@@ -132,6 +134,10 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    #[cfg(feature = "test-support")]
+    if let Fixture::ArmorTrims { trimmed } = &fixture {
+        return trims::png(state.size, dir, resource_pack, *trimmed);
+    }
     if let Fixture::CrosshairCoverage { fixed } = &fixture {
         return crosshair_coverage::png(state.size, *fixed, resource_pack);
     }
@@ -220,7 +226,8 @@ fn png_fixture(
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked
-        | Fixture::CosmeticParticles { .. } => false,
+        | Fixture::CosmeticParticles { .. }
+        | Fixture::ArmorTrims { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
@@ -273,6 +280,7 @@ fn png_fixture(
         }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
+        | Fixture::ArmorTrims { .. }
         | Fixture::FormOverlap
         | Fixture::FormHandoff { .. }
         | Fixture::DataDriven(_)
@@ -398,8 +406,15 @@ fn png_fixture(
         }
         Fixture::Menu(view) => {
             carriers::validate_oreui(dir)?;
-            let images = oreui::images::load_optional_oreui_images(dir)
+            let mut images = oreui::images::load_optional_oreui_images(dir)
                 .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            oreui::images::panorama::install(
+                &mut images,
+                Some(&carriers.ui),
+                render_model::MAX_UI_FIXED_TEXTURE_BYTES.saturating_sub(
+                    carriers::fixed_texture_bytes(&carriers.font, &carriers.pages),
+                ),
+            );
             let first = carriers.pages.len() as u16;
             let mut artwork: HashMap<_, _> = images
                 .sprites
@@ -438,7 +453,7 @@ fn png_fixture(
                 rgba: logo.into_raw().into(),
             });
             cosmetic_icons(&mut artwork, &mut carriers.pages, seconds);
-            mod_icons(&view, &mut artwork, &mut carriers.pages)?;
+            menu_icons(&view, &mut artwork, &mut carriers.pages)?;
             let character_page = (view.screen == launcher::menu::MenuScreen::Home)
                 .then(|| character::texture(dir, &mut carriers.pages))
                 .transpose()?;
@@ -838,17 +853,25 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
     }
 }
 
-/// Gives each Mods-tab icon its own page under the key its card draws, as the client's
-/// artwork worker does.
-fn mod_icons(
+/// Gives each inline menu thumbnail its own page, as the client's artwork worker does.
+fn menu_icons(
     view: &launcher::menu::MenuView,
     artwork: &mut HashMap<String, ui::IconRef>,
     pages: &mut Vec<Page>,
 ) -> Result<(), Error> {
-    for item in &view.mods.library.installed {
-        let (Some(key), Some(png)) = (item.icon_key(), &item.metadata.icon) else {
-            continue;
-        };
+    let icons = view
+        .mods
+        .library
+        .installed
+        .iter()
+        .filter_map(|item| Some((item.icon_key()?, item.metadata.icon.as_ref()?)))
+        .chain(
+            view.storage
+                .cached
+                .iter()
+                .filter_map(|item| Some((item.icon_key(), item.icon.as_ref()?))),
+        );
+    for (key, png) in icons {
         let image = image::load_from_memory(png)
             .map_err(|error| error.to_string())?
             .to_rgba8();

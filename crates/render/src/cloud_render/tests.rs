@@ -238,6 +238,27 @@ fn viewport_records_are_identity_cached_with_exact_diagnostic_layout() {
     assert_eq!(world.resource::<CloudGpu>().upload_count, 2);
 }
 
+/// Diagnostics report the admitted span even when every sampled texel is empty.
+#[test]
+fn geometry_diagnostic_reports_admitted_viewport_span() {
+    let _world = world();
+    let runtime = runtime(0);
+    let mut cache = CloudMeshCache::default();
+    cache.set_identity([0x41; 32]);
+    for span in [16, 128, meshing::CLOUD_MASK_SIZE as u16] {
+        let viewport = CloudViewport::try_new([0.0; 2], span, 1, false, false).unwrap();
+        let (mesh, _) = cache.get(&runtime, viewport, false, true).unwrap();
+        assert!(mesh.records.is_empty());
+        let diagnostic = mesh.diagnostic.as_ref().unwrap();
+        assert_eq!(diagnostic.quad_count(), 0);
+        assert!(
+            diagnostic
+                .marker_fields()
+                .contains(&format!("sampled_span_cells={span}"))
+        );
+    }
+}
+
 #[test]
 fn dimension_changes_remove_clouds_and_restore_them_only_in_the_overworld() {
     let mut world = world();
@@ -575,4 +596,41 @@ fn cold_cloud_window_does_not_wait_for_a_busy_worker_pool() {
         mesh.records.as_ref(),
         mesh_cloud_viewport(runtime.texture(AtmosphereRole::Clouds).unwrap(), viewport).unwrap()
     );
+}
+
+/// Distance changes replace cached spans and prefetch neighbours at the new size.
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn cloud_cache_refreshes_distance_without_camera_movement() {
+    use meshing::cloud_viewport::mesh_cloud_viewport;
+    let _world = world();
+    let runtime = runtime(255);
+    let texture = runtime.texture(AtmosphereRole::Clouds).unwrap();
+    let mut cache = mesh_cache::CloudMeshCache::default();
+    cache.set_identity([0x41; 32]);
+    for span in [16, 32, 16, 64] {
+        let viewport = CloudViewport::try_new([0.0; 2], span, 1, false, false).unwrap();
+        let (mesh, _) = cache.get(&runtime, viewport, false, false).unwrap();
+        assert_eq!(
+            mesh.records.as_ref(),
+            mesh_cloud_viewport(texture, viewport).unwrap()
+        );
+        cache.prefetch(&runtime, viewport, false);
+        assert!(cache.len() <= mesh_cache::MAX_CACHED_WINDOWS);
+        cache.finish_pending();
+        let neighbour = CloudViewport::try_new(
+            [f64::from(meshing::CLOUD_CELL_BLOCKS), 0.0],
+            span,
+            1,
+            false,
+            false,
+        )
+        .unwrap();
+        let (mesh, missed) = cache.get(&runtime, neighbour, false, false).unwrap();
+        assert!(!missed);
+        assert_eq!(
+            mesh.records.as_ref(),
+            mesh_cloud_viewport(texture, neighbour).unwrap()
+        );
+    }
 }

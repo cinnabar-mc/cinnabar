@@ -285,6 +285,15 @@ impl UiPresentationRuntime {
             let base_view = ViewState::default();
             let mut base_data = DataSource::new();
             base_data.set_global("#touch_utilities_open", Scalar::Bool(true));
+            // The retained screen keeps the last bound scale, so measure every control at 1.
+            let slots = (0..state.mod_buttons.len()).map(mod_buttons::layout_name);
+            for name in CONTROLS
+                .iter()
+                .map(|(name, _)| (*name).to_owned())
+                .chain(slots)
+            {
+                base_data.set_global(editor::scale_binding(&name), Scalar::Num(1.));
+            }
             set_mode_bindings(&mut base_data, state.mode);
             state.base = renderer.draw(ScreenArt::default(), &mut paint, |env, root| {
                 screen.render_with(
@@ -301,7 +310,10 @@ impl UiPresentationRuntime {
             *paint.next = rollback.1;
             state.base_viewport = Some(viewport_key);
         }
-        utilities::place_controls(state, &mut view, content, px);
+        let scales = utilities::place_controls(state, &mut view, content, px);
+        for (name, scale) in &scales {
+            data.set_global(editor::scale_binding(name), Scalar::Num(*scale));
+        }
         if state.utilities_open {
             view.pressed = state.base.as_ref().and_then(|base| {
                 base.hits.iter().find_map(|hit| {
@@ -317,7 +329,7 @@ impl UiPresentationRuntime {
                 })
             });
         }
-        utilities::place_dropdown(state.base.as_ref(), &mut view, content, px);
+        utilities::place_dropdown(state.base.as_ref(), &mut view, &scales, content, px);
         let screen = &mut state.screen;
         let art = ScreenArt {
             view: Some(&view),
@@ -423,7 +435,7 @@ fn layout_catalog(
         ("editor_title", "Touch controls", 28., 1.2),
         (
             "editor_help",
-            "Drag a control. Guides align edges and centers.",
+            "Drag a control or a corner to resize it. Guides align edges and centers.",
             44.,
             0.65,
         ),
@@ -443,6 +455,7 @@ fn layout_catalog(
         ),
         ("ui/cinnabar_touch.json", bytes.as_slice()),
     ])
+    .map(Catalog::with_paint_transforms)
 }
 
 fn region_bounds(
@@ -451,10 +464,18 @@ fn region_bounds(
     window: [f32; 2],
     hit_id: u16,
 ) -> Option<TouchControlRegion> {
-    let left = region.rect.x.max(region.clip.x);
-    let top = region.rect.y.max(region.clip.y);
-    let right = (region.rect.x + region.rect.w).min(region.clip.x + region.clip.w);
-    let bottom = (region.rect.y + region.rect.h).min(region.clip.y + region.clip.h);
+    // A resized control's rect is in layout coordinates; its clip is already where it draws.
+    let rect = &region.rect;
+    let corners = [[rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h]]
+        .map(|corner| region.transform.map_or(corner, |map| map.apply(corner)));
+    let left = corners[0][0].min(corners[1][0]).max(region.clip.x);
+    let top = corners[0][1].min(corners[1][1]).max(region.clip.y);
+    let right = corners[0][0]
+        .max(corners[1][0])
+        .min(region.clip.x + region.clip.w);
+    let bottom = corners[0][1]
+        .max(corners[1][1])
+        .min(region.clip.y + region.clip.h);
     if left >= right || top >= bottom {
         return None;
     }

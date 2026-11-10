@@ -162,7 +162,10 @@ pub(super) fn player_files(startup: bool) -> Files {
             "format_version": "1.10.0", "minecraft:client_entity": {"description": {
                 "identifier": assets::facts::VanillaEntity::Player.identifier(),
                 "materials": {"default": "entity_alphatest"}, "textures": {"default": "textures/entity/fixture_player"},
-                "geometry": {"default": "geometry.fixture.player"}, "render_controllers": ["controller.render.fixture"]
+                "geometry": {"default": "geometry.fixture.player"}, "render_controllers": ["controller.render.fixture"],
+                // Declaring its (empty) animation activation makes this a complete replacement of
+                // the vanilla player, not an addition laid over the vanilla definition.
+                "scripts": {"animate": []}
             }}
         }),
     );

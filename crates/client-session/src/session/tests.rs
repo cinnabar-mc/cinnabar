@@ -808,6 +808,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             server_authoritative_block_breaking: false,
             rewind_history_size: 20,
             base_game_version: protocol::BaseGameVersion::Any,
+            overworld_range: protocol::MODERN_OVERWORLD_RANGE,
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
             death_rules: protocol::DeathRules::default(),

@@ -65,12 +65,13 @@ pub use self::environment::WorldEnvironmentBootstrap;
 pub use self::events::{
     ActorBlockSyncMessage, ActorMotionEvent, ActorPropertySyncEvent, BiomeDefinitionEvent,
     BiomeDefinitionsEvent, BlockEntityUpdateEvent, BlockEventEvent, BlockUpdateEvent,
-    ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
-    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
-    MovementEffectKind, NETHER_DIMENSION_ID, OpenCommandBlockEvent, OpenSignEvent,
-    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
-    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    CLASSIC_OVERWORLD_RANGE, ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent,
+    DimensionRange, GameRulesEvent, LEGACY_OVERWORLD_RANGE, LevelChunkEvent, LevelChunkMode,
+    MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES, MODERN_OVERWORLD_RANGE, MapDataEvent,
+    MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
+    MovementEffectKind, NETHER_DIMENSION_ID, OVERWORLD_DIMENSION_ID, OpenCommandBlockEvent,
+    OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
+    RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
     SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
     WeatherChannel, WeatherUpdateEvent, WorldEvent, WorldSpawnEvent, air_network_id,
     vanilla_dimension_range,
@@ -360,6 +361,24 @@ world_packets! {
     RemoveObjective(packet) => WorldEvent::Ui(normalize_remove_objective(packet)?),
     SetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
     BossEvent(packet) => WorldEvent::Ui(normalize_boss(packet)?),
+    PlayerLocation(packet) => {
+        use bedrock_protocol_1_26_60::{enums::PlayerLocationType, types::PlayerLocationData};
+        let position = match packet.location {
+            PlayerLocationData::CoordinatesLocation {
+                packet_type: PlayerLocationType::PlayerLocationCoordinates, position,
+            } => Some(position.to_array()),
+            PlayerLocationData::HiddenLocation {
+                packet_type: PlayerLocationType::PlayerLocationHide,
+            } => None,
+            _ => return Ok(None),
+        };
+        WorldEvent::Ui(UiEvent::Locator(vec![crate::LocatorEvent::Player {
+            actor_unique_id: packet.target_actor_id.0, position, dimension: current_dimension,
+        }]))
+    },
+    LocatorBar(packet) => WorldEvent::Ui(UiEvent::Locator(
+        packet.waypoints.into_iter().filter_map(crate::ui::locator::waypoint).collect(),
+    )),
     ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
     ClientboundDataStore(packet) => WorldEvent::Ui(crate::ui::normalize_data_store(packet)),
     ClientboundDataDrivenUIShowScreen(packet) => {
@@ -461,6 +480,7 @@ world_packets! {
         WorldEvent::Inventory(event)
     },
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
+    TrimData(packet) => WorldEvent::Inventory(crate::InventoryEvent::Trims(crate::inventory::trims::normalize(packet))),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
     ContainerOpen(packet) => match block_side::normalize_open_command_block(&packet, current_dimension) {
         Some(event) => WorldEvent::OpenCommandBlock(event),

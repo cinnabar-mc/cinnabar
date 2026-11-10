@@ -170,9 +170,20 @@ pub(super) fn prepare_shield_art(
     );
     let ledger = runtime.inventory_ledger(player);
     let mut appearances = Vec::new();
+    presentation.gui_models.trim_icons.begin_frame();
     let mut observe = |stack: &protocol::NetworkItemStack| {
-        if let Some(pattern) = resolve(stack).and_then(|item| item.shield_pattern) {
-            appearances.push(pattern);
+        if let Some(item) = resolve(stack) {
+            if let Some(pattern) = item.shield_pattern {
+                appearances.push(pattern);
+            }
+            if let (Some(trim), Some(identifier)) = (item.trim, item.identifier) {
+                presentation.trim_icon(
+                    &identifier,
+                    stack.metadata,
+                    &trim,
+                    runtime.stack_facts(stack).custom_color,
+                );
+            }
         }
     };
     for stack in inventory_cache.stacks() {
@@ -191,9 +202,10 @@ pub(super) fn prepare_shield_art(
         for stack in recipes::screen_previews(player, runtime).stacks() {
             observe(stack);
         }
-        for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
-            observe(stack);
-        }
+    }
+    // Worn armor icons are resolved every frame, so their trims stay packed while the inventory is closed.
+    for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
+        observe(stack);
     }
     for stack in ledger
         .cursor_stack()

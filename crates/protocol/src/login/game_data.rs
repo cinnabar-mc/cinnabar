@@ -2,11 +2,16 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::packets::{ItemRegistry, StartGame};
+use bedrock_protocol_1_26_60::{
+    enums::LevelGeneratorType,
+    packets::{ItemRegistry, StartGame},
+};
 
 use crate::{
-    CustomBlocks, DeathRules, GameModeUpdate, HudRules, InventoryAuthority, ItemComponents,
-    ItemRegistryEvent, PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldPacketError,
+    CLASSIC_OVERWORLD_RANGE, CustomBlocks, DeathRules, DimensionRange, GameModeUpdate, HudRules,
+    InventoryAuthority, ItemComponents, ItemRegistryEvent, LEGACY_OVERWORLD_RANGE,
+    MODERN_OVERWORLD_RANGE, PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap,
+    WorldPacketError,
     item::{normalize_item_registry, with_block_items},
 };
 
@@ -51,6 +56,9 @@ pub struct StartupSettings {
     pub world_default_game_mode: GameModeUpdate,
     /// Whether the player follows the level default rather than a personal mode.
     pub player_game_mode_uses_world_default: bool,
+    /// The overworld range StartGame's generator selects; a server overworld definition
+    /// replaces it.
+    pub overworld_range: DimensionRange,
 }
 
 /// The StartGame item registry and the facts its component data declares.
@@ -99,12 +107,30 @@ impl GameData {
                 player_game_mode_uses_world_default: PlayerGameMode::bootstrap_uses_world_default(
                     start_game,
                 ),
+                overworld_range: generator_overworld_range(start_game.settings.generator_type),
             },
             items: StartupItems::from_wire(&with_block_items(item_registry, start_game)),
             custom_blocks: CustomBlocks::from_start_game(start_game),
             block_definition_count: start_game.block_properties.len(),
             level_identity: level_identity(start_game),
         }
+    }
+}
+
+/// The overworld range vanilla derives from the level generator when no overworld
+/// dimension is defined. Legacy ("Old") worlds keep the 128-block Pocket Edition
+/// height and unrecognised generators use 0..256. Overworld, Flat and Void keep the
+/// modern range; vanilla can also give them 0..256 from level state not modelled here.
+const fn generator_overworld_range(generator: LevelGeneratorType) -> DimensionRange {
+    match generator {
+        LevelGeneratorType::Legacy => LEGACY_OVERWORLD_RANGE,
+        LevelGeneratorType::Overworld | LevelGeneratorType::Flat | LevelGeneratorType::Void => {
+            MODERN_OVERWORLD_RANGE
+        }
+        LevelGeneratorType::Nether
+        | LevelGeneratorType::TheEnd
+        | LevelGeneratorType::Undefined
+        | LevelGeneratorType::Unknown(_) => CLASSIC_OVERWORLD_RANGE,
     }
 }
 
@@ -222,6 +248,30 @@ mod tests {
             GameData::from_wire(&start_game, &ItemRegistry::default()).level_identity,
             None
         );
+    }
+
+    /// Old Pocket Edition worlds report the Legacy generator and only 128 blocks of height.
+    #[test]
+    fn start_game_generator_selects_the_undefined_overworld_range() {
+        let range = |raw: i32| {
+            let mut start_game = StartGame::default();
+            start_game.settings.generator_type = LevelGeneratorType::from(raw);
+            GameData::from_wire(&start_game, &ItemRegistry::default())
+                .settings
+                .overworld_range
+        };
+        assert_eq!(range(0), LEGACY_OVERWORLD_RANGE);
+        assert_eq!(LEGACY_OVERWORLD_RANGE.sub_chunk_count, 8);
+        for modern in [1, 2, 5] {
+            assert_eq!(range(modern), MODERN_OVERWORLD_RANGE, "generator {modern}");
+        }
+        for classic in [3, 4, 6, 99, -1] {
+            assert_eq!(
+                range(classic),
+                CLASSIC_OVERWORLD_RANGE,
+                "generator {classic}"
+            );
+        }
     }
 
     #[test]

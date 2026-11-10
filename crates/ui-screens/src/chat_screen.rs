@@ -179,7 +179,10 @@ impl ChatScreen {
                 text,
                 color,
                 Some(self.settings.options.mentions_color_code()),
-                input.local_player,
+                self.settings
+                    .options
+                    .mentions_only_self()
+                    .then_some(input.local_player),
             )
         };
         let art = ScreenArt {
@@ -682,10 +685,7 @@ fn chat_data(
                     "{MESSAGE_ROW_PREFIX}{}",
                     input.first_message_id + index as u64
                 ))
-                .value(
-                    "#text",
-                    Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
-                )
+                .value("#text", Scalar::Text(text.into_owned()))
                 .var("chat_font_type", Value::from("default"))
                 .var("chat_font_scale_factor", Value::from(chat_text.font_scale))
                 .var("chat_line_spacing", Value::from(chat_text.line_spacing))

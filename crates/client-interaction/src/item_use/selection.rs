@@ -59,6 +59,19 @@ pub fn selected_riptide_use(
     })
 }
 
+/// Whether the selected stack is a brush, whose held use starts locally from its use on a
+/// block rather than in the air.
+pub(super) fn selected_brush(
+    player_runtime: &client_state::PlayerRuntime,
+    stream: &WorldStream,
+) -> bool {
+    player_runtime
+        .selected_backing_stack()
+        .and_then(|stack| stream.authority().item_identifier(stack.network_id))
+        .as_deref()
+        == Some(assets::facts::BRUSH_IDENTIFIER)
+}
+
 /// The selected stack's authoritative air use, if supported.
 pub fn selected_air_use(
     player_runtime: &client_state::PlayerRuntime,

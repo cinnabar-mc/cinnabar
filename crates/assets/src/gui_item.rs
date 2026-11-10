@@ -8,12 +8,15 @@ mod cube_model;
 mod dried_ghast;
 mod dripleaf;
 pub use dripleaf::dripleaf_quads;
+mod lighting;
+pub use lighting::{CubeLighting, cube_lighting};
 mod sculk_sensor;
 mod sculk_shrieker;
 mod shading;
 pub use block_model::{
-    GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
-    block_item_quads, cube_face, face_brightness, material_tile,
+    BlockModelOrder, GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE,
+    block_gui_quads, block_item_quads, carried_bamboo_fence_quads, carried_fence_quads,
+    carried_wall_quads, cube_face, face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
 pub use dried_ghast::{DRIED_GHAST_TENTACLES, dried_ghast_quads};
@@ -39,10 +42,25 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
     .any(|kind| name == kind.identifier())
 }
 
+/// Glass panes hold a solid plate; other pane-family blocks retain their sprite artwork.
+#[must_use]
+pub fn has_carried_glass_plate(name: &str) -> bool {
+    name == crate::facts::pack::PackBlock::GlassPane.identifier()
+        || crate::facts::block_render_fact(name).kind == crate::facts::BlockRenderKind::StainedPane
+}
+
+/// Keeps accepted copper-grate GUI samples opaque independently of control fades.
+#[must_use]
+pub fn forces_covered_gui_alpha(kind: crate::facts::BlockRenderKind) -> bool {
+    kind == crate::facts::BlockRenderKind::CopperGrate
+}
+
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.
 pub const GUI_ITEM_SIDE: f32 = 16.0;
 /// First accepted alpha byte for non-blended block GUI texels.
 pub const GUI_BLOCK_ALPHA_THRESHOLD: u8 = 128;
+/// Minimum sampled coverage for carried block faces, after source alpha normalization.
+pub const GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD: f32 = 0.1;
 pub const CUBE_SCALE: f32 = 10.0;
 pub const CUBE_OFFSET: [f32; 2] = [1.0, f32::from_bits(0x4147_ae14)];
 /// Canonical `[sin(X), cos(X), sin(Y), cos(Y)]` for native Rx(210°) Ry(45°).

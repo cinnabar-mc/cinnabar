@@ -104,6 +104,10 @@ pub enum BlockRenderKind {
     CoralFan,
     LiteralCube,
     Invisible,
+    /// Barrier or light block: a camera-facing sprite in a terrain layer drawn only while shown.
+    CameraSprite,
+    /// Structure void: a textured box in a terrain layer drawn only while shown.
+    StructureVoid,
     EntityDrawn,
     Ice,
     FrostedIce,
@@ -282,6 +286,8 @@ impl BlockRenderKind {
             | R::Cauldron
             | R::LiteralCube
             | R::Invisible
+            | R::CameraSprite
+            | R::StructureVoid
             | R::EnchantingTable
             | R::EntityDrawn => (false, false, false, true),
             R::Ordinary

@@ -227,6 +227,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             position: movement.position,
             surface_anchor: None,
         },
+        riding_actor_resolved: false,
         source_cohort: None,
     };
     let change = protocol::ChangeDimensionEvent {
@@ -293,6 +294,7 @@ fn model_gallery_camera_marker_only_reports_committed_move_player() {
             position: movement.position,
             surface_anchor: None,
         },
+        riding_actor_resolved: false,
         source_cohort: None,
     };
     let expected_marker = format!(

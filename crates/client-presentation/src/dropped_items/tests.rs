@@ -56,7 +56,9 @@ fn potted_models_sample_the_exposed_server_texture_grid() {
             model_quads: vec![quad, cropped, quad],
             textures: vec![assets::TextureArray {
                 layers: 1,
-                mips: assets::build_texture_mip_chain(pixels.clone().into(), side).unwrap(),
+                mips: assets::build_texture_mip_chain(pixels.clone().into(), side)
+                    .unwrap()
+                    .into(),
             }],
             texture_source_sizes: vec![[side as u16 >> grid; 2]],
             texture_source_grids: vec![grid],
@@ -498,7 +500,8 @@ fn carried_actor_blocks_use_world_art_once_a_pack_retextures_them() {
                             .into(),
                         assets::TILE_SIZE,
                     )
-                    .unwrap(),
+                    .unwrap()
+                    .into(),
                 }],
                 material_overrides: materials
                     .into_iter()
@@ -518,10 +521,11 @@ fn carried_actor_blocks_use_world_art_once_a_pack_retextures_them() {
         let mut cache = ModelCache::default();
         cache.begin_frame();
         cache.finish_demand();
-        let handle = DroppedItemPublisher::actor_carried_block_model(
+        let handle = special::carried_block_model(
             &mut cache,
             &icons,
             assets,
+            None,
             NetworkIdMode::Sequential,
             visual.0,
         )
@@ -595,7 +599,8 @@ fn retextured_carried_cubes_without_a_world_model_keep_their_startup_faces() {
                         [12, 140, 220, 255].repeat((side * side) as usize).into(),
                         side,
                     )
-                    .unwrap(),
+                    .unwrap()
+                    .into(),
                 }],
                 material_overrides: vec![assets::MaterialOverride {
                     material: sides,
@@ -613,10 +618,11 @@ fn retextured_carried_cubes_without_a_world_model_keep_their_startup_faces() {
     let mut cache = ModelCache::default();
     cache.begin_frame();
     cache.finish_demand();
-    let handle = DroppedItemPublisher::actor_carried_block_model(
+    let handle = special::carried_block_model(
         &mut cache,
         &icons,
         &pack,
+        None,
         NetworkIdMode::Sequential,
         visual.0,
     )
@@ -794,7 +800,8 @@ fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
                     .into(),
                 assets::TILE_SIZE,
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
         }],
         material_overrides: (selector..selector + 3)
             .map(|material| assets::MaterialOverride {

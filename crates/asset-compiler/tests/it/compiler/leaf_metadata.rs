@@ -128,8 +128,8 @@ fn pack_authored_leaf_face_metadata_survives_world_groups_and_runtime_only() {
     let carried = compiled.visuals[0].faces[0] as usize;
     compiled.materials[carried].flags |= 80 << assets::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
     assert!(
-        encode_blob(&compiled).is_err(),
-        "world-only metadata must require the native leaf material flag"
+        encode_blob(&compiled).is_ok(),
+        "authored AO exponents apply to every block material, not only native leaves"
     );
 }
 
