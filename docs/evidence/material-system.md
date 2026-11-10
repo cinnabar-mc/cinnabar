@@ -53,9 +53,7 @@ Confirmed gaps against the current client:
   controller supplies is not drawn; whether the native check applies to every material is
   unresolved.
 
-Texture variations have no client version gate, only the network bit. The
-separate `metalness`/`emissive`/`roughness` texture-set form merges when all three layers are
-present.
+Texture variations have no client version gate, only the network bit.
 
 These questions remain unresolved:
 
@@ -64,3 +62,4 @@ These questions remain unresolved:
 - the render-target key literal;
 - how a material's depth bias reaches an actor draw, and its scale;
 - the backend addressing and filtering a material's sampler states select.
+- the separate `metalness`/`emissive`/`roughness` texture-set form.
