@@ -41,6 +41,17 @@ impl SessionGlyphSheets {
         Self::with_named(cells, Default::default())
     }
 
+    /// The built-in emoticon glyphs alone, for sessions whose packs carry no glyph sheets.
+    pub fn builtin() -> &'static Arc<Self> {
+        static BUILTIN: std::sync::LazyLock<Arc<SessionGlyphSheets>> =
+            std::sync::LazyLock::new(|| {
+                Arc::new(SessionGlyphSheets::new(
+                    assets::emoticons::builtin_emoticon_cells(),
+                ))
+            });
+        &BUILTIN
+    }
+
     /// Returns the immutable source cells used to prepare this font.
     pub fn cells(&self) -> &[CellGlyph] {
         &self.cells
@@ -183,6 +194,13 @@ pub(super) fn font(runtime: &UiPresentationRuntime) -> Arc<assets::RuntimeFontCa
                 .collect();
             // Immutable carrier aliases keep their own pages across server glyph updates.
             named.extend(runtime.base_font.named_fonts().clone());
+            let private_use = Arc::new(default.private_use_subset());
+            if !private_use.glyphs().is_empty() {
+                for face in named.values_mut() {
+                    *face =
+                        face.with_last_fallback(&|face| private_use_fallback(&private_use, face));
+                }
+            }
             Arc::new(default.with_named_fonts(named))
         },
     );
@@ -193,6 +211,24 @@ pub(super) fn font(runtime: &UiPresentationRuntime) -> Arc<assets::RuntimeFontCa
     } else {
         font
     }
+}
+
+/// The default font's private-use glyphs as the last fallback of named `face`, so server text
+/// icons such as emoticons draw in every face at the size they have in the default font.
+fn private_use_fallback(
+    private_use: &Arc<assets::RuntimeFontCatalog>,
+    face: &assets::RuntimeFontCatalog,
+) -> Option<Arc<assets::RuntimeFontCatalog>> {
+    let Some(metrics) = face.line_metrics() else {
+        // Faces without em metrics already measure in default-font texels.
+        return Some(Arc::clone(private_use));
+    };
+    let metrics = ui_engine::engine::text_paint::default_texel_fallback_metrics(metrics)?;
+    (**private_use)
+        .clone()
+        .with_line_metrics(metrics)
+        .ok()
+        .map(Arc::new)
 }
 
 impl SessionGlyphPages {

@@ -139,7 +139,7 @@ impl UiPresentationRuntime {
     /// Installs this session's font before label bounds reserve presentation resources.
     pub fn prepare_nametag_layout(&mut self, runtime: &UiRuntime) {
         dynamic_textures::observe_session(self, runtime.session_id());
-        session_glyphs::observe(self, runtime.session_glyphs());
+        session_glyphs::observe(self, Some(runtime.session_glyphs()));
         self.nametag_bounds.begin_frame();
     }
 
