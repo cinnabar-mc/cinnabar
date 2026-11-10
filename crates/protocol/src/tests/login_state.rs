@@ -35,6 +35,8 @@ mod level_chunk_wire_failure;
 mod modal_forms;
 #[path = "login_state/replay_bursts.rs"]
 mod replay_bursts;
+#[path = "login_state/unknown_packet_ids.rs"]
+mod unknown_packet_ids;
 #[path = "login_state/unused_store_packets.rs"]
 mod unused_store_packets;
 use disconnect_reason::{
@@ -106,6 +108,13 @@ impl Core {
     fn send_raw_packet(&self, id: PacketId, body: &[u8]) {
         self.extra
             .send(raw_packet_batch(id, body))
+            .expect("the core is running");
+    }
+
+    /// Sends one entry whose raw ID need not be one the protocol defines.
+    fn send_raw_id(&self, id: u32, body: &[u8]) {
+        self.extra
+            .send(raw_id_batch(id, body))
             .expect("the core is running");
     }
 
@@ -198,10 +207,13 @@ fn batch(packets: &[Packet]) -> Bytes {
 
 /// A Batch frame holding one entry with `body` written verbatim after the packet ID.
 fn raw_packet_batch(id: PacketId, body: &[u8]) -> Bytes {
+    raw_id_batch(id as u32, body)
+}
+
+/// A Batch frame holding one entry with `body` written verbatim after the raw packet `id`.
+fn raw_id_batch(id: u32, body: &[u8]) -> Bytes {
     let mut packet = Vec::new();
-    wire::Writer::new(&mut packet)
-        .write_var_u32(id as u32)
-        .unwrap();
+    wire::Writer::new(&mut packet).write_var_u32(id).unwrap();
     packet.extend_from_slice(body);
     let mut frame = vec![KIND_BATCH];
     wire::Writer::new(&mut frame)

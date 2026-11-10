@@ -98,8 +98,6 @@ pub(crate) enum SessionFailure {
     MalformedEntry(#[source] wire::DecodeError),
     #[error("declared packet length {declared} exceeds available {available}")]
     TruncatedEntry { declared: usize, available: usize },
-    #[error("unknown packet ID {0}")]
-    UnknownPacketId(u32),
     #[error("batch payload exceeds max size ({actual} > {max})")]
     BatchTooLarge { actual: usize, max: usize },
     #[error("batch contains more than {max} packets")]
