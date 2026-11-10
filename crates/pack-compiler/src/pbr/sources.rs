@@ -122,10 +122,20 @@ fn layer(
     allowed: &[u8],
     source: &mut Option<PathBuf>,
 ) -> Result<RgbaImage, String> {
-    let reference = match value {
-        TextureSetLayer::Uniform(pixel) => return Ok(solid(*pixel)),
-        TextureSetLayer::Image(reference) => reference.as_ref(),
-    };
+    match value {
+        TextureSetLayer::Uniform(pixel) => Ok(solid(*pixel)),
+        TextureSetLayer::Image(reference) => image_layer(pack, json, reference, allowed, source),
+    }
+}
+
+/// Resolves an image reference within its defining pack.
+fn image_layer(
+    pack: &PbrPack,
+    json: &Path,
+    reference: &str,
+    allowed: &[u8],
+    source: &mut Option<PathBuf>,
+) -> Result<RgbaImage, String> {
     let relative = safe_relative(reference)
         .ok_or_else(|| "texture set image reference escapes its pack".to_owned())?;
     let stem = relative.with_extension("");
@@ -178,13 +188,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     let normal = if let Some(reference) = &set.normal {
         flags |= PBR_REF_NORMAL;
         let (normal, normal_flags) = decode::normal(
-            layer(
-                pack,
-                path,
-                &TextureSetLayer::Image(reference.clone()),
-                &[3, 4],
-                &mut source.normal,
-            )?,
+            image_layer(pack, path, reference, &[3, 4], &mut source.normal)?,
             PbrFormat::Legacy,
             pack.normal_format,
         );
@@ -209,15 +213,7 @@ fn texture_set(pack: &PbrPack, path: &Path) -> Result<PbrTexture, String> {
     let height = set
         .heightmap
         .as_ref()
-        .map(|reference| {
-            layer(
-                pack,
-                path,
-                &TextureSetLayer::Image(reference.clone()),
-                &[1],
-                &mut source.height,
-            )
-        })
+        .map(|reference| image_layer(pack, path, reference, &[1], &mut source.height))
         .transpose()?;
     source.native_normal_size = [normal.width(), normal.height()];
     source.native_material_size = [material.width(), material.height()];

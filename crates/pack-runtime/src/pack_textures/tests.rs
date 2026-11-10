@@ -109,6 +109,24 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     bytes.into_inner()
 }
 
+/// Encodes one opaque red pixel as a PNG.
+fn red_png() -> Vec<u8> {
+    let mut bytes = Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
+        .write_to(&mut bytes, ImageFormat::Png)
+        .unwrap();
+    bytes.into_inner()
+}
+
+/// One view whose `higher` pack takes precedence over its `lower` pack.
+fn layered(lower: &[(&str, &[u8])], higher: &[(&str, &[u8])]) -> LayeredPackView {
+    let lower = crate::test_support::stack(lower);
+    let higher = crate::test_support::stack(higher);
+    LayeredPackView::new(std::sync::Arc::new(
+        resource_pack::ValidatedPackStack::compose(&lower, &higher).unwrap(),
+    ))
+}
+
 #[test]
 fn large_strips_and_particle_atlases_retain_every_source_pixel() {
     let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
@@ -261,17 +279,16 @@ fn indexed_alias_candidates_preserve_precedence_without_reading_image_payloads()
 
 #[test]
 fn texture_set_cache_keys_distinguish_same_named_images_in_different_packs() {
-    let lower = crate::test_support::stack(&[
-        ("textures/shared.png", &png(1, 1)),
-        (
-            "textures/alias.texture_set.json",
-            br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"shared"}}"#,
-        ),
-    ]);
-    let higher = crate::test_support::stack(&[("textures/shared.png", &png(2, 2))]);
-    let view = LayeredPackView::new(std::sync::Arc::new(
-        resource_pack::ValidatedPackStack::compose(&lower, &higher).unwrap(),
-    ));
+    let view = layered(
+        &[
+            ("textures/shared.png", &png(1, 1)),
+            (
+                "textures/alias.texture_set.json",
+                br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":"shared"}}"#,
+            ),
+        ],
+        &[("textures/shared.png", &png(2, 2))],
+    );
     let policy = TexturePolicy::for_device(16);
     let alias = resolve_pack_texture_with_policy(&view, "textures/alias", policy, false).unwrap();
     let direct = resolve_pack_texture_with_policy(&view, "textures/shared", policy, false).unwrap();
@@ -314,13 +331,7 @@ fn extensionless_texture_decodes_tga_ahead_of_darker_png() {
 
 #[test]
 fn invalid_texture_sets_fall_back_to_the_plain_image_and_valid_sets_win() {
-    let red = {
-        let mut bytes = Cursor::new(Vec::new());
-        image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
-            .write_to(&mut bytes, ImageFormat::Png)
-            .unwrap();
-        bytes.into_inner()
-    };
+    let red = red_png();
     let view = LayeredPackView::new(crate::test_support::stack(&[
         ("textures/plain.png", &red),
         (
@@ -346,23 +357,9 @@ fn invalid_texture_sets_fall_back_to_the_plain_image_and_valid_sets_win() {
 
 #[test]
 fn the_highest_layer_holding_either_form_decides_between_image_and_texture_set() {
-    let red = {
-        let mut bytes = Cursor::new(Vec::new());
-        image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
-            .write_to(&mut bytes, ImageFormat::Png)
-            .unwrap();
-        bytes.into_inner()
-    };
+    let red = red_png();
     let set: &[u8] =
         br#"{"format_version":"1.16.100","minecraft:texture_set":{"color":[1,2,3,255]}}"#;
-    /// One view whose `higher` pack takes precedence over its `lower` pack.
-    fn layered(lower: &[(&str, &[u8])], higher: &[(&str, &[u8])]) -> LayeredPackView {
-        let lower = crate::test_support::stack(lower);
-        let higher = crate::test_support::stack(higher);
-        LayeredPackView::new(std::sync::Arc::new(
-            resource_pack::ValidatedPackStack::compose(&lower, &higher).unwrap(),
-        ))
-    }
     let policy = TexturePolicy::for_device(assets::texture::policy::MAX_TEXTURE_SIDE);
     let image_above = layered(
         &[("textures/blocks/stone.texture_set.json", set)],

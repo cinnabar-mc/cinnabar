@@ -164,16 +164,22 @@ fn decode_image_file(
     allow_strip: bool,
 ) -> Option<ResolvedPackTexture> {
     texture_image_paths(path).into_iter().find_map(|path| {
-        let extension = path.rsplit_once('.')?.1;
-        let (_, format) = IMAGE_EXTENSIONS
-            .into_iter()
-            .find(|(known, _)| extension.eq_ignore_ascii_case(known))?;
+        let format = image_format(&path)?;
         let (index, bytes) = view.read_capped_with_layer(&path, MAX_TEXTURE_SOURCE_BYTES as u64)?;
         Some(ResolvedPackTexture {
             texture: decode_image_with_policy(&bytes, format, policy, allow_strip)?,
             image_path: image_identity(index, &path),
         })
     })
+}
+
+/// The decoder format named by `path`'s extension.
+fn image_format(path: &str) -> Option<ImageFormat> {
+    let extension = path.rsplit_once('.')?.1;
+    IMAGE_EXTENSIONS
+        .into_iter()
+        .find(|(known, _)| extension.eq_ignore_ascii_case(known))
+        .map(|(_, format)| format)
 }
 
 /// Returns normalized image filenames in the same order used by the pack decoder.
@@ -210,7 +216,7 @@ pub(crate) fn texture_set_definition<'a>(
     String,
     TextureSetDefinition,
 )> {
-    let source = format!("{}.texture_set.json", path.trim().trim_start_matches("./"));
+    let source = format!("{}.texture_set.json", normalize_texture_path(path));
     let images = texture_image_paths(path);
     let (index, layer) = view.layers().rev().enumerate().find(|(_, layer)| {
         layer.file_size(&source).is_some()
@@ -253,10 +259,7 @@ fn decode_texture_set(
         TextureSetLayer::Image(name) => texture_set_image_paths(&source, &name)
             .into_iter()
             .find_map(|candidate| {
-                let extension = candidate.rsplit_once('.')?.1;
-                let (_, format) = IMAGE_EXTENSIONS
-                    .into_iter()
-                    .find(|(known, _)| extension.eq_ignore_ascii_case(known))?;
+                let format = image_format(&candidate)?;
                 let bytes = layer
                     .read_file_with_limit(&candidate, MAX_TEXTURE_SOURCE_BYTES as u64)
                     .ok()??;
