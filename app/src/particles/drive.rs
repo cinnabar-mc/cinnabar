@@ -40,6 +40,10 @@ use {
     client_presentation::camera::FlyCamera,
 };
 
+#[path = "drive/brush_dust.rs"]
+mod brush_dust;
+pub(crate) use brush_dust::LocalBrushDust;
+
 #[cfg(test)]
 #[path = "drive/baby_age_tests.rs"]
 mod baby_age_tests;
@@ -131,16 +135,18 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
 }
 
 pub(crate) fn configure_particles(app: &mut App) {
-    app.init_resource::<ParticleInbox>().add_systems(
-        Update,
-        drive_particles
-            .run_if(resource_exists::<PhysicsCollisionRegistries>)
-            .after(client_presentation::camera::FlyCameraUpdateSet)
-            .after(client_state::ClientFrameSet::ActorPreparation)
-            // Cosmetic emitters follow the attachments this frame's actor finalization placed.
-            .after(client_state::ClientFrameSet::ActorFinalization)
-            .after(crate::environment::update_seasonal_foliage),
-    );
+    app.init_resource::<ParticleInbox>()
+        .add_message::<LocalBrushDust>()
+        .add_systems(
+            Update,
+            drive_particles
+                .run_if(resource_exists::<PhysicsCollisionRegistries>)
+                .after(client_presentation::camera::FlyCameraUpdateSet)
+                .after(client_state::ClientFrameSet::ActorPreparation)
+                // Cosmetic emitters follow the attachments this frame's actor finalization placed.
+                .after(client_state::ClientFrameSet::ActorFinalization)
+                .after(crate::environment::update_seasonal_foliage),
+        );
 }
 
 fn floor_cell(position: [f32; 3]) -> [i32; 3] {
@@ -609,10 +615,11 @@ fn follow_bound_emitters(system: &mut ParticleSystem, stream: &WorldStream) {
     });
 }
 
-/// Audio cues and camera authority that place local break and eating particles.
+/// Local cues and camera authority that place local break, brush and eating particles.
 type ParticleCues<'w, 's> = (
     MessageReader<'w, 's, client_audio::audio::LocalBlockCue>,
     MessageReader<'w, 's, client_audio::audio::predicted::LocalEatingCue>,
+    MessageReader<'w, 's, LocalBrushDust>,
     Option<Res<'w, client_presentation::camera::CameraSettingsAuthority>>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
 );
@@ -646,7 +653,10 @@ fn drive_particles(
     mining: Option<Res<SurvivalMiningRuntime>>,
     mut session: Local<(u64, i32)>,
     mut crack_timer: Local<f32>,
-    (mut block_cues, mut eating_cues, camera_settings, server_camera): ParticleCues<'_, '_>,
+    (mut block_cues, mut eating_cues, mut brush_strokes, camera_settings, server_camera): ParticleCues<
+        '_,
+        '_,
+    >,
     mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
     (
@@ -674,6 +684,7 @@ fn drive_particles(
         inbox.actor_commands.clear();
         block_cues.clear();
         eating_cues.clear();
+        brush_strokes.clear();
         ambient.reset();
         cosmetics.reset();
         return;
@@ -735,6 +746,9 @@ fn drive_particles(
             position,
             time.elapsed_secs_f64(),
         );
+    }
+    for stroke in brush_strokes.read() {
+        brush_dust::spawn_brush_dust(&mut system, &routing, stroke);
     }
     for committed in inbox.events.drain(..) {
         match &committed.event {
