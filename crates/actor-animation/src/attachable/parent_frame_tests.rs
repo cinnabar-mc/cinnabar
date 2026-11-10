@@ -10,7 +10,11 @@ fn skeleton(specs: &[(&str, Option<usize>, bool)]) -> render::LayerSkeleton {
         })
         .collect();
     let names: Vec<Box<str>> = specs.iter().map(|(name, _, _)| Box::from(*name)).collect();
-    bind_roots(&mut bones, &names, &["rightitem".into(), "head".into()]);
+    bind_roots(
+        &mut bones,
+        &names,
+        crate::attachment::OwnerSkeleton::body(&[], &[], &["rightitem".into(), "head".into()]),
+    );
     render::LayerSkeleton {
         bones,
         names,
