@@ -851,7 +851,7 @@ pub fn drive_menu_input(
     }
     for input in keyboard_messages.read() {
         modifiers.observe(input);
-        if input.state != ButtonState::Pressed {
+        if input.state != ButtonState::Pressed || !menu.is_visible() {
             continue;
         }
         if matches!(

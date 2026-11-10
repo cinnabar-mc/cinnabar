@@ -4,6 +4,37 @@ use {
 };
 
 #[test]
+fn chat_settings_back_returns_to_the_world_without_pause() {
+    use launcher::menu::settings_sections::SettingSection;
+
+    let mut menu = MenuRuntime::new(false, 2, "Player".into());
+    menu.open_chat_settings();
+    assert!(menu.is_visible());
+    assert_eq!(menu.screen(), MenuScreen::Settings);
+    assert_eq!(menu.settings_section(), Some(SettingSection::Chat));
+    assert!(menu.over_world());
+    assert!(!menu.uses_panorama());
+    menu.activate(MenuAction::SearchSettings);
+    menu.edit_text("chat");
+    menu.activate(MenuAction::AddBack);
+    assert!(!menu.is_visible());
+
+    menu.open_pause();
+    menu.activate(MenuAction::PauseSettings);
+    assert!(menu.view().settings_query.is_empty());
+    menu.activate(MenuAction::AddBack);
+    assert!(menu.is_visible());
+    assert_eq!(menu.screen(), MenuScreen::Pause);
+
+    menu.show_home();
+    menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+    assert!(menu.uses_panorama());
+    menu.activate(MenuAction::AddBack);
+    assert!(menu.is_visible());
+    assert_eq!(menu.screen(), MenuScreen::Home);
+}
+
+#[test]
 fn a_loaded_self_profile_can_open_dressing_room_from_keyboard_focus() {
     let mut menu = MenuRuntime::new(true, 2, "BugTest".into());
     menu.control_auth = Some(launcher::menu::auth::AuthState::Authenticated);
