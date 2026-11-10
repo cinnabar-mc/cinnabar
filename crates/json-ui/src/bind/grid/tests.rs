@@ -131,6 +131,16 @@ impl ControlLibrary for Cells {
     }
 }
 
+/// Resolves a fresh template through the library's default shared resolver.
+struct FreshCells(Cells);
+
+impl ControlLibrary for FreshCells {
+    /// Returns a copy for the default shared resolver to allocate.
+    fn resolve(&self, reference: &ControlRef) -> Option<ResolvedControl> {
+        self.0.resolve(reference)
+    }
+}
+
 struct Fixed;
 
 impl TextMeasure for Fixed {
@@ -187,7 +197,7 @@ impl Session {
     fn draw(
         &mut self,
         root: &Arc<ResolvedControl>,
-        library: &Cells,
+        library: &dyn ControlLibrary,
         data: &Arc<DataSource>,
         scroll: f64,
     ) -> Drawn {
@@ -293,6 +303,24 @@ fn reversing_scroll_reuses_materialized_cells() {
             "returning to {scroll} rebuilt {} controls after the first move rebuilt {first_move}",
             drawn.rebuilt
         );
+    }
+}
+
+#[test]
+fn reversing_scroll_rebuilds_cached_cells_with_fresh_templates() {
+    let root = screen();
+    let library = FreshCells(Cells::new());
+    let data = items("a");
+    let mut full = Session::new(None);
+    let mut virtualized = Session::new(Some("items"));
+
+    for scroll in [0.0, 560.0, 0.0, 560.0] {
+        let expected = full.draw(&root, &library, &data, scroll);
+        let drawn = virtualized.draw(&root, &library, &data, scroll);
+        assert!(!expected.nodes.is_empty());
+        assert_eq!(drawn.nodes, expected.nodes, "scroll at {scroll}");
+        assert_eq!(drawn.hits, expected.hits, "scroll at {scroll}");
+        assert_eq!(drawn.scrolls, expected.scrolls, "scroll at {scroll}");
     }
 }
 

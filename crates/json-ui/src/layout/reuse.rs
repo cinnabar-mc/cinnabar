@@ -99,10 +99,9 @@ pub(crate) struct Reused {
 pub(super) struct Placements {
     records: Memo<usize, Record>,
     generation: u64,
-    /// The culling and geometry identity the records were made under. State that affects a
-    /// control is part of its recorded inputs, so changing one scroll view need not discard
-    /// placements outside that view.
-    view: Option<(bool, crate::LayoutCacheKey)>,
+    /// The non-scroll view state, culling and geometry identity the records were made under.
+    /// Scroll state is captured in each control's inputs instead.
+    view: Option<(ViewState, bool, crate::LayoutCacheKey)>,
     /// Largest child-placement set inspected by the latest layout before culling.
     widest_candidates: usize,
     /// Controls the last layout placed rather than spliced.
@@ -230,23 +229,28 @@ fn vacant_hit() -> HitRegion {
 }
 
 impl Placements {
-    /// Starts a layout; changes to the view, screen or coverage pixel invalidate every record,
-    /// as does a layout that will not `record` its own.
+    /// Starts a layout; non-scroll view state, culling or geometry changes invalidate every
+    /// record, as does a layout that will not `record` its own.
     pub(super) fn begin(
         &mut self,
-        _view: &ViewState,
+        view: &ViewState,
         cull: bool,
         layout: crate::LayoutCacheKey,
         record: bool,
     ) {
+        let mut view = view.clone();
+        view.scroll.clear();
+        view.scroll_state.clear();
         if !record
             || self
                 .view
                 .as_ref()
-                .is_none_or(|(culled, last_layout)| *culled != cull || *last_layout != layout)
+                .is_none_or(|(last, culled, last_layout)| {
+                    *last != view || *culled != cull || *last_layout != layout
+                })
         {
             *self = Self {
-                view: Some((cull, layout)),
+                view: Some((view, cull, layout)),
                 generation: self.generation,
                 ..Self::default()
             };

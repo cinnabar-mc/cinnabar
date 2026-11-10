@@ -68,17 +68,17 @@ impl Binder<'_> {
                 (Some(name), Some(key)) => inner.enter(name, key.clone(), index),
                 _ => inner.clone(),
             };
-            if let Some(mut cached) = self
+            let prior = self
                 .state
                 .take_grid_cell(grid_cell_cache_key(scope.parent_key, index))
-            {
-                let prior = self
-                    .pool
-                    .remove(&cached.key)
-                    .map(|placeholder| self.replace(placeholder).1);
-                cached.track.restore(prior);
-                self.pool.insert(cached.key, cached);
-            }
+                .map(|cached| {
+                    let prior = self
+                        .pool
+                        .remove(&cached.key)
+                        .map(|placeholder| self.replace(placeholder).1);
+                    self.pool.insert(cached.key, cached);
+                    prior
+                });
             let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
                 if clipped {
                     patch
@@ -98,7 +98,11 @@ impl Binder<'_> {
                     );
                 }
             });
-            cells.push(self.build(cell, &child_scope, 0));
+            let mut cell = self.build(cell, &child_scope, 0);
+            if let Some(prior) = prior {
+                cell.track.restore(prior);
+            }
+            cells.push(cell);
         }
         let template_node = Src::root(resolved).patched(|patch| {
             patch
