@@ -24,8 +24,8 @@ fn crafting_rules_startup_resolves_registered_defaults_and_explicit_values() {
     assert!(!defaults.limited_crafting_enabled());
     let mut start = StartGame::default();
     start.settings.rule_data.rules_list = vec![
-        bool_rule("recipesUnlock", false),
-        bool_rule("doLimitedCrafting", true),
+        level_bool_rule("recipesUnlock", false),
+        level_bool_rule("doLimitedCrafting", true),
     ];
     let data = protocol::GameData::from_wire(&start, &packets::ItemRegistry::default());
     assert!(!data.settings.crafting_rules.unlocking_enabled());

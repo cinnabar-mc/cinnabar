@@ -26,17 +26,30 @@ fn archive_files_with_permissions(
     permissions: BTreeSet<manifest::Permission>,
     component: Option<&str>,
 ) -> (Vec<u8>, manifest::Offer) {
+    archive_with(assets, extra, method, |manifest| {
+        manifest.permissions = permissions;
+        manifest.component = component.map(str::to_owned);
+    })
+}
+
+/// Signs a manifest that indexes `assets`, changed by `edit`, into an archive offered with the
+/// permissions the manifest declares.
+fn archive_with(
+    assets: &[(&str, &[u8])],
+    extra: bool,
+    method: CompressionMethod,
+    edit: impl FnOnce(&mut manifest::Manifest),
+) -> (Vec<u8>, manifest::Offer) {
     let key = Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
     let mut deployment = offer(&key);
-    deployment.scope.permissions = permissions.clone();
-    let manifest = manifest::Manifest {
+    let mut manifest = manifest::Manifest {
         version: policy::WIRE_VERSION,
         api: policy::API_VERSION,
         id: deployment.packages[0].id.clone(),
         publisher_key: deployment.packages[0].publisher_key.clone(),
         package_version: "fixture".into(),
-        permissions,
-        component: component.map(str::to_owned),
+        permissions: BTreeSet::new(),
+        component: None,
         channels: Vec::new(),
         actions: BTreeSet::new(),
         templates: assets
@@ -54,6 +67,8 @@ fn archive_files_with_permissions(
             })
             .collect(),
     };
+    edit(&mut manifest);
+    deployment.scope.permissions = manifest.permissions.clone();
     let document =
         serde_json::to_vec(&crypto::sign(&manifest, crypto::MANIFEST_DOMAIN, &key).unwrap())
             .unwrap();
@@ -73,6 +88,66 @@ fn archive_files_with_permissions(
     deployment.packages[0].bytes = bytes.len() as u64;
     deployment.packages[0].digest = crypto::digest(&bytes);
     (bytes, deployment)
+}
+
+/// `count` distinct actions, each [`policy::MAX_IDENTIFIER_BYTES`] long.
+fn longest_actions(count: usize) -> BTreeSet<String> {
+    (0..count)
+        .map(|i| {
+            let suffix = format!(".{i}");
+            "a".repeat(policy::MAX_IDENTIFIER_BYTES - suffix.len()) + &suffix
+        })
+        .collect()
+}
+
+/// Verifies an archive under the offer it was signed for.
+fn verify(archive: &(Vec<u8>, manifest::Offer)) -> anyhow::Result<bundle::VerifiedBundle> {
+    let (bytes, deployment) = archive;
+    bundle::VerifiedBundle::read(
+        bytes,
+        &deployment.packages[0],
+        &deployment.scope,
+        policy::MAX_EXPANDED_BYTES,
+    )
+}
+
+/// The signed manifest is never what bounds a bundle's declarations: one declaring
+/// `MAX_ACTIONS` actions at the longest identifier and indexing `MAX_FILES` files at the longest
+/// safe path verifies.
+#[test]
+fn manifest_holds_every_action_and_file_at_their_limits() {
+    let paths: Vec<String> = (0..policy::MAX_FILES)
+        .map(|i| {
+            let dir = format!("{i:04}/");
+            dir.clone() + &"f".repeat(256 - dir.len())
+        })
+        .collect();
+    let assets: Vec<(&str, &[u8])> = paths
+        .iter()
+        .map(|path| (path.as_str(), &b"x"[..]))
+        .collect();
+    let archive = archive_with(&assets, false, CompressionMethod::Stored, |manifest| {
+        manifest.actions = longest_actions(policy::MAX_ACTIONS);
+    });
+    let bundle = verify(&archive).unwrap();
+    assert_eq!(bundle.manifest.actions.len(), policy::MAX_ACTIONS);
+    assert_eq!(bundle.paths().count(), policy::MAX_FILES);
+}
+
+/// A bundle may declare `MAX_ACTIONS` actions and no more.
+#[test]
+fn actions_beyond_the_limit_are_refused() {
+    let declaring = |count| {
+        archive_with(&[], false, CompressionMethod::Stored, |manifest| {
+            manifest.actions = longest_actions(count);
+        })
+    };
+    verify(&declaring(policy::MAX_ACTIONS)).unwrap();
+    let error = verify(&declaring(policy::MAX_ACTIONS + 1)).unwrap_err();
+    assert!(
+        error.to_string().contains("declaration limit exceeded"),
+        "{error}"
+    );
 }
 
 #[test]

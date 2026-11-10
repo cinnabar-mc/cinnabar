@@ -61,7 +61,6 @@ impl DebugBindings {
         }
     }
 
-    /// Returns the help row already formatted for the current bindings.
     /// Whether the debug overlay key/button is currently held down.
     pub(super) fn is_down(
         &self,
@@ -81,6 +80,7 @@ impl DebugBindings {
         }
     }
 
+    /// Returns the help row already formatted for the current bindings.
     pub(super) fn hint(&self) -> &str {
         &self.hint
     }

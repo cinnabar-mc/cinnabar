@@ -187,6 +187,7 @@ pub(super) fn record_request_transport(
             .into(),
     };
     stream.record_sub_chunk_request_transport_pending(&SubChunkRequestBatch {
+        center: [request.chunk.x, request.base_sub_chunk_y, request.chunk.z],
         receipt: receipt.clone(),
         intents: vec![*request],
     });

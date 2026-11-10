@@ -1,7 +1,7 @@
 //! Optional experience envelopes must pass through encoded world ingress.
 use super::*;
 use crate::raw_packet::decode_packet_raw;
-use bedrock_protocol_1_26_51::packets::ScriptMessage;
+use bedrock_protocol_1_26_60::packets::ScriptMessage;
 use bytes::Buf;
 
 /// Encodes a packet and traverses the same raw admission path as the socket reader.
@@ -17,7 +17,7 @@ fn experience_replies_cross_raw_ingress_with_existing_bounds_and_routes() {
     let bytes = b"accept fixture".to_vec();
     assert_eq!(
         ingress(crate::experience_packet(bytes.clone()).unwrap()),
-        Some(WorldEvent::Experience(crate::ExperienceMessage { bytes }))
+        Some(WorldEvent::Experience(crate::ExperienceMessage::new(bytes)))
     );
     for (channel, bytes) in [
         ("unrelated", vec![1]),

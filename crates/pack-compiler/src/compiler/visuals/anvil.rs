@@ -72,7 +72,13 @@ pub(in crate::compiler) fn compile_rule(
                 anvil_cuboid(part_materials, min, max, direction)
             })
             .collect();
-        let template = push_model_template(quads, 0, storage.templates, storage.quads)?;
+        // The item GUI draws anvils through their world tessellator, with world face shading.
+        let template = push_model_template(
+            quads,
+            assets::MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE,
+            storage.templates,
+            storage.quads,
+        )?;
         templates.insert(key, template);
         template
     };

@@ -91,20 +91,20 @@ fn device_rejections_continue_across_adapters_and_apis_until_success_or_exhausti
 }
 
 #[test]
-fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_ties() {
+fn discrete_vulkan_beats_integrated_or_software_dx12_and_dx12_breaks_ties_for_every_vendor() {
     for kind in [wgpu::DeviceType::IntegratedGpu, wgpu::DeviceType::Cpu] {
         let mut adapters = vec![
-            candidate(Backend::Vulkan, kind, 0),
-            candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
+            candidate(Backend::Dx12, kind, 0),
+            candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, 0),
         ];
         rank(
             &mut adapters,
             Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
-        assert_eq!(adapters[0].backend, Backend::Dx12);
+        assert_eq!(adapters[0].backend, Backend::Vulkan);
     }
-    for (vendor, preferred) in [(INTEL_PCI_VENDOR, Backend::Dx12), (0, Backend::Vulkan)] {
+    for vendor in [0x10de, 0x1002, INTEL_PCI_VENDOR] {
         let mut adapters = vec![
             candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, vendor),
             candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, vendor),
@@ -114,7 +114,7 @@ fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_tie
             Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
-        assert_eq!(adapters[0].backend, preferred);
+        assert_eq!(adapters[0].backend, Backend::Dx12, "{vendor:#x}");
     }
     let mut adapters: Vec<_> = [
         wgpu::DeviceType::Cpu,
@@ -413,7 +413,12 @@ fn video_choice_that_crashed_an_earlier_startup_goes_straight_to_auto() {
 
 #[test]
 fn a_platform_with_one_api_always_tries_it_even_after_it_crashed() {
-    for platform in [Platform::Macos, Platform::Linux, Platform::Android] {
+    for platform in [
+        Platform::Macos,
+        Platform::Ios,
+        Platform::Linux,
+        Platform::Android,
+    ] {
         let only = platform.backends()[0];
         for (crashed, succeeds) in [(Some(only), true), (Some(only), false), (None, false)] {
             let mut attempts = Vec::new();

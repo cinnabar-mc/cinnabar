@@ -79,10 +79,11 @@ pub fn apply_capes<'a>(
     for index in 0..batch.submissions.len() {
         let body = &batch.submissions[index];
         let identity = body.input.identity;
-        if identity.layer != ACTOR_LAYER_BODY
-            || body.route == ActorRigRoute::NoDraw
-            || batch.artwork.contains_key(&identity)
-        {
+        if identity.layer != ACTOR_LAYER_BODY || batch.artwork.contains_key(&identity) {
+            continue;
+        }
+        let wearing_elytra = elytra_of(identity.runtime_id);
+        if body.route == ActorRigRoute::NoDraw && !wearing_elytra {
             continue;
         }
         let Some(cape_pixels) =
@@ -99,7 +100,7 @@ pub fn apply_capes<'a>(
             }
             None => continue,
         };
-        if elytra_of(identity.runtime_id) {
+        if wearing_elytra {
             replace_elytra_texture(batch, identity.runtime_id, layer as u32);
             continue;
         }

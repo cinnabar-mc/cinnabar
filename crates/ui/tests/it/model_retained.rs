@@ -68,6 +68,7 @@ fn text(font: &CompiledFontCatalog, value: &str) -> Arc<TextLayout> {
 /// Creates one triangle whose geometry varies by offset.
 fn mesh(offset: f32) -> Arc<UiMesh> {
     let vertex = |position: [f32; 2]| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.5,
         clip_w: 1.0,
@@ -195,6 +196,31 @@ fn assert_equal(retained: &Retained, nodes: &[UiNode]) {
 fn a_fresh_retained_list_equals_the_full_build() {
     let nodes = hud(&font());
     assert_equal(&retained(&nodes), &nodes);
+}
+
+#[test]
+fn repeated_color_updates_reuse_emission_storage() {
+    let mut nodes = (1..=512)
+        .map(|index| {
+            UiNode::new(id(index), None, rect(0.0, 0.0, 8.0, 8.0)).with_visual(sprite(0, [255; 4]))
+        })
+        .collect::<Vec<_>>();
+    let mut draw = retained(&nodes);
+    for color in [[240; 4], [220; 4], [200; 4]] {
+        for node in &mut nodes {
+            *node = node.clone().with_visual(sprite(0, color));
+        }
+        let (update, allocations) = test_alloc::count(|| redraw(&mut draw, &nodes).unwrap());
+        assert_eq!(update.emitted, nodes.len());
+        assert!(!update.rebuilt);
+        if color != [240; 4] {
+            assert!(
+                allocations < 16,
+                "color update allocated {allocations} times"
+            );
+        }
+        assert_equal(&draw, &nodes);
+    }
 }
 
 #[test]
@@ -661,4 +687,56 @@ fn a_later_shrink_keeps_an_earlier_growth_within_the_final_budget() {
     assert_eq!(retained.draw_list().vertices, expected.vertices);
     assert_eq!(retained.draw_list().indices, expected.indices);
     assert_eq!(retained.draw_list().batches, expected.batches);
+}
+
+/// A GPU model's tint is uniform data and must leave all retained geometry untouched.
+#[test]
+fn changing_gpu_model_tint_emits_no_vertices() {
+    let source = mesh(0.0);
+    let skinned = Arc::new(
+        UiMesh::skinned(
+            source.vertices().into(),
+            source.indices().into(),
+            source.batches().into(),
+        )
+        .unwrap(),
+    );
+    let bounds = rect(0., 0., 64., 64.);
+    let mut last = [
+        UiNode::new(id(1), None, bounds).with_visual(UiVisual::TintedMesh {
+            mesh: Arc::clone(&skinned),
+            color: [255; 4],
+        }),
+    ];
+    let mut retained = RetainedDraw::build(
+        &last,
+        bounds,
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let original = retained.draw_list().clone();
+    for alpha in [180, 90, 0, 255] {
+        let next = [
+            UiNode::new(id(1), None, bounds).with_visual(UiVisual::TintedMesh {
+                mesh: Arc::clone(&skinned),
+                color: [255, 255, 255, alpha],
+            }),
+        ];
+        let update = retained
+            .update(
+                &mut last,
+                &next,
+                bounds,
+                UiScale::default(),
+                SafeArea::ZERO,
+                TextEffects::default(),
+            )
+            .unwrap();
+        assert_eq!(update.emitted, 0);
+        assert!(update.vertices.is_empty());
+        assert!(!update.rebuilt);
+        assert_eq!(*retained.draw_list(), original);
+    }
 }

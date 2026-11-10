@@ -1,6 +1,6 @@
-//! Shader-pack reloads, Iris's R key: re-list the pack folder, then load the selected pack
-//! again from disk under a new [`ShaderPackRequest::revision`]. The render host keeps
-//! drawing the shown pack until the reloaded one is ready.
+//! Reloads the selected pack from disk under a new [`ShaderPackRequest::revision`]. Menu
+//! reloads also refresh the pack list; the gameplay key leaves discovery off the frame.
+//! The render host keeps drawing the shown pack until the reloaded one is ready.
 
 use std::sync::Arc;
 
@@ -23,10 +23,15 @@ const RELOADED: &str = "Shaders Reloaded!";
 /// Iris does; reloads asked for by menus report through their own screens.
 #[derive(Resource, Default)]
 pub(in crate::render_mode) struct ShaderPackReloadReport {
-    /// The next menu reload came from the key.
-    key_pressed: bool,
     /// The revision being reported once its load settles.
     pending: Option<u64>,
+}
+
+/// Whether an accepted key reload still needs to publish its outcome.
+pub(super) fn work_pending(world: &World) -> bool {
+    world
+        .get_resource::<ShaderPackReloadReport>()
+        .is_some_and(|report| report.pending.is_some())
 }
 
 /// The gameplay input the reload key needs; absent resources mean no world to reload in.
@@ -61,18 +66,22 @@ impl ReloadKey<'_> {
     }
 }
 
-/// Requests a reload when the Reload Shaders key is pressed in game.
+/// Reloads the selected pack when the Reload Shaders key is pressed in game. Without a
+/// selected pack the key does nothing. The pack is re-read on the loader's worker, so the
+/// frame never lists the pack folder.
 pub(in crate::render_mode) fn reload_on_key(
     key: ReloadKey,
-    menu: Option<ResMut<MenuRuntime>>,
+    menu: Option<Res<MenuRuntime>>,
+    request: Res<ShaderPackRequest>,
+    mut config: ResMut<RenderModeConfig>,
     mut report: ResMut<ShaderPackReloadReport>,
 ) {
-    let Some(mut menu) = menu else {
+    if request.pack.is_none() {
         return;
-    };
-    if key.pressed(&menu) {
-        menu.request_shader_pack_reload();
-        report.key_pressed = true;
+    }
+    if menu.is_some_and(|menu| key.pressed(&menu)) {
+        config.shader_pack_revision += 1;
+        report.pending = Some(config.shader_pack_revision);
     }
 }
 
@@ -81,7 +90,6 @@ pub(in crate::render_mode) fn reload_on_key(
 pub(in crate::render_mode) fn apply_reload(
     mut config: ResMut<RenderModeConfig>,
     menu: Option<ResMut<MenuRuntime>>,
-    mut report: ResMut<ShaderPackReloadReport>,
 ) {
     let Some(mut menu) = menu else {
         return;
@@ -91,9 +99,6 @@ pub(in crate::render_mode) fn apply_reload(
     }
     refresh(&mut config, &mut menu);
     config.shader_pack_revision += 1;
-    if std::mem::take(&mut report.key_pressed) {
-        report.pending = Some(config.shader_pack_revision);
-    }
 }
 
 /// Reports a key reload in chat once its load settles.

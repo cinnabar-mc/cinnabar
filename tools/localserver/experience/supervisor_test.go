@@ -2,6 +2,7 @@ package experience
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -55,6 +56,8 @@ func fakeLoaded() Loaded {
 				DisplayName: "Fake Cube",
 				Textures:    []Texture{{Slot: "*", Path: "/fake/assets/cube.png"}},
 				Mining:      Mining{Breakable: &Breakable{Hardness: 1.5}},
+				Drops:       DropsItself,
+				Item:        ItemListed,
 			},
 			{
 				ID:          "fake:wall",
@@ -64,6 +67,8 @@ func fakeLoaded() Loaded {
 					{Slot: "up", Path: "/fake/assets/wall_top.png"},
 				},
 				Mining: Mining{Unbreakable: &Unbreakable{}},
+				Drops:  DropsItself,
+				Item:   ItemListed,
 			},
 		},
 	}
@@ -180,18 +185,26 @@ func restartStep(t *testing.T) time.Duration {
 	return step
 }
 
-// The real runtime loads the probe, and an interaction with x=0 commits its data write and its
-// tell.
+// The real runtime loads the probe, its blocks and its overlays, and an interaction with x=0
+// commits its data write and its tell.
 func TestProbeCallbackRoundTrip(t *testing.T) {
 	log, _ := testLog(t)
 	s, loaded := startProbe(t, log)
 	if loaded.Protocol != protocolVersion {
 		t.Fatalf("loaded protocol %d, want %d", loaded.Protocol, protocolVersion)
 	}
-	if len(loaded.Blocks) != 3 || loaded.Blocks[0].ID != probeCounter || loaded.Blocks[1].ID != probeLamp ||
-		loaded.Blocks[2].ID != probeNode || !loaded.Blocks[2].Network {
-		t.Fatalf("loaded blocks %s, want %s, %s and the network member %s", jsonOf(loaded.Blocks),
+	if len(loaded.Blocks) != 4 || loaded.Blocks[0].ID != probeCounter || loaded.Blocks[1].ID != probeLamp ||
+		loaded.Blocks[2].ID != probeNode || !loaded.Blocks[2].Network || loaded.Blocks[3].ID != "probe:bus" {
+		t.Fatalf("loaded blocks %s, want %s, %s, the network member %s and probe:bus", jsonOf(loaded.Blocks),
 			probeCounter, probeLamp, probeNode)
+	}
+	if o := loaded.Overlays; o == nil || !slices.Equal(o.Hosts, []string{"probe:bus"}) || len(o.Types) != 1 || o.Types[0].ID != "probe:plate" {
+		t.Fatalf("loaded overlays %s, want probe:bus carrying probe:plate", jsonOf(loaded.Overlays))
+	}
+	if b := loaded.Blocks; b[0].Drops != DropsItself || b[0].Item != ItemListed || b[2].Item != ItemUnlisted ||
+		b[3].Drops != DropsNothing || b[3].Item != ItemNone || len(loaded.Items) != 1 || loaded.Items[0].Listed {
+		t.Fatalf("loaded blocks %s and items %s, want the probe's content rules", jsonOf(loaded.Blocks),
+			jsonOf(loaded.Items))
 	}
 	got, err := s.Call(probeInteract(probeCount))
 	if err != nil {
@@ -244,9 +257,21 @@ func TestGarbageAndOversizedAreFaults(t *testing.T) {
 	}
 }
 
-// A helper that exits instead of answering is a fault.
-func TestExitIsFault(t *testing.T) {
-	assertPromptFault(t, "exit")
+// A helper that exits instead of answering recovers without consuming guest strikes.
+func TestExitPreservesGuestStrikes(t *testing.T) {
+	log, _ := testLog(t)
+	s, _ := startFake(t, "exit", log, startOptions{})
+	for range strikeLimit - 1 {
+		s.account(context.Background(), Outcome{Failed: &Failed{Kind: FailTrap}}, nil)
+	}
+	old := currentHelper(s)
+	if _, err := s.Call(probeInteract(probeCount)); !errors.Is(err, errHelperFault) {
+		t.Fatalf("Call: %v, want errHelperFault", err)
+	}
+	assertRestarted(t, s, old)
+	if s.Quarantined() || len(s.strikes) != strikeLimit-1 {
+		t.Fatal("transport failure consumed guest strikes")
+	}
 }
 
 // A result that answers another seq is a fault.
@@ -285,10 +310,10 @@ func TestStrikesQuarantine(t *testing.T) {
 	}
 }
 
-// Helper faults are strikes too.
+// Guest protocol faults count as strikes.
 func TestFaultsCountAsStrikes(t *testing.T) {
 	log, _ := testLog(t)
-	s, _ := startFake(t, "exit", log, startOptions{})
+	s, _ := startFake(t, "garbage", log, startOptions{})
 	for i := 1; i <= strikeLimit; i++ {
 		if _, err := s.Call(probeInteract(probeCount)); !errors.Is(err, errHelperFault) {
 			t.Fatalf("fault %d: %v, want errHelperFault", i, err)
@@ -326,7 +351,7 @@ func TestFailedRestartIsFault(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			log, _ := testLog(t)
-			s, _ := startFake(t, "exit", log, startOptions{})
+			s, _ := startFake(t, "garbage", log, startOptions{})
 			changed := fakeLoaded()
 			tc.change(&changed)
 			rescript(t, s, tc.mode, changed)
@@ -336,7 +361,7 @@ func TestFailedRestartIsFault(t *testing.T) {
 			if currentHelper(s) != nil {
 				t.Fatal("the helper of a failed restart runs")
 			}
-			// The first call's exit and failed restart are two strikes; each later call retries
+			// The first call's protocol fault and failed restart are two strikes; each later call retries
 			// the restart, which fails again.
 			calls := 1
 			for !s.Quarantined() && calls < strikeLimit {
@@ -356,7 +381,7 @@ func TestRestartLimitQuarantines(t *testing.T) {
 	step := restartStep(t)
 	clock := newFakeClock()
 	log, _ := testLog(t)
-	s, _ := startFake(t, "exit", log, startOptions{now: clock.Now})
+	s, _ := startFake(t, "garbage", log, startOptions{now: clock.Now})
 	for i := 1; i <= maxRestarts+1; i++ {
 		if _, err := s.Call(probeInteract(probeCount)); !errors.Is(err, errHelperFault) {
 			t.Fatalf("fault %d: %v, want errHelperFault", i, err)
@@ -403,7 +428,7 @@ func TestReloadClearsRestartHistory(t *testing.T) {
 	step := restartStep(t)
 	clock := newFakeClock()
 	log, _ := testLog(t)
-	s, _ := startFake(t, "exit", log, startOptions{now: clock.Now})
+	s, _ := startFake(t, "garbage", log, startOptions{now: clock.Now})
 	faults := func() {
 		t.Helper()
 		for range maxRestarts {
@@ -445,7 +470,7 @@ func TestReloadRefusesChangedArtifact(t *testing.T) {
 	}
 	t.Run("quarantined", func(t *testing.T) {
 		log, _ := testLog(t)
-		s, _ := startFake(t, "exit", log, startOptions{})
+		s, _ := startFake(t, "garbage", log, startOptions{})
 		for range strikeLimit {
 			s.Call(probeInteract(probeCount))
 		}

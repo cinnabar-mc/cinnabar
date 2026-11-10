@@ -3,7 +3,9 @@
 use crate::images::{SERVER_PING_IMAGES, SERVER_PLAYERS_IMAGE};
 use {
     super::*,
-    launcher::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable},
+    launcher::menu::{
+        MenuAction, MenuServerCard, MenuView, PingInfo, pingable, view::ServerDetailPart,
+    },
     ui::IconRef,
 };
 
@@ -89,6 +91,8 @@ pub(super) fn details_content(
     if !details.description.is_empty() {
         y = paragraph(
             canvas,
+            view,
+            ServerDetailPart::Description,
             [left, y, right],
             "Description",
             "",
@@ -109,8 +113,14 @@ pub(super) fn details_content(
             TEXT,
             false,
         )? + canvas.r(1.2);
-        for game in &details.games {
+        for (activity, game) in details.games.iter().enumerate() {
             let start = y;
+            let card = begin_card(
+                canvas,
+                view,
+                ServerDetailPart::Activity(activity),
+                [left, start, right],
+            )?;
             let image_side = canvas.r(15.2).min((right - left - pad * 2.0) * 0.35);
             let art = images.get(&game.image_path);
             let text_left = if art.is_some() {
@@ -152,12 +162,15 @@ pub(super) fn details_content(
                 line = line.max(b[3]);
             }
             y = line + canvas.r(1.2);
+            end_card(canvas, card, y)?;
         }
         extend_fill(canvas, first, [left, section_top, right, y])?;
     }
     if !details.news_title.is_empty() || !details.news.is_empty() {
         y = paragraph(
             canvas,
+            view,
+            ServerDetailPart::News,
             [left, y, right],
             "News",
             &details.news_title,
@@ -167,8 +180,68 @@ pub(super) fn details_content(
     Ok(y)
 }
 
+/// A readable part of the details that takes keyboard focus, between
+/// [`begin_card`] and [`end_card`].
+struct Card {
+    action: MenuAction,
+    bounds: [f32; 3],
+    focus: f32,
+    highlight: Option<usize>,
+}
+
+/// Starts a focusable part at `top`: a focused part gets its highlight fill
+/// beneath the content drawn before [`end_card`].
+fn begin_card(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    part: ServerDetailPart,
+    bounds @ [left, top, right]: [f32; 3],
+) -> Result<Card, PaintError> {
+    let action = MenuAction::ServerDetail(part);
+    let state = canvas.interaction(view, Some(action));
+    let focus = canvas
+        .feedback(state, true, false, super::super::motion::Kind::Surface)
+        .focus;
+    let highlight = if focus > 0.0 {
+        let role = canvas.role(NEUTRAL80);
+        let idle = [role.hovered[0], role.hovered[1], role.hovered[2], 0];
+        let first = canvas.nodes.len();
+        canvas.fill(
+            [left, top, right, top + 1.0],
+            super::super::motion::mix(idle, role.hovered, focus),
+        )?;
+        Some(first)
+    } else {
+        None
+    };
+    Ok(Card {
+        action,
+        bounds,
+        focus,
+        highlight,
+    })
+}
+
+/// Ends a focusable part at `bottom`: sizes its highlight, outlines it and
+/// publishes it as a focus target so the panel scrolls to it.
+fn end_card(canvas: &mut Canvas<'_>, card: Card, bottom: f32) -> Result<(), PaintError> {
+    let [left, top, right] = card.bounds;
+    let bounds = [left, top, right, bottom];
+    if let Some(first) = card.highlight {
+        extend_fill(canvas, first, bounds)?;
+        canvas.frame(
+            bounds,
+            super::super::theme::EDGE,
+            super::super::motion::opacity(super::super::theme::OUTLINE, card.focus),
+        )?;
+    }
+    canvas.focus_target(card.action, bounds)
+}
+
 fn paragraph(
     canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    part: ServerDetailPart,
     [left, top, right]: [f32; 3],
     title: &str,
     subtitle: &str,
@@ -176,6 +249,7 @@ fn paragraph(
 ) -> Result<f32, PaintError> {
     let first = canvas.nodes.len();
     canvas.fill([left, top, right, top + canvas.r(1.2)], NEUTRAL80.fill)?;
+    let card = begin_card(canvas, view, part, [left, top, right])?;
     divider(canvas, left, right, top)?;
     let pad = canvas.r(2.4);
     let width = right - left - pad * 2.0;
@@ -193,6 +267,7 @@ fn paragraph(
     }
     y += canvas.text(text, [left + pad, y], width, CAPTION, TEXT_DIMMER, false)? + canvas.r(1.2);
     extend_fill(canvas, first, [left, top, right, y])?;
+    end_card(canvas, card, y)?;
     Ok(y)
 }
 

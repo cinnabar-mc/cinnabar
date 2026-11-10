@@ -32,6 +32,7 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        visibility: RenderVisibility::default(),
         attachments: None,
         bone_names: &[],
         skin_geometry: None,
@@ -85,6 +86,42 @@ fn authored_attachable_runs_pre_animation_and_context_pose_at_render_alpha() {
             .evaluate("minecraft:unknown", &owner, &owner_rig(), input)
             .is_none()
     );
+}
+
+#[test]
+fn large_attachable_scripts_finish_before_publishing_the_pose() {
+    let mut compiled = crate::test_support::compiled_fixture();
+    let script = compiled.molang_expressions[0];
+    let padding = 6_000;
+    let mut ops = compiled.molang_ops.into_vec();
+    ops.splice(
+        usize::from(script.op_count)..usize::from(script.op_count),
+        std::iter::repeat_n(MolangOp::Negate, padding),
+    );
+    compiled.molang_ops = ops.into();
+    compiled.molang_expressions[0].op_count += padding as u16;
+    for expression in &mut compiled.molang_expressions[1..] {
+        expression.first_op += padding as u32;
+    }
+    let assets = Arc::new(RuntimeEntityAssets::from_compiled(compiled).unwrap());
+    let mut runtime = AttachablesRuntime::new(assets);
+    let owner = crate::tests::actor_with_metadata(HashMap::new());
+    let snapshot = runtime
+        .evaluate(
+            "minecraft:test_item",
+            &owner,
+            &owner_rig(),
+            AttachableAnimationInput {
+                first_person: true,
+                frame_alpha: 0.5,
+                use_elapsed_ticks: Some(5),
+                max_use_ticks: 100,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(snapshot.pose[0].translation_scale[0], -1.0);
+    assert!((snapshot.pose[0].translation_scale[1] - 0.45).abs() < 1e-6);
 }
 
 /// Every admitted owner fits; ended sessions release their retained controller state.
@@ -408,15 +445,12 @@ fn owner_variables_copy_by_name_between_catalogs_with_different_slots() {
     let owner_layout = VariableLayout::new(&owner);
     let target_layout = VariableLayout::new(&target);
     let mut values = owner_layout.fresh(1);
-    values.set(
-        owner_layout.named_slot(&owner, "variable.charge_amount"),
-        0.75,
-    );
+    values.set(owner_layout.named_slot(&owner, "variable.counter"), 0.75);
     let inherited = ActorAnimationVariables::new(Some(&owner), &values, 77, 0);
     let mut copied = target_layout.fresh(1);
     inherited.copy_to(&target, &target_layout, &mut copied);
     assert_eq!(
-        copied.get(target_layout.named_slot(&target, "variable.charge_amount")),
+        copied.get(target_layout.named_slot(&target, "variable.counter")),
         Some(0.75)
     );
     assert_eq!(inherited.life_tick(), 77);
@@ -777,10 +811,13 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
 
 /// Explicit local diagnostic: native packs and carriers never enter the test fixtures or git.
 #[test]
-#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
 fn downloaded_vanilla_attachables_evaluate_at_idle() {
-    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER",
+        "downloaded_vanilla_attachables_evaluate_at_idle",
+    ) else {
+        return;
+    };
     let mut runtime = AttachablesRuntime::new(Arc::clone(&assets));
     let mut owner = crate::tests::actor_with_metadata(HashMap::new());
     owner.kind = ActorKind::Player {
@@ -822,10 +859,13 @@ fn downloaded_vanilla_attachables_evaluate_at_idle() {
 
 /// Runs the installed pack's actual Shield controller and keyframes, without modifying a server.
 #[test]
-#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
 fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
-    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER",
+        "downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority",
+    ) else {
+        return;
+    };
     let mut runtime = AttachablesRuntime::new(assets);
     let mut owner = crate::tests::actor_with_metadata(HashMap::new());
     owner.kind = ActorKind::Player {
@@ -908,10 +948,13 @@ fn offhand_keeps_owner_bow_queries_without_main_hand_charge_state() {
 
 /// Runs the pinned shield's bow-retraction script and authored keyframes offline.
 #[test]
-#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
 fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
-    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER",
+        "downloaded_offhand_shield_retracts_while_owner_draws_bow",
+    ) else {
+        return;
+    };
     let mut runtime = AttachablesRuntime::new(assets);
     let mut owner = crate::tests::actor_with_metadata(HashMap::new());
     owner.kind = ActorKind::Player {

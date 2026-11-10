@@ -37,10 +37,12 @@ mod hd_textures;
 mod legacy;
 mod lighting;
 mod mining;
+mod multi_page;
 mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
+mod top_rotation;
 mod vanilla_terrain;
 
 mod vanilla_fallback;
@@ -154,25 +156,22 @@ fn raster_only_replacement_retains_the_base_lily_tint() {
 }
 
 fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
-    Some(Box::new([CustomMaterialInstance {
-        name: "*".into(),
-        texture: texture.into(),
-        render_method: None,
-        tint_method: None,
-        ambient_occlusion: None,
-        face_dimming: None,
-    }]))
+    Some(Box::new([CustomMaterialInstance::with_authored_defaults(
+        "*", texture,
+    )]))
 }
 
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count,
         collides: true,
         collision_boxes: None,

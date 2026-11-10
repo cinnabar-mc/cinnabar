@@ -69,6 +69,14 @@ impl References {
 
     /// Extracts the definition families named by one actor description.
     fn read_description(&mut self, description: &Value) {
+        self.textures.extend(
+            description["textures"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(_, value)| value.as_str())
+                .filter_map(declared_texture_stem),
+        );
         for entry in description["render_controllers"]
             .as_array()
             .into_iter()
@@ -127,9 +135,10 @@ pub fn collect_files(
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let CollectedEntities {
-        files: entities,
+        files: mut entities,
         mut references,
     } = unique_entities(view);
+    complete_inert_overrides(&mut entities, &mut references, vanilla_pack_dir);
     let mut geometry = unshadowed_geometry(view);
     let mut pack_geometry = BTreeSet::new();
     for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
@@ -218,6 +227,10 @@ pub fn collect_files(
             wanted.extend(vanilla.geometry_parent.get(&identifier).cloned());
         }
     }
+    // Layer walks record nothing on a packless stack, so an added pack must change these listings.
+    for prefix in ["entity/", "textures/"] {
+        view.track_directory(prefix);
+    }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
     files.extend(entities);
@@ -226,7 +239,7 @@ pub fn collect_files(
     }
     files.extend(attachables);
     files.extend(geometry);
-    textures.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS.map(str::to_owned));
+    textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
     let paintings = assets::painting::PAINTING_MOTIVES
         .iter()
         .map(|motive| motive.texture())
@@ -286,6 +299,23 @@ fn texture_file(
         }
     }
     None
+}
+
+/// Declared entity images may live anywhere inside the pack's resource root.
+fn declared_texture_stem(path: &str) -> Option<String> {
+    let stem = path
+        .strip_suffix(".png")
+        .or_else(|| path.strip_suffix(".tga"))
+        .unwrap_or(path);
+    (!stem.is_empty()
+        && !stem.contains(['\\', ':', '\0'])
+        && stem
+            .split('/')
+            .all(|part| !part.is_empty() && !matches!(part, "." | ".."))
+        && Path::new(stem)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_))))
+    .then(|| stem.to_owned())
 }
 
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.
@@ -454,6 +484,72 @@ fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
         })
         .collect();
     CollectedEntities { files, references }
+}
+
+/// A server definition of a vanilla client entity that declares no animation activation
+/// cannot be a complete replacement: packs ship such files only to add animations or
+/// textures. Each one is laid over the installed vanilla definition of the same identifier, so
+/// the vanilla scripts and animations stay and every field the pack declares wins. Where no
+/// vanilla source is installed (installs keep only the compiled vanilla entities), the file is
+/// dropped so the compiled vanilla definition stays in use.
+fn complete_inert_overrides(
+    entities: &mut Vec<(Box<str>, Vec<u8>)>,
+    references: &mut References,
+    vanilla_pack_dir: Option<&Path>,
+) {
+    let mut installed = None;
+    entities.retain_mut(|(_, bytes)| {
+        let Some(document) = parse_pack_json(bytes) else {
+            return true;
+        };
+        let description = &document["minecraft:client_entity"]["description"];
+        if !description["scripts"]["animate"].is_null()
+            || pack_entity_compiler::has_entity_animation_roots(&document)
+        {
+            return true;
+        }
+        let Some(identifier) = description["identifier"]
+            .as_str()
+            .filter(|identifier| identifier.starts_with("minecraft:"))
+        else {
+            return true;
+        };
+        let installed = installed.get_or_insert_with(|| {
+            vanilla_pack_dir
+                .and_then(|root| pack_entity_compiler::load_vanilla_entity_definitions(root).ok())
+                .unwrap_or_default()
+        });
+        let Some(mut base) = installed.remove(identifier) else {
+            return false;
+        };
+        let overlay = description.clone();
+        overlay_json(&mut base["minecraft:client_entity"]["description"], overlay);
+        match serde_json::to_vec(&base) {
+            Ok(merged) => {
+                references.read(&base);
+                *bytes = merged;
+                true
+            }
+            Err(_) => false,
+        }
+    });
+}
+
+/// Lays `overlay` over `base`: objects merge key by key, any other value replaces.
+fn overlay_json(base: &mut Value, overlay: Value) {
+    match (base, overlay) {
+        (Value::Object(base), Value::Object(overlay)) => {
+            for (key, value) in overlay {
+                match base.get_mut(&key) {
+                    Some(existing) => overlay_json(existing, value),
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, overlay) => *base = overlay,
+    }
 }
 
 /// Collect geometry documents in layer order for identifier selection by the compiler.

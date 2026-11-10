@@ -9,16 +9,16 @@ use std::{
     ffi::c_void,
     fs,
     os::unix::fs::symlink,
-    path::PathBuf,
-    sync::{Mutex, PoisonError},
+    path::{Path, PathBuf},
+    sync::{Mutex, PoisonError, atomic::Ordering},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use first_run::Outcome;
 use jni::{
     JNIEnv, JavaVM, NativeMethod,
     objects::{JObject, JString, JValue},
-    sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong, jstring},
+    sys::{JNI_ERR, JNI_VERSION_1_6, jboolean, jfloat, jint, jlong, jstring},
 };
 
 use crate::cancellation::Cancellation;
@@ -57,7 +57,51 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                     fn_ptr: cancel as *mut c_void,
                 },
             ],
-        )
+        )?;
+        let game_class = format!(
+            "{}/CinnabarActivity",
+            super::runtime().application_id.replace('.', "/")
+        );
+        // Physical keyboard and mouse ingress is optional: without it the game keeps touch input.
+        if let Err(error) = env.register_native_methods(
+            game_class,
+            &[
+                NativeMethod {
+                    name: "nativeOnDeviceStateChange".into(),
+                    sig: "(II)V".into(),
+                    fn_ptr: on_device_state_change as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseMotion".into(),
+                    sig: "(FF)V".into(),
+                    fn_ptr: on_mouse_motion as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseButton".into(),
+                    sig: "(IZI)V".into(),
+                    fn_ptr: on_mouse_button as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseScroll".into(),
+                    sig: "(FF)V".into(),
+                    fn_ptr: on_mouse_scroll as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseCursor".into(),
+                    sig: "(FF)V".into(),
+                    fn_ptr: on_mouse_cursor as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnPointerCaptureChange".into(),
+                    sig: "(Z)V".into(),
+                    fn_ptr: on_pointer_capture_change as *mut c_void,
+                },
+            ],
+        ) {
+            eprintln!("Cinnabar could not register physical input natives: {error}");
+            let _ = env.exception_clear();
+        }
+        Ok(())
     });
     match registered {
         Ok(()) => JNI_VERSION_1_6,
@@ -66,6 +110,59 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
             JNI_ERR
         }
     }
+}
+
+/// Receives the activity's counts of connected physical mice and alphabetic keyboards.
+extern "system" fn on_device_state_change(
+    _: JNIEnv<'_>,
+    _: JObject<'_>,
+    mice: jint,
+    keyboards: jint,
+) {
+    cinnabar::platform_devices::ingress::set_platform_physical_devices(
+        mice.max(0) as u32,
+        keyboards.max(0) as u32,
+    );
+}
+
+/// Receives relative motion from a captured mouse.
+extern "system" fn on_mouse_motion(_: JNIEnv<'_>, _: JObject<'_>, dx: jfloat, dy: jfloat) {
+    cinnabar::platform_devices::ingress::accumulate_platform_mouse_motion(dx, dy);
+}
+
+/// Receives one Android `MotionEvent` button bit changing state, with the event's meta state.
+extern "system" fn on_mouse_button(
+    _: JNIEnv<'_>,
+    _: JObject<'_>,
+    button_mask: jint,
+    pressed: jboolean,
+    meta_state: jint,
+) {
+    cinnabar::platform_devices::ingress::push_platform_mouse_button(
+        button_mask.max(0) as u32,
+        pressed != 0,
+        meta_state as u32,
+    );
+}
+
+/// Receives vertical and horizontal mouse wheel steps.
+extern "system" fn on_mouse_scroll(
+    _: JNIEnv<'_>,
+    _: JObject<'_>,
+    vscroll: jfloat,
+    hscroll: jfloat,
+) {
+    cinnabar::platform_devices::ingress::push_platform_mouse_scroll(vscroll, hscroll);
+}
+
+/// Receives an uncaptured mouse position in physical window pixels.
+extern "system" fn on_mouse_cursor(_: JNIEnv<'_>, _: JObject<'_>, x: jfloat, y: jfloat) {
+    cinnabar::platform_devices::ingress::push_platform_mouse_cursor(x, y);
+}
+
+/// Receives the decor view gaining or losing pointer capture.
+extern "system" fn on_pointer_capture_change(_: JNIEnv<'_>, _: JObject<'_>, has_capture: jboolean) {
+    cinnabar::platform_devices::ingress::set_platform_pointer_captured(has_capture != 0);
 }
 
 extern "system" fn prepare<'local>(
@@ -108,6 +205,7 @@ fn setup(
     let native_library_dir = PathBuf::from(String::from(env.get_string(native_library_dir)?));
     let layout = super::layout(&files_dir, &native_library_dir);
     launcher::install_layout::configure_android(layout.clone())?;
+    export_platform_trust(env, activity, &layout.user_data_root)?;
     // The kit arrives as APK assets, but Android executes only native-library files.
     let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
     fs::create_dir_all(
@@ -122,7 +220,7 @@ fn setup(
     )
     .context("link the asset compiler into the prep kit")?;
     let env = RefCell::new(env);
-    first_run::prepare_headless(
+    let outcome = first_run::prepare_headless(
         &layout.with_prepared_assets(),
         CANCELLATION.flag(),
         |title, body| {
@@ -134,15 +232,81 @@ fn setup(
             )
             .unwrap_or(false)
         },
-        |line| {
+        |update| {
+            let Ok(message) = serde_json::to_string(update) else {
+                return;
+            };
             let _ = call_activity(
                 &mut env.borrow_mut(),
                 activity,
                 ("showProgress", "(Ljava/lang/String;)V"),
-                &[line],
+                &[&message],
             );
         },
+    )?;
+    // The game activity's UI thread waits for the game thread until its event loop starts, so
+    // the carriers load here, behind the startup screen, to keep that wait short.
+    if outcome != Outcome::Quit && !CANCELLATION.flag().load(Ordering::Acquire) {
+        cinnabar::lifecycle::preload(outcome == Outcome::Prepared);
+    }
+    Ok(outcome)
+}
+
+/// Refreshes the server's platform trust, refusing setup if stale trust cannot be invalidated.
+fn export_platform_trust(env: &mut JNIEnv<'_>, activity: &JObject<'_>, root: &Path) -> Result<()> {
+    let pem = platform_trust_pem(env, activity);
+    let available = launcher_host::local_worlds::refresh_android_server_trust(
+        root,
+        pem.as_deref().ok().map(str::as_bytes),
     )
+    .context("Cannot refresh or clear local server certificate trust")?;
+    if !available {
+        log_warning(
+            env,
+            "Platform trust export failed; local worlds may lose online services",
+        );
+    }
+    Ok(())
+}
+
+/// Returns the activity's `platformTrustPem` export, clearing any exception it threw; a thrown,
+/// null or empty export is an error.
+fn platform_trust_pem(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Result<String> {
+    let result = env.with_local_frame(4, |env| -> Result<String> {
+        let pem = env
+            .call_method(activity, "platformTrustPem", "()Ljava/lang/String;", &[])?
+            .l()?;
+        if pem.is_null() {
+            bail!("platform trust export returned null");
+        }
+        Ok(String::from(env.get_string(&JString::from(pem))?))
+    });
+    if result.is_err() {
+        clear_exception(env);
+    }
+    let pem = result?;
+    if pem.is_empty() {
+        bail!("platform trust export is empty");
+    }
+    Ok(pem)
+}
+
+/// Logs `message` at warning priority under the product's tag, discarding any logging failure.
+fn log_warning(env: &mut JNIEnv<'_>, message: &str) {
+    let logged = env.with_local_frame(4, |env| -> jni::errors::Result<()> {
+        let tag = env.new_string(launcher::PRODUCT_NAME)?;
+        let message = env.new_string(message)?;
+        env.call_static_method(
+            "android/util/Log",
+            "w",
+            "(Ljava/lang/String;Ljava/lang/String;)I",
+            &[JValue::Object(&tag), JValue::Object(&message)],
+        )?;
+        Ok(())
+    });
+    if logged.is_err() {
+        clear_exception(env);
+    }
 }
 
 /// Calls an activity method with string arguments in its own local frame; a `Z` method returns
@@ -158,7 +322,7 @@ fn call_activity(
             .iter()
             .map(|arg| env.new_string(*arg).map(JObject::from))
             .collect::<jni::errors::Result<Vec<_>>>()?;
-        let values: Vec<JValue<'_, '_>> = strings.iter().map(|arg| JValue::Object(arg)).collect();
+        let values: Vec<JValue<'_, '_>> = strings.iter().map(JValue::Object).collect();
         let value = env.call_method(activity, name, signature, &values)?;
         Ok(if signature.ends_with('Z') {
             value.z()?

@@ -33,7 +33,17 @@ const MODEL_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO3";
 const MODEL_ICON_CARRIER_VERSION: u32 = 3;
 const SOURCE_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO4";
 const SOURCE_ICON_CARRIER_VERSION: u32 = 4;
-/// One sprite per compiled item visual at most.
+/// Separates carried sprites from their GUI model thumbnails.
+const HELD_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO5";
+const HELD_ICON_CARRIER_VERSION: u32 = 5;
+/// Adds independent GUI cube artwork after the raw source bindings.
+const GUI_ICON_CARRIER_MAGIC: [u8; 8] = *b"MCBEICO6";
+const GUI_ICON_CARRIER_VERSION: u32 = 6;
+mod gui_sheets;
+const MODEL_ROW_BYTES: usize = 8;
+const HELD_MODEL_ROW_BYTES: usize = MODEL_ROW_BYTES + std::mem::size_of::<u32>();
+const NO_HELD_ICON: u32 = u32::MAX;
+/// Shared sprite budget for item thumbnails, carried artwork and raw source bindings.
 pub const MAX_ICON_SPRITES: usize = crate::item::MAX_ITEM_VISUALS;
 /// One entry per item visual plus one per alias at most.
 pub const MAX_ICON_ENTRIES: usize =
@@ -69,6 +79,7 @@ pub struct RuntimeIconCatalog {
     sprites: Arc<[IconSprite]>,
     entries: Arc<[IconEntry]>,
     block_sheets: Arc<[IconBlockSheet]>,
+    gui_block_sheets: Arc<[IconBlockSheet]>,
     block_models: Arc<[IconBlockModel]>,
     sources: Option<Arc<[IconSource]>>,
 }
@@ -94,8 +105,12 @@ impl RuntimeIconCatalog {
             return Err(invalid("unsupported icon carrier header"));
         }
         let version = read_u32(bytes, 8)?;
-        let source_routed =
-            bytes[..8] == SOURCE_ICON_CARRIER_MAGIC && version == SOURCE_ICON_CARRIER_VERSION;
+        let gui_routed =
+            bytes[..8] == GUI_ICON_CARRIER_MAGIC && version == GUI_ICON_CARRIER_VERSION;
+        let held_routed = gui_routed
+            || (bytes[..8] == HELD_ICON_CARRIER_MAGIC && version == HELD_ICON_CARRIER_VERSION);
+        let source_routed = held_routed
+            || (bytes[..8] == SOURCE_ICON_CARRIER_MAGIC && version == SOURCE_ICON_CARRIER_VERSION);
         let modelled = source_routed
             || (bytes[..8] == MODEL_ICON_CARRIER_MAGIC && version == MODEL_ICON_CARRIER_VERSION);
         let carried = modelled
@@ -207,8 +222,18 @@ impl RuntimeIconCatalog {
                 block_models.push(IconBlockModel {
                     sprite: read_u32(bytes, cursor)?,
                     visual: crate::BlockVisualId(read_u32(bytes, cursor + 4)?),
+                    held_sprite: if held_routed {
+                        let sprite = read_u32(bytes, cursor + MODEL_ROW_BYTES)?;
+                        (sprite != NO_HELD_ICON).then_some(sprite)
+                    } else {
+                        None
+                    },
                 });
-                cursor += 8;
+                cursor += if held_routed {
+                    HELD_MODEL_ROW_BYTES
+                } else {
+                    MODEL_ROW_BYTES
+                };
             }
             block::validate_models(&block_models, &sprites)?;
         }
@@ -216,6 +241,11 @@ impl RuntimeIconCatalog {
             Some(sources::decode(bytes, &mut cursor, payload_end, sprites.len())?.into())
         } else {
             None
+        };
+        let gui_block_sheets = if gui_routed {
+            gui_sheets::decode(bytes, &mut cursor, payload_end, &sprites)?
+        } else {
+            Vec::new()
         };
         if cursor != payload_end {
             return Err(invalid("trailing icon carrier payload"));
@@ -226,6 +256,7 @@ impl RuntimeIconCatalog {
             sprites: sprites.into(),
             entries: entries.into(),
             block_sheets: block_sheets.into(),
+            gui_block_sheets: gui_block_sheets.into(),
             block_models: block_models.into(),
             sources,
         })
@@ -263,10 +294,27 @@ impl RuntimeIconCatalog {
         &self.block_sheets
     }
 
+    /// Independent inventory face sheets; held rendering continues to use `block_sheets`.
+    pub fn gui_block_sheets(&self) -> &[IconBlockSheet] {
+        &self.gui_block_sheets
+    }
+
     /// Thumbnails rasterised from world block geometry, by sprite index.
     #[must_use]
     pub fn block_models(&self) -> &[IconBlockModel] {
         &self.block_models
+    }
+
+    /// Resolves carried artwork independently of a block's processed GUI thumbnail.
+    #[must_use]
+    pub fn lookup_held_index(&self, identifier: &str, metadata: u32) -> Option<usize> {
+        let sprite = self.lookup_index(identifier, metadata)?;
+        let held = self
+            .block_models
+            .binary_search_by_key(&(sprite as u32), |model| model.sprite)
+            .ok()
+            .and_then(|index| self.block_models[index].held_sprite);
+        Some(held.map_or(sprite, |index| index as usize))
     }
 
     /// The sprite for one `(identifier, metadata)` item-visual key, falling
@@ -336,6 +384,7 @@ pub fn encode_icon_catalog_with_blocks(
         block_sheets,
         block_models,
         None,
+        &[],
     )
 }
 
@@ -355,6 +404,28 @@ pub fn encode_icon_catalog_with_sources(
         block_sheets,
         block_models,
         Some(sources),
+        &[],
+    )
+}
+
+/// Encodes independent inventory cube sheets alongside held artwork and source bindings.
+pub fn encode_icon_catalog_with_gui_cube_sheets(
+    source_manifest_sha256: [u8; 32],
+    sprites: &[IconSprite],
+    entries: &[IconEntry],
+    block_sheets: &[IconBlockSheet],
+    block_models: &[IconBlockModel],
+    sources: &[IconSource],
+    gui_block_sheets: &[IconBlockSheet],
+) -> Result<Vec<u8>, AssetError> {
+    encode(
+        source_manifest_sha256,
+        sprites,
+        entries,
+        block_sheets,
+        block_models,
+        Some(sources),
+        gui_block_sheets,
     )
 }
 
@@ -366,12 +437,16 @@ fn encode(
     block_sheets: &[IconBlockSheet],
     block_models: &[IconBlockModel],
     sources: Option<&[IconSource]>,
+    gui_block_sheets: &[IconBlockSheet],
 ) -> Result<Vec<u8>, AssetError> {
     if sprites.len() > MAX_ICON_SPRITES || entries.len() > MAX_ICON_ENTRIES {
         return Err(invalid("icon sprite or entry count exceeds bound"));
     }
     block::validate(block_sheets, sprites)?;
     block::validate_models(block_models, sprites)?;
+    block::validate(gui_block_sheets, sprites)?;
+    let gui_routed = !gui_block_sheets.is_empty();
+    let held_routed = gui_routed || block_models.iter().any(|model| model.held_sprite.is_some());
     let mut payload = Vec::new();
     for sprite in sprites {
         if sprite.width == 0
@@ -462,12 +537,20 @@ fn encode(
         )
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
-    if !block_models.is_empty() || sources.is_some() {
-        let mut table = Vec::with_capacity(4 + block_models.len() * 8);
+    if held_routed || !block_models.is_empty() || sources.is_some() {
+        let row_bytes = if held_routed {
+            HELD_MODEL_ROW_BYTES
+        } else {
+            MODEL_ROW_BYTES
+        };
+        let mut table = Vec::with_capacity(4 + block_models.len() * row_bytes);
         table.extend_from_slice(&(block_models.len() as u32).to_le_bytes());
         for model in block_models {
             table.extend_from_slice(&model.sprite.to_le_bytes());
             table.extend_from_slice(&model.visual.0.to_le_bytes());
+            if held_routed {
+                table.extend_from_slice(&model.held_sprite.unwrap_or(NO_HELD_ICON).to_le_bytes());
+            }
         }
         crate::encoding::append_bounded(
             &mut payload,
@@ -477,15 +560,22 @@ fn encode(
         )
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     }
-    if let Some(sources) = sources {
-        sources::encode(&mut payload, sources, sprites.len())?;
+    if held_routed || sources.is_some() {
+        sources::encode(&mut payload, sources.unwrap_or_default(), sprites.len())?;
+    }
+    if gui_routed {
+        gui_sheets::encode(&mut payload, gui_block_sheets)?;
     }
     let payload_end = HEADER_BYTES
         .checked_add(payload.len())
         .filter(|end| end + HASH_BYTES <= MAX_ICON_CARRIER_BYTES)
         .ok_or_else(|| invalid("icon carrier exceeds bound"))?;
     let mut bytes = vec![0u8; HEADER_BYTES];
-    let (magic, version) = if sources.is_some() {
+    let (magic, version) = if gui_routed {
+        (GUI_ICON_CARRIER_MAGIC, GUI_ICON_CARRIER_VERSION)
+    } else if held_routed {
+        (HELD_ICON_CARRIER_MAGIC, HELD_ICON_CARRIER_VERSION)
+    } else if sources.is_some() {
         (SOURCE_ICON_CARRIER_MAGIC, SOURCE_ICON_CARRIER_VERSION)
     } else if !block_models.is_empty() {
         (MODEL_ICON_CARRIER_MAGIC, MODEL_ICON_CARRIER_VERSION)

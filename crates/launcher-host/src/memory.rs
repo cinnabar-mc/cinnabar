@@ -14,8 +14,8 @@ pub fn physical_bytes() -> u64 {
     })
 }
 
-/// Reads the kernel's byte-valued `hw.memsize` property.
-#[cfg(target_os = "macos")]
+/// Reads the kernel's byte-valued `hw.memsize` property, which iOS also provides.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn read_physical_bytes() -> Option<u64> {
     use std::ffi::{c_char, c_int, c_void};
     unsafe extern "C" {
@@ -42,13 +42,14 @@ fn read_physical_bytes() -> Option<u64> {
     (result == 0 && length == size_of::<u64>()).then_some(bytes)
 }
 
-#[cfg(target_os = "linux")]
+/// Android shares the Linux kernel's `/proc/meminfo`, which apps may read.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn read_physical_bytes() -> Option<u64> {
     meminfo_total_bytes(&std::fs::read_to_string("/proc/meminfo").ok()?)
 }
 
 /// `MemTotal` from `/proc/meminfo`, which the kernel reports in KiB.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 fn meminfo_total_bytes(meminfo: &str) -> Option<u64> {
     let line = meminfo
         .lines()
@@ -66,7 +67,13 @@ fn read_physical_bytes() -> Option<u64> {
 }
 
 /// Unsupported platforms retain the lowest automatic tier until a native reader exists.
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows"
+)))]
 fn read_physical_bytes() -> Option<u64> {
     None
 }

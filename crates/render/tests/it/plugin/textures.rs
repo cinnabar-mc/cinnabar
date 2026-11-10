@@ -60,7 +60,7 @@ fn mip_upload_plan_preserves_exact_layer_offsets_and_row_padding() {
             size: 2,
             rgba8: vec![0; 2 * 2 * 4 * 2].into_boxed_slice(),
         }]
-        .into_boxed_slice(),
+        .into(),
     };
     let plan = plan_texture_mip_uploads(&two_layers, 256)
         .expect("plan two-layer texture upload")
@@ -227,7 +227,7 @@ fn one_page_fallback_is_a_real_one_layer_copy_of_diagnostic_mips() {
                 }
             })
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     };
 
     let fallback = diagnostic_texture_page(&source).expect("extract diagnostic page");

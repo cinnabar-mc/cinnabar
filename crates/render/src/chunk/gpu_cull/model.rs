@@ -8,16 +8,69 @@ use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
 
-/// Threads per cull workgroup; the kernels are generated with this size.
+/// Preferred threads per cull workgroup; smaller devices select a fitting power of two.
 pub const CULL_WORKGROUP: u32 = 256;
+/// Threads per axis in the square depth-pyramid kernels.
+pub const PYRAMID_WORKGROUP: u32 = 8;
+/// Threads in each current-frame visibility mask workgroup.
+pub const MASK_WORKGROUP: u32 = 64;
+/// Storage bindings shared by the indirect cull layout and its admission check.
+pub const CULL_STORAGE_BINDINGS: [u32; 8] = [1, 2, 3, 4, 5, 6, 7, 10];
+
+/// Selects a workgroup that fits every eagerly created cull and depth kernel.
+pub fn cull_workgroup(limits: &wgpu::Limits) -> Option<u32> {
+    let ceiling = CULL_WORKGROUP
+        .min(limits.max_compute_invocations_per_workgroup)
+        .min(limits.max_compute_workgroup_size_x)
+        .min(limits.max_compute_workgroup_storage_size / 16);
+    // The depth kernels use 8x8 threads; direct visibility masks use 64x1.
+    if ceiling < MASK_WORKGROUP.max(PYRAMID_WORKGROUP * PYRAMID_WORKGROUP)
+        || limits.max_compute_workgroup_size_y < PYRAMID_WORKGROUP
+        || limits.max_compute_workgroup_size_z < 1
+        || limits.max_compute_workgroups_per_dimension == 0
+        || limits.max_storage_buffers_per_shader_stage < CULL_STORAGE_BINDINGS.len() as u32
+        || limits.max_bindings_per_bind_group <= CULL_STORAGE_BINDINGS.into_iter().max()?
+        || limits.max_texture_dimension_2d == 0
+        || limits.max_bind_groups == 0
+        || limits.max_uniform_buffers_per_shader_stage == 0
+        || limits.max_sampled_textures_per_shader_stage == 0
+        || limits.max_storage_textures_per_shader_stage == 0
+        || limits.max_uniform_buffer_binding_size < size_of::<CullViewUniform>() as u64
+        || limits.max_buffer_size < size_of::<CullViewUniform>() as u64
+        || limits.max_storage_buffer_binding_size < draw_offset_bytes(1)
+    {
+        return None;
+    }
+    Some(1 << (u32::BITS - 1 - ceiling.leading_zeros()))
+}
 /// Facing slots never form more than three separate solid runs.
 pub const MAX_SOLID_RUNS: u32 = 3;
 /// Words per `DrawIndexedIndirectArgs`.
 pub const ARGS_WORDS: u32 = 5;
 pub const STREAM_COUNT: usize = 4;
 pub const PHASE_COUNT: usize = 2;
+/// The depth-test selector for current-frame raster results instead of Hi-Z.
+pub const OCCLUSION_RASTER: u32 = 2;
+/// Complete ordered colour drawing when an experimental depth test cannot run.
+pub const OCCLUSION_ORDERED_FALLBACK: u32 = OCCLUSION_RASTER + 1;
+/// The previous frame's visibility, used only to select the early phase.
+pub const HISTORY_VISIBLE: u32 = 1;
+/// Current-frame sample coverage, reset before every raster test.
+pub const HISTORY_RASTER_VISIBLE: u32 = HISTORY_VISIBLE << 1;
+/// Draw fields follow the bits needed for the solid run count.
+pub const DECISION_CUTOUT_SHIFT: u32 = u32::BITS - MAX_SOLID_RUNS.leading_zeros();
+pub const DECISION_SOLID_MASK: u32 = (1 << DECISION_CUTOUT_SHIFT) - 1;
+pub const DECISION_MODEL_SHIFT: u32 = DECISION_CUTOUT_SHIFT + 1;
+pub const DECISION_LIQUID_SHIFT: u32 = DECISION_MODEL_SHIFT + 1;
+/// Feedback distinguishes a frustum-visible candidate from an occluded one.
+pub const DECISION_CANDIDATE: u32 = 1 << (DECISION_LIQUID_SHIFT + 1);
+pub const DECISION_HIDDEN: u32 = DECISION_CANDIDATE << 1;
+/// Low bits of a record decision describe its four draw streams.
+pub const DECISION_DRAWS: u32 = DECISION_CANDIDATE - 1;
 /// Hi-Z boxes grow by this many blocks so rasterised depth never lands outside them.
 pub const HIZ_PADDING: f32 = 1.0 / 16.0;
+/// Extra screen coverage for rasterizer snapping at the edge of a depth footprint.
+pub const OCCLUSION_PIXEL_PADDING: f32 = 1.0;
 /// Relative and absolute slack that keeps the GPU frustum test a superset of the CPU one.
 pub const FRUSTUM_RELATIVE_SLACK: f32 = 1.0e-5;
 pub const FRUSTUM_ABSOLUTE_SLACK: f32 = 1.0e-3;
@@ -110,8 +163,19 @@ pub const fn count_index(phase: CullPhase, stream: CullStream) -> u32 {
     phase as u32 * STREAM_COUNT as u32 + stream as u32
 }
 
-pub const fn group_count(slots: u32) -> u32 {
-    slots.div_ceil(CULL_WORKGROUP)
+/// Workgroups needed to visit every slot with the selected kernel size.
+pub const fn group_count(slots: u32, workgroup: u32) -> u32 {
+    slots.div_ceil(workgroup)
+}
+
+/// Word of the enabled-bits buffer where the slot draw order begins, after `capacity` slot bits.
+pub const fn order_base(capacity: u32) -> u32 {
+    capacity.div_ceil(32)
+}
+
+/// Enabled bits followed by the cube and model/liquid slot orders.
+pub const fn enabled_words(capacity: u32) -> u64 {
+    order_base(capacity) as u64 + 2 * capacity as u64
 }
 
 /// One resident sub-chunk's opaque draws, indexed by its arena metadata slot.
@@ -187,6 +251,26 @@ impl CullRecord {
 
     fn solid_end(&self, slot: usize) -> u32 {
         (self.solid_ends[slot / 2] >> (16 * (slot % 2))) & 0xffff
+    }
+
+    /// Submitted indices per stream for this record and eye, before occlusion.
+    pub fn submitted_indices(
+        &self,
+        camera: CullCamera,
+        indices: [u32; STREAM_COUNT],
+    ) -> [u64; STREAM_COUNT] {
+        let solid: u64 = self
+            .solid_runs(camera.facing(self.origin))
+            .iter()
+            .map(|run| u64::from(run.end - run.start))
+            .sum();
+        let counts = [
+            solid,
+            self.cutout().len() as u64,
+            u64::from(self.model_count),
+            u64::from(self.liquid_count),
+        ];
+        std::array::from_fn(|stream| counts[stream] * u64::from(indices[stream]))
     }
 
     /// Most draws the kernels can emit for this record in each stream, from any eye.
@@ -354,10 +438,19 @@ pub struct CullViewUniform {
     pub index_counts: [u32; 4],
     /// Per-stream [`region_draws`]; the kernels drop commands and clamp counts past it.
     pub region_draws: [u32; 4],
+    /// [`order_base`] of the slot draw order the count and emit kernels visit.
+    pub order: [u32; 4],
 }
 
 impl CullViewUniform {
-    pub fn new(input: &CullViewInput, phase: CullPhase, slots: u32, capacity: u32) -> Self {
+    /// Builds uniforms with group counts matching the selected device kernel.
+    pub fn new(
+        input: &CullViewInput,
+        phase: CullPhase,
+        slots: u32,
+        capacity: u32,
+        workgroup: u32,
+    ) -> Self {
         let floor = input.camera.floor.map(f64::from);
         let m = input.clip_from_world;
         // Corners arrive relative to the integer eye, so large coordinates keep their precision.
@@ -383,13 +476,19 @@ impl CullViewUniform {
             ],
             params: [
                 slots,
-                group_count(slots),
+                group_count(slots, workgroup),
                 phase as u32,
                 count_index(phase, CullStream::Solid),
             ],
             regions: CullStream::ALL.map(|stream| args_region(capacity, phase, stream)),
             index_counts: input.index_counts,
             region_draws: CullStream::ALL.map(|stream| region_draws(capacity, stream)),
+            order: [
+                order_base(capacity),
+                order_base(capacity) + capacity,
+                slots,
+                0,
+            ],
         }
     }
 }
@@ -405,16 +504,18 @@ pub fn frustum_slack(plane: [f32; 4], center: [f32; 3]) -> f32 {
     FRUSTUM_RELATIVE_SLACK * (plane[3].abs() + spread) + FRUSTUM_ABSOLUTE_SLACK
 }
 
-/// Compacted draws for `visible` slots in slot order, as the emit kernel's commands perform them
-/// once resolved through [`resolve_culled_args`].
+/// Compacted draws for `visible` slots in draw `order`, as the emit kernel's commands perform
+/// them once resolved through [`resolve_culled_args`].
 pub fn reference_args(
     records: &[CullRecord],
+    order: &[u32],
     camera: CullCamera,
     index_counts: [u32; STREAM_COUNT],
     visible: impl Fn(usize) -> bool,
 ) -> [Vec<[u32; ARGS_WORDS as usize]>; STREAM_COUNT] {
     let mut args: [Vec<[u32; 5]>; STREAM_COUNT] = Default::default();
-    for (slot, record) in records.iter().enumerate() {
+    for slot in order.iter().map(|&slot| slot as usize) {
+        let record = &records[slot];
         if !record.is_live() || !visible(slot) {
             continue;
         }
@@ -496,7 +597,7 @@ pub fn reference_occluded(
     let top = vp[1] + (0.5 - ndc_max[1] * 0.5) * vp[3];
     let bottom = vp[1] + (0.5 - ndc_min[1] * 0.5) * vp[3];
     let limit = [view.depth[0] as f32 - 1.0, view.depth[1] as f32 - 1.0];
-    let dilation = 1.0 + lean;
+    let dilation = OCCLUSION_PIXEL_PADDING + lean;
     let pixel = |value: f32, axis: usize| value.clamp(0.0, limit[axis]) as u32;
     let p0 = [
         pixel(left.floor() - dilation, 0),

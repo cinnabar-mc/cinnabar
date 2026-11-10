@@ -296,6 +296,36 @@ fn primitives_queue_on_the_frame_they_first_arrive() {
 }
 
 #[test]
+fn debug_vertices_queue_without_mod_output_and_keep_depth_testing() {
+    let (mut app, view) = fixture::app();
+    app.init_resource::<primitives::PrimitivePipeline>()
+        .add_render_command::<Transparent3d, primitives::DrawPrimitiveCommands>()
+        .add_render_command::<Transparent3d, primitives::DrawBlockHighlightCommands>();
+    let mut scene = ModRenderScene::default();
+    scene.set_debug_vertices(vec![mod_render::geometry::ModVertex::default(); 6].into());
+    app.insert_resource(scene);
+    app.world_mut().run_system_once(primitives::queue).unwrap();
+    let items = fixture::items(&app, view);
+    assert_eq!(items.len(), 1);
+    let pipeline = items[0].pipeline;
+    let mut cache = app
+        .world_mut()
+        .resource_mut::<bevy::render::render_resource::PipelineCache>();
+    let descriptor = fixture::queued_descriptor(&mut cache, pipeline);
+    let depth = descriptor.depth_stencil.as_ref().unwrap();
+    assert_eq!(
+        depth.depth_compare,
+        Some(bevy::render::render_resource::CompareFunction::GreaterEqual)
+    );
+    fixture::clear(&mut app, view);
+    app.world_mut()
+        .resource_mut::<ModRenderScene>()
+        .set_debug_vertices(Arc::from([]));
+    app.world_mut().run_system_once(primitives::queue).unwrap();
+    assert!(fixture::items(&app, view).is_empty());
+}
+
+#[test]
 fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
     for msaa in [Msaa::Off, Msaa::Sample2, Msaa::Sample4, Msaa::Sample8] {
         let (mut app, view) = fixture::app();
@@ -319,7 +349,11 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
             },
             1,
         );
-        scene.set_block_highlights(&[[2, 3, 4]], [1.0, 0.1, 0.5, 1.0]);
+        scene.set_drawn_block_highlights(&[mod_api::native_render::BlockHighlight {
+            position: [2, 3, 4],
+            colour: [1.0, 0.1, 0.5, 1.0],
+            outline: None,
+        }]);
         app.insert_resource(scene);
         app.world_mut().run_system_once(primitives::queue).unwrap();
         let pipelines: Vec<_> = fixture::items(&app, view)
@@ -343,7 +377,7 @@ fn solid_blocks_queue_separately_without_relaxing_guest_depth_tests() {
         fixture::clear(&mut app, view);
         app.world_mut()
             .resource_mut::<ModRenderScene>()
-            .set_block_highlights(&[], [1.0; 4]);
+            .set_drawn_block_highlights(&[]);
         app.world_mut().run_system_once(primitives::queue).unwrap();
         assert_eq!(
             fixture::items(&app, view).len(),

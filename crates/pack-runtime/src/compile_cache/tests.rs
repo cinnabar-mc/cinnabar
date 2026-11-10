@@ -1,6 +1,33 @@
 //! Persistent subscriber results must survive a new cache and dependency recorder.
 use super::*;
 
+/// Only the entry's size on disk counts against the disk bound, even with an intact checksum.
+#[test]
+fn an_entry_oversized_on_disk_misses_and_recompiles() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cache = CompileCache::new(dir.path().into(), 1 << 20);
+    let key = [9; 32];
+    cache.store(&key, &[0; 8192]);
+    assert!(fs::metadata(cache.entry(&key)).unwrap().len() < 1024);
+    cache.max_bytes = 1024;
+    assert_eq!(
+        cache.load(&key).as_deref(),
+        Some(&[0; 8192][..]),
+        "a payload larger than the bound fits when compressed"
+    );
+    fs::File::create(cache.entry(&key))
+        .unwrap()
+        .set_len(1025)
+        .unwrap();
+    assert!(
+        cache.load(&key).is_none(),
+        "physical length exceeds admission"
+    );
+    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let view = resource_pack::LayeredPackView::tracked(stack);
+    assert_eq!(cache.get_or_compile(&key, &view, || vec![42u8]), [42]);
+}
+
 #[test]
 fn fresh_block_and_icon_caches_skip_compilation_and_restore_reads() {
     for subscriber in ["blocks", "icons"] {

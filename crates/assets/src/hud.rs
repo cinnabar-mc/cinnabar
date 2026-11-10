@@ -3,10 +3,17 @@ use thiserror::Error;
 
 pub const HUD_CARRIER_MAGIC: [u8; 8] = *b"MCBEHUD1";
 pub const HUD_CARRIER_VERSION: u32 = 5;
-pub const HUD_SOURCE_MANIFEST_SHA256: [u8; 32] = [
-    0x34, 0x58, 0xdc, 0x48, 0x17, 0x93, 0x6f, 0xa7, 0xaa, 0x45, 0x97, 0xee, 0x93, 0xfa, 0xbd, 0xed,
-    0x2f, 0x01, 0x89, 0xf4, 0x50, 0xad, 0x85, 0xa7, 0x96, 0xa1, 0xf1, 0x53, 0x4e, 0x26, 0xdb, 0x24,
-];
+/// Hashes the pinned HUD manifest once, using the carrier's canonical line endings.
+#[must_use]
+pub fn hud_source_manifest_sha256() -> [u8; 32] {
+    static HASH: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+    *HASH.get_or_init(|| {
+        crate::canonical_source_manifest_sha256(include_bytes!(
+            "../../../assets/hud-source-v2225.json"
+        ))
+    })
+}
+
 pub const MAX_HUD_TEXTURE_BYTES: usize = 4 * 1024 * 1024;
 const HEADER_BYTES: usize = 80;
 const DESCRIPTOR_BYTES: usize = 96;
@@ -420,7 +427,7 @@ impl RuntimeHudCatalog {
         let payload_offset = read_usize(bytes, 56)?;
         let payload_end = read_usize(bytes, 64)?;
         if count != HudTextureRole::ALL.len()
-            || source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256
+            || source_manifest_sha256 != hud_source_manifest_sha256()
             || bytes[72..HEADER_BYTES] != [0; 8]
             || descriptors_offset != HEADER_BYTES
             || payload_offset
@@ -528,7 +535,7 @@ pub fn encode_hud_catalog(
     source_manifest_sha256: [u8; 32],
     textures: &[HudTexture],
 ) -> Result<Vec<u8>, HudCatalogError> {
-    if source_manifest_sha256 != HUD_SOURCE_MANIFEST_SHA256 {
+    if source_manifest_sha256 != hud_source_manifest_sha256() {
         return Err(HudCatalogError::Invalid(
             "unreviewed HUD source manifest identity",
         ));

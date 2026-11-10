@@ -73,7 +73,7 @@ fn global_packs_only_recompile_subscribers_with_changed_reads() {
         reload
             .previous
             .as_ref()
-            .map(|old| (&old.admission, &old.dependencies)),
+            .map(|old| (&old.admission, old.dependencies.as_ref())),
     );
     let recompiled: Vec<_> = [
         (Subscriber::Blocks, changes.blocks),
@@ -127,7 +127,31 @@ fn first_reload_still_prepares_biomes_and_environment() {
     );
     let stack = super::super::pack_reload_tests::stack(&[(&path, png.get_ref())]);
     let joined = resource_packs::prepare_validated_application(stack, Arc::default());
-    let base = Arc::new(assets::RuntimeAssets::diagnostic());
+    let diagnostic = assets::RuntimeAssets::diagnostic();
+    let carrier = assets::CompiledAssets {
+        visuals: vec![assets::BlockVisual::diagnostic(
+            assets::BlockFlags::empty(),
+            assets::ContributorRole::Primary,
+        )]
+        .into(),
+        light_properties: vec![assets::LightProperties::OPAQUE_DARK].into(),
+        hashed: Box::new([]),
+        materials: diagnostic.materials().into(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![diagnostic.texture_pages()[0].clone(); 2].into(),
+        biomes: diagnostic.biome_assets().clone(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [1; 32],
+            block_registry_sha256: [2; 32],
+            light_registry_sha256: [3; 32],
+            biome_registry_sha256: [4; 32],
+        },
+    };
+    let base =
+        Arc::new(assets::RuntimeAssets::decode(&assets::encode_blob(&carrier).unwrap()).unwrap());
     let mut reload = PackReload {
         previous_assets: Some(base.clone()),
         ..Default::default()
@@ -168,4 +192,31 @@ fn first_reload_still_prepares_biomes_and_environment() {
     assert!(prepared.application.dependencies[&Subscriber::Blocks].iter().any(|dependency| {
         matches!(dependency, resource_pack::PackDependency::File { path: read, .. } if read == &path)
     }));
+}
+
+/// Frame publication keeps dependency evidence shared instead of cloning every recorded read.
+#[test]
+fn pack_application_clones_do_no_dependency_sized_work() {
+    for count in [16, 16_384] {
+        let reads = (0..count)
+            .map(|index| resource_pack::PackDependency::File {
+                path: format!("textures/fixture/{index}.png"),
+                limit: 64,
+            })
+            .collect();
+        let application = PackApplication {
+            dependencies: pack_runtime::reload_diff::Dependencies::from([(
+                Subscriber::Icons,
+                reads,
+            )])
+            .into(),
+            ..Default::default()
+        };
+        let (copy, allocations) = test_alloc::measure(|| application.clone());
+        assert_eq!(copy.dependencies, application.dependencies);
+        assert!(
+            allocations.calls <= 32 && allocations.bytes <= 16 * 1024,
+            "frame copied {count} dependency records: {allocations:?}"
+        );
+    }
 }

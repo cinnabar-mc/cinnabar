@@ -1,5 +1,7 @@
-use super::super::*;
-use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
+use super::super::{preparation::cube_shape_admitted, sources::gui_cube_sheet, *};
+use assets::{
+    EquipmentTexture, ItemVisualDefinitionRoute, RuntimeEquipmentCatalog, RuntimeIconCatalog,
+};
 use ui::{UiNodeId, UiPoint, UiRect};
 
 mod alpha;
@@ -116,7 +118,10 @@ pub(super) fn catalog_for_visual(
 }
 
 /// Fills the requested number of atlas pages with distinct required equipment textures.
-fn equipment(entities: &RuntimeEntityAssets, pages: usize) -> Arc<RuntimeEquipmentCatalog> {
+pub(super) fn equipment(
+    entities: &RuntimeEntityAssets,
+    pages: usize,
+) -> Arc<RuntimeEquipmentCatalog> {
     let side = render_model::UI_MODEL_ATLAS_SIDE as u16;
     Arc::new(
         RuntimeEquipmentCatalog::from_parts(
@@ -170,7 +175,7 @@ fn cutout_cubes_show_outward_faces_and_fade_as_a_single_layer() {
         let icon = presentation
             .item_icon(&entry.identifier, entry.metadata)
             .unwrap();
-        let original = &presentation.gui_models.models[&icon_key(icon)];
+        let original = &presentation.gui_models.sources.models[&icon_key(icon)];
         assert_eq!(
             original.indices().len(),
             assets::gui_item::CUBE_FACES.len() * 6
@@ -222,13 +227,14 @@ fn actor_flames_reclaim_cutout_cube_pages_after_required_equipment() {
             .collect::<Vec<_>>()
             .into(),
     };
-    presentation.set_gui_fire_texture(Some(&flame)).unwrap();
+    presentation.set_gui_fire_texture(Some(&flame));
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .expect("required equipment and flames must fit after optional cubes are discarded");
-    assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     for (page, texture) in presentation
         .gui_models
+        .sources
         .pages
         .iter()
         .zip(equipment.textures())
@@ -240,7 +246,7 @@ fn actor_flames_reclaim_cutout_cube_pages_after_required_equipment() {
     let first = presentation.textures.dynamic_start() + MODEL_PAGE;
     for (index, frame) in frames.iter().enumerate() {
         assert_eq!(usize::from(frame.page), first + required + index);
-        let page = &presentation.gui_models.pages[required + index];
+        let page = &presentation.gui_models.sources.pages[required + index];
         let offset = (usize::from(frame.uv[1]) * page.dimensions()[0] as usize
             + usize::from(frame.uv[0]))
             * 4;
@@ -270,7 +276,7 @@ fn a_full_required_atlas_keeps_cutout_cube_thumbnails() {
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .expect("optional cube sources must not make required equipment fail");
-    assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     for entry in presentation.icon_catalog.as_deref().unwrap().entries() {
         let icon = presentation
             .item_icon(&entry.identifier, entry.metadata)
@@ -329,6 +335,7 @@ fn transparent_carried_sheets_preserve_shortened_models() {
                 &alpha::world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]),
                 VISUAL,
                 &sprite,
+                Default::default(),
             )
             .is_some(),
             "these source alpha modes can draw normalized cube faces"
@@ -345,4 +352,71 @@ fn transparent_carried_sheets_preserve_shortened_models() {
         );
         ordinary.models.insert(VISUAL.0, short);
     }
+}
+
+#[test]
+fn gui_cube_artwork_overrides_the_menu_mesh_without_replacing_held_artwork() {
+    let (presentation, entities) = catalog();
+    let original = presentation.icon_catalog.as_ref().unwrap();
+    let mut sprites = original.sprites().to_vec();
+    let held = original.block_sheets()[0];
+    sprites[held.sprite as usize].rgba8 = [210, 12, 34, 255]
+        .repeat(
+            usize::from(assets::BLOCK_ITEM_SHEET_SIZE[0])
+                * usize::from(assets::BLOCK_ITEM_SHEET_SIZE[1]),
+        )
+        .into();
+    let gui_sprite = sprites.len() as u32;
+    sprites.push(assets::IconSprite {
+        width: assets::BLOCK_ITEM_SHEET_SIZE[0],
+        height: assets::BLOCK_ITEM_SHEET_SIZE[1],
+        rgba8: [3, 200, 7, 255]
+            .repeat(
+                usize::from(assets::BLOCK_ITEM_SHEET_SIZE[0])
+                    * usize::from(assets::BLOCK_ITEM_SHEET_SIZE[1]),
+            )
+            .into(),
+    });
+    let icons = Arc::new(
+        RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_gui_cube_sheets(
+                entities.source_manifest_sha256(),
+                &sprites,
+                original.entries(),
+                original.block_sheets(),
+                original.block_models(),
+                &[],
+                &[assets::IconBlockSheet {
+                    visual: VISUAL,
+                    sprite: gui_sprite,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap(),
+    );
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+        Arc::clone(&icons),
+    )
+    .unwrap();
+    presentation
+        .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
+        .unwrap();
+    let icon = presentation.item_icon(ITEM, 0).unwrap();
+    let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+    let vertices = mesh.vertices();
+    let x = ((vertices[0].uv[0] + vertices[2].uv[0]) / 2.0) as usize;
+    let y = ((vertices[0].uv[1] + vertices[2].uv[1]) / 2.0) as usize;
+    let first = presentation.textures.dynamic_start() + MODEL_PAGE;
+    let page =
+        &presentation.gui_models.sources.pages[usize::from(mesh.batches()[0].texture_page) - first];
+    let at = (y * page.dimensions()[0] as usize + x) * 4;
+    assert_eq!(&page.pixels()[at..at + 4], &[3, 200, 7, 255]);
+    assert_eq!(
+        &icons.sprites()[held.sprite as usize].rgba8[..4],
+        &[210, 12, 34, 255]
+    );
+    assert_eq!(icons.block_sheets(), original.block_sheets());
 }

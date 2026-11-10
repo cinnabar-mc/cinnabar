@@ -10,6 +10,7 @@ use crate::{
 /// Retry ownership and the deadline of one press that has not been admitted.
 #[derive(Debug, Default, Clone)]
 pub(super) struct PendingPress {
+    pub capture_frame: Option<[u64; 2]>,
     pub since: Option<u64>,
     pub rejected_tick: Option<u64>,
 }
@@ -27,6 +28,11 @@ pub(super) enum Work {
         authority: BlockBreakingAuthority,
     },
     Predicted {
+        tick: u64,
+        payload: Box<SurvivalTickPayload>,
+    },
+    /// A refused block press whose actions wait for their own unsent tick.
+    Refused {
         tick: u64,
         payload: Box<SurvivalTickPayload>,
     },
@@ -51,7 +57,7 @@ pub(super) struct AttackQueue {
 
 impl AttackQueue {
     /// Appends a distinct press without replacing an earlier waiting press.
-    pub fn push(&mut self) -> u64 {
+    pub fn push(&mut self, capture_frame: Option<[u64; 2]>) -> u64 {
         self.next_id = self
             .next_id
             .checked_add(1)
@@ -59,7 +65,10 @@ impl AttackQueue {
         let id = self.next_id;
         self.entries.push_back(Entry {
             id,
-            work: Work::Pending(PendingPress::default()),
+            work: Work::Pending(PendingPress {
+                capture_frame,
+                ..Default::default()
+            }),
         });
         id
     }

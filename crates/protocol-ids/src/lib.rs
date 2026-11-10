@@ -2,6 +2,9 @@
 
 #![no_std]
 
+/// Item descriptor auxiliary value that accepts any auxiliary value on the other item.
+pub const ITEM_AUXILIARY_WILDCARD: u16 = i16::MAX as u16;
+
 macro_rules! wire_ids {
     ($name:ident, $raw:ty, {$($variant:ident => $value:expr),* $(,)?}) => {
         /// Named values admitted by the pinned protocol contract.
@@ -31,10 +34,12 @@ macro_rules! wire_ids {
     };
 }
 
+mod block_render_method;
 mod generated;
+pub use block_render_method::BlockRenderMethod;
 pub use generated::{
     ActorDataKey, ActorFlag, Attribute, CommandArgFlag, CommandArgType, ContainerName, Effect,
-    Enchantment, HASHED_AIR_NETWORK_ID, HorseFlag, LevelEvent, PlayerFlag,
+    Enchantment, HASHED_AIR_NETWORK_ID, HorseFlag, LevelEvent, ParticleType, PlayerFlag,
     SEQUENTIAL_AIR_NETWORK_ID, SPEED_EFFECT_MODIFIER_ID, SPRINT_SPEED_MODIFIER_ID, WindowID,
     WindowType,
 };

@@ -73,30 +73,21 @@ impl History {
         self.redo.clear();
     }
 
+    /// Reflows every history point without recording a viewport change as an edit.
+    pub(super) fn reflow_factory(&mut self, rebase: impl Fn(&mut Placement)) {
+        for layout in std::iter::once(&mut self.current)
+            .chain(self.undo.iter_mut())
+            .chain(self.redo.iter_mut())
+        {
+            for placement in &mut layout.placements {
+                rebase(placement);
+            }
+        }
+    }
+
     /// Reports which direction the toolbar and keyboard may step.
     pub(super) fn available(&self) -> [bool; 2] {
         [!self.undo.is_empty(), !self.redo.is_empty()]
-    }
-
-    /// Reconciles live IDs without promoting an unfinished gesture to the completed baseline.
-    pub(super) fn refresh(&mut self, hud: &Hud, hidden: &HashSet<String>) {
-        let mut next = Layout::capture(hud, hidden, self.current.reset);
-        for placement in &mut next.placements {
-            if let Some(old) = self
-                .current
-                .placements
-                .iter()
-                .find(|old| old.id == placement.id)
-            {
-                placement.clone_from(old);
-                if self.current.hidden.contains(&placement.id) {
-                    next.hidden.insert(placement.id.clone());
-                } else {
-                    next.hidden.remove(&placement.id);
-                }
-            }
-        }
-        self.current = next;
     }
 
     /// Restores one completed edit without recording the restoration as a new edit.

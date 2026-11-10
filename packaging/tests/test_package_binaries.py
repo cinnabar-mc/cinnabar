@@ -17,6 +17,55 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @unittest.skipUnless(shutil.which("make"), "GNU make is required")
 class PackageBinariesTests(unittest.TestCase):
+    def test_assets_build_only_the_prep_kit_compiler(self):
+        """Carrier preparation builds assetc alone, without optional features."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "commands.jsonl"
+            stub = root / "build_stub.py"
+            stub.write_text(
+                "import json, os, sys\n"
+                "with open(os.environ['PACKAGE_TEST_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            )
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
+            log.write_text("")
+            subprocess.run(
+                ["make", "--no-print-directory", "assets", f"CARGO={command}"],
+                cwd=ROOT, env={**os.environ, "PACKAGE_TEST_LOG": str(log)},
+                capture_output=True, text=True, check=True,
+            )
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][calls[0].index("--bin") + 1], "assetc")
+            self.assertNotIn("--features", calls[0])
+
+    def test_package_build_includes_the_client_and_compiler(self):
+        """Shipping builds include the client and asset compiler without optional feature arguments."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "commands.jsonl"
+            stub = root / "build_stub.py"
+            stub.write_text(
+                "import json, os, sys\n"
+                "with open(os.environ['PACKAGE_TEST_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            )
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
+            log.write_text("")
+            subprocess.run(
+                ["make", "--no-print-directory", "package-binaries",
+                 f"CARGO={command} cargo", f"GO={command} go"],
+                cwd=ROOT, env={**os.environ, "PACKAGE_TEST_LOG": str(log)},
+                capture_output=True, text=True, check=True,
+            )
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            args = next(args for tool, *args in calls if tool == "cargo")
+            self.assertNotIn("--features", args)
+            packages = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
+            self.assertIn("cinnabar", packages)
+            self.assertIn("asset-compiler", packages)
+
     def test_runtime_table_has_unique_names_packages_and_overrides(self):
         """All consumers receive complete, unambiguous runtime binary records."""
         rows = [line.split() for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines()]
@@ -35,6 +84,7 @@ class PackageBinariesTests(unittest.TestCase):
         rendered = template.replace("@BUNDLE_ID@", "app.cinnabar.test").replace("@VERSION@", "1.0.0")
         plist = plistlib.loads(rendered.encode())
         self.assertIs(plist.get("LSSupportsGameMode"), True)
+        self.assertIs(plist.get("GCSupportsControllerUserInteraction"), True)
         self.assertEqual(plist["LSApplicationCategoryType"], "public.app-category.games")
 
     def test_play_keeps_default_features_with_release_and_tracy(self):

@@ -32,7 +32,7 @@ func (refusedProbeTransport) RoundTrip(*http.Request) (*http.Response, error) {
 
 // stalledAddressedNetwork chooses the library's real RakNet fallback around a fake UDP dialer.
 func stalledAddressedNetwork() addressedServerNetwork {
-	return addressedServerNetwork{minecraft.AddressNetwork{
+	return addressedServerNetwork{AddressNetwork: minecraft.AddressNetwork{
 		RakNet:     minecraft.RakNet{UpstreamDialer: stalledUpstreamDialer{}},
 		HTTPClient: &http.Client{Transport: refusedProbeTransport{}},
 	}}

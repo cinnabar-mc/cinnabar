@@ -1,0 +1,561 @@
+//! Touch artwork, editor transactions and gameplay regions share one geometry authority.
+use super::*;
+use crate::ui_runtime::presentation::forms::pack_harness;
+use launcher::menu::{
+    MenuScreen, MenuView,
+    settings_options::{SettingsOptions, touch_layout::TouchLayout},
+};
+
+/// Whether the crosshair mode, which most of these tests edit, offers a control for placement.
+fn crosshair_placeable(id: u16) -> bool {
+    !matches!(id, touch::LOOK_SURFACE | touch::DPAD)
+}
+
+/// Opens a real touch draft in the crosshair mode through the presentation route.
+fn setup(size: [u32; 2]) -> Option<(UiPresentationRuntime, UiRuntime, MenuView)> {
+    setup_mode(size, TouchControlMode::Crosshair)
+}
+
+/// Opens a real touch draft for `mode`, with optional safe-area insets.
+fn setup_mode(
+    size: [u32; 2],
+    mode: TouchControlMode,
+) -> Option<(UiPresentationRuntime, UiRuntime, MenuView)> {
+    let Some(mut presentation) = pack_harness::engine_presentation() else {
+        eprintln!(
+            "skipping touch_editor presentation tests: missing installed UI carrier (make assets)"
+        );
+        return None;
+    };
+    presentation.set_touch_control_mode(mode);
+    let runtime = pack_harness::menu_runtime();
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Settings;
+    view.touch_available = true;
+    view.touch_editor_open = true;
+    presentation.set_menu_view(Some(view.clone()));
+    paint(&mut presentation, &runtime, size);
+    Some((presentation, runtime, view))
+}
+/// Builds the full production menu frame, including touch artwork and editor chrome.
+fn paint(p: &mut UiPresentationRuntime, runtime: &UiRuntime, size: [u32; 2]) {
+    p.build(
+        &player_state::PlayerState::new(1),
+        runtime,
+        1000,
+        size,
+        ui::DpiScale::new(1.).unwrap(),
+    )
+    .unwrap();
+}
+/// Repaints the gameplay overlay before Settings, as an in-world HUD may do on resize.
+fn paint_overlay(p: &mut UiPresentationRuntime, runtime: &UiRuntime, size: [u32; 2]) {
+    p.enable_touch_controls(true);
+    let metrics = TextMetrics::for_viewport(size, ui::DpiScale::new(1.).unwrap(), None);
+    p.append_touch_controls(
+        runtime,
+        &mut Vec::new(),
+        &mut 0,
+        metrics,
+        size.map(|side| side as f32),
+    )
+    .unwrap();
+}
+
+/// Sends a complete gesture through the shared editor's retained hit regions.
+fn drag(p: &mut UiPresentationRuntime, name: &str, delta: [f32; 2], release: bool) {
+    let [x, y, w, h] = p.touch_editor_bounds(name).unwrap();
+    let at = [x + w / 2., y + h / 2.];
+    p.touch_editor_pointer(at, true, true);
+    let moved = [at[0] + delta[0], at[1] + delta[1]];
+    p.touch_editor_pointer(moved, false, true);
+    if release {
+        p.touch_editor_pointer(moved, false, false);
+    }
+}
+#[test]
+fn touch_editor_save_changes_drawn_and_active_regions_and_survives_reload() {
+    let Some((mut p, runtime, _view)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("jump").unwrap();
+    drag(&mut p, "jump", [-140., -90.], true);
+    paint(&mut p, &runtime, [1280, 720]);
+    let moved = p.touch_editor_bounds("jump").unwrap();
+    assert!(moved[0] < original[0] - 100.);
+    assert!(p.gameplay_touch_region([0.5, 0.5], [1280., 720.]).is_none());
+    p.touch_editor_key("Enter", Default::default());
+    let layout = p.take_touch_editor_result().unwrap().unwrap();
+    let mut settings = SettingsOptions::default();
+    settings.set_touch_layout(layout);
+    let decoded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    p.set_chat_settings_snapshot((Arc::new(decoded), None));
+    p.set_menu_view(None);
+    p.enable_touch_controls(true);
+    let mut nodes = Vec::new();
+    let mut next = 0;
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.).unwrap(), None);
+    p.append_touch_controls(&runtime, &mut nodes, &mut next, metrics, [1280., 720.])
+        .unwrap();
+    let at = [
+        (moved[0] + moved[2] / 2.) / 1280.,
+        (moved[1] + moved[3] / 2.) / 720.,
+    ];
+    assert_eq!(
+        p.gameplay_touch_region(at, [1280., 720.]).unwrap().hit_id,
+        touch::JUMP
+    );
+    let at = [
+        (original[0] + original[2] / 2.) / 1280.,
+        (original[1] + original[3] / 2.) / 720.,
+    ];
+    assert_ne!(
+        p.gameplay_touch_region(at, [1280., 720.]).unwrap().hit_id,
+        touch::JUMP
+    );
+}
+#[test]
+fn touch_editor_cancel_and_cancelled_finger_preserve_the_committed_layout() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("joystick").unwrap();
+    drag(&mut p, "joystick", [130., -80.], false);
+    p.cancel_touch_editor_pointer();
+    paint(&mut p, &runtime, [1280, 720]);
+    assert_eq!(p.touch_editor_bounds("joystick").unwrap(), original);
+    drag(&mut p, "joystick", [130., -80.], true);
+    p.touch_editor_key("Escape", Default::default());
+    assert!(p.take_touch_editor_result().unwrap().is_none());
+    assert_eq!(p.screens.touch.saved, TouchLayout::default());
+}
+#[test]
+fn touch_editor_includes_every_button_and_keeps_layout_inside_resized_safe_area() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    assert_eq!(
+        p.screens.touch.editor.as_ref().unwrap().draft().cards.len(),
+        CONTROLS.len() - 2
+    );
+    for &(name, id) in CONTROLS {
+        assert_eq!(
+            p.touch_editor_bounds(name).is_some(),
+            crosshair_placeable(id),
+            "{name}"
+        );
+    }
+    p.set_safe_area(ui::SafeArea::new(12., 8., 14., 6.).unwrap());
+    paint(&mut p, &runtime, [854, 480]);
+    for &(name, id) in CONTROLS {
+        if !crosshair_placeable(id) {
+            continue;
+        }
+        let [x, y, w, h] = p.touch_editor_bounds(name).unwrap();
+        assert!(
+            x >= 12. && y >= 8. && x + w <= 840.1 && y + h <= 474.1,
+            "{name}: {x},{y},{w},{h}"
+        );
+    }
+}
+
+/// The editor offers the classic mode's own controls, and a saved pad moves its hit area.
+#[test]
+fn touch_editor_places_the_classic_controls() {
+    let Some((mut p, runtime, _)) = setup_mode([1280, 720], TouchControlMode::Classic) else {
+        return;
+    };
+    for (name, shown) in [
+        ("dpad", true),
+        ("sprint", true),
+        ("sneak", true),
+        ("joystick", false),
+        ("jump", false),
+        ("attack", false),
+        ("use", false),
+    ] {
+        assert_eq!(p.touch_editor_bounds(name).is_some(), shown, "{name}");
+    }
+    p.close_touch_editor();
+    p.enable_touch_controls(true);
+    let mut layout = TouchLayout::default();
+    layout.set("dpad", [0.5, 0.5]);
+    p.screens.touch.saved = layout;
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.).unwrap(), None);
+    p.append_touch_controls(&runtime, &mut Vec::new(), &mut 0, metrics, [1280., 720.])
+        .unwrap();
+    let window = [1280., 720.];
+    assert_eq!(
+        p.gameplay_touch_region([0.5, 0.5], window)
+            .map(|hit| hit.hit_id),
+        Some(touch::JUMP)
+    );
+    assert_eq!(
+        p.gameplay_touch_region([0.5, 0.3], window)
+            .map(|hit| hit.hit_id),
+        Some(touch::DPAD)
+    );
+}
+
+/// The editor starts and resets the pad where gameplay fits it, fully on screen.
+#[test]
+fn touch_editor_keeps_the_fitted_dpad_position() {
+    let Some((mut p, runtime, _)) = setup_mode([1280, 720], TouchControlMode::Classic) else {
+        return;
+    };
+    let fitted = p.touch_editor_bounds("dpad").unwrap();
+    let [x, y, w, h] = fitted;
+    assert!(
+        x >= -0.1 && y >= -0.1 && x + w <= 1280.1 && y + h <= 720.1,
+        "{fitted:?}"
+    );
+    drag(&mut p, "dpad", [300., -120.], true);
+    paint(&mut p, &runtime, [1280, 720]);
+    assert_ne!(p.touch_editor_bounds("dpad").unwrap(), fitted);
+    let [ax, ay, aw, ah] = p.touch_editor_action_bounds("hud.reset").unwrap();
+    p.touch_editor_pointer([ax + aw / 2., ay + ah / 2.], true, true);
+    p.touch_editor_pointer([ax + aw / 2., ay + ah / 2.], false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    assert_eq!(p.touch_editor_bounds("dpad").unwrap(), fitted);
+    p.close_touch_editor();
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    let frame = p.screens.touch.frame.as_ref().unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| control_id(hit.pressed.as_deref()) == Some(touch::DPAD))
+        .unwrap();
+    let painted = [
+        frame.origin[0] + hit.rect.x as f32 * frame.scale,
+        frame.origin[1] + hit.rect.y as f32 * frame.scale,
+    ];
+    assert!(
+        (painted[0] - x).abs() < 0.1 && (painted[1] - y).abs() < 0.1,
+        "gameplay {painted:?} != editor {fitted:?}"
+    );
+}
+
+/// Every editable control must move its actual artwork and hit area, including packed utilities.
+#[test]
+fn touch_editor_saved_positions_move_every_control_hit_area() {
+    let Some(mut p) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::menu_runtime();
+    p.enable_touch_controls(true);
+    p.set_touch_control_mode(TouchControlMode::Crosshair);
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.).unwrap(), None);
+    for &(name, id) in CONTROLS {
+        if !crosshair_placeable(id) {
+            continue;
+        }
+        let mut layout = TouchLayout::default();
+        layout.set(name, [0.4, 0.35]);
+        p.screens.touch.saved = layout;
+        let mut nodes = Vec::new();
+        let mut next = 0;
+        p.append_touch_controls(&runtime, &mut nodes, &mut next, metrics, [1280., 720.])
+            .unwrap();
+        let base = p.screens.touch.base.as_ref().unwrap();
+        let hit = base
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+            .unwrap();
+        let at = [
+            0.4 * (1280. - hit.rect.w as f32 * base.scale) + hit.rect.w as f32 * base.scale / 2.,
+            0.35 * (720. - hit.rect.h as f32 * base.scale) + hit.rect.h as f32 * base.scale / 2.,
+        ];
+        assert_eq!(
+            p.gameplay_touch_region([at[0] / 1280., at[1] / 720.], [1280., 720.])
+                .map(|hit| hit.hit_id),
+            Some(id),
+            "{name}"
+        );
+    }
+}
+
+/// A corner drag grows the drawn control and its gameplay touch area together, keeping the
+/// opposite corner fixed, and the saved scale survives a settings round trip.
+#[test]
+fn touch_editor_corner_resize_scales_drawn_and_active_regions_and_survives_reload() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("jump").unwrap();
+    let index = p.touch_editor_card_index("jump").unwrap();
+    // The top-left handle grows the control up and left from its bottom-right corner.
+    let [x, y, w, h] = p
+        .touch_editor_action_bounds(&format!("hud.resize:{index}:0"))
+        .expect("resizable touch controls paint corner handles");
+    let at = [x + w / 2., y + h / 2.];
+    let to = [at[0] - original[2] / 2., at[1] - original[3] / 2.];
+    p.touch_editor_pointer(at, true, true);
+    p.touch_editor_pointer(to, false, true);
+    p.touch_editor_pointer(to, false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    let resized = p.touch_editor_bounds("jump").unwrap();
+    assert!(resized[2] > original[2] * 1.3, "{resized:?} {original:?}");
+    assert!(((resized[2] / resized[3]) - (original[2] / original[3])).abs() < 0.01);
+    for axis in 0..2 {
+        let far = |rect: [f32; 4]| rect[axis] + rect[axis + 2];
+        assert!(
+            (far(resized) - far(original)).abs() < 1.5,
+            "{resized:?} {original:?}"
+        );
+    }
+    p.touch_editor_key("Enter", Default::default());
+    let layout = p.take_touch_editor_result().unwrap().unwrap();
+    let scale = layout.scale("jump");
+    assert!((scale - resized[2] / original[2]).abs() < 0.01, "{scale}");
+    let mut settings = SettingsOptions::default();
+    settings.set_touch_layout(layout);
+    let decoded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert_eq!(decoded.touch_layout().scale("jump"), scale);
+    p.set_chat_settings_snapshot((Arc::new(decoded), None));
+    p.set_menu_view(None);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    // The grown area beyond the original top-left corner now presses jump.
+    let inside_growth = [
+        (resized[0] + (original[0] - resized[0]) / 2.) / 1280.,
+        (resized[1] + (original[1] - resized[1]) / 2.) / 720.,
+    ];
+    let region = p
+        .gameplay_touch_region(inside_growth, [1280., 720.])
+        .unwrap();
+    assert_eq!(region.hit_id, touch::JUMP);
+    let painted = [
+        region.bounds.min[0] * 1280.,
+        region.bounds.min[1] * 720.,
+        (region.bounds.max[0] - region.bounds.min[0]) * 1280.,
+        (region.bounds.max[1] - region.bounds.min[1]) * 720.,
+    ];
+    for axis in 0..4 {
+        assert!(
+            (painted[axis] - resized[axis]).abs() < 1.5,
+            "{painted:?} {resized:?}"
+        );
+    }
+}
+
+/// Returning a resized control to its authored size restores its drawn touch area, and the
+/// factory measurement never inherits a scale from an earlier paint.
+#[test]
+fn touch_controls_return_to_unit_scale_after_a_resize() {
+    let Some(mut p) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::menu_runtime();
+    p.set_touch_control_mode(TouchControlMode::Crosshair);
+    let jump_width = |p: &UiPresentationRuntime| {
+        let frame = p.screens.touch.frame.as_ref().unwrap();
+        let hit = frame
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(touch::JUMP))
+            .unwrap();
+        region_bounds(frame, hit, [1280., 720.], touch::JUMP)
+            .map(|region| region.bounds.max[0] - region.bounds.min[0])
+            .unwrap()
+    };
+    let mut scaled = TouchLayout::default();
+    scaled.set_scaled("jump", [0.5, 0.5], 2.);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    let unit = jump_width(&p);
+    p.screens.touch.saved = scaled;
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - 2. * unit).abs() < 0.002);
+    // A new viewport remeasures the factory geometry through the same retained screen.
+    paint_overlay(&mut p, &runtime, [1000, 720]);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - 2. * unit).abs() < 0.002);
+    let mut placed = TouchLayout::default();
+    placed.set("jump", [0.5, 0.5]);
+    p.screens.touch.saved = placed;
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - unit).abs() < 0.002);
+}
+
+/// Snap, undo, redo and Reset use the same completed gesture history as mod layout editing.
+#[test]
+fn touch_editor_alignment_history_and_reset_keep_factory_layout_available() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("jump").unwrap();
+    let at = [
+        original[0] + original[2] / 2.,
+        original[1] + original[3] / 2.,
+    ];
+    p.touch_editor_pointer(at, true, true);
+    p.touch_editor_pointer([640. + original[2] / 2. + 2., 300.], false, true);
+    paint(&mut p, &runtime, [1280, 720]);
+    assert!((p.touch_editor_bounds("jump").unwrap()[0] - 640.).abs() < 0.1);
+    p.touch_editor_pointer([640. + original[2] / 2. + 2., 300.], false, false);
+    p.touch_editor_key(
+        "KeyZ",
+        ui::mod_panel::FieldModifiers {
+            control: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(p.touch_editor_bounds("jump").unwrap(), original);
+    p.touch_editor_key(
+        "KeyY",
+        ui::mod_panel::FieldModifiers {
+            control: true,
+            ..Default::default()
+        },
+    );
+    assert!(p.touch_editor_bounds("jump").unwrap()[0] < original[0] - 100.);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    paint(&mut p, &runtime, [1280, 720]);
+    let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
+    p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
+    p.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    assert_eq!(p.touch_editor_bounds("jump").unwrap(), original);
+    p.touch_editor_key("Enter", Default::default());
+    assert_eq!(
+        p.take_touch_editor_result().unwrap().unwrap(),
+        TouchLayout::default()
+    );
+}
+
+/// Changing automatic GUI scale must not turn factory placements into user customization.
+#[test]
+fn touch_editor_factory_layout_matches_fresh_geometry_after_scale_changing_resize() {
+    let Some((mut p, runtime, _)) = setup([1366, 768]) else {
+        return;
+    };
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    paint(&mut p, &runtime, [1280, 720]);
+    let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
+    p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
+    p.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    let base = p.screens.touch.base.as_ref().unwrap();
+    for &(name, id) in CONTROLS {
+        if !crosshair_placeable(id) {
+            continue;
+        }
+        let hit = base
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+            .unwrap();
+        let expected = [
+            base.origin[0] + hit.rect.x as f32 * base.scale,
+            base.origin[1] + hit.rect.y as f32 * base.scale,
+            hit.rect.w as f32 * base.scale,
+            hit.rect.h as f32 * base.scale,
+        ];
+        let actual = p.touch_editor_bounds(name).unwrap();
+        assert!(
+            (0..4).all(|axis| (actual[axis] - expected[axis]).abs() < 0.1),
+            "{name}: {actual:?} != {expected:?}"
+        );
+    }
+    p.touch_editor_key("Enter", Default::default());
+    assert_eq!(
+        p.take_touch_editor_result().unwrap().unwrap(),
+        TouchLayout::default()
+    );
+}
+
+/// A moved control and its undo/redo history survive a new proportional factory geometry.
+#[test]
+fn touch_editor_resize_reflows_defaults_without_losing_custom_history() {
+    let Some((mut p, runtime, _)) = setup([1280, 720]) else {
+        return;
+    };
+    let original = p.touch_editor_bounds("jump").unwrap();
+    drag(&mut p, "jump", [-180., 70.], true);
+    paint(&mut p, &runtime, [1280, 720]);
+    let moved = p.touch_editor_bounds("jump").unwrap();
+    let position = [moved[0] / (1280. - moved[2]), moved[1] / (720. - moved[3])];
+    paint_overlay(&mut p, &runtime, [854, 480]);
+    paint(&mut p, &runtime, [854, 480]);
+    let actual = p.touch_editor_bounds("jump").unwrap();
+    assert!((actual[2] - 480. * 0.1375).abs() < 0.1);
+    assert!((actual[0] / (854. - actual[2]) - position[0]).abs() < 0.001);
+    assert!((actual[1] / (480. - actual[3]) - position[1]).abs() < 0.001);
+    let modifiers = ui::mod_panel::FieldModifiers {
+        control: true,
+        ..Default::default()
+    };
+    p.touch_editor_key("KeyZ", modifiers);
+    paint(&mut p, &runtime, [854, 480]);
+    let reset = p.touch_editor_bounds("jump").unwrap();
+    assert!((reset[0] + reset[2] / 2. - 854. * 0.925).abs() < 0.1);
+    assert!((reset[1] + reset[3] / 2. - 480. * 0.4).abs() < 0.1);
+    p.touch_editor_key("KeyY", modifiers);
+    paint(&mut p, &runtime, [854, 480]);
+    assert_eq!(p.touch_editor_bounds("jump").unwrap(), actual);
+    assert!(original[0] > moved[0]);
+}
+
+/// An untouched native preview keeps even a partially clipped control at its authored origin.
+fn assert_factory_layout(p: &UiPresentationRuntime) {
+    let base = p.screens.touch.base.as_ref().unwrap();
+    for &(name, id) in CONTROLS {
+        if !crosshair_placeable(id) {
+            continue;
+        }
+        let hit = base
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(id))
+            .unwrap();
+        let expected = [
+            base.origin[0] + hit.rect.x as f32 * base.scale,
+            base.origin[1] + hit.rect.y as f32 * base.scale,
+            hit.rect.w as f32 * base.scale,
+            hit.rect.h as f32 * base.scale,
+        ];
+        let actual = p.touch_editor_bounds(name).unwrap();
+        assert!(
+            (0..4).all(|axis| (expected[axis] - actual[axis]).abs() < 0.1),
+            "{name}: {actual:?} != {expected:?}"
+        );
+    }
+}
+
+/// Large measured controls preserve factory bounds and do not become custom on Save or Reset.
+#[test]
+fn touch_editor_opens_and_resizes_with_tall_desktop_geometry() {
+    for initial in [[720, 1600], [1280, 720]] {
+        for reset in [false, true] {
+            let Some((mut p, runtime, _)) = setup(initial) else {
+                return;
+            };
+            paint_overlay(&mut p, &runtime, [720, 1600]);
+            paint(&mut p, &runtime, [720, 1600]);
+            assert_factory_layout(&p);
+            let actual = p.touch_editor_bounds("joystick").unwrap();
+            assert!((actual[2] - 1600. / 3.).abs() < 0.1);
+            p.screens
+                .touch
+                .editor
+                .as_ref()
+                .unwrap()
+                .draft()
+                .validate()
+                .unwrap();
+            if reset {
+                drag(&mut p, "jump", [-60., 60.], true);
+                paint(&mut p, &runtime, [720, 1600]);
+                let [x, y, w, h] = p.touch_editor_action_bounds("hud.reset").unwrap();
+                p.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
+                p.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
+                paint(&mut p, &runtime, [720, 1600]);
+                assert_factory_layout(&p);
+            }
+            p.touch_editor_key("Enter", Default::default());
+            assert_eq!(
+                p.take_touch_editor_result().unwrap().unwrap(),
+                TouchLayout::default()
+            );
+        }
+    }
+}

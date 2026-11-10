@@ -199,8 +199,12 @@ fn publish_debug_overlay(
     let record_session = settings
         .as_ref()
         .is_some_and(|(settings, _)| settings.record_network_session());
-    let toggled = !menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
-        && state.bindings.pressed(&keys, context.mouse.as_deref());
+    let touch_toggled = presentation
+        .bypass_change_detection()
+        .take_touch_debug_toggle();
+    let toggled = touch_toggled
+        ^ (!menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
+            && state.bindings.pressed(&keys, context.mouse.as_deref()));
     if toggled {
         state.visible = !state.visible;
         if !state.visible {
@@ -244,9 +248,16 @@ fn publish_debug_overlay(
 
             if chord_g {
                 state.show_chunk_borders = !state.show_chunk_borders;
-                let status = if state.show_chunk_borders { "shown" } else { "hidden" };
+                let status = if state.show_chunk_borders {
+                    "shown"
+                } else {
+                    "hidden"
+                };
                 if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(std::sync::Arc::from(format!("[Debug] Chunk borders: {status}")), now);
+                    ui.push_local_chat_line(
+                        std::sync::Arc::from(format!("[Debug] Chunk borders: {status}")),
+                        now,
+                    );
                 }
             }
             if chord_a {
@@ -254,31 +265,42 @@ fn publish_debug_overlay(
                     let _ = stream.remesh_all_resident(chunk_pipeline::web_time::Instant::now());
                 }
                 if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(std::sync::Arc::from("[Debug] Reloading all chunks"), now);
+                    ui.push_local_chat_line(
+                        std::sync::Arc::from("[Debug] Reloading all chunks"),
+                        now,
+                    );
                 }
             }
             if chord_d {
                 if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.clear_chat_messages();
+                    ui.session.chat.clear();
                     ui.push_local_chat_line(std::sync::Arc::from("[Debug] Cleared chat"), now);
                 }
             }
             if chord_q {
                 if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(std::sync::Arc::from("[Debug] F3 + A = Reload chunks"), now);
-                    ui.push_local_chat_line(std::sync::Arc::from("[Debug] F3 + D = Clear chat"), now);
-                    ui.push_local_chat_line(std::sync::Arc::from("[Debug] F3 + G = Show chunk borders"), now);
-                    ui.push_local_chat_line(std::sync::Arc::from("[Debug] F3 + Q = Show this help list"), now);
+                    ui.push_local_chat_line(
+                        std::sync::Arc::from("[Debug] F3 + A = Reload chunks"),
+                        now,
+                    );
+                    ui.push_local_chat_line(
+                        std::sync::Arc::from("[Debug] F3 + D = Clear chat"),
+                        now,
+                    );
+                    ui.push_local_chat_line(
+                        std::sync::Arc::from("[Debug] F3 + G = Show chunk borders"),
+                        now,
+                    );
+                    ui.push_local_chat_line(
+                        std::sync::Arc::from("[Debug] F3 + Q = Show this help list"),
+                        now,
+                    );
                 }
             }
         }
     }
 
-    update_debug_visuals(
-        state.show_chunk_borders,
-        &context,
-        &mut mod_scene,
-    );
+    update_debug_visuals(state.show_chunk_borders, &context, &mut mod_scene);
     // The overlay names the slowest passes once per refresh, so one timed frame per refresh
     // suffices; it is read back before the next refresh.
     let wanted = state.visible && (toggled || timing_updated);
@@ -360,6 +382,7 @@ fn publish_debug_overlay(
     state.publication_present = true;
 }
 
+/// Appends a constant-width world line as camera-facing triangles.
 fn append_debug_line(
     out: &mut Vec<mod_render::geometry::ModVertex>,
     a: [f32; 3],
@@ -395,6 +418,7 @@ fn append_debug_line(
     }
 }
 
+/// Appends the twelve edges of an axis-aligned debug box.
 fn append_debug_box(
     out: &mut Vec<mod_render::geometry::ModVertex>,
     min: [f32; 3],
@@ -413,15 +437,25 @@ fn append_debug_box(
         [min[0], max[1], max[2]],
     ];
     let edges = [
-        (0, 1), (1, 2), (2, 3), (3, 0),
-        (4, 5), (5, 6), (6, 7), (7, 4),
-        (0, 4), (1, 5), (2, 6), (3, 7),
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
     ];
     for (i, j) in edges {
         append_debug_line(out, corners[i], corners[j], color, width_pixels);
     }
 }
 
+/// Publishes chunk-border geometry or clears it when the toggle is off.
 fn update_debug_visuals(
     show_chunk_borders: bool,
     context: &DebugContext,
@@ -440,7 +474,8 @@ fn update_debug_visuals(
     }
     let mut debug_vertices = Vec::new();
     if show_chunk_borders {
-        if let Some((pos, _, _)) = spatial::player_origins(&context.frame, context.view.as_deref()) {
+        if let Some((pos, _, _)) = spatial::player_origins(&context.frame, context.view.as_deref())
+        {
             let cx = (pos.x / 16.0).floor() as i32;
             let cz = (pos.z / 16.0).floor() as i32;
             let min_x = cx as f32 * 16.0;
@@ -448,10 +483,34 @@ fn update_debug_visuals(
             let min_z = cz as f32 * 16.0;
             let max_z = min_z + 16.0;
 
-            append_debug_line(&mut debug_vertices, [min_x, -64.0, min_z], [min_x, 320.0, min_z], [1.0, 1.0, 0.0, 1.0], 1.5);
-            append_debug_line(&mut debug_vertices, [max_x, -64.0, min_z], [max_x, 320.0, min_z], [1.0, 1.0, 0.0, 1.0], 1.5);
-            append_debug_line(&mut debug_vertices, [min_x, -64.0, max_z], [min_x, 320.0, max_z], [1.0, 1.0, 0.0, 1.0], 1.5);
-            append_debug_line(&mut debug_vertices, [max_x, -64.0, max_z], [max_x, 320.0, max_z], [1.0, 1.0, 0.0, 1.0], 1.5);
+            append_debug_line(
+                &mut debug_vertices,
+                [min_x, -64.0, min_z],
+                [min_x, 320.0, min_z],
+                [1.0, 1.0, 0.0, 1.0],
+                1.5,
+            );
+            append_debug_line(
+                &mut debug_vertices,
+                [max_x, -64.0, min_z],
+                [max_x, 320.0, min_z],
+                [1.0, 1.0, 0.0, 1.0],
+                1.5,
+            );
+            append_debug_line(
+                &mut debug_vertices,
+                [min_x, -64.0, max_z],
+                [min_x, 320.0, max_z],
+                [1.0, 1.0, 0.0, 1.0],
+                1.5,
+            );
+            append_debug_line(
+                &mut debug_vertices,
+                [max_x, -64.0, max_z],
+                [max_x, 320.0, max_z],
+                [1.0, 1.0, 0.0, 1.0],
+                1.5,
+            );
 
             let mut y = -64.0;
             while y <= 320.0 {

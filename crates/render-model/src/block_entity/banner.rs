@@ -5,6 +5,7 @@
 
 use assets::block_entity_geometry::{self as geometry, BoxSpec};
 use glam::{Mat4, Vec3};
+use std::sync::Arc;
 
 use super::{
     atlas::BlockEntityAtlas,
@@ -42,7 +43,7 @@ pub struct BannerModel {
     pub mount: BannerMount,
     /// Linear-space RGB base dye color.
     pub base: [f32; 3],
-    pub layers: Vec<BannerLayer>,
+    pub layers: Arc<[BannerLayer]>,
 }
 
 use assets::banner::MAX_BANNER_LAYERS;
@@ -100,8 +101,8 @@ pub(super) fn emit(
         cloth_box(0.0),
         tint(model.base),
     );
-    // One name buffer serves every layer, so a swaying banner allocates at most once per frame.
-    let mut name = String::new();
+    // The same name buffer serves every pattern and subsequent frames.
+    let mut name = std::mem::take(&mut builder.texture_name);
     for (index, layer) in model.layers.iter().take(MAX_BANNER_LAYERS).enumerate() {
         name.clear();
         name.push_str(BANNER_PATTERN_TEXTURE_PREFIX);
@@ -117,6 +118,7 @@ pub(super) fn emit(
             tint(layer.color),
         );
     }
+    builder.texture_name = name;
 }
 
 /// Converts downward model-part Y coordinates into upward world model pixels.

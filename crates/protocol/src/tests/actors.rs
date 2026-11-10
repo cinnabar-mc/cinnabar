@@ -1,19 +1,19 @@
-use bedrock_protocol_1_26_51::enums::{
-    ActorLinkType as VendorActorLinkType, DataItemType, GameType,
+use bedrock_protocol_1_26_60::enums::{
+    ActorLinkType as VendorActorLinkType, DataItemType, LevelGameType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     AddActor as AddActorPacket, AddPlayer as AddPlayerPacket,
     MoveActorAbsolute as MoveActorAbsolutePacket, MoveActorDelta as MoveActorDeltaPacket,
     PlayerList as PlayerListPacket, RemoveActor as RemoveActorPacket,
     SetActorData as SetActorDataPacket, UpdateAttributes as UpdateAttributesPacket,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ActorUniqueID, AttributeData, DataItemEntry, DataItemEntryValue, EntityLink,
     MoveActorAbsoluteData, MoveActorDeltaData, PlayerInputTick, PlayerListData, PropertySyncData,
     PropertySyncDataPropertySyncFloatEntry, PropertySyncDataPropertySyncIntEntry,
     SerializedAbilitiesData, SerializedSkinRef, SkinImage, SynchedActorDataCopyableDataList,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
     PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, WorldEvent, into_world_event,
@@ -44,6 +44,7 @@ fn float_actor_data(id: i32, value: f32) -> DataItemEntry {
 /// One player-list add record with every other field left at its default.
 fn add_entry(unique_id: i64, name: &str, serialized_skin: SerializedSkinRef) -> PlayerListData {
     PlayerListData::AddEntry {
+        play_fab_id: Default::default(),
         action: Default::default(),
         uuid: Default::default(),
         actor_unique_id: ActorUniqueID(unique_id),
@@ -129,7 +130,7 @@ fn add_player_and_remove_entity_preserve_both_actor_id_domains() {
     let add = protocol::Packet::new(AddPlayerPacket {
         uuid,
         player_name: "Alex".into(),
-        player_game_type: GameType::Spectator,
+        player_game_type: LevelGameType::Spectator,
         // AddPlayer has no standalone unique ID in 1.26.40; the spawned player's
         // unique ID is the first field of the embedded ability data.
         abilities_data: SerializedAbilitiesData {
@@ -199,7 +200,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
             actor_runtime_id: ActorRuntimeID(55),
             new_position_x: Some(wire::F32LE(7.5)),
             new_position_y: Some(wire::F32LE(8.25)),
-            // Bedrock reads rotation bytes unsigned; the generator types them i8.
+            // The signed byte keeps this quarter turn negative.
             rotation_y: Some(wire::I8(192_u8 as i8)),
             is_on_ground: true,
             ..Default::default()
@@ -216,7 +217,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(absolute.position_origin, ActorPositionOrigin::NetworkOffset);
     assert_eq!(absolute.yaw, Some(90.0));
     assert_eq!(absolute.pitch, Some(45.0));
-    assert_eq!(absolute.head_yaw, Some(180.0));
+    assert_eq!(absolute.head_yaw, Some(-180.0));
     assert_eq!(absolute.on_ground, Some(true));
     assert!(absolute.teleported);
 
@@ -229,10 +230,45 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     // Vanilla merges deltas into the previous absolute data,
     // so both forms share the absolute network origin.
     assert_eq!(delta.position_origin, ActorPositionOrigin::NetworkOffset);
-    assert_eq!(delta.yaw, Some(270.0));
+    assert_eq!(delta.yaw, Some(-90.0));
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));
     assert!(!delta.teleported);
+}
+
+#[test]
+fn actor_rotation_bytes_decode_as_signed_turns_in_absolute_and_delta_packets() {
+    for byte in 0..=u8::MAX {
+        let expected = f32::from(byte as i8) * (360.0 / 256.0);
+        let packets = [
+            protocol::Packet::new(MoveActorAbsolutePacket {
+                move_data: MoveActorAbsoluteData {
+                    rotation_x: wire::U8(byte),
+                    rotation_y: wire::U8(byte),
+                    rotation_y_head: wire::U8(byte),
+                    ..Default::default()
+                },
+            }),
+            protocol::Packet::new(MoveActorDeltaPacket {
+                move_data: MoveActorDeltaData {
+                    rotation_x: Some(wire::I8(byte as i8)),
+                    rotation_y: Some(wire::I8(byte as i8)),
+                    rotation_y_head: Some(wire::I8(byte as i8)),
+                    ..Default::default()
+                },
+            }),
+        ];
+        for packet in packets {
+            let Some(WorldEvent::Actor(ActorEvent::Move(movement))) =
+                into_world_event(packet, 0).unwrap()
+            else {
+                panic!("expected actor movement");
+            };
+            assert_eq!(movement.pitch, Some(expected), "byte {byte}");
+            assert_eq!(movement.yaw, Some(expected), "byte {byte}");
+            assert_eq!(movement.head_yaw, Some(expected), "byte {byte}");
+        }
+    }
 }
 
 #[test]

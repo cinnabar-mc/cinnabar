@@ -194,12 +194,14 @@ mod tests {
             stages: vec![],
             diagnostics: vec![],
             reflection: None,
+            geometry: None,
             draw_buffers: vec![],
             consts: vec![shaderpack::ConstDirective {
                 ty: "float".into(),
                 name: "sunPathRotation".into(),
                 value: value.into(),
             }],
+            released_overrides: 0,
         }
     }
 

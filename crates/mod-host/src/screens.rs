@@ -118,6 +118,22 @@ pub struct LoadedPackage {
 }
 
 impl ModHost {
+    /// Keeps undelivered connection catalogs and closure notifications, replacing departed
+    /// screen geometry and edits with the current closed layout before callbacks resume.
+    pub(crate) fn clear_world_events(&mut self) {
+        self.pending_events
+            .retain(|event| matches!(event, ModEvent::DataChanged(_) | ModEvent::ViewClosed));
+        let closed = self.instance.view_open();
+        self.layout = None;
+        self.instance.set_layout(None);
+        if self.instance.has_events() {
+            self.pending_events.insert(0, ModEvent::ScreenChanged(None));
+            if closed && !self.pending_events.contains(&ModEvent::ViewClosed) {
+                self.pending_events.push(ModEvent::ViewClosed);
+            }
+        }
+    }
+
     /// The modifiers held with the events about to be dispatched (`screen.held-modifiers`).
     pub fn set_held_modifiers(&mut self, held: KeyModifiers) {
         self.instance.set_held_modifiers(held);
@@ -141,6 +157,12 @@ impl ModHost {
             return Ok(CallbackOutcome::Executed);
         }
         self.scope_text_changes(&mut events)?;
+        if events
+            .iter()
+            .any(|event| matches!(event, ModEvent::TextChanged { .. }))
+        {
+            self.instance.screen_edited();
+        }
         let mut incoming = std::mem::take(&mut self.pending_events);
         incoming.extend(events);
         let mut incoming = ModEvent::coalesce(incoming).into_iter();
@@ -152,14 +174,14 @@ impl ModHost {
                 self.instance.set_layout(layout.clone());
             }
             let outcome = self.instance.dispatch(&event)?;
-            if outcome == CallbackOutcome::Deferred {
+            if outcome != CallbackOutcome::Executed {
                 self.retain_lifecycle(std::iter::once(event).chain(incoming));
                 if closed {
                     self.retain_lifecycle(std::iter::once(ModEvent::ViewClosed));
                 }
                 return Ok(outcome);
             }
-            if closed && self.instance.dispatch(&ModEvent::ViewClosed)? == CallbackOutcome::Deferred
+            if closed && self.instance.dispatch(&ModEvent::ViewClosed)? != CallbackOutcome::Executed
             {
                 self.retain_lifecycle(std::iter::once(ModEvent::ViewClosed));
             }
@@ -287,7 +309,7 @@ impl ModHost {
         self.instance.last_fuel()
     }
 
-    /// The committed overlay, view and bound data; empty after a trap.
+    /// The committed overlay, view and bound data; empty after quarantine.
     pub fn screens(&self) -> &ModScreens {
         self.instance.screens()
     }

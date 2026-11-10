@@ -18,13 +18,13 @@ fn session(player_runtime: &mut player_state::PlayerState, objective: &str) -> U
         .facts
         .publish_player_game_mode(PlayerGameMode::Survival);
     player_runtime.inventory.set_local_selected_slot(0);
-    runtime.hud.set_stats(
+    runtime.session.hud.set_stats(
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
         None,
     );
-    runtime.hud.set_experience(12, 0.3);
+    runtime.session.hud.set_experience(12, 0.3);
     super::retained_hud_tests::install_mixed_scoreboard_slot(
         player_runtime,
         &mut runtime,
@@ -93,9 +93,9 @@ fn session(player_runtime: &mut player_state::PlayerState, objective: &str) -> U
             )
             .unwrap();
     }
-    runtime.hud.set_title(Arc::from("Round 1"), 20, 0);
+    runtime.session.hud.set_title(Arc::from("Round 1"), 20, 0);
     // The tip text: the Lumine array list rides it, on its own slot.
-    runtime.hud.set_tip(
+    runtime.session.hud.set_tip(
         Arc::from("LUMINE PROXY\nAnti Forced Packs\nJava\nJava"),
         21,
         0,

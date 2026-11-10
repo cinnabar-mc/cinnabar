@@ -17,10 +17,15 @@ use {
     ui::IconRef,
 };
 
+/// Prepared variants support borrowed item-name lookups without allocating a temporary key.
+pub(super) type HeldModels = BTreeMap<Box<str>, BTreeMap<u32, HeldModel>>;
+
 /// One item's held model. A sprite item's extruded mesh is built the first time a preview holds
 /// it, since every item has one and most are never held.
 pub(super) struct HeldModel {
     model: PreviewHeldModel,
+    /// An unrestricted authored model keeps the ordinary sprite available as a fallback.
+    authored: Option<PreviewHeldModel>,
     /// The item sprite extruded on first use; `None` for models built up front.
     sprite: Option<usize>,
     extruded: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
@@ -29,7 +34,7 @@ pub(super) struct HeldModel {
 impl HeldModel {
     /// Whether the held geometry follows an item sprite rather than authored or block geometry.
     pub(super) const fn is_sprite(&self) -> bool {
-        self.sprite.is_some()
+        self.authored.is_none() && self.sprite.is_some()
     }
 
     /// Changes a sprite's artwork and mask while retaining its hand placement and glint policy.
@@ -45,9 +50,11 @@ impl HeldModel {
         }
     }
 
-    const fn ready(model: PreviewHeldModel) -> Self {
+    /// Admits an already prepared held mesh without lazy sprite extrusion.
+    pub(super) const fn ready(model: PreviewHeldModel) -> Self {
         Self {
             model,
+            authored: None,
             sprite: None,
             extruded: OnceLock::new(),
         }
@@ -56,9 +63,18 @@ impl HeldModel {
     /// The model with its mesh, extruding a sprite item's sprite from `icons` on first use;
     /// `None` when that sprite has no mesh.
     pub(super) fn model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
-        let Some(sprite) = self.sprite else {
+        if let Some(model) = &self.authored {
+            return Some(model.clone());
+        }
+        if self.sprite.is_none() {
             return Some(self.model.clone());
-        };
+        }
+        self.sprite_model(icons)
+    }
+
+    /// Extrudes the ordinary sprite once, including when an authored model takes precedence.
+    fn sprite_model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
+        let sprite = self.sprite?;
         let vertices = self
             .extruded
             .get_or_init(|| {
@@ -79,57 +95,132 @@ impl HeldModel {
     }
 }
 
+/// Prepares ordinary held routes and literal authored models for both preview hands.
 pub(super) fn prepare(
     atlas: &mut atlas::Atlas,
     entities: &RuntimeEntityAssets,
     icons: &RuntimeIconCatalog,
     icon_refs: &[IconRef],
     equipment: Option<&RuntimeEquipmentCatalog>,
-    blocks: &BTreeMap<u32, IconRef>,
-) -> Result<BTreeMap<ItemVisualKey, HeldModel>, UiPresentationError> {
+    world: &assets::RuntimeAssets,
+) -> Result<(HeldModels, usize), UiPresentationError> {
     let Some(hand_pivots) = player_hands(entities) else {
         // A model without native item bones cannot safely manufacture a grip origin.
-        return Ok(BTreeMap::new());
+        return Ok((BTreeMap::new(), 0));
     };
-    let mut models = BTreeMap::new();
+    use render_model::equipment::blocks::{HeldRoute, held_route};
+    let blocks = render_model::equipment::blocks::prepare_held(Some(world), entities, icons);
+    let alpha = render_model::equipment::blocks::block_alpha_modes(Some(world), &blocks.by_visual);
+    let resident: BTreeMap<_, _> = icons
+        .sprites()
+        .iter()
+        .zip(icon_refs)
+        .map(|(sprite, &source)| {
+            (
+                atlas::key([sprite.width, sprite.height], &sprite.rgba8),
+                source,
+            )
+        })
+        .collect();
+    let mut sources = BTreeMap::new();
+    let mut fallbacks = 0;
+    let mut models = HeldModels::new();
     for entry in icons.entries() {
         let definition = entities.item_visuals().iter().find(|visual| {
             visual.key.identifier == entry.identifier && visual.key.metadata == entry.metadata
         });
-        let model = match definition.map(|definition| definition.route) {
-            Some(ItemVisualDefinitionRoute::BlockItem { block_visual })
-                if blocks.contains_key(&block_visual.0) =>
-            {
-                Some((block(blocks[&block_visual.0], hand_pivots), None))
+        if definition.is_some_and(|definition| {
+            matches!(definition.route, ItemVisualDefinitionRoute::EmptyHand)
+        }) {
+            continue;
+        }
+        let visual = definition.and_then(|definition| match definition.route {
+            ItemVisualDefinitionRoute::BlockItem { block_visual } => Some(block_visual.0),
+            _ => None,
+        });
+        let mut route = held_route(icons, &entry.identifier, entry.metadata, visual, |visual| {
+            blocks.by_visual.contains_key(&visual)
+        })
+        .ok_or(UiPresentationError::InvalidFontTexture)?;
+        if let HeldRoute::Block(visual) = route {
+            let index = blocks.by_visual[&visual];
+            let mode = alpha
+                .get(&visual)
+                .copied()
+                .unwrap_or(render_model::HandItemAlphaMode::Cutout);
+            let source = *sources
+                .entry((index, mode.texture_layer_flag()))
+                .or_insert_with(|| {
+                    let sheet = &blocks.sheets[index];
+                    let mut pixels = sheet.rgba8.clone();
+                    if mode != render_model::HandItemAlphaMode::Blend {
+                        for texel in Arc::make_mut(&mut pixels).as_chunks_mut::<4>().0 {
+                            texel[3] = if mode == render_model::HandItemAlphaMode::Opaque
+                                || texel[3] >= assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD
+                            {
+                                255
+                            } else {
+                                0
+                            };
+                        }
+                    }
+                    let size = [sheet.width, sheet.height];
+                    resident
+                        .get(&atlas::key(size, &pixels))
+                        .copied()
+                        .or_else(|| atlas.insert_or_fallback(size, &pixels))
+                });
+            if source.is_none() {
+                fallbacks += 1;
+                route = HeldRoute::Sprite(
+                    icons
+                        .lookup_held_index(&entry.identifier, entry.metadata)
+                        .ok_or(UiPresentationError::InvalidFontTexture)?,
+                );
             }
-            Some(ItemVisualDefinitionRoute::EmptyHand) => None,
-            _ => {
-                if icons.sprites().get(entry.sprite as usize).is_none() {
+        }
+        let model = match route {
+            HeldRoute::Block(visual) => {
+                let mode = alpha
+                    .get(&visual)
+                    .copied()
+                    .unwrap_or(render_model::HandItemAlphaMode::Cutout);
+                let index = blocks.by_visual[&visual];
+                let source = sources[&(index, mode.texture_layer_flag())]
+                    .ok_or(UiPresentationError::InvalidFontTexture)?;
+                let mut model = block(source, hand_pivots);
+                model.alpha_mode = mode;
+                if let Some(vertices) = blocks.models.get(&visual) {
+                    model.vertices = vertices.as_slice().into();
+                }
+                Some((model, None))
+            }
+            HeldRoute::Sprite(sprite) => {
+                if icons.sprites().get(sprite).is_none() {
                     continue;
                 }
                 // Sprite texels already live in the item atlas; keep their original region.
                 let source = *icon_refs
-                    .get(entry.sprite as usize)
+                    .get(sprite)
                     .ok_or(UiPresentationError::InvalidFontTexture)?;
                 let model = PreviewHeldModel {
+                    alpha_mode: render_model::HandItemAlphaMode::Cutout,
                     source,
                     hand_pivots,
                     vertices: Arc::from([]),
                     placements: [PreviewHeldPlacement::Sprite {
-                        hand_equipped: definition
-                            .and_then(|definition| definition.grip.upright())
-                            .unwrap_or(false),
+                        grip: definition
+                            .map_or(render_model::equipment::SpriteGrip::Flat, |definition| {
+                                definition.grip.into()
+                            }),
                     }; 2],
                 };
-                Some((model, Some(entry.sprite as usize)))
+                Some((model, Some(sprite)))
             }
         };
         if let Some((model, sprite)) = model {
-            models.insert(
-                ItemVisualKey {
-                    identifier: entry.identifier.clone(),
-                    metadata: entry.metadata,
-                },
+            models.entry(entry.identifier.clone()).or_default().insert(
+                entry.metadata,
                 HeldModel {
                     sprite,
                     ..HeldModel::ready(model.with_glint(
@@ -152,26 +243,30 @@ pub(super) fn prepare(
             let Some(texture) = equipment.texture(&binding.texture.identifier) else {
                 continue;
             };
-            let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
+            // A full atlas leaves the ordinary sprite or block model in the hand.
+            let Some(source) =
+                atlas.insert_or_fallback([texture.width, texture.height], &texture.rgba8)
+            else {
+                fallbacks += 1;
+                continue;
+            };
             let Some(model) = authored(entities, equipment, binding, hand_pivots, source) else {
                 continue;
             };
-            models.insert(
-                ItemVisualKey {
-                    identifier: binding.identifier.clone(),
-                    metadata: 0,
-                },
-                HeldModel::ready(model.with_glint(Some(entities.item_visuals().iter().any(
-                    |definition| {
-                        definition.key.identifier == binding.identifier
-                            && definition.key.metadata == 0
-                            && definition.glint.enabled().unwrap_or(false)
-                    },
-                )))),
-            );
+            let model = model.with_glint(Some(entities.item_visuals().iter().any(|definition| {
+                definition.key.identifier == binding.identifier
+                    && definition.key.metadata == 0
+                    && definition.glint.enabled().unwrap_or(false)
+            })));
+            models
+                .entry(binding.identifier.clone())
+                .or_default()
+                .entry(0)
+                .and_modify(|held| held.authored = Some(model.clone()))
+                .or_insert_with(|| HeldModel::ready(model));
         }
     }
-    Ok(models)
+    Ok((models, fallbacks))
 }
 
 /// Resolves the original player's right and left item bone pivots.
@@ -203,6 +298,7 @@ pub(super) fn player_hands(entities: &RuntimeEntityAssets) -> Option<[[f32; 3]; 
     Some([hand("rightItem")?, hand("leftItem")?])
 }
 
+/// Builds a cube using the shared face-sheet UV layout and block hand placement.
 fn block(source: IconRef, hand_pivots: [[f32; 3]; 2]) -> PreviewHeldModel {
     // Share the same six-face cube and UV contract as the world held-item renderer.
     let faces = super::sheet_faces(source).map(|face| {
@@ -214,6 +310,7 @@ fn block(source: IconRef, hand_pivots: [[f32; 3]; 2]) -> PreviewHeldModel {
         ]
     });
     PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source,
         hand_pivots,
         vertices: textured_cube_vertices(faces).into(),
@@ -232,7 +329,7 @@ fn authored(
     use render_model::equipment::{BoneChannels, attach};
     let channels = |off_hand: bool| -> Option<BoneChannels> {
         match binding.category {
-            EquipmentCategory::Held => {
+            EquipmentCategory::Held | EquipmentCategory::ArmorAndHeld { .. } => {
                 let transform = binding.third_person.literal()?;
                 Some(BoneChannels {
                     translation: transform.translation.map(ItemDisplayScalar::get),
@@ -293,6 +390,7 @@ fn authored(
         return None;
     };
     Some(PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source,
         hand_pivots,
         vertices: Arc::clone(&geometry.vertices),
@@ -318,7 +416,7 @@ pub(super) struct SelectedModel {
     pub item: ItemVisualKey,
     definition: Box<str>,
     entities: Arc<RuntimeEntityAssets>,
-    artwork: Arc<RuntimeEquipmentCatalog>,
+    pub(super) artwork: Arc<RuntimeEquipmentCatalog>,
     /// Missing geometry is cached; unavailable artwork retains prepared geometry for retry.
     pub model: Option<PreviewHeldModel>,
     /// Whether the current atlas admits this model's artwork.

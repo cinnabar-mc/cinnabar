@@ -14,21 +14,25 @@ pub(super) enum PendingEvent {
     },
     Written {
         namespace: NamespaceKey,
+        region: RegionPos,
         columns: std::vec::IntoIter<(ColumnPos, u64)>,
     },
 }
 
 impl FarTerrainCache {
     /// Starts only a bounded number of events and finishes each before reading another.
-    pub(super) fn apply_completions(&mut self, now: Instant, budget: &mut SummaryBudget) {
+    pub(super) fn apply_completions(&mut self, now: Option<Instant>, budget: &mut SummaryBudget) {
         for _ in 0..CACHE_EVENTS_PER_UPDATE {
             if let Some(namespace) = self.namespace {
                 while let Some((_, column)) = self.unresolved.last() {
                     if !budget.take(column.summary.bytes.len()) {
                         return;
                     }
-                    let (pos, column) = self.unresolved.pop().expect("checked above");
-                    self.queue_write(namespace, pos, column, now);
+                    let (pos, column) = self.unresolved.last().cloned().expect("checked above");
+                    if !self.try_queue_write(namespace, pos, &column, now) {
+                        break;
+                    }
+                    self.unresolved.pop();
                 }
             }
             if let Some(mut pending) = self.pending_event.take()
@@ -40,40 +44,55 @@ impl FarTerrainCache {
             let Some(event) = self.disk.as_ref().and_then(|disk| disk.events().next()) else {
                 return;
             };
-            match event {
-                DiskEvent::Resolved {
-                    world,
-                    entry,
-                    epoch,
-                } => {
-                    if entry == self.entry {
-                        self.resolved(world, epoch);
-                    }
+            self.receive_event(event);
+        }
+    }
+
+    /// Stages one IO result after the preceding result has been fully applied.
+    pub(super) fn receive_event(&mut self, event: DiskEvent) {
+        debug_assert!(self.pending_event.is_none());
+        match event {
+            DiskEvent::Resolved {
+                world,
+                entry,
+                epoch,
+            } => {
+                if entry == self.entry {
+                    self.resolved(world, epoch);
                 }
-                DiskEvent::Loaded {
+            }
+            DiskEvent::Loaded {
+                namespace,
+                region,
+                columns,
+            } => {
+                self.pending_event = Some(PendingEvent::Loaded {
                     namespace,
                     region,
-                    columns,
-                } => {
-                    self.pending_event = Some(PendingEvent::Loaded {
-                        namespace,
-                        region,
-                        columns: columns.into_iter(),
-                        after: None,
-                    });
-                }
-                DiskEvent::Written { namespace, columns } => {
-                    self.pending_event = Some(PendingEvent::Written {
-                        namespace,
-                        columns: columns.into_iter(),
-                    });
-                }
+                    columns: columns.into_iter(),
+                    after: None,
+                });
+            }
+            DiskEvent::Written {
+                namespace,
+                region,
+                columns,
+            } => {
+                self.pending_event = Some(PendingEvent::Written {
+                    namespace,
+                    region,
+                    columns: columns.into_iter(),
+                });
             }
         }
     }
 
     /// Applies columns individually, including queued versions absent from a region read.
-    fn apply_event(&mut self, pending: &mut PendingEvent, budget: &mut SummaryBudget) -> bool {
+    pub(super) fn apply_event(
+        &mut self,
+        pending: &mut PendingEvent,
+        budget: &mut SummaryBudget,
+    ) -> bool {
         match pending {
             PendingEvent::Loaded {
                 namespace,
@@ -93,7 +112,8 @@ impl FarTerrainCache {
                     }
                     let newest = newest.clone();
                     let (pos, _) = columns.next().expect("checked above");
-                    if self.namespace == Some(*namespace) {
+                    if self.namespace == Some(*namespace) && newest.version > self.discarded_through
+                    {
                         self.store.admit_versioned(pos, newest);
                     }
                 }
@@ -103,53 +123,53 @@ impl FarTerrainCache {
                 loop {
                     let bounds = (after.map_or(Unbounded, Excluded), Unbounded);
                     let key = (*namespace, *region);
-                    let waiting = self
-                        .dirty
+                    let Some((&pos, newest)) = self
+                        .pending
                         .get(&key)
-                        .and_then(|dirty| dirty.columns.range(bounds).next());
-                    let writing = self
-                        .writing
-                        .get(&key)
-                        .and_then(|columns| columns.range(bounds).next());
-                    let Some(pos) = waiting
-                        .into_iter()
-                        .chain(writing)
-                        .map(|(pos, _)| *pos)
-                        .min()
+                        .and_then(|pending| pending.columns.range(bounds).next())
                     else {
                         return true;
                     };
-                    let newest = self.queued(*namespace, pos).expect("queued column exists");
                     if !budget.take(newest.summary.bytes.len()) {
                         return false;
                     }
                     let newest = newest.clone();
-                    self.store.admit_versioned(pos, newest);
+                    if newest.version > self.discarded_through {
+                        self.store.admit_versioned(pos, newest);
+                    }
                     *after = Some(pos);
                 }
             }
-            PendingEvent::Written { namespace, columns } => {
+            PendingEvent::Written {
+                namespace,
+                region,
+                columns,
+            } => {
+                let key = (*namespace, *region);
                 while let Some((pos, _)) = columns.as_slice().first() {
                     let bytes = self
-                        .writing
-                        .get(&(*namespace, RegionPos::of(*pos)))
-                        .and_then(|columns| columns.get(pos))
+                        .pending
+                        .get(&key)
+                        .and_then(|pending| pending.columns.get(pos))
                         .map_or(0, |column| column.summary.bytes.len());
                     if !budget.take(bytes) {
                         return false;
                     }
                     let (pos, version) = columns.next().expect("checked above");
-                    let key = (*namespace, RegionPos::of(pos));
-                    if let Some(writing) = self.writing.get_mut(&key) {
+                    if let Some(pending) = self.pending.get_mut(&key) {
+                        let writing = &mut pending.columns;
                         if writing
                             .get(&pos)
                             .is_some_and(|column| column.version <= version)
                         {
                             writing.remove(&pos);
                         }
-                        if writing.is_empty() {
-                            self.writing.remove(&key);
-                        }
+                    }
+                }
+                if let Some(pending) = self.pending.get_mut(&key) {
+                    pending.in_flight = false;
+                    if pending.columns.is_empty() {
+                        self.pending.remove(&key);
                     }
                 }
                 true
