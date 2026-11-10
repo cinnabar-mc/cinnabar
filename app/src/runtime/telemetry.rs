@@ -381,23 +381,6 @@ pub(crate) fn send_player_auth_inputs(
                     |packet| network.send_inventory_packet(packet),
                 )?;
             }
-            if let Some((first_tick, snapshot)) = hover_snapshot
-                && identity.tick.get() >= first_tick
-            {
-                hover.send_tick(session, identity.tick.get(), snapshot, |mut packet| {
-                    if let Some(mut state) = target.as_ref().and_then(|target| target.hover_capture)
-                    {
-                        state.transaction_frame = input.snapshot().map_or([0; 2], |input| {
-                            [
-                                input.authority_generation.get().get(),
-                                input.frame_sequence.get(),
-                            ]
-                        });
-                        packet.capture_pick(state);
-                    }
-                    network.send_inventory_packet(packet)
-                })?;
-            }
             if held_equipment.mainhand_due(identity.tick.get())
                 && let Some((slot, packet)) = equipment.as_ref()
             {
@@ -416,7 +399,7 @@ pub(crate) fn send_player_auth_inputs(
                 offhand = None;
                 held_equipment.offhand_admitted();
             }
-            match trace {
+            let sent = match trace {
                 Some(trace) => {
                     let sampled = real_time
                         .as_deref()
@@ -429,7 +412,30 @@ pub(crate) fn send_player_auth_inputs(
                     )
                 }
                 None => network.send_physics_packet(identity, packet, mining_guard),
+            };
+            // The hover point is read from remote actors already stepped for this tick, while
+            // servers step them when this tick's PlayerAuthInput arrives; sent first, the point
+            // is checked against the previous step. A failed hover send stays unreported and
+            // retries next tick without restoring the admitted input.
+            if sent.is_ok()
+                && let Some((first_tick, snapshot)) = hover_snapshot
+                && identity.tick.get() >= first_tick
+            {
+                let _ = hover.send_tick(session, identity.tick.get(), snapshot, |mut packet| {
+                    if let Some(mut state) = target.as_ref().and_then(|target| target.hover_capture)
+                    {
+                        state.transaction_frame = input.snapshot().map_or([0; 2], |input| {
+                            [
+                                input.authority_generation.get().get(),
+                                input.frame_sequence.get(),
+                            ]
+                        });
+                        packet.capture_pick(state);
+                    }
+                    network.send_inventory_packet(packet)
+                });
             }
+            sent
         },
     );
     match result {

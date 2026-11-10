@@ -212,7 +212,7 @@ fn entity_hover_transport_resume_preserves_block_occlusion() {
 }
 
 #[test]
-fn entity_hover_follows_attack_and_swing_and_precedes_its_movement() {
+fn entity_hover_follows_attack_swing_and_its_movement() {
     let (mut app, mut captured) = hover_app();
     let point = attack_hit_position_tests::picked_point(app.world());
     buttons(app.world_mut(), vec![1]);
@@ -240,7 +240,7 @@ fn entity_hover_follows_attack_and_swing_and_precedes_its_movement() {
         .iter()
         .position(|packet| protocol::player_auth_input_trace_sample(packet).is_some())
         .unwrap();
-    assert!(attack < swing && swing < hover && hover < movement);
+    assert!(attack < swing && swing < movement && movement < hover);
     assert_eq!(entity_hover(&packets[hover]), Some((99, Some(point))));
     assert_eq!(
         protocol::test_support::transactions::observe_transaction(&packets[attack])
