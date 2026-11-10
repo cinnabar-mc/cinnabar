@@ -38,8 +38,9 @@ type sessionConn struct {
 	pending []byte // the Batch frame being formed, kind byte included
 	ended   bool   // a terminal message was written
 
-	virtualWindowsMu sync.Mutex
-	virtualWindows   map[byte]bool
+	virtualWindowsMu    sync.Mutex
+	virtualWindows      map[byte]bool
+	pendingWindowCloses map[byte][]bool // virtual translations for client closes, in send order
 
 	trace       *latencytrace.Trace // nil unless tracing; the rest are guarded by writeMu
 	traceConn   int64
@@ -55,13 +56,14 @@ type sessionRead struct {
 
 func newSessionConn(conn *streamnet.FramedConn) *sessionConn {
 	session := &sessionConn{
-		conn:           conn,
-		frames:         make(chan sessionRead),
-		done:           make(chan struct{}),
-		readDone:       make(chan struct{}),
-		clientPool:     minecraft.DefaultProtocol.Packets(true),
-		serverPool:     minecraft.DefaultProtocol.Packets(false),
-		virtualWindows: make(map[byte]bool),
+		conn:                conn,
+		frames:              make(chan sessionRead),
+		done:                make(chan struct{}),
+		readDone:            make(chan struct{}),
+		clientPool:          minecraft.DefaultProtocol.Packets(true),
+		serverPool:          minecraft.DefaultProtocol.Packets(false),
+		virtualWindows:      make(map[byte]bool),
+		pendingWindowCloses: make(map[byte][]bool),
 	}
 	if trace := latencytrace.Active(); trace != nil {
 		session.trace, session.traceConn = trace, trace.NextConn()
@@ -142,9 +144,11 @@ func (session *sessionConn) ReadBatchRaw(decode func(uint32) bool) ([]minecraft.
 			case packet.IDContainerClose:
 				slog.Info("CLIENT sent ContainerClose")
 				if pk, ok := decodeSessionPacket(session.clientPool, raw, 0, false).(*packet.ContainerClose); ok {
-					// The server's close acknowledgement still needs this translation.
+					// Keep the acknowledgement separate from any replacement window.
 					session.virtualWindowsMu.Lock()
 					wasVirtual := session.virtualWindows[pk.WindowID]
+					delete(session.virtualWindows, pk.WindowID)
+					session.pendingWindowCloses[pk.WindowID] = append(session.pendingWindowCloses[pk.WindowID], wasVirtual)
 					session.virtualWindowsMu.Unlock()
 
 					if wasVirtual {
@@ -194,11 +198,12 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					"pos", pk.ContainerPosition,
 					"entity_id", pk.ContainerEntityUniqueID,
 				)
-				if pk.ContainerType == 255 && pk.WindowID != protocol.WindowIDInventory {
-					session.virtualWindowsMu.Lock()
-					session.virtualWindows[pk.WindowID] = true
-					session.virtualWindowsMu.Unlock()
+				isVirtual := pk.ContainerType == 255 && pk.WindowID != protocol.WindowIDInventory
+				session.virtualWindowsMu.Lock()
+				session.virtualWindows[pk.WindowID] = isVirtual
+				session.virtualWindowsMu.Unlock()
 
+				if isVirtual {
 					pk.ContainerType = 0
 					buf := new(bytes.Buffer)
 					(&packet.Header{PacketID: pk.ID()}).Write(buf)
@@ -215,8 +220,18 @@ func (session *sessionConn) WritePacketRaw(data []byte) error {
 					"server_side", pk.ServerSide,
 				)
 				session.virtualWindowsMu.Lock()
-				wasVirtual := session.virtualWindows[pk.WindowID]
-				delete(session.virtualWindows, pk.WindowID)
+				wasVirtual := false
+				if pk.ServerSide {
+					wasVirtual = session.virtualWindows[pk.WindowID]
+					delete(session.virtualWindows, pk.WindowID)
+				} else if pending := session.pendingWindowCloses[pk.WindowID]; len(pending) != 0 {
+					wasVirtual = pending[0]
+					if len(pending) == 1 {
+						delete(session.pendingWindowCloses, pk.WindowID)
+					} else {
+						session.pendingWindowCloses[pk.WindowID] = pending[1:]
+					}
+				}
 				session.virtualWindowsMu.Unlock()
 
 				if wasVirtual && pk.ContainerType == 255 {
