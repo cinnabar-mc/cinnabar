@@ -1249,7 +1249,6 @@ sleep_exceptions = [
     { path = "core/internal/lockfile/lockfile_test.go", reason = "a lock holder that stays alive until the test kills it" },
     { path = "core/internal/streamnet/conn_test.go", reason = "racy: sleeps to let a write block; needs a ready signal" },
     { path = "core/proxy/first_join_token_live_test.go", reason = "a live, opt-in join profile that keeps credentials warm" },
-    { path = "core/proxy/nethernet_sack_test.go", reason = "virtual time inside synctest bubbles" },
     { path = "core/proxy/packet_delay_position_test.go", reason = "virtual time inside synctest bubbles" },
     { path = "core/proxy/packet_delay_test.go", reason = "virtual time inside synctest bubbles" },
     { path = "core/proxy/prepared_transport_test.go", reason = "stands in for credential acquisition time" },

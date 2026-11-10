@@ -4,7 +4,6 @@ import (
 	"net"
 	"testing"
 	"testing/synctest"
-	"time"
 
 	"github.com/pion/logging"
 	"github.com/pion/sctp"
@@ -53,21 +52,25 @@ func TestNetherNetSCTPBundlesOwedSACKWithReply(t *testing.T) {
 		if _, err := peer.Read(buf); err != nil {
 			t.Fatal(err)
 		}
-		// The reply leaves while the server still owes a SACK for the single DATA chunk.
+		// Let the server finish handling the packet, so its SACK is owed when the reply leaves.
+		// Virtual time does not advance while goroutines can still run, so the delayed-ack
+		// timer has not fired.
+		synctest.Wait()
 		if _, err := peer.Write([]byte("pong")); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := stream.Read(buf); err != nil {
 			t.Fatal(err)
 		}
-		// Let the delayed-ack timer fire, so the client has measured its first round trip
-		// whether or not the server bundled the SACK.
-		time.Sleep(time.Second)
 		synctest.Wait()
 
-		// The pipe adds no delay, so only a held SACK can make the round trip nonzero.
-		if srtt := client.SRTT(); srtt >= 100 {
-			t.Fatalf("client SRTT = %.0f ms; the server held its SACK instead of bundling it with the reply", srtt)
+		// The clock still reads the instant the ping was sent, so an acknowledged ping means
+		// the SACK came with the reply rather than after the 200 ms delayed-ack timer.
+		if pending := stream.BufferedAmount(); pending != 0 {
+			t.Fatalf("%d ping bytes are unacknowledged; the server held its SACK instead of bundling it with the reply", pending)
+		}
+		if srtt := client.SRTT(); srtt != 0 {
+			t.Fatalf("client SRTT = %.0f ms; the pipe adds no delay, so the SACK was held", srtt)
 		}
 	})
 }
