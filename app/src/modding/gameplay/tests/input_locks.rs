@@ -1,6 +1,27 @@
 use super::*;
 use protocol::{ClientInputLock, ClientInputLocks};
 
+struct Floor;
+impl sim::CollisionWorld for Floor {
+    /// Supplies loaded ground so a wrongly retained jump can actually initiate.
+    fn collision_boxes(
+        &self,
+        query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        let floor = sim::Aabb::new(
+            sim::Vec3::new(-16.0, 0.0, -16.0),
+            sim::Vec3::new(16.0, 1.0, 16.0),
+        );
+        Ok(sim::CollisionQuery::synthetic(
+            floor
+                .intersects(query)
+                .then_some(floor)
+                .into_iter()
+                .collect(),
+        ))
+    }
+}
+
 #[test]
 fn server_input_locks_gate_mod_camera_deltas_and_allow_fresh_deltas_after_unlock() {
     /// Applies a committed extension output through its production system parameter.
@@ -66,27 +87,6 @@ fn gameplay_jump_button_survives_subtick_frames_and_obeys_input_locks() {
             )
             .is_some();
         context.pulse_button(mod_host::GameplayButton::Jump, None, &ui);
-    }
-
-    struct Floor;
-    impl sim::CollisionWorld for Floor {
-        /// Supplies loaded ground so a wrongly retained jump can actually initiate.
-        fn collision_boxes(
-            &self,
-            query: sim::Aabb,
-        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
-            let floor = sim::Aabb::new(
-                sim::Vec3::new(-16.0, 0.0, -16.0),
-                sim::Vec3::new(16.0, 1.0, 16.0),
-            );
-            Ok(sim::CollisionQuery::synthetic(
-                floor
-                    .intersects(query)
-                    .then_some(floor)
-                    .into_iter()
-                    .collect(),
-            ))
-        }
     }
 
     for (bits, blocked) in [
@@ -162,6 +162,96 @@ fn gameplay_jump_button_survives_subtick_frames_and_obeys_input_locks() {
         assert!(!result.samples[1].input.jump.held);
         assert!(!result.samples[1].input.jump.pressed);
         assert_eq!(result.samples[1].input.jump.released, !blocked);
+    }
+}
+
+#[test]
+fn released_input_rejects_new_jump_taps_and_revokes_pending_pulses() {
+    use bevy::ecs::system::RunSystemOnce;
+    use client_interaction::movement::{LocalPhysicsController, MovementTicker};
+    use client_shell::ui_resources::UiRuntimeResource;
+    use gameplay::movement::MovementSource;
+
+    for pending in [false, true] {
+        let mut app = App::new();
+        let mut physics = LocalPhysicsController::default();
+        let position = [0.0, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
+        physics.reanchor_network_position(position, 100, true);
+        let mut movement = MovementTicker::default();
+        movement.reset(7, 100, position);
+        movement.set_source(MovementSource::Physics);
+        app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+            7,
+        )))
+        .insert_resource(physics)
+        .insert_resource(movement)
+        .insert_resource(finalized_input(false))
+        .insert_resource(ClientWorld {
+            stream: Some(stream()),
+            ..Default::default()
+        })
+        .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(7)));
+        app.world_mut()
+            .run_system_once(
+                move |mut context: GameplayContext, ui: Res<UiRuntimeResource>| {
+                    context.synchronize_jump_scope(true, &ui);
+                    context.pulse_jump(pending, &ui);
+                },
+            )
+            .unwrap();
+
+        let mut released = app
+            .world()
+            .resource::<SemanticInputSnapshot>()
+            .snapshot()
+            .unwrap()
+            .clone();
+        released.authority_released = true;
+        app.world_mut()
+            .resource_mut::<SemanticInputSnapshot>()
+            .replace(released);
+        app.world_mut()
+            .run_system_once(
+                move |mut context: GameplayContext, ui: Res<UiRuntimeResource>| {
+                    if pending {
+                        context.synchronize_jump_scope(true, &ui);
+                    } else {
+                        context.pulse_button(mod_host::GameplayButton::Jump, None, &ui);
+                    }
+                },
+            )
+            .unwrap();
+        let frame = app
+            .world_mut()
+            .resource_mut::<LocalPhysicsController>()
+            .advance(
+                Duration::from_millis(50),
+                sim::MovementInput::default(),
+                &Floor,
+            );
+        assert_eq!(frame.samples.len(), 1);
+        assert!(!frame.samples[0].processed.jump_initiated);
+        assert!(!frame.samples[0].input.jump.held);
+        assert!(!frame.samples[0].input.jump.pressed);
+
+        app.insert_resource(finalized_input(false));
+        app.world_mut()
+            .run_system_once(|mut context: GameplayContext, ui: Res<UiRuntimeResource>| {
+                context.synchronize_jump_scope(true, &ui);
+                context.pulse_button(mod_host::GameplayButton::Jump, None, &ui);
+            })
+            .unwrap();
+        let frame = app
+            .world_mut()
+            .resource_mut::<LocalPhysicsController>()
+            .advance(
+                Duration::from_millis(50),
+                sim::MovementInput::default(),
+                &Floor,
+            );
+        assert_eq!(frame.samples.len(), 1);
+        assert!(frame.samples[0].processed.jump_initiated);
+        assert!(frame.samples[0].input.jump.pressed);
     }
 }
 

@@ -219,7 +219,9 @@ impl GameplayContext<'_> {
         &self,
         ui: &client_ui::ui_runtime::UiRuntime,
     ) -> Option<(u64, i32)> {
-        self.input.as_ref()?.snapshot()?;
+        if self.input.as_ref()?.snapshot()?.authority_released {
+            return None;
+        }
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
             || world.respawn.input_held()

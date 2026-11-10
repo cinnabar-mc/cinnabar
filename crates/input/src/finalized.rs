@@ -381,13 +381,47 @@ mod tests {
                     .collect::<Vec<_>>(),
                 [
                     (Action::Attack, true),
-                    (Action::HotbarNext, true),
                     (Action::PickItem, true),
                     (Action::Use, true),
                     (Action::Use, false),
                 ],
             );
             assert!(input.phase(Action::Attack).pressed && input.phase(Action::Attack).held);
+        }
+    }
+
+    #[test]
+    fn gameplay_taps_do_not_replay_phase_only_hotbar_selections() {
+        for selection in crate::HOTBAR_DIGIT_ACTIONS
+            .iter()
+            .copied()
+            .chain([Action::HotbarNext, Action::HotbarPrevious])
+        {
+            for tap in [Action::Attack, Action::Use] {
+                let mut input = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+                let snapshot = input.0.as_mut().unwrap();
+                snapshot.input_mode = InputMode::GamePad;
+                snapshot.phases[selection as usize].pressed = true;
+                let phase = snapshot.phases[selection as usize];
+
+                assert!(input.request_mod_tap(tap, None));
+                pass_taps(&mut input);
+
+                assert_eq!(input.phase(selection), phase);
+                assert!(input.phase(tap).pressed);
+                assert!(
+                    input
+                        .snapshot()
+                        .unwrap()
+                        .ordered
+                        .as_ref()
+                        .unwrap()
+                        .events()
+                        .iter()
+                        .all(|event| event.action != selection),
+                    "{selection:?} was already sampled before the {tap:?} tap"
+                );
+            }
         }
     }
 

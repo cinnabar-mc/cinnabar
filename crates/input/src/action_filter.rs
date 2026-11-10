@@ -421,6 +421,12 @@ fn aggregate_events(input: &ActionSnapshot, initial: ActionButtons) -> Vec<Actio
     let mut events = Vec::new();
     let mut buttons = initial;
     for action in Action::ALL {
+        // Hotbar phases were already sampled before mod taps added an ordered stream.
+        if crate::HOTBAR_DIGIT_ACTIONS.contains(&action)
+            || matches!(action, Action::HotbarNext | Action::HotbarPrevious)
+        {
+            continue;
+        }
         let p = input.phases[action as usize];
         let order: &[bool] = match (p.pressed, p.released, initial.held(action), p.held) {
             (true, true, false, false) => &[true, false],
