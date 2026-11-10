@@ -1,4 +1,7 @@
-use bevy::{ecs::message::Message, input::InputPlugin};
+use bevy::{
+    ecs::message::Message,
+    input::{InputPlugin, touch::TouchInput},
+};
 
 use super::*;
 
@@ -46,6 +49,10 @@ fn key(key: KeyCode, pressed: bool) -> NativeWindowEvent {
 #[test]
 fn keyboard_mouse_and_scroll_reach_both_streams_in_callback_order() {
     let (mut app, window) = app();
+    app.world_mut()
+        .resource_mut::<client_state::CursorFocus>()
+        .0
+        .set_grab_free_capture(true);
     send(
         &mut app,
         [
@@ -90,6 +97,141 @@ fn keyboard_mouse_and_scroll_reach_both_streams_in_callback_order() {
             keys[1].clone().into(),
             buttons[1].into(),
         ]
+    );
+}
+
+#[test]
+fn unlocked_primary_click_uses_only_the_uikit_touch_route() {
+    let (mut app, window) = app();
+    let position = Vec2::new(120.0, 80.0);
+    for (pressed, phase) in [(true, TouchPhase::Started), (false, TouchPhase::Ended)] {
+        app.world_mut().write_message(TouchInput {
+            phase,
+            position,
+            window,
+            force: None,
+            id: 7,
+        });
+        send(
+            &mut app,
+            [
+                NativeWindowEvent::Cursor(Some(position * 2.0)),
+                NativeWindowEvent::Button {
+                    button: MouseButton::Left,
+                    pressed,
+                },
+            ],
+        );
+        let touches = app.world().resource::<Touches>();
+        let touch = if pressed {
+            touches.get_pressed(7)
+        } else {
+            touches.get_released(7)
+        };
+        assert_eq!(touch.unwrap().position(), position);
+        assert!(take::<MouseButtonInput>(&mut app).is_empty());
+        assert!(
+            take::<WindowEvent>(&mut app)
+                .iter()
+                .all(|event| !matches!(event, WindowEvent::MouseButtonInput(_)))
+        );
+        assert!(
+            !app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .pressed(MouseButton::Left)
+        );
+    }
+}
+
+#[test]
+fn primary_click_keeps_its_route_when_pointer_lock_changes_before_release() {
+    for locked in [false, true] {
+        let (mut app, window) = app();
+        app.world_mut()
+            .resource_mut::<client_state::CursorFocus>()
+            .0
+            .set_grab_free_capture(locked);
+        send(
+            &mut app,
+            [NativeWindowEvent::Button {
+                button: MouseButton::Left,
+                pressed: true,
+            }],
+        );
+        assert_eq!(
+            app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .pressed(MouseButton::Left),
+            locked
+        );
+        app.world_mut()
+            .resource_mut::<client_state::CursorFocus>()
+            .0
+            .set_grab_free_capture(!locked);
+        send(
+            &mut app,
+            [NativeWindowEvent::Button {
+                button: MouseButton::Left,
+                pressed: false,
+            }],
+        );
+        let buttons = take::<MouseButtonInput>(&mut app);
+        if locked {
+            assert_eq!(
+                buttons,
+                [
+                    MouseButtonInput {
+                        button: MouseButton::Left,
+                        state: ButtonState::Pressed,
+                        window,
+                    },
+                    MouseButtonInput {
+                        button: MouseButton::Left,
+                        state: ButtonState::Released,
+                        window,
+                    },
+                ]
+            );
+        } else {
+            assert!(buttons.is_empty());
+        }
+        assert_eq!(
+            take::<WindowEvent>(&mut app),
+            buttons
+                .into_iter()
+                .map(WindowEvent::from)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .pressed(MouseButton::Left)
+        );
+    }
+}
+
+#[test]
+fn unlocked_secondary_clicks_reach_both_mouse_streams() {
+    let (mut app, window) = app();
+    send(
+        &mut app,
+        [true, false].map(|pressed| NativeWindowEvent::Button {
+            button: MouseButton::Right,
+            pressed,
+        }),
+    );
+    let buttons = take::<MouseButtonInput>(&mut app);
+    assert_eq!(buttons.len(), 2);
+    assert_eq!(buttons[0].window, window);
+    assert_eq!(buttons[0].button, MouseButton::Right);
+    assert_eq!(buttons[0].state, ButtonState::Pressed);
+    assert_eq!(buttons[1].state, ButtonState::Released);
+    assert_eq!(
+        take::<WindowEvent>(&mut app),
+        buttons
+            .into_iter()
+            .map(WindowEvent::from)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -139,6 +281,43 @@ fn unlocked_hover_supplies_the_scaled_menu_pointer_before_scrolling() {
         None
     );
     assert_eq!(take::<CursorLeft>(&mut app), [CursorLeft { window }]);
+}
+
+#[test]
+fn observed_hover_does_not_request_native_window_changes() {
+    #[derive(Resource, Default)]
+    struct WindowChanges(usize);
+
+    let (mut app, window) = app();
+    app.init_resource::<WindowChanges>().add_systems(
+        PostUpdate,
+        |windows: Query<(), Changed<Window>>, mut changes: ResMut<WindowChanges>| {
+            changes.0 = windows.iter().count();
+        },
+    );
+    app.update();
+    assert_eq!(app.world().resource::<WindowChanges>().0, 1);
+    for position in [
+        Some(Vec2::new(240.0, 160.0)),
+        Some(Vec2::splat(200.0)),
+        None,
+    ] {
+        send(&mut app, [NativeWindowEvent::Cursor(position)]);
+        assert_eq!(
+            app.world().get::<Window>(window).unwrap().cursor_position(),
+            position.map(|position| position / 2.0)
+        );
+        assert_eq!(app.world().resource::<WindowChanges>().0, 0);
+    }
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .ime_enabled = true;
+    send(
+        &mut app,
+        [NativeWindowEvent::Cursor(Some(Vec2::splat(200.0)))],
+    );
+    assert_eq!(app.world().resource::<WindowChanges>().0, 1);
 }
 
 #[test]

@@ -51,6 +51,7 @@ pub(super) fn forward(
     mut pending: ResMut<PendingWindowEvents>,
     window: Option<Single<(Entity, &mut Window), With<PrimaryWindow>>>,
     focus: Option<Res<client_state::CursorFocus>>,
+    mut primary_uses_touch: Local<bool>,
     mut messages: WindowInputWriters,
 ) {
     let Some(window) = window else {
@@ -85,6 +86,18 @@ pub(super) fn forward(
                 event.into()
             }
             NativeWindowEvent::Button { button, pressed } => {
+                if button == MouseButton::Left {
+                    // UIKit owns unlocked primary clicks through their release.
+                    if pressed {
+                        *primary_uses_touch = !locked;
+                    }
+                    if *primary_uses_touch {
+                        if !pressed {
+                            *primary_uses_touch = false;
+                        }
+                        continue;
+                    }
+                }
                 let event = MouseButtonInput {
                     button,
                     state: button_state(pressed),
@@ -109,7 +122,9 @@ pub(super) fn forward(
                     continue;
                 }
                 let previous = window.cursor_position();
-                window.set_physical_cursor_position(position.map(|position| position.as_dvec2()));
+                window
+                    .bypass_change_detection()
+                    .set_physical_cursor_position(position.map(|position| position.as_dvec2()));
                 if let Some(position) = window.cursor_position() {
                     let event = CursorMoved {
                         window: entity,
