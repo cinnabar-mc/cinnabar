@@ -44,7 +44,7 @@ pub fn has_carried_bitmap_shape(name: &str) -> bool {
 /// Glass panes hold a solid plate; other pane-family blocks retain their sprite artwork.
 #[must_use]
 pub fn has_carried_glass_plate(name: &str) -> bool {
-    name == "minecraft:glass_pane"
+    name == crate::facts::pack::PackBlock::GlassPane.identifier()
         || crate::facts::block_render_fact(name).kind == crate::facts::BlockRenderKind::StainedPane
 }
 

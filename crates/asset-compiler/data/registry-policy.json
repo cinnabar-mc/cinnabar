@@ -7324,6 +7324,7 @@
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",
       "Glass": "minecraft:glass",
+      "GlassPane": "minecraft:glass_pane",
       "BeeNest": "minecraft:bee_nest",
       "Beehive": "minecraft:beehive",
       "ChiseledBookshelf": "minecraft:chiseled_bookshelf",
