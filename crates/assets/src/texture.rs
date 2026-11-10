@@ -2,9 +2,11 @@ use std::collections::BTreeSet;
 
 use crate::AssetError;
 
+mod enhanced;
 pub mod flipbook;
 mod legacy_terrain;
 pub mod policy;
+pub use enhanced::EnhancedTextureAssets;
 pub use legacy_terrain::{
     build_legacy_terrain_mip_chain, legacy_terrain_mip, rebuild_legacy_terrain_mips,
 };
@@ -29,7 +31,8 @@ pub const PBR_HEIGHT_SCALE: f32 = 0.035;
 pub const PBR_TILE_SIZE: u32 = 512;
 /// Largest square layer a runtime overlay page may use.
 pub const MAX_TILE_SIZE: u32 = crate::texture::policy::MAX_TEXTURE_SIDE;
-const ALPHA_TEST_THRESHOLD: u8 = 128;
+/// Lowest alpha a cutout texel keeps; mip chains preserve the count of texels at or above it.
+pub const ALPHA_TEST_THRESHOLD: u8 = 128;
 const ALPHA_SCALE_FRACTION_BITS: u32 = 16;
 const ALPHA_SCALE_MAX: u32 = 16 << ALPHA_SCALE_FRACTION_BITS;
 const ALPHA_SCALE_SEARCH_STEPS: usize = 21;
@@ -45,7 +48,86 @@ pub struct TextureMip {
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextureArray {
     pub layers: u32,
-    pub mips: Box<[TextureMip]>,
+    pub mips: TextureMips,
+}
+
+/// A mip chain whose texels are shared between clones.
+///
+/// Carriers, compiled overlays and the runtime pages merged from them stay resident together,
+/// so cloning an array never copies pixels. Mutable access copies the chain only while
+/// another owner still shares it.
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct TextureMips(std::sync::Arc<[TextureMip]>);
+
+impl TextureMips {
+    /// Whether both chains use the same texel storage.
+    #[must_use]
+    pub fn shares_storage(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::ops::Deref for TextureMips {
+    type Target = [TextureMip];
+
+    fn deref(&self) -> &[TextureMip] {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for TextureMips {
+    fn deref_mut(&mut self) -> &mut [TextureMip] {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+
+impl From<Vec<TextureMip>> for TextureMips {
+    fn from(mips: Vec<TextureMip>) -> Self {
+        Self(mips.into())
+    }
+}
+
+impl From<Box<[TextureMip]>> for TextureMips {
+    fn from(mips: Box<[TextureMip]>) -> Self {
+        Self(mips.into())
+    }
+}
+
+impl<const N: usize> From<[TextureMip; N]> for TextureMips {
+    fn from(mips: [TextureMip; N]) -> Self {
+        Self(std::sync::Arc::from(mips))
+    }
+}
+
+impl From<&[TextureMip]> for TextureMips {
+    fn from(mips: &[TextureMip]) -> Self {
+        Self(mips.into())
+    }
+}
+
+impl FromIterator<TextureMip> for TextureMips {
+    fn from_iter<I: IntoIterator<Item = TextureMip>>(mips: I) -> Self {
+        Self(mips.into_iter().collect())
+    }
+}
+
+impl<'a> IntoIterator for &'a TextureMips {
+    type Item = &'a TextureMip;
+    type IntoIter = std::slice::Iter<'a, TextureMip>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut TextureMips {
+    type Item = &'a mut TextureMip;
+    type IntoIter = std::slice::IterMut<'a, TextureMip>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::ops::DerefMut::deref_mut(self).iter_mut()
+    }
 }
 
 /// Builds one layer's mip chain down to 1x1 from a square power-of-two base.
@@ -70,15 +152,15 @@ pub fn build_texture_mip_chain(
     } else {
         BTreeSet::new()
     };
-    let texture = build_texture_array(&[base], tile_size, &cutout_layers)?;
-    Ok(texture.mips)
+    build_layer_mips(&[base], tile_size, &cutout_layers)
 }
 
-fn build_texture_array(
+/// Builds the layer-major mip levels shared by every layer in `base_layers`.
+fn build_layer_mips(
     base_layers: &[Box<[u8]>],
     tile_size: u32,
     cutout_layers: &BTreeSet<u32>,
-) -> Result<TextureArray, AssetError> {
+) -> Result<Box<[TextureMip]>, AssetError> {
     if !tile_size.is_power_of_two() || tile_size > MAX_TILE_SIZE {
         return Err(invalid(format!(
             "texture tile size {tile_size} is unsupported"
@@ -106,7 +188,7 @@ fn build_texture_array(
         )));
     }
 
-    let layers = u32::try_from(base_layers.len()).map_err(|_| AssetError::BlobSizeOverflow {
+    u32::try_from(base_layers.len()).map_err(|_| AssetError::BlobSizeOverflow {
         section: "texture layer count",
     })?;
     let base_survivors = base_layers
@@ -160,10 +242,7 @@ fn build_texture_array(
         size = target_size;
     }
 
-    Ok(TextureArray {
-        layers,
-        mips: mips.into_boxed_slice(),
-    })
+    Ok(mips.into_boxed_slice())
 }
 
 fn alpha_survivors(rgba: &[u8]) -> usize {

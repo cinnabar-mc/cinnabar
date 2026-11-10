@@ -102,12 +102,12 @@ impl CullStorage {
             buffer(
                 "terrain cull records",
                 slots * RECORD_BYTES,
-                U::STORAGE | U::COPY_DST,
+                U::STORAGE | U::COPY_DST | copy_out,
             ),
             buffer(
                 "terrain cull enabled bits and draw order",
                 enabled_words(capacity) * 4,
-                U::STORAGE | U::COPY_DST,
+                U::STORAGE | U::COPY_DST | copy_out,
             ),
             buffer(
                 "terrain cull visibility history",
@@ -235,7 +235,7 @@ impl OcclusionStorage {
             buffer(
                 "terrain occlusion records",
                 u64::from(capacity) * RECORD_BYTES,
-                U::STORAGE | U::COPY_DST,
+                U::STORAGE | U::COPY_DST | if cfg!(test) { U::COPY_SRC } else { U::empty() },
             ),
             buffer(
                 "terrain occlusion bits",

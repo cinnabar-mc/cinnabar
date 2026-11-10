@@ -38,7 +38,7 @@ fn placed_outputs(ledger: &PlayerInventoryLedger) -> Vec<(u8, NetworkItemStack)>
             } if source.container == StackRequestContainer::CreatedOutput
                 && destination.container == StackRequestContainer::CombinedInventory =>
             {
-                let slot = destination.slot;
+                let slot = u8::try_from(destination.slot).unwrap();
                 ledger
                     .target_stack(InventoryTarget::Player(slot))
                     .map(|stack| (slot, stack.clone()))
@@ -320,7 +320,7 @@ fn shift_crafted_output_uses_hotbar_before_main_inventory() {
                 matches!(
                     ledger.newest_request().unwrap().actions.last(),
                     Some(StackRequestAction::Place { destination, .. })
-                        if destination.slot == expected_slot
+                        if destination.slot == u16::from(expected_slot)
                 ),
                 "expected crafted output in player slot {expected_slot}"
             );
@@ -499,7 +499,7 @@ fn workbench_crafts_three_by_three_from_its_grid() {
     let recipe = unique(&ledger, &catalog);
     assert_eq!(recipe.network_id(), 2);
     let request = ledger.begin_craft(&recipe, 1).unwrap();
-    let consumed: Vec<u8> = ledger
+    let consumed: Vec<u16> = ledger
         .newest_request()
         .unwrap()
         .actions

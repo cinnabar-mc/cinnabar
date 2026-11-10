@@ -12,7 +12,7 @@ use cache::{CachedSubmission, PreviousFragments};
 type LayerBuffers = crate::FrameBuffers<BlockEntityVertex, 16>;
 
 use super::{
-    artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork},
+    artwork::{BlockEntityArtworkPreparer, MAX_ATLAS_SIDE, PreparedBlockEntityArtwork},
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
     banner::BannerModel,
     beam::BeaconModel,
@@ -50,9 +50,9 @@ pub enum BlockEntityKind {
     EnchantTable {
         book: super::book::BookPose,
     },
+    /// The open book on a lectern; terrain draws the stand.
     Lectern {
         facing_yaw_degrees: f32,
-        has_book: bool,
     },
     Bell(BellModel),
     ItemFrame(ItemFrameModel),
@@ -258,27 +258,40 @@ impl BlockEntityScene {
             text.reset(artwork.atlas.size()[0])
                 .expect("prepared artwork admits dynamic atlas rows");
         }
-        self.reload_prepared_assets(artwork);
+        assert!(self.reload_prepared_assets(artwork));
     }
 
     /// Prepares artwork on the caller; runtime reloads use [`Self::reload_prepared_assets`].
-    pub fn reload_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) {
-        if let Some(prepared) = self.artwork_preparer().prepare(assets) {
-            self.reload_prepared_assets(&prepared);
-        }
+    /// Returns false if preparation or publication cannot fit the atlas.
+    #[must_use]
+    pub fn reload_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) -> bool {
+        self.artwork_preparer()
+            .prepare(assets)
+            .is_some_and(|prepared| self.reload_prepared_assets(&prepared))
     }
 
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
-    pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
-        self.prepared = Some(artwork.clone());
-        self.chalkboards = artwork.chalkboards.clone();
+    /// Returns false without changing the scene if cached pages or text headroom do not fit.
+    #[must_use]
+    pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) -> bool {
         let mut atlas = artwork.atlas.clone();
         let text = self.text.get_or_insert_with(|| {
             DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
         });
+        if text
+            .set_height_limit(MAX_ATLAS_SIDE - atlas.static_height())
+            .is_none()
+        {
+            tracing::warn!(
+                "block-entity artwork reload cannot retain canvas pages and text capacity"
+            );
+            return false;
+        }
         text.resize_width(atlas.size()[0])
             .expect("prepared artwork admits dynamic atlas rows");
-        atlas.set_text_pages(text.text_pages());
+        atlas.set_layout(text.layout());
+        self.prepared = Some(artwork.clone());
+        self.chalkboards = artwork.chalkboards.clone();
         self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame {
@@ -289,6 +302,7 @@ impl BlockEntityScene {
         };
         self.reusable = None;
         self.cached_submissions.clear();
+        true
     }
 
     /// Builds block models from the entity catalog's geometry.
@@ -325,24 +339,29 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let text = self.text.as_mut()?;
-        let slot = text.text_slot(key, make)?;
-        let pages = text.text_pages();
-        let atlas = self.atlas.as_mut()?;
-        if atlas.text_pages() != pages {
-            // A taller atlas renormalizes every UV, so no cached geometry survives.
-            Arc::make_mut(atlas).set_text_pages(pages);
-            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
-            self.reusable = None;
-            self.cached_submissions.clear();
-        }
-        self.atlas.as_ref()?.text_cell(slot)
+        let slot = self.text.as_mut()?.text_slot(key, make);
+        self.sync_canvas_layout();
+        self.atlas.as_ref()?.text_cell(slot?)
     }
 
     /// The atlas rect of the 128x128 map canvas for `key`, rasterizing `make` on a miss.
     pub fn map_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.map_slot(key, make)?;
-        self.atlas.as_ref()?.map_cell(slot)
+        let slot = self.text.as_mut()?.map_slot(key, make);
+        self.sync_canvas_layout();
+        self.atlas.as_ref()?.map_cell(slot?)
+    }
+
+    /// A taller atlas changes normalized UVs, while append-only pages preserve pixel rects.
+    fn sync_canvas_layout(&mut self) {
+        let (Some(text), Some(atlas)) = (self.text.as_ref(), self.atlas.as_mut()) else {
+            return;
+        };
+        if atlas.layout() != text.layout() {
+            Arc::make_mut(atlas).set_layout(text.layout());
+            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
+            self.reusable = None;
+            self.cached_submissions.clear();
+        }
     }
 
     pub fn update(
@@ -509,6 +528,10 @@ mod skull_tests;
 #[path = "scene/reach_tests.rs"]
 mod reach_tests;
 
+#[cfg(test)]
+#[path = "scene/canvas_tests.rs"]
+mod canvas_tests;
+
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
@@ -531,10 +554,9 @@ fn emit_submission(
         BlockEntityKind::EnchantTable { book } => {
             super::book::emit_enchant_table(builder, atlas, block, *book);
         }
-        BlockEntityKind::Lectern {
-            facing_yaw_degrees,
-            has_book,
-        } => super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees, *has_book),
+        BlockEntityKind::Lectern { facing_yaw_degrees } => {
+            super::book::emit_lectern_book(builder, atlas, block, *facing_yaw_degrees);
+        }
         BlockEntityKind::Bell(model) => super::bell::emit(builder, atlas, block, model),
         BlockEntityKind::ItemFrame(model) => super::frame::emit(builder, atlas, block, model),
         BlockEntityKind::Conduit(model) => {

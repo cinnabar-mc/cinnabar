@@ -33,6 +33,8 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Menus use a display-refresh ceiling. In-game frame-rate limits default to Unlimited; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
+   Metal GPU admission uses a frame's recorded submission time once available, while
+   retaining predictions for earlier queued work and frames not yet submitted.
    macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native
    Metal presentation logs expose the layer state and software cap. Fullscreen
    VSync-off cadence still needs hardware qualification.
@@ -67,13 +69,20 @@ closes no gate and provides no new runtime or performance evidence.
   Opt-in packet captures retain attack and mouseover pick geometry, input-frame identities,
   applied packet correspondence and remote actor time. Live comparison evidence remains open.
   Dimension definitions use an exclusive maximum Y and retain complete sub-chunks;
-  live custom-dimension transfer acceptance remains open.
+  live custom-dimension transfer acceptance remains open. Without an overworld
+  definition, StartGame's Legacy generator selects Y 0..128 and unrecognised generators
+  0..256. Overworld, Flat and Void keep -64..320, so vanilla's 0..256 choices for them
+  (a level flag and a base-game-version gate) are incomplete.
 
 ## Phase 1 — Core service
 
 The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
+Server batch intake validates full replay movement bursts without a packet-count cap and
+expands packet metadata in bounded windows, retaining byte and framing checks.
+Live replay seek/teleport qualification and version-matched native batch-size
+acceptance remain incomplete.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
 The generated codec and Go integrations target protocol 2225. New matchmaking,
 stonecutter selection, cursor dragging, block passengers and registered audio packets
@@ -82,7 +91,9 @@ The target catalog includes fire and wire connection states with empty collision
 collision, selection and connection-rendering acceptance for those states remains incomplete.
 Disc presses, ice crystals and icicles remain reserved because their
 new state geometry is unverified. Their collision, selection and rendering acceptance
-remains incomplete. The official matching-protocol preview resource pack supplies
+remains incomplete. Reserved states, including education blocks such as underwater TNT,
+draw full cubes of the pack's `missing_tile`, which is what the game draws for blocks its
+packs don't describe. Their real art for packs that do describe them is not mapped. The official matching-protocol preview resource pack supplies
 property domains and HUD inputs, including the combined hotbar-slot renderer.
 Native acceptance of that renderer, retail resource-pack and full-client acceptance
 remain incomplete. Frostbite presentation, freezing potion facts and ice-ball targeting and use
@@ -101,6 +112,10 @@ OS through the framed control handshake, omit unavailable hardware models and ke
 device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
 registration; native Windows device authentication and other platform registrations remain
 incomplete. Live acceptance of native device claims across platforms remains open.
+Offline logins derive a stable UUID from the saved install device and exact persona spelling,
+preserving it across new core processes. Missing or unusable owned profiles remain ephemeral;
+the mapping does not recover earlier random UUIDs. Encoded-login regressions cover fresh-process
+profile reuse and separation; rendered pause-menu reconnect acceptance remains open.
 
 ## Phase 2 — World rendering
 
@@ -134,12 +149,18 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
 
 ### Terrain, materials and biome acceptance
 
+- [ ] Close server-pack block and entity material parity. The behavior baseline, native
+  evidence and confirmed gaps are tracked in the
+  [material evidence matrix](docs/evidence/material-system.md); a row closes only when it
+  is `implemented` with a named test.
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
   qualification, and fresh combined memory and steady-CPU measurements.
   Furnace, blast furnace and smoker face slots follow cardinal direction and lit state;
   native visual comparison and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
+  Inventory terrain previews weight face tint by source opacity while retaining partial
+  coverage. Matched-background and complete replacement-pack acceptance remain open.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
   against native output while preserving packed storage and the shared quad contract.
   Terrain particles use the dimension biome fallback until their column is published;
@@ -160,8 +181,15 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   matched chest-particle presentation and custom destruction overrides remain incomplete.
   Mining particles accept packed and face-specific block events, preserving full hashed
   identities and the event's block material; matched in-world capture acceptance remains open.
+- [ ] Qualify legacy particle events (`LevelEvent` `0x4000 | type` and 2009), which use the
+  native `ParticleType` enum. For types without a dedicated handler, native emits one particle
+  manually; Cinnabar runs the pack emitter instead, so burst counts may differ, and dragon
+  breath (49) stays unmapped because its lingering emitter needs cloud variables. Types 1, 25
+  and 52 have no identified native handler; the 1.26.60 client handlers are not yet compared.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
-  use pack geometry in all four directions; sleeping and picking remain unqualified.
+  use pack geometry and face corners in all four directions at full sheet resolution,
+  with a quarter-block collision and selection box; sleeping and in-game breaking
+  cracks remain unqualified.
   Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
   bottom offset rounds to the model grid; matched world and replacement-pack
   captures, carried-item presentation and finer coordinate precision remain open.
@@ -169,16 +197,29 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
   until exact face-coverage behavior is verified separately. Inventory fences draw the
-  native two-post shape. Walls now use the custom carried two-post shape, and vanilla
+  native two-post shape, with separately textured rear and front rail halves and ordered
+  surface overlap in meshes and fallback thumbnails. Acacia texture-boundary sampling
+  remains unqualified.
+  Walls use the carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
   and fresh integrated-frame acceptance remain unverified. World bamboo fences and bamboo
   fence gates stretch their native texture regions over each piece face; the bamboo fence
-  inventory icon still uses ordinary fence UVs instead of the native bamboo GUI shape and
-  slat regions, the down/up quarter-turn direction of turned bamboo rail and slat tops is
-  unverified, and world fence rails still omit the outer end faces native tessellation draws.
+  inventory preview uses separate posts and three-pixel slats with independent texture
+  regions. Exact compositing bytes and replacement-pack acceptance remain open. The down/up
+  quarter-turn direction of turned bamboo rail and slat tops remains unverified, and world
+  fence rails omit the outer end faces.
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
+- [ ] Predict bed placement. Door and bed items now report a local placement and start the
+  repeat delay as native `DoorItem::_useOn` and `BedItem::_tryUseOn` do, but beds are drawn
+  only from the server's update: native places both halves and colors them locally, and a
+  prediction needs the same block entity color. Their local room check accepts any non-empty
+  support; stricter native support and liquid rules remain unverified.
+  A bed head with no block entity, or one naming no known dye, draws red, or the foot half's dye
+  when only that half has an entity; a bed's break crack covers the cell up to mattress height.
+  The red default and the crack height are unverified against native, and a foot entity in the
+  neighbouring chunk recolours the head only after the head's own chunk next changes.
 - [ ] Close paired-door presentation and interaction acceptance. Side faces mirror by the
   native swung-direction, open and hinge rule, and caps stretch the outer art rows along the
   leaf. Remaining: lower/upper state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
@@ -209,7 +250,18 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   vaults select each face's slot, UV turn and texture variant from their state; vaults also
   draw their inward-facing cutout interior. Piston bodies draw their three-quarter body with
   native per-face UV turns, and their head plate, rod and sleeve follow `PistonArm` actor
-  progress or rest retracted without actor data. Blocks a piston pushes (`MovingBlock`
+  progress or rest retracted without actor data. Arm collision places the same three pieces
+  at the arm's client progress and adds none without actor data. As the native client does,
+  the simulation ignores the reported `Progress`: each arm actor starts retracted, moves half
+  a block per simulated tick toward its reported `State`, and pushes the local player out of
+  the arm's cube on every tick it moves; prediction replay keeps each tick's progress. Arm
+  rendering still follows the reported progress and wall time. A local BDS 1.26.61.1 keeps a
+  player standing on an extending upward arm inside its head and corrects the lifted client
+  back down once; whether the vanilla client draws the same correction is unverified. The
+  client tick order of arm
+  updates against the player's move, pushes while immobile or riding, chunk-resend actor
+  lifetime, camera collision against arms, and collision and pushes of blocks a piston moves
+  are unverified. Blocks a piston pushes (`MovingBlock`
   rendering) are incomplete. The body's up and down faces keep their own UV table, not yet
   reconciled with the shared flips for cropped spans. Native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
@@ -249,9 +301,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Leaf litter has state-driven ground patches and flat carried-item routing. Its focused
   regressions, registry regeneration and Linux rendered comparison pass; matched native
   visual and replacement-pack qualification remain incomplete.
-- [ ] Close thin-fence native acceptance. Iron and copper bars draw one plane per arm and
-  other panes two planes with end caps only at four arms. Cap culling against stacked panes
-  and the two-sidedness of single-plane arms have no native comparison yet.
+- [ ] Close thin-fence native acceptance. Iron and copper bars draw one plane per arm with
+  two-sided, never-culled rails; other panes draw two planes with end caps only at four arms.
+  Glass-pane rails stay unculled and one-sided: native culls them only against neighbours that
+  hide them anyway, and its blend-layer backface state is unread. No side-by-side native
+  render has been compared yet.
 - [ ] Close coral-fan native placement and rendered acceptance for floor/wall orientations
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
@@ -281,6 +335,9 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   with base-owned size, rotation and ground supports. Per-face UV overrides,
   default-pack resource coverage, text rendering, editing, placement and interaction
   semantics, complete native galleries and Windows resource correspondence remain incomplete.
+  Bell frames are terrain models for every mounting and direction; the block entity draws
+  the body with the native pivot and swing. Native visual comparison, the frame's render
+  layer and which server update starts a ring remain unverified.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
   Banner patterns share immutable layer descriptions and retain texture-name scratch.
@@ -295,8 +352,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
-- [ ] Verify invisible-block presentation, including conditional camera-facing marker
-  sprites and their display/input conditions; invisible terrain alone does not close acceptance.
+- [ ] Verify invisible-block presentation. Barriers and light blocks draw camera-facing sprites
+  and structure voids textured boxes, each in its own marker layer shown while a creative local
+  player holds a block of that layer. Remaining gaps: the main-hand-only held check, the
+  unidentified level-renderer options and services that also gate or force the layers, the
+  near-chunk limit, sprite size and alpha cutoff are unverified against native code, and
+  native frame comparison is missing.
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
@@ -305,6 +366,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   inherited light can differ from native.
 
 ### Lighting, atmosphere and publication
+
+- Ordinary cube terrain reads encoded fog prepared once per atmosphere upload,
+  retaining the existing linear output and lighting order. Matched-output GPU
+  timing and Metal acceptance remain incomplete; encoded attachment output and
+  material specialization are still unqualified.
 
 - Chunk occlusion culling remains enabled by default and can be disabled in Video
   settings for comparison. It hides only sections proved invisible. The indirect
@@ -331,8 +397,30 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Matched-output frame-time and movement qualification remain incomplete;
   raster occlusion stays off by default pending hardware acceptance.
 
+  Sorted water draws coalesce adjacent contiguous reference ranges after particle
+  interleaving. Pipeline, view, reference gaps and other draw kinds end a batch;
+  model and mixed water/model runs retain their existing draws. Matched-scene
+  encoding-time and target-GPU qualification remain incomplete.
+
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
+  An experimental vanilla point light follows the local player body at one block above
+  the feet, independent of camera perspective. Vanilla fragments convert source falloff
+  into fractional block-light levels and sample the existing lightmap, preserving sky
+  light and texture shading without chunk rebuilds. Video settings expose a default-off
+  toggle; the Quality preset enables it. Strength and range are not public settings. Each held
+  or dropped item receives a profile derived from its resolved Bedrock block emission:
+  normalized emission controls strength and maps to a provisional 2–8 block radius.
+  Up to eight sources (the local player plus the nearest seven remote-player or dropped-item
+  sources within the configured render distance) are uploaded and fade to zero at its edge.
+  Third-person actor models and dropped item models receive the dynamic lightmap
+  contribution at their world positions; the first-person hand keeps vanilla lighting.
+  The lightmap-based shader path is a prototype; rendered
+  texture contrast and source blending still need visual acceptance. The strength/radius
+  curve is an incomplete approximation pending a version-matched behavior reference;
+  source color is fixed, there is no occlusion or
+  shadowing, shader-pack and Enhanced renderers are not integrated, and visual/performance
+  acceptance remains incomplete.
 - [ ] Classify and remove moving bands/static under camera motion using coherent
   resident, frustum, submitted and GPU-completed identities. Change culling only when
   evidence proves a missing draw.
@@ -394,8 +482,13 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   remain open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
   and render work drain, and a later GPU frame completes. Empty-world initialization is
-  verified; complete server-form and gameplay acceptance remains open. Column light
-  batches reuse one resident sky-ceiling scan for section snapshots and boundary
+  verified; complete server-form and gameplay acceptance remains open.
+  Failed required terrain writes discard the complete GPU generation. Live generations
+  rebuild retained CPU meshes after bounded backoff, including with a zero upload budget;
+  failed background candidates leave the active arena intact. Rebuilds use minimal growth
+  and withdraw incomplete draws and shader-pack expansion. Optional growth preserves valid
+  publications. Native low-memory recovery acceptance remains open.
+  Column light batches reuse one resident sky-ceiling scan for section snapshots and boundary
   waiters. Dispatched light members retire their queued candidates, so completed
   columns do not consume later dispatch scans. Changed light faces return pending
   neighbours to readiness without replacing their revision or queue age. Completing
@@ -469,12 +562,19 @@ is a broader claim than the presence of these features.
 
 View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
 with a steady movement camera in both animation modes; hurt and death effects remain
-independent. In-world rendered acceptance evidence for this client option remains outstanding.
+independent. Full also bobs the native third-person cameras, while hurt, death and
+hand effects stay first-person; the vanilla `third_person` preset's `minecraft:camera_player_bob`
+component, which would also carry hurt and death camera motion, is not yet confirmed (incomplete).
+In-world rendered acceptance evidence for this client option remains outstanding.
 
 Historical movement acceptance scope includes sprint/double-tap/toggle timing, forced
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
 descent. Reconcile each case with current code and evidence before calling it a missing
 implementation.
+Fixed-tick movement and correction replay apply liquid sprint stops and sprint
+speed-modifier edges before travel; see [swimming triggers](docs/reference/swimming-trigger.md).
+Speed authority follows actor lifetimes and survives prediction resets.
+Incomplete: live strict-server acceptance of the surface-exit and wet-jump sprint stops.
 Server sprint metadata preserves the local Toggle Sprint request. Held sprint
 restarts after a server clear when admission conditions hold. Native rendered
 acceptance of server resets and corrections remains outstanding.
@@ -494,7 +594,7 @@ Initial session pitch and yaw reach the local view before its first movement inp
 Interaction rotation retains picked aim independently of body, head and camera input.
 Active assistance publishes its target direction, or body facing when no target is found,
 to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
-Touch picking and camera-actor substitution remain incomplete.
+The touch and classic control modes aim interactions along the ray through the finger and report their interaction model; picking from the camera origin in third person, the idle selection between touches and camera-actor substitution remain incomplete.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -544,6 +644,32 @@ tick keeps its place; one spawning later boards behind. The controller is the pl
 controlling seat of a boat or a saddled, tamed horse. Deviation: vanilla drops a link whose
 actor is missing at its tick and relies on spawn-embedded links; Cinnabar keeps it until
 either actor is removed, so a server that never re-links still seats the rider.
+Getting off a mount places the player client-side, as vanilla's client does unless the mount
+is flagged for server-only dismounts: the player tries the eight blocks around the vehicle
+across its heading first, at its level, a block up, then a block down, stands on the first
+with a floor and room, and reports that position in its stop-riding request. Without a free
+block it stays at its seat. It gets off only in a tick where transport takes the request
+once nothing from the seat is still outbound (movement queued or not yet written, a held
+item release, attack, block-use or item-release work), the last tick completed and every
+column around the mount has arrived. While seated movement already produced is still going
+out the frame runs no ticks, so the backlog drains and input does not move the mount; a
+release facing a tick still to come lets the ticks run. That hold is decided once per frame
+as block use starts, before item use and movement read whether a tick runs, so a buffered
+pick or a server item-use write waits for the tick that does run; a press first seen in a
+frame holds from the next frame. Once off, the
+client world's mount view rides the player on nothing until the server's links for it
+change; movement, seat pose, view lock, animation, actor picking and collision read that
+view, so a link the server sends again seats the player for all of them, while the
+committed link waits for the server's unlink; another vehicle's unlink leaves it. A player
+left inside the vehicle's box (no free exit, as in open water) passes through the vehicle
+until it no longer overlaps it, rather than being lifted on top. Incomplete: that
+pass-through is unverified, since vanilla's overlap handling in its swept collision could
+not be read and only its push path is known to skip the vehicle just left; the still-vehicle motion
+threshold is unverified; each block counts as one box around its collision shapes; blocks
+vanilla exempts by flag or state other than scaffolding are not exempted; legacy worlds'
+older exit patterns and activator-rail ejection are not implemented; until the server's
+unlink arrives, the HUD, inventory, item use and mining speed still treat the player as
+mounted.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.
@@ -555,6 +681,13 @@ remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
+A Normal-mode local `MovePlayer` with resident target terrain eases position and rotation over three ticks,
+including correction replay, preserving the packet's position precision. Vehicle IDs resolve at each
+packet's ordered commit: unknown IDs take this path; resolved vehicles keep the correction path.
+An unloaded target is placed directly without replacing an active ease.
+Incomplete: travel ordering, using collision-origin availability as terrain residency, the grounded
+interpolation adjustment, correction-path handling for mounted targets, broader exact-version
+confirmation and live acceptance.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. An agreeing server stance adds no action and leaves earlier queued actions intact.
@@ -591,6 +724,12 @@ which can cross a block corner between clear endpoints. Teleports discard that
 segment immediately. A remote player teleport also releases the old riding link before
 the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
+Authored base seats resolve mount scale and player riding height, then share the
+[native-origin conversion](docs/reference/rider-seat-origins.md) with streamed seat
+metadata for local and remote passenger placement. Unlocked player riders retain
+look-driven body turns while seated, and explicit seat-facing locks still override
+the animation. Live bench camera/body alignment and special passenger families
+remain unqualified.
 Remote alive notices restore depleted health to the streamed maximum while keeping
 movement interpolation intact. Repeated notices preserve a living actor's hurt timing.
 
@@ -627,6 +766,15 @@ qualification remain open.
 Remote players remain eligible while their collision box contains the camera. Render and
 animation bounds containing the eye survive frustum rejection after distance admission;
 matched overlapping-player visual qualification remains open.
+Named villager eggs use the selected current actor's
+[spawn egg icon](docs/reference/retail-villager-eggs.md), preserving authored
+aliases and indices. Generic villager auxiliaries resolve their declared current
+replacement when available, falling back to the original actor instead of indexing
+the atlas. NPC eggs retain the actor's
+icon for both a server-announced named item and the legacy generic selector,
+even though the retained registry omits the named item. Generated protocol
+selector facts cover all 91 generic egg variants. Gameplay comparisons confirm
+the legacy trader artwork and visible server-announced NPC egg.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
@@ -643,10 +791,32 @@ those definitions while preserving authored item conditions. Expression roots re
 the worn slot through owner placement; worn equipment counts exclude hands.
 Missing copper armour definitions reuse standard pack definitions when the matching
 textures are present. Authored item bindings retain precedence.
+Armor trim identifiers survive canonical stack and equipment admission. Inventory icons,
+player previews and worn armor compose the active pack's trim masks and palettes over
+their selected artwork, preserving dye and enchantment state. Authored pattern and palette
+aliases override the native paths. Worn and preview compositions retain their admitted
+owner definition; held session icons retain their selected sprite placement. Worn composition
+preserves authored controller color and opacity. Full native trim visual qualification remains
+incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
+Inventory and HUD player models draw prepared block headgear on the captured head pose,
+using the world renderer's shared placement. Headgear scale, vertical placement and held
+pumpkin orientation still need native visual qualification; other player previews remain
+incomplete. Inactive UI body controllers suppress block headgear with the body.
+
+Villager and zombie-villager profession layers retain their authored second sampler
+and colored transparent keep masks alongside biome clothing. Babies and unemployed
+villagers retain their authored material choices. The pinned villager brim provisionally
+uses the sibling zombie model's bind; its native villager default remains unverified.
+Matched native captures, masked-material MSAA edge qualification, single-texture masked
+material parity and independent server-pack sampler overrides remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
-fallback for held models. Script-based helmet inference is provisional and recognizes
+fallback for held models. Packs that only re-texture the stock bow or crossbow keep the
+attachable's poses in Bedrock animations, matching native first- and third-person draws, and
+use native item sprites only under Java animations. Texture-only spears and tridents still
+draw as native item sprites in both styles; that choice is unverified against native.
+Script-based helmet inference is provisional and recognizes
 specific head/hand branch names. General slot inference and rendered qualification remain
 incomplete. A pack's attachables have no binding or texture count limit, and all their art
 is decoded and placed at join. Native queues each texture when it is first requested, and
@@ -655,12 +825,19 @@ Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred 
 remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
 so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
-Confirmed gap: native keeps and draws every render controller whose condition passes,
-while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
-controller ahead of the body draws only the cosmetic, with no limb animation, and
-other passing layers such as hats and capes never appear. Closing this needs per-layer
-condition and geometry evaluation, posing and drawing, and attachable parent-bone
-lookup across the passing list.
+Animation timeline keys follow native's schema: only plain decimal keys such as `0.5` are
+times, other keys are ignored, and each channel's keyframes play in time order. A malformed
+animation is skipped on its own while the rest of the stack applies. Native's schema skips
+only an unmatched member; matching that for members other than timeline keys is incomplete.
+
+Client-entity render controllers evaluate each layer's activation, geometry, texture and
+pose in authored order. A completed all-false activation result suppresses the base body
+and its skin/cape/cosmetic attachments; absent controllers and unresolved artwork retain
+their distinct fallback behavior. The description's `hide_held_items` expression controls
+held equipment independently of worn armor in the actor's world or UI render context.
+Tick, frame-sampled and retained outputs carry these policies. Primary rig selection still
+occurs at compilation, and attachable parent-bone lookup across multiple passing controllers
+and version-matched in-game acceptance remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -679,6 +856,10 @@ lookup across the passing list.
   and interpolate with its frame fraction, independently of remote actor ticks.
   Linux captures cover third-person running jumps in both modes; other platforms
   and matched native qualification remain open.
+  Missing animation roots and unsupported root weights no longer disable other
+  compiled clips or controllers on the same rig. Compiler regressions cover player
+  definitions and carrier round trips. Native error-handling parity and confirmation
+  against the reported server pack remain incomplete; no live replay was performed.
   Shulkers publish their peek and attach-face variables and keep a zero body yaw;
   attach-position snapping, peek-dependent collision bounds and a rendered comparison
   against the vanilla client remain incomplete.
@@ -689,21 +870,39 @@ lookup across the passing list.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Pack scripts compile at any statement count and up to their source document's size and the
+  stored per-expression operation width. The graphics-mode, pack-setting and
+  bone-orientation queries are admitted but read their idle zero: Cinnabar has no pack
+  settings or bone transform readback yet. Large initialize and pre-animation programs
+  reserve their stored operations beside the ordinary pose allowance, including frame
+  replay and ordered world-budget accounting. Loop-heavy scripts, rigs exceeding the
+  shared world budget and hardware frame-work acceptance remain incomplete. The large-script
+  per-actor allowance has not been verified against version-matched Bedrock behavior.
   Classic and slim skins take the built-in skin pack's models, which are not in the fetched
   pack, so they derive from its `geometry.humanoid.custom` and `geometry.humanoid.customSlim`.
   The slim left leg drops the fetched copy's mirror to match in-game output and the newest
   identified public copy of that skin pack; public copies disagree on this flag, and the target
   version's own `skin_packs/vanilla/geometry.json` is unverified.
+  Received classic and slim skins retain transparent body regions, including legacy
+  limb expansion. Body-coverage protection stays at local import; matched post-change
+  in-game qualification of received transparency remains open.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified. Snow golems wear a carved pumpkin
   until sheared, turning with the head part's own X and Y rotation at the native offset and scale;
   its hurt overlay, invisible-carrier behavior and which part it reads under a controller's
-  alternate geometry are unverified. The other native additional-rendering layers (iron
-  golem, mooshroom, minecart) remain unaudited.
+  alternate geometry are unverified. Minecarts publish constructor display blocks, including
+  the hopper, and typed custom-display overrides through the carried-block renderer. The
+  constructor offsets return when custom display is disabled, including the lower hopper offset.
+  Their three-quarter block scale and pixel-offset placement are provisional; exact native transforms,
+  directional default states, overlays, invisibility and slope/curve alignment remain incomplete.
+  The iron golem and mooshroom additional-rendering layers remain unaudited.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Minecart spawn and movement positions share the constructor collision-centre conversion,
+  retaining the exact received spawn height. Flat-rail placement has a rendered fixture;
+  native client qualification of scaled/custom carts and slope/curve motion remains incomplete.
   Movement retains signed byte rotations and exact network heights through tick and
   frame interpolation. Interaction picks use completed actor steps while pending motion
   remains separate. Remote reset packets snap through the same
@@ -718,7 +917,7 @@ lookup across the passing list.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
-  weapon sprites and custom-model icon fallbacks.
+  weapon sprites, the turned-over rod grip and custom-model icon fallbacks.
   Server-defined flat items use the default in-hand tables or a declared
   `minecraft:render_offsets` component in both hands and perspectives, with the first-person
   swing that path uses in every combat profile. Remaining: retail items flagged component based
@@ -735,8 +934,9 @@ lookup across the passing list.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.
-  Implemented dropped sprite families, including flower beds, shaped plants and eggs, use
-  their carried artwork. Spike icon faces and native transforms remain incomplete.
+  Implemented dropped sprite families, including amethyst buds and clusters, flower beds,
+  shaped plants and eggs, use their carried artwork. Spike icon faces and native transforms
+  remain incomplete.
   Other drop classes and native poses remain incomplete. Falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
@@ -755,7 +955,8 @@ lookup across the passing list.
   terrain source. Dedicated dropped block items share prepared held geometry and texture
   tiles. Admitted session artwork takes priority. Other drop classes, native poses,
   lighting, tint, animation and per-stack model state remain incomplete.
-  Held lecterns reuse the placed stand; their hand pose comparisons remain incomplete.
+  Placed lectern stands are terrain models; a held lectern draws the same stand and its hand
+  pose comparisons remain incomplete.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held copper golem statues reuse the standing entity geometry with their oxidation artwork;
@@ -763,7 +964,15 @@ lookup across the passing list.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
+  Framed filled maps retain signed numeric and decimal-string map IDs, request missing
+  images, and wait for image data without displaying their inventory icon.
   Framed filled maps wait for image data without displaying their inventory icon.
+  Received framed maps select the full-face rim even without a server map bit. Map and
+  text canvas pages grow without moving live pixel rects; the former 16-map ceiling is removed.
+  Map growth reserves capacity for every admitted sign page. Artwork reloads that cannot
+  retain the cached canvases report an error before publishing the replacement pack.
+  Moving-camera map-wall qualification and overflow beyond the atlas texture-side budget
+  remain incomplete.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
   inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
@@ -774,7 +983,27 @@ lookup across the passing list.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
-  Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Framed cube items retain their authored carried faces and three-dimensional geometry at
+  native's quarter-block framed cube scale; native's shape-specific framed scales and turns
+  and data-driven block display transforms remain incomplete.
+  Custom block stacks resolve through the `block_id` StartGame declares when the server's item
+  registry omits the block's item; a later mid-session registry drops those derived items, and
+  whether that matches native behavior is unverified. Cubes declared with the versioned full-block
+  geometry keep their icon and turn their held bottom face; the held rotation is inferred from the
+  placed geometry rather than a native carried-block comparison.
+  Custom blocks with server placing handlers (`hasPlayerPlacing`, version 1 components) are
+  left to the server's block updates without local collision prediction. Full-cube bridge
+  targeting uses held placement history independently of that prediction override.
+  Matched native packet and rendered comparisons remain incomplete.
+  A held repeat that fails locally, such as a bridge cell overlapping the jumping player, sends
+  at most one use per clicked block and face per tick, preserving distinct buffered targets;
+  native's per-target count of failed held uses remains incomplete and unverified.
+  Full-cube custom blocks continue held bridges like vanilla's cube family; whether native
+  grants build intention to custom stairs, slabs or other partial shapes remains incomplete
+  and unverified, so they keep following the aim ray.
+  Held stacks whose wire descriptor names a block state with an aux value that has no compiled
+  visual hold that state; a state with no prepared art, such as a turned log or a facing stairs,
+  holds its item's base block, which remains an incomplete approximation of native's exact state.
   Framed, dropped and held items try session block sheets, session icons, startup carried
   geometry and startup sprites in order, continuing when construction, extrusion or device
   atlas and mesh admission fails. Selection and upload share the same physical budgets.
@@ -805,9 +1034,73 @@ lookup across the passing list.
   Aux-only stacks use base block visuals only when aux cannot select a legacy block state.
   Decoding legacy states without a retained block remains incomplete.
   Firework-star previews preserve their mask artwork and per-stack colors.
+  Elytra cells select intact or exhausted artwork from stack wear at the last durability
+  point, independently of atlas metadata. Broader animated item acceptance remains open.
+  Legacy filled-bucket aux values select their matching named bucket artwork rather than
+  treating the aux value as an atlas-array index.
+  Redstone-torch icons select lit artwork independently of their placement power state.
+  Twisting and weeping vine icons select their stem face independently of the growing tip;
+  pointed dripstone and sulfur spike icons select their hanging tip face.
+  Pumpkin GUI cubes keep their class-specific front artwork independently of held face
+  sheets; jack o’lantern GUI cubes retain uniform texture brightness. GUI-only cube textures
+  follow required equipment and held artwork, retaining thumbnails when they cannot fit.
+  Held pumpkin cubes use the same canonical class artwork independently of placement
+  facing. Their first-person block pose retains the item-space quarter turn.
+  Held stairs select that turn from their pinned model family or active stair topology,
+  independently of inventory GUI orientation. Rendered stair acceptance remains open.
+  Static carried slabs and carpets are centered between their caps while double slabs
+  retain their full height. Animated carried materials and rendered slab and carpet
+  acceptance remain incomplete.
+  Held trapdoors use a centered thin panel with cap artwork and narrow edge UVs,
+  independently of placement state. Rendered trapdoor acceptance remains open.
+  Held buttons retain their unpressed panel and first-person model offset independently
+  of the inventory wall mounting. Rendered button acceptance remains open.
+  Held pressure plates retain their thin panel, inset cap artwork and item-space pivot
+  independently of floor placement. Rendered pressure-plate acceptance remains open.
+  Ordinary held fences join their rail halves at the center and retain post-relative
+  artwork. Held bamboo fences retain thicker slats and separate post and rail texture
+  regions. Rendered fence acceptance remains open.
+  Held walls retain two posts, separate rail halves, position-derived artwork, directional
+  face materials and their first-person model origin, including retained block stacks.
+  Rendered wall acceptance remains open.
+  Ordinary held fence gates retain carried post-cap and rail artwork independently of
+  their placed orientation. Held bamboo gates reuse their separate piece regions with
+  carried cap and end-face directions. Rendered gate acceptance remains open.
+  Bedrock hand rigs shade posed normals in world space and interpolate their combined
+  directional and eye light in gamma space. Held block emission supplies a minimum
+  light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
+  retains sRGB artwork sampling. Opaque Bedrock hands round gamma output to bytes before
+  scene conversion. Bedrock SDR hands blend over the encoded scene attachment, retaining
+  gamma-space translucent composition. Broader held lighting and shape acceptance remain incomplete.
+  Held mesh allocation uses the available item ID namespace while reserving distinct session
+  and map slots. Rendered large-catalog acceptance remains open.
+  Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
+  placed book counts and the held world model.
+  Shared cube silhouette and texture-coordinate acceptance remains incomplete.
+  Missing lit block or carried texture entries select pack diagnostic artwork; rendered
+  acceptance of these fallbacks remains incomplete.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
-  Glass-pane previews use thin plates with separate edges and retain their held sprites.
+  Terrain-backed GUI meshes retain independently averaged texture levels and choose a
+  level from their physical footprint. Projected cube and shaped-block coordinates round
+  to half precision after control scaling and placement; their texture vertices use normalized
+  unsigned shorts after atlas placement. Tinted and glinting copies retain both formats.
+  Opaque terrain-face tinting rounds to encoded output bytes.
+  Copper-grate GUI texels retain opaque covered samples after alpha testing,
+  independently of control opacity. Broader GUI coverage acceptance remains open.
+  Source tiles stay aligned through the retained
+  levels; the source allocation retains shaped models alongside the flame page for the
+  pinned catalog.
+  The hotbar catalog comparison still has open shape, artwork and item-variant differences;
+  animated dials and glint also require phase-matched acceptance.
+  Glowstone, sea lanterns, shroomlight, froglight and jack o’lantern GUI cubes retain uniform texture
+  brightness. The emissive-cube census rejects missing classifications after registry
+  changes; partial emissive faces and entries marked incomplete still need acceptance.
+  Glass panes use thin plates with separate body and edge artwork in slots and both hands.
+  Player previews share the ordinary held model, sprite resolver and material alpha policy.
+  Preview face sheets reuse resident artwork, with a counted sprite fallback when new held
+  artwork cannot fit. Flat pane artwork remains available as a fallback; metal bars keep
+  their flat carried sprites. Rendered glass-pane acceptance remains open.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
   Heavy-core inventory previews use their carried scale and screen offset.
@@ -865,13 +1158,20 @@ Video customization can hide other players' catalog cosmetics, companions and ef
 while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
-server collision-box changes. Other actors retain their published label height.
+server collision-box changes. Other actors retain their published label height. Actor
+scale resizes the box, with its minimum extent, and not vanilla's 0.7-block clearance
+above it.
 Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
 keep cosmetic labels complete. Ordinary on-screen anchors skip text measurement for
 visibility. Atlas text retains formatting and line slots, with guarded cell edges and
 repacking before UV publication. Capacity repacks reuse unchanged line pixels; font
 and palette changes invalidate them. Rejected label bounds stay cached independently
 of shared text layouts. In-world visual qualification remains open.
+Video customization exposes persisted name-tag background opacity from 0–100%, with
+the existing opacity as its default. Text opacity is unchanged; explicit mod background
+colours retain precedence. Windows headless checks at 1280×720 and scale 1 cover
+0%, 25% and 100% output, slider input, settings re-entry and persistence; other
+platforms and display scales remain unverified.
 Name tag colours compose after Enhanced and shader-pack world effects with the scene's
 depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
 and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
@@ -887,6 +1187,20 @@ Modern lingering effect clouds draw the potion emitter for non-dragon profiles a
 carry their packed effect color into its RGBA variables. Potion clouds emit every two
 ticks; dragon breath retains its five-tick emitter. Legacy emission and matched
 rendered-frame qualification remain open.
+Legacy LevelEvent particle selectors use the active target's named type contract;
+colored falling dust and all three spell selectors retain their packed RGBA data.
+Matched post-change dust-trail and spell-rainbow frames, and broader particle visual
+qualification, remain open.
+Cutout particle materials retain sprite coverage independently of tint alpha, so
+zero-alpha RGB gradients in native redstone dust and explosion definitions reach
+the draw list. Blended and additive materials retain authored alpha. Regressions
+and local pack definitions pass; matched redstone-ring/trail and white-cloud frames
+remain open. See [particle materials](docs/reference/particle-materials.md).
+
+Feed actor events scatter crumbs of the fed item at the target's eating position for
+every item, including animal food players cannot eat. Drinks scatter nothing, and the
+local player's own food scatters only from its predicted bites. Matched native captures
+of animal-feed crumbs and of remote drinking remain open.
 
 Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
 lights by it; otherwise alpha rounds at 0.5. Generated declaration states cover the
@@ -918,6 +1232,26 @@ a trident brandishes it while it has a target, so the pack's third-person
 `brandish_spear` raises the arm. The rope's native material, a pack-renamed
 `loyalty_rope` texture, the native trident material and light sample point, pole-only
 bone selection and abstract-arrow motion seeding for tridents remain incomplete.
+A brush used on a block succeeds on any block nothing else takes, as vanilla's
+`BrushItem::_useOn` does: the use-on predicts success without a swing, repeats on the
+held build schedule, and starts the brush's local held use, which button-up releases.
+Actors using a main-hand item with the brush use animation publish the native
+`variable.is_using_brush`, so the pack's third-person `brushing` pose sweeps the brush.
+The brush's 200-tick use duration is observed on BDS 1.26.61.1; its native registration
+is unverified. The native first-person brush sweep
+(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants are
+unverified), the brush dust the native client spawns every 8 ticks
+(particle type 86, drawn through the level's block-particle effect with unread
+parameters), a server-flag start of a brush taking its use duration, and the native
+`variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain
+incomplete.
+
+Feeding a baby animal arrives from vanilla BDS as actor event 57 followed by event 60 with
+zero data; event 60 now draws the vanilla crop-growth (bone meal) effect at the baby's
+mid-height. This is provisional and incomplete: the effect choice rests on pmmp's protocol
+description ("green particles, like bonemeal on crops"), and the native effect, origin,
+count and any repetition still need a version-matched vanilla client capture. BDS sends no
+event 76 when a fed or event-driven baby grows up, so that event still draws nothing.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -931,13 +1265,28 @@ See [actor animation clocks](docs/reference/actor-animation-clocks.md),
 
 ## Phase 5 — Interaction, inventory and UI
 
+Entity-backed storage stays open when hurt and closes beyond the user-selected
+11.5-block distance from the window's actor, falling back to the recently interacted
+actor for unresolved or local-player owners. Admitted attacks retain this association
+for desktop, controller and touch input. Live testing confirmed the Hive shop
+behavior on Windows.
+The interaction association, native distance, tick timing and missing-entity behavior
+remain unverified and do not close the inventory parity gate.
+
 Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 [UI runtime and server forms](crates/client-ui/src/ui_runtime.rs),
 [inventory prediction and crafting](crates/inventory/src/lib.rs), and
 [menus and settings](crates/client-shell/src/menu.rs). The boxes track full acceptance
 across these existing features; they are not a list of missing screens or systems.
+Multi-action inventory requests retain intra-request stack references for partial
+moves and gathers. A pinned Gophertunnel wire check covers partial moves only.
+Gather wire evidence and live shift-move, gather and follow-up drop qualification
+remain incomplete.
 Outgoing chat uses the session's login name and XUID. Server-authored actor names
 remain available for local presentation and text resolution.
+Open chat follows incoming messages while at the bottom and preserves a surviving
+message's position while reading history, including wrapped rows and history eviction.
+Version-matched native scroll acceptance remains unverified.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
@@ -950,14 +1299,25 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   face selection across measurement and painting; broader text acceptance remains open.
   Unmapped cursor-following buttons pass held-stack presses through to inventory and
   container backgrounds, allowing outside clicks to drop items.
+  Mouse presses on a catalog scroll view's touch-drag mapping reach its background's
+  destroy-selection action; touch-mode views and explicit pack press mappings retain ownership.
   Native closed inventory binding, text measurement and layout run on a worker. Closed frames
   serve a fixed allowance of texture metadata queries, and opening finishes pending work
   before painting. Revision checks retain prepared results until their sources change.
   Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Profile banners and the Create World preview use prepared perspective views of the
+  fetched panorama, with featured screenshots and saved-world thumbnails taking priority.
+  Optional panorama views use the capacity left after other UI textures; budget fallback
+  preserves existing artwork.
+  Broader menu visual acceptance remains open.
   Mods use explicit open, close and toggle requests for their panels; the latest opening owns
   input and closes other panels. Panel content rejects the removed shortcut metadata.
+  Play tabs switch with `[` / `]` and the bumpers, as Bedrock's view-scoped
+  `button.menu_tab_left` / `button.menu_tab_right`, with keycap hints beside the tab bar.
+  Incomplete: stopping at the first and last tab is unverified against native, and the
+  bumper hint always reads LB / RB rather than the connected controller's own glyph.
   Packet reactors use grant-gated panel and physical-input imports; hardware acceptance
   remains pending.
   Client-owned panel collections support bounded five-column card grids with
@@ -973,6 +1333,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   duplicates from every row in the layout on both remap and row reset, while Cinnabar's other
   rows can still share a control or refuse the reset. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
   cross-platform device acceptance remains incomplete.
+  Signs, command blocks, server forms, data-driven forms, emotes, mob effects, chat and inventories take keyboard
+  Signs, server forms, data-driven forms, emotes, mob effects, chat and inventories take keyboard
+  and pointer input as the frame's owner: the scene on top when the frame began, while it stays on
+  top. The architecture gate rejects a screen system that reads input without it. The reference
+  client delivers input to the top scene and scenes that always accept it, and it applies screen
+  pops in its stack update; where that update falls among a frame's input is unverified, so the
+  closing-frame fence is Cinnabar's choice. Launcher menu input, mod panels, consent and modal
+  input still use their own checks because they aren't routed through the scene owner yet. Touch and
+  gamepad device acceptance of the owner remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -987,24 +1356,70 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Tiled images retain full coverage with bounded repeat geometry across cropped
   regions and sliced borders; large collection admission and hardware frame-work
   acceptance remain incomplete.
+  Server UI textures larger than a 256-pixel page draw from full-resolution copies on the two
+  art pages. A full registry replaces textures no frame still draws. The textures a frame
+  draws pack ahead of launcher artwork; the pages repack for a new drawn set when a drawn
+  texture lacks a copy or the last packing left sources out. Vanilla loads each image as its own
+  texture, so a screen drawing more large images than the art pages and server pages hold
+  still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  Server locator packets now reach session-owned locations and the pack-positioned bar
+  in Survival and Creative, with explicit hiding and temporary XP display. Locator
+  distance-dependent icons, legacy color selection, tracked-actor fallback behavior,
+  XP/anvil/enchanting timing and exact projection remain provisional and incomplete
+  pending native-reference and rendered-frame acceptance; they do not close this gate.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
+  Titles, subtitles, the action bar and non-raw chat replace `:_input_<binding>:` with the
+  bound control's controls-screen label when they arrive. Vanilla draws mouse-button, gamepad
+  and touch controls as icons through its emoticon list (`font/emoticons`) and glyph sheets,
+  which the fetched pack lacks; Cinnabar shows the controls-screen text instead, and touch
+  reads the keyboard bindings. `:_gamepad_<button>:` names, other `:name:` emoticons and the
+  vanilla key-name table are not implemented. These remain incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.
-  The inventory's live player renderer still draws the static preview model turned toward
-  the pointer; native renders the animated actor there, so that remains incomplete.
-  The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
+  HUD paper-doll controls retain independently evaluated player-controller layers, authored
+  bone translations and camera-driven repeated UVs. Model coverage may extend outside a
+  control while retaining its ancestor clip. Selected source artwork shares the UI catalog's
+  existing texture-layer and byte budgets. Base item cubes, equipment textures, held artwork
+  and actor flames share a fixed reservation of GUI model-atlas pages. A pack that overflows it
+  still starts: equipment is placed first, cubes keep their thumbnails, held items their sprites,
+  and the HUD doll omits flames or an unplaced armor texture. Sizing the atlas from its content
+  within the device's texture-layer and byte limits remains incomplete. Declared pack-relative
+  image paths and session player skins retain independent controller layers. Other entity
+  material modes and menu-controller layer acceptance remain open.
+  Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
+  Controller overlays and material face culling remain independent from repeated source bounds.
+  Live player controls consume UI-context controller layers, part visibility and held-item
+  visibility, including secondary artwork on controller-owned geometry. Held attachables evaluate
+  their own controllers and animated bones in UI context and share owner-bone placement with
+  world equipment. Ordinary held meshes retain their item-bone placement and main-hand scale.
+  Menu fallback and level-view paper-doll contracts stay separate.
+  A screen's live player renderer draws the same animated actor from its own palette, the
+  head subtree turned toward the pointer. It replaces the head's orientation rather than
+  re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
+  rotation still sees the world's; that remains incomplete. Rendered and hardware
+  acceptance of the second palette remain open.
+  The Mob Effects binding (default Z), controller View button and touches on the painted
+  effect icons open the pack's mob effect screen while
   the local player has an effect, listing iconed effects in id order with potency and
   `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
-  damage closes it. Vanilla's controller View-button and touch actions, which share the
-  press with toast interaction, the opening guard's unidentified player check, close-button
-  hover and list scrolling acceptance remain incomplete.
+  damage closes it. Controller View prioritizes actionable toasts. Touch hit bounds follow
+  the painted effect artwork, including pack placement and clipping, and survive retained
+  paints. Foreground touch controls and mod buttons keep their presses when they overlap
+  effect artwork. Native touch hit-area and toast precedence qualification, the opening guard's
+  unidentified player check, close-button hover, list scrolling and target-device acceptance
+  remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
+  Bedrock Chat Input rests completions on the input bar through a built-in pack
+  override. The native grid rule that does this in vanilla's full-height
+  `chat.auto_complete_panel` is unidentified, so server-restyled chat screens
+  still list completions from the top, and vanilla's `...` row for a truncated list is
+  not drawn.
 - [ ] `P5.4-SCOREBOARD` — Close objective/score and boss-bar create/update/remove,
   ordering, display positions, styles and stacking alongside titles/actionbar.
 - [ ] `P5.5-INTERACTION-COMBAT-INVENTORY` — Close targeting, mining/cracks, placement/use,
@@ -1016,6 +1431,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Malformed item entries never match, and conditions the client reads as zero keep
   the base value; item-tag filters compile during session preparation for
   allocation-free evaluation, and an unsupported filter matches no item.
+  Client-authoritative breaks retain admitted tool wear and its legacy response
+  identity, so later breaks use the updated slot and rejected changes can roll back.
   Mining uncertainty leaves known physics and local placement prediction usable.
   Mining states use separate storage and admission, preserving the physical state budget.
   Complex Molang conditions, item-tag scripts and live custom-block mining acceptance
@@ -1037,6 +1454,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Digger tag programs are prepared off the frame thread at bootstrap and registry
   replacement; replacements retain only active queries and session retirement drops
   pending preparations before a new login.
+  Destroy rates read ground contact from before the tick's movement. After a multi-tick
+  block, the next start lands on the tick the 250 ms destroy deadline is reached, and a
+  held Creative destroy repeats on the tick after it.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Block-action carriers retain every accumulated action in tick order.
@@ -1046,11 +1466,19 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
   each ingredient draws from one concrete variant. Missing grid ingredients and their
   result use distinct ghost cells in both renderers and retain hover names.
+  Smithing trim recipes use the server's TrimData ingredient mappings to preview and take
+  a decorated base stack, retaining its damage, enchantments and other user data. Identical
+  trims offer no output; re-trimming changes only the trim. Matched native request timing
+  and broader workstation acceptance remain incomplete.
   Shield recipe results retain their blocking timestamp in recipe admission, predicted stacks
   and result declarations. Advertised banner application recipes match current workbench inputs
   and preserve their output data. Patterned rendering, matched input/packet timing and broader
   crafting and container acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap.
+  Shift-double-click transfers keep the cursor unchanged within one stack-request batch.
+  Transfers exceeding the wire action budget still need deferred multi-batch handling;
+  matched transfer timing and broad custom-container acceptance remain incomplete.
+  Hover reports and actor use share the attack's game-mode actor cap. Like native, hover
+  reports the same actor again after each actor-data update for it.
   Actor rays use loaded collision defaults, authoritative dimensions and scale, and
   constructor pick radii. Attack, use and hover preserve the selected world intercept.
   Ordinary actor picks retain the frame's ticked camera-actor position for the final pick-range trim.
@@ -1066,6 +1494,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
+  Actor-backed storage menus keep every cell up to an implementation bound of 1,024, not a
+  verified native limit. Stack requests for cells above 255 send the low byte with the stack
+  network ID, normal transactions send the full cell, and each response entry means the next cell
+  its request predicted with that byte; a server's handling of those responses is unobserved. Stack
+  hover text appends plain lore lines, up to the existing 32-line cap; JSON text-object lore is
+  shown raw.
+  Pack radio tabs over storage cells select locally by forced or named-collection index; a member
+  with neither stays a cell click, where native checks its own component. The selection replays
+  only for groups drawn on the previous frame, so a group that reappears shows its default for one
+  frame. Native holds this state per component, and moving to that closes both gaps.
+  A press on a pack's auto-place button still sends a take, whose equivalence to native's request and per-frame cost
+  at 1,024 cells remain unverified.
   Actor-use transactions precede held item use when component, held-item, offhand and
   equipment-enchantment facts rule out every possible offering of an unmodified retail
   item; only components the client maps to interactions can offer one. Actors with a
@@ -1085,11 +1525,22 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   bypass, allow/deny/border blocks and live mining acceptance remain incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
+  A food or drink item that declares a zero use duration takes the standard 32-tick consume time,
+  as Hive's custom potions need; native handling of a zero duration remains unverified.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  A hook's fish-position, bite and tease events draw the native trail, bite and tease
+  particles and play the bite splash. The bite's client-side downward hook impulse is not
+  applied, because hooks follow server movement without client motion; in-world comparison
+  with a native capture remains incomplete.
   Items with a registry `minecraft:seed` rule predict planting on a declared block's
-  declared face into air: the swing, place sound, consumed item and the crop's default
-  state, repeating while held. Solid-surface planting on undeclared blocks and legacy
-  block-name aliases such as `grass` remain incomplete.
+  declared face into air: the swing, consumed item and the crop's default state, repeating
+  while held. As in vanilla, placement and planting sounds come only from the server's
+  `place` level sound event; the client voices no local copy. Successful placement
+  consumes the press before edible items can start their air-use fallback; failed
+  attempts still allow eating. Matched
+  native and after-fix in-world planting/eating captures remain outstanding. Solid-surface
+  planting on undeclared blocks and legacy block-name aliases such as `grass` remain
+  incomplete.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -1098,8 +1549,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views. Overlapping requests
-  keep the active form and answer busy, including reused IDs.
+  scaling and image/layout behavior against matched native views.
+  Simple automatic server-form entrance chains whose size or offset remains authoritative
+  in placement feed dimensional expressions into layout, clipping, culling and actual-state
+  hit regions. Anchored offset replacements and widget/pointer-owned placement retain the
+  legacy paint path; their layout composition remains incomplete. Event/reset,
+  render-wait, destruction, mixed and generic-screen animation semantics retain their
+  legacy paths and remain incomplete. Keyword endpoints, complex child/sibling dependencies
+  and native-view/performance acceptance remain unverified.
+  Overlapping requests keep the active form and answer busy, including reused IDs.
   Answered button and custom forms retain their rendered surface for an explicitly provisional
   250 ms handoff grace: a replacement received in that window swaps in place, otherwise the
   surface expires while input edges stay consumed. Version-matched native timing and visual
@@ -1113,6 +1571,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
   their JSON-UI collection. Actor portraits, matched acceptance for larger action
   lists and touch/console behavior remain incomplete.
+  A command block opens vanilla's JSON-UI editor from the server's `ContainerOpen`, loaded from
+  its block and actor, and reports a `CommandBlockUpdate` when a changed screen closes. The
+  minecart command block editor, command autocomplete (`IntellisenseHandler`), the paste
+  button (Ctrl+V pastes), Ctrl+A selecting its text, the profanity filter on shown text, the
+  unicode-to-ASCII command input map, moving focus to the box on maximize and the gamepad-only close-button layout
+  remain incomplete. Ctrl+V into an engine edit box is bounded by that box's capacity; whether
+  the native route from the clipboard to its edit box adds a lower limit was not read.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
   Data-driven UI (DDUI) data stores follow the server's replacements, path updates,
@@ -1150,6 +1615,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   client launched during another's entry waits for its lease. X11 reports the request
   before the window manager applies it, so its settle confirmation is incomplete; native
   compositor failure acceptance remains open.
+  Storage lists downloaded server-pack icons, names, versions and IDs with search, individual
+  deletion and a separate clear-all confirmation. Cache housekeeping files and imported
+  packs are excluded. Missing display metadata falls back to the archive filename.
+  A coalescing background worker scans inventories, metadata and icons; loading disables
+  deletion and obsolete scan results cannot replace the latest requested inventory.
+  Missing or unreadable icons use the pack placeholder; optional encoded-icon limits and
+  image-decode budgets are presentation fallbacks, not pack admission limits. Localized names
+  currently use the English pack fallback. Live Windows input and matched native storage
+  acceptance remain incomplete.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.
@@ -1158,8 +1632,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
   obsolete saved typeface values are ignored. Chat and mention colors apply to decoded
   message labels without changing server pack inputs. Mention tokens preserve surrounding
-  formatting and match the current local display name or the all-player mention. Full
-  live mention acceptance remains incomplete.
+  formatting and completion name spellings. The target setting colors all names or only
+  the current local display name and the all-player mention. Full live mention acceptance
+  remains incomplete.
   Emote filtering and narration remain unavailable and store preferences only.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
@@ -1186,6 +1661,9 @@ Live acceptance of name clicks, inventory opening, typing and history together r
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
+Block outlines, mining and placement share the block-centre pick trim.
+Incomplete: exact 1.26.50 confirmation, the touch-option input remap and live
+client/server reach captures.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
@@ -1229,12 +1707,15 @@ server/Realm/friend-world joins, transfers, reconnect/disconnect, account switch
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
 Signed-in addressed NetherNet joins, and transfers from any signed-in target, gather ICE
-candidates through the account's Player Messaging relay config (STUN and TURN), as vanilla
-does; signed-out joins gather local candidates only. A refused relay request, or one past the
-10 s implementation bound, leaves the join on local candidates; that bound is unverified, since
-vanilla holds its config from sign-in. Confirmed gap: the relay config's TURN server answers
-allocations with 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar gathers
-STUN but no relay candidates. NAT and relay-only join acceptance remain open.
+candidates through the STUN URL of the account's Player Messaging relay config, as vanilla
+does; signed-out joins gather local candidates only. The config is requested once per account
+and reused until its expiry (a week), as vanilla holds it from sign-in. A refused relay request,
+or one past the 10 s implementation bound, leaves the join on local candidates; that bound is
+unverified. Realm, friend and raw NetherNet joins likewise keep only the STUN URLs of their
+signaling's ICE servers. Confirmed gap: the relay config's TURN server answers allocations with
+300 Try Alternate, which pion's TURN client does not follow, so Cinnabar drops the TURN URL
+(trying it held every offer about 8 s for no candidate) and never relays a join; vanilla can
+relay when no direct path exists. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
@@ -1243,6 +1724,14 @@ reference-hardware leave latency remain unqualified.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
+
+Realm membership: invitation codes are verified, then accepted only after confirmation.
+Realms owned by another XUID list as joined, offer Leave Realm with vanilla's
+`playscreen.confirmLeave*` confirmation, and are removed once `DELETE /invites/<id>` succeeds.
+The leave endpoint follows community references (MinecraftAuth, wiki.vg), not a native capture.
+Incomplete: live remote acceptance and leave, pending-invitation acceptance, subscription creation,
+multiplayer permission admission, service-specific errors, the native confirm popup's button
+labels, and OreUI placement parity for Leave. This does not close the Realm management parity gate.
 
 Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
 or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
@@ -1275,6 +1764,30 @@ Pack JSON whose value tree could need more than 1 GiB is refused before parsing,
 small archive cannot inflate into an allocation abort; that memory bound is an unverified limit.
 Pack JSON preserves raw control characters inside strings, including multiline manifest
 descriptions, through the shared parser used by local import and installed-pack admission.
+Global pack import also accepts Java Edition resource packs: an archive or folder with
+`pack.mcmeta` and no Bedrock manifest is translated by `java-resource-pack` into an ordinary
+Bedrock pack, which then passes the usual import validation. This is a Cinnabar feature without
+a vanilla counterpart. Translation covers block and item textures for pre-1.13 layouts (1.7
+and 1.8 included) and flattened layouts, worn armour including 1.21.2+ equipment, pre-coloured
+potions, clock and compass atlases from frames or pre-1.9 strips, the legacy HUD atlases and
+1.20.2+ HUD sprites, and OptiFine overworld skies. Targets vanilla ships as TGA are written as TGA
+so vanilla's `.tga` cannot shadow them, and grass sides are composed into Bedrock's tint masks.
+Every vanilla 1.7.10 and 1.8.9 block and item texture with a Bedrock counterpart maps to it, and
+their HUD crops match pixel for pixel. Translation holds at most 1 GiB of decoded and derived
+pixels, an implementation bound rather than a vanilla limit.
+Compasses and clocks animate with a pack's own strips: its `compass_atlas`, `recovery_compass_atlas`
+and `watch_atlas` images, shown at the native 32 and 64 frames. A strip under the Java item name
+(`compass.png`, `clock.png`) in a Bedrock pack at exactly the native frame count is also used.
+That Java-named route is a provisional approximation with no vanilla counterpart, so it closes no
+parity gate; a partial strip is ignored rather than mixed with base frames. The
+Java-to-Bedrock name tables and potion tints were derived outside the repository by matching
+Java Edition client textures against bedrock-samples; a fixture-gated test checks every table
+target and the flipbook list against the pinned sample pack, but no pinned Java source checks the
+Java side. Incomplete: dye-masked TGA targets (leather armour and items, firework charges), whose alpha
+encoding has no Java equivalent, Java animation metadata, models, block states, fonts, sounds, languages,
+entity and GUI textures beyond armour and the HUD, and OptiFine features other than the
+overworld sky are ignored. Import from Java launcher folders and live rendering acceptance with
+real Java packs remain open.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
@@ -1294,11 +1807,16 @@ confirmed values and show a retry message in Game; failed console writes show a 
 Save replies refresh all confirmed settings and retain newer pending selections. World toggles keep
 keyboard and gamepad focus across value changes. A successful save clears superseded errors for its
 settings, while unrelated save failures remain visible. Live edits remain pending until a successful
-server exit. Default game mode and default player permission changes still wait for the next
-start; live application of these settings remains an incomplete parity gap. Pack and experiment
+server exit. Changing the default game mode also sends a targeted console command for the connected
+host; the world default and default player permission still take effect on the next start. Console
+write success does not confirm the server applied the player mode; live acceptance and native
+settings parity remain incomplete. Pack and experiment
 configuration, hardcore, flat presets, Education Edition, operator status for a signed-out or
 offline-fallback host, the in-game Personal Game Mode and Multiplayer section, and live acceptance
 of every option on supported platforms remain incomplete.
+Join initiation failures log their full cause for local worlds and direct sessions as well as
+launcher server joins. The offline Android join report still lacks a reproduced failure or session
+log; logging the cause improves diagnosis and does not close its acceptance gap.
 The Android translated runtime supplies a loopback route and passes two consecutive offline
 transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
 Signed-in local HTTP joins retry once with local identity when account services fail before transport
@@ -1330,8 +1848,19 @@ Failed output streams also reopen on the same endpoint, with repeated callback e
 coalesced per transport. [Output recovery](docs/reference/audio-output-recovery.md)
 preserves the mixer; the contributor reproduced the ALSA failure and confirmed
 recovery on the affected machine. The initial backend failure cause remains unknown.
+The first failure of each outage is logged as a warning, and an outage that outlasts a
+handoff raises one in-game toast with the platform's likeliest fix; the log links the
+[sound troubleshooting guide](docs/audio-troubleshooting.md). Unit tests cover the outage
+threshold and toast; the three-second threshold is provisional, and live acceptance with a
+real unavailable output and the guide's per-distribution steps remain incomplete.
 The sound-definition catalog matches the current sample-pack pin; compiler coverage
 checks a UI sound and guards the manifest associated with the sound-definition digest.
+JSON-UI and container controls play their declared press sounds, and OreUI controls play the theme
+click with vanilla's press timing. Confirmed gaps in OreUI interface sound: the drawer open and close
+sounds, hardcore toggle sounds and the uneventful-navigation reject. A gamepad button aliased to a
+control and a held touch's release are unverified, so they may click differently from vanilla, and
+touch on a server list section sounds at once instead of after the resting delay. Audible capture of
+these clicks remains open.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
 World sounds use the native distance curves: inverse from one block by default, linear
@@ -1347,8 +1876,10 @@ with a weapon is incomplete. Custom `minecraft:swing_sounds` overrides and criti
 on non-mob ordinary actors such as leash knots remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
-stone fallback. Per-permutation sound components and matched native fallback
-qualification remain incomplete.
+stone fallback. Explicitly empty pack materials disable block sound lookup.
+Block and interactive events a material lacks fall back to the `normal`
+material's event, then its default, as the native lookup does. Per-permutation sound
+components and native qualification of the unnamed-block stone fallback remain incomplete.
 
 Complete clean-install, first-run asset preparation, update/install recovery, startup
 and crash diagnostics, packaging and platform acceptance. Required carriers must pass
@@ -1362,14 +1893,26 @@ On macOS and extracted Linux AppDirs, a staged update's carriers build in the ba
 the lowest priority with bounded parallelism, and its first launch promotes them without
 setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
 captures of a game running beside the background build remain incomplete.
+Bootstrap windows initialize only the platform-preferred graphics API by default, preserving explicit `WGPU_BACKEND` overrides, so unused Windows Vulkan drivers are not loaded before setup can fall back to system dialogs. Affected Intel driver and dual-GPU acceptance remain incomplete.
+Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
+
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
-Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
+Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Android first-run consent, download and preparation progress and failure retry draw on that startup screen; an emulator fixture with scripted setup reports confirms the flow, and a clean-install run with real downloads on a phone remains pending. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
 The setup and crash windows use Apple's Game Controller framework on macOS for controller
 buttons and hotplugging, including controllers unavailable through HID compatibility.
 HID-only controllers retain their existing backend, with duplicate native delivery suppressed.
 Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
 macOS, including gameplay input, remains incomplete.
+
+Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
+winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
+look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
+gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
+winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
+PlayStation and generic controllers remains incomplete, as do controllers whose right stick
+uses `AXIS_RX`/`AXIS_RY`. iOS still lacks hardware keyboard keys, mouse capture and
+controllers.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
@@ -1386,12 +1929,32 @@ script-managed AppDir, after revalidating its signed manifest and image. End-to-
 desktop acceptance of this recovery path remains incomplete.
 
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
-launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
+launches. Confirmed renderer device loss persists the failed API for the next launch's
+existing fallback policy, including failures after the first completed frame. Memory exhaustion
+and ordinary exits do not exclude an API; settings changes and exhausted-candidate retries
+retain their existing recovery behavior. Native Windows startup, update and crash-restart
+acceptance, including device-loss recovery on affected hardware, remains incomplete.
+
+Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain and actor
+fragment interfaces fit the fifteen inter-stage variables V3DV exposes, including
+front-facing. Clean-install and displayed-frame acceptance across supported Pi
+models remain incomplete.
+
+Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
+updates to Flatpak only in its own sandbox. Clean-install, login, rendering, local-world,
+import, Discord integration and update acceptance inside the sandbox, and a stable-release
+Flathub submission remain incomplete.
 
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  GPU validation and internal errors retain their driver description for the terminal report and
+  log the full error source before stopping. Injected handler regressions cover all four GPU error
+  categories; these diagnostics do not establish the cause of Android device-loss reports.
+  Android exit reports retain the beginning and end of long logs so startup build and adapter
+  context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
+  shader and affected-device acceptance; diagnostic improvements do not close that gate.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete. Carrier texture pages hold at most 1,024 layers to fit
@@ -1399,14 +1962,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   device-bounded shards; world textures, fallback faces and carried items share page/layer addresses.
   Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
-  tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
-  time because a Mali-G57 tombstone showed the driver compiler faulting while two threads compile
-  pipelines. Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
+  tombstone shows two threads compiling pipelines while one aborts in the driver compiler.
+  Mali, PowerVR Rogue and PowerVR BXM-8-256 Vulkan devices now serialize shader-module and
+  pipeline creation through one device lock. PowerVR phone confirmation remains open.
+  Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
   r51p0 offline compiler faults on the model and transparent terrain vertex programs because
   bool struct members merge across returns. Those flags are now `u32`, and a test keeps
   terrain structs free of bools. Mali phones have not confirmed the fix, so these vendor
-  workarounds and target-device visual acceptance stay incomplete. Terrain has a
-  four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
+  workarounds and target-device visual acceptance stay incomplete.
+  Qualcomm's proprietary Adreno driver (not Mesa Turnip) also takes the device lock: Snapdragon
+  tombstones from v0.1.29 to v0.1.31 show two pipeline-creation threads in its compiler, in half of
+  them both faulting at the same instruction, with the failing program changing between launches. No
+  Adreno phone has confirmed that serializing avoids the crash; if it persists, the single
+  compiling thread identifies the failing program.
+  Terrain has a four-storage-buffer layout for constrained devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
   The compact table still needs paging when its combined sources exceed one storage binding.
@@ -1429,6 +1998,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   their later v0.1.31 recording shows direct terrain drawing on that adapter with occlusion culling
   on. No log confirms the compiler of that run, automatic FXC selection has not run on that
   hardware, and its terrain stays far over the frame budget.
+  Devices on WARP, the DX12 software adapter, also compile with FXC: two Windows 10 players
+  (WARP `10.0.19041.5794`, DXC) crashed in `d3d10warp.dll` on the pipeline compile workers
+  after a few seconds in the menus, while Windows CI runs its GPU tests on WARP with FXC. The FXC
+  rebuild has not run on those machines. GPUs without DX12 or Vulkan drivers, such as Intel HD
+  Graphics 4000 on Windows, still have only WARP, which is far over the frame budget; a
+  hardware path for them would need a backend the renderer does not have.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
@@ -1459,26 +2034,42 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
   and executable-cache acceptance remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
+  An Anti-Aliasing change keeps the world camera at its old sample count until every warm-up
+  and actor variant for the new count and rendering configuration has compiled in the background.
+  Readiness follows the current views and request, so cancelled sample counts cannot hold it;
+  an acknowledgement from another HDR or rendering mode cannot authorize a switch. Pipelines
+  outside warm-up still compile on first use, and hardware timing of the switch is unmeasured.
   The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
+  Android and iOS start with one coverage sample, as Bedrock does on its Mobile platform type, and
+  read physical memory so the render-distance levels and resource-pack memory tiers use the
+  device's RAM. Android raises the main, render and frame-worker threads, starts threads they spawn
+  at normal priority and lowers lighting workers. On Mobile, Bedrock halves the rendered distance
+  while the top screen shows a menu; that is not implemented because terrain drawing does not yet
+  stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
+  unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
-  while preserving keyboard control. Device-window regression coverage does not close
+  while preserving keyboard control. Native UI receives display-cutout insets combined with
+  keyboard overlap at the window's DPI, while the world surface stays full size.
+  The crosshair uses that full viewport while edge controls stay inside the safe area.
+  Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
-  import or rejection. Mod update downloads stage in app-owned storage. Revision-aware mod
-  declarations select compatible releases through the API using the native build's
+  import or rejection. Mod update downloads stage in app-owned storage. Only the official mod's revision-aware
+  declaration selects compatible releases through the API using the native build's
   full stamped commit and supported mod API revisions. New capabilities append a revision
   while retaining older supported revisions; unsupported APIs and catalogue failures
   do not fall back to latest;
-  bounded digest-checked downloads retain registration, settings and grants. Live published
+  bounded digest-checked downloads retain registration, settings and grants; newly requested
+  permissions stay off and are flagged on the card for explicit approval. Live published
   catalogue and reload acceptance remain open. Mod installation uses a
   no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin
   chosen documents into app cache storage before importing them. Mod installation and resource-pack
   cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. A Control mode option offers Bedrock's three modes, saved per install and defaulting to tap to interact: joystick or the classic D-pad (default centre and height share, forward diagonals while moving forward, centre jump) for movement, and world taps and holds (0.25 s tap window, 0.4 s hold, 0.05 screen-width turn threshold) or crosshair attack and use buttons for interaction. Unverified and provisional: which action each gesture performs on each target, crosshair visibility per mode, the turn threshold's sensitivity factor, D-pad axis values and diagonal rule, down diagonals, and sneak and sprint in the classic layout. Confirmed gap: the classic D-pad covers the start of bottom-left chat lines. Touchscreen settings offers a touch-control layout draft with dragging, corner resizing (0.5–3× uniform scale), alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions and sizes drive both artwork and hit regions. Control resizing is a Cinnabar layout-editor feature with no verified Bedrock size range. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - The iOS IPA (`docs/ios.md`) runs each Go core in-process from a linked C archive and loads
@@ -1497,6 +2088,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   Ordinary touch controls take focus only after a completed tap, preserving manual scroll positions during pending swipes.
   Menu text editors and Android in-game chat request platform keyboards again on field changes, chat opening and retaps; the platform Back key cancels chat and inventories at its place among keys and acts as a fixed Menu Cancel elsewhere. Android reads keyboard overlap from the active activity to reduce the UI layout viewport and reveal unchanged menu focus after resize; failed geometry reads warn once and temporarily use zero overlap. The People drawer filters the current friend list by gamertag. Global people lookup, sign and book text entry, Back during gameplay, chat IME composition, full composition support and device IME and Back acceptance remain open.
+  Android tracks connected physical mice and alphabetic keyboards and switches gameplay between Touch and Keyboard & Mouse: keyboard or mouse activity, or a device arriving, selects Keyboard & Mouse and hides the touch controls; a gameplay touch outside UI, or the last device leaving, selects Touch. Keyboard & Mouse gameplay requests native pointer capture for relative look, wheel and button input, and releases it with gameplay capture. Desktop and iOS routing are unchanged. Incomplete: phone, tablet and ChromeOS acceptance with USB and Bluetooth devices, uncaptured mouse use in menus, and touchpad and stylus classification.
 - The reusable Dragonfly client-part helper offers bundles and typed wire v2 messages;
   the local server imports the same implementation. Explicit world notices fence
   messages before notice admission until the client acknowledges that specific
@@ -1530,7 +2122,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   New packet grants take effect after reconnecting; sessions without packet mods retain
   caching. Live server qualification remains incomplete.
   Local mods and server experiences still need runtime/input isolation, reload/reorder/
-  removal, consent, custom screen transitions and media qualification. Source polling
+  removal, consent, custom screen transitions and media qualification. Server Experience
+  helpers have a restricted launch on Linux only (Landlock, seccomp, delegated cgroup memory
+  and task limits, resource limits, descriptor audit, contained compilation, fault-injection
+  tests); macOS and Windows refuse it, Linux without delegated memory and pids controllers
+  refuses it, CPU time stays unbounded where the cpu controller is not delegated, path
+  metadata, inotify and robust-list reads remain a known information leak, the Linux launch
+  awaits independent security review, and the client does not call it, so production execution
+  stays closed. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Authority changes
@@ -1539,12 +2138,32 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   input state, and unloading the last presenter releases the catalog. Local frame fuel
   overruns retain committed output and recover admitted code with committed preferences on
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
-  resets the count. Other guest traps still quarantine immediately. Live overrun recovery
-  qualification remains incomplete. Host-observed world entry admits one larger frame
-  callback per mod and session, with one extra slot shared across mods per update and
-  unused extra fuel discarded. Deterministic tests cover admission, lifecycle, replacement
-  and recovery; live frame-time and slow-device qualification remain incomplete. Unmeasured shared
+  resets the count. Other guest traps still quarantine immediately. Frame callbacks without
+  synchronous decision exports retain async continuations across soft time slices, with
+  frozen observations and output deltas until post-return succeeds. Committed drawing owners
+  retain allocation and retirement state, and confirmed despawns reconcile in-flight actor
+  references and mask members independently of candidate culling. Publication checks resource
+  revisions and allocation identity without comparing mesh or shader contents. Late frame actions
+  are dropped; authority changes and unload cancel without a fault. Decision-exporting
+  instances keep synchronous frames. Scheduling accounts and the admission cursor follow
+  stable guest identities across reordering. Removal and successful guest replacement retire
+  the old account; rejected replacements retain it with the old continuation. Host-observed
+  world entry admits one larger frame callback per mod and session, with one extra slot
+  shared across mods per update. Frame callbacks charge the shared pool, carrying world-entry
+  excess into later updates; suspended callbacks conservatively reserve a share on each
+  serviced frame. Rotating the first callback prevents starvation without withholding fuel;
+  input reservations and output authority retain load order. Filters and event handlers
+  have independent limits. Regression coverage includes accounting, fair admission,
+  precedence, lifecycle, replacement, recovery, scheduling account lifetime, renderer retirement,
+  in-flight actor and mask culling, unchanged resource publication and discarded-token allocation. Execution of
+  the new regressions, live overrun recovery, suspension pacing and slow-device qualification
+  remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Granted interaction and terrain mods can submit bounded explicit block destruction batches.
+  The host resolves current loaded cells and held items, retains game-mode edit permissions,
+  and carries the batch through movement replay and cancellation. These explicit requests
+  bypass local mining time, reach and obstruction; server acceptance and live qualification
+  remain unverified.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;
   overflow can differ from native gates. Desktop routing regressions cover consumption,
@@ -1650,6 +2269,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   positions/link acceptance and mixed-client rendering remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
+- Mods can submit retained face-coverage rules under `render_material`: named block
+  groups sharing face-relative neighbour predicates and three-by-three surface partitions.
+  Full-cell, untransformed, non-occluding model faces with alpha materials retain pack geometry and UV mapping
+  in the remaining patches. Selection, collision and destruction overlays are unchanged.
+  World changes and rule removal restore ordinary meshing. Headless module captures verify
+  activation, restoration, breaking and outlines; pack-reload and performance qualification remain open.
 - The mod `presentation` capability sets native nametag parameters, per-actor nametag and
   player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned
@@ -1677,10 +2302,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
+- Gameplay wheel observations preserve line/pixel axes under Controls authority.
+  Transactional physical-chord reservations follow mod load order and suppress both
+  hotbar input paths. UI and unfocused input stay outside the guest. Targeted regression
+  checks are included; physical-device and multi-platform acceptance remain incomplete.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
-- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that replace the
-  player's toggle and always-sprint settings, use pulses, view
+- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on
+  toggle and always-sprint modes without turning off the player's own, use pulses, view
   tilt, the relayed and presented camera positions, loaded-block search and panel
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance
@@ -1838,9 +2467,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   of negative float literals, separates shared-memory array declarations, sizes unsized
   arrays from their constructors and folds typed scalar constants in array bounds.
   Function-local variables named after a struct type (`Face Face = ...;`) are renamed for the
-  rest of the scope in which they hide that type. Missing vertex
-  varying locations receive zero outputs. Unresolved vertex variables receive numeric
+  rest of the scope in which they hide that type. Names that GLSL reserved after a program's
+  `#version`, such as `sample` before 4.00, are renamed unless used as qualifiers. Struct type
+  references are renamed consistently, while uniform reflection and sampler property lookups
+  retain the original names. Missing vertex varying locations receive zero outputs.
+  Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
+  Compatibility-profile vertex stages other than `gbuffers_line` read declared core inputs
+  (`vaPosition`, `vaNormal`, …) without explicit locations as GL's unbound `(0, 0, 0, 1)`,
+  because Iris's compatibility transformers bind no vertex data to them. Explicitly located
+  inputs remain bound.
+  Incomplete: drivers may alias an implicitly located input onto another enabled array,
+  which is not modelled; a fallback program drawing lines still leaves
+  them unbound; and a core-profile stage that declares one and also reads its compatibility
+  built-in still fails with duplicate locations.
   `sampler2D` uniforms Iris does not bind read texture unit 0 as in Iris: `colortex0` in
   full-screen and compute passes, the block atlas in geometry passes. Geometry texture
   image overrides share one binding across `tex`, `texture`, `gtexture` and `u_MainSampler`,
@@ -1873,7 +2513,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Acceptance of this path remains incomplete. Other geometry topologies, interface blocks,
   layered outputs, non-literal layout values, full-screen geometry stages and geometry
   programs with pack storage buffers are unsupported.
-  Incomplete: comma expressions containing void calls and full
+  Incomplete: comma expressions containing void calls; per-sample (`sample`) varying
+  interpolation, which translation drops; full
   GLSL preprocessing compatibility; in-game acceptance across packs and platforms (Metal is
   unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
@@ -1916,6 +2557,28 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   biome uniforms and sky colours.
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
+
+Marketplace delivery implements account-scoped library transport, exact signed
+release/hash verification, disabled installation with explicit permission consent
+capped to the signed grants, signed revocation freshness and conditional library
+removal. Compatible marketplace updates use the native supported API revisions,
+require a signed matching API revision and honor mod check/automatic-install settings.
+Unchanged or reduced grants fence predecessor admission while retaining its enabled
+selection, drain final settings writes and atomically copy settings before transferring
+enabled state, order and capped permission choices. Pre-transfer failures release the
+fence; post-transfer retries preserve successor saves while retiring the old release.
+Successor receipts retain pending migration and consumed website sends, so
+periodic checks, manual requests and restarts resume interrupted migrations. Expanded
+grants stage disabled beside the old version until Enable. Other local mods' declared update sources are ignored; only the official
+package retains the revision-checked first-party update path. An initial website send
+whose compatibility check or installation fails after handoff to the library worker
+is not retried until an account change or restart. Production signing
+public keys are pinned in the client. The in-game marketplace entry points are
+hidden until the marketplace launches publicly. Mods retains account sign-in,
+website sends, explicit permission review and local imports. Production deployment
+and real-domain/cross-platform interactive acceptance remain incomplete; see
+[marketplace installation](docs/marketplace.md). No vanilla parity gate is closed
+by this optional client feature.
 
 See [Android](docs/android.md), [iOS](docs/ios.md), [mods](docs/modding-spike.md),
 See [Android](docs/android.md), [mods](docs/modding/src/appendix/paired-mods.md),
@@ -1997,8 +2660,10 @@ Discrete-GPU memory placement, pressure recovery and frame-pacing qualification 
 incomplete; the existing device-feature defaults are unchanged.
 
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
-frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
-screens with a free cursor still receive every raw report.
+frame, and runs a pending frame ahead of queued input once pointer moves have held it back for
+1 ms. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
+screens with a free cursor still receive every raw report. Raw reports in gameplay are still
+handled one message at a time and are not bounded the same way; buffered reads are unmeasured.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

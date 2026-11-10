@@ -2,6 +2,79 @@
 
 use super::*;
 
+#[test]
+fn smithing_trim_take_consumes_each_input_once_and_rejection_restores_them() {
+    let mut ledger = ledger_with(&[]);
+    open(&mut ledger, 7, protocol::WINDOW_TYPE_SMITHING_TABLE);
+    for (slot, id) in [(51, 61), (52, 62), (53, 63)] {
+        ledger.apply(&slot_update(
+            named(124, protocol::ui_slot_container_name(slot).unwrap()),
+            u16::from(slot),
+            stack(id, 2),
+        ));
+    }
+    let extra = protocol::apply_item_trim(
+        &[],
+        &protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        },
+    )
+    .unwrap();
+    let output = NetworkItemStack {
+        extra_data: Arc::clone(&extra),
+        nbt_digest: sha2::Sha256::digest(&extra).into(),
+        ..stack(0, 1)
+    };
+    let request_id = ledger
+        .begin_screen_output(&ScreenCraft::SmithingTrim {
+            recipe_network_id: 91,
+            output,
+        })
+        .unwrap();
+    let request = ledger.newest_request().unwrap();
+    assert!(matches!(
+        request.actions[0],
+        StackRequestAction::CraftRecipe {
+            recipe_network_id: 91,
+            crafts: 1
+        }
+    ));
+    assert!(matches!(
+        &request.actions[1],
+        StackRequestAction::CraftResultsDeprecated { results, crafts: 1 }
+            if results[0].user_data == extra
+    ));
+    let consumed: Vec<_> = request
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Consume { amount, source } => {
+                Some((*amount, source.stack_network_id))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(consumed, [(1, 63), (1, 61), (1, 62)]);
+    assert_eq!(ledger.cursor_stack().unwrap().extra_data, extra);
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id,
+                status: protocol::StackResponseStatus::Rejected,
+                containers: Arc::from([]),
+            }]),
+        },
+    ));
+    assert!(ledger.cursor_stack().is_none());
+    for (slot, id) in [(51, 61), (52, 62), (53, 63)] {
+        assert_eq!(
+            ledger.target_stack(InventoryTarget::Craft(slot)),
+            Some(&stack(id, 2))
+        );
+    }
+}
+
 /// An open anvil holding a one-item target and a stack of three materials.
 fn anvil_with_inputs() -> (PlayerInventoryLedger, NetworkItemStack) {
     let mut ledger = ledger_with(&[]);
@@ -83,7 +156,7 @@ fn anvil_take_matches_the_native_request_and_rolls_back_on_rejection() {
                 amount: 1,
                 source: slot(
                     StackRequestContainer::CreatedOutput,
-                    protocol::CREATED_OUTPUT_SLOT,
+                    u16::from(protocol::CREATED_OUTPUT_SLOT),
                     request_id
                 ),
                 destination: slot(StackRequestContainer::Cursor, 0, 0),
@@ -138,7 +211,13 @@ fn anvil_shift_take_places_into_the_inventory_and_rolls_back() {
             .all(|action| !matches!(action, StackRequestAction::CraftResultsDeprecated { .. }))
     );
     assert!(ledger.cursor_stack().is_none());
-    assert_eq!(ledger.displayed_stack(destination.slot).unwrap().count, 1);
+    assert_eq!(
+        ledger
+            .displayed_stack(u8::try_from(destination.slot).unwrap())
+            .unwrap()
+            .count,
+        1
+    );
     assert!(ledger.target_stack(InventoryTarget::Craft(2)).is_none());
     reject_and_assert_restored(&mut ledger, request_id);
 }

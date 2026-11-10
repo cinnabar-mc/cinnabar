@@ -4,7 +4,12 @@ use super::*;
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// Windows lowers workers only during jobs so queue locks retain normal priority.
+/// Windows lowers background workers only while they run light or summary jobs. Its thread
+/// priorities are strict, so a lowered worker waits behind every ready normal-priority thread:
+/// decode or mesh on a lowered worker would stall for seconds on a busy machine, and a lowered
+/// queue-lock holder would stall the frame. Linux niceness cannot be raised back without
+/// privilege, so other targets lower background workers for life; their weighting is
+/// proportional, so lowered workers still progress.
 const LOWER_PER_JOB: bool = cfg!(windows);
 
 /// Samples elapsed native time from one fixed process-local origin.
@@ -44,7 +49,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
             return;
         }
         let observed = now();
-        let Some(job) = queues.take(background, observed) else {
+        let Some(Taken { job, below_frame }) = queues.take(background, observed) else {
             queues = shared.wait(queues, scratch.idle_wait(observed));
             drop(queues);
             scratch.release_if_idle(now());
@@ -52,7 +57,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
             continue;
         };
         drop(queues);
-        LOWERED_FOR_JOB.set(background && LOWER_PER_JOB && priority::lower().is_ok());
+        LOWERED_FOR_JOB.set(below_frame && LOWER_PER_JOB && priority::lower().is_ok());
         // Matches rayon's default: a panicking world job aborts rather than losing its permits.
         if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
             std::process::abort();

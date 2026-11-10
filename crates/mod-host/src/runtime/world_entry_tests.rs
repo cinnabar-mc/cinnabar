@@ -166,7 +166,7 @@ fn ordinary_pool_exhaustion_defers_without_spending_the_session_allowance() {
 }
 
 #[test]
-fn unused_extra_fuel_never_becomes_regular_frame_capacity() {
+fn unused_world_entry_reservation_restores_only_unspent_pool_capacity() {
     let (engine, _ticker) = crate::execution::engine().unwrap();
     let mut host = instance(&engine);
     let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -183,7 +183,7 @@ fn unused_extra_fuel_never_becomes_regular_frame_capacity() {
 }
 
 #[test]
-fn entry_callback_executes_work_above_the_ordinary_limit_without_refunding_extra() {
+fn entry_callback_charges_work_above_the_ordinary_limit_to_the_pool() {
     let (engine, _ticker) = crate::execution::engine().unwrap();
     let source = format!(
         r#"(component
@@ -217,11 +217,35 @@ fn entry_callback_executes_work_above_the_ordinary_limit_without_refunding_extra
     assert!(host.last_fuel > FRAME_FUEL && host.last_fuel < crate::WORLD_ENTRY_FRAME_FUEL);
     assert_eq!(
         budget.remaining(),
-        mod_api::TOTAL_MOD_FRAME_FUEL - FRAME_FUEL
+        mod_api::TOTAL_MOD_FRAME_FUEL.saturating_sub(host.last_fuel)
     );
     budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
     host.frame(CallbackOutcome::Executed).unwrap();
     assert!(host.last_fuel < FRAME_FUEL);
+}
+
+#[test]
+fn world_entry_use_above_the_pool_is_charged_to_later_frames() {
+    let (engine, _ticker) = crate::execution::engine().unwrap();
+    let mut host = instance(&engine);
+    let pool = mod_api::TOTAL_MOD_FRAME_FUEL;
+    let budget = crate::CallbackBudget::new(pool);
+    host.callback_budget = Some(budget.clone());
+    observe(&mut host, 1, 0);
+    let spent = pool + FRAME_FUEL / 2;
+    host.run(FRAME_FUEL, commit, |_, store| {
+        assert_eq!(store.get_fuel()?, crate::WORLD_ENTRY_FRAME_FUEL);
+        store.set_fuel(crate::WORLD_ENTRY_FRAME_FUEL - spent)?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(host.last_fuel, spent);
+    assert_eq!(budget.remaining(), 0);
+    budget.reset(pool);
+    assert_eq!(budget.remaining(), pool - FRAME_FUEL / 2);
+    assert_eq!(frame_allowance(&mut host), FRAME_FUEL);
+    budget.reset(pool);
+    assert_eq!(budget.remaining(), pool);
 }
 
 #[test]

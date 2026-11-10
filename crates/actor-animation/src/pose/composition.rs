@@ -117,6 +117,8 @@ impl Composition {
         legacy: bool,
         output: &mut [BoneTransform],
     ) -> Option<()> {
+        #[cfg(test)]
+        super::work::compose();
         if output.len() != self.steps.len() || bones.len() != self.steps.len() {
             return None;
         }

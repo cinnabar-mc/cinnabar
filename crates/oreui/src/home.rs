@@ -220,7 +220,7 @@ fn action_panel(
         live_event(canvas, view, b, event, translate)?;
     }
     canvas.text_line("LET'S PLAY", [x, y], right - x, HEADER5, TEXT)?;
-    y += canvas.r(HEADER5.line + 0.8);
+    y += canvas.r(HEADER5.line + layout::HEADING_GAP);
     canvas.text_line(
         "Your worlds, friends and favorite servers.",
         [x, y],
@@ -228,22 +228,24 @@ fn action_panel(
         CAPTION,
         TEXT_DIMMER,
     )?;
-    y += canvas.r(CAPTION.line + 1.6);
+    y += canvas.r(CAPTION.line + layout::CAPTION_GAP);
     widgets::button(
         canvas,
         view,
-        [x, y, right, y + canvas.r(6.4)],
+        [x, y, right, y + canvas.r(layout::HERO_HEIGHT)],
         Variant::Hero,
         "Play",
         Some(MenuAction::Navigate(MenuScreen::Play)),
     )?;
-    y += canvas.r(7.6);
+    y += canvas.r(layout::HERO_HEIGHT + layout::HERO_GAP);
+    let row = canvas.r(layout::ROW_HEIGHT);
+    let row_step = canvas.r(layout::ROW_HEIGHT + layout::ROW_GAP);
     let midpoint = (x + right) * 0.5;
     let gap = canvas.r(1.2);
     widgets::button(
         canvas,
         view,
-        [x, y, midpoint - gap * 0.5, y + canvas.r(4.8)],
+        [x, y, midpoint - gap * 0.5, y + row],
         Variant::Secondary,
         "Servers",
         Some(MenuAction::Navigate(MenuScreen::Servers)),
@@ -251,25 +253,26 @@ fn action_panel(
     widgets::button(
         canvas,
         view,
-        [midpoint + gap * 0.5, y, right, y + canvas.r(4.8)],
+        [midpoint + gap * 0.5, y, right, y + row],
         Variant::Secondary,
         "Settings",
         Some(MenuAction::Navigate(MenuScreen::Settings)),
     )?;
-    y += canvas.r(5.6);
-    link(
+    y += row_step;
+    widgets::button(
         canvas,
         view,
-        [x, y, right, y + canvas.r(3.6)],
+        [x, y, right, y + row],
+        Variant::Secondary,
         "Realms",
-        MenuAction::Navigate(MenuScreen::Social),
+        Some(MenuAction::Navigate(MenuScreen::Social)),
     )?;
-    y += canvas.r(4.4);
+    y += row_step;
     if compact {
         widgets::button(
             canvas,
             view,
-            [x, y, right, y + canvas.r(4.8)],
+            [x, y, right, y + row],
             Variant::Neutral,
             "Dressing Room",
             Some(MenuAction::Navigate(MenuScreen::DressingRoom)),
@@ -330,7 +333,7 @@ fn character_panel(
     })
 }
 
-/// Draws a text link with interaction feedback and no idle Realms backing.
+/// Draws a compact text link with the menu's focus and press feedback.
 fn link(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -343,11 +346,7 @@ fn link(
     let down = canvas.r(0.2) * motion.press;
     let face = [bounds[0], bounds[1] + down, bounds[2], bounds[3]];
     let role = canvas.role(NEUTRAL80);
-    let mut fill = role.fill;
-    if action == MenuAction::Navigate(MenuScreen::Social) {
-        fill[3] = 0;
-    }
-    canvas.fill(face, motion.color(fill, role.hovered, role.pressed))?;
+    canvas.fill(face, motion.color(role.fill, role.hovered, role.pressed))?;
     if motion.focus > 0.0 {
         canvas.frame(face, EDGE, opacity(OUTLINE, motion.focus))?;
     }

@@ -145,6 +145,10 @@ impl UiRuntime {
             let reference = ui_screens::sign_editor::SIGN_SCREEN;
             visit(Scene::SignEditor, json(Some(reference)));
         }
+        if self.command_block().is_open() {
+            let reference = ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN;
+            visit(Scene::CommandBlock, json(Some(reference)));
+        }
         let form = self.server_forms().active();
         let settings_form = self.server_forms().settings_form_active();
         // An answered form keeps absorbing input until its answer is sent.
@@ -159,7 +163,7 @@ impl UiRuntime {
         }
         if let Some(screen) = host.menu {
             let reference = if host.over_world || screen.requires_session() {
-                launcher::menu::menu_reference(screen)
+                launcher::menu::flow::menu_reference(screen)
             } else {
                 None
             };

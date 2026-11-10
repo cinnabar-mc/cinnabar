@@ -8,6 +8,7 @@ use rodio::{Source, cpal::traits::HostTrait, dynamic_mixer};
 use std::{
     sync::{
         Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     time::Duration,
@@ -17,18 +18,33 @@ mod hardware;
 
 /// Device checks and retries stay off the game thread.
 const DEVICE_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+/// Consecutive failed checks, about three seconds, after which an outage is no longer a
+/// default-device handoff and the player is told.
+const SUSTAINED_FAILED_CHECKS: u32 = 6;
 type StreamFailure = Arc<OnceLock<rodio::cpal::StreamError>>;
 type MixerSlot = Arc<Mutex<Option<CaptureMixer>>>;
-pub(super) type SharedOutput = Arc<dynamic_mixer::DynamicMixerController<f32>>;
 pub(super) type Opening<H = SharedOutput> = Receiver<Option<(H, Sender<()>)>>;
+
+/// What the owner thread shares with the game thread once the output route exists.
+pub(super) struct SharedOutput {
+    pub(super) mixer: Arc<dynamic_mixer::DynamicMixerController<f32>>,
+    /// Set while the default output has stayed unopenable for a sustained outage.
+    pub(super) unavailable: Arc<AtomicBool>,
+}
 
 /// Keeps a shared mixer reachable while its hardware stream lives on another thread.
 pub(super) struct Output {
     pub(super) mixer: Arc<dynamic_mixer::DynamicMixerController<f32>>,
+    pub(super) unavailable: Arc<AtomicBool>,
     pub(super) _release: Sender<()>,
 }
 
 impl Output {
+    /// Whether the hardware output has been unavailable for a sustained outage.
+    pub(super) fn unavailable(&self) -> bool {
+        self.unavailable.load(Ordering::Relaxed)
+    }
+
     /// Adds a source to the same mixer across hardware output changes.
     pub(super) fn play_raw(
         &self,
@@ -81,6 +97,33 @@ pub(super) struct Route<D, S> {
     stream: Option<(D, S)>,
     mixer: MixerSlot,
     failure: StreamFailure,
+    failures: FailureStreak,
+    unavailable: Arc<AtomicBool>,
+}
+
+/// Counts consecutive failed output checks since startup or the last working stream.
+#[derive(Default)]
+struct FailureStreak {
+    checks: u32,
+}
+
+impl FailureStreak {
+    /// Records one failed check and returns whether it starts the streak; only the first
+    /// failure is logged at the default level.
+    fn begins(&mut self) -> bool {
+        self.checks = self.checks.saturating_add(1);
+        self.checks == 1
+    }
+
+    /// Whether the streak has outlasted a default-device handoff.
+    fn sustained(&self) -> bool {
+        self.checks >= SUSTAINED_FAILED_CHECKS
+    }
+
+    /// Ends the current streak once an output plays.
+    fn end(&mut self) {
+        self.checks = 0;
+    }
 }
 
 impl<D, S> Route<D, S> {
@@ -119,6 +162,22 @@ impl<D, S> Route<D, S> {
             self.stream = Some((device, stream));
         }
     }
+
+    /// Updates the outage state after a refresh that failed with `failure`, if any. Returns
+    /// the error to log and whether it starts a failure streak. A refresh that only waited
+    /// for the old callback to return the mixer neither counts nor clears a streak.
+    fn settle(&mut self, failure: Option<String>) -> Option<(String, bool)> {
+        if self.stream.is_some() {
+            self.failures.end();
+            self.unavailable.store(false, Ordering::Relaxed);
+            return None;
+        }
+        let error = failure?;
+        let begins = self.failures.begins();
+        self.unavailable
+            .store(self.failures.sustained(), Ordering::Relaxed);
+        Some((error, begins))
+    }
 }
 
 /// Builds one persistent mixer and attempts the initial default output on its owner thread.
@@ -131,23 +190,41 @@ pub(super) fn open_default_output() -> Option<(
         stream: None,
         mixer: Arc::new(Mutex::new(Some(mixer))),
         failure: Arc::new(OnceLock::new()),
+        failures: FailureStreak::default(),
+        unavailable: Arc::default(),
     };
     refresh_output(&mut route);
-    Some((route, controller))
+    let shared = SharedOutput {
+        mixer: controller,
+        unavailable: Arc::clone(&route.unavailable),
+    };
+    Some((route, shared))
 }
 
 /// Queries the OS default without enumerating or selecting an alternate output.
 pub(super) fn refresh_output(route: &mut Route<rodio::cpal::Device, rodio::cpal::Stream>) {
     let device = rodio::cpal::default_host().default_output_device();
+    let missing = device.is_none();
+    let mut failure = None;
     route.refresh(device, same_device, |device, source| {
         match hardware::open(device, source) {
             Ok(output) => Some(output),
             Err(error) => {
-                bevy::log::debug!(%error, "default audio output unavailable; will retry");
+                failure = Some(error.to_string());
                 None
             }
         }
     });
+    let failure = failure.or_else(|| missing.then(|| "no default output device".to_owned()));
+    match route.settle(failure) {
+        Some((error, true)) => {
+            bevy::log::warn!(%error, "audio output unavailable; sounds stay queued while it retries");
+        }
+        Some((error, false)) => {
+            bevy::log::debug!(%error, "audio output still unavailable; will retry");
+        }
+        None => {}
+    }
 }
 
 /// Compares endpoint identities on desktop hosts that expose them, including identical names.

@@ -1,6 +1,6 @@
 //! CPAL transport with owner-observed failures instead of rodio's print-only callback.
 
-use super::{MixerLease, SharedOutput, StreamFailure};
+use super::{MixerLease, StreamFailure};
 use rodio::{
     StreamError,
     cpal::{
@@ -10,6 +10,12 @@ use rodio::{
     dynamic_mixer,
 };
 use std::sync::{Arc, OnceLock};
+
+type ConfiguredOutput = (
+    cpal::Stream,
+    Arc<dynamic_mixer::DynamicMixerController<f32>>,
+    StreamFailure,
+);
 
 /// Opens only the selected endpoint; the retained source is attached after successful startup.
 pub(super) fn open(
@@ -53,7 +59,7 @@ pub(super) fn open(
 fn configure(
     device: &cpal::Device,
     config: &cpal::SupportedStreamConfig,
-) -> Result<(cpal::Stream, SharedOutput, StreamFailure), cpal::BuildStreamError> {
+) -> Result<ConfiguredOutput, cpal::BuildStreamError> {
     let (controller, mixer) =
         dynamic_mixer::mixer::<f32>(config.channels(), config.sample_rate().0);
     let failure = Arc::new(OnceLock::new());

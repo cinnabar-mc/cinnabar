@@ -15,17 +15,22 @@ pub(super) struct WorldTextInput {
     days: Option<f64>,
 }
 
-/// Projects visibility and day boundaries without formatting any text.
-pub(super) fn world_text_input(runtime: &UiRuntime, frame: &HudFrame) -> WorldTextInput {
+/// Projects visibility and day boundaries without formatting any text. `hide_position` drops
+/// the position line, as a mod that hides it requests.
+pub(super) fn world_text_input(
+    runtime: &UiRuntime,
+    frame: &HudFrame,
+    hide_position: bool,
+) -> WorldTextInput {
     let alive = runtime
         .session
         .last_known_local_player_alive
         .unwrap_or(true);
     let rules = runtime.gameplay_hud();
     WorldTextInput {
-        position: frame
-            .player_block
-            .filter(|_| alive && (rules.show_coordinates() || frame.holding_filled_map)),
+        position: frame.player_block.filter(|_| {
+            alive && !hide_position && (rules.show_coordinates() || frame.holding_filled_map)
+        }),
         days: frame
             .world_time
             .filter(|_| alive && rules.show_days_played())

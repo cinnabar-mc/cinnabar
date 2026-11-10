@@ -12,6 +12,7 @@ fn input() -> UiRenderInput {
         normal: [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]],
         overlay: [0.; 4],
         uv_rect: [0., 0., 1., 1.],
+        uv_transform: [0., 0., 1., 1.],
         uv_cross: [0.; 4],
         tint: [1.; 4],
         styles: [0; 4],
@@ -151,5 +152,91 @@ fn ui_model_pose_publication_cost() {
     eprintln!(
         "UI_MODEL_POSE full_validation_ms={full:.6} palette_validation_ms={palette:.6} vertices={count} bones={}",
         next.models[0].bones.len()
+    );
+}
+
+#[test]
+fn repeated_model_uvs_keep_tile_coordinates_until_fragment_sampling() {
+    let mut bone = input().models[0].bones[0];
+    bone.uv_rect = [12., 8., 44., 16.];
+    bone.uv_transform = [0.25, 0., 2., 1.];
+    bone.styles[1] = 1;
+    bone.overlay = [0.8, 0.1, 0.2, 0.5];
+    bone.set_backface_culling(true);
+    let mut vertex = input().vertices[0];
+    vertex.uv = [0., 0.5];
+    let first = bone.project(vertex);
+    vertex.uv = [1., 0.5];
+    let last = bone.project(vertex);
+    assert_eq!(first.uv, [0.25, 0.5]);
+    assert_eq!(last.uv, [2.25, 0.5]);
+    assert_eq!(first.overlay_color, bone.overlay);
+    let pose = UiModelPose {
+        scope: 7,
+        bones: Arc::from([bone]),
+        bounds: UiScissor::new(0, 0, 64, 64),
+    };
+    let projected = project_ui_model_vertex(vertex, Some(&pose)).unwrap();
+    assert_eq!(projected.vertex.overlay_color, bone.overlay);
+    assert_eq!(projected.repeat_bounds, Some([12., 8., 32., 8.]));
+    assert!(projected.cull_back_faces);
+    let middle = [(first.uv[0] + last.uv[0]) / 2., 0.5];
+    assert_eq!(
+        render_api::ui_repeat::source_uv(
+            middle,
+            projected.repeat_bounds.unwrap(),
+            first.style_flags as u16
+        ),
+        [20., 12.]
+    );
+}
+
+#[test]
+fn ordinary_repeated_regions_retain_their_source_metadata() {
+    let mut vertex = input().vertices[0];
+    vertex.style_flags = u32::from(render_api::ui_repeat::UI_STYLE_REPEAT);
+    vertex.overlay_color = [12., 8., 32., 8.];
+    let projected = project_ui_model_vertex(vertex, None).unwrap();
+    assert_eq!(projected.repeat_bounds, Some(vertex.overlay_color));
+    assert_eq!(projected.vertex, vertex);
+    assert!(!projected.cull_back_faces);
+}
+
+#[test]
+fn selected_model_texture_pages_grow_and_release_within_catalog_budgets() {
+    let blank = UiTexturePage::owned([256; 2], vec![0; 256 * 256 * 4].into()).unwrap();
+    let fixed = super::super::UI_SELECTED_MODEL_PAGE_OFFSET;
+    let mut pages = vec![blank.clone(); fixed + 1];
+    let art = UiTexturePage::owned(
+        [crate::UI_ART_PAGE_SIDE; 2],
+        vec![0; (crate::UI_ART_PAGE_SIDE * crate::UI_ART_PAGE_SIDE * 4) as usize].into(),
+    )
+    .unwrap();
+    for page in &mut pages[1 + crate::MAX_UI_DYNAMIC_PAGES..1 + crate::UI_NATIVE_SHEET_PAGE_OFFSET]
+    {
+        *page = art.clone();
+    }
+    pages[1 + crate::UI_LOCAL_FONT_PAGE_OFFSET] = UiTexturePage::owned(
+        [crate::UI_LOCAL_FONT_PAGE_SIDE; 2],
+        vec![0; (crate::UI_LOCAL_FONT_PAGE_SIDE * crate::UI_LOCAL_FONT_PAGE_SIDE * 4) as usize]
+            .into(),
+    )
+    .unwrap();
+    let catalog = crate::UiTextureCatalog::new(pages.clone(), 1).unwrap();
+    let selected = UiTexturePage::owned([32, 8], vec![210; 32 * 8 * 4].into()).unwrap();
+    let mut dynamic = pages[1..].to_vec();
+    dynamic.push(selected.clone());
+    let extended = catalog.replace_dynamic(dynamic).unwrap();
+    assert_eq!(extended.pages().last(), Some(&selected));
+    assert_ne!(extended.identity(), catalog.identity());
+    assert_eq!(extended.static_identity(), catalog.static_identity());
+    let released = extended
+        .replace_dynamic(extended.pages()[1..fixed + 1].to_vec())
+        .unwrap();
+    assert_eq!(released.pages().len(), catalog.pages().len());
+    assert_eq!(released.static_identity(), catalog.static_identity());
+    assert!(
+        released.replace_dynamic(Vec::new()).is_err(),
+        "selected ownership cannot remove the fixed producers"
     );
 }

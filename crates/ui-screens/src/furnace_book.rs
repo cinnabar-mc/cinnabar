@@ -141,7 +141,7 @@ pub fn data(
                 .map_or_else(|| label.to_owned(), |text| text.to_string()),
         ),
     );
-    data.set_global("#text_box_item_name", Scalar::Text(state.search.to_owned()));
+    data.set_global("#text_box_item_name", Scalar::Text(state.shown_search()));
     if !shown {
         return;
     }

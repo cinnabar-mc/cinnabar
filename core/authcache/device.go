@@ -70,10 +70,11 @@ func readDevice(path string) (device.Profile, bool) {
 		return device.Profile{}, false
 	}
 	var profile device.Profile
-	if json.Unmarshal(saved, &profile) != nil || profile.ID == "" {
+	if json.Unmarshal(saved, &profile) != nil {
 		return device.Profile{}, false
 	}
-	return profile, true
+	_, valid := deviceIdentityBytes(profile.ID)
+	return profile, valid
 }
 
 // loginDeviceOS maps the build target to a device platform accepted at login.

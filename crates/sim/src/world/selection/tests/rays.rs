@@ -174,7 +174,7 @@ fn check_moving_rays(mut inspect: impl FnMut(&PaletteWorld<'_>, Vec3, Vec3) -> O
                 registry.set_compiled_selection(20, &piston);
                 let owner = [-2, 0, 0];
                 set_block(&mut store, owner, 20);
-                set_piston(&mut store, owner, 0.5);
+                set_piston(&mut store, owner, EXPANDING);
                 set_moving(&mut store, "minecraft:carried", owner, expanding);
                 let axis = direction.iter().position(|value| *value != 0).unwrap();
                 let ray_axis = (axis + 1) % 3;

@@ -116,7 +116,8 @@ pub(super) fn instance(
 ) -> wgpu::Instance {
     let mut descriptor = wgpu::InstanceDescriptor {
         backends: flags(backend),
-        flags: settings.instance_flags,
+        flags: backend_instance_flags(backend, settings.instance_flags, cfg!(debug_assertions))
+            .with_env(),
         memory_budget_thresholds: settings.instance_memory_budget_thresholds,
         backend_options: Default::default(),
         display,
@@ -134,6 +135,19 @@ pub(super) fn instance(
         wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
     descriptor.backend_options.gl.gles_minor_version = settings.gles3_minor_version;
     wgpu::Instance::new(descriptor)
+}
+
+/// Applies Bevy's release validation policy to the selected backend. The caller reapplies
+/// wgpu's environment overrides after this default, including explicit indirect validation.
+fn backend_instance_flags(
+    backend: Backend,
+    mut flags: wgpu::InstanceFlags,
+    debug: bool,
+) -> wgpu::InstanceFlags {
+    if !debug && backend != Backend::Dx12 {
+        flags.remove(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL);
+    }
+    flags
 }
 
 /// Whether a DX12 instance needs FXC instead: wgpu leaves out the DX12 backend, logging only at

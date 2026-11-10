@@ -107,6 +107,7 @@ fn draw(engine: &FormEngine, effects: usize, size: [u32; 2]) -> (Vec<EffectBound
                     hud: &hud,
                     hunger_update: None,
                     bounds: None,
+                    effect_bounds: None,
                 }],
             },
         )

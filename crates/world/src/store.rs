@@ -15,8 +15,10 @@ use crate::{
 };
 
 mod collision_snapshot;
+mod column_commit;
 mod helpers;
 mod level_chunk;
+mod pistons;
 mod revised;
 use self::helpers::*;
 pub use self::level_chunk::{
@@ -102,10 +104,16 @@ pub struct ChunkStore {
     chunks: Revised<HashMap<ChunkKey, Chunk>>,
     loaded_chunks: Revised<BTreeSet<ChunkKey>>,
     authoritative_sub_chunks: Revised<HashMap<ChunkKey, BTreeSet<i32>>>,
-    collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
+    collision_revisions: Revised<HashMap<ChunkKey, ChunkCollisionRevision>>,
+    /// Retired on every change to `collision_revisions`; see [`Self::collision_generation`].
+    collision_generation: u64,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
     collision_snapshot: Mutex<Weak<Self>>,
     content_revision: u64,
+    /// The last client simulation tick; piston arm motion is anchored to it.
+    simulation_tick: u64,
+    /// Piston arm actors whose client motion may still change.
+    moving_pistons: BTreeSet<BlockEntityKey>,
 }
 
 impl Default for ChunkStore {
@@ -114,10 +122,13 @@ impl Default for ChunkStore {
             chunks: Revised::default(),
             loaded_chunks: Revised::default(),
             authoritative_sub_chunks: Revised::default(),
-            collision_revisions: HashMap::new(),
+            collision_revisions: Revised::default(),
+            collision_generation: next_content_revision(),
             collision_revision_allocator: process_collision_revisions(),
             collision_snapshot: Mutex::default(),
             content_revision: next_content_revision(),
+            simulation_tick: 0,
+            moving_pistons: BTreeSet::new(),
         }
     }
 }
@@ -134,6 +145,15 @@ impl ChunkStore {
     #[must_use]
     pub const fn content_revision(&self) -> u64 {
         self.content_revision
+    }
+
+    /// Identifies the column collision revisions: every change to any column's revision, in this
+    /// or any other store, yields a value never returned before. Together with
+    /// [`Self::content_revision`] it lets a reader reuse a collision query result, including the
+    /// revisions it records, while both values are unchanged.
+    #[must_use]
+    pub const fn collision_generation(&self) -> u64 {
+        self.collision_generation
     }
 
     /// Returns a chunk column, if block data has been received for it.
@@ -314,7 +334,8 @@ impl ChunkStore {
         key: SubChunkKey,
         decoded: DecodedSubChunk,
     ) -> Result<Option<SubChunkKey>, DecodeError> {
-        let (sub_chunk, block_entities) = decoded.into_parts();
+        let (sub_chunk, mut block_entities) = decoded.into_parts();
+        self.report_pistons(key.chunk(), block_entities.entities_mut());
         let replacement_bytes =
             self.validate_sub_chunk_block_entity_replacement(key, &block_entities)?;
         let actor_revision =
@@ -330,7 +351,7 @@ impl ChunkStore {
     pub fn commit_block_entity_update(
         &mut self,
         key: BlockEntityKey,
-        nbt: BlockEntityNbt,
+        mut nbt: BlockEntityNbt,
     ) -> Result<bool, BlockEntityError> {
         if let Some(actual) = nbt.embedded_position()
             && actual != key.position()
@@ -361,6 +382,10 @@ impl ChunkStore {
             .expect("stored block-entity byte total matches its sparse map");
         let replacement_bytes = retained_bytes.saturating_add(nbt.bytes().len());
         ensure_chunk_block_entity_bytes(replacement_bytes)?;
+        let motion = nbt.report_piston(
+            replacing.and_then(|nbt| nbt.piston_motion()),
+            self.simulation_tick,
+        );
         let actor_revision = self.reserve_actor_change(
             key.chunk(),
             replacing.map_or(&crate::ShapeActor::None, |nbt| nbt.shape_actor())
@@ -374,6 +399,47 @@ impl ChunkStore {
         Arc::make_mut(&mut chunk.block_entities).insert(key, Arc::new(nbt));
         chunk.block_entity_bytes = replacement_bytes;
         self.apply_reserved_revision(key.chunk(), actor_revision);
+        self.moving_pistons.extend(motion.map(|_| key));
+        Ok(true)
+    }
+
+    /// Removes the block entity stored at `key` without touching block state, and reports
+    /// whether one was stored.
+    pub fn remove_block_entity(
+        &mut self,
+        key: BlockEntityKey,
+    ) -> Result<bool, CollisionRevisionError> {
+        let Some(previous) = self
+            .chunks
+            .get(&key.chunk())
+            .and_then(|chunk| chunk.block_entities.get(&key))
+        else {
+            return Ok(false);
+        };
+        let actor_revision = self.reserve_actor_change(
+            key.chunk(),
+            previous.shape_actor() != &crate::ShapeActor::None,
+        )?;
+        let chunk = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .get_mut(&key.chunk())
+            .expect("the chunk holding the removed block entity is stored");
+        let removed = Arc::make_mut(&mut chunk.block_entities)
+            .remove(&key)
+            .expect("the removed block entity is stored");
+        chunk.block_entity_bytes = chunk
+            .block_entity_bytes
+            .checked_sub(removed.bytes().len())
+            .expect("stored block-entity byte total matches its sparse map");
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
+        {
+            self.chunks
+                .edit(&mut self.content_revision)
+                .remove(&key.chunk());
+        }
+        self.apply_reserved_revision(key.chunk(), actor_revision);
+        self.moving_pistons.remove(&key);
         Ok(true)
     }
 
@@ -382,8 +448,9 @@ impl ChunkStore {
     pub fn commit_chunk_block_entities(
         &mut self,
         key: ChunkKey,
-        replacement: DecodedBlockEntities,
+        mut replacement: DecodedBlockEntities,
     ) -> Result<(), CollisionRevisionError> {
+        self.report_pistons(key, replacement.entities_mut());
         let actor_revision = self.reserve_actor_replacement(key, None, replacement.entities())?;
         let mut replacement = replacement.into_entities();
         if let Some(previous) = self.chunks.get(&key) {
@@ -596,7 +663,11 @@ impl ChunkStore {
                     .edit(&mut self.content_revision)
                     .remove(&key);
             }
-            self.collision_revisions.remove(&key);
+            if self.collision_revisions.contains_key(&key) {
+                self.collision_revisions
+                    .edit(&mut self.collision_generation)
+                    .remove(&key);
+            }
             let chunk = if self.chunks.contains_key(&key) {
                 self.chunks.edit(&mut self.content_revision).remove(&key)
             } else {
@@ -673,13 +744,15 @@ impl ChunkStore {
 
     fn set_collision_revision(&mut self, key: ChunkKey, revision: u64) {
         self.invalidate_collision_snapshot();
-        self.collision_revisions.insert(
-            key,
-            ChunkCollisionRevision {
-                chunk: key,
-                revision,
-            },
-        );
+        self.collision_revisions
+            .edit(&mut self.collision_generation)
+            .insert(
+                key,
+                ChunkCollisionRevision {
+                    chunk: key,
+                    revision,
+                },
+            );
     }
 
     fn replace_sub_chunk_block_entities(
@@ -836,147 +909,6 @@ impl ChunkStore {
             .get(&key)
             .and_then(|chunk| chunk.biomes.as_ref())
             == Some(replacement)
-    }
-
-    /// Atomically swaps a fully worker-decoded column into the store.
-    pub fn commit_level_chunk(
-        &mut self,
-        key: ChunkKey,
-        decoded: DecodedLevelChunk,
-    ) -> Result<ApplyLevelChunk, DecodeError> {
-        let newly_loaded = !self.loaded_chunks.contains(&key);
-        let old = self.chunks.get(&key);
-        let DecodedLevelChunk {
-            mut sub_chunks,
-            mut biomes,
-            block_entities,
-            block_bytes_consumed,
-            bytes_consumed,
-            work: _,
-        } = decoded;
-        for (&y, replacement) in &mut sub_chunks {
-            if let Some(previous) =
-                old.and_then(|chunk| chunk.sub_chunks.get(&y))
-                    .filter(|previous| {
-                        Arc::ptr_eq(previous, replacement) || previous.blocks_match(replacement)
-                    })
-            {
-                if !Arc::ptr_eq(previous, replacement) {
-                    previous.retain_inline_identity_from(replacement);
-                }
-                *replacement = Arc::clone(previous);
-            }
-        }
-        if biomes.is_none() {
-            biomes = old.and_then(|chunk| chunk.biomes.clone());
-        } else if let Some(replacement) = biomes.as_mut() {
-            reuse_equal_biome_arcs(replacement, old.and_then(|chunk| chunk.biomes.as_ref()));
-        }
-        let mut block_entities = match block_entities {
-            Some(replacement) => replacement.into_entities(),
-            None => old
-                .map(|chunk| std::collections::BTreeMap::clone(&chunk.block_entities))
-                .unwrap_or_default(),
-        };
-        if let Some(previous) = old {
-            for (&entity_key, replacement) in &mut block_entities {
-                if let Some(previous) = previous
-                    .block_entities
-                    .get(&entity_key)
-                    .filter(|previous| previous.as_ref() == replacement.as_ref())
-                {
-                    *replacement = Arc::clone(previous);
-                }
-            }
-        }
-
-        let ys = old
-            .into_iter()
-            .flat_map(|chunk| chunk.sub_chunks.keys().copied())
-            .chain(sub_chunks.keys().copied())
-            .collect::<BTreeSet<_>>();
-        let block_changed = ys
-            .into_iter()
-            .filter(|y| {
-                let previous = old.and_then(|chunk| chunk.sub_chunks.get(y));
-                let replacement = sub_chunks.get(y);
-                match (previous, replacement) {
-                    (Some(previous), Some(replacement)) => !Arc::ptr_eq(previous, replacement),
-                    (None, None) => false,
-                    _ => true,
-                }
-            })
-            .map(|y| SubChunkKey::from_chunk(key, y))
-            .collect::<BTreeSet<_>>();
-        let biome_changed =
-            changed_biome_ys(old.and_then(|chunk| chunk.biomes.as_ref()), biomes.as_ref())
-                .into_iter()
-                .map(|y| SubChunkKey::from_chunk(key, y))
-                .collect::<Vec<_>>();
-        let collision_changed = !block_changed.is_empty();
-        let revision = if newly_loaded || collision_changed {
-            Some(self.collision_revision_allocator.allocate()?)
-        } else {
-            self.reserve_actor_replacement(
-                key,
-                None,
-                block_entities.iter().map(|(&key, nbt)| (key, nbt.as_ref())),
-            )?
-        };
-        let block_changed = block_changed.into_iter().collect::<Vec<_>>();
-        let mut changed = block_changed.clone();
-        changed.extend(biome_changed.iter().copied());
-        changed.sort_unstable();
-        changed.dedup();
-        let dirty = expand_mesh_dependents(changed.clone())
-            .into_iter()
-            .chain(expand_biome_mesh_dependents(biome_changed))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-
-        let column = (!sub_chunks.is_empty() || biomes.is_some() || !block_entities.is_empty())
-            .then(|| Chunk {
-                sub_chunks: if collision_changed {
-                    Arc::new(sub_chunks)
-                } else {
-                    old.map_or_else(
-                        || Arc::new(sub_chunks),
-                        |chunk| Arc::clone(&chunk.sub_chunks),
-                    )
-                },
-                biomes,
-                block_entity_bytes: block_entities
-                    .values()
-                    .map(|entity| entity.bytes().len())
-                    .sum(),
-                block_entities: Arc::new(block_entities),
-            });
-        let chunks = self.chunks.edit(&mut self.content_revision);
-        match column {
-            Some(column) => {
-                chunks.insert(key, column);
-            }
-            None => {
-                chunks.remove(&key);
-            }
-        }
-        if newly_loaded {
-            self.loaded_chunks
-                .edit(&mut self.content_revision)
-                .insert(key);
-            self.authoritative_sub_chunks
-                .edit(&mut self.content_revision)
-                .remove(&key);
-        }
-        self.apply_reserved_revision(key, revision);
-        Ok(ApplyLevelChunk {
-            block_changed,
-            changed,
-            dirty,
-            bytes_consumed,
-            block_bytes_consumed,
-        })
     }
 }
 

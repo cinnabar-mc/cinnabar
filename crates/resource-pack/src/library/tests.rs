@@ -191,6 +191,201 @@ fn directory_preview_reuses_validation_and_installs_the_previewed_bytes() {
     );
 }
 
+/// A 16x16 PNG filled with `color`.
+fn png(color: [u8; 4]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn java_edition_packs_import_as_translated_bedrock_packs() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let planks = png([0, 255, 0, 255]);
+    let bytes = zip(&[
+        (
+            "Faithful/pack.mcmeta",
+            br#"{"pack":{"pack_format":15,"description":"Java textures"}}"#,
+        ),
+        ("Faithful/pack.png", &png([0, 0, 255, 255])),
+        (
+            "Faithful/assets/minecraft/textures/block/oak_planks.png",
+            &planks,
+        ),
+        (
+            "Faithful/assets/minecraft/sounds/ignored.ogg",
+            b"not a texture",
+        ),
+    ]);
+    let report = library
+        .import(&fixture.write("faithful.zip", &bytes))
+        .unwrap();
+    assert!(report.rejected.is_empty(), "{:?}", report.rejected);
+    let imported = &report.imported[0];
+    assert_eq!(imported.name, "Faithful");
+    assert_eq!(imported.description, "Java textures");
+    library.activate(imported.id).unwrap();
+    let view = LayeredPackView::new(library.apply().unwrap());
+    assert_eq!(
+        view.read("textures/blocks/planks_oak.png")
+            .unwrap()
+            .as_ref(),
+        planks.as_slice()
+    );
+    assert!(view.read("assets/minecraft/sounds/ignored.ogg").is_none());
+
+    let directory = fixture.0.join("java-pack");
+    fs::create_dir_all(directory.join("assets/minecraft/textures/item")).unwrap();
+    fs::write(
+        directory.join("pack.mcmeta"),
+        br#"{"pack":{"pack_format":15}}"#,
+    )
+    .unwrap();
+    fs::write(
+        directory.join("assets/minecraft/textures/item/golden_apple.png"),
+        png([255, 255, 0, 255]),
+    )
+    .unwrap();
+    let report = library.import(&directory).unwrap();
+    assert_eq!(
+        report.imported[0].name, "java-pack",
+        "{:?}",
+        report.rejected
+    );
+}
+
+#[test]
+fn java_edition_packs_without_usable_textures_are_rejected() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let bytes = zip(&[
+        ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+        ("assets/minecraft/sounds.json", b"{}"),
+    ]);
+    let report = library
+        .import(&fixture.write("sounds.zip", &bytes))
+        .unwrap();
+    assert!(report.imported.is_empty());
+    assert_eq!(report.rejected.len(), 1, "{:?}", report.rejected);
+    assert!(
+        report.rejected[0].contains("no textures"),
+        "{:?}",
+        report.rejected
+    );
+    assert!(library.available().is_empty());
+}
+
+#[test]
+fn java_metadata_over_the_manifest_allowance_is_not_read() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let mut meta = br#"{"pack":{"pack_format":15,"description":"Padded"},"pad":""#.to_vec();
+    meta.resize(crate::MAX_MANIFEST_BYTES + 16, b' ');
+    meta.extend_from_slice(b"\"}");
+    let bytes = zip(&[
+        ("pack.mcmeta", &meta),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            &png([1, 2, 3, 255]),
+        ),
+    ]);
+    let report = library
+        .import(&fixture.write("padded.zip", &bytes))
+        .unwrap();
+    assert_eq!(report.imported[0].description, "Java Edition resource pack");
+}
+
+#[test]
+fn compressible_java_translations_fit_the_compressed_archive_limit() {
+    // Each checkerboard TGA is about 4 MB uncompressed but deflates to almost nothing.
+    let checkerboard = {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_fn(1000, 1000, |x, y| {
+            image::Rgba(if (x + y) % 2 == 0 {
+                [0, 128, 0, 255]
+            } else {
+                [0; 4]
+            })
+        })
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+        bytes
+    };
+    let names = [
+        "acacia_leaves",
+        "birch_leaves",
+        "dark_oak_leaves",
+        "flowering_azalea_leaves",
+        "jungle_leaves",
+        "large_fern_bottom",
+        "large_fern_top",
+        "lilac_bottom",
+        "lilac_top",
+        "oak_leaves",
+        "short_grass",
+        "spruce_leaves",
+        "sugar_cane",
+        "tall_grass_bottom",
+        "tall_grass_top",
+        "tall_seagrass_bottom",
+        "tall_seagrass_top",
+    ];
+    let paths: Vec<String> = names
+        .iter()
+        .map(|name| format!("assets/minecraft/textures/block/{name}.png"))
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)];
+    files.extend(
+        paths
+            .iter()
+            .map(|path| (path.as_str(), checkerboard.as_slice())),
+    );
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let report = library
+        .import(&fixture.write("leaves.zip", &zip(&files)))
+        .unwrap();
+    assert_eq!(report.imported.len(), 1, "{:?}", report.rejected);
+}
+
+#[test]
+fn java_packs_in_bundles_keep_their_nested_siblings() {
+    let nested = zip(&[
+        ("manifest.json", manifest(140, "resources", "").as_bytes()),
+        ("marker.txt", b"nested"),
+    ]);
+    let texture = png([0, 255, 0, 255]);
+    for (usable, imported, rejected) in [(true, 2, 0), (false, 1, 1)] {
+        let fixture = Fixture::new();
+        let mut library = fixture.library();
+        let java: (&str, &[u8]) = if usable {
+            ("java/assets/minecraft/textures/block/stone.png", &texture)
+        } else {
+            ("java/assets/minecraft/sounds.json", b"{}")
+        };
+        let bytes = zip(&[
+            ("java/pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+            java,
+            ("java/assets/minecraft/extra.zip", b"not a pack"),
+            ("resource.mcpack", &nested),
+        ]);
+        let report = library
+            .import(&fixture.write("bundle.zip", &bytes))
+            .unwrap();
+        assert_eq!(report.imported.len(), imported, "{:?}", report.rejected);
+        assert_eq!(report.rejected.len(), rejected, "{:?}", report.rejected);
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|pack| pack.id == Uuid::from_u128(140))
+        );
+    }
+}
+
 #[test]
 fn directory_preview_rejects_encrypted_or_malformed_manifests() {
     let fixture = Fixture::new();
