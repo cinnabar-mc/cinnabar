@@ -24,6 +24,114 @@ pub(super) fn locale_text(key: &str, language: Option<&str>) -> Option<&'static 
 /// Returns built-in French settings text for supported localization keys.
 pub(super) fn french_text(key: &str) -> Option<&'static str> {
     Some(match key {
+        "options.renderDistanceFormat" => "%s tronçons",
+        "options.cloudDistance" | "options.cloudDistance.name" => "Distance des nuages",
+        "options.cloudDistance.description" => {
+            "Ajustez la distance d'affichage des nuages jusqu'à 128 tronçons avec fondu dans le brouillard."
+        }
+        "options.chat.title" | "chat.settings.title" => "Chat",
+        "options.chat.title.description" => "Apparence du chat, opacité, taille et couleurs",
+        "chat.settings.reset" => "Réinitialiser les paramètres du chat",
+        "chat.settings.reset.description" => {
+            "Restaurer toutes les options du chat aux valeurs par défaut"
+        }
+        "chat.settings.reset.buttonLabel" => "Réinitialiser",
+        "chat.settings.muteAll" => "Masquer le chat",
+        "chat.settings.muteAll.description" => "Masquer tous les messages de chat entrants",
+        "chat.settings.muteEmotes" => "Masquer les émotes",
+        "chat.settings.muteEmotes.description" => {
+            "Préférence enregistrée ; le filtrage des émotes n'est pas encore disponible"
+        }
+        "chat.settings.tts" => "Synthèse vocale pour le chat",
+        "chat.settings.tts.description" => {
+            "Préférence enregistrée ; la lecture vocale du chat n'est pas encore disponible"
+        }
+        "chat.settings.fontSize" => "Taille de la police",
+        "chat.settings.fontSize.description" => "Ajuster l'échelle et la taille du texte du chat",
+        "chat.settings.lineSpacing" => "Espacement des lignes",
+        "chat.settings.lineSpacing.description" => "Définir l'espacement entre les lignes du chat",
+        "chat.settings.chatColor" => "Couleur du chat",
+        "chat.settings.chatColor.description" => "Couleur par défaut pour le texte du chat",
+        "chat.settings.mentionsColor" => "Couleur des mentions",
+        "chat.settings.mentionsColor.description" => {
+            "Couleur de surbrillance pour les mentions (@pseudo) dans le chat"
+        }
+        "chat.settings.mentionsTarget" => "Cible des mentions colorées",
+        "chat.settings.mentionsTarget.description" => {
+            "Choisissez si la couleur des mentions s'applique à tout le monde ou uniquement à votre pseudo"
+        }
+        "chat.settings.mentionsTarget.everyone" => "Tout le monde",
+        "chat.settings.mentionsTarget.self" => "Moi uniquement",
+        "options.chatBackgroundOpacity" => "Opacité de l'arrière-plan du chat",
+        "options.chatBackgroundOpacity.description" => {
+            "Ajuster la transparence du fond de la boîte de chat"
+        }
+        "options.notificationDuration.Chat" => "Durée des notifications du chat",
+        "options.notificationDuration.Chat.description" => {
+            "Durée pendant laquelle les messages restent visibles sur le HUD"
+        }
+        "Chat Position" => "Position du chat",
+        "Chat Position.description" => "Positionner le chat en bas ou en haut de l'écran",
+        "Bottom" => "Bas",
+        "Top" => "Haut",
+        "hbui.Settings.category.controls" | "options.controls" | "options.group.input" => {
+            "Commandes"
+        }
+        "hbui.Settings.category.social" | "options.social" => "Social",
+        "hbui.Settings.category.general" => "Général",
+        "Updates" => "Mises à jour",
+        "Shaders" => "Shaders",
+        "Mods" => "Mods",
+        "Server" => "Serveur",
+        "Discord" | "discord.settings.title" => "Discord",
+        "discord.settings.description" => {
+            "Contrôler ce que Cinnabar partage avec l'application Discord"
+        }
+        "discord.settings.enabled" => "Présence riche Discord",
+        "discord.settings.enabled.description" => {
+            "Publier votre activité Cinnabar actuelle sur Discord"
+        }
+        "discord.settings.details.title" => "Détails de l'activité",
+        "discord.settings.details.description" => {
+            "Choisir les informations facultatives affichées sur votre profil Discord"
+        }
+        "discord.settings.serverDetails" => "Afficher les détails du serveur et du monde",
+        "discord.settings.serverDetails.description" => {
+            "Afficher l'adresse du serveur ou le nom du monde local"
+        }
+        "discord.settings.partySize" => "Afficher la taille du groupe",
+        "discord.settings.partySize.description" => {
+            "Afficher le nombre de joueurs actuels et maximum lorsque disponible"
+        }
+        "discord.settings.allowJoins" => "Autoriser à rejoindre via Discord",
+        "discord.settings.allowJoins.description" => {
+            "Permettre à vos amis Discord de vous rejoindre via la carte d'activité"
+        }
+        "discord.settings.timestamp" => "Afficher le temps écoulé",
+        "discord.settings.timestamp.description" => {
+            "Afficher depuis combien de temps vous êtes dans l'activité actuelle"
+        }
+        "discord.settings.reset" => "Réinitialiser les paramètres Discord",
+        "discord.settings.reset.description" => {
+            "Restaurer toutes les options Discord aux valeurs par défaut"
+        }
+        "discord.settings.reset.buttonLabel" => "Réinitialiser",
+        "color.white" => "Blanc",
+        "color.green" => "Vert",
+        "color.aqua" => "Cyan",
+        "color.red" => "Rouge",
+        "color.light_purple" => "Violet clair",
+        "color.yellow" => "Jaune",
+        "color.gold" => "Or",
+        "color.gray" => "Gris",
+        "color.dark_gray" => "Gris foncé",
+        "color.blue" => "Bleu",
+        "color.dark_green" => "Vert foncé",
+        "color.dark_aqua" => "Cyan foncé",
+        "color.dark_purple" => "Violet foncé",
+        "color.dark_red" => "Rouge foncé",
+        "color.dark_blue" => "Bleu foncé",
+        "color.black" => "Noir",
         "options.on" | "On" | "gui.yes" | "True" | "true" => "Oui",
         "options.off" | "Off" | "gui.no" | "False" | "false" => "Non",
         "Automatic" => "Automatique",
@@ -278,6 +386,14 @@ pub(super) fn french_text(key: &str) -> Option<&'static str> {
 /// Returns built-in English text when the active catalog has no settings entry.
 pub(super) fn fallback(key: &str) -> &str {
     match key {
+        "options.cloudDistance" | "options.cloudDistance.name" => "Cloud Distance",
+        "options.cloudDistance.description" => {
+            "Adjust how far clouds render in chunks (up to 128 chunks) with smooth distance fog fade."
+        }
+        "options.estheticTab" | "options.estheticTab.name" => "Esthetic Tab",
+        "options.estheticTab.description" => {
+            "Display an aesthetic Lunar-style player list overlay with server MOTD and latency indicators."
+        }
         "options.renderClouds" => "Render Clouds",
         "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
@@ -315,9 +431,11 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.chatColor" => "Chat Color",
         "chat.settings.chatColor.description" => "Default color for chat text",
         "chat.settings.mentionsColor" => "Mentions Color",
-        "chat.settings.mentionsColor.description" => {
-            "Saved preference; mention highlighting is not available yet"
-        }
+        "chat.settings.mentionsColor.description" => "Color used to highlight chat mentions",
+        "chat.settings.mentionsTarget" => "Highlight Mentions",
+        "chat.settings.mentionsTarget.description" => "Choose which player mentions to highlight",
+        "chat.settings.mentionsTarget.everyone" => "Everyone",
+        "chat.settings.mentionsTarget.self" => "Only Me",
         "options.chatBackgroundOpacity" => "Chat Background Opacity",
         "options.chatBackgroundOpacity.description" => {
             "Adjust the opacity of the chat background box"

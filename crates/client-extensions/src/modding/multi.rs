@@ -578,6 +578,34 @@ impl ModHosts {
         keys.dedup();
         keys
     }
+
+    /// Routes one captured-gameplay wheel frame in load order before native hotbar input.
+    pub fn route_scroll(&mut self, scroll: &mod_host::ScrollFrame, held: &[String]) -> bool {
+        let mut captured = false;
+        let mut claimed = Vec::new();
+        for index in 0..self.host_count() {
+            let host = self.host_mut(index);
+            if !host.is_active() {
+                continue;
+            }
+            host.observe_scroll(if captured {
+                mod_host::empty_scroll()
+            } else {
+                *scroll
+            });
+            let chord = host.scroll_capture_keys();
+            if host.grants().controls
+                && !chord.is_empty()
+                && chord
+                    .iter()
+                    .all(|key| held.contains(key) && !claimed.contains(key))
+            {
+                captured = true;
+            }
+            claimed.extend(host.reserved_keys().iter().cloned());
+        }
+        captured
+    }
 }
 
 /// The controls one mod sees: keys reserved by an earlier mod are withheld, only the panel
@@ -831,6 +859,7 @@ pub struct Merged {
     pub weather_override: Option<[f32; 2]>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    pub hotbar_slot: Option<u8>,
     /// Any active mod requesting an ordinary crosshair mining hold.
     pub block_mining: bool,
     pub block_mining_target: Option<mod_host::GameplayVector3>,
@@ -880,6 +909,7 @@ impl Merged {
         );
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
+        self.hotbar_slot = self.hotbar_slot.or(interaction.hotbar_slot);
         self.block_mining |= interaction.block_mining;
         self.block_mining_target = self.block_mining_target.or(interaction.block_mining_target);
         let delta = host.take_camera_delta();

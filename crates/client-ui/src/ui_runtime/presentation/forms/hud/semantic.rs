@@ -368,6 +368,10 @@ impl SemanticHud {
         );
         changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
         changed |= replace(
+            &mut self.model.chat_mentions_only_self,
+            settings.mentions_only_self(),
+        );
+        changed |= replace(
             &mut self.model.chat_local_player,
             Arc::clone(&runtime.session.local_player_display_name),
         );

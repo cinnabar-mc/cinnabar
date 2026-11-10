@@ -439,9 +439,11 @@ settings! {
     CameraShake => "camera_shake", toggle("options.screenShake", true),
         [(SettingPanel::AccessibilityGameplay, 0), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
-        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoClouds, 2)], [SettingsGroup::Video], None, None;
     RenderClouds => "render_clouds", toggle("options.renderclouds", true),
         [(SettingPanel::VideoClouds, 0)], [SettingsGroup::Video], None, Some("options.renderClouds");
+    CloudDistance => "cloud_distance", slider("options.cloudDistance", 8, 128, 64),
+        [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, Some("options.cloudDistance.name");
     FancySkies => "fancy_skies", toggle("options.fancyskies", true),
         [(SettingPanel::VideoGraphics, 8)], [SettingsGroup::Video], None, None;
     SmoothLighting => "smooth_lighting", toggle("options.smooth_lighting", true),
@@ -509,13 +511,15 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
-    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
         [(SettingPanel::Chat, 10)], [SettingsGroup::Chat], None, None;
+    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
+        [(SettingPanel::Chat, 11)], [SettingsGroup::Chat], None, None;
     ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
     MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
+    MentionsTarget => "mentions_target", dropdown("chat.settings.mentionsTarget", super::chat::MENTIONS_TARGETS, 0),
+        [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
         [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),

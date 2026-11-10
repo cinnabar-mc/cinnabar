@@ -1616,8 +1616,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
   obsolete saved typeface values are ignored. Chat and mention colors apply to decoded
   message labels without changing server pack inputs. Mention tokens preserve surrounding
-  formatting and match the current local display name or the all-player mention. Full
-  live mention acceptance remains incomplete.
+  formatting and completion name spellings. The target setting colors all names or only
+  the current local display name and the all-player mention. Full live mention acceptance
+  remains incomplete.
   Emote filtering and narration remain unavailable and store preferences only.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
@@ -1910,6 +1911,11 @@ fragment interfaces fit the fifteen inter-stage variables V3DV exposes, includin
 front-facing. Clean-install and displayed-frame acceptance across supported Pi
 models remain incomplete.
 
+Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
+updates to Flatpak only in its own sandbox. Clean-install, login, rendering, local-world,
+import, Discord integration and update acceptance inside the sandbox, and a stable-release
+Flathub submission remain incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
@@ -2135,7 +2141,9 @@ models remain incomplete.
   rebind quarantine, UI ownership and device changes; live input qualification remains open.
 - Generic resolved action filtering exposes synchronous module verdicts, retained
   releases and lifecycle reconciliation; timing and rates belong to modules, and
-  attack and use pulses reach it as repeats. Local weather overrides retain
+  attack and use pulses reach it as repeats. Gameplay button taps preserve physical
+  edges and their requesting filter owner; jump taps use the tick-sampled pulse queue.
+  Local weather overrides retain
   transactional host APIs. Granted actor reach requests set the local pick and attack
   distance within the API bound, preserving attack eligibility, obstruction checks and
   ordinary block reach. Frame-scoped crosshair mining holds use that same interaction grant
@@ -2267,6 +2275,10 @@ models remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.
+- Gameplay wheel observations preserve line/pixel axes under Controls authority.
+  Transactional physical-chord reservations follow mod load order and suppress both
+  hotbar input paths. UI and unfocused input stay outside the guest. Targeted regression
+  checks are included; physical-device and multi-platform acceptance remain incomplete.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
 - Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on

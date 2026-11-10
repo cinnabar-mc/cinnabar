@@ -89,6 +89,7 @@ impl State {
             environment,
             motion: _,
             snapshot: _,
+            gameplay_input_writes,
             gameplay_reads,
             camera_writes,
             pending_camera: _,
@@ -121,6 +122,7 @@ impl State {
         *pending = None;
         *pending_screens = None;
         *writes = 0;
+        *gameplay_input_writes = 0;
         *gameplay_reads = 0;
         *camera_writes = 0;
         *packet_delay_writes = 0;

@@ -60,8 +60,9 @@ pub use runtime::legacy_input::{
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    BlockPosition as GameplayBlockPosition, CameraPose as GameplayCameraPose,
-    CameraRig as GameplayCameraRig, ControlModes as GameplayControlModes, Mob as GameplayMob,
+    BlockPosition as GameplayBlockPosition, Button as GameplayButton,
+    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
+    ControlModes as GameplayControlModes, Mob as GameplayMob,
     MovementInput as GameplayMovementInput, MovementIntents as GameplayMovementIntents,
     Player as GameplayPlayer, Vector3 as GameplayVector3,
 };
@@ -75,7 +76,7 @@ pub use runtime::cinnabar::extension::player_state::{
 };
 pub use runtime::cinnabar::extension::{
     camera::DamageShake, events::Cue as ModCue, input::Controls as ControlFrame,
-    panel::Event as ControlEvent,
+    input::Scroll as ScrollFrame, panel::Event as ControlEvent,
 };
 
 pub use runtime::cinnabar::extension::terrain::{
@@ -117,6 +118,8 @@ pub struct InteractionOutput {
     pub block_breaks: Vec<GameplayBlockPosition>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    pub gameplay_button_pulses: Vec<GameplayButton>,
+    pub hotbar_slot: Option<u8>,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.
     pub block_mining: bool,
     /// A one-frame destination for physically held mining, independent of the view.
@@ -225,6 +228,16 @@ pub fn empty_controls() -> ControlFrame {
         events: Vec::new(),
         pointer: None,
         wheel: 0.0,
+    }
+}
+
+/// No wheel input for an unowned or already consumed native frame.
+pub fn empty_scroll() -> ScrollFrame {
+    ScrollFrame {
+        line_x: 0.0,
+        line_y: 0.0,
+        pixel_x: 0.0,
+        pixel_y: 0.0,
     }
 }
 

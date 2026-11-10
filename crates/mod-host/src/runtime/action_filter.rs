@@ -14,6 +14,26 @@ pub(super) fn next_identity() -> u64 {
         .expect("action filter identity exhausted")
 }
 impl Instance {
+    /// Consumes the remaining committed interaction requests once per frame.
+    pub(super) fn take_interaction(&mut self) -> crate::InteractionOutput {
+        std::mem::take(&mut self.store.data_mut().controls.interaction)
+    }
+
+    /// Drains only taps whose owner still has gameplay input authority.
+    pub(crate) fn take_gameplay_button_pulses(&mut self) -> Vec<crate::GameplayButton> {
+        if !self.is_active() || !self.store.data().grants.gameplay_input {
+            return Vec::new();
+        }
+        std::mem::take(
+            &mut self
+                .store
+                .data_mut()
+                .controls
+                .interaction
+                .gameplay_button_pulses,
+        )
+    }
+
     /// Only explicitly exporting, active, granted instances can claim filter ownership.
     pub(crate) fn action_filter_identity(&self) -> Option<u64> {
         (self.status == InstanceStatus::Running

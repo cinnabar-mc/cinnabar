@@ -104,6 +104,7 @@ pub(crate) struct State {
     environment: output_lifecycle::Environment,
     motion: output_lifecycle::Movement,
     snapshot: Option<GameplaySnapshot>,
+    gameplay_input_writes: u32,
     gameplay_reads: u32,
     camera_writes: u32,
     pending_camera: Option<CameraDelta>,
@@ -161,6 +162,7 @@ impl State {
             environment: Default::default(),
             motion: Default::default(),
             snapshot: None,
+            gameplay_input_writes: 0,
             gameplay_reads: 0,
             camera_writes: 0,
             pending_camera: None,
@@ -348,6 +350,7 @@ impl Instance {
         state.terrain.begin_frame();
         state.snapshot = None;
         state.motion.begin_frame();
+        state.gameplay_input_writes = 0;
         state.pending_camera = None;
         state.camera_delta = None;
         state.pending_packet_delay = None;
@@ -389,6 +392,7 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.scroll = crate::empty_scroll();
         state.controls.native_editing = false;
         state.controls.native_editing_next = false;
         state.pressed = false;
@@ -886,9 +890,6 @@ impl Instance {
     }
     pub(super) fn reserved_keys(&self) -> &[String] {
         &self.store.data().controls.keys
-    }
-    pub(super) fn take_interaction(&mut self) -> crate::InteractionOutput {
-        std::mem::take(&mut self.store.data_mut().controls.interaction)
     }
     pub(super) fn settings_write(&self) -> Option<&str> {
         self.store.data().controls.dirty_settings.as_deref()

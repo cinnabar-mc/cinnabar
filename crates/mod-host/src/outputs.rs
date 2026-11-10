@@ -4,6 +4,11 @@ use super::{CameraDelta, ModHost};
 use std::sync::Arc;
 
 impl ModHost {
+    /// Consumes committed gameplay taps before the action filter evaluates this frame.
+    pub fn take_gameplay_button_pulses(&mut self) -> Vec<crate::GameplayButton> {
+        self.instance.take_gameplay_button_pulses()
+    }
+
     /// Visual terrain rules are withdrawn with owner authority or activation.
     pub fn terrain_surface_rules(&self) -> &[mod_api::terrain_surface::Rule] {
         if self.is_active() {
