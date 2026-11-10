@@ -3,6 +3,7 @@ use assets::{ContributorRole, NO_MODEL_TEMPLATE, TextureMip, TextureRef};
 
 mod carpets;
 mod fences;
+mod gates;
 mod pressure_plates;
 mod slabs;
 mod walls;
