@@ -486,6 +486,9 @@ pub fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
 }
 
 #[cfg(test)]
+mod legacy_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -581,6 +584,16 @@ mod tests {
             Some(LevelParticle::ItemIcon {
                 network_id: 300,
                 aux: 0
+            })
+        );
+        assert_eq!(
+            classify_level_event(
+                LEVEL_EVENT_PARTICLE_FLAG | ParticleType::SnowballPoof.wire_value(),
+                0
+            ),
+            Some(LevelParticle::FixedItemIcon {
+                identifier: assets::facts::VanillaItem::Snowball.identifier(),
+                count: 1
             })
         );
     }
