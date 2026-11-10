@@ -86,6 +86,13 @@ struct Component {
     destroyed: bool,
 }
 
+/// A removed root belongs to one creation clock; a replacement using that root is live again.
+struct DestroyedRoot {
+    met: bool,
+    clock: Option<String>,
+    born: Option<f64>,
+}
+
 /// Retained animation state for the controls a caller paints.
 #[derive(Default)]
 pub struct Animator {
@@ -94,7 +101,7 @@ pub struct Animator {
     /// Button events fired this frame, replayed to components created after them.
     fired: Vec<String>,
     /// Roots removed by `destroy_at_end`, and whether a paint met them this frame.
-    destroyed: BTreeMap<String, bool>,
+    destroyed: BTreeMap<String, DestroyedRoot>,
     /// Creation time of controls without their own clock, when fixed.
     origin: Option<f64>,
     /// The paint being recorded between [`Animator::record`] and [`Animator::finish_record`].
@@ -246,11 +253,16 @@ impl Animator {
     }
 
     /// [`Animator::is_destroyed`] for a paint, which keeps the removal alive.
-    pub(crate) fn hides(&mut self, key: &str) -> bool {
+    pub(crate) fn hides(&mut self, key: &str, clocks: Option<&BTreeMap<String, f64>>) -> bool {
         let mut hidden = false;
-        for (root, met) in &mut self.destroyed {
+        self.destroyed.retain(|root, removed| {
             if under(key, root) {
-                *met = true;
+                if let Some(clock) = &removed.clock
+                    && clocks.and_then(|clocks| clocks.get(clock)).copied() != removed.born
+                {
+                    return false;
+                }
+                removed.met = true;
                 hidden = true;
                 if let Some(record) = &mut self.recording
                     && !record.playing
@@ -258,7 +270,8 @@ impl Animator {
                     record.met.push(root.clone());
                 }
             }
-        }
+            true
+        });
         hidden
     }
 
@@ -268,7 +281,7 @@ impl Animator {
         self.components
             .retain(|_, component| std::mem::replace(&mut component.touched, false));
         self.destroyed
-            .retain(|_, met| std::mem::replace(met, false));
+            .retain(|_, removed| std::mem::replace(&mut removed.met, false));
         self.fired.clear();
     }
 
@@ -319,8 +332,8 @@ impl Animator {
             }
         }
         for root in &record.met {
-            if let Some(met) = self.destroyed.get_mut(root) {
-                *met = true;
+            if let Some(removed) = self.destroyed.get_mut(root) {
+                removed.met = true;
             }
         }
         self.destroyed.len() == destroyed
@@ -394,7 +407,7 @@ impl Component {
         &mut self,
         now: f64,
         events: &mut Vec<AnimEvent>,
-        destroyed: &mut BTreeMap<String, bool>,
+        destroyed: &mut BTreeMap<String, DestroyedRoot>,
     ) -> Written {
         self.touched = true;
         let dt = now - self.last;
@@ -491,7 +504,7 @@ impl Component {
         &mut self,
         dt: f32,
         events: &mut Vec<AnimEvent>,
-        destroyed: &mut BTreeMap<String, bool>,
+        destroyed: &mut BTreeMap<String, DestroyedRoot>,
     ) {
         if self.destroyed {
             return;
@@ -518,7 +531,14 @@ impl Component {
                         events.push(AnimEvent::End(end.clone()));
                     }
                     events.push(AnimEvent::Destroy(key.clone()));
-                    destroyed.insert(key, true);
+                    destroyed.insert(
+                        key,
+                        DestroyedRoot {
+                            met: true,
+                            clock: self.anims.clock.clone(),
+                            born: self.born,
+                        },
+                    );
                     self.destroyed = true;
                     return;
                 }
