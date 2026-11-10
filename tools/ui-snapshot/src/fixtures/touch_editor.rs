@@ -136,6 +136,20 @@ pub(super) const STATES: &[State] = &[
     },
     #[cfg(feature = "test-support")]
     State {
+        name: "touch-editor-resized",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchEditor { phase: 4 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-editor-resized-saved",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchEditor { phase: 5 },
+    },
+    #[cfg(feature = "test-support")]
+    State {
         name: "touch-editor-demo",
         size: SIZE,
         gui_scale: GUI_SCALE,

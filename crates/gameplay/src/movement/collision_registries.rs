@@ -423,7 +423,7 @@ impl PhysicsCollisionRegistries {
                         identifier: Arc::clone(&block.name),
                         facts: custom_block_facts(block),
                         full_cube: custom_block_is_full_cube(&effective),
-                        build_intention: false,
+                        build_intention: custom_build_intention(&effective),
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
                         states: mining::custom_states(block, state_values.get(state as usize)),
@@ -480,7 +480,7 @@ impl PhysicsCollisionRegistries {
                             identifier: Arc::clone(&block.name),
                             facts: custom_block_facts(block),
                             full_cube: custom_block_is_full_cube(&effective),
-                            build_intention: false,
+                            build_intention: custom_build_intention(&effective),
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
                             states: mining::custom_states(block, Some(&state)),
@@ -722,6 +722,12 @@ fn custom_block_facts(block: &protocol::CustomBlock) -> assets::facts::BlockFact
             | assets::registry::BlockTraits::INTERACTIVE;
     }
     facts
+}
+
+/// Whether held placement continues a bridge from this custom state, as vanilla's verified
+/// cube family does; other custom shapes keep following the aim ray.
+fn custom_build_intention(block: &protocol::CustomBlockPhysics) -> bool {
+    custom_block_is_full_cube(block)
 }
 
 /// Whether the final movement bounds fill exactly one block after transformation.

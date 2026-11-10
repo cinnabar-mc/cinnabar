@@ -39,6 +39,7 @@ pub mod skybox;
 pub mod startup_presentation;
 pub mod startup_timing;
 pub mod terrain_culling;
+pub mod terrain_markers;
 pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
@@ -87,10 +88,10 @@ pub use chunk::schedule::ChunkRenderApplySet;
 pub use chunk::texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub use chunk::textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
-    ChunkTextureBindingIdentity, EnhancedTextureAssets, TextureArrayLimits, TextureLimitError,
-    TextureMipUploadPlan, TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
-    greedy_texture_uv, plan_texture_mip_uploads, plan_texture_page_bindings,
-    select_animation_frames, texture_asset_needs_rebuild,
+    ChunkTextureBindingIdentity, TextureArrayLimits, TextureLimitError, TextureMipUploadPlan,
+    TexturePageBinding, TextureUploadPlanError, diagnostic_texture_page,
+    enhanced_maps_fit_device_limits, greedy_texture_uv, plan_texture_mip_uploads,
+    plan_texture_page_bindings, select_animation_frames, texture_asset_needs_rebuild,
 };
 pub use chunk::transparent_witness::{
     TransparentWitnessEvent, TransparentWitnessEvidence, TransparentWitnessIncompleteEvent,
@@ -138,6 +139,7 @@ pub use screen_overlay::{
 };
 pub use skybox::SkyboxSettings;
 pub use terrain_culling::ChunkOcclusionCulling;
+pub use terrain_markers::TerrainMarkerLayers;
 pub use ui::{UiRenderSceneResource, UiRenderStatsResource};
 pub use ui_glint::{UiGlintSettings, UiItemGlintTexture};
 pub use viewmodel::{

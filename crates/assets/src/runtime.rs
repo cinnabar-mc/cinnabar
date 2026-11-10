@@ -199,8 +199,11 @@ impl RuntimeAssets {
             model_quads: Box::new([]),
             animations: Box::new([]),
             animation_frames: Box::new([]),
-            texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })]
-                .into_boxed_slice(),
+            texture_pages: vec![TexturePage::new(TextureArray {
+                layers: 1,
+                mips: mips.into(),
+            })]
+            .into_boxed_slice(),
             overlay_texture_source_sizes: Box::new([]),
             overlay_texture_source_grids: Box::new([]),
             overlay_page_layer_counts: Box::new([]),

@@ -162,7 +162,17 @@ impl ModHost {
         self.instance.observe_gameplay(facts)
     }
 
-    /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
+    /// Current-frame relative camera heading; absence restores player-aligned presentation.
+    pub fn camera_yaw_offset(&self) -> Option<f32> {
+        self.instance.camera_yaw_offset()
+    }
+
+    /// Current-frame perspective; absence restores the player’s chosen view.
+    pub fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
+        self.instance.camera_perspective()
+    }
+
+    /// Reads the current frame's FOV and look multipliers.
     pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
         self.instance.camera_view_scale()
     }

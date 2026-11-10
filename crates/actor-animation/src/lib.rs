@@ -17,6 +17,7 @@ use simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION;
 pub const MAX_RUNTIME_BONES_PER_RIG: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 const ANIMATION_TICK_SECONDS: f32 = ACTOR_TICK_DURATION.as_secs_f32();
 pub const MAX_CONTROLLER_TRANSITIONS_PER_TICK: usize = 8;
+/// Ordinary actor allowance; large authored scripts reserve additional operations.
 pub const MAX_MOLANG_OPS_PER_ACTOR_TICK: usize = 4_096;
 pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
 /// World-wide ceiling for authored render-time layer expressions; pose histories stay tick-owned.
@@ -25,7 +26,7 @@ pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
 /// A frame sample replays pre-animation for both tick endpoints besides its own and render pass.
 const FRAME_PASSES_PER_ACTOR: usize = 4;
-/// One actor's frame sample fits any rig whose tick evaluation fits its tick budget.
+/// Frame allowance for ordinary rigs; large scripts reserve proportionally more.
 const MAX_MOLANG_OPS_PER_ACTOR_FRAME: usize =
     FRAME_PASSES_PER_ACTOR * MAX_MOLANG_OPS_PER_ACTOR_TICK;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME: usize =
@@ -51,7 +52,7 @@ pub use rig::{
 mod state;
 use state::{
     ActorRigState, ActorTickInput, AttachableRootFrame, ControllerState, EvalBudget, EvalError,
-    EvaluatedState, OperandStack, RuntimeBone,
+    EvaluatedState, OperandStack, RuntimeBone, molang_tick_budget,
 };
 mod store;
 pub use store::ActorAnimationStore;
@@ -83,6 +84,7 @@ mod render;
 mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
 mod brandish;
+mod brush;
 mod replay;
 mod server_animation;
 mod shulker;
@@ -108,7 +110,7 @@ pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
-pub use view::ActorAnimationView;
+pub use view::{ActorAnimationView, actor_culling_bounds};
 
 mod local_motion;
 pub use local_motion::LocalSwingMotionSample;

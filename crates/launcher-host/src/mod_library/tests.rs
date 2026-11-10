@@ -205,16 +205,16 @@ impl Backend for Fixture {
 }
 
 #[test]
-fn marketplace_navigation_does_not_modify_the_local_library() {
+fn card_disclosure_does_not_modify_the_local_library() {
     let root = tempfile::tempdir().unwrap();
     let mut requests = 0;
     let result = worker::perform::<Fixture>(
-        Action::BrowseMarketplace,
+        Action::ReadMore(1),
         &root.path().join("mods"),
         &root.path().join("config"),
         &mut requests,
-        &mut || panic!("navigation must not open a file picker"),
-        &mut |_| panic!("navigation must not retire a mod"),
+        &mut || panic!("disclosure must not open a file picker"),
+        &mut |_| panic!("disclosure must not retire a mod"),
     );
     assert_eq!(result, Ok(String::new()));
     assert_eq!(requests, 0);

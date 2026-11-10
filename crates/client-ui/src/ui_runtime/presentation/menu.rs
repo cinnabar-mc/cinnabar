@@ -697,6 +697,14 @@ fn append_dialog(
                 .expect("shader removal wording was prepared");
             (popup.title.as_str(), popup.body.as_str(), popup.confirm)
         }
+        MenuDialog::LeaveRealm(id) => (
+            "Leave Realm?",
+            launcher::menu::joined_realm(&view.realms, id)
+                .map_or("You will lose access to this Realm.", |realm| {
+                    realm.name.as_str()
+                }),
+            MenuAction::ConfirmLeaveRealm(id),
+        ),
         MenuDialog::RemoveSaved(index) => (
             "Remove saved server?",
             view.servers

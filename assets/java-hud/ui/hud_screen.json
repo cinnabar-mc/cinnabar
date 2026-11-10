@@ -438,8 +438,9 @@
     ]
   },
 
-  // Titles: 4x centred 40 GUI px above the middle, subtitle 2x 10 below it,
-  // no background, sharing the title's fade.
+  // Titles: a centred vertical stack as in Bedrock, so a subtitle's extra lines lift the block
+  // instead of hanging below it. A one-line title is 4x at 40 GUI px above the middle with
+  // its 2x subtitle 10 below it; no background, the subtitle sharing the title's fade.
   "root_panel/hud_title_text_area": {
     "size": [ "100%", "100%" ],
     "factory": {
@@ -451,9 +452,9 @@
   },
 
   "hud_title_text": {
-    "type": "panel",
-    "size": [ "100%", "100%" ],
-    "offset": [ 0, 0 ],
+    "type": "stack_panel",
+    "orientation": "vertical",
+    "offset": [ 0, -6 ],
     "layer": 1,
     "alpha": "@hud.anim_title_text_alpha_in",
     "propagate_alpha": true,
@@ -461,13 +462,12 @@
       {
         "title_frame": {
           "type": "panel",
-          "size": [ "100%", "100%" ],
+          "size": [ "100%", 50 ],
           "controls": [ {
             "title": {
               "type": "label",
-              "anchor_from": "center",
+              "anchor_from": "top_middle",
               "anchor_to": "top_middle",
-              "offset": [ 0, -40 ],
               "text": "#text",
               "color": "$title_command_text_color",
               "font_scale_factor": 4.0,
@@ -489,13 +489,12 @@
       {
         "subtitle_frame": {
           "type": "panel",
-          "size": [ "100%", "100%" ],
+          "size": [ "100%", "100%cm" ],
           "controls": [ {
             "subtitle": {
               "type": "label",
-              "anchor_from": "center",
+              "anchor_from": "top_middle",
               "anchor_to": "top_middle",
-              "offset": [ 0, 10 ],
               "text": "#text",
               "color": "$title_command_text_color",
               "font_scale_factor": 2.0,

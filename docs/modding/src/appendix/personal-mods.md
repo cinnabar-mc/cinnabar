@@ -190,6 +190,18 @@ status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the p
 line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
 hiding, and its bounds in GUI units when laid out.
 
+## Gameplay wheel input
+
+`input.read-scroll()` reads the current captured-gameplay frame under the `controls`
+grant, with separate line and pixel X/Y deltas and positive Y upward. Reads are
+stable within the callback; no input replays after a deferred frame. Screens, lost
+focus and earlier capture return zero. Existing `controls` records remain unchanged.
+`input.reserve-scroll(["KeyC"])` claims the wheel while that physical chord is held,
+as sampled for the current frame, before native hotbar selection. Empty releases it;
+the keys themselves stay available.
+Reservations commit only after a successful callback and clear on revocation.
+The first active matching mod wins in load order; UI wheel handling is unaffected.
+
 ## Action filtering
 
 A player mod opts into `filter-actions(action-frame) -> action-verdict` with
@@ -209,7 +221,7 @@ repeats on a physically held control.
 
 With the `controls` grant, `touch.set-buttons` retains up to four labelled buttons,
 drawn in the built-in touch style while touch controls are shown. Each has a default
-anchor, inward offset and size; players move it in the touch layout editor, and the
+anchor, inward offset and size; players move and resize it in the touch layout editor, and the
 placement is saved under the button id, so prefix ids with the mod's name. Across mods
 the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
 when the finger lifts inside the button without interrupting other fingers, and
@@ -272,7 +284,9 @@ package must match the client's official package constant in
 exact release asset), `revision` (the full mod source commit), and `api_revision`.
 The existing revision-checked `/v1/mod/update` path verifies the native build's
 stamped revision, supported API revisions and the downloaded replacement identity.
-It never falls back to GitHub latest.
+It never falls back to GitHub latest. The replacement keeps the player's grants, so
+permissions it newly requests stay off: the update message names them, and the card
+shows Review permissions while any requested permission is off.
 
 Marketplace updates use `/v1/mods/{slug}/update` with the same native revision and
 supported API list, plus the installed version and digest. The signed statement
@@ -336,3 +350,17 @@ package remains `cinnabar:extension@0.1.0` because these existing component func
 signatures have not changed. Server-experience client parts use the separate
 `cinnabar:extension/server-bundle@0.1.0` world and do not import the personal-mod panel interface, so this change
 does not alter their bundle contract.
+
+`camera.set-perspective` selects first person, third-person back or third-person
+front for a successful focused gameplay frame under the camera grant. Renew the
+request each frame while needed. Omission, menus, focus loss, callback failure and
+unload restore the player's own perspective; cycling the player's perspective
+while overridden still updates the choice restored afterwards.
+
+`camera.set-view-yaw-offset` adds a world-up heading offset in -180..180 degrees
+to the presented camera for a successful focused gameplay frame. The camera grant
+is required. The eye position, player look, movement and interaction direction are
+unchanged. Off-axis views hide the body-aligned first-person hand; body visibility
+follows the chosen perspective. Use `camera.set-perspective(first-person)` when a
+view should stay at the eye with the local body hidden. Omission, neutral zero,
+menus, focus loss, traps and unload restore the aligned view.

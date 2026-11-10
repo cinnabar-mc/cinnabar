@@ -151,7 +151,7 @@ fn shield_sprite_fallback_caches_small_artwork_and_matching_geometry() {
     runtime.set_session_items(None, Some(staged), locations);
     let (rig, location, _) = runtime.held_icon_mesh(&item).unwrap();
     runtime.take_pending_geometries();
-    runtime.next_mesh = MAX_ITEM_MESHES as u32;
+    runtime.next_mesh = STARTUP_MESH_ID_CAPACITY as u32;
     let (output, decorated_rig) = runtime.shield_raster(&item, &pages, location, rig).unwrap();
     assert_ne!(decorated_rig, rig);
     assert!(output.rgba8.len() <= (assets::MAX_ICON_SIDE as usize).pow(2) * 4);

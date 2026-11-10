@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use launcher::menu::settings_options::ExpandedTextTooLarge;
 use protocol::{
     CommandOutputEvent, HudEvent, TextEvent, TextKind, TitleAction, TitleEvent, UiEvent,
 };
@@ -248,14 +249,27 @@ impl UiRuntime {
             TextKind::Raw | TextKind::System | TextKind::Json => ChatMessageKind::System,
             TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip => unreachable!(),
         };
-        match self.session.chat.push(ChatMessage {
+        let row = ChatMessage {
             fifo_sequence,
             received_millis: event_millis,
             kind,
             source: event.source,
             message: event.message,
             parameters: event.parameters,
-        }) {
+        };
+        // Vanilla shows raw text as a client message, which keeps its placeholders.
+        let row = if event.kind == TextKind::Raw {
+            row
+        } else {
+            match self.expand_chat_placeholders(row) {
+                Ok(row) => row,
+                Err(ExpandedTextTooLarge) => {
+                    self.session.gameplay_hud.note_oversized_chat_row();
+                    return Ok(UiApplyOutcome::IgnoredByReceiveStore);
+                }
+            }
+        };
+        match self.session.chat.push(row) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             // An oversized server row is odd data, not a wire fault: skip the
             // whole row, count it, keep the session alive.
@@ -313,23 +327,32 @@ impl UiRuntime {
         fifo_sequence: u64,
         event_millis: u64,
     ) -> Result<(), UiRuntimeError> {
+        let text = match event.action {
+            TitleAction::SetTitle
+            | TitleAction::SetTitleJson
+            | TitleAction::SetSubtitle
+            | TitleAction::SetSubtitleJson
+            | TitleAction::ActionBar
+            | TitleAction::ActionBarJson => self.expand_hud_placeholders(event.text),
+            TitleAction::Clear | TitleAction::Reset | TitleAction::SetDurations => event.text,
+        };
         match event.action {
             TitleAction::Clear => self.session.hud.clear_titles(),
             TitleAction::Reset => self.session.hud.reset_titles(),
             TitleAction::SetTitle | TitleAction::SetTitleJson => {
                 self.session
                     .hud
-                    .set_title(event.text, fifo_sequence, event_millis);
+                    .set_title(text, fifo_sequence, event_millis);
             }
             TitleAction::SetSubtitle | TitleAction::SetSubtitleJson => {
                 self.session
                     .hud
-                    .set_subtitle(event.text, fifo_sequence, event_millis);
+                    .set_subtitle(text, fifo_sequence, event_millis);
             }
             TitleAction::ActionBar | TitleAction::ActionBarJson => {
                 self.session
                     .hud
-                    .set_actionbar(event.text, fifo_sequence, event_millis);
+                    .set_actionbar(text, fifo_sequence, event_millis);
             }
             TitleAction::SetDurations => {
                 // Negative tick counts are semantically odd but well-formed:
@@ -345,6 +368,59 @@ impl UiRuntime {
             }
         }
         Ok(())
+    }
+
+    /// Names the player's bound controls in `:_input_<binding>:` placeholders, as vanilla does
+    /// for titles, subtitles, the action bar and chat other than raw text when they arrive.
+    /// Tips and popups keep their text unchanged. A result that would exceed the largest chat
+    /// row the client retains is refused.
+    fn expand_input_placeholders(
+        &self,
+        text: &str,
+    ) -> Result<Option<String>, ExpandedTextTooLarge> {
+        const UNASSIGNED: &str = "controllerLayoutScreen.unassigned";
+        if !text.contains(':') {
+            return Ok(None);
+        }
+        let unassigned = self.translation(UNASSIGNED);
+        self.control_settings.expand_input_placeholders(
+            text,
+            self.input_mode,
+            unassigned.as_deref().unwrap_or(UNASSIGNED),
+            ui::MAX_CHAT_RETAINED_BYTES,
+        )
+    }
+
+    /// Expands a title or action bar, keeping the received text and counting the packet as odd
+    /// when the expansion is too large.
+    fn expand_hud_placeholders(&mut self, text: Arc<str>) -> Arc<str> {
+        match self.expand_input_placeholders(&text) {
+            Ok(Some(expanded)) => Arc::from(expanded),
+            Ok(None) => text,
+            Err(ExpandedTextTooLarge) => {
+                self.session.gameplay_hud.note_odd_hud_packet();
+                text
+            }
+        }
+    }
+
+    /// Expands a chat row as it will read. A translated row whose localized line names a
+    /// control is kept as that expanded line, as vanilla localizes before expanding.
+    fn expand_chat_placeholders(
+        &self,
+        mut row: ChatMessage,
+    ) -> Result<ChatMessage, ExpandedTextTooLarge> {
+        if row.kind == ChatMessageKind::Translation {
+            let line = ui_screens::text::resolve_chat_line(&row, |key| self.translation(key));
+            if let Some(expanded) = self.expand_input_placeholders(&line)? {
+                row.kind = ChatMessageKind::System;
+                row.message = Arc::from(expanded);
+                row.parameters = Arc::from([]);
+            }
+        } else if let Some(expanded) = self.expand_input_placeholders(&row.message)? {
+            row.message = Arc::from(expanded);
+        }
+        Ok(row)
     }
 
     pub(super) fn apply_hud(

@@ -582,6 +582,7 @@ fn preview_batch_admission_includes_surrounding_sprite_batches() {
     )
     .unwrap();
     let vertices = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]].map(|position| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.5,
         clip_w: 1.0,
@@ -714,4 +715,51 @@ fn custom_content_preview_uses_authored_mesh_and_matching_sheet() {
         presentation.session_icons.models.is_empty(),
         "shaped items keep their authored thumbnail instead of drawing as cubes"
     );
+}
+
+#[test]
+fn session_block_previews_keep_material_alpha_in_both_hands_and_on_head() {
+    use render_model::HandItemAlphaMode::{Blend, Cutout, Opaque};
+    let mut presentation = presentation();
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+    for (flags, expected) in [
+        (0, Opaque),
+        (assets::MATERIAL_FLAG_ALPHA_CUTOUT, Cutout),
+        (assets::MATERIAL_FLAG_ALPHA_BLEND, Blend),
+        (
+            assets::MATERIAL_FLAG_ALPHA_BLEND | assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+            Blend,
+        ),
+    ] {
+        let icons = Arc::new(SessionIcons {
+            block_sheets: vec![SessionIcon {
+                identifier: Arc::from(ITEM),
+                metadata: 0,
+                width,
+                height,
+                rgba8: vec![255; (width * height * 4) as usize].into(),
+            }],
+            block_models: BTreeMap::from([(
+                Arc::from(ITEM),
+                render_model::textured_cube_vertices(render_model::equipment::blocks::face_rects(
+                    [0.0, 0.0, 1.0, 1.0],
+                ))
+                .into(),
+            )]),
+            block_material_flags: BTreeMap::from([(Arc::from(ITEM), flags)]),
+            ..Default::default()
+        });
+        session_icons::observe(&mut presentation, Some(&icons));
+        presentation.set_player_preview_gear([None; 4], Some((ITEM, 7)));
+        presentation.player_preview_gear.hands[1] =
+            presentation.player_preview_gear.hands[0].clone();
+        presentation.player_preview_gear.head = presentation.player_preview_gear.hands[0].clone();
+        for held in presentation.preview_held_models([true; 2]) {
+            assert_eq!(held.unwrap().alpha_mode, expected);
+        }
+        assert_eq!(
+            presentation.preview_head_block().unwrap().alpha_mode,
+            expected
+        );
+    }
 }

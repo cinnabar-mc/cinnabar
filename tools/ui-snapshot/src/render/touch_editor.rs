@@ -8,7 +8,8 @@ use image::ImageEncoder;
 use launcher::menu::{MenuScreen, MenuView};
 use std::{path::Path, sync::Arc};
 
-/// Paints default, aligned, saved and time-sampled editing states with real control artwork.
+/// Paints default, aligned, saved, resized and time-sampled editing states with real control
+/// artwork.
 pub(super) fn png(state: &State, dir: &Path, phase: u8, seconds: f64) -> Result<Vec<u8>, Error> {
     let carriers = carriers::load(dir, true)?;
     let mut presentation =
@@ -32,7 +33,37 @@ pub(super) fn png(state: &State, dir: &Path, phase: u8, seconds: f64) -> Result<
             .map_err(|e| Error::Invalid(e.to_string()))
     };
     draw(&mut presentation)?;
-    if phase != 0 {
+    if phase >= 4 {
+        // Grow Jump from its top-left handle, keeping its bottom-right corner fixed.
+        let index = presentation
+            .touch_editor_card_index("jump")
+            .ok_or_else(|| Error::Invalid("touch editor did not open".into()))?;
+        let [x, y, w, h] = presentation
+            .touch_editor_action_bounds(&format!("hud.resize:{index}:0"))
+            .ok_or_else(|| Error::Invalid("resize handle missing".into()))?;
+        let [.., jump_w, jump_h] = presentation.touch_editor_bounds("jump").unwrap();
+        let start = [x + w / 2., y + h / 2.];
+        let end = [start[0] - jump_w * 0.6, start[1] - jump_h * 0.6];
+        presentation.touch_editor_pointer(start, true, true);
+        presentation.touch_editor_pointer(end, false, true);
+        presentation.touch_editor_pointer(end, false, false);
+        draw(&mut presentation)?;
+        if phase == 5 {
+            let [x, y, w, h] = presentation.touch_editor_action_bounds("hud.save").unwrap();
+            presentation.touch_editor_pointer([x + w / 2., y + h / 2.], true, true);
+            presentation.touch_editor_pointer([x + w / 2., y + h / 2.], false, false);
+            let layout = presentation
+                .take_touch_editor_result()
+                .flatten()
+                .filter(|layout| layout.scale("jump") > 1.)
+                .ok_or_else(|| Error::Invalid("Jump resize was not saved".into()))?;
+            let mut options = (*view.settings_options).clone();
+            options.set_touch_layout(layout);
+            presentation.set_chat_settings_snapshot((Arc::new(options), None));
+            presentation.set_menu_view(None);
+            presentation.enable_touch_controls(true);
+        }
+    } else if phase != 0 {
         let [x, y, w, h] = presentation
             .touch_editor_action_bounds("hud.grid")
             .ok_or_else(|| Error::Invalid("Grid action missing".into()))?;

@@ -1,7 +1,7 @@
 //! Power colour carried by redstone wire materials.
 //!
-//! Wire shares the stem material's fixed colour channel: the signal sits in material bits only leaf
-//! materials otherwise use, and those can never carry the channel's flag.
+//! Wire shares the stem material's fixed colour channel. Its flag distinguishes the signal from
+//! the AO exponent stored in the same bits by other materials.
 
 use crate::compiled::MATERIAL_LEAF_AO_EXPONENT_SHIFT;
 

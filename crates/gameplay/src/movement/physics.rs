@@ -21,6 +21,7 @@ mod prediction_corrections;
 mod riding;
 mod riptide;
 mod server_flags;
+mod speed;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
@@ -136,6 +137,8 @@ fn item_use_factor(modifier: f64) -> f64 {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct PhysicsSampleContext {
+    /// Accepted attribute replacement awaiting a completed tick, even if its value is unchanged.
+    pub movement_speed_attribute: Option<client_world::MovementSpeedAttribute>,
     /// A captured held-use modifier applied only through its release-facing tick.
     pub release_use_modifier: Option<(u64, f64)>,
     pub pitch: f32,
@@ -282,6 +285,9 @@ pub struct LocalPhysicsController {
     last_world_identity: Option<WorldCollisionIdentity>,
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
+    replayed_speed: Option<super::speed_authority::EffectiveMovementSpeed>,
+    /// Earliest timeline edit not yet incorporated by a successful replay.
+    rewind_pending: Option<u64>,
     live_climber: Option<ClimberFlags>,
     pending_climber: climber_authority::PendingClimberWrites,
     motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
@@ -347,6 +353,8 @@ impl Default for LocalPhysicsController {
             last_world_identity: None,
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
+            replayed_speed: None,
+            rewind_pending: None,
             live_climber: None,
             pending_climber: Default::default(),
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
@@ -473,6 +481,27 @@ impl LocalPhysicsController {
     #[must_use]
     pub const fn state(&self) -> Option<&PlayerState> {
         self.state.as_ref()
+    }
+
+    /// The player's width and height: the size the server last gave it, or a standing
+    /// player's.
+    #[must_use]
+    pub fn body_size(&self) -> [f32; 2] {
+        self.prediction_sync_size()
+            .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+    }
+
+    /// The player's standing box at its current feet, which getting off a vehicle tests
+    /// against the vehicle's box.
+    #[must_use]
+    pub fn body_box(&self) -> Option<sim::Aabb> {
+        let feet = self.state()?.position;
+        let [width, height] = self.body_size().map(f64::from);
+        let half = width / 2.0;
+        Some(sim::Aabb::new(
+            sim::Vec3::new(feet.x - half, feet.y, feet.z - half),
+            sim::Vec3::new(feet.x + half, feet.y + height, feet.z + half),
+        ))
     }
 
     /// Processed `(sneaking, sprinting)` of the latest completed tick.

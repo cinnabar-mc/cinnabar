@@ -50,7 +50,8 @@ impl LocalPhysicsController {
         })
     }
 
-    /// Adopts a marked server actor position and retains its next-tick replay boundary.
+    /// Adopts a marked server actor position, or the position a dismount places the player at,
+    /// and retains its next-tick replay boundary.
     pub fn apply_server_actor_position(&mut self, position: [f32; 3], on_ground: Option<bool>) {
         if !position.into_iter().all(f32::is_finite) {
             return;

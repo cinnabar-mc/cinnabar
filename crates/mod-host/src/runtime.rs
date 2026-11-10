@@ -138,14 +138,6 @@ pub(crate) struct State {
 }
 
 impl State {
-    /// Derives camera ownership from current transient policy and the retained rig.
-    fn camera_output(&self) -> bool {
-        self.world.rig.is_some()
-            || self.camera_delta.is_some()
-            || self.camera_policy.committed_view_scale.is_some()
-            || self.camera_policy.committed_view_tilt.is_some()
-    }
-
     pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
@@ -345,6 +337,11 @@ pub(super) struct Instance {
 }
 
 impl Instance {
+    /// Borrows the last successfully committed terrain surface policy.
+    pub(super) fn terrain_surface_rules(&self) -> &[mod_api::terrain_surface::Rule] {
+        &self.store.data().environment.surface_rules
+    }
+
     /// Clears transient outputs even when no guest callback can execute this frame.
     pub(super) fn begin_frame(&mut self) {
         let state = self.store.data_mut();
@@ -392,6 +389,7 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.scroll = crate::empty_scroll();
         state.controls.native_editing = false;
         state.controls.native_editing_next = false;
         state.pressed = false;
@@ -690,6 +688,20 @@ impl Instance {
     /// Reads the committed use pulse before output collection, without consuming it.
     pub(super) fn use_pulse_requested(&self) -> bool {
         self.is_active() && self.store.data().item_use_policy.pulse
+    }
+
+    /// Current-frame relative camera heading from a successful focused gameplay callback.
+    pub(super) fn camera_yaw_offset(&self) -> Option<f32> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_yaw_offset)
+            .flatten()
+    }
+
+    /// Only a successful, focused gameplay callback publishes a perspective override.
+    pub(super) fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_perspective)
+            .flatten()
     }
 
     /// Only a successful, focused gameplay callback publishes a view multiplier.

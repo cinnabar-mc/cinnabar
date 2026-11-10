@@ -4,25 +4,55 @@ pub(super) mod factory;
 use launcher::menu::{MenuView, settings_options::touch_layout::TouchLayout};
 use ui::mod_hud::{Card, Cell, Hud};
 
-/// Allows host placement deltas on actual controls while preserving their authored anchors.
+/// Global binding carrying a placeable control's uniform paint scale; unset keeps `1`.
+pub(super) fn scale_binding(name: &str) -> String {
+    format!("#touch_{name}_scale")
+}
+
+/// Allows host placement deltas and a top-left-anchored paint scale on actual controls while
+/// preserving their authored anchors and the layout of their neighbours.
 pub(super) fn enable_placement(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(object) => {
             let control = object
                 .get("$control")
                 .and_then(serde_json::Value::as_str)
-                .and_then(|name| control_id(Some(name)))
-                .is_some_and(placeable_control);
-            let movement = object.get("button_mappings").is_some_and(|mappings| {
-                mappings.as_array().is_some_and(|items| {
-                    items.iter().any(|item| {
-                        item["to_button_id"] == "cinnabar.touch.joystick"
-                            || item["to_button_id"] == "cinnabar.touch.dpad"
+                .filter(|name| control_id(Some(name)).is_some_and(placeable_control));
+            let movement = object
+                .get("button_mappings")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|items| {
+                    items.iter().find_map(|item| {
+                        item["to_button_id"].as_str().filter(|id| {
+                            matches!(*id, "cinnabar.touch.joystick" | "cinnabar.touch.dpad")
+                        })
                     })
-                })
-            });
-            if control || movement {
+                });
+            if let Some(name) = control
+                .or(movement)
+                .and_then(|id| id.strip_prefix("cinnabar.touch."))
+            {
+                let binding = serde_json::json!({
+                    "binding_name": scale_binding(name),
+                    "binding_name_override": json_ui::transform::SCALE_BINDING,
+                });
                 object.insert("draggable".into(), serde_json::json!("both"));
+                object.insert(
+                    json_ui::transform::TRANSFORM_PROPERTY.into(),
+                    serde_json::json!({
+                        json_ui::transform::SCALE_FIELD: 1,
+                        json_ui::transform::ORIGIN_FIELD: [0, 0],
+                    }),
+                );
+                match object
+                    .get_mut("bindings")
+                    .and_then(serde_json::Value::as_array_mut)
+                {
+                    Some(bindings) => bindings.push(binding),
+                    None => {
+                        object.insert("bindings".into(), serde_json::json!([binding]));
+                    }
+                }
             }
             for child in object.values_mut() {
                 enable_placement(child);
@@ -123,17 +153,20 @@ impl UiPresentationRuntime {
                         [hit.rect.w, hit.rect.h],
                         viewport.0.map(|v| f64::from(v / viewport.1)),
                     );
+                    let saved = view.settings_options.touch_layout();
                     Some(Card {
                         editor_label: button.map_or_else(
                             || builtin_label(name).into(),
                             |button| button.label.clone(),
                         ),
-                        position: view.settings_options.touch_layout().position(&key),
+                        position: saved.position(&key),
+                        scale: saved.scale(&key),
                         id: key,
                         anchor,
                         offset,
                         reset_anchor: Some(anchor),
                         reset_offset: Some(offset),
+                        reset_scale: Some(1.),
                         background_opacity: 0.,
                         background_radius: 0.,
                         // Fixed host previews retain their measured bounds independently from
@@ -156,7 +189,8 @@ impl UiPresentationRuntime {
                 self.screens.touch.editor = Some(
                     mod_ui::HudEditor::new(&Hud {
                         cards,
-                        resizable: false,
+                        resizable: true,
+                        scale_range: Some(ui::mod_touch::TOUCH_CONTROL_SCALE),
                         ..Hud::default()
                     })
                     .expect("measured touch controls form a valid layout"),
@@ -222,6 +256,13 @@ impl UiPresentationRuntime {
     #[cfg(any(test, feature = "test-support"))]
     pub fn touch_editor_action_bounds(&self, action: &str) -> Option<[f32; 4]> {
         self.screens.touch.editor.as_ref()?.action_bounds(action)
+    }
+    /// Editor card index of a placement name, which its `hud.resize:<index>:<corner>` handles
+    /// carry, for scripted captures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn touch_editor_card_index(&self, name: &str) -> Option<usize> {
+        let editor = self.screens.touch.editor.as_ref()?;
+        editor.draft().cards.iter().position(|card| card.id == name)
     }
     /// Current editor action, used to defer toolbar taps until the owning finger releases.
     pub fn touch_editor_action_at(&self, at: [f32; 2]) -> Option<String> {
@@ -316,8 +357,8 @@ impl UiPresentationRuntime {
                                         )
                                     })
                             });
-                        if factory != Some(true) {
-                            layout.set(&placement.id, position);
+                        if factory != Some(true) || placement.scale != 1. {
+                            layout.set_scaled(&placement.id, position, placement.scale);
                         }
                     }
                 }

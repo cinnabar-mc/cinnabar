@@ -1,5 +1,4 @@
 use super::*;
-use client_shell::ui_resources::UiRuntimeResource;
 use world::{NbtCompound, NbtValue};
 
 #[test]
@@ -57,9 +56,7 @@ fn block_target_reads_selectable_cell_overlays() {
     client_presentation::environment::bind_session_generation(&mut clock, &mut weather, 7);
     world.insert_resource(clock);
     let point = world
-        .run_system_cached(|context: GameplayContext, ui: Res<UiRuntimeResource>| {
-            context.block_target(&ui)
-        })
+        .run_system_cached(|context: GameplayContext| context.block_target())
         .unwrap();
     assert_eq!(
         point,

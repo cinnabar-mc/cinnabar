@@ -649,11 +649,20 @@ fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
             changes.push(change(other));
         }
         apply(&mut world, entries.clone(), changes);
+        assert!(
+            world.contains_resource::<crate::environment::VisualWeatherOverride>(),
+            "a registered runtime must be able to present its weather override"
+        );
         messages.try_iter().for_each(drop);
         let mut disabled = entries.clone();
         disabled[0].enabled = false;
         apply(&mut world, disabled, Vec::new());
         assert_eq!(world.contains_resource::<ModRuntime>(), keep_other);
+        assert_eq!(
+            world.contains_resource::<crate::environment::VisualWeatherOverride>(),
+            keep_other,
+            "weather override must follow the frame runtime"
+        );
         // Reuse arrives while the coordinator still has the old installed identity.
         apply(&mut world, entries.clone(), Vec::new());
         assert!(matches!(

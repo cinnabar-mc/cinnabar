@@ -81,7 +81,7 @@ Two further reads serve mods with text fields:
 
 With `controls`, the `touch` interface lets a mod put its own buttons on the touch controls:
 
-- `touch::set_buttons` replaces your retained buttons, at most 4. A button has an `id` (1–32 bytes of lowercase ASCII letters, digits, `_` and `-`; prefix it with your mod's name, because a player's saved placement is keyed by it and the earlier mod wins a collision), a one-line `label` (1–24 bytes, no `§` codes), a default `anchor` and `offset`, and a `size` between 18 and 96 GUI pixels per side. Players move your buttons in the touch layout editor; you supply placement, they own the final position.
+- `touch::set_buttons` replaces your retained buttons, at most 4. A button has an `id` (1–32 bytes of lowercase ASCII letters, digits, `_` and `-`; prefix it with your mod's name, because a player's saved placement is keyed by it and the earlier mod wins a collision), a one-line `label` (1–24 bytes, no `§` codes), a default `anchor` and `offset`, and a `size` between 18 and 96 GUI pixels per side. Players move and resize your buttons in the touch layout editor; you supply placement and size, they own the final position and scale.
 - `touch::read_presses` returns the ids of your buttons tapped since your previous frame callback, oldest first. A tap completes when the finger lifts inside the button. It is empty outside `frame`, and a deferred frame keeps its taps for the next one.
 
 Buttons are committed after a successful callback and removed on quarantine, unload or revocation.

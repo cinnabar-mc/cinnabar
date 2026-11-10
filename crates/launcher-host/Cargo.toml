@@ -11,6 +11,7 @@ reads = [
     "assets/bedrock-target.json",
     "core",
     "packaging/android/runtime.json",
+    "packaging/flatpak/io.github.cinnabar_mc.cinnabar.json",
 ]
 
 [features]

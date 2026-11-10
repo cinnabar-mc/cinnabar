@@ -6,13 +6,6 @@ impl Recovery {
     /// Records a backend crash without tying recovery to adapter identity; an explicit crash
     /// marks only that choice, leaving automatic order untouched.
     pub fn recover(&mut self, pending: &Attempt) {
-        if pending.explicit {
-            self.crashed_choice = Some(pending.backend);
-            return;
-        }
-        if !self.failed.contains(&pending.backend) {
-            self.failed.push(pending.backend);
-        }
         if self
             .working
             .as_ref()
@@ -20,14 +13,19 @@ impl Recovery {
         {
             self.working = None;
         }
+        if pending.explicit {
+            self.crashed_choice = Some(pending.backend);
+        } else if !self.failed.contains(&pending.backend) {
+            self.failed.push(pending.backend);
+        }
     }
 
-    /// Returns the APIs excluded after interrupted automatic startup.
+    /// Returns the APIs excluded after interrupted automatic startup or device loss.
     pub fn failed_backends(&self) -> &[Backend] {
         &self.failed
     }
 
-    /// The explicit API that stopped an earlier startup under the current settings revision.
+    /// The explicit API that failed under the current settings revision.
     pub fn crashed_choice(&self) -> Option<Backend> {
         self.crashed_choice
     }

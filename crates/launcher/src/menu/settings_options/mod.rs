@@ -8,6 +8,7 @@ pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
 pub mod graphics_api;
+mod input_placeholders;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
@@ -48,6 +49,7 @@ pub use definitions::{
     VIEW_BOBBING_CHOICES, VRR_CHOICES, VRR_OPTION, VSYNC_CHOICES,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
+pub use input_placeholders::ExpandedTextTooLarge;
 pub use keybindings::{
     DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
 };

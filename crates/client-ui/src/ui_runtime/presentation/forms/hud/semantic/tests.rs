@@ -879,4 +879,13 @@ fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
         assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
         assert!(!fixture.check(&mut cache).chat);
     }
+    for only_self in [true, false] {
+        fixture
+            .settings
+            .set(SettingId::MentionsTarget.index(), i32::from(only_self));
+        assert!(fixture.check(&mut cache).chat);
+        assert_eq!(cache.model.chat_mentions_only_self, only_self);
+        assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
+        assert!(!fixture.check(&mut cache).chat);
+    }
 }

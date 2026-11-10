@@ -14,6 +14,7 @@ use json_ui::{
 };
 
 mod offhand;
+mod titles;
 mod world_text;
 
 fn pack() -> Option<PathBuf> {

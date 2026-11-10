@@ -29,6 +29,8 @@ mod tiled_image;
 mod touch_editor;
 #[cfg(feature = "test-support")]
 mod touch_utilities;
+#[cfg(feature = "test-support")]
+mod trims;
 
 use std::{
     collections::HashMap,
@@ -132,6 +134,10 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    #[cfg(feature = "test-support")]
+    if let Fixture::ArmorTrims { trimmed } = &fixture {
+        return trims::png(state.size, dir, resource_pack, *trimmed);
+    }
     if let Fixture::CrosshairCoverage { fixed } = &fixture {
         return crosshair_coverage::png(state.size, *fixed, resource_pack);
     }
@@ -220,7 +226,8 @@ fn png_fixture(
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked
-        | Fixture::CosmeticParticles { .. } => false,
+        | Fixture::CosmeticParticles { .. }
+        | Fixture::ArmorTrims { .. } => false,
     };
     let mut carriers = carriers::load(dir, menu || matches!(&fixture, Fixture::BackupFont))?;
     #[cfg(feature = "test-support")]
@@ -273,6 +280,7 @@ fn png_fixture(
         }
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
+        | Fixture::ArmorTrims { .. }
         | Fixture::FormOverlap
         | Fixture::FormHandoff { .. }
         | Fixture::DataDriven(_)
@@ -398,8 +406,15 @@ fn png_fixture(
         }
         Fixture::Menu(view) => {
             carriers::validate_oreui(dir)?;
-            let images = oreui::images::load_optional_oreui_images(dir)
+            let mut images = oreui::images::load_optional_oreui_images(dir)
                 .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            oreui::images::panorama::install(
+                &mut images,
+                Some(&carriers.ui),
+                render_model::MAX_UI_FIXED_TEXTURE_BYTES.saturating_sub(
+                    carriers::fixed_texture_bytes(&carriers.font, &carriers.pages),
+                ),
+            );
             let first = carriers.pages.len() as u16;
             let mut artwork: HashMap<_, _> = images
                 .sprites

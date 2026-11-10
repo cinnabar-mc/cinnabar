@@ -209,6 +209,9 @@ pub const METHOD_PROFILE: &str = "profile.v1";
 /// Control method for realm membership.
 pub const METHOD_REALM_MEMBERSHIP: &str = "realm_membership.v1";
 
+/// Control method for leaving a joined realm.
+pub const METHOD_REALM_LEAVE: &str = "realm_leave.v1";
+
 /// Control method for packet delay.
 pub const METHOD_PACKET_DELAY: &str = "packet_delay.v1";
 

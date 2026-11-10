@@ -202,6 +202,51 @@ fn applied_settings_reach_the_running_server_and_persist() {
     assert!(reopened.options.enabled(O::KeepInventory));
 }
 
+/// A default mode edit also changes only the connected host while the server is running.
+#[test]
+fn game_mode_edit_targets_the_host_without_rejoining() {
+    use bridge::GameMode;
+    use launcher::local_worlds::in_world::{Action, update};
+
+    let runner = Arc::new(FakeRunner::default());
+    let (fixture, world) = bds_world(&runner);
+    let manager = &fixture.manager;
+    manager.set_player_name("Local Player");
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let change = update(&world, Action::GameMode(GameMode::Creative)).expect("change");
+    let applied = manager.apply(&world.id, &change).expect("save");
+    assert!(!applied.missed);
+    assert_eq!(applied.world.game_mode, GameMode::Creative);
+    assert!(
+        lock(&runner.last().console)
+            .iter()
+            .any(|command| command == "gamemode creative \"Local Player\"")
+    );
+}
+
+/// Missing player identity reports that the saved change was not applied live.
+#[test]
+fn game_mode_edit_without_a_player_reports_a_missed_change() {
+    use bridge::GameMode;
+    use launcher::local_worlds::in_world::{Action, update};
+
+    let runner = Arc::new(FakeRunner::default());
+    let (fixture, world) = bds_world(&runner);
+    let manager = &fixture.manager;
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let change = update(&world, Action::GameMode(GameMode::Creative)).expect("change");
+    let applied = manager.apply(&world.id, &change).expect("save");
+    assert!(applied.missed);
+    assert_eq!(applied.world.game_mode, GameMode::Creative);
+    assert!(
+        lock(&runner.last().console)
+            .iter()
+            .all(|command| !command.starts_with("gamemode "))
+    );
+}
+
 /// Applies a live PvP edit and checks its saved value before and after shutdown.
 fn pending_after_live_edit(
     console_fails: bool,

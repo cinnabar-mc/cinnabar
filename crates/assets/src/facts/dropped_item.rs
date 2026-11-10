@@ -75,6 +75,12 @@ carried_sprites! {
         "minecraft:waxed_weathered_copper_chain",
         "minecraft:weathered_copper_chain",
     ],
+    |_: &RegistryRecord, render: BlockRenderFact| render.kind == R::Crystal => [
+        "minecraft:amethyst_cluster",
+        "minecraft:large_amethyst_bud",
+        "minecraft:medium_amethyst_bud",
+        "minecraft:small_amethyst_bud",
+    ],
     |_: &RegistryRecord, render: BlockRenderFact| render.kind == R::Bamboo => [
         "minecraft:bamboo",
     ],
