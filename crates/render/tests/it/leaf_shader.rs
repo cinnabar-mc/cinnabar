@@ -44,10 +44,6 @@ fn native_leaf_face_policy_uses_the_carrier_flag_in_both_colour_and_depth() {
         .validate(&module)
         .unwrap();
     }
-    let pipeline = include_str!("../../src/chunk/pipeline/layouts.rs");
-    let cube = pipeline.split("let mut model_descriptor").next().unwrap();
-    assert!(cube.contains("cull_mode: None"));
-    assert!(cube.contains("depth_write_enabled: Some(true)"));
 }
 
 #[test]

@@ -21,6 +21,7 @@ fn java_sprite_tools_use_the_admitted_upright_grip() {
     for identifier in identifiers {
         let input = ActorEquipmentInput {
             main: Some(WornItem {
+                trim: None,
                 identifier: Arc::from(identifier),
                 metadata: 0,
                 variant: Default::default(),
@@ -28,6 +29,8 @@ fn java_sprite_tools_use_the_admitted_upright_grip() {
                 kind: HeldKind::Other,
                 grip: facts.by_identifier(identifier).unwrap().grip,
                 use_facts: client_world::EffectiveItemUse::default(),
+                map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 dye_rgb: None,
                 enchanted: false,

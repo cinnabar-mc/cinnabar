@@ -12,6 +12,7 @@ pub mod bed_screen;
 mod bedtime;
 #[cfg(test)]
 mod dark_mode_tests;
+pub mod data_driven_screen;
 mod death;
 #[cfg(test)]
 mod destructive_tests;
@@ -75,6 +76,9 @@ use paint::Canvas;
 pub use paint::Originals;
 pub use play_servers::animated_server_details;
 pub use transitions::Transitions;
+
+/// The Settings category list's scroll view, which stays put while categories swap beside it.
+pub const SETTINGS_SIDEBAR_SCROLL_KEY: &str = "oreui_settings_sidebar";
 
 /// The character area a route leaves for the adapter's player preview, as logical
 /// `[left, top, right, bottom]` rects.

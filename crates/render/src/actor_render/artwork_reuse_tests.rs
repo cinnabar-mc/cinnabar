@@ -60,7 +60,7 @@ fn equal_pixels_in_the_same_slot_reuse_its_texture_after_material_changes() {
     let texture = gpu.page(0).unwrap()._texture.id();
     let glint = gpu.glint.texture.as_ref().unwrap().0.id();
     let mut page = pages.pages[0].clone();
-    page.rgba8 = Arc::from(page.rgba8.to_vec());
+    page.rgba8 = page.pixels().into_owned().into();
     page.color_mask = true;
     pages.pages = Arc::from([page]);
     pages.entity_identity = [7; 32];
@@ -107,4 +107,40 @@ fn rejected_generic_pages_keep_glint_available_for_player_bindings() {
     assert!(!gpu.prepare(&pages, &device, &queue));
     assert!(gpu.pages.is_empty());
     assert!(gpu.glint.texture.is_some());
+}
+
+/// Pages and glints allow the pack's raw view only while a pack draws; switching recreates them.
+#[test]
+fn artwork_allows_raw_views_only_while_a_pack_draws() {
+    use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};
+    let (device, queue) = gpu();
+    let pages = artwork();
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(&pages, &device, &queue));
+    let raw = |gpu: &GpuArtwork| {
+        let page = gpu.page(0).unwrap();
+        let allowed = [
+            &page._texture,
+            &gpu.glint.texture.as_ref().unwrap().0,
+            &gpu.item_glint.texture.as_ref().unwrap().0,
+        ]
+        .map(|texture| permits_raw_view(device.wgpu_device(), texture));
+        let exposed = [
+            page.raw_texture().is_some(),
+            gpu.glint.raw_texture().is_some(),
+            gpu.item_glint.raw_texture().is_some(),
+        ];
+        assert_eq!(allowed, exposed);
+        allowed
+    };
+    assert_eq!(
+        raw(&gpu),
+        [false; 3],
+        "Vanilla artwork keeps one view format"
+    );
+    for pack in [true, false] {
+        gpu.set_raw_views(ArtworkRawViews(pack));
+        assert!(gpu.prepare(&pages, &device, &queue));
+        assert_eq!(raw(&gpu), [pack; 3]);
+    }
 }

@@ -4,7 +4,8 @@ use super::EntityGeometryBone;
 impl EntityGeometryBone {
     /// A same-name child appends cubes to its inherited part; only explicit `reset: true`
     /// removes the inherited cubes. A nonzero bone inflate replaces the inflation of inherited
-    /// cubes before the child's own cubes append. Other bone properties are resolved by callers.
+    /// cubes before the child's own cubes append. A child's polygon mesh appends to the inherited
+    /// one, which `reset` leaves in place. Other bone properties are resolved by callers.
     ///
     /// Reset rewinds
     /// the cube vector's end, then authored cubes append at its existing end. The pinned
@@ -37,6 +38,12 @@ impl EntityGeometryBone {
             let mut cubes = std::mem::take(&mut self.cubes).into_vec();
             cubes.extend_from_slice(&child.cubes);
             self.cubes = cubes.into_boxed_slice();
+        }
+        if let Some(mesh) = &child.poly_mesh {
+            match &mut self.poly_mesh {
+                Some(inherited) => inherited.append(mesh),
+                None => self.poly_mesh = Some(mesh.clone()),
+            }
         }
         Some(count)
     }
@@ -99,6 +106,44 @@ mod tests {
         base.append_inherited_cubes(&child, crate::MAX_ENTITY_GEOMETRY_CUBES)
             .unwrap();
         assert!(base.cubes.is_empty());
+    }
+
+    #[test]
+    fn polygon_meshes_append_through_inheritance_and_survive_reset() {
+        let data = serde_json::json!({
+            "format_version": "1.12.0",
+            "minecraft:geometry": [{
+                "description": {"identifier": "geometry.fixture"},
+                "bones": [{"name": "head", "poly_mesh": {
+                    "positions": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+                    "normals": [[0, 0, 1]],
+                    "uvs": [[0, 0]],
+                    "polys": [[[0, 0, 0], [1, 0, 0], [2, 0, 0]]]
+                }}]
+            }]
+        });
+        let bones = crate::parse_skin_geometry(
+            r#"{"geometry":{"default":"geometry.fixture"}}"#,
+            &data.to_string(),
+        )
+        .unwrap()
+        .unwrap()
+        .bones;
+        let mut base = bone(1.0);
+        base.append_inherited_cubes(&bones[0], crate::MAX_ENTITY_GEOMETRY_CUBES)
+            .unwrap();
+        assert_eq!(base.poly_mesh, bones[0].poly_mesh);
+        let mut child = bones[0].clone();
+        child.reset = Some(true);
+        base.append_inherited_cubes(&child, crate::MAX_ENTITY_GEOMETRY_CUBES)
+            .unwrap();
+        let mesh = base.poly_mesh.as_deref().unwrap();
+        assert_eq!(mesh.triangles.len(), 2);
+        assert_eq!(mesh.triangles[1], [[3, 1, 1], [4, 1, 1], [5, 1, 1]]);
+        // A bone that declares no mesh keeps the inherited one.
+        base.append_inherited_cubes(&bone(2.0), crate::MAX_ENTITY_GEOMETRY_CUBES)
+            .unwrap();
+        assert_eq!(base.poly_mesh.as_deref().unwrap().triangles.len(), 2);
     }
 
     #[test]

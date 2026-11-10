@@ -1,3 +1,6 @@
+@if(PACKED_TERRAIN)
+import render::terrain_tables::{terrain_word, terrain_length};
+
 
 struct MaterialGpu {
     texture: u32,
@@ -8,7 +11,24 @@ struct MaterialGpu {
     variation_weight: u32,
 }
 
-@group(0) @binding(3) var<storage, read> materials: array<MaterialGpu>;
+@if(!PACKED_TERRAIN)
+@group(0) @binding(3) var<storage, read> materials_data: array<MaterialGpu>;
+
+// Reads the same typed record from either terrain layout.
+fn materials(index: u32) -> MaterialGpu {
+    @if(!PACKED_TERRAIN) return materials_data[index];
+    @if(PACKED_TERRAIN) {
+        if (index >= materials_length()) { var empty: MaterialGpu; return empty; }
+        let base = index * 6u;
+        return MaterialGpu(terrain_word(3u, base + 0u), terrain_word(3u, base + 1u), terrain_word(3u, base + 2u), terrain_word(3u, base + 3u), terrain_word(3u, base + 4u), terrain_word(3u, base + 5u));
+    }
+}
+
+// Returns the record count without including adjacent packed tables.
+fn materials_length() -> u32 {
+    @if(!PACKED_TERRAIN) return arrayLength(&materials_data);
+    @if(PACKED_TERRAIN) return terrain_length(3u) / 6u;
+}
 
 const TWO_SIDED: u32 = MATERIAL_TWO_SIDED_FLAG;
 const NATIVE_LEAF_COLOUR: u32 = MATERIAL_NATIVE_LEAF_COLOUR_FLAG;
@@ -44,22 +64,23 @@ fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
     return flags | select(native_code, native_code ^ 1u, native_code >= 2u);
 }
 
-// Vanilla ambient occlusion raises the four-sample average * face
-// coefficient to the source block's exponent before vertex interpolation.
-fn material_leaf_shade(ao_face: f32, flags: u32) -> f32 {
+// Vanilla ambient occlusion raises the four-sample average * face coefficient to the source
+// material's exponent before vertex interpolation. Zero encoding keeps the default exponent 1.
+fn material_ao_shade(ao_face: f32, flags: u32) -> f32 {
     let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    if (!material_uses_native_leaf_colour(flags) || encoded == 0u) { return ao_face; }
+    // Fixed-colour materials use these bits for redstone power.
+    if ((flags & MATERIAL_STEM_FLAG) != 0u || encoded == 0u) { return ao_face; }
     return pow(ao_face, f32(encoded) / MATERIAL_LEAF_AO_EXPONENT_SCALE);
 }
 
 // Vanilla uses wrapping coordinates, subtractive weights, last fallback.
 fn positional_material_id(id: u32, position: vec3<i32>) -> u32 {
-    let base = materials[id];
+    let base = materials(id);
     if (base.variation_count == 0u) { return id; }
     if (base.variation_count == 1u) { return base.variation_start; }
     var sample = f32(material_position_random(position) >> 16u) / 65535.0;
     for (var i = 0u; i < base.variation_count; i += 1u) {
-        let candidate = materials[base.variation_start + i];
+        let candidate = materials(base.variation_start + i);
         let weight = bitcast<f32>(candidate.variation_weight);
         if (sample <= weight || i + 1u == base.variation_count) { return base.variation_start + i; }
         sample -= weight;

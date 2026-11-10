@@ -225,6 +225,7 @@ fn shop_item_back_and_close_send_distinct_responses_and_preserve_inventory() {
                 &mut runtime,
                 &frame,
                 EngineInput {
+                    press_shortcuts: Vec::new(),
                     touch: false,
                     cursor: Some(cursor),
                     keys: &[],
@@ -236,6 +237,7 @@ fn shop_item_back_and_close_send_distinct_responses_and_preserve_inventory() {
                     pointer_edges: vec![down],
                     wheel: Vec::new(),
                     typed: Vec::new(),
+                    menu_cancel: None,
                     now: if down { 0.0 } else { 0.01 },
                     animator: None,
                 },

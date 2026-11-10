@@ -140,6 +140,7 @@ fn actual_rejected_and_empty_preparation_cannot_bind_withheld_texture_resources(
     use bevy::ecs::system::RunSystemOnce;
     let mut world = binding_world();
     let input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64, 64],
         safe_area: [0; 4],
@@ -222,6 +223,7 @@ fn actual_preparation_uploads_changed_spans_and_refills_reallocated_arenas() {
         overlay_color: [0.0; 4],
     };
     let mut input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64; 2],
         safe_area: [0; 4],

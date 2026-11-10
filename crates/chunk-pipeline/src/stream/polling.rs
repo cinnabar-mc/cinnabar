@@ -77,6 +77,15 @@ impl WorldStream {
         self.service_item_max = Duration::ZERO;
         let frame_deadline = self.begin_poll_work(Instant::now());
         let mut report = WorldStreamPoll::default();
+        // Ready zero-byte work needs no decode, lighting or geometry scheduler pass.
+        let removal_budget = self
+            .publication_allowance
+            .as_ref()
+            .map_or(max_mesh_jobs, |allowance| {
+                allowance.zero_byte_admission_capacity_with_priority(true)
+            });
+        let early_removals =
+            self.dispatch_mesh_removals(self.scheduler_view(camera_position), removal_budget);
         // Retention preceded every commit still to come, and shares their deadline.
         self.apply_due_chunk_retention();
         if !self.retention_due && !self.service_yield_requested() {
@@ -93,46 +102,21 @@ impl WorldStream {
                 floor_to_i32(camera_position[2]).div_euclid(16),
             ));
         }
-        while !self.service_yield_requested()
-            && (report.decoded_results == 0 || !self.poll_budget_exhausted())
-        {
-            let Ok(completion) = self.decode_rx.try_recv() else {
-                break;
-            };
-            report.decoded_results += 1;
-            self.service_item("decode_result", |stream| {
-                stream.accept_decode_completion(completion)
-            });
-        }
-        self.apply_ready();
-        if self.retention_due || self.service_yield_requested() {
+        let intake_deadline = self.poll_deadline;
+        let workers_first = std::mem::replace(&mut self.worker_service_due, true);
+        if !workers_first && !self.poll_intake(&mut report) {
             return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
         }
-        self.promote_deferred_ingress();
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.expire_sub_chunk_deadlines(Instant::now());
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.request_due_sub_chunk_recoveries(Instant::now());
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.pump_deferred_retries();
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.dispatch_decode_jobs();
-        if self.service_yield_requested() {
-            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
-        }
-        self.dispatch_far_summaries();
 
         let now = Instant::now();
         let remaining = frame_deadline.saturating_duration_since(now);
-        self.poll_deadline = Some(now + remaining - remaining / commit_budget::WORLD_MESH_SHARE);
+        // An interrupted pass gets only the existing bounded worker progress before intake.
+        // Ordinary polls keep their intake-first allocation and use the remaining time here.
+        self.poll_deadline = Some(if workers_first {
+            now
+        } else {
+            now + remaining - remaining / commit_budget::WORLD_MESH_SHARE
+        });
         while !self.service_yield_requested()
             && (report.light_results == 0 || !self.poll_budget_exhausted())
         {
@@ -153,8 +137,8 @@ impl WorldStream {
         if self.service_yield_requested() {
             return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
         }
-        self.poll_deadline = Some(frame_deadline);
-        self.retry_staged_mesh_completions();
+        self.poll_deadline = Some(if workers_first { now } else { frame_deadline });
+        self.retry_staged_mesh_completions(usize::MAX);
         while !self.service_yield_requested()
             && self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
             && (report.mesh_results == 0 || !self.poll_budget_exhausted())
@@ -198,13 +182,66 @@ impl WorldStream {
         {
             dispatch_budget = Self::STARVED_MESH_DISPATCH_FLOOR_PER_POLL.min(mesh_budget);
         }
-        let removal_budget = max_mesh_jobs
-            .min(live_publication_items)
-            .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()))
-            .max(dispatch_budget);
+        let removal_budget = if early_removals != 0 && self.poll_budget_exhausted() {
+            0
+        } else {
+            self.publication_allowance
+                .as_ref()
+                .map_or(max_mesh_jobs.saturating_sub(early_removals), |allowance| {
+                    allowance.zero_byte_admission_capacity_with_priority(true)
+                })
+                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(self.mesh_changes.len()))
+        };
         report.mesh_jobs_dispatched =
             self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
+        self.worker_service_due = false;
+        if workers_first {
+            self.poll_deadline = intake_deadline;
+            self.poll_intake(&mut report);
+        }
         self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items)
+    }
+
+    /// Services intake under its original deadline; false when retention or reclaim interrupts it.
+    fn poll_intake(&mut self, report: &mut WorldStreamPoll) -> bool {
+        while !self.service_yield_requested()
+            && (report.decoded_results == 0 || !self.poll_budget_exhausted())
+        {
+            let Ok(completion) = self.decode_rx.try_recv() else {
+                break;
+            };
+            report.decoded_results += 1;
+            self.service_item("decode_result", |stream| {
+                stream.accept_decode_completion(completion)
+            });
+        }
+        self.apply_ready();
+        if self.retention_due || self.service_yield_requested() {
+            return false;
+        }
+        self.promote_deferred_ingress();
+        if self.service_yield_requested() {
+            return false;
+        }
+        self.expire_sub_chunk_deadlines(Instant::now());
+        if self.service_yield_requested() {
+            return false;
+        }
+        self.request_due_sub_chunk_recoveries(Instant::now());
+        if self.service_yield_requested() {
+            return false;
+        }
+        self.pump_deferred_retries();
+        if self.service_yield_requested() {
+            return false;
+        }
+        self.dispatch_decode_jobs();
+        if self.service_yield_requested() {
+            return false;
+        }
+        self.dispatch_far_summaries();
+
+        true
     }
 
     /// Releases this poll's allocation and records progress, including resumable maintenance.
@@ -250,7 +287,15 @@ impl WorldStream {
                 )
                 .min(URGENT_DISPATCH_BUDGET)
                 .min(MAX_PENDING_MESH_CHANGES.saturating_sub(stream.mesh_changes.len()));
-            stream.dispatch_mesh_jobs_reserving(camera, budget, budget, URGENT_JOB_RESERVE);
+            let removal_budget = stream
+                .publication_allowance
+                .as_ref()
+                .map_or(URGENT_DISPATCH_BUDGET, |allowance| {
+                    allowance.zero_byte_admission_capacity_with_priority(true)
+                })
+                .min(URGENT_DISPATCH_BUDGET)
+                .min(MAX_PENDING_MESH_CHANGES.saturating_sub(stream.mesh_changes.len()));
+            stream.dispatch_mesh_jobs_reserving(camera, budget, removal_budget, URGENT_JOB_RESERVE);
         });
     }
 
@@ -483,6 +528,11 @@ impl WorldStream {
     #[must_use]
     pub fn dimension_range(&self, dimension: i32) -> Option<DimensionRange> {
         self.authority.dimension_range(dimension)
+    }
+
+    /// Sets the overworld range StartGame's generator selects; call before terrain arrives.
+    pub fn set_start_game_overworld_range(&mut self, range: DimensionRange) {
+        self.authority.set_start_game_overworld_range(range);
     }
 
     pub fn dimension_transfer_area_ready(&self, position: [f32; 3]) -> bool {

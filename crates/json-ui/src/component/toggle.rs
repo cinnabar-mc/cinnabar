@@ -1,4 +1,4 @@
-//! The toggle component and the toggle manager, as the 1.26.50 factory reads them.
+//! The toggle component and the toggle manager, as the 1.26.60 factory reads them.
 
 use serde_json::Value;
 

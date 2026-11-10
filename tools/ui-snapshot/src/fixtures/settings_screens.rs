@@ -2,8 +2,52 @@
 
 use super::*;
 
-/// Search results, an empty result and the compact settings viewport.
+/// Opens a settings category by its registered name rather than a copied index.
+pub fn settings(section: &str) -> MenuView {
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Settings;
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == section).then_some(*index))
+        .expect("registered settings category");
+    view
+}
+
+/// Global resources while applying and with an empty library, search results, an empty result
+/// and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
+    State {
+        name: "settings-global-resources-applying",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            let packs = Arc::make_mut(&mut view.global_resources);
+            packs.busy = true;
+            packs.message = oreui::loading_screen::RESOURCE_PACK_WORDS[0].to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
+        name: "settings-global-resources-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            Arc::make_mut(&mut view.global_resources).available_expanded = true;
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
+        name: "settings-framerate",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::Video.definition().name);
+            view.settings_query = "framerate".to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
     State {
         name: "settings-search",
         size: SIZE,
@@ -22,7 +66,171 @@ pub(super) const SEARCH_STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || settings_search("vsync"),
     },
+    State {
+        name: "settings-storage-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+                unreachable!()
+            };
+            Arc::make_mut(&mut view.storage).loading = true;
+            Fixture::Menu(view)
+        },
+    },
+    State {
+        name: "settings-storage-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("harbor"),
+    },
+    State {
+        name: "settings-storage-empty-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("no matching downloaded pack"),
+    },
+    State {
+        name: "settings-storage-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::settings_storage,
+    },
 ];
+
+/// Settings' Game section while the host plays their own local world, with cheats off and on.
+pub(super) const WORLD_STATES: &[State] = &[
+    State {
+        name: "settings-world-game",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_world_game(false),
+    },
+    State {
+        name: "settings-world-game-cheats",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_world_game(true),
+    },
+    State {
+        name: "settings-world-game-live-failed",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: settings_world_game_live_failed,
+    },
+    State {
+        name: "settings-world-game-save-failed",
+        size: [1280, 3200],
+        gui_scale: GUI_SCALE,
+        fixture: settings_world_game_save_failed,
+    },
+];
+
+/// An unsaved change with its confirmed value restored and a retry message.
+fn settings_world_game_save_failed() -> Fixture {
+    let Fixture::Menu(mut view) = settings_world_game(false) else {
+        unreachable!("world settings are a menu fixture");
+    };
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).error =
+        Some("The local world request failed".into());
+    Fixture::Menu(view)
+}
+
+/// A saved setting that could not be sent to the running world.
+fn settings_world_game_live_failed() -> Fixture {
+    let Fixture::Menu(mut view) = settings_world_game(false) else {
+        unreachable!("world settings are a menu fixture");
+    };
+    Arc::make_mut(view.world_settings.as_mut().unwrap()).missed = true;
+    Fixture::Menu(view)
+}
+
+/// The Game section of an anonymous dedicated-server world.
+fn settings_world_game(cheats: bool) -> Fixture {
+    use launcher::local_worlds::{in_world, options::WorldOptions, world::World};
+    let mut view = settings(SettingSection::Game.definition().name);
+    view.over_world = true;
+    let mut options = WorldOptions::default();
+    options.restore_cheats(cheats);
+    let world = World {
+        id: "0123456789abcdef".to_owned(),
+        name: "My World".to_owned(),
+        game_mode: Default::default(),
+        generator: Default::default(),
+        difficulty: Default::default(),
+        backend: bridge::Backend::Bds,
+        seed: 1_234_567,
+        options,
+        options_unavailable: false,
+        created_unix: 0,
+        last_played_unix: 0,
+        size_bytes: 0,
+    };
+    view.world_settings = in_world::View::of(&world).map(Arc::new);
+    Fixture::Menu(Box::new(view))
+}
+
+/// Whole settings pages, tall enough to show every row at once.
+pub(super) const PAGE_STATES: &[State] = &[
+    State {
+        name: "settings-video-french-page",
+        size: [1280, 2600],
+        gui_scale: GUI_SCALE,
+        fixture: settings_video_french,
+    },
+    State {
+        name: "settings-accessibility-page",
+        size: [1280, 1700],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_page(SettingSection::Accessibility, false),
+    },
+    State {
+        name: "settings-controller-page",
+        size: [1280, 1500],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_page(SettingSection::ControllerAndSwitch, false),
+    },
+    State {
+        name: "settings-general-page",
+        size: [1280, 1500],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_page(SettingSection::General, false),
+    },
+    State {
+        name: "settings-creator-page",
+        size: [1280, 1300],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_page(SettingSection::Creator, false),
+    },
+    State {
+        name: "settings-account-page",
+        size: [1280, 900],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_page(SettingSection::Account, true),
+    },
+    State {
+        name: "settings-video-page",
+        size: [1280, 4600],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_page(SettingSection::Video, false),
+    },
+];
+
+/// Shows French video labels and help text with their accented glyphs.
+fn settings_video_french() -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    Arc::make_mut(&mut view.settings_options).set_language("fr_FR");
+    Fixture::Menu(Box::new(view))
+}
+
+/// One settings page, optionally signed in, with the sidebar beside it.
+fn settings_page(section: SettingSection, signed_in: bool) -> Fixture {
+    let mut view = settings(section.definition().name);
+    if signed_in {
+        view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    }
+    Fixture::Menu(Box::new(view))
+}
 
 /// Shows the keyboard options and command macro modifier without a live session.
 pub(super) fn settings_keyboard() -> Fixture {
@@ -82,4 +290,36 @@ fn settings_search(query: &str) -> Fixture {
     view.focused_action = Some(MenuAction::SearchSettings);
     view.caret.byte = query.len();
     Fixture::Menu(Box::new(view))
+}
+
+/// Shows the Accessibility GUI-scale slider with a 1440p window's three modifiers, set to the
+/// middle one.
+pub(super) fn settings_gui_scale() -> Fixture {
+    let mut view = settings("accessibility_forced_index");
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
+        .choices()
+        .collect();
+    view.gui_scale_offset = view.gui_scale_choices[1].offset;
+    Fixture::Menu(Box::new(view))
+}
+
+/// Focuses the occlusion toggle at its saved value in the Video settings viewport.
+pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
+    let mut view = settings("video_forced_index");
+    Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::ChunkOcclusionCulling.index(), i32::from(enabled));
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::ChunkOcclusionCulling.index() as u16,
+        i32::from(!enabled),
+    ));
+    Fixture::Menu(Box::new(view))
+}
+
+/// Filters an anonymous cache inventory without changing its original row indices.
+fn storage_search(query: &str) -> Fixture {
+    let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+        unreachable!()
+    };
+    view.storage_query = query.into();
+    Fixture::Menu(view)
 }

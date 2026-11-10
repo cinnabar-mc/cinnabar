@@ -5,6 +5,17 @@ import * as adapter from "./adapters.mjs";
 
 const contract = JSON.parse(await readFile(new URL("../../../crates/bridge/data/contract.json", import.meta.url)));
 const values = Object.fromEntries(contract.constants.map(c => [c.rust_name, c.value]));
+
+test("browser identity distinguishes desktop-mode iPadOS from macOS", t => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    t.after(() => original ? Object.defineProperty(globalThis, "navigator", original) : delete globalThis.navigator);
+    const userAgent = contract.relay.fixtures.find(f => f.apple_mobile).user_agent;
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { platform: "MacIntel", maxTouchPoints: 5, userAgent } });
+    assert.equal(adapter.appleMobile(), true);
+    assert.equal(adapter.userAgent(), userAgent);
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { platform: "MacIntel", maxTouchPoints: 0, userAgent } });
+    assert.equal(adapter.appleMobile(), false);
+});
 const config = {
     transport: values.RELAY_TRANSPORT_PATH, controlPath: values.RELAY_CONTROL_PATH,
     playPath: values.RELAY_PLAY_PATH, control: values.RELAY_CHANNEL_CONTROL,

@@ -6,7 +6,7 @@ use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 pub(super) fn armor(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
-    authority: Option<&client_world::WorldAuthority>,
+    authority: Option<client_world::ui_read::InventoryUi<'_>>,
 ) -> Option<u16> {
     let worn = runtime.local_armor(player_runtime);
     let worn = [&worn.helmet, &worn.chestplate, &worn.leggings, &worn.boots];
@@ -27,14 +27,14 @@ pub(super) fn armor(
 pub(super) fn open_lectern(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
 ) {
     if runtime.inventory_open()
         && runtime.inventory_ledger(player_runtime).window_kind()
             == Some(protocol::WindowKind::Lectern)
         && runtime.screen_state().book.is_none()
         && let Some(position) = runtime.inventory_ledger(player_runtime).window_position()
-        && let Some(nbt) = stream.and_then(|stream| stream.block_entity_compound(position))
+        && let Some(nbt) = world.and_then(|world| world.block_entity_compound(position.into()))
     {
         let pages: Vec<String> = nbt
             .compound("book")

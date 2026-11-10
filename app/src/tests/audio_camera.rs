@@ -39,7 +39,7 @@ fn camera_app() -> App {
     }));
     let collisions = PhysicsCollisionRegistries::bind_coherent_assets(
         assets::pinned_block_registry_bytes(),
-        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../crates/assets/data/block-physics-v2225.bin"),
         Path::new("fixture.preg"),
         Path::new("fixture.mcbea"),
         assets::active_content_registry_protocol(),
@@ -426,5 +426,36 @@ fn sub_chunk_origin_rejects_stale_camera_owners_and_falls_back_without_camera() 
     assert_eq!(
         sub_chunk_request_center(&absent, Some(publication), session, actor),
         None
+    );
+}
+
+/// Publication stays on the completed subject frame even when the camera is moved later.
+#[cfg(feature = "acceptance")]
+#[test]
+fn publication_column_reads_the_frozen_subject_instead_of_the_mutable_camera() {
+    let mut app = camera_app();
+    let camera = app
+        .world_mut()
+        .spawn((FlyCamera::default(), Transform::default()))
+        .id();
+    app.update();
+    let carrier = app.world().resource::<LocalPlayerFrameCarrier>();
+    let eye = carrier.snapshot().unwrap().eye();
+    let expected = crate::runtime::telemetry::local_subject_column(0, eye);
+    app.world_mut()
+        .entity_mut(camera)
+        .get_mut::<Transform>()
+        .unwrap()
+        .translation = Vec3::splat(2000.0);
+    assert_eq!(
+        crate::runtime::telemetry::publication_subject_column(
+            0,
+            app.world().resource::<LocalPlayerFrameCarrier>()
+        ),
+        expected
+    );
+    assert_ne!(
+        expected,
+        crate::runtime::telemetry::local_subject_column(0, Vec3::splat(2000.0))
     );
 }

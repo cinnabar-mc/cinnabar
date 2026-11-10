@@ -4,7 +4,7 @@ use super::*;
 use crate::{ActionButtons, ActionEvent, DesktopEvent, KeyboardMouseFrame, OrderedActions};
 
 impl SemanticInputRouter {
-    /// Resolves one bounded batch under the same context and quarantine as held input.
+    /// Resolves each transition under the same context and quarantine as held input.
     pub(super) fn finalize_desktop_events(
         &mut self,
         frame: &DeviceFrame,
@@ -124,13 +124,7 @@ impl SemanticInputRouter {
                     }
                 }
             }
-            let filtered = without_quarantined_controls(
-                &state,
-                &self.quarantined_controls,
-                &[],
-                &[],
-                &self.settings,
-            );
+            let filtered = self.admitted_desktop_frame(&state);
             let resolved = self.sample_against(&filtered, mode, &previous);
             let before = self.sample_desktop(&previous, mode);
             for action in Action::ALL {
@@ -163,24 +157,12 @@ impl SemanticInputRouter {
         *sample = final_sample;
         sample.pressed = pressed;
         sample.released = released;
-        if output.overflowed() {
-            output.invalidate();
-            *sample = Sample::default();
-            self.queue_held_releases(ReleaseReason::InputOverflow);
-            quarantine_active_controls(frame, &mut self.quarantined_controls, &self.settings);
-        }
         Some(output)
     }
 
     /// Applies desktop quarantine consistently to held state and event-time samples.
     fn sample_desktop(&self, frame: &DeviceFrame, mode: InputMode) -> Sample {
-        let filtered = without_quarantined_controls(
-            frame,
-            &self.quarantined_controls,
-            &[],
-            &[],
-            &self.settings,
-        );
+        let filtered = self.admitted_desktop_frame(frame);
         self.sample(&filtered, mode)
     }
 }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::types::{
-    Command, CommandEnum, CommandOverload, CommandParameter, DynamicEnum,
+use bedrock_protocol_1_26_60::types::{
+    CommandData, CommandEnum, CommandOverload, CommandParameter, DynamicEnum,
 };
 
 use super::*;
@@ -22,8 +22,8 @@ fn command(
     permission: &str,
     alias_enum: i32,
     params: Vec<CommandParameter>,
-) -> Command {
-    Command {
+) -> CommandData {
+    CommandData {
         name: name.into(),
         description: wire::Str::default(),
         flags: wire::U16LE(0),

@@ -182,30 +182,65 @@ fn uniform_full_height_snow_still_visits_the_covered_plant_models() {
     }
 }
 
+/// Vanilla's chunk builder also tessellates a cell's extra block in that block's
+/// own layer. A plant left in the extra layer under a placed block (snow covered
+/// it, then a block replaced the snow) is drawn beside the block, not as a
+/// diagnostic cube.
 #[test]
-fn covered_snow_is_not_generic_permission_for_multiple_primary_solids() {
+fn plant_under_a_placed_block_renders_beside_the_block() {
     let fixture = compiled_snow_fixture();
-    let snow = fixture.covered_layers[0];
-    let plant = fixture.plants[0];
-    for ids in [vec![snow, fixture.cube], vec![plant, fixture.plants[1]]] {
-        let chunk = sub_chunk(
-            ids.iter()
-                .map(|&id| packed_storage(1, &[fixture.air, id], &[([8, 8, 8], 1)]))
-                .collect(),
-        );
-        let resolved = ContributorResolver::new(
-            BlockClassifier::new(fixture.air),
-            &fixture.assets,
-            NetworkIdMode::Sequential,
-            &chunk,
-        )
-        .resolve([8, 8, 8]);
-        assert_eq!(resolved.primary_network_value(), None);
-        assert_eq!(resolved.diagnostic_network_value(), ids.last().copied());
-        let mesh = mesh_snow(&chunk, &Neighbourhood::empty());
-        assert!(mesh.model_refs().is_empty());
-        assert_eq!(mesh.cube_quads().len(), 6);
+    for &plant in &fixture.plants {
+        for ids in [[fixture.cube, plant], [plant, fixture.cube]] {
+            let chunk = sub_chunk(
+                ids.iter()
+                    .map(|&id| packed_storage(1, &[fixture.air, id], &[([8, 8, 8], 1)]))
+                    .collect(),
+            );
+            let resolved = ContributorResolver::new(
+                BlockClassifier::new(fixture.air),
+                &fixture.assets,
+                NetworkIdMode::Sequential,
+                &chunk,
+            )
+            .resolve([8, 8, 8]);
+            assert_eq!(resolved.primary_network_value(), Some(fixture.cube));
+            assert_eq!(resolved.diagnostic_network_value(), None);
+            let mesh = mesh_snow(&chunk, &Neighbourhood::empty());
+            assert!(mesh.diagnostic_geometry().entries().is_empty());
+            assert_eq!(mesh.cube_quads().len(), 6);
+            let plant_template = fixture
+                .assets
+                .resolve(NetworkIdMode::Sequential, plant)
+                .model_template()
+                .unwrap();
+            assert!(
+                mesh.model_refs()
+                    .iter()
+                    .any(|reference| reference.words()[1] == plant_template),
+                "the extra plant keeps its own crossed model"
+            );
+        }
     }
+}
+
+#[test]
+fn two_cube_contributors_still_fail_closed() {
+    let fixture = compiled_snow_fixture();
+    let chunk = sub_chunk(
+        [fixture.cube, fixture.cube]
+            .iter()
+            .map(|&id| packed_storage(1, &[fixture.air, id], &[([8, 8, 8], 1)]))
+            .collect(),
+    );
+    let resolved = ContributorResolver::new(
+        BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &chunk,
+    )
+    .resolve([8, 8, 8]);
+    assert_eq!(resolved.primary_network_value(), None);
+    assert_eq!(resolved.diagnostic_network_value(), Some(fixture.cube));
 }
 
 #[test]

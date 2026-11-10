@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{
-    model_selectors::{ModelTextureSelector, mushroom_variant_index},
+    model_selectors::{ModelTextureSelector, class_variant, mushroom_variant_index},
     parse::{
         BoundedMapIssue, BoundedUniqueMap, MAX_TEXTURE_KEYS, MAX_TEXTURE_VARIANTS, read_json,
         validate_texture_path,
@@ -171,6 +171,9 @@ impl TerrainTextureMap {
             return self.get_for_model_record(key, record);
         }
         let paths = self.entries.get(key)?;
+        if let Some(variant) = class_variant(record) {
+            return Some(paths.variant_or_first(variant));
+        }
         if !is_mushroom_face_key(key, &record.name) {
             return Some((paths.first(), 0));
         }
@@ -188,6 +191,9 @@ impl TerrainTextureMap {
     /// array index for deterministic state-to-variant inspection.
     pub fn get_for_model_record(&self, key: &str, record: &RegistryRecord) -> Option<(&str, u32)> {
         let paths = self.entries.get(key)?;
+        if let Some(variant) = class_variant(record) {
+            return Some(paths.variant_or_first(variant));
+        }
         match paths {
             TerrainPaths::Static { path, .. } => Some((path, 0)),
             TerrainPaths::Variants {
@@ -199,6 +205,22 @@ impl TerrainTextureMap {
                     .map(|path| (path.as_ref(), selected as u32))
             }
         }
+    }
+
+    /// Whether an array of distinct entries picks its entry from `record`'s class or state.
+    #[cfg(test)]
+    pub(super) fn selects_entry(&self, key: &str, record: &RegistryRecord) -> Option<bool> {
+        let TerrainPaths::Variants {
+            paths, selector, ..
+        } = self.entries.get(key)?
+        else {
+            return None;
+        };
+        (paths.iter().any(|path| *path != paths[0])).then(|| {
+            class_variant(record).is_some()
+                || is_mushroom_face_key(key, &record.name)
+                || selector.bind_record(record, paths.len()) != ModelTextureSelector::Single
+        })
     }
 
     /// Path `variant` of an untinted key, clamped to its last variant as vanilla's icon lookup is.
@@ -237,6 +259,16 @@ impl TerrainTextureMap {
     pub fn get_clamped_carried(&self, key: &str, variant: usize) -> Option<(&str, Option<&str>)> {
         self.get_clamped_carried_variant(key, variant)
             .map(|(path, overlay, _)| (path, overlay))
+    }
+
+    /// Resolves carried artwork with the model selector's missing-variant fallback.
+    pub fn get_carried_for_record(
+        &self,
+        key: &str,
+        record: &RegistryRecord,
+    ) -> Option<(&str, Option<&str>)> {
+        let (_, variant) = self.get_for_model_record(key, record)?;
+        self.get_clamped_carried(key, variant as usize)
     }
 
     /// Returns the admitted carried path, overlay color, and actual clamped array index.
@@ -335,6 +367,16 @@ impl TerrainPaths {
         match self {
             Self::Static { path, .. } => path,
             Self::Variants { paths, .. } => &paths[0],
+        }
+    }
+
+    /// Entry `variant` and its index, or the first entry when the array is shorter.
+    fn variant_or_first(&self, variant: usize) -> (&str, u32) {
+        match self {
+            Self::Variants { paths, .. } if variant < paths.len() => {
+                (&paths[variant], variant as u32)
+            }
+            _ => (self.first(), 0),
         }
     }
 

@@ -50,14 +50,17 @@ impl BlobCacheResolver {
     pub fn new(cache: ClientBlobCache) -> Self {
         Self {
             cache,
+            requested_hashes: Default::default(),
             pending: HashMap::with_capacity(MAX_CLIENT_BLOB_PENDING_TRANSACTIONS),
             pending_order: BTreeSet::new(),
+            retryable_pending: BTreeSet::new(),
             pending_by_hash: HashMap::with_capacity(MAX_CLIENT_BLOB_PENDING_TRANSACTIONS),
             resolved_pending: BTreeSet::new(),
             ready: BTreeMap::new(),
             immediate_ready: BTreeMap::new(),
             recovery_ready: BTreeMap::new(),
             fast_transfer_reset_armed: false,
+            ordinary_lane_stalled: false,
             next_ready_sequence: 0,
             stats: BlobCacheStats::default(),
             pending_hash_set_capacity: 0,
@@ -68,19 +71,18 @@ impl BlobCacheResolver {
         }
     }
 
-    /// Attributes items accepted from now on to the core frame and slot `origin`.
-    pub(crate) fn trace_origin(&mut self, origin: (u64, u32)) {
+    /// Retains the packet's trace position and capture sequence with each accepted item.
+    pub(crate) fn trace_origin(&mut self, origin: crate::packet_tap::PacketOrigin) {
         self.trace_origins
             .get_or_insert_with(Default::default)
             .current = origin;
     }
 
-    /// The traced origin of the item [`Self::pop_ready_ingress`] returned last; `(0, 0)` for a
-    /// recovery the resolver produced itself or when not tracing.
-    pub(crate) fn popped_trace_origin(&self) -> (u64, u32) {
+    /// The last ready item's packet origin; zero fields mean client-generated or untraced work.
+    pub(crate) fn popped_trace_origin(&self) -> crate::packet_tap::PacketOrigin {
         self.trace_origins
             .as_ref()
-            .map_or((0, 0), |origins| origins.popped)
+            .map_or(Default::default(), |origins| origins.popped)
     }
 
     /// Notes `sequence`'s traced origin as its item leaves the resolver.
@@ -125,6 +127,7 @@ impl BlobCacheResolver {
         if !std::mem::take(&mut self.fast_transfer_reset_armed) {
             return Ok(false);
         }
+        self.requested_hashes = Default::default();
         let removed = !self.pending.is_empty() || !self.ready.is_empty();
         if removed {
             self.stats.pending_resets = self.stats.pending_resets.saturating_add(1);
@@ -209,14 +212,7 @@ impl BlobCacheResolver {
         value: ResolverReady,
         accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
-        let retained_bytes = self
-            .retained_ordinary_bytes()?
-            .checked_add(accounted_bytes)
-            .and_then(|bytes| bytes.checked_add(size_of::<(u64, ImmediateReady)>()))
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        if self.immediate_ready.len() >= MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS
-            || retained_bytes > MAX_CLIENT_BLOB_ORDINARY_READY_BYTES
-        {
+        if !self.can_accept_ordinary(accounted_bytes)? {
             self.stats.ordinary_backpressure = self.stats.ordinary_backpressure.saturating_add(1);
             return Err(BlobCacheError::OrdinaryLaneFull {
                 events: self.immediate_ready.len(),
@@ -272,7 +268,7 @@ impl BlobCacheResolver {
                         expected,
                     });
                 }
-                (PendingPacket::LevelChunk(Box::new(packet)), hashes)
+                (PendingPacket::LevelChunk(packet), hashes)
             }
             packets::Packet::SubChunk(packet) => {
                 if !packet.cache_enabled {
@@ -405,6 +401,9 @@ impl BlobCacheResolver {
         );
         let admission = cached_sub_chunk_admission(&packet);
         let sequence = self.take_ready_sequence()?;
+        if matches!(packet, PendingPacket::SubChunk(_)) {
+            self.retryable_pending.insert(sequence);
+        }
         self.pending.insert(
             sequence,
             PendingTransaction {
@@ -422,7 +421,9 @@ impl BlobCacheResolver {
         self.retained_column_slots += columns.len();
         self.pending_order.insert(sequence);
         for hash in status.missing().iter().chain(status.outstanding().iter()) {
-            let transactions = self.pending_by_hash.entry(*hash).or_default();
+            let pending = self.pending_by_hash.entry(*hash).or_default();
+            pending.status_outstanding = true;
+            let transactions = &mut pending.transactions;
             let previous_capacity = transactions.capacity();
             transactions.insert(sequence);
             self.pending_hash_set_capacity += transactions.capacity() - previous_capacity;
@@ -545,6 +546,7 @@ impl BlobCacheResolver {
                 .immediate_ready
                 .remove(&sequence)
                 .expect("immediate sequence was present");
+            self.ordinary_lane_stalled = false;
             self.refresh_pending_accounting()
                 .expect("retained immediate accounting cannot overflow after a pop");
             self.pop_trace_origin(Some(sequence));
@@ -632,8 +634,8 @@ impl BlobCacheResolver {
         let Some(transactions) = self.pending_by_hash.remove(&hash) else {
             return Ok(());
         };
-        self.pending_hash_set_capacity -= transactions.capacity();
-        for sequence in transactions {
+        self.pending_hash_set_capacity -= transactions.transactions.capacity();
+        for sequence in transactions.transactions {
             let Some(transaction) = self.pending.get_mut(&sequence) else {
                 continue;
             };
@@ -647,12 +649,14 @@ impl BlobCacheResolver {
 
     fn remove_pending_transaction(&mut self, sequence: u64) -> Option<PendingTransaction> {
         self.pending_order.remove(&sequence);
+        self.retryable_pending.remove(&sequence);
         self.resolved_pending.remove(&sequence);
         let transaction = self.pending.remove(&sequence)?;
         self.pending_accounted_bytes -= transaction.accounted_bytes;
         self.retained_column_slots -= transaction.columns.len();
         for hash in &transaction.unique_hashes {
-            let remove_hash = if let Some(transactions) = self.pending_by_hash.get_mut(hash) {
+            let remove_hash = if let Some(pending) = self.pending_by_hash.get_mut(hash) {
+                let transactions = &mut pending.transactions;
                 // A removal that leaves a tombstone reduces the set's reported capacity.
                 let previous_capacity = transactions.capacity();
                 transactions.remove(&sequence);
@@ -662,7 +666,7 @@ impl BlobCacheResolver {
                 false
             };
             if remove_hash && let Some(removed) = self.pending_by_hash.remove(hash) {
-                self.pending_hash_set_capacity -= removed.capacity();
+                self.pending_hash_set_capacity -= removed.transactions.capacity();
             }
         }
         Some(transaction)
@@ -703,6 +707,7 @@ impl BlobCacheResolver {
             .filter_map(|hash| {
                 self.pending_by_hash.get(hash).and_then(|transactions| {
                     transactions
+                        .transactions
                         .iter()
                         .filter(|sequence| **sequence != owner)
                         .min()
@@ -778,6 +783,10 @@ impl BlobCacheResolver {
                 .ready
                 .iter()
                 .any(|(earlier, transaction)| conflicts(earlier, &transaction.columns))
+            && !self
+                .immediate_ready
+                .iter()
+                .any(|(earlier, event)| conflicts(earlier, &event.columns))
     }
 
     fn take_ready_sequence(&mut self) -> Result<u64, BlobCacheError> {
@@ -862,7 +871,8 @@ impl BlobCacheResolver {
         pin: bool,
     ) -> BlobCacheStatus {
         let mut status = BlobCacheStatus::classify(&self.cache, packet, recovery, pin);
-        status.omit_outstanding(&self.pending_by_hash);
+        status.omit_outstanding(&mut self.pending_by_hash);
+        self.requested_hashes.record(status.missing());
         self.stats.hashes_classified = self
             .stats
             .hashes_classified

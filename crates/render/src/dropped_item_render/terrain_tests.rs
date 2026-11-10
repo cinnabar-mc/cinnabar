@@ -6,6 +6,7 @@ use bevy::{
     image::ImagePlugin,
     mesh::MeshPlugin,
     prelude::{Camera, Camera3d, Image, MinimalPlugins, Transform, Vec3},
+    render::render_resource::TextureFormat,
     window::WindowPlugin,
 };
 use meshing::{ChunkBiomeTintIdentity, ChunkMesh, PackedBiomeRecord};
@@ -90,6 +91,7 @@ fn fixture() -> App {
             height: 1,
             rgba8: Arc::from([255u8; 4]),
         })]),
+        &[],
         &[],
         &[],
         1.0,
@@ -194,6 +196,7 @@ fn current_frame_item_appearance_queues_without_prior_gpu_draws() {
         1,
         Arc::from([]),
         &[instance()],
+        &[],
         &[],
         1.0,
     );
@@ -376,6 +379,7 @@ fn terrain_and_ordinary_items_share_the_gpu_instance_capacity() {
         1,
         Arc::from([]),
         &vec![instance(); MAX_DROPPED_ITEM_INSTANCES],
+        &[],
         &[],
         1.0,
     );

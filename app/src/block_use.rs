@@ -6,8 +6,8 @@
 //! use lives in `item_use`.
 
 use client_interaction::block_use::{
-    BlockUseRuntime, FramePick, held_block_store_id, predicted_placement, predicted_toggle,
-    verified_use_selection,
+    BlockUseRuntime, FramePick, held_block_store_id, paired_item_block, paired_item_fits,
+    predicted_placement, predicted_seed_planting, predicted_toggle, verified_use_selection,
 };
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -47,6 +47,7 @@ use gameplay::block_use::{LocalUse, RepeatClock, UseSurroundings, placement_cell
 #[derive(SystemParam)]
 pub(crate) struct BlockUseContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
+    ordered: Option<Res<'w, crate::ordered_interactions::InteractionRuntime>>,
     frame: Res<'w, bevy::diagnostic::FrameCount>,
     origin: Res<'w, InteractionOriginSnapshot>,
     view: Res<'w, LocalViewPose>,
@@ -59,179 +60,48 @@ pub(crate) struct BlockUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
-    audio_cues: bevy::prelude::MessageWriter<'w, client_audio::audio::LocalBlockCue>,
+    /// Whether a waiting dismount holds this frame's ticks.
+    locomotion: Res<'w, client_interaction::movement::LocomotionState>,
+    /// The level's sneaking dimensions size the player box that blocks placement.
+    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
-/// Drains physical interactions before physics, then advances held placement once.
-pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+/// Drains physical interactions before physics, then evaluates the buffered held picks.
+pub(crate) fn produce_block_use(
+    world: &mut bevy::prelude::World,
+    mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
+) {
+    // Block use is the frame's first reader of whether a tick runs; item use and movement
+    // follow, so all three see one decision.
+    crate::movement::decide_frame_ticks(world);
+    if !world.contains_resource::<PhysicsCollisionRegistries>() {
+        return;
+    }
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
+        &mut windows,
     );
     if !crate::ordered_interactions::pending(world) {
-        world
-            .run_system_cached(maintain_block_use)
+        crate::ordered_interactions::run_cached(world, maintain_block_use, ())
             .expect("block maintenance resources");
+    } else {
+        crate::ordered_interactions::run_cached(world, held::discard_tick_picks, ())
+            .expect("block pick retirement resources");
     }
 }
 
-/// Advances held placement once after all immediately eligible ordered edges have drained.
-fn maintain_block_use(
-    mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
-    mut context: BlockUseContext,
-    mut runtime: ResMut<BlockUseRuntime>,
-    mut swings: ResMut<SwingTracker>,
-    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
-    movement: Res<MovementTicker>,
-    physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
-) {
-    let pick = runtime.pick(movement.interaction_authority_identity());
-    if context.input.phase(Action::Use).pressed
-        && !context
-            .input
-            .snapshot()
-            .is_some_and(|input| input.ordered.is_some())
-    {
-        runtime.forget_press_resolution();
-    }
-    swings.sync_ticks_for_item(
-        movement.interaction_authority_identity(),
-        movement.completed_tick(),
-        &context.effects,
-        crate::melee::selected_attack_timing(&player_runtime, &context.client_world)
-            .and_then(|timing| timing.swing_duration_ticks),
-    );
+mod held;
+use held::maintain_block_use;
 
-    runtime.synchronize(movement.interaction_authority_identity());
-    let focused =
-        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
-    let game_mode = player_runtime.facts.player_game_mode();
-    let caps = player_runtime.facts.game_mode_capabilities();
-    let Some((input, _)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
-        focused
-            && !context.focus.ui_focused
-            && caps.can_use_blocks()
-            && input.input_mode != semantic_input::InputMode::Touch
-    }) else {
-        runtime.clear_press();
-        stop_block_use(&mut runtime, &context, false);
-        return;
-    };
-    let mut use_phase = context.input.phase(Action::Use);
-    if input.ordered.is_some() {
-        use_phase.pressed = false;
-        use_phase.released = false;
-    }
-    let attacking = context.input.phase(Action::Attack).held;
-    if attacking {
-        runtime.clear_press();
-    }
-    if (runtime.stopping()
-        || (runtime.last_success_destination().is_some()
-            && (attacking || use_phase.pressed || !use_phase.held)))
-        && !stop_block_use(&mut runtime, &context, use_phase.pressed && !attacking)
-    {
-        return;
-    }
-    if !runtime.observe_use(
-        use_phase.held,
-        use_phase.pressed,
-        attacking,
-        movement.accepts_block_interactions(),
-    ) {
-        return;
-    }
-    // An attack in the same frame is handled first: the use waits until melee resolves it,
-    // and an actor hit then holds the use off for the post-attack window.
-    if (input.ordered.is_none() && context.input.phase(Action::Attack).pressed)
-        || context.melee.press_pending()
-    {
-        return;
-    }
-    let Some(selection) = verified_use_selection(&player_runtime, &context.ui) else {
-        // Unconfirmed inventory suspends attempts while preserving the held action.
-        return;
-    };
-    runtime.selection_changed(&selection);
-    // Vanilla builds before each simulation tick, from the last completed tick's end state;
-    // this runs before the frame's physics, so a placed block is in the world the tick sees.
-    let Some(state) = movement.build_action_state() else {
-        return;
-    };
-    let tick = state.tick.saturating_add(1);
-    let clock = RepeatClock::for_state(context.time.elapsed(), &state, game_mode);
-    let Some((trigger, due)) = runtime.due(use_phase.held, tick, clock) else {
-        return;
-    };
-    // Presses resolve at once; held repeats wait for a frame that simulates the next tick.
-    if trigger == ItemUseTrigger::SimulationTick
-        && !physics.as_deref().is_some_and(|physics| {
-            gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
-        })
-    {
-        return;
-    }
-    if context
-        .melee
-        .blocks_use_at(u64::try_from(clock.now.as_millis()).unwrap_or(u64::MAX))
-    {
-        runtime.clear_press();
-        return;
-    }
-    // A press or repeat waits for a pick taken under the current movement authority.
-    if pick.is_none() {
-        return;
-    }
-    let input_mode = protocol_input_mode(input.input_mode);
-    if actor_use::produce(
-        &context,
-        &mut runtime,
-        &selection,
-        &player_runtime,
-        pick.expect("the current pick was checked above"),
-        &state,
-        input_mode,
-        trigger,
-        due,
-        clock,
-    ) {
-        return;
-    }
-    let Some(observed) = observe_use_target(
-        &player_runtime,
-        &context,
-        &context.origin,
-        input_mode,
-        clock.survival,
-        (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
-        &runtime,
-        pick,
-        trigger,
-        &state,
-    ) else {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
-        return;
-    };
-    if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
-    {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
-        return;
-    }
-    let mut attempt = build::BuildInput::new(observed, state, trigger, due, clock, *context.view);
-    build::advance(
-        &mut player_runtime,
-        &mut context,
-        &mut runtime,
-        &mut item_use,
-        &mut swings,
-        &movement,
-        &mut attempt,
-    );
-}
+mod pick;
+pub(crate) use pick::retain_block_use_pick;
 
 mod target;
 use target::observe_use_target;
+
+mod press_target;
+pub(crate) use press_target::UsePressTarget;
 
 /// Sends the held-use stop action before dropping its successful-placement history.
 fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repress: bool) -> bool {
@@ -246,4 +116,14 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
-mod published_tests;
+pub(crate) mod published_tests;
+
+#[cfg(test)]
+mod startup_tests {
+    #[test]
+    fn input_maintenance_waits_for_deferred_world_resources() {
+        let mut world = bevy::prelude::World::new();
+        world.run_system_cached(super::produce_block_use).unwrap();
+        assert!(!world.contains_resource::<crate::ordered_interactions::InteractionRuntime>());
+    }
+}

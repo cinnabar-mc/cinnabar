@@ -1,12 +1,27 @@
 //! Normalizers for block-side packets: map pixel updates, sign editor requests and block events.
 
-use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
+use std::sync::Arc;
 
-use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent};
+use bedrock_protocol_1_26_60::packets::{
+    BlockEvent, ClientboundMapItemData, ContainerOpen, OpenSign,
+};
 
-/// The pixel rectangle of a map update; `None` for a partial packet (no pixels) or a rectangle
-/// outside the fixed image or with the wrong pixel count, which are semantic skips.
+use super::events::{
+    BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenCommandBlockEvent, OpenSignEvent,
+};
+
+/// The `ContainerOpen` actor value of a window opened over a block.
+const NO_TARGET_ACTOR: i64 = -1;
+
+/// Preserves a pixel update or an empty rectangle that announces a newly saved map.
+/// Unrelated partial packets and invalid pixel rectangles are semantic skips.
 pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapDataEvent> {
+    let initialized_ids: Arc<[i64]> = match packet.creation_map_ids.as_deref() {
+        Some(ids) if ids.is_empty() || ids.len() > 5 => return None,
+        Some(ids) => ids.iter().map(|id| id.0).collect(),
+        None => Default::default(),
+    };
+    let map_id = initialized_ids.first().copied().unwrap_or(packet.map_id.0);
     let (Some(width), Some(height), Some(start_x), Some(start_y), Some(pixels)) = (
         packet.width.map(|value| value.0),
         packet.height.map(|value| value.0),
@@ -14,7 +29,15 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapD
         packet.start_y.map(|value| value.0),
         packet.pixels.as_deref(),
     ) else {
-        return None;
+        return (!initialized_ids.is_empty()).then(|| MapDataEvent {
+            map_id,
+            initialized_ids,
+            start_x: 0,
+            start_y: 0,
+            width: 0,
+            height: 0,
+            pixels: Default::default(),
+        });
     };
     let (Ok(width), Ok(height), Ok(start_x), Ok(start_y)) = (
         u32::try_from(width),
@@ -30,7 +53,8 @@ pub(super) fn normalize_map_data(packet: &ClientboundMapItemData) -> Option<MapD
         && height.saturating_add(start_y) <= MAP_IMAGE_SIDE
         && pixels.len() as u64 == u64::from(width) * u64::from(height);
     fits.then(|| MapDataEvent {
-        map_id: packet.map_id.0,
+        map_id,
+        initialized_ids,
         start_x,
         start_y,
         width,
@@ -45,6 +69,24 @@ pub(super) fn normalize_open_sign(packet: &OpenSign, dimension: i32) -> OpenSign
         position: [packet.pos.x.0, packet.pos.y.0, packet.pos.z.0],
         front: packet.is_front_side,
     }
+}
+
+/// The block command block editor a `ContainerOpen` asks for: the command block window with the
+/// no-actor target. A minecart's editor names its actor instead and stays with the inventory path.
+pub(super) fn normalize_open_command_block(
+    packet: &ContainerOpen,
+    dimension: i32,
+) -> Option<OpenCommandBlockEvent> {
+    (i8::from_ne_bytes([packet.container_type.0]) == crate::WINDOW_TYPE_COMMAND_BLOCK
+        && packet.target_actor_id.0 == NO_TARGET_ACTOR)
+        .then_some(OpenCommandBlockEvent {
+            dimension,
+            position: [
+                packet.position.x.0,
+                packet.position.y.0,
+                packet.position.z.0,
+            ],
+        })
 }
 
 pub(super) fn normalize_block_event(packet: &BlockEvent, dimension: i32) -> BlockEventEvent {

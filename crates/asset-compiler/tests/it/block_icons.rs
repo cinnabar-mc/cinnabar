@@ -10,6 +10,9 @@ const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json")
 #[path = "block_icons/carried.rs"]
 mod carried;
 
+#[path = "block_icons/coverage.rs"]
+mod coverage;
+
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -117,7 +120,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
         provenance: BlobProvenance {
             source_manifest_sha256: entity.source_manifest_sha256,
             block_registry_sha256: Sha256::digest(include_bytes!(
-                "../../../assets/data/block-registry-v2193.bin"
+                "../../../assets/data/block-registry-v2225.bin"
             ))
             .into(),
             light_registry_sha256: [3; 32],

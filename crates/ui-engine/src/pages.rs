@@ -19,16 +19,17 @@ pub const FIRST_GLYPH_PAGE: usize = render_model::UI_SESSION_GLYPH_PAGE_OFFSET;
 /// Dynamic page offset of the server resource-pack UI textures, after the glyphs.
 pub const SERVER_UI_PAGE: usize = FIRST_GLYPH_PAGE + GLYPH_PAGES;
 /// Dynamic pages reserved for server resource-pack UI textures.
-pub const SERVER_UI_PAGES: usize =
-    render_model::UI_LOCAL_FONT_PAGE_OFFSET - SERVER_UI_PAGE - MODAL_UI_PAGES - MOD_UI_PAGES;
+pub const SERVER_UI_PAGES: usize = render_model::UI_SERVER_UI_PAGES;
 /// Dynamic page offset of a client part's modal screen textures, after the server pack's.
 pub const MODAL_UI_PAGE: usize = SERVER_UI_PAGE + SERVER_UI_PAGES;
 /// Dynamic pages reserved for the modal's bundle textures, apart from the server pack's.
-pub const MODAL_UI_PAGES: usize = 4;
+pub const MODAL_UI_PAGES: usize = render_model::UI_MODAL_UI_PAGES;
 /// Dynamic page offset of a player mod's screen textures, after the modal's.
 pub const MOD_UI_PAGE: usize = MODAL_UI_PAGE + MODAL_UI_PAGES;
 /// Dynamic pages reserved for the player mod's package textures, before the local font page.
-pub const MOD_UI_PAGES: usize = 4;
+pub const MOD_UI_PAGES: usize = render_model::UI_MOD_UI_PAGES;
+
+const _: () = assert!(MOD_UI_PAGE + MOD_UI_PAGES == render_model::UI_LOCAL_FONT_PAGE_OFFSET);
 
 /// Empty texels kept around each image packed on an art page.
 pub const ART_PAGE_GUTTER: u32 = 1;

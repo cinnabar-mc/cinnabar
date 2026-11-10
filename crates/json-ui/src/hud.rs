@@ -17,8 +17,12 @@ pub struct HudModel {
     pub survival_ui: bool,
     pub armor_visible: bool,
     pub hotbar_visible: bool,
+    /// Shows inventory access beside the classic hotbar on touch-capable hosts.
+    pub touch_inventory: bool,
     /// The classic experience bar shows (else the hotbar stands alone).
     pub xp_bar: bool,
+    /// Server locations replace the experience artwork while retaining its level label.
+    pub locator_bar: bool,
     pub exp_progress: f64,
     pub level: u32,
     pub hotbar: Vec<HudSlot>,
@@ -43,6 +47,10 @@ pub struct HudModel {
     pub chat: Vec<Timed>,
     /// Optional presentation color; parser inputs retain the original message bytes.
     pub chat_color: Option<char>,
+    /// Optional mention color applied only to decoded message labels.
+    pub chat_mention_color: Option<char>,
+    /// The current local actor display name used for mention matching.
+    pub chat_local_player: std::sync::Arc<str>,
     pub chat_visible: bool,
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,
@@ -82,6 +90,8 @@ impl Default for ChatText {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HudSlot {
     pub icon: Option<usize>,
+    /// The stack's vanilla `#item_id_aux` key; `None` for an empty cell.
+    pub id_aux: Option<i32>,
     pub count: u32,
     pub selected: bool,
     pub durability: Option<f64>,
@@ -310,9 +320,22 @@ fn status_data(data: &mut DataSource, model: &HudModel) {
             model.armor_visible && model.survival_ui,
         ),
         ("#hotbar_visible", model.hotbar_visible),
+        (
+            "#inventory_touch_button",
+            model.touch_inventory && model.hotbar_visible,
+        ),
+        (
+            "#hotbar_elipses_right_visible",
+            model.touch_inventory && model.hotbar_visible,
+        ),
+        ("#hotbar_elipses_left_visible", false),
         ("#hotbar_with_xp_bar", model.xp_bar),
-        ("#hotbar_no_xp_bar", !model.xp_bar),
-        ("#level_number_visible", model.xp_bar && model.level > 0),
+        ("#hotbar_with_locator_bar", model.locator_bar),
+        ("#hotbar_no_xp_bar", !model.xp_bar && !model.locator_bar),
+        (
+            "#level_number_visible",
+            (model.xp_bar || (model.locator_bar && model.survival_ui)) && model.level > 0,
+        ),
         ("#is_spectator_mode", model.spectator),
         ("#survival_horse_hearts", model.riding_hearts),
         (
@@ -388,6 +411,18 @@ fn text_data(data: &mut DataSource, model: &HudModel) {
 /// Writes the bounded chat notification collection and factory instances.
 fn chat_data(data: &mut DataSource, model: &HudModel) {
     data.set_global("#chat_visible", Scalar::Bool(model.chat_visible));
+    data.set_global(
+        crate::vanilla::Binding::EditorChatVisible.as_str(),
+        Scalar::Bool(model.chat_visible),
+    );
+    data.set_global(
+        crate::vanilla::Binding::EditorChatLayoutActive.as_str(),
+        Scalar::Bool(false),
+    );
+    data.set_global(
+        crate::vanilla::Binding::EditorChatOffset.as_str(),
+        Scalar::Json(serde_json::json!([0, 0])),
+    );
     if model.chat_visible {
         data.set_collection(
             "chat_text_grid",
@@ -475,6 +510,11 @@ fn slot_item(slot: &HudSlot) -> CollectionItem {
             "#item_renderer_data",
             slot.icon
                 .map_or(Scalar::Json(Value::Null), |icon| Scalar::Num(icon as f64)),
+        )
+        // Packs key per-item overlays on this; vanilla answers -1 for an empty cell.
+        .with(
+            "#item_id_aux",
+            Scalar::Int(i64::from(slot.id_aux.unwrap_or(-1))),
         )
         .with("#slot_selected", Scalar::Bool(slot.selected))
         .with(

@@ -27,7 +27,7 @@ fn enchanted_boots() -> NetworkItemStack {
     for (name, value) in [
         (
             b"id".as_slice(),
-            i16::from(Enchantment::Depthstrider.wire_value()),
+            i16::from(Enchantment::DepthStrider.wire_value()),
         ),
         (b"lvl".as_slice(), 3),
     ] {

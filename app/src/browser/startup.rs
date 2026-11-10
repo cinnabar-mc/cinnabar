@@ -115,7 +115,8 @@ pub(super) fn install(
     let skin =
         client_shell::player_skin::LocalPlayerSkin::generated_default(launcher::PRODUCT_NAME);
     let preparation = network::session::Preparation {
-        registry_base: network::session_registries::RegistryBase::new(&startup.world, &collisions),
+        registry_base: network::session_registries::RegistryBase::new(&startup.world, &collisions)
+            .with_entity_assets(Some(Arc::clone(&entities))),
         session_generation: simulation_clock::identity::SessionGeneration::new(1),
         actor_artwork: Some(artwork.clone()),
         ui_catalog: Some(Arc::clone(&catalog.0)),
@@ -165,7 +166,6 @@ pub(super) fn install(
         .init_resource::<LocalMovementEffectTimeline>()
         .init_resource::<LocalMovementSpeedAuthority>()
         .insert_resource(collisions)
-        .insert_resource(scene)
         .insert_resource(equipment)
         .insert_resource(rig)
         .init_resource::<AtmosphereFrame>()
@@ -190,6 +190,7 @@ pub(super) fn install(
         ))
         .insert_resource(crate::particles::ParticleIcons(icons))
         .init_resource::<client_presentation::presentation::viewmodel::HandAdapter>();
+    network::install_actor_scene(app.world_mut(), scene);
     if let Some(geometry) = hand_geometry {
         app.insert_resource(render_scene::ViewmodelGeometryResource(geometry));
     }

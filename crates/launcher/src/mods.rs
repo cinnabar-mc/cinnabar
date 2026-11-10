@@ -6,8 +6,30 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
+/// File-name prefix reserved for managed marketplace components.
+///
+/// It is distinctive so that ordinary local file names, such as `marketplace-prices.wasm`, are
+/// never mistaken for managed files and held or refused.
+pub const MARKETPLACE_FILE_PREFIX: &str = "cinnabar-marketplace-";
+/// Library message after a verified marketplace download lands, disabled, in My mods.
+pub const MARKETPLACE_ADDED: &str =
+    "Marketplace mod added to My mods. Enable it and choose its permissions in Mods.";
 /// Release tags share the installed metadata version's display bound.
 pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
+
+/// Whether `file_name` is reserved for a managed marketplace component, with or without a receipt.
+pub fn is_marketplace_file(file_name: &str) -> bool {
+    file_name.starts_with(MARKETPLACE_FILE_PREFIX)
+}
+
+/// Status text for a marketplace release that staff withdrew, with their optional reason.
+pub fn marketplace_withdrawn(reason: &str) -> String {
+    if reason.is_empty() {
+        "Marketplace release withdrawn by staff.".into()
+    } else {
+        format!("Marketplace release withdrawn: {reason}")
+    }
+}
 
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +50,7 @@ pub enum Action {
     MoveDown(u64),
     Permission(u64, usize, bool),
     AllowRequested(u64),
+    GrantAll(u64),
     RevokeAll(u64),
     Customize(u64),
     ShowAllPermissions(u64),
@@ -36,6 +59,9 @@ pub enum Action {
 /// One permission supplied by the host's grant declaration, rather than a UI capability list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Permission {
+    /// Whether this capability can be granted: it applies to the component runtime and, for a
+    /// marketplace release, the component requests it.
+    pub applicable: bool,
     pub name: String,
     pub description: String,
     pub enabled: bool,
@@ -77,7 +103,7 @@ impl InstalledMod {
     pub fn requested_counts(&self) -> (usize, usize) {
         self.permissions
             .iter()
-            .filter(|permission| permission.requested == Some(true))
+            .filter(|permission| permission.applicable && permission.requested == Some(true))
             .fold((0, 0), |(allowed, total), permission| {
                 (
                     allowed + usize::from(permission.requested_allowed),
@@ -85,17 +111,55 @@ impl InstalledMod {
                 )
             })
     }
+    /// Host capability indices the component requests but its grants do not yet fully allow.
+    pub fn awaiting_approval(&self) -> impl Iterator<Item = usize> + '_ {
+        self.permissions
+            .iter()
+            .enumerate()
+            .filter(|(_, permission)| {
+                permission.applicable
+                    && permission.requested == Some(true)
+                    && !permission.requested_allowed
+            })
+            .map(|(index, _)| index)
+    }
+    /// Names requests awaiting approval that `previous`, an earlier revision of the same
+    /// registration, did not leave waiting: capabilities or values a replacement newly requests.
+    /// Requests the player already left off are not repeated.
+    pub fn new_requests(&self, previous: &InstalledMod) -> Vec<&str> {
+        let waiting: Vec<_> = previous.awaiting_approval().collect();
+        self.awaiting_approval()
+            .filter(|index| !waiting.contains(index))
+            .map(|index| self.permissions[index].name.as_str())
+            .collect()
+    }
     /// Supplies stable host capability indices, with requested permissions first.
     pub fn permission_order(&self, show_all: bool) -> Vec<usize> {
         let mut indices: Vec<_> = self
             .permissions
             .iter()
             .enumerate()
-            .filter(|(_, permission)| show_all || permission.requested == Some(true))
+            .filter(|(_, permission)| {
+                permission.applicable && (show_all || permission.requested == Some(true))
+            })
             .map(|(index, _)| index)
             .collect();
         indices.sort_by_key(|index| self.permissions[*index].requested != Some(true));
         indices
+    }
+    /// Whether this card is a managed marketplace file, whose authority is capped to its signed
+    /// request.
+    pub fn marketplace(&self) -> bool {
+        is_marketplace_file(&self.file)
+    }
+    /// Whether the host has an authorized update channel for this installed card.
+    pub fn can_update(&self) -> bool {
+        self.marketplace()
+            || self
+                .metadata
+                .revision_update
+                .as_ref()
+                .is_some_and(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
     }
     /// The component's declared name, else its file name without the extension.
     pub fn name(&self) -> &str {
@@ -132,7 +196,7 @@ pub struct ActiveMod {
     pub status: Status,
 }
 
-/// A newer GitHub release for one installed file revision; installation stays manual.
+/// A verified newer release for one installed file revision.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableUpdate {
     pub id: u64,
@@ -140,7 +204,7 @@ pub struct AvailableUpdate {
     pub release_url: String,
 }
 
-/// Directory contents and the ordered Active list, published off-frame by the app.
+/// Directory contents and the ordered Active list, published by the library service.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
     /// Live update operations, retained through the runtime reload acknowledgement.
@@ -152,6 +216,14 @@ pub struct Library {
     pub updates: Vec<AvailableUpdate>,
 }
 impl Library {
+    /// Filters update notices to marketplace and official-package cards.
+    pub fn available_updates(&self) -> impl Iterator<Item = &AvailableUpdate> + Clone {
+        self.updates.iter().filter(|update| {
+            self.installed
+                .iter()
+                .any(|item| item.id == update.id && item.can_update())
+        })
+    }
     /// Preserves Active-list precedence and directory order for available components.
     pub fn groups(&self) -> (Vec<InstalledMod>, Vec<InstalledMod>) {
         let active = self
@@ -353,12 +425,22 @@ mod tests {
     }
 
     #[test]
+    fn only_the_reserved_prefix_marks_a_card_as_marketplace_managed() {
+        let mut item = installed(1);
+        item.file = "marketplace-prices.wasm".into();
+        assert!(!item.marketplace(), "a local file name must stay local");
+        item.file = format!("{MARKETPLACE_FILE_PREFIX}11-fixture.wasm");
+        assert!(item.marketplace());
+    }
+
+    #[test]
     fn permission_order_and_summary_keep_the_host_indices() {
         let mut item = installed(1);
         item.permissions = [false, true, false, true]
             .into_iter()
             .enumerate()
             .map(|(index, requested)| Permission {
+                applicable: true,
                 name: format!("Permission {index}"),
                 description: String::new(),
                 enabled: index < 2,
@@ -372,6 +454,44 @@ mod tests {
         assert_eq!(item.requested_counts(), (1, 2));
         assert_eq!(item.permissions[1].label(), "⚠ Permission 1");
         assert_eq!(item.permissions[0].label(), "Permission 0");
+        item.permissions[1].applicable = false;
+        assert_eq!(item.permission_order(true), [3, 0, 2]);
+        assert_eq!(item.permission_order(false), [3]);
+        assert_eq!(item.requested_counts(), (0, 1));
+    }
+
+    #[test]
+    fn only_requests_a_revision_newly_leaves_waiting_are_new() {
+        /// Builds one capability row from its request and allowance.
+        fn row(name: &str, requested: bool, allowed: bool) -> Permission {
+            Permission {
+                applicable: true,
+                name: name.into(),
+                description: String::new(),
+                enabled: allowed,
+                requested: Some(requested),
+                requested_allowed: requested && allowed,
+                sensitive: false,
+            }
+        }
+        let mut previous = installed(1);
+        previous.permissions = vec![
+            row("Camera", true, true),
+            row("Audio", true, false),
+            row("Render material", false, false),
+            row("Commands", true, true),
+        ];
+        let mut next = previous.clone();
+        assert!(next.new_requests(&previous).is_empty());
+        next.permissions[2] = row("Render material", true, false);
+        next.permissions[3].requested_allowed = false;
+        assert_eq!(next.awaiting_approval().collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(
+            next.new_requests(&previous),
+            ["Render material", "Commands"]
+        );
+        next.permissions[2].applicable = false;
+        assert_eq!(next.new_requests(&previous), ["Commands"]);
     }
 
     #[test]
@@ -392,6 +512,7 @@ mod tests {
     fn first_enable_keeps_empty_declaration_consent_until_an_explicit_choice() {
         let mut item = installed(1);
         item.permissions.push(Permission {
+            applicable: true,
             name: "HUD".into(),
             description: String::new(),
             enabled: false,

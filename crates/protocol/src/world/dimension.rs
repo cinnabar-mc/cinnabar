@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::{ChangeDimension, Respawn};
+use bedrock_protocol_1_26_60::packets::{ChangeDimension, Respawn};
 
 use super::{ChangeDimensionEvent, RespawnEvent};
 

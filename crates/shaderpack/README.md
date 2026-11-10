@@ -21,9 +21,22 @@ ids when a pack has no block.properties) and resolves them for Bedrock block sta
 entities and items; `BiomeUniforms` and the `BIOME_*`/`CAT_*`/`PPT_*` macros describe Java
 biomes; `sky_fog` and `BiomeColors` give Java's sky and fog colours.
 
-The render crate's `shaderpacks` feature (off by default) runs translated packs in the
-client; `plan.md` lists the remaining gaps.
+Every client build includes the experimental shader-pack renderer. Shaders start Off;
+pack loading and GPU pipeline creation wait until a pack is selected. `plan.md` lists
+the remaining gaps.
+
+The client runs `shaderpack-worker` (`crates/shaderpack-worker`) beside the core as a
+disposable CPU compiler process; `make play` and every package build it. It is separate from
+`assetc`, so shader-pack changes leave carrier fingerprints unchanged. The compiler limits
+live Rust heap storage, CPU time, elapsed time and result size. The client kills and
+reaps a cancelled or expired compiler, and reports a crashed compiler as a pack load
+failure. GPU pipelines are built on the client's load thread after CPU translation.
+On iOS, `Running` uses an owned compiler thread instead. It checks cancellation,
+elapsed time and the live process heap cooperatively, and enforces the same result-size cap.
+A running parser or blocking file operation must return before cancellation finishes;
+a compiler crash can terminate the app. The IPA installs `BudgetAllocator` for heap accounting.
+`ShaderPack::translate` remains an in-process API for trusted fixtures and tools.
 
 ```sh
-cargo test --locked -p shaderpack
+cargo test --locked -p shaderpack -p shaderpack-worker
 ```

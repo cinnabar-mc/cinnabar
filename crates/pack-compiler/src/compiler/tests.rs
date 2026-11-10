@@ -10,18 +10,26 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 mod anvil;
 #[path = "tests/authored_models.rs"]
 mod authored_models;
+#[path = "tests/azalea.rs"]
+mod azalea;
 #[path = "tests/barrel.rs"]
 pub(crate) mod barrel;
 #[path = "tests/beacon.rs"]
 mod beacon;
+#[path = "tests/bell.rs"]
+mod bell;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]
 mod bubble_column;
 #[path = "tests/campfire.rs"]
 mod campfire;
+#[path = "tests/candle.rs"]
+mod candle;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
+#[path = "tests/chorus_flower.rs"]
+mod chorus_flower;
 #[path = "tests/command_block.rs"]
 mod command_block;
 #[path = "tests/component_cross.rs"]
@@ -34,40 +42,68 @@ mod crop_families;
 mod crops;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/dried_ghast.rs"]
+mod dried_ghast;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
+#[path = "tests/entity_particles.rs"]
+mod entity_particles;
+#[path = "tests/facing.rs"]
+mod facing;
+#[path = "tests/facing_cube.rs"]
+mod facing_cube;
 #[path = "tests/flowerbed.rs"]
 mod flowerbed;
-#[path = "tests/furnace.rs"]
-mod furnace;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]
 mod grindstone;
+#[path = "tests/heavy_core.rs"]
+mod heavy_core;
 #[path = "tests/hollow_containers.rs"]
 mod hollow_containers;
+#[path = "tests/hopper.rs"]
+mod hopper;
 #[path = "tests/isotropic.rs"]
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lectern.rs"]
+mod lectern;
 #[path = "tests/lever.rs"]
 mod lever;
 #[path = "tests/lightning_rod.rs"]
 mod lightning_rod;
+#[path = "tests/mapped_face.rs"]
+mod mapped_face;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
+#[path = "tests/sculk.rs"]
+mod sculk;
 #[path = "tests/sea_pickle.rs"]
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/shelf_tiles.rs"]
+mod shelf_tiles;
+#[path = "tests/speleothem.rs"]
+mod speleothem;
+#[path = "tests/spore_blossom.rs"]
+mod spore_blossom;
+#[path = "tests/stonecutter.rs"]
+mod stonecutter;
 #[path = "tests/straw_beds.rs"]
 mod straw_beds;
+#[path = "tests/sunflower.rs"]
+mod sunflower;
 #[path = "tests/torch.rs"]
 mod torch;
 #[path = "tests/trapdoor.rs"]
 mod trapdoor;
 #[path = "tests/tripwire_hook.rs"]
 mod tripwire_hook;
+#[path = "tests/vine_stem.rs"]
+mod vine_stem;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
@@ -306,6 +342,7 @@ fn canonical_air_at_an_arbitrary_identity_compiles_to_the_exact_invisible_route(
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile a single-air synthetic registry");
@@ -331,6 +368,7 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile a canonical-plus-decoy-air synthetic registry");
@@ -347,8 +385,8 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
 #[test]
 fn every_current_registry_button_uses_the_family_route() {
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
-        2193,
+        include_bytes!("../../../assets/data/block-registry-v2225.bin"),
+        2225,
     )
     .unwrap();
     let unsupported = records
@@ -362,7 +400,7 @@ fn every_current_registry_button_uses_the_family_route() {
 
 #[test]
 fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
-    let bytes = include_bytes!("../../../assets/data/block-registry-v2193.bin");
+    let bytes = include_bytes!("../../../assets/data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(bytes).unwrap();
     let records = assets::read_registry_for_protocol(bytes, protocol).unwrap();
     let fallback = super::visuals::fallback::inventory(protocol).unwrap();
@@ -372,6 +410,7 @@ fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .unwrap();
@@ -388,24 +427,25 @@ fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
     }
 }
 
-/// The v2193 fallback inventory carries cube envelopes for these blocks; they must not win.
+/// The v2225 fallback inventory carries cube envelopes for these blocks; they must not win.
 #[test]
 fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
-        2193,
+        include_bytes!("../../../assets/data/block-registry-v2225.bin"),
+        2225,
     )
     .unwrap();
-    let fallback = super::visuals::fallback::inventory(2193).expect("v2193 fallback inventory");
+    let fallback = super::visuals::fallback::inventory(2225).expect("v2225 fallback inventory");
     let (visuals, _, _, _) = super::visuals::dispatcher::compile_visuals(
         &records,
         &empty_pack_sources(),
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
-    .expect("compile the pinned v2193 registry");
+    .expect("compile the pinned v2225 registry");
     let invisible = records
         .iter()
         .filter(|record| super::visuals::literal::is_default_invisible(&record.name))
@@ -415,6 +455,8 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
         "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision",
         "minecraft:light_block_0",
         "minecraft:light_block_15",
     ] {
@@ -423,7 +465,7 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
             "{name}"
         );
     }
-    assert_eq!(invisible.len(), 20);
+    assert_eq!(invisible.len(), 32);
     for record in invisible {
         let visual = &visuals[record.sequential_id as usize];
         assert_eq!(visual.kind, VisualKind::Invisible, "{}", record.name);

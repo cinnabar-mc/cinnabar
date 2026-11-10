@@ -1,4 +1,18 @@
 {
+  "dimensions": [
+    "overworld",
+    "nether",
+    "end"
+  ],
+  "generators": [
+    "empty",
+    "flat"
+  ],
+  "store_scopes": [
+    "player",
+    "instance",
+    "mod"
+  ],
   "faces": [
     "down",
     "up",
@@ -29,6 +43,21 @@
     "facing_direction",
     "block_face",
     "vertical_half"
+  ],
+  "block_drops": [
+    "itself",
+    "nothing"
+  ],
+  "block_items": [
+    "listed",
+    "unlisted",
+    "none"
+  ],
+  "game_modes": [
+    "survival",
+    "creative",
+    "adventure",
+    "spectator"
   ],
   "placement_values": [
     {

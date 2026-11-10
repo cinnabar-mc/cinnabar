@@ -50,6 +50,98 @@ pub(super) fn world(flags: [u32; 6]) -> RuntimeAssets {
 }
 
 #[test]
+fn copper_grate_meshes_preserve_fractional_source_alpha() {
+    for flags in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        for alpha in [25, 26, 64, 127, 128] {
+            let name = "minecraft:copper_grate";
+            let (mut presentation, entities) = catalog_for(name, alpha, 255);
+            presentation
+                .set_gui_models(&world([flags; 6]), &entities)
+                .unwrap();
+            let icon = presentation.item_icon(name, 0).unwrap();
+            let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+            let page = &presentation.textures.pages()[usize::from(mesh.batches()[0].texture_page)];
+            let pixels = page.pixels().as_chunks::<4>().0;
+            assert!(
+                pixels.contains(&[20, 40, 60, alpha]),
+                "source alpha survives for sampling and shading"
+            );
+            assert!(pixels.contains(&[20, 40, 60, 0]), "source holes survive");
+            assert!(
+                mesh.vertices()
+                    .iter()
+                    .all(|vertex| u32::from(vertex.style_flags)
+                        & render_model::UI_STYLE_COLOR_MASK
+                        != 0)
+            );
+            assert!(mesh.batches().iter().all(|batch| batch.alpha_cutoff
+                == Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD)));
+            let mut nodes = [control(icon, 127, false)];
+            presentation.apply_gui_models(&mut nodes);
+            assert!(
+                matches!(nodes[0].visual(), UiVisual::Mesh(_)),
+                "grate coverage keeps the mesh while fading"
+            );
+        }
+    }
+}
+
+#[test]
+fn copper_grate_coverage_survives_control_fades() {
+    let mut names: BTreeSet<_> = assets::registry::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap()
+    .into_iter()
+    .filter(|record| {
+        assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::CopperGrate
+    })
+    .map(|record| record.name)
+    .collect();
+    assert!(!names.is_empty());
+    names.insert("minecraft:glass".into());
+    for name in names {
+        let covered = assets::facts::block_render_fact(&name).kind
+            == assets::facts::BlockRenderKind::CopperGrate;
+        let (mut presentation, entities) = catalog_for(&name, 255, 255);
+        presentation
+            .set_gui_models(&world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]), &entities)
+            .unwrap();
+        let icon = presentation.item_icon(&name, 0).unwrap();
+        let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+        let faded = modulated(mesh, [255, 255, 255, 127], false).unwrap();
+        for vertex in faded.vertices() {
+            assert_eq!(
+                u32::from(vertex.style_flags) & render_model::UI_STYLE_COLOR_MASK != 0,
+                covered,
+                "{name} retains its sampled coverage policy"
+            );
+            assert_eq!(
+                vertex.color[3], 127,
+                "{name} keeps control opacity independent"
+            );
+        }
+        assert!(
+            faded.batches().iter().all(|batch| batch.alpha_cutoff
+                == Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD))
+        );
+        if covered {
+            let mut nodes = [control(icon, 127, false)];
+            presentation.apply_gui_models(&mut nodes);
+            let UiVisual::Mesh(mesh) = nodes[0].visual() else {
+                panic!("{name} keeps the covered mesh during control fades");
+            };
+            assert!(mesh.vertices().iter().all(|vertex| vertex.color[3] == 127));
+        }
+    }
+}
+
+#[test]
 fn carried_cubes_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
     for face in BlockFace::ALL {
         let mut flags = [0; 6];
@@ -61,7 +153,13 @@ fn carried_cubes_keep_unshaded_thumbnails_when_face_dimming_is_disabled() {
         let icon = presentation
             .item_icon(ITEM, 0)
             .expect("thumbnail remains available");
-        assert!(!presentation.gui_models.models.contains_key(&icon_key(icon)));
+        assert!(
+            !presentation
+                .gui_models
+                .sources
+                .models
+                .contains_key(&icon_key(icon))
+        );
         let mut nodes = [control(icon, 255, false)];
         let original = nodes.clone();
         presentation.apply_gui_models(&mut nodes);
@@ -85,7 +183,7 @@ fn fractional_non_blended_texels_are_thresholded_before_mesh_sampling() {
             for texel in expected.as_chunks_mut::<4>().0 {
                 texel[3] = if texel[3] >= threshold { 255 } else { 0 };
             }
-            let source = presentation.gui_models.textures
+            let source = presentation.gui_models.sources.textures
                 [&super::super::super::atlas::key([sheet.width, sheet.height], &expected)];
             let page = &presentation.textures.pages()[usize::from(source.page)];
             for y in 0..usize::from(sheet.height) {
@@ -103,7 +201,7 @@ fn fractional_non_blended_texels_are_thresholded_before_mesh_sampling() {
                 let icon = presentation
                     .item_icon(&entry.identifier, entry.metadata)
                     .unwrap();
-                let mesh = &presentation.gui_models.models[&icon_key(icon)];
+                let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
                 assert_eq!(mesh.indices().len(), assets::gui_item::CUBE_FACES.len() * 6);
                 assert!(mesh.vertices().iter().all(|vertex| vertex.alpha_test));
             }
@@ -130,7 +228,7 @@ fn fractional_blended_cube_faces_keep_the_composited_thumbnail_under_pressure() 
             presentation
                 .set_gui_models(&world(blended_faces), &entities)
                 .unwrap();
-            assert_eq!(presentation.gui_models.pages.len(), pages);
+            assert_eq!(presentation.gui_models.sources.pages.len(), pages);
             for entry in presentation.icon_catalog.as_deref().unwrap().entries() {
                 let icon = presentation
                     .item_icon(&entry.identifier, entry.metadata)
@@ -148,6 +246,83 @@ fn fractional_blended_cube_faces_keep_the_composited_thumbnail_under_pressure() 
                         assert_eq!(
                             nodes[0], original,
                             "blended faces keep their composed coverage"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn gui_only_cutout_sheets_override_world_artwork_and_keep_thumbnail_fades() {
+    for alpha in [assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD, 255] {
+        let (base, entities) = catalog_for(ITEM, alpha, 255);
+        let original = base.icon_catalog.as_deref().unwrap();
+        let models: Vec<_> = original
+            .entries()
+            .iter()
+            .map(|entry| assets::IconBlockModel {
+                sprite: entry.sprite,
+                visual: VISUAL,
+                held_sprite: None,
+            })
+            .collect();
+        let icons = Arc::new(
+            RuntimeIconCatalog::decode(
+                &assets::encode_icon_catalog_with_gui_cube_sheets(
+                    entities.source_manifest_sha256(),
+                    original.sprites(),
+                    original.entries(),
+                    &[],
+                    &models,
+                    &[],
+                    original.block_sheets(),
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+        );
+        let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+            ui_engine::test_support::fixture_font(),
+            crate::test_support::fixture_hud(),
+            Arc::clone(&icons),
+        )
+        .unwrap();
+        let source_world =
+            super::super::short_models::world(entities.source_manifest_sha256(), 256, 192);
+        presentation
+            .set_gui_models(&source_world, &entities)
+            .unwrap();
+        assert!(icons.block_sheets().is_empty());
+        assert_eq!(icons.block_models(), models);
+        let gui_sheet = &icons.sprites()[icons.gui_block_sheets()[0].sprite as usize];
+        for entry in icons.entries() {
+            let icon = presentation
+                .item_icon(&entry.identifier, entry.metadata)
+                .unwrap();
+            let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+            let vertices = mesh.vertices();
+            let x = ((vertices[0].uv[0] + vertices[2].uv[0]) / 2.0) as usize;
+            let y = ((vertices[0].uv[1] + vertices[2].uv[1]) / 2.0) as usize;
+            let page = &presentation.textures.pages()[usize::from(mesh.batches()[0].texture_page)];
+            let at = (y * page.dimensions()[0] as usize + x) * 4;
+            assert_eq!(
+                &page.pixels()[at..at + 3],
+                &gui_sheet.rgba8[..3],
+                "the GUI mesh must sample its own sheet instead of the world texture"
+            );
+            for opacity in [255, 254, 127, 0] {
+                for glint in [false, true] {
+                    let original = control(icon, opacity, glint);
+                    let mut nodes = [original.clone()];
+                    presentation.apply_gui_models(&mut nodes);
+                    if opacity == 255 {
+                        assert!(matches!(nodes[0].visual(), UiVisual::Mesh(_)));
+                    } else {
+                        assert_eq!(
+                            nodes[0], original,
+                            "fades retain the composed GUI thumbnail"
                         );
                     }
                 }
