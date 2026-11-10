@@ -32,7 +32,7 @@ pub fn fixture_hud() -> Arc<RuntimeHudCatalog> {
             }
         })
         .collect::<Vec<_>>();
-    let manifest = assets::HUD_SOURCE_MANIFEST_SHA256;
+    let manifest = assets::hud_source_manifest_sha256();
     let bytes = encode_hud_catalog(manifest, &textures).unwrap();
     Arc::new(RuntimeHudCatalog::decode(&bytes).unwrap())
 }
@@ -205,6 +205,7 @@ pub use crate::ui_runtime::presentation::forms::test_support::{text_metrics, tex
 /// Constructs a named UI fixture item with unrelated registry traits explicitly unresolved.
 pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
     client_world::CanonicalItemStack {
+        trim: None,
         identifier: Some(identifier.into()),
         use_animation: assets::item_use::ItemUseAnimation::None,
         grip: assets::item::grip::ItemGrip::Unresolved,
@@ -217,5 +218,6 @@ pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
         durability: assets::item::durability::ItemDurability::NotDamageable,
         enchanted: false,
         map_id: None,
+        shield_pattern: None,
     }
 }

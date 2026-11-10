@@ -2,7 +2,7 @@
 //! wire mode. Mode defaults follow dragonfly's `world.GameMode` interface (MIT);
 //! server ability bits refine them where the session actually sent evidence.
 
-use protocol::{AbilitiesUpdate, AbilityLayersEvidence, PlayerGameMode};
+use protocol::{AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence, PlayerGameMode};
 
 /// Documented survival/adventure melee reach from the eye.
 pub const SURVIVAL_ATTACK_REACH: f64 = 3.0;
@@ -16,6 +16,8 @@ pub mod ability_bit {
     pub const MINE: u32 = 1 << 1;
     pub const DOORS_AND_SWITCHES: u32 = 1 << 2;
     pub const OPEN_CONTAINERS: u32 = 1 << 3;
+    pub const ATTACK_PLAYERS: u32 = 1 << 4;
+    pub const ATTACK_MOBS: u32 = 1 << 5;
     pub const INVULNERABLE: u32 = 1 << 8;
     pub const FLYING: u32 = 1 << 9;
     pub const MAY_FLY: u32 = 1 << 10;
@@ -273,6 +275,74 @@ impl GameModeCapabilities {
         }
         caps
     }
+}
+
+/// Base-layer abilities a game-mode change defines. Creative leaves Flying as it was.
+const BASE_MODE_ABILITIES: u32 = ability_bit::FLYING
+    | ability_bit::MAY_FLY
+    | ability_bit::INSTANT_BUILD
+    | ability_bit::INVULNERABLE
+    | ability_bit::NO_CLIP;
+
+/// Abilities spectator mode defines in its own layer.
+const SPECTATOR_MODE_ABILITIES: u32 = ability_bit::BUILD
+    | ability_bit::MINE
+    | ability_bit::DOORS_AND_SWITCHES
+    | ability_bit::OPEN_CONTAINERS
+    | ability_bit::ATTACK_PLAYERS
+    | ability_bit::ATTACK_MOBS
+    | BASE_MODE_ABILITIES;
+
+/// Rewrites received layers the way a game-mode change rewrites the player's abilities.
+///
+/// Every mode clears the whole spectator layer first. Survival and Adventure then define
+/// Flying, MayFly, Instabuild, Invulnerable and NoClip as false in the base layer; Creative
+/// grants MayFly, Instabuild and Invulnerable there and clears NoClip; Spectator defines its
+/// own layer. Unknown modes only clear the spectator layer. Other layers and abilities stay.
+pub fn assign_mode_layers(
+    layers: &[AbilityLayerEvidence],
+    mode: PlayerGameMode,
+) -> Vec<AbilityLayerEvidence> {
+    let mut assigned = layers
+        .iter()
+        .filter(|layer| layer.layer_type != SPECTATOR_LAYER_TYPE)
+        .copied()
+        .collect::<Vec<_>>();
+    let (layer_type, abilities, values) = match mode {
+        PlayerGameMode::Survival | PlayerGameMode::Adventure => {
+            (ability_layer::BASE as u16, BASE_MODE_ABILITIES, 0)
+        }
+        PlayerGameMode::Creative => (
+            ability_layer::BASE as u16,
+            BASE_MODE_ABILITIES & !ability_bit::FLYING,
+            ability_bit::MAY_FLY | ability_bit::INSTANT_BUILD | ability_bit::INVULNERABLE,
+        ),
+        PlayerGameMode::Spectator => (
+            SPECTATOR_LAYER_TYPE,
+            SPECTATOR_MODE_ABILITIES,
+            ability_bit::FLYING | ability_bit::INVULNERABLE | ability_bit::NO_CLIP,
+        ),
+        PlayerGameMode::Unknown => return assigned,
+    };
+    // The last definition of a layer type is the one that resolves.
+    let index = assigned
+        .iter()
+        .rposition(|layer| layer.layer_type == layer_type)
+        .unwrap_or_else(|| {
+            assigned.push(AbilityLayerEvidence {
+                layer_type,
+                abilities: 0,
+                values: 0,
+                fly_speed_bits: 0,
+                vertical_fly_speed_bits: 0,
+                walk_speed_bits: 0,
+            });
+            assigned.len() - 1
+        });
+    let layer = &mut assigned[index];
+    layer.abilities |= abilities;
+    layer.values = (layer.values & !abilities) | values;
+    assigned
 }
 
 /// Resolves a boolean using the same typed layers as float abilities.

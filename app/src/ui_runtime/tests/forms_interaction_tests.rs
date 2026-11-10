@@ -262,7 +262,12 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         )
         .unwrap();
         assert_eq!(packets.len(), 1);
-        app.update(); // returns cursor ownership without replaying old messages
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(
+                client_ui::ui_runtime::FORM_HANDOFF_GRACE_MILLIS + 1,
+            ));
+        app.update(); // expires the unanswered handoff and returns cursor ownership
         assert!(
             !app.world()
                 .resource::<UiRuntimeResource>()
@@ -537,6 +542,87 @@ fn clicking_an_engine_drawn_button_answers_its_index() {
         ),)
         .unwrap()
     );
+}
+
+/// A click on a screen over the form is that screen's, even once it has closed and the form reads
+/// the frames after it. The frames run without a fixed tick between them, which is what keeps raw
+/// edges readable into the next frame in the real app, as `TimePlugin` only swaps messages after one.
+#[test]
+fn a_click_on_a_screen_over_the_form_does_not_replay_on_the_form() {
+    use bevy::input::mouse::MouseButtonInput;
+    use {
+        client_ui::test_support::mini_engine_presentation, client_ui::test_support::pack_harness,
+    };
+    let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B", "C"]);
+    let mut presentation = mini_engine_presentation();
+    presentation
+        .build(
+            &player_runtime,
+            &runtime,
+            0,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let identity = runtime.server_forms().active().unwrap().identity;
+    let frame = presentation.form_engine_frame(identity).unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.collection_index == Some(1))
+        .unwrap();
+    let centre = Vec2::new(
+        frame.origin[0] + (hit.rect.x + hit.rect.w / 2.0) as f32 * frame.scale,
+        frame.origin[1] + (hit.rect.y + hit.rect.h / 2.0) as f32 * frame.scale,
+    );
+    assert!(runtime.credits_mut().open(1, 1, 0));
+    let mut app = App::new();
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<MouseButtonInput>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .init_resource::<AccumulatedMouseMotion>()
+        .insert_resource(UiRuntimeResource(runtime))
+        .insert_resource(player_runtime.clone())
+        .insert_resource(UiPresentationResource(presentation))
+        .add_systems(Update, drive_server_form_input);
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window.resolution.set_physical_resolution(1280, 720);
+    window.set_cursor_position(Some(centre));
+    let entity = app
+        .world_mut()
+        .spawn((window, CursorOptions::default(), PrimaryWindow))
+        .id();
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        app.world_mut().write_message(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window: entity,
+        });
+    }
+    app.world_mut().run_schedule(Update);
+    let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+    runtime.credits_mut().skip(0);
+    let closed = runtime.credits_mut().flush(Some(1), |_| Ok(()));
+    assert_eq!(closed, Ok(true));
+    assert!(!runtime.credits().owns_input());
+    app.world_mut().run_schedule(Update);
+    let mut response = None;
+    flush_form_response(
+        &mut app.world_mut().resource_mut::<UiRuntimeResource>(),
+        |_| false,
+        |packet| {
+            response = Some(packet);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(response.is_none(), "the click answered the form under it");
 }
 
 // A key held from gameplay auto-repeats; repeats must never press form buttons (pages skipped).
@@ -980,13 +1066,22 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         }
         press(&mut app, window, key);
         app.update();
-        assert!(
-            app.world()
-                .resource::<UiRuntimeResource>()
-                .server_forms()
-                .active()
-                .is_none()
-        );
+        if key == KeyCode::Enter {
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
+                    .server_forms()
+                    .handoff_pending()
+            );
+        } else {
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
+                    .server_forms()
+                    .active()
+                    .is_none()
+            );
+        }
         assert!(
             app.world()
                 .resource::<UiRuntimeResource>()
@@ -1006,6 +1101,11 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         app.world_mut()
             .resource_mut::<client_state::CursorFocus>()
             .begin_frame(true);
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(
+                client_ui::ui_runtime::FORM_HANDOFF_GRACE_MILLIS + 1,
+            ));
         app.update();
         let cursor = app.world().get::<CursorOptions>(window).unwrap();
         assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::Locked);

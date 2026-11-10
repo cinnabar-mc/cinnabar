@@ -327,3 +327,34 @@ fn command_macro_validation_reports_the_same_text_limits_as_chat() {
         );
     }
 }
+
+// Desktop editing keys move by character or word, extend the selection with Shift, and
+// a cut takes exactly the selection.
+#[test]
+fn edit_keys_select_all_and_cut_follow_the_selection() {
+    use semantic_input::KeyboardKey;
+
+    let mut editor = ChatEditor::new(MAX_CHAT_INPUT_BYTES).unwrap();
+    editor.insert("iron ingot").unwrap();
+    assert!(editor.edit_key(KeyboardKey::Home, false, false));
+    assert!(editor.edit_key(KeyboardKey::ArrowRight, true, true));
+    assert_eq!(editor.selected_text(), Some("iron "));
+    assert_eq!(editor.cut_selection().as_deref(), Some("iron "));
+    assert_eq!(editor.as_str(), "ingot");
+    assert_eq!(editor.cut_selection(), None);
+
+    assert!(editor.edit_key(KeyboardKey::End, false, false));
+    assert!(editor.edit_key(KeyboardKey::ArrowLeft, true, false));
+    assert_eq!(editor.selected_text(), Some("t"));
+    assert!(editor.edit_key(KeyboardKey::Delete, false, false));
+    assert_eq!(editor.as_str(), "ingo");
+    assert!(editor.edit_key(KeyboardKey::Backspace, false, true));
+    assert_eq!(editor.as_str(), "");
+    assert!(!editor.edit_key(KeyboardKey::KeyA, false, true));
+
+    editor.insert("gold").unwrap();
+    editor.select_all();
+    assert_eq!(editor.selected_text(), Some("gold"));
+    editor.insert("x").unwrap();
+    assert_eq!(editor.as_str(), "x");
+}

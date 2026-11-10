@@ -4,10 +4,14 @@ import android.app.AlertDialog;
 import android.app.Instrumentation;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Rect;
 import java.io.File;
 import java.io.FileOutputStream;
 import android.os.Bundle;
+import android.view.DisplayCutout;
 import android.view.WindowInsets;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -25,6 +29,7 @@ public final class WindowTests extends Instrumentation {
     @Override public void onStart() {
         Bundle results = new Bundle();
         try {
+            cutoutInsetsPreserveKeyboardOverlap();
             Intent launch = new Intent(getTargetContext(), WindowActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity = (WindowActivity) startActivitySync(launch);
@@ -66,13 +71,36 @@ public final class WindowTests extends Instrumentation {
             runOnMainSync(() -> dialog[0].dismiss());
             await(() -> activity.hasWindowFocus() && systemBarsHidden(),
                     "dialog dismissal restores immersive mode");
-            results.putString("stream", "PASS: initial hiding, keyboard independence, dismissal and focus recovery\n");
+            results.putString("stream", "PASS: cutout geometry, initial hiding, keyboard independence, dismissal and focus recovery\n");
             runOnMainSync(() -> activity.finish());
             finish(RESULT_OK, results);
         } catch (Throwable failure) {
             results.putString("stream", "FAIL: " + failure + "\n");
             if (activity != null) runOnMainSync(() -> activity.finish());
             finish(0, results);
+        }
+    }
+
+    /** Exercises the production geometry path without requiring a physically notched screen. */
+    private void cutoutInsetsPreserveKeyboardOverlap() {
+        WindowInsets left = new WindowInsets.Builder().setDisplayCutout(
+                new DisplayCutout(new Rect(96, 24, 0, 12), Collections.emptyList())).build();
+        WindowInsets right = new WindowInsets.Builder().setDisplayCutout(
+                new DisplayCutout(new Rect(0, 24, 96, 12), Collections.emptyList())).build();
+        checkInsets(left, 0, new int[] {96, 24, 0, 12});
+        checkInsets(left, 360, new int[] {96, 24, 0, 360});
+        checkInsets(right, 360, new int[] {0, 24, 96, 360});
+        checkInsets(right, 0, new int[] {0, 24, 96, 12});
+        checkInsets(new WindowInsets.Builder().build(), 280, new int[] {0, 0, 0, 280});
+        checkInsets(new WindowInsets.Builder().build(), 0, new int[4]);
+    }
+
+    /** Checks that cutouts and bottom obstructions combine without double-counting overlap. */
+    private void checkInsets(WindowInsets insets, int bottom, int[] expected) {
+        int[] actual = WindowGeometry.safeAreaInsetsPixels(insets, bottom);
+        if (!Arrays.equals(actual, expected)) {
+            throw new AssertionError("safe area: " + Arrays.toString(actual)
+                    + ", expected " + Arrays.toString(expected));
         }
     }
 

@@ -201,30 +201,31 @@ impl BookState {
 impl UiRuntime {
     /// Queues a client packet for the next flush; returns false when the queue is full.
     pub fn queue_client_packet(&mut self, packet: Packet) -> bool {
-        if self.client_packets.len() >= MAX_QUEUED_CLIENT_PACKETS {
+        if self.session.client_packets.len() >= MAX_QUEUED_CLIENT_PACKETS {
             return false;
         }
-        self.client_packets.push_back(packet);
+        self.session.client_packets.push_back(packet);
         true
     }
 
     pub fn take_client_packet(&mut self) -> Option<Packet> {
-        self.client_packets
+        self.session
+            .client_packets
             .pop_front()
-            .or_else(|| self.book_packets.pop_front())
-            .or_else(|| self.data_driven.take_packet())
+            .or_else(|| self.session.book_packets.pop_front())
+            .or_else(|| self.session.data_driven.take_packet())
     }
 
     pub fn requeue_client_packet(&mut self, packet: Packet) {
-        self.client_packets.push_front(packet);
+        self.session.client_packets.push_front(packet);
     }
 
     /// Shows a book screen over the world.
     pub fn open_book(&mut self, state: BookState) {
-        self.screen.container_close_armed = false;
-        self.screen.book = Some(state);
-        self.inventory_open = true;
-        self.chat_focused = false;
+        self.session.screen.container_close_armed = false;
+        self.session.screen.book = Some(state);
+        self.session.inventory_open = true;
+        self.session.chat_focused = false;
     }
 
     /// Opens the selected backing book after its item-use transaction is admitted.
@@ -321,18 +322,18 @@ impl UiRuntime {
 
     /// Retains a complete book commit before closing; false preserves the editor on refusal.
     pub fn commit_book(&mut self, sign: bool) -> bool {
-        let Some(book) = self.screen.book.as_ref() else {
+        let Some(book) = self.session.screen.book.as_ref() else {
             return true;
         };
         let BookSource::Held(slot) = book.source else {
-            self.screen.book = None;
+            self.session.screen.book = None;
             return true;
         };
         if !book.editable {
-            self.screen.book = None;
+            self.session.screen.book = None;
             return true;
         }
-        if !self.book_packets.is_empty()
+        if !self.session.book_packets.is_empty()
             || book.pages.len() > MAX_BOOK_PAGES
             || book.baseline.len() > MAX_BOOK_PAGES
         {
@@ -361,8 +362,8 @@ impl UiRuntime {
             };
             packets.push_back(packet);
         }
-        self.book_packets = packets;
-        self.screen.book = None;
+        self.session.book_packets = packets;
+        self.session.screen.book = None;
         true
     }
 
@@ -380,7 +381,7 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         key: KeyboardKey,
     ) -> bool {
-        let Some(book) = self.screen.book.as_mut() else {
+        let Some(book) = self.session.screen.book.as_mut() else {
             return false;
         };
         match key {
@@ -408,7 +409,7 @@ impl UiRuntime {
 
     /// Reports a lectern page turn to the server.
     pub fn report_lectern_page(&mut self) {
-        let Some(book) = self.screen.book.as_ref() else {
+        let Some(book) = self.session.screen.book.as_ref() else {
             return;
         };
         let BookSource::Lectern(position) = book.source else {

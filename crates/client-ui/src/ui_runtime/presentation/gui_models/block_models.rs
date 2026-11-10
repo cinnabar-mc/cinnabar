@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, block_gui_quads, material_tile};
+use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, material_tile};
 use assets::{
     BlockFace, BlockVisualId, Material, ModelQuad, ModelTemplate, NetworkIdMode, RuntimeAssets,
     TexturePage, VisualKind,
@@ -64,6 +64,7 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         shape.quads,
     )
     .ok()?;
+    let shading = GuiShading::of(shape.kind, shape.template, shape.templates);
     let mut sources = BTreeMap::new();
     for quad in &quads {
         let std::collections::btree_map::Entry::Vacant(source) = sources.entry(quad.material)
@@ -113,19 +114,16 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            let order = shape
-                .template
-                .and_then(|id| shape.templates.get(id as usize))
-                .filter(|template| {
-                    template.flags
-                        & (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD
-                            | assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER)
-                        != 0
-                })
-                .map_or(item_gui::BlockModelOrder::Depth, |_| {
-                    item_gui::BlockModelOrder::Paint
-                });
-            item_gui::block_model(&placed, Default::default(), order)
+            let order = if assets::gui_item::block_gui_uses_paint_order(
+                shape
+                    .template
+                    .and_then(|id| shape.templates.get(id as usize)),
+            ) {
+                item_gui::BlockModelOrder::Paint
+            } else {
+                item_gui::BlockModelOrder::Depth
+            };
+            item_gui::block_model(&placed, shading, Default::default(), order)
         },
     )
 }

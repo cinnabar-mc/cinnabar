@@ -1,4 +1,4 @@
-use super::{InventoryPendingState, PlayerInventoryLedger};
+use super::{InventoryPendingState, PendingRequest, PlayerInventoryLedger};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum PersonalWindow {
@@ -44,6 +44,24 @@ impl PlayerInventoryLedger {
         self.controls.storage.desired_open
     }
 
+    /// Whether the open screen admits cell gestures now: no cell surface awaits recovery from
+    /// a superseded request, and either a server window is open, not closing, with its own
+    /// cells (if it has any) bound to their contents, or the personal open request has left
+    /// transport.
+    #[must_use]
+    pub fn screen_accepts_gestures(&self) -> bool {
+        self.authority.is_some()
+            && !self.resync_required()
+            && match &self.storage {
+                Some(storage) => {
+                    !storage.closing
+                        && (storage.kind.open_cells().is_none()
+                            || storage.identity.is_some() && !storage.resync_required)
+                }
+                None => self.personal_generation_for_gesture().is_some(),
+            }
+    }
+
     /// Admits personal gestures only while the latest intent still wants this screen open.
     pub(super) fn personal_generation_for_gesture(&self) -> Option<u64> {
         if !self.controls.personal.desired_open {
@@ -72,6 +90,23 @@ impl PlayerInventoryLedger {
     pub(super) fn personal_generation_pending(&self, generation: u64) -> bool {
         self.pending_requests()
             .any(|request| request.personal_generation == Some(generation))
+    }
+
+    /// Holds this screen's mutations and close returns until its server window arrives.
+    pub(super) fn personal_request_waits_for_open(&self, request: &PendingRequest) -> bool {
+        self.controls.personal.confirmed.is_none()
+            && self.personal.is_some_and(|personal| {
+                request.personal_generation == Some(personal.generation())
+                    && matches!(
+                        personal,
+                        PersonalWindow::Opening { .. }
+                            | PersonalWindow::Recovering { .. }
+                            | PersonalWindow::Closing {
+                                awaiting_open: true,
+                                ..
+                            }
+                    )
+            })
     }
 
     /// Queues inventory input for the runtime actor selected when the user pressed it.

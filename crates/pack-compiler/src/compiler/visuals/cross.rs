@@ -16,7 +16,13 @@ pub(in crate::compiler) enum Geometry {
     BerryBush,
     Reeds,
     Grass,
-    ComponentCross { single_sided: bool },
+    ComponentCross {
+        single_sided: bool,
+    },
+    /// Holds the head's front and back art.
+    Sunflower {
+        head: [u32; 2],
+    },
 }
 
 pub(in crate::compiler) type TemplateKey = ([u32; 2], Geometry);
@@ -51,7 +57,17 @@ pub(in crate::compiler) fn compile_rule(
         )
     {
         let materials = [material_a, material_b];
-        let geometry = if let Some(material) = inputs.pack.blocks.component_cross(&record.name) {
+        let head = (super::sunflower::draws_head(record))
+            .then(|| {
+                Some([
+                    inputs.material(record, super::sunflower::FRONT_FACE)?,
+                    inputs.material(record, super::sunflower::BACK_FACE)?,
+                ])
+            })
+            .flatten();
+        let geometry = if let Some(head) = head {
+            Geometry::Sunflower { head }
+        } else if let Some(material) = inputs.pack.blocks.component_cross(&record.name) {
             Geometry::ComponentCross {
                 single_sided: material.single_sided,
             }
@@ -81,6 +97,9 @@ pub(in crate::compiler) fn compile_rule(
                 Geometry::ComponentCross { single_sided } => {
                     component_cross_quads(material_a, single_sided)
                 }
+                Geometry::Sunflower {
+                    head: [front, back],
+                } => super::sunflower::quads([material_a, front, back]),
             };
             let flags = if geometry == Geometry::Grass {
                 assets::MODEL_TEMPLATE_FLAG_SHORT_GRASS

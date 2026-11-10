@@ -1,5 +1,7 @@
-use super::super::*;
-use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
+use super::super::{preparation::cube_shape_admitted, sources::gui_cube_sheet, *};
+use assets::{
+    EquipmentTexture, ItemVisualDefinitionRoute, RuntimeEquipmentCatalog, RuntimeIconCatalog,
+};
 use ui::{UiNodeId, UiPoint, UiRect};
 
 mod alpha;
@@ -116,7 +118,10 @@ pub(super) fn catalog_for_visual(
 }
 
 /// Fills the requested number of atlas pages with distinct required equipment textures.
-fn equipment(entities: &RuntimeEntityAssets, pages: usize) -> Arc<RuntimeEquipmentCatalog> {
+pub(super) fn equipment(
+    entities: &RuntimeEntityAssets,
+    pages: usize,
+) -> Arc<RuntimeEquipmentCatalog> {
     let side = render_model::UI_MODEL_ATLAS_SIDE as u16;
     Arc::new(
         RuntimeEquipmentCatalog::from_parts(

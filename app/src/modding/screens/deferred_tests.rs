@@ -45,6 +45,7 @@ fn install_driver(app: &mut App, hosts: Vec<ModHost>, owner: usize, layout: Scre
     app.insert_resource(runtime)
         .insert_resource(crate::environment::VisualTimeOverride(None))
         .init_resource::<ModInteraction>()
+        .init_resource::<crate::modding::pointer::Pending>()
         .add_systems(Update, (begin_mod_frame, drive_mod).chain());
 }
 
@@ -178,4 +179,26 @@ fn frame_driver_replays_edits_only_while_their_screen_and_view_remain() {
             assert!(host.screens().view.is_none());
         }
     }
+}
+
+/// Frame-scoped mining cannot survive a suspended or removed mod runtime.
+#[test]
+fn frame_driver_releases_mining_when_mod_delivery_is_inactive() {
+    let (mut app, _) = input_app();
+    let dir = tempfile::tempdir().unwrap();
+    write_transition_probe(dir.path(), "0.1.0");
+    let host = load_driver_host(dir.path());
+    install_driver(&mut app, vec![host], 0, old_layout());
+    app.world_mut().resource_mut::<ModRuntime>().suspended = true;
+    app.world_mut()
+        .resource_mut::<ModInteraction>()
+        .block_mining = true;
+    app.update();
+    assert!(!app.world().resource::<ModInteraction>().block_mining);
+    app.world_mut().remove_resource::<ModRuntime>();
+    app.world_mut()
+        .resource_mut::<ModInteraction>()
+        .block_mining = true;
+    app.update();
+    assert!(!app.world().resource::<ModInteraction>().block_mining);
 }

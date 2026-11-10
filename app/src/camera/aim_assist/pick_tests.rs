@@ -22,7 +22,7 @@ fn check_player_pick_context(rule: PickRule) {
     let bytes = assets::pinned_block_registry_bytes();
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(bytes, version).unwrap();
-    let preg = include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin");
+    let preg = include_bytes!("../../../../crates/assets/data/block-physics-v2225.bin");
     let physics =
         assets::read_physics_registry_for_protocol(preg, bytes, &records, version).unwrap();
     let mut compiled: Vec<_> = records

@@ -7,7 +7,7 @@ struct NativeStairFixture {
 fn native_stair_fixture() -> &'static NativeStairFixture {
     static FIXTURE: OnceLock<NativeStairFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let data = include_bytes!("../../../../../assets/data/block-registry-v2193.bin");
+        let data = include_bytes!("../../../../../assets/data/block-registry-v2225.bin");
         let records = assets::read_registry_for_protocol(
             data,
             assets::registry_header_protocol(data).unwrap(),

@@ -158,6 +158,7 @@ fn composite_bindings_reuse_both_scene_orientations_and_expire_replaced_sources(
 /// Supplies one valid triangle with an immutable texture catalog.
 fn input() -> Arc<UiRenderInput> {
     Arc::new(UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [40; 2],
         safe_area: [0; 4],

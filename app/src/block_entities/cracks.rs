@@ -1,6 +1,6 @@
 //! Projects committed crack progress onto model surfaces.
 
-use chunk_pipeline::ActiveBlockCrack;
+use client_world::ActiveBlockCrack;
 use render_model::{CrackInstance, CrackShape};
 
 /// The destroy stage (`0..=9`) for progress below completion.

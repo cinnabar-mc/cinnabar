@@ -67,16 +67,20 @@ impl SettingsOptions {
         if !LATE_DEFAULTS.contains(&action) || self.keys.contains_key(*name) {
             return false;
         }
-        let defaults = ControlSettings::default();
-        let default = defaults
+        let defaults = ControlSettings::builtin();
+        defaults
             .bindings()
             .iter()
             .find(|binding| binding.action == action)
-            .map(|binding| binding.chord.control);
+            .is_some_and(|binding| self.saved_keyboard_control(binding.chord.control))
+    }
+
+    /// Whether a saved keyboard and mouse row, other than a command macro, holds `control`.
+    fn saved_keyboard_control(&self, control: PhysicalControl) -> bool {
         self.keys.iter().any(|(name, code)| {
             !name.starts_with("gamepad:")
                 && !name.starts_with(super::command_macros::MACRO_KEY_PREFIX)
-                && decode_control(*code).is_some_and(|control| Some(control) == default)
+                && decode_control(*code) == Some(control)
         })
     }
     /// Validates stored controls with the same device rules as interactive remapping.
@@ -90,7 +94,7 @@ impl SettingsOptions {
                     let Some((name, _, _)) = self.binding(index) else {
                         return true;
                     };
-                    let Some(code) = self.keys.get(&name) else {
+                    let Some(code) = self.keys.get(name) else {
                         return true;
                     };
                     *code == UNBOUND_CONTROL
@@ -100,24 +104,28 @@ impl SettingsOptions {
     }
 
     /// Resolves a settings row to its persisted name and optional semantic action.
-    fn binding(&self, index: usize) -> Option<(String, Option<Action>, Option<PhysicalControl>)> {
+    fn binding(
+        &self,
+        index: usize,
+    ) -> Option<(&'static str, Option<Action>, Option<PhysicalControl>)> {
         if let Some(index) = index.checked_sub(GAMEPAD_OFFSET) {
-            if let Some((action, name)) = GAMEPAD_BINDINGS.get(index) {
-                return Some((format!("gamepad:{name}"), Some(*action), None));
+            let name = gamepad_row_names().get(index)?.as_str();
+            if let Some((action, _)) = GAMEPAD_BINDINGS.get(index) {
+                return Some((name, Some(*action), None));
             }
-            let (name, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
+            let (row, control) = EXTRA_GAMEPAD.get(index.checked_sub(GAMEPAD_BINDINGS.len())?)?;
             return Some((
-                format!("gamepad:{name}"),
-                BindingId::from_name(name)?.definition().action,
+                name,
+                BindingId::from_name(row)?.definition().action,
                 *control,
             ));
         }
         if let Some((action, name)) = KEY_BINDINGS.get(index) {
-            return Some(((*name).to_owned(), Some(*action), None));
+            return Some((name, Some(*action), None));
         }
         let (name, control) = EXTRA_KEYS.get(index.checked_sub(KEY_BINDINGS.len())?)?;
         Some((
-            (*name).to_owned(),
+            name,
             BindingId::from_name(name)?.definition().action,
             Some(*control),
         ))
@@ -126,19 +134,26 @@ impl SettingsOptions {
     /// Reads the persisted device binding, falling back to the gameplay router's defaults.
     pub fn key_control(&self, index: usize) -> Option<PhysicalControl> {
         let (name, action, fallback) = self.binding(index)?;
-        if self.keys.get(&name) == Some(&UNBOUND_CONTROL) {
+        if self.keys.get(name) == Some(&UNBOUND_CONTROL) {
             return None;
         }
         if action.is_some_and(|action| self.default_yields(action)) {
             return None;
         }
+        // Layouts saved before Menu Cancel existed can hold its default on another action.
+        if name == BindingId::MenuCancel.name()
+            && !self.keys.contains_key(name)
+            && fallback.is_some_and(|default| self.saved_keyboard_control(default))
+        {
+            return None;
+        }
         self.keys
-            .get(&name)
+            .get(name)
             .and_then(|code| decode_control(*code))
             .filter(|control| is_gamepad(*control) == (index >= GAMEPAD_OFFSET))
             .or(fallback)
             .or_else(|| {
-                ControlSettings::default()
+                ControlSettings::builtin()
                     .bindings()
                     .iter()
                     .find(|binding| {
@@ -178,7 +193,8 @@ impl SettingsOptions {
             .retain(|name, _| name.starts_with("gamepad:") != gamepad);
     }
 
-    /// Saves a mapping only if the complete gameplay binding set remains valid.
+    /// Saves a mapping only if the complete gameplay binding set remains valid. A control taken
+    /// from Menu Cancel leaves that row unassigned, so a screen no longer cancels on it.
     pub fn remap(&mut self, index: usize, control: PhysicalControl) -> bool {
         let Some((name, _, _)) = self.binding(index) else {
             return false;
@@ -189,6 +205,9 @@ impl SettingsOptions {
         let Some(code) = encode_control(self.swap_gamepad_control(control)) else {
             return false;
         };
+        let takes_menu_cancel = name != BindingId::MenuCancel.name()
+            && index < GAMEPAD_OFFSET
+            && self.named_key_control(BindingId::MenuCancel) == Some(control);
         let active_defaults = self.active_late_defaults();
         let previous = self.keys.insert(name.to_owned(), code);
         let inserted_defaults = self.preserve_late_defaults(active_defaults);
@@ -201,10 +220,14 @@ impl SettingsOptions {
                     self.keys.insert(name.to_owned(), code);
                 }
                 None => {
-                    self.keys.remove(&name);
+                    self.keys.remove(name);
                 }
             }
             return false;
+        }
+        if takes_menu_cancel {
+            self.keys
+                .insert(BindingId::MenuCancel.name().to_owned(), UNBOUND_CONTROL);
         }
         true
     }
@@ -218,7 +241,7 @@ impl SettingsOptions {
             return false;
         };
         let previous_defaults = self.active_late_defaults();
-        self.keys.insert(name, UNBOUND_CONTROL);
+        self.keys.insert(name.to_owned(), UNBOUND_CONTROL);
         for (action, control) in previous_defaults {
             if control.is_none() {
                 let (_, name) = KEY_BINDINGS
@@ -235,7 +258,7 @@ impl SettingsOptions {
 
     /// Restores one action's default control while preserving other remaps.
     pub fn reset_key(&mut self, index: usize) -> bool {
-        let Some((name, action, _)) = self.binding(index) else {
+        let Some((name, action, fallback)) = self.binding(index) else {
             return false;
         };
         let mut active_defaults = self.active_late_defaults();
@@ -245,12 +268,18 @@ impl SettingsOptions {
         {
             *control = Self::default().key_control(index);
         }
-        let previous = self.keys.remove(&name);
+        let previous = self.keys.remove(name);
+        let displaced = if name == BindingId::MenuCancel.name() {
+            self.unassign_saved_keyboard_control(fallback)
+        } else {
+            Vec::new()
+        };
         let inserted_defaults = self.preserve_late_defaults(active_defaults);
         if self.controls().is_err() {
             for name in inserted_defaults.into_iter().flatten() {
                 self.keys.remove(name);
             }
+            self.keys.extend(displaced);
             if let Some(previous) = previous {
                 self.keys.insert(name.to_owned(), previous);
             }
@@ -259,9 +288,32 @@ impl SettingsOptions {
         true
     }
 
+    /// Unassigns the saved rows holding `control`, as vanilla's row reset does for its restored
+    /// key, and returns their previous entries.
+    fn unassign_saved_keyboard_control(
+        &mut self,
+        control: Option<PhysicalControl>,
+    ) -> Vec<(String, u16)> {
+        let displaced: Vec<_> = self
+            .keys
+            .iter()
+            .filter(|(name, code)| {
+                !name.starts_with("gamepad:")
+                    && !name.starts_with(super::command_macros::MACRO_KEY_PREFIX)
+                    && control.is_some()
+                    && decode_control(**code) == control
+            })
+            .map(|(name, code)| (name.clone(), *code))
+            .collect();
+        for (name, _) in &displaced {
+            self.keys.insert(name.clone(), UNBOUND_CONTROL);
+        }
+        displaced
+    }
+
     /// Rebuilds and validates the gameplay bindings before handing them to the router.
     pub fn controls(&self) -> Result<ControlSettings, semantic_input::BindingError> {
-        let original = ControlSettings::default();
+        let original = ControlSettings::builtin();
         let mut bindings = original.bindings().to_vec();
         for action in LATE_DEFAULTS {
             if self.default_yields(action) {
@@ -274,7 +326,7 @@ impl SettingsOptions {
             let Some((name, Some(action), _)) = self.binding(index) else {
                 continue;
             };
-            let Some(code) = self.keys.get(&name) else {
+            let Some(code) = self.keys.get(name) else {
                 continue;
             };
             let control = decode_control(*code);
@@ -328,6 +380,19 @@ impl SettingsOptions {
             original.gamepad_look_deadzone,
         )
     }
+}
+
+/// Persisted names of the gamepad rows, `gamepad:` before each row's name, in row order.
+fn gamepad_row_names() -> &'static [String] {
+    static NAMES: std::sync::LazyLock<Box<[String]>> = std::sync::LazyLock::new(|| {
+        GAMEPAD_BINDINGS
+            .iter()
+            .map(|(_, name)| *name)
+            .chain(EXTRA_GAMEPAD.iter().map(|(name, _)| *name))
+            .map(|name| format!("gamepad:{name}"))
+            .collect()
+    });
+    &NAMES
 }
 
 impl SettingsOptions {
@@ -419,6 +484,127 @@ mod unbound_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_defaults_and_row_names_match_their_sources() {
+        assert_eq!(ControlSettings::builtin(), &ControlSettings::default());
+        for (index, (_, name)) in GAMEPAD_BINDINGS.iter().enumerate() {
+            assert_eq!(gamepad_row_names()[index], format!("gamepad:{name}"));
+        }
+        for (index, (name, _)) in EXTRA_GAMEPAD.iter().enumerate() {
+            assert_eq!(
+                gamepad_row_names()[GAMEPAD_BINDINGS.len() + index],
+                format!("gamepad:{name}")
+            );
+        }
+        assert_eq!(
+            gamepad_row_names().len(),
+            GAMEPAD_BINDINGS.len() + EXTRA_GAMEPAD.len()
+        );
+    }
+
+    /// Bindings resolve from the saved settings on every read, so an edit applies the next frame.
+    #[test]
+    fn remaps_and_unbinds_resolve_on_the_next_read() {
+        let mut settings = SettingsOptions::default();
+        let pad = BindingId::PickItem.row(true).unwrap();
+        let key = BindingId::PickItem.row(false).unwrap();
+        assert!(settings.remap(pad, PhysicalControl::GamepadButton(9)));
+        assert_eq!(
+            settings.key_control(pad),
+            Some(PhysicalControl::GamepadButton(9))
+        );
+        assert!(settings.remap(key, PhysicalControl::KeyboardUsage(0x15)));
+        assert_eq!(
+            settings.named_key_control(BindingId::PickItem),
+            Some(PhysicalControl::KeyboardUsage(0x15))
+        );
+        assert!(settings.unbind_key(key));
+        assert_eq!(settings.named_key_control(BindingId::PickItem), None);
+        assert!(settings.reset_key(key));
+        assert_eq!(
+            settings.named_key_control(BindingId::PickItem),
+            SettingsOptions::default().named_key_control(BindingId::PickItem)
+        );
+    }
+
+    /// Taking Menu Cancel's control unassigns it, and it stays unassigned after the action moves on.
+    #[test]
+    fn remapping_an_action_onto_menu_cancel_unassigns_it() {
+        let mut settings = SettingsOptions::default();
+        let hotbar = BindingId::Hotbar4.row(false).unwrap();
+        let back = settings.named_key_control(BindingId::MenuCancel).unwrap();
+        assert!(settings.remap(hotbar, back));
+        assert_eq!(settings.key_control(hotbar), Some(back));
+        assert_eq!(settings.named_key_control(BindingId::MenuCancel), None);
+        assert!(settings.remap(hotbar, PhysicalControl::KeyboardUsage(0x15)));
+        assert_eq!(settings.named_key_control(BindingId::MenuCancel), None);
+    }
+
+    /// Menu Cancel's own control and other buttons leave the row bound.
+    #[test]
+    fn other_remaps_keep_menu_cancel() {
+        let mut settings = SettingsOptions::default();
+        let back = settings.named_key_control(BindingId::MenuCancel).unwrap();
+        let hotbar = BindingId::Hotbar4.row(false).unwrap();
+        assert!(settings.remap(hotbar, PhysicalControl::KeyboardUsage(0x15)));
+        assert_eq!(
+            settings.named_key_control(BindingId::MenuCancel),
+            Some(back)
+        );
+        let cancel = BindingId::MenuCancel.row(false).unwrap();
+        assert!(settings.remap(cancel, back));
+        assert_eq!(
+            settings.named_key_control(BindingId::MenuCancel),
+            Some(back)
+        );
+    }
+
+    /// A layout saved before Menu Cancel existed keeps its action on the button.
+    #[test]
+    fn saved_action_on_menu_cancels_default_keeps_the_button() {
+        let back = SettingsOptions::default()
+            .named_key_control(BindingId::MenuCancel)
+            .unwrap();
+        let mut settings = SettingsOptions::default();
+        settings.keys.insert(
+            BindingId::Hotbar4.name().to_owned(),
+            encode_control(back).unwrap(),
+        );
+        assert_eq!(settings.named_key_control(BindingId::MenuCancel), None);
+        assert_eq!(settings.named_key_control(BindingId::Hotbar4), Some(back));
+    }
+
+    /// Resetting Menu Cancel restores its button over the action holding it, across a reload.
+    #[test]
+    fn resetting_menu_cancel_takes_its_default_back_from_another_action() {
+        let mut settings = SettingsOptions::default();
+        let hotbar = BindingId::Hotbar4.row(false).unwrap();
+        let cancel = BindingId::MenuCancel.row(false).unwrap();
+        let back = settings.named_key_control(BindingId::MenuCancel).unwrap();
+        assert!(settings.remap(hotbar, back));
+        assert!(settings.reset_key(cancel));
+        assert_eq!(
+            settings.named_key_control(BindingId::MenuCancel),
+            Some(back)
+        );
+        assert_eq!(settings.key_control(hotbar), None);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.named_key_control(BindingId::MenuCancel), Some(back));
+        assert_eq!(loaded.key_control(hotbar), None);
+        assert!(loaded.stored_bindings_valid());
+    }
+
+    /// Resetting another action leaves a Menu Cancel the player already gave up unassigned.
+    #[test]
+    fn resetting_an_action_keeps_menu_cancel_unassigned() {
+        let mut settings = SettingsOptions::default();
+        let hotbar = BindingId::Hotbar4.row(false).unwrap();
+        let back = settings.named_key_control(BindingId::MenuCancel).unwrap();
+        assert!(settings.remap(hotbar, back));
+        assert!(settings.reset_key(hotbar));
+        assert_eq!(settings.named_key_control(BindingId::MenuCancel), None);
+    }
 
     #[test]
     fn controller_pick_remap_creates_a_semantic_binding() {

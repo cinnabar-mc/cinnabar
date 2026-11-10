@@ -257,6 +257,30 @@ impl<'log> SessionTap<'log> {
         }
     }
 
+    /// Records one header and optionally admits a packet/pick pair to the full capture.
+    fn record_packet(
+        &self,
+        direction: PacketDirection,
+        packet_id: u32,
+        body: PacketBody<'_>,
+        pick: Option<protocol::capture::PickState>,
+    ) -> PacketRecordId {
+        let now = Instant::now();
+        let sequence = self.log.record(
+            direction,
+            packet_id,
+            body.len(),
+            self.elapsed_ms(now),
+            PacketOutcome::Accepted,
+        );
+        if let Some(capture) = &self.capture
+            && !carries_secrets(packet_id)
+        {
+            capture.packet_with_pick(direction, packet_id, sequence, now, body, pick);
+        }
+        PacketRecordId(sequence)
+    }
+
     /// Returns monotonic milliseconds since this tap began.
     fn elapsed_ms(&self, now: Instant) -> u64 {
         millis(now.saturating_duration_since(self.epoch))
@@ -270,20 +294,24 @@ impl PacketTap for SessionTap<'_> {
         packet_id: u32,
         body: PacketBody<'_>,
     ) -> PacketRecordId {
-        let now = Instant::now();
-        let sequence = self.log.record(
-            direction,
-            packet_id,
-            body.len(),
-            self.elapsed_ms(now),
-            PacketOutcome::Accepted,
-        );
-        if let Some(capture) = &self.capture
-            && !carries_secrets(packet_id)
-        {
-            capture.packet(direction, packet_id, now, body);
-        }
-        PacketRecordId(sequence)
+        self.record_packet(direction, packet_id, body, None)
+    }
+
+    fn record_with_pick(
+        &self,
+        direction: PacketDirection,
+        packet_id: u32,
+        body: PacketBody<'_>,
+        state: protocol::capture::PickState,
+    ) -> PacketRecordId {
+        self.record_packet(direction, packet_id, body, Some(state))
+    }
+
+    fn pick_trace(&self) -> Option<Arc<protocol::capture::PickTrace>> {
+        self.capture
+            .as_ref()
+            .filter(|capture| capture.trace.active())
+            .map(|capture| Arc::clone(&capture.trace))
     }
 
     fn reject(

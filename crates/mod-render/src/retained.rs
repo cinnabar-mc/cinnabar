@@ -3,14 +3,20 @@
 use mod_api::drawing::{DrawingHandle as Handle, DrawingPermissions};
 use std::{collections::BTreeMap, sync::Arc};
 
+pub mod blocks;
+mod clips;
 mod entities;
+pub use clips::{Clip, ClipStatus};
 mod materials;
 pub mod mesh;
 pub use entities::EntityKey;
 #[cfg(test)]
 mod tests;
+mod transaction;
 pub mod transfer;
 mod validation;
+use std::sync::Mutex;
+use transaction::{Changes, Observations, Owner};
 
 /// Linear vertex inputs for shared unlit drawing materials.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -24,6 +30,7 @@ pub struct Vertex {
 /// Immutable topology; polyline distances are computed by the host on admission.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum GeometrySpec {
+    Blocks(blocks::BlockGrid),
     Triangles {
         vertices: Vec<Vertex>,
         indices: Vec<u32>,
@@ -37,6 +44,7 @@ pub enum GeometrySpec {
 /// Validated geometry and its cached facts stay immutable across instances and snapshots.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
+    blocks: Option<Arc<blocks::BlockGeometry>>,
     vertices: Arc<[Vertex]>,
     bounds: [[f32; 3]; 2],
     indices: Arc<[u32]>,
@@ -50,13 +58,23 @@ pub struct Geometry {
 }
 
 impl Geometry {
+    /// Returns worker-owned block geometry, when this handle describes a grid.
+    pub fn blocks(&self) -> Option<&Arc<blocks::BlockGeometry>> {
+        self.blocks.as_ref()
+    }
     /// Returns the local position bounds computed during admission.
     pub fn bounds(&self) -> [[f32; 3]; 2] {
         self.bounds
     }
 
-    /// Bounds expanded triangles, including immutable line joins and caps.
+    /// Counts completed triangles, including line joins; pending block meshes contribute zero.
     pub fn triangles(&self) -> usize {
+        if let Some(blocks) = self.blocks() {
+            return blocks
+                .result()
+                .and_then(|result| result.as_ref().ok())
+                .map_or(0, |mesh| mesh.triangles);
+        }
         self.expanded_vertices / 3
     }
 
@@ -164,6 +182,7 @@ pub enum Cap {
 pub struct Instance {
     pub geometry: Handle,
     pub material: Option<Handle>,
+    pub clip: Option<Handle>,
     pub params: [f32; mod_api::materials::PARAMS],
     pub anchor: Anchor,
     pub transform: Transform,
@@ -176,7 +195,7 @@ pub struct Instance {
     pub cap: Cap,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ErrorCode {
     Denied,
     Invalid,
@@ -195,12 +214,15 @@ pub struct DrawError {
 /// A successful callback's immutable snapshot tracks geometry, materials and instances separately.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Resources {
+    #[cfg(test)]
+    comparison: transaction::tests::ContentComparison,
     pub connection: u64,
     pub dimension: i32,
     pub entities: BTreeMap<Handle, EntityKey>,
     pub geometry: BTreeMap<Handle, Arc<Geometry>>,
     pub instances: BTreeMap<Handle, Instance>,
     pub materials: BTreeMap<Handle, Arc<crate::material::Material>>,
+    pub clips: BTreeMap<Handle, Clip>,
     groups: BTreeMap<String, Vec<Handle>>,
     pub geometry_revision: u64,
     pub material_revision: u64,
@@ -208,36 +230,92 @@ pub struct Resources {
     pub instance_revision: u64,
 }
 
+impl Resources {
+    /// Identifies published changes without reading immutable resource contents.
+    pub fn revision(&self) -> (u64, i32, u64, u64, u64) {
+        (
+            self.connection,
+            self.dimension,
+            self.geometry_revision,
+            self.material_revision,
+            self.instance_revision,
+        )
+    }
+
+    /// Counts synchronous placements and mask chains before any block meshing completes.
+    pub fn static_triangle_work(&self) -> usize {
+        self.triangle_work(None, false).unwrap_or(usize::MAX)
+    }
+
+    /// Counts completed placements and mask chains belonging to the selected allocation owners.
+    pub fn triangle_work_for(&self, owners: &[u64]) -> usize {
+        self.triangle_work(Some(owners), true).unwrap_or(usize::MAX)
+    }
+
+    /// Shares exact placement multiplicity and bounded parent-mask work across admission paths.
+    fn triangle_work(&self, owners: Option<&[u64]>, include_blocks: bool) -> Option<usize> {
+        let selected = |id: &Handle| owners.is_none_or(|owners| owners.contains(&id.owner));
+        let mut triangles = self
+            .instances
+            .iter()
+            .filter(|(id, _)| selected(id))
+            .try_fold(0usize, |sum, (_, instance)| {
+                let geometry = self.geometry.get(&instance.geometry)?;
+                sum.checked_add(if !include_blocks && geometry.blocks().is_some() {
+                    0
+                } else {
+                    geometry.triangles()
+                })
+            })?;
+        for (_, clip) in self.clips.iter().filter(|(id, _)| selected(id)) {
+            let mut current = Some(clip);
+            for _ in 0..mod_api::drawing::MAX_DRAW_CLIP_DEPTH {
+                let Some(clip) = current else { break };
+                triangles =
+                    triangles.checked_add(self.geometry.get(&clip.geometry)?.triangles())?;
+                current = match clip.parent {
+                    Some(id) => Some(self.clips.get(&id)?),
+                    None => None,
+                };
+            }
+        }
+        Some(triangles)
+    }
+}
+
 /// A store owns a single guest incarnation. Tokens are never reused after rollback.
 pub struct Store {
-    owner: u64,
-    generation: u64,
-    next_slot: u64,
+    owner: Arc<Mutex<Owner>>,
     committed: Arc<Resources>,
-    staged: Option<Resources>,
+    staged: Option<Changes>,
     mutation_bytes: usize,
-    retired: Vec<Arc<Geometry>>,
-    retired_materials: Vec<Arc<crate::material::Material>>,
+    block_mutation_bytes: usize,
     material_compiles: u32,
     entity_candidates: Vec<EntityKey>,
     instance_limit: usize,
+    observations: Option<Arc<Mutex<Observations>>>,
 }
 
 impl Default for Store {
     /// Assigns a process-unique owner even to a replacement guest.
     fn default() -> Self {
         Self {
-            owner: crate::identity::next_owner(),
-            generation: 1,
-            next_slot: 0,
+            owner: Arc::new(Mutex::new(Owner {
+                id: crate::identity::next_owner(),
+                generation: 1,
+                next_slot: 0,
+                retired: Vec::new(),
+                retired_materials: Vec::new(),
+                observing: Default::default(),
+            })),
             committed: Arc::default(),
             staged: None,
             mutation_bytes: 0,
-            retired: Vec::new(),
-            retired_materials: Vec::new(),
+            block_mutation_bytes: 0,
             material_compiles: 0,
             entity_candidates: Vec::new(),
             instance_limit: mod_api::MAX_DRAW_INSTANCES,
+            observations: None,
         }
     }
 }
@@ -250,22 +328,21 @@ impl Store {
 
     /// Counts this callback's placements, excluding groups that expire on its next mutation.
     pub fn instance_count(&self) -> usize {
-        self.staged.as_ref().map_or_else(
-            || {
-                self.committed
-                    .instances
-                    .keys()
-                    .filter(|id| {
-                        !self
-                            .committed
-                            .groups
-                            .values()
-                            .any(|handles| handles.contains(id))
-                    })
-                    .count()
-            },
-            |staged| staged.instances.len(),
-        )
+        let resources = self.current();
+        if self.staged.is_some() {
+            resources.instances.len()
+        } else {
+            resources
+                .instances
+                .keys()
+                .filter(|id| {
+                    !resources
+                        .groups
+                        .values()
+                        .any(|handles| handles.contains(id))
+                })
+                .count()
+        }
     }
 
     /// Binds snapshots to the trusted connection before the guest initializes resources.
@@ -285,49 +362,66 @@ impl Store {
 
     /// Begins a callback; immediate groups expire only if this callback commits.
     pub fn begin(&mut self) {
+        self.reclaim();
         self.staged = None;
         self.mutation_bytes = 0;
+        self.block_mutation_bytes = 0;
         self.material_compiles = 0;
     }
 
     /// Publishes all staged changes together and preserves identity on unchanged callbacks.
     pub fn commit(&mut self) {
-        let staged = match self.staged.take() {
-            Some(staged) => Some(staged),
-            None if self.committed.groups.is_empty() => None,
-            None => Some(self.base()),
-        };
-        if let Some(staged) = staged
-            && (staged.geometry_revision != self.committed.geometry_revision
-                || staged.material_revision != self.committed.material_revision
-                || staged.instance_revision != self.committed.instance_revision)
-        {
-            self.committed = Arc::new(staged);
+        if self.staged.is_none() && self.committed.groups.is_empty() {
+            self.reclaim();
+            return;
         }
-        self.retired_materials
-            .retain(|material| Arc::strong_count(material) > 1);
-        self.retired
-            .retain(|geometry| Arc::strong_count(geometry) > 1);
+        let resources = self.base();
+        self.staged = None;
+        self.install(resources);
     }
 
     /// Discards mutations without recycling any tokens returned by the failed callback.
     pub fn rollback(&mut self) {
         self.staged = None;
         self.mutation_bytes = 0;
+        self.block_mutation_bytes = 0;
     }
 
     /// Invalidates all resource handles and clears output on trap, reload or session changes.
     pub fn revoke(&mut self) {
-        self.generation = self
+        let mut owner = self.owner.lock().expect("drawing owner");
+        owner.generation = owner
             .generation
             .checked_add(1)
             .expect("drawing generation exhausted");
+        owner.retired.clear();
+        owner.retired_materials.clear();
+        owner.observing = Default::default();
+        self.observations = None;
         self.committed = Arc::default();
         self.staged = None;
-        self.retired.clear();
-        self.retired_materials.clear();
         self.material_compiles = 0;
         self.entity_candidates.clear();
+    }
+
+    /// Invalidates guest resources while keeping the current native session and candidates.
+    pub fn restart_guest(&mut self) {
+        let Self {
+            owner: _,
+            committed,
+            staged: _,
+            mutation_bytes: _,
+            block_mutation_bytes: _,
+            material_compiles: _,
+            entity_candidates,
+            instance_limit: _,
+            observations: _,
+        } = self;
+        let candidates = std::mem::take(entity_candidates);
+        let connection = committed.connection;
+        let dimension = committed.dimension;
+        self.bind_session(connection, dimension);
+        self.entity_candidates = candidates;
     }
 
     /// Charges copied asset bytes against this callback's shared mutation allowance.
@@ -347,12 +441,18 @@ impl Store {
     pub fn create_geometry(&mut self, spec: GeometrySpec) -> Result<Handle, DrawError> {
         let geometry = Arc::new(validation::geometry(spec)?);
         let bytes = geometry.bytes;
+        let blocks = geometry.blocks.is_some();
         let handle = self.token()?;
-        self.edit(bytes, |resources| {
+        let change = |resources: &mut Resources| {
             resources.geometry.insert(handle, geometry);
             resources.geometry_revision += 1;
             Ok(())
-        })?;
+        };
+        if blocks {
+            self.edit_blocks(bytes, change)?;
+        } else {
+            self.edit(bytes, change)?;
+        }
         Ok(handle)
     }
 
@@ -381,15 +481,16 @@ impl Store {
     ) -> Result<(), DrawError> {
         self.check(handle)?;
         // An unchanged resubmission must not clone the resource maps every frame.
-        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let current = self.current();
         let expiring = self.staged.is_none()
             && current
                 .groups
                 .values()
                 .any(|handles| handles.contains(&handle));
         if !expiring && current.instances.get(&handle) == Some(&instance) {
-            return validation::instance(&instance, current, permissions);
+            return validation::instance(&instance, &current, permissions);
         }
+        drop(current);
         self.edit(std::mem::size_of::<Instance>(), |resources| {
             if !resources.instances.contains_key(&handle) {
                 return Err(error(ErrorCode::StaleHandle, "drawing"));
@@ -443,11 +544,10 @@ impl Store {
     /// Releases an instance or unused geometry; referenced geometry returns an explicit error.
     pub fn remove(&mut self, handle: Handle) -> Result<(), DrawError> {
         self.check(handle)?;
-        let mut retired = None;
-        let mut retired_material = None;
         self.edit(0, |resources| {
             if resources.entities.contains_key(&handle) {
                 if resources.instances.values().any(|instance| matches!(instance.anchor, Anchor::Entity(anchor) if anchor.entity == handle)) { return Err(error(ErrorCode::InUse, "entity")); }
+                if resources.clips.values().any(|clip|matches!(clip.anchor,Anchor::Entity(anchor) if anchor.entity==handle)) {return Err(error(ErrorCode::InUse,"clip entity"));}
                 resources.entities.remove(&handle);
                 resources.instance_revision += 1;
                 return Ok(());
@@ -456,6 +556,18 @@ impl Store {
             if resources.instances.remove(&handle).is_some() {
                 resources.instance_revision += 1;
                 return Ok(());
+            }
+            if resources.clips.contains_key(&handle) {
+                if resources.instances.values().any(|instance|instance.clip == Some(handle))
+                    || resources.clips.values().any(|clip|clip.parent == Some(handle)) {
+                    return Err(error(ErrorCode::InUse,"clip"));
+                }
+                resources.clips.remove(&handle);
+                resources.instance_revision += 1;
+                return Ok(());
+            }
+            if resources.clips.values().any(|clip|clip.geometry == handle) {
+                return Err(error(ErrorCode::InUse,"clip geometry"));
             }
             if resources
                 .instances
@@ -471,37 +583,22 @@ impl Store {
             {
                 return Err(error(ErrorCode::InUse, "material"));
             }
-            retired_material = resources.materials.remove(&handle);
-            if retired_material.is_some() {
+            if resources.materials.remove(&handle).is_some() {
                 resources.material_revision += 1;
                 return Ok(());
             }
-            retired = resources.geometry.remove(&handle);
-            if retired.is_none() {
+            if resources.geometry.remove(&handle).is_none() {
                 return Err(error(ErrorCode::StaleHandle, "resource"));
             }
             resources.geometry_revision += 1;
             Ok(())
         })?;
-        if let Some(material) = retired_material
-            && !self
-                .retired_materials
-                .iter()
-                .any(|old| Arc::ptr_eq(old, &material))
-        {
-            self.retired_materials.push(material);
-        }
-        if let Some(geometry) = retired
-            && !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry))
-        {
-            self.retired.push(geometry);
-        }
         Ok(())
     }
 
     /// Derives callback state and drops last callback's immediate instances atomically.
     fn base(&self) -> Resources {
-        let mut resources = self.staged.as_ref().unwrap_or(&self.committed).clone();
+        let mut resources = self.current().into_owned();
         if self.staged.is_none() && !resources.groups.is_empty() {
             for handles in resources.groups.values() {
                 for handle in handles {
@@ -532,29 +629,46 @@ impl Store {
         if candidate.instances.len() > self.instance_limit {
             return Err(error(ErrorCode::BudgetExceeded, "instances"));
         }
-        validation::budget(&candidate, &self.retired)?;
-        self.material_budget(&candidate)?;
+        self.check_budget(&candidate)?;
         self.mutation_bytes = total;
-        self.staged = Some(candidate);
+        self.staged = Some(Changes::between(&self.committed, &candidate));
+        Ok(())
+    }
+
+    /// Gives block inputs their own allowance without increasing other imports' byte budget.
+    fn edit_blocks(
+        &mut self,
+        bytes: usize,
+        change: impl FnOnce(&mut Resources) -> Result<(), DrawError>,
+    ) -> Result<(), DrawError> {
+        let total = self
+            .block_mutation_bytes
+            .checked_add(bytes)
+            .filter(|total| *total <= mod_api::drawing::MAX_BLOCK_MUTATION_BYTES)
+            .ok_or(error(ErrorCode::BudgetExceeded, "block mutation bytes"))?;
+        self.edit(0, change)?;
+        self.block_mutation_bytes = total;
         Ok(())
     }
 
     /// Allocates a token even if subsequent admission fails, so rollback cannot recycle it.
     fn token(&mut self) -> Result<Handle, DrawError> {
-        self.next_slot = self
+        let mut owner = self.owner.lock().expect("drawing owner");
+        owner.next_slot = owner
             .next_slot
             .checked_add(1)
             .ok_or(error(ErrorCode::BudgetExceeded, "handle slots"))?;
         Ok(Handle {
-            owner: self.owner,
-            generation: self.generation,
-            slot: self.next_slot,
+            owner: owner.id,
+            generation: owner.generation,
+            slot: owner.next_slot,
         })
     }
 
     /// Rejects cross-owner and previous-incarnation tokens before reading resource tables.
     fn check(&self, handle: Handle) -> Result<(), DrawError> {
-        if handle.owner != self.owner || handle.generation != self.generation {
+        let owner = self.owner.lock().expect("drawing owner");
+        if handle.owner != owner.id || handle.generation != owner.generation {
             Err(error(ErrorCode::StaleHandle, "owner or generation"))
         } else {
             Ok(())

@@ -130,6 +130,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   `/flyspeed off` restores the previous flight abilities; `/speed` also switches back to ability flight.
   Direct flight has no speed multiplier cap, but motion must fit the protocol's floating-point values.
   Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
+  `/time set <ticks|sunrise|day|noon|sunset|night|midnight>` sets the world's time of day and stops its
+  daylight cycle so captures see the same sky; `/time cycle` resumes it. The local server's
+  `-time <ticks|name>` flag opens every world at that time, frozen.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account

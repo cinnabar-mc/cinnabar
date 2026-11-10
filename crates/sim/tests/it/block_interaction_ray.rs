@@ -10,7 +10,7 @@ mod precision;
 
 fn identity() -> CollisionRegistryIdentity {
     CollisionRegistryIdentity {
-        protocol: 2193,
+        protocol: 2225,
         id_space: CollisionIdSpace::Sequential,
         preg_sha256: [0x5a; 32],
     }

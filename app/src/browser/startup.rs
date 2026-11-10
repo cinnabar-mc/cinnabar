@@ -115,7 +115,8 @@ pub(super) fn install(
     let skin =
         client_shell::player_skin::LocalPlayerSkin::generated_default(launcher::PRODUCT_NAME);
     let preparation = network::session::Preparation {
-        registry_base: network::session_registries::RegistryBase::new(&startup.world, &collisions),
+        registry_base: network::session_registries::RegistryBase::new(&startup.world, &collisions)
+            .with_entity_assets(Some(Arc::clone(&entities))),
         session_generation: simulation_clock::identity::SessionGeneration::new(1),
         actor_artwork: Some(artwork.clone()),
         ui_catalog: Some(Arc::clone(&catalog.0)),

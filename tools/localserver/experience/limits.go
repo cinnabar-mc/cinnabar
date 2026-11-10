@@ -33,7 +33,7 @@ const shutdownGrace = time.Second
 
 // maxFrameBytes is the largest frame body. It must equal the Rust runtime's MAX_FRAME_BYTES,
 // which TestFrameLimitMatchesRust checks against the limits fixture.
-const maxFrameBytes = 16 << 20
+const maxFrameBytes = 32 << 20
 
 // stderrLineBytes is the longest helper stderr line that is logged; the rest of a longer line is
 // dropped.
@@ -119,6 +119,14 @@ const (
 	// maxNetworkDataBytes is the most data of one callback's network, summed over its members:
 	// Rust's MAX_NETWORK_DATA_BYTES.
 	maxNetworkDataBytes = 524_288
+	// maxContainers is the most positions one callback's containers hold: Rust's MAX_CONTAINERS.
+	maxContainers = 64
+	// maxContainerSlots is the slots of the largest container, a double chest: Rust's
+	// MAX_CONTAINER_SLOTS.
+	maxContainerSlots = 54
+	// maxContainerDataBytes is the most item data of one callback's containers, summed over
+	// their stacks: Rust's MAX_CONTAINER_DATA_BYTES.
+	maxContainerDataBytes = 1 << 20
 )
 
 // The inventory's shape and the item bounds. Each must equal its Rust constant, which
@@ -157,7 +165,7 @@ const (
 const (
 	// maxOverlayTypes is the most overlay types one Experience declares: Rust's
 	// MAX_OVERLAY_TYPES.
-	maxOverlayTypes = 128
+	maxOverlayTypes = 256
 	// maxCellOverlays is the most overlays one cell carries, in slots 0 to maxCellOverlays-1:
 	// Rust's MAX_CELL_OVERLAYS.
 	maxCellOverlays = 12

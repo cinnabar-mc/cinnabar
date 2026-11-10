@@ -2,7 +2,7 @@
 use super::*;
 use crate::presentation::{
     actors::ActorPresentationBatch, cape::CapeState, entity_layers::LayerPoseCache,
-    equipment::ActorEquipmentInput, skin_layers::SkinLayerCache, skin_rig::SkinRigCache,
+    equipment::ActorEquipmentInput, skin_layers::ActorLayerCache, skin_rig::SkinRigCache,
 };
 
 /// Sampled actor poses used by equipment, capes and skin layers.
@@ -36,7 +36,7 @@ pub(super) struct LayerCaches<'a> {
     pub layer_poses: &'a mut LayerPoseCache,
     pub equipment: Option<&'a mut EquipmentRuntime>,
     pub cape_state: &'a mut CapeState,
-    pub skin_layers: &'a mut SkinLayerCache,
+    pub skin_layers: &'a mut ActorLayerCache,
     pub skin_rigs: &'a mut SkinRigCache,
 }
 
@@ -68,20 +68,21 @@ pub(super) fn attach(
     } = poses;
     let LayerCaches {
         layer_poses,
-        equipment,
+        mut equipment,
         cape_state,
         skin_layers,
         skin_rigs,
     } = caches;
     let (partial_tick, delta_seconds, glint_settings) = frame;
-    let wearing_elytra = if let (Some(equipment), Some(stream)) = (equipment, stream) {
+    let wearing_elytra = if let (Some(equipment), Some(stream)) = (equipment.as_deref_mut(), stream)
+    {
         equipment_layers::attach(
             batch,
             equipment,
             stream,
             render_frame.as_deref_mut(),
             &poses,
-            (partial_tick, delta_seconds, glint_settings),
+            (partial_tick, delta_seconds, glint_settings, local_coverage),
             |body, runtime_skin, render_frame| {
                 let runtime_id = body.input.identity.runtime_id;
                 let render_frame = render_frame?;
@@ -106,18 +107,15 @@ pub(super) fn attach(
     };
     let mut layers_of = |runtime_id| {
         let render_frame = render_frame.as_mut()?;
-        if let Some(pose) = poses.emote(runtime_id) {
-            Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
-        } else if local_coverage && runtime_id == local_runtime_id {
-            stream?
-                .authority()
-                .actor_ui_layers(runtime_id)
-                .map(|layers| layers.render)
+        let mut layers = if local_coverage && runtime_id == local_runtime_id {
+            stream?.authority().actor_ui_layers(runtime_id)?
         } else {
-            render_frame
-                .layers_with_skin(runtime_id)
-                .map(|layers| layers.render)
+            render_frame.layers_with_skin(runtime_id)?
+        };
+        if let Some(pose) = poses.emote(runtime_id) {
+            layers.render = std::borrow::Cow::Borrowed(pose.render.as_slice());
         }
+        Some(layers)
     };
     // Equipment inherits animation poses before body-only visibility masks are applied.
     crate::presentation::entity_layers::apply_render_layers_cached(
@@ -196,6 +194,41 @@ pub(super) fn attach(
             },
             skin_rigs,
             |geometry| new_geometries.push(geometry),
+            |draw, location| {
+                use crate::presentation::equipment::{
+                    LAYER_MAIN_HAND, LAYER_OFF_HAND, armor_slot_index, is_armor_layer,
+                };
+                let layer = draw.input.identity.layer;
+                if layer != LAYER_MAIN_HAND && layer != LAYER_OFF_HAND && !is_armor_layer(layer) {
+                    return None;
+                }
+                let remote;
+                let input = if draw.input.identity.runtime_id == local_runtime_id {
+                    poses.local_equipment
+                } else {
+                    remote = crate::presentation::equipment::remote_input(
+                        stream,
+                        draw.input.identity.runtime_id,
+                    );
+                    &remote
+                };
+                let item = match layer {
+                    LAYER_MAIN_HAND => input.main.as_ref(),
+                    LAYER_OFF_HAND => input.off.as_ref(),
+                    _ => input
+                        .armor
+                        .get(armor_slot_index(layer)?)
+                        .and_then(Option::as_ref),
+                }?;
+                let equipment = equipment.as_deref_mut()?;
+                let location = location?;
+                if let Some(raster) =
+                    equipment.trim_draw(item, artwork, location, draw, is_armor_layer(layer))
+                {
+                    return Some(raster);
+                }
+                equipment.shield_raster(item, artwork, location, draw.input.rig)
+            },
         )
     {
         scene.configure_artwork(pages);
@@ -229,15 +262,18 @@ pub(super) fn apply_style_and_visibility(
         } else if let Some(style) = style {
             let armor = (3..=6).contains(&identity.layer);
             let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
-            let attackable = style.attackable_actor == Some(identity.runtime_id)
-                && actor
-                    .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }));
+            let tint = actor.and_then(|actor| {
+                style.presentation.tint(
+                    identity.runtime_id,
+                    matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                )
+            });
             if let Some(color) = cosmetic_overlay(
-                style,
+                &style.presentation.hurt_overlay,
                 hurt,
                 armor,
                 submission.overlay_rgba8 != 0,
-                attackable,
+                tint,
             ) {
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
@@ -255,25 +291,23 @@ pub(super) fn apply_style_and_visibility(
     }
 }
 
-/// Selects cosmetic color without treating a reach overlay as evidence of damage.
+/// Selects the mod overlay colour: its damage colours while the actor is hurt, else its tint.
 pub(super) fn cosmetic_overlay(
-    style: &ActorPresentationStyle,
+    hurt_overlay: &ui::mod_presentation::HurtOverlay,
     hurt: bool,
     armor: bool,
     native_overlay: bool,
-    attackable: bool,
+    tint: Option<[f32; 4]>,
 ) -> Option<[f32; 4]> {
     if hurt {
         if armor {
-            style.hurt_armor_color
+            hurt_overlay.armor
         } else if native_overlay {
-            style.hurt_color
+            hurt_overlay.body
         } else {
             None
         }
-    } else if attackable {
-        style.attackable_color
     } else {
-        None
+        tint
     }
 }

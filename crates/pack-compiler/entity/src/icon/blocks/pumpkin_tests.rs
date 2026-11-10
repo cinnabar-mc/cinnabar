@@ -74,8 +74,9 @@ fn pumpkin_gui_fronts_keep_their_class_artwork_without_changing_held_sheets() {
             &[20, 30, 40, 255]
         );
         assert_eq!(&gui[BlockFace::Up as usize].rgba8[..4], &[90, 80, 70, 255]);
+        let held_record = &blocks.records[blocks.icon_state(visual).0 as usize];
         let Some(assets::facts::StateValue::String(direction)) =
-            record.property(assets::facts::BlockProperty::MinecraftCardinalDirection)
+            held_record.property(assets::facts::BlockProperty::MinecraftCardinalDirection)
         else {
             panic!("missing held facing");
         };
@@ -88,4 +89,36 @@ fn pumpkin_gui_fronts_keep_their_class_artwork_without_changing_held_sheets() {
         };
         assert_eq!(&held[held_front as usize].rgba8[..4], &expected);
     }
+}
+
+#[test]
+fn pumpkin_inventory_icons_face_south_whichever_state_the_item_routes_to() {
+    let root = tempfile::tempdir().unwrap();
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for record in blocks.records.iter().filter(|record| {
+        matches!(
+            assets::facts::pack::face_slots(&record.name),
+            Some(assets::facts::pack::FaceSlots::Pumpkin)
+        )
+    }) {
+        let pose =
+            &blocks.records[blocks.icon_state(BlockVisualId(record.sequential_id)).0 as usize];
+        let state: serde_json::Value = serde_json::from_str(&pose.canonical_state).unwrap();
+        assert_eq!(pose.name, record.name);
+        assert_eq!(
+            state["minecraft:cardinal_direction"]["value"], "south",
+            "{} {}",
+            record.name, record.canonical_state
+        );
+        seen.insert(record.name.as_ref());
+    }
+    assert_eq!(
+        seen.into_iter().collect::<Vec<_>>(),
+        [
+            "minecraft:carved_pumpkin",
+            "minecraft:lit_pumpkin",
+            "minecraft:pumpkin"
+        ]
+    );
 }

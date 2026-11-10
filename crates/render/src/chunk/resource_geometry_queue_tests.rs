@@ -43,6 +43,104 @@ fn a_session_reset_releases_a_held_resource_geometry_snapshot() {
     );
 }
 
+/// Retiring a world coalesces deferred observer cleanup without retaining its terrain.
+#[test]
+fn session_reset_flushes_chunk_cleanup_once() {
+    use bevy::prelude::{Commands, On, Remove, ResMut, Resource, World};
+
+    #[derive(Resource, Default)]
+    struct Cleanup {
+        queued: bool,
+        removals: usize,
+        flushes: usize,
+    }
+
+    /// Coalesces lifecycle cleanup until the current removal batch has completed.
+    fn removed(
+        _: On<Remove<ChunkRenderInstance>>,
+        mut cleanup: ResMut<Cleanup>,
+        mut commands: Commands,
+    ) {
+        cleanup.removals += 1;
+        if !std::mem::replace(&mut cleanup.queued, true) {
+            commands.queue(|world: &mut World| {
+                let mut cleanup = world.resource_mut::<Cleanup>();
+                cleanup.flushes += 1;
+                cleanup.queued = false;
+            });
+        }
+    }
+
+    const COUNT: usize = 64;
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(COUNT))
+        .init_resource::<Cleanup>()
+        .add_observer(removed);
+    for x in 0..COUNT {
+        app.world_mut()
+            .resource_mut::<ChunkRenderQueue>()
+            .try_insert(
+                SubChunkKey::new(x as i32, 0, 0, 0),
+                solid_test_mesh(),
+                ChunkUploadPriority::new(0.0),
+            )
+            .unwrap();
+    }
+    app.update();
+    assert_eq!(app.world().resource::<ChunkEntities>().0.len(), COUNT);
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .reset_session();
+    app.update();
+    let cleanup = app.world().resource::<Cleanup>();
+    assert_eq!(cleanup.removals, COUNT);
+    assert_eq!(cleanup.flushes, 1, "world reset repeated lifecycle cleanup");
+    let world = app.world_mut();
+    assert_eq!(world.query::<&ChunkRenderInstance>().iter(world).count(), 0);
+    assert!(world.resource::<ChunkEntities>().0.is_empty());
+}
+
+/// Bulk reset removes only the retired set, including empty entities, before new uploads.
+#[test]
+fn session_reset_preserves_unowned_entities_and_new_publications() {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(8));
+    app.world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_insert(key, solid_test_mesh(), ChunkUploadPriority::new(0.0))
+        .unwrap();
+    app.update();
+    let world = app.world_mut();
+    let retired = world.resource::<ChunkEntities>().0[&key];
+    let unowned_instance = world.get::<ChunkRenderInstance>(retired).unwrap().clone();
+    let unowned = world.spawn(unowned_instance).id();
+    let empty = world.spawn_empty().id();
+    world
+        .resource_mut::<ChunkEntities>()
+        .0
+        .insert(SubChunkKey::new(1, 0, 0, 0), empty);
+    let mut queue = world.resource_mut::<ChunkRenderQueue>();
+    queue.reset_session();
+    queue
+        .try_insert(key, solid_test_mesh(), ChunkUploadPriority::new(0.0))
+        .unwrap();
+    app.update();
+    let world = app.world();
+    assert!(world.get_entity(retired).is_err());
+    assert!(world.get_entity(empty).is_err());
+    assert!(world.get::<ChunkRenderInstance>(unowned).is_some());
+    let published = world.resource::<ChunkEntities>().0[&key];
+    assert_ne!(published, retired);
+    assert_eq!(
+        world.get::<ChunkRenderInstance>(published).unwrap().key,
+        key
+    );
+    assert_eq!(world.resource::<ChunkEntities>().0.len(), 1);
+}
+
 #[test]
 fn review_render_discard_rolls_back_new_and_replacement_manifest_entries() {
     let key = SubChunkKey::new(0, 0, 0, 0);

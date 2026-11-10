@@ -89,11 +89,6 @@ use ui_command::compile_ui_assets_command;
 const MAX_REGISTRY_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SOURCE_MANIFEST_BYTES: usize = 1024 * 1024;
 
-#[cfg(feature = "shaderpacks")]
-#[global_allocator]
-static ALLOCATOR: shaderpack::worker::BudgetAllocator<std::alloc::System> =
-    shaderpack::worker::BudgetAllocator(std::alloc::System);
-
 #[derive(Serialize)]
 struct AnimationInventoryReport {
     schema: u32,
@@ -194,15 +189,6 @@ struct FontAssetCounts {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "shaderpacks")]
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|arg| arg == shaderpack::worker::FLAG)
-    {
-        std::process::exit(shaderpack::worker::run_stdio());
-    }
-    #[cfg(feature = "shaderpacks")]
-    shaderpack::worker::disable_for_host();
     run(Cli::parse().command)
 }
 
@@ -534,6 +520,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             json,
             accept_eula,
             clouds_override,
+            jobs,
+            lifeline,
         } => prepare::prepare(prepare::Options {
             root,
             kit,
@@ -544,6 +532,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             json,
             accept_eula,
             clouds_override,
+            jobs: jobs.map(usize::from),
+            lifeline,
         })?,
         Command::KitFiles { root } => {
             for file in prepare_plan::kit_files(&assets::carriers::Sources::Checkout(root))? {

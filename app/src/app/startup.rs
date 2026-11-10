@@ -1,4 +1,5 @@
 //! Startup carrier loading and required registry verification.
+pub(super) mod interface;
 mod menu;
 mod timing;
 pub(crate) mod world;
@@ -408,7 +409,7 @@ mod carrier_tests {
             Self(path)
         }
         fn world(&self) -> PathBuf {
-            self.0.join("vanilla-v2193.mcbea")
+            self.0.join("vanilla-v2225.mcbea")
         }
         fn load(&self, times: &LoadTimes) -> StartupCarriers {
             let selection = AssetSelection {

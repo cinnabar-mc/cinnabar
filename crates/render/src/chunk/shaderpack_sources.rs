@@ -184,7 +184,7 @@ pub(crate) fn terrain_multi_draw_indirect(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(adapter.get_info().backend),
-        apple_gpu(&adapter.get_info()),
+        direct_draws_required(&adapter.get_info()),
     ) {
         ChunkDrawMode::Direct => Some(false),
         ChunkDrawMode::MultiDrawIndirect => Some(true),
