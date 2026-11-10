@@ -135,6 +135,23 @@ A route change keeps each scroll view offset shared by layout key, clamped to th
 new content; absent keys are discarded. Closing or removing the panel resets its
 scroll positions.
 
+Surface scroll views take four Cinnabar extensions that server and resource-pack
+JSON-UI never see:
+
+- `cinnabar_default_control`, `cinnabar_hover_control` and `cinnabar_pressed_control`
+  on a `scrollbar_box` or `scroll_track` name the child shown at rest, under the
+  pointer, and while the box is dragged or the track held. A missing state falls back
+  to the next less specific one.
+- `cinnabar_min_thumb_fraction` on the `scroll_view` sets the box's minimum length as a
+  fraction of the track, from 0 to 1 (default 0.1).
+- `cinnabar_scroll_seconds` on the `scroll_view` sets how long a wheel notch eases under
+  panel `motion`, from 0 to 1 second (default 0.14); 0 scrolls at once.
+- `cinnabar_scrollbar_auto_hide: true` on the `scroll_view` hides the box until the view
+  scrolls or the pointer is on its box or track, then fades it out over a second.
+
+Panel and HUD surfaces reject values outside these bounds; values a binding supplies
+are clamped.
+
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
 itself, a `stack_panel` root or sizes measured from children or siblings keep the

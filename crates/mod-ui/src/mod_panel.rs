@@ -310,14 +310,19 @@ impl ModUi {
             .is_some_and(|panel| panel.open || panel.exiting())
     }
 
-    /// Native feedback, surface transitions and exits need frames only while they are moving.
+    /// Native feedback, surface transitions, scrollbar fades and exits need frames only while
+    /// they are moving.
     pub fn mod_panel_motion_active(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| {
             panel.exiting()
                 || panel.open
                     && (panel.motion.active()
                         || panel.motion_data_dirty && panel.animated()
-                        || matches!(panel.edit, Some(edit::Editor::Field { .. })))
+                        || matches!(panel.edit, Some(edit::Editor::Field { .. }))
+                        || panel
+                            .frame
+                            .as_ref()
+                            .is_some_and(|frame| panel.view.scrollbar_fading(&frame.report)))
         })
     }
 
@@ -670,6 +675,11 @@ impl ModPanel {
             .motion
             .transitions
             .advance(&self.panel.surface, now, animate);
+        if let Some(frame) = &self.frame {
+            changed |= self
+                .motion
+                .fade_scrollbars(&mut self.view, &frame.report, now);
+        }
         changed
     }
 

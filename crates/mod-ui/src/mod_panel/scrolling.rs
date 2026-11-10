@@ -41,7 +41,9 @@ impl ModUi {
         } else {
             current.offset_for_wheel_local(delta)
         };
-        if panel.panel.motion && !pixels {
+        panel.view.reveal_scrollbar(&region.key, metrics);
+        let seconds = metrics.wheel_seconds.unwrap_or(motion::SCROLL_SECONDS);
+        if panel.panel.motion && !pixels && seconds > 0.0 {
             let target = panel.motion.scroll_target(&region.key, current.offset);
             let pending = ScrollMetrics {
                 offset: target,
@@ -52,6 +54,7 @@ impl ModUi {
                 current.offset,
                 pending.offset_for_wheel_local(delta) - target,
                 current.max_offset(),
+                seconds,
             );
             return true;
         }
@@ -62,7 +65,8 @@ impl ModUi {
 }
 
 impl ModPanel {
-    /// Consumes track presses and box drags, including the final release position.
+    /// Consumes track presses and box drags, including the final release position. The
+    /// pressed box or track is the view's pressed control until the pointer is released.
     pub(super) fn scroll_pointer(&mut self, point: [f64; 2], pressed: bool, held: bool) -> bool {
         let Some(frame) = self.frame.as_ref() else {
             return false;
@@ -91,9 +95,16 @@ impl ModPanel {
                 self.view
                     .scroll
                     .insert(key.clone(), current.thumb_drag_target(at - last));
+                self.view.reveal_scrollbar(&key, metrics);
                 self.scroll_drag = held.then_some((key, at));
             } else {
                 self.scroll_drag = None;
+            }
+            if self.scroll_drag.is_none() {
+                // The release ends the box's pressed state and hovers what is now under it.
+                self.view.pressed = None;
+                self.view.hovered =
+                    json_ui::hit_test(&frame.hits, point).map(|hit| hit.key.clone());
             }
             return true;
         }
@@ -125,6 +136,8 @@ impl ModPanel {
         if region.kind == HitKind::ScrollBox && metrics.box_drag != Draggable::NotDraggable {
             self.motion.cancel_scroll(&view.key);
             self.scroll_drag = Some((view.key.clone(), along(metrics, local(&view.key))));
+            self.view.pressed = Some(region.key.clone());
+            self.view.reveal_scrollbar(&view.key, metrics);
             return true;
         }
         if region.kind == HitKind::ScrollTrack
@@ -135,6 +148,9 @@ impl ModPanel {
             self.view
                 .scroll
                 .insert(view.key.clone(), metrics.offset_for_track(local(&view.key)));
+            // Ordinary pointer routing keeps the track pressed while the button is held.
+            self.view.pressed = Some(region.key.clone());
+            self.view.reveal_scrollbar(&view.key, metrics);
             return true;
         }
         false

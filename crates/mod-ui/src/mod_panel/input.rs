@@ -69,7 +69,6 @@ impl ModPanel {
         if self.scroll_pointer(point, pressed, held) {
             self.drag = None;
             self.vector_drag = None;
-            self.view.pressed = None;
             return Vec::new();
         }
         if let Some(events) = self.vector_pointer(point, pressed, held) {

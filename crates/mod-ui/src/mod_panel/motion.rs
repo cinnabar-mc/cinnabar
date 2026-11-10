@@ -2,14 +2,15 @@
 
 use std::collections::HashMap;
 
-use json_ui::{DataSource, Scalar, ViewState};
+use json_ui::{DataSource, LayoutReport, Scalar, ViewState};
 use serde_json::json;
 use ui::mod_panel::{Control, Panel};
 
 use super::transitions::SurfaceTransitions;
 
 const FEEDBACK_SECONDS: f64 = 0.10;
-const SCROLL_SECONDS: f64 = 0.14;
+/// Wheel easing for a scroll view that declares no `cinnabar_scroll_seconds`.
+pub(super) const SCROLL_SECONDS: f64 = 0.14;
 
 #[derive(Clone, Copy)]
 struct Tween {
@@ -70,6 +71,8 @@ pub(super) struct PanelMotion {
     toggles: HashMap<usize, Tween>,
     hover: HashMap<usize, Tween>,
     scrolls: HashMap<String, Tween>,
+    /// When scrollbar fades were last stepped, and whether one was then in progress.
+    faded: Option<(f64, bool)>,
     /// Authored surface bindings easing toward their latest values.
     pub(super) transitions: SurfaceTransitions,
 }
@@ -102,13 +105,35 @@ impl PanelMotion {
         }
     }
 
-    /// Retargets wheel motion from the last rendered offset, accumulating pending notches.
-    pub(super) fn scroll(&mut self, key: &str, current: f64, delta: f64, max: f64) {
+    /// Retargets wheel motion from the last rendered offset, accumulating pending notches, to
+    /// arrive `seconds` from now.
+    pub(super) fn scroll(&mut self, key: &str, current: f64, delta: f64, max: f64, seconds: f64) {
         let tween = self
             .scrolls
             .entry(key.to_owned())
             .or_insert_with(|| Tween::still(current));
-        tween.retarget((tween.to + delta).clamp(0.0, max), self.now, SCROLL_SECONDS);
+        tween.retarget((tween.to + delta).clamp(0.0, max), self.now, seconds);
+    }
+
+    /// Fades auto-hidden scrollbar boxes by the caller clock, independent of panel motion, and
+    /// reports whether one changed. A fade starts counting from the first step after it began,
+    /// so idle time without frames never skips it.
+    pub(super) fn fade_scrollbars(
+        &mut self,
+        view: &mut ViewState,
+        report: &LayoutReport,
+        now: f64,
+    ) -> bool {
+        if !now.is_finite() {
+            return false;
+        }
+        let dt = match self.faded {
+            Some((at, true)) => (now - at).max(0.0),
+            _ => 0.0,
+        };
+        let changed = view.step_scrolls(report, dt);
+        self.faded = Some((now, view.scrollbar_fading(report)));
+        changed
     }
 
     /// Pointer drags and pixel scrolling override any outstanding wheel target immediately.
@@ -219,16 +244,16 @@ mod tests {
         let mut motion = PanelMotion::default();
         let mut view = ViewState::default();
         let panel = crate::test_support::sample_panel();
-        motion.scroll("list", 0.0, 30.0, 100.0);
-        motion.scroll("list", 0.0, 30.0, 100.0);
+        motion.scroll("list", 0.0, 30.0, 100.0, SCROLL_SECONDS);
+        motion.scroll("list", 0.0, 30.0, 100.0, SCROLL_SECONDS);
         motion.advance(&panel, &mut view, None, 0.03, true);
         let middle = view.scroll["list"];
         assert!(middle > 0.0 && middle < 60.0);
-        motion.scroll("list", middle, -10.0, 100.0);
+        motion.scroll("list", middle, -10.0, 100.0, SCROLL_SECONDS);
         motion.advance(&panel, &mut view, None, 0.5, true);
         assert_eq!(view.scroll["list"], 50.0);
         assert!(!motion.active());
-        motion.scroll("list", 50.0, 30.0, 100.0);
+        motion.scroll("list", 50.0, 30.0, 100.0, SCROLL_SECONDS);
         motion.cancel_scroll("list");
         assert!(!motion.active());
     }
@@ -284,7 +309,7 @@ mod tests {
         assert!(motion.advance(&panel, &mut view, None, 1.05, false));
         assert_eq!(motion.toggles[&0].sample(motion.now), 0.0);
         assert_eq!(motion.hover[&0].sample(motion.now), 0.0);
-        motion.scroll("list", 0.0, 30.0, 100.0);
+        motion.scroll("list", 0.0, 30.0, 100.0, SCROLL_SECONDS);
         assert!(motion.advance(&panel, &mut view, None, 1.05, false));
         assert_eq!(view.scroll["list"], 30.0);
         assert!(!motion.active());

@@ -39,7 +39,7 @@ pub struct ScrollRetained {
     pub hit_bottom: bool,
     /// A touch drag or fling in progress.
     pub motion: Option<ScrollMotion>,
-    /// A touch-mode box fading after its last touch; `Some(0)` once hidden.
+    /// A touch-mode or auto-hidden box fading after its last use; `Some(0)` once hidden.
     pub bar_fade: Option<f32>,
 }
 
@@ -147,6 +147,11 @@ pub struct ScrollMetrics {
     pub gesture: bool,
     pub always_handle_scrolling: bool,
     pub touch_mode: bool,
+    /// The idle box hides for every input mode ([`crate::scrollbar::AUTO_HIDE_PROPERTY`]).
+    pub auto_hide: bool,
+    /// The view's declared wheel easing in seconds
+    /// ([`crate::scrollbar::WHEEL_SECONDS_PROPERTY`]), clamped to its bound.
+    pub wheel_seconds: Option<f64>,
     pub allow_scroll_when_fits: bool,
     pub jump_to_end: bool,
     pub track_button: Option<String>,

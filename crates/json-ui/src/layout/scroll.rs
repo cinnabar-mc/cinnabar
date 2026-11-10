@@ -4,13 +4,15 @@
 //! snapped to 1/8 px, the box takes `clamp(viewport / content, 0.1, 1)` of the
 //! track, and the bar panel hides while the content fits. A touch motion may
 //! carry the offset a quarter viewport past either end, and a touch-mode box
-//! fades out after its last touch.
+//! fades out after its last touch. A mod surface may change the box's minimum
+//! fraction and hide its idle box for mouse users too ([`crate::scrollbar`]).
 
 use std::cell::RefCell;
 
 use serde_json::Value;
 
 use super::{LayoutEnv, Rect, ResolvedControl, measure, place};
+use crate::scrollbar;
 use crate::state::{ScrollMetrics, ViewState};
 use crate::widgets::{self, Draggable, OVERSCROLL};
 
@@ -206,7 +208,7 @@ pub(crate) struct ScrollFrame {
     /// The content's shift from its laid-out rect.
     delta: [f64; 2],
     box_rect: Option<Rect>,
-    /// A touch-mode box's children's alpha while it fades; `Some(0)` hides it.
+    /// A touch-mode or auto-hidden box's children's alpha while it fades; `Some(0)` hides it.
     box_fade: Option<f32>,
     /// Whether the bar panel hides because the content fits.
     pub panel_hidden: bool,
@@ -312,9 +314,12 @@ impl ScrollFrame {
         let thumb_axis = bar_box.and_then(|(control, _, _)| box_axis(control));
         frame.panel_hidden = thumb_axis.is_some() && panel.is_some() && fits && !always;
         let touch_mode = widgets::bound_bool(view, "touch_mode") == Some(true);
+        let auto_hide = scrollbar::auto_hide(view);
+        // An auto-hidden box stays hidden until something reveals it.
         frame.box_fade = retained
             .and_then(|retained| retained.bar_fade)
-            .filter(|_| touch_mode);
+            .filter(|_| touch_mode || auto_hide)
+            .or(auto_hide.then_some(0.0));
         // The bottom latches: content that fits, the end reached, or the overflow passed.
         let overflow_y = content_size[1] - viewport_size[1];
         let hit_bottom = retained.is_some_and(|retained| retained.hit_bottom)
@@ -357,6 +362,8 @@ impl ScrollFrame {
             always_handle_scrolling: widgets::bound_bool(view, "always_handle_scrolling")
                 == Some(true),
             touch_mode,
+            auto_hide,
+            wheel_seconds: scrollbar::wheel_seconds(view),
             allow_scroll_when_fits: widgets::bound_bool(
                 view,
                 "allow_scroll_even_when_content_fits",
@@ -379,7 +386,8 @@ impl ScrollFrame {
             let mut size = extent(box_rect);
             if let Some(thumb_axis) = thumb_axis.filter(|_| panel.is_some()) {
                 let ratio = if content_size[thumb_axis] > 0.0 {
-                    (viewport_size[thumb_axis] / content_size[thumb_axis]).clamp(0.1, 1.0)
+                    (viewport_size[thumb_axis] / content_size[thumb_axis])
+                        .clamp(scrollbar::min_thumb(view), 1.0)
                 } else {
                     1.0
                 };
@@ -451,7 +459,7 @@ impl ScrollFrame {
 pub(crate) enum Adjusted {
     Kept,
     Moved(Rect),
-    /// The scrollbar box at its rect, its children faded by a touch-mode fade.
+    /// The scrollbar box at its rect, its children faded by a touch-mode or auto-hide fade.
     Box(Rect, Option<f32>),
     Hidden,
 }
