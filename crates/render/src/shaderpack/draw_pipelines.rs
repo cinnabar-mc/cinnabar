@@ -55,6 +55,11 @@ pub(crate) struct BuiltDrawPipeline {
     pub pipeline: wgpu::RenderPipeline,
     pub outputs: Vec<Option<u32>>,
     pub alpha_test: Option<AlphaTest>,
+    /// The depth-only pipeline drawn before this one; with it, this pipeline tests the
+    /// prepass depth without writing depth.
+    pub prepass: Option<wgpu::RenderPipeline>,
+    /// For the sky: the same pipeline testing (never writing) the terrain prepass depth.
+    pub behind_terrain: Option<wgpu::RenderPipeline>,
 }
 
 /// Builds the pipeline of `kind` with one program: the geometry vertex layout, Iris's
@@ -133,13 +138,19 @@ pub(crate) fn draw_pipeline(
         let mut module = inputs.fragment.clone();
         inject_alpha_test(&mut module, test).then_some(module)
     });
+    let fragment_module = tested.unwrap_or_else(|| inputs.fragment.clone());
+    let prepass_fragment = (prepass_eligible(kind, inputs)
+        && targets
+            .iter()
+            .flatten()
+            .all(|target| target.blend.is_none()))
+    .then(|| super::depth_prepass::depth_only_fragment(&fragment_module))
+    .flatten();
     let fragment = super::pipelines::pack_shader_module(
         inputs.device,
         wgpu::ShaderModuleDescriptor {
             label: Some(&format!("shader pack {} {kind:?} fsh", inputs.name)),
-            source: wgpu::ShaderSource::Naga(Cow::Owned(
-                tested.unwrap_or_else(|| inputs.fragment.clone()),
-            )),
+            source: wgpu::ShaderSource::Naga(Cow::Owned(fragment_module)),
         },
     );
     let entry = |stage: StageKind| {
@@ -150,26 +161,90 @@ pub(crate) fn draw_pipeline(
             .map(|(_, e)| e.as_str())
     };
     let label = format!("shader pack {} {kind:?}", inputs.name);
+    let primitive = wgpu::PrimitiveState {
+        topology: wgpu::PrimitiveTopology::TriangleList,
+        front_face: wgpu::FrontFace::Cw,
+        cull_mode: kind.culls().then_some(wgpu::Face::Back),
+        ..Default::default()
+    };
+    let vertex = wgpu::VertexState {
+        module: inputs.vertex,
+        entry_point: entry(StageKind::Vertex),
+        compilation_options: Default::default(),
+        buffers: if inputs.emulated { &[] } else { &buffers },
+    };
+    let prepass = prepass_fragment.map(|module| {
+        let module = super::pipelines::pack_shader_module(
+            inputs.device,
+            wgpu::ShaderModuleDescriptor {
+                label: Some(&format!("shader pack {} {kind:?} depth fsh", inputs.name)),
+                source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
+            },
+        );
+        inputs
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&format!("{label} depth prepass")),
+                layout: Some(inputs.layout),
+                vertex: vertex.clone(),
+                primitive,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(kind.depth_compare()),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: entry(StageKind::Fragment),
+                    compilation_options: Default::default(),
+                    targets: &[],
+                }),
+                multiview_mask: None,
+                cache: inputs.cache,
+            })
+    });
+    let behind_terrain = (matches!(kind, DrawKind::Sky | DrawKind::Sunset)
+        && !inputs.emulated
+        && !super::pipelines::stores(inputs.reflection))
+    .then(|| {
+        inputs
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&format!("{label} behind terrain")),
+                layout: Some(inputs.layout),
+                vertex: vertex.clone(),
+                primitive,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &fragment,
+                    entry_point: entry(StageKind::Fragment),
+                    compilation_options: Default::default(),
+                    targets: &targets,
+                }),
+                multiview_mask: None,
+                cache: inputs.cache,
+            })
+    });
     let pipeline = inputs
         .device
         .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&label),
             layout: Some(inputs.layout),
-            vertex: wgpu::VertexState {
-                module: inputs.vertex,
-                entry_point: entry(StageKind::Vertex),
-                compilation_options: Default::default(),
-                buffers: if inputs.emulated { &[] } else { &buffers },
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Cw,
-                cull_mode: kind.culls().then_some(wgpu::Face::Back),
-                ..Default::default()
-            },
+            vertex,
+            primitive,
             depth_stencil: kind.depth().then_some(wgpu::DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: Some(kind.depth_write(inputs.effects)),
+                depth_write_enabled: Some(kind.depth_write(inputs.effects) && prepass.is_none()),
                 depth_compare: Some(kind.depth_compare()),
                 stencil: Default::default(),
                 bias: Default::default(),
@@ -188,5 +263,14 @@ pub(crate) fn draw_pipeline(
         pipeline,
         outputs,
         alpha_test: alpha,
+        prepass,
+        behind_terrain,
     })
+}
+
+/// Opaque terrain whose program has no side effects a second rasterization could repeat.
+fn prepass_eligible(kind: DrawKind, inputs: &DrawPipelineInputs<'_>) -> bool {
+    matches!(kind, DrawKind::TerrainSolid | DrawKind::TerrainCutout)
+        && !inputs.emulated
+        && !super::pipelines::stores(inputs.reflection)
 }

@@ -144,6 +144,10 @@ pub(crate) fn open_kind<'e>(
         &pack.programs[draw.program],
         super::targets::draw_reads(&pack, draw).alt,
     );
+    // A depth attachment for the sky means it tests the terrain prepass depth.
+    let pipeline = depth
+        .and(draw.behind_terrain.as_ref())
+        .unwrap_or(&draw.pipeline);
     let depth = depth.and_then(|(view, _)| depth_attachment(view, false));
     let mut render = pass(
         encoder,
@@ -151,7 +155,7 @@ pub(crate) fn open_kind<'e>(
         &attachments,
         depth,
     );
-    render.set_pipeline(&draw.pipeline);
+    render.set_pipeline(pipeline);
     Some((render, index))
 }
 
@@ -284,6 +288,74 @@ fn record_kind(
             raw.draw(range, 0..1);
         }
     }
+}
+
+/// The terrain draw whose prepass matches the current vertex layout.
+fn terrain_prepass(pack: &PackGpu, geometry: &FrameGeometry<'_>, kind: DrawKind) -> Option<usize> {
+    pack.draws.iter().position(|draw| {
+        draw.kind == kind
+            && draw.prepass.is_some()
+            && draw.layout == Some(geometry.terrain.layout())
+    })
+}
+
+/// The sky may test solid terrain depth when that draw replaces all its outputs and
+/// the sky does not sample the attached depth texture.
+fn sky_behind_terrain(pack: &PackGpu, geometry: &FrameGeometry<'_>) -> bool {
+    let Some(terrain) = terrain_prepass(pack, geometry, DrawKind::TerrainSolid) else {
+        return false;
+    };
+    pack.draws
+        .iter()
+        .filter(|d| matches!(d.kind, DrawKind::Sky | DrawKind::Sunset))
+        .all(|sky| {
+            sky.behind_terrain.is_some()
+                && sky.emulation.is_none()
+                && !pack.programs[sky.program].textures.iter().any(|source| {
+                    matches!(
+                        source,
+                        super::resources::TextureSource::Depth { index: 0, .. }
+                    )
+                })
+                && super::depth_prepass::overwrites(&pack.draws[terrain].outputs, &sky.outputs)
+        })
+}
+
+/// Records one terrain category's depth before shading it. Later categories must wait
+/// until earlier draws have written every output, even those the later draw never replaces.
+fn record_depth_prepass(
+    encoder: &mut CommandEncoder,
+    state: &ViewState,
+    geometry: &FrameGeometry<'_>,
+    depth: &TextureView,
+    kind: DrawKind,
+) {
+    let pack = &state.pack;
+    let Some(index) = terrain_prepass(pack, geometry, kind) else {
+        return;
+    };
+    let draw = &pack.draws[index];
+    let Some(category) = draw.kind.category() else {
+        return;
+    };
+    let render = pass(
+        encoder,
+        "shader pack terrain depth prepass",
+        &[],
+        depth_attachment(depth, false),
+    );
+    let mut tracked = TrackedRenderPass::new(geometry.device, render);
+    let raw = tracked.wgpu_pass();
+    raw.set_pipeline(draw.prepass.as_ref().expect("filtered on prepass"));
+    for (i, group) in state.bindings.draws[index].groups[state.targets.parity]
+        .iter()
+        .enumerate()
+    {
+        if let Some(group) = group {
+            raw.set_bind_group(i as u32, group, &[]);
+        }
+    }
+    geometry.terrain.draw(&mut tracked, category, false);
 }
 
 /// Copies a depth attachment into float targets with the host's copy pipeline.
@@ -499,29 +571,47 @@ pub(crate) fn record_opaque(
     }
     let pack = std::sync::Arc::clone(&state.pack);
     prepare_effects(device, queue, &pack, &mut state.effects, &geometry.effects);
-    for kind in [DrawKind::Sky, DrawKind::Sunset] {
-        record_kind(encoder, state, geometry, kind, scene_alt, None, Some(&sky));
+    let depth_view = state
+        .targets
+        .geometry_depth
+        .as_ref()
+        .map(|d| d.view.clone());
+    let size = state.targets.screen_size;
+    let sky_behind = depth_view.is_some() && sky_behind_terrain(&pack, geometry);
+    let record_sky = |encoder: &mut CommandEncoder, state: &mut ViewState, depth| {
+        for kind in [DrawKind::Sky, DrawKind::Sunset] {
+            record_kind(encoder, state, geometry, kind, scene_alt, depth, Some(&sky));
+        }
+        record_effects(
+            encoder,
+            state,
+            geometry,
+            [Effect::Sun, Effect::Moon, Effect::Stars],
+            scene_alt,
+            None,
+        );
+    };
+    if !sky_behind {
+        record_sky(encoder, state, None);
     }
-    record_effects(
-        encoder,
-        state,
-        geometry,
-        [Effect::Sun, Effect::Moon, Effect::Stars],
-        scene_alt,
-        None,
-    );
-    let Some(depth) = state.targets.geometry_depth.as_ref() else {
+    // The attachment outlives this function's borrows of `state`; take a view handle.
+    let Some(view) = depth_view else {
         return;
     };
-    // The attachment outlives this function's borrows of `state`; take a view handle.
-    let view = depth.view.clone();
-    let size = state.targets.screen_size;
     clear_depth(encoder, &view);
+    record_depth_prepass(encoder, state, geometry, &view, DrawKind::TerrainSolid);
+    if sky_behind {
+        // Colour draw order is unchanged: the prepass writes depth only.
+        record_sky(encoder, state, Some((&view, size)));
+    }
     for (kind, stage) in [
         (DrawKind::TerrainSolid, RuntimeStage::GpuTerrainSolid),
         (DrawKind::TerrainCutout, RuntimeStage::GpuTerrainCutout),
     ] {
         within_stage(timestamps, stage, encoder, |encoder| {
+            if kind == DrawKind::TerrainCutout {
+                record_depth_prepass(encoder, state, geometry, &view, kind);
+            }
             record_kind(
                 encoder,
                 state,
@@ -592,7 +682,8 @@ pub(crate) fn record_translucent(
     };
     let view = depth.view.clone();
     let size = state.targets.screen_size;
-    copy_view_depth(device, encoder, state, &[1], &[0, 1]);
+    // `record_opaque` ended with the same `depthtex1` and comparison copies, and the deferred
+    // passes in between cannot write the geometry depth.
     let translucent_alt = state.pack.frame.translucent_alt;
     record_kind(
         encoder,

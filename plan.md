@@ -1893,6 +1893,10 @@ native switch timing and live Bluetooth/platform acceptance remain incomplete.
 World sounds use the native distance curves: inverse from one block by default, linear
 with only a maximum, inverse from the definition's minimum otherwise, and start within
 16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
+Overlapping sound starts keep independent playback cursors and pitches while sharing
+decoded samples, including cold starts. The unverified six-voice per-definition cap
+is removed; [overall audio admission budgets](docs/reference/audio-polyphony.md),
+native voice stealing and matched server-melody listening remain incomplete.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
@@ -2622,6 +2626,9 @@ Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-
 spans, trace exports and developer-control state on supported desktop and Android
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
+Android packaging has an opt-in optimized profileable mode with Rust line tables and
+matching ELF build IDs in the diagnostic APK. Normal release settings stay unchanged;
+full APK and physical-device profiler acceptance remain incomplete.
 
 The scripted resident-render benchmark copies a frozen fixture and isolated user template,
 flies real-time camera paths and exports exact interval statistics with native stage spans.

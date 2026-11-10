@@ -7,6 +7,7 @@
 # Needs ANDROID_HOME holding the SDK packages runtime.json pins, the aarch64-linux-android Rust
 # target, cargo-ndk, Go, a JDK, zip and librsvg or ImageMagick for the launcher icon.
 # CINNABAR_ANDROID_PROFILE picks the Cargo profile (release).
+# CINNABAR_ANDROID_PROFILEABLE=true permits shell profiling and retains native debug symbols.
 # Signing uses CINNABAR_ANDROID_KEYSTORE and CINNABAR_ANDROID_KEY_ALIAS with passwords in
 # CINNABAR_ANDROID_STORE_PASSWORD and CINNABAR_ANDROID_KEY_PASSWORD, else a generated test key.
 set -euo pipefail
@@ -23,6 +24,9 @@ pin() {
 abi=arm64-v8a
 triple=aarch64-linux-android
 profile="${CINNABAR_ANDROID_PROFILE:-release}"
+# shellcheck source=profiling.sh
+source "$here/profiling.sh"
+configure_android_profiling
 sdk="${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"
 ndk="${ANDROID_NDK_HOME:-$sdk/ndk/$(pin ndk)}"
 build_tools="$sdk/build-tools/$(pin build_tools)"
@@ -101,7 +105,9 @@ if [[ -z "${CINNABAR_ANDROID_KEYSTORE:-}" ]]; then
         -keypass android -alias "$key_alias" -keyalg RSA -keysize 2048 -validity 10000 \
         -dname "CN=$product Android test"
 fi
-apk="$out/$product-$version-$abi.apk"
+apk_variant=""
+[[ "$profileable" != true ]] || apk_variant=-profileable
+apk="$out/$product-$version$apk_variant-$abi.apk"
 "$build_tools/apksigner" sign --ks "$keystore" --ks-key-alias "$key_alias" \
     --ks-pass env:CINNABAR_ANDROID_STORE_PASSWORD --key-pass env:CINNABAR_ANDROID_KEY_PASSWORD \
     --out "$apk" "$out/aligned.apk"

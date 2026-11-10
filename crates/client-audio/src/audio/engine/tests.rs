@@ -7,6 +7,7 @@ use assets::{
 
 use assets::audio_category::AudioCategory;
 mod notifications;
+mod polyphony;
 mod weather;
 
 fn definition(name: &str, category: &str) -> AudioDefinition {
@@ -167,17 +168,21 @@ fn a_full_decode_backlog_defers_a_sound_until_it_can_start() {
     let _ = std::fs::remove_file(path);
 }
 
-// A burst of starts for one still-decoding sound must not queue without bound.
+/// Starts sharing a decode retain separate requests within the pending-start budget.
 #[test]
-fn pending_starts_are_coalesced_and_bounded() {
+fn pending_starts_share_the_decode_and_obey_the_pending_budget() {
     let (mut engine, path) = engine_with_encoded("random.burst", "player");
     let settings = AudioSettings::default();
     for _ in 0..MAX_QUEUED {
         engine.enqueue(SoundRequest::new("random.burst"));
     }
     engine.pump(None, 0.0, &settings);
-    assert!(engine.pending.len() <= MAX_SAME_SOUND);
-    assert!(engine.stats.voice_limit > 0);
+    assert_eq!(engine.pending.len(), MAX_PENDING);
+    assert_eq!(engine.stats.voice_limit, 0);
+    assert_eq!(
+        engine.stats.queue_overflow,
+        (MAX_QUEUED - MAX_PENDING) as u64
+    );
     let _ = std::fs::remove_file(path);
 }
 
@@ -318,8 +323,9 @@ fn category_sliders_scale_gain_and_unknown_definitions_are_counted() {
     assert_eq!(engine.stats.no_definition, 1);
 }
 
+/// Identical sound definitions keep independent voices below the overall limit.
 #[test]
-fn identical_sounds_are_capped() {
+fn identical_sounds_keep_independent_voices_within_the_overall_budget() {
     let mut engine = engine(&[("dig.stone", "block")]);
     for _ in 0..10 {
         engine.enqueue(SoundRequest::new("dig.stone").at([1.0, 0.0, 0.0]));
@@ -328,9 +334,9 @@ fn identical_sounds_are_capped() {
         engine
             .pump(Some(LISTENER), 0.05, &AudioSettings::default())
             .len(),
-        MAX_SAME_SOUND
+        10
     );
-    assert_eq!(engine.stats.voice_limit, 4);
+    assert_eq!(engine.stats.voice_limit, 0);
 }
 
 #[test]
