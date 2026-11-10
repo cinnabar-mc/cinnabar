@@ -955,7 +955,7 @@ fn independent_material_expressions_keep_every_choice_however_many_combinations(
             };
             assert_eq!(
                 drawn_materials(&compiled, &format!("part{index}"), &query),
-                [expected.clone()],
+                std::slice::from_ref(expected),
                 "part{index}, combination {combination}"
             );
         }
