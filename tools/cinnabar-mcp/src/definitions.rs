@@ -23,7 +23,7 @@ pub fn definitions() -> Value {
     });
     let condition = json!({
         "type": "object",
-        "description": "Exactly one of: {\"in_world\": null}, {\"chunks_loaded\": {\"radius\": 4}}, {\"screen\": {\"name\": \"Gameplay\"}}, {\"entity\": {\"matches\": \"cinnabar:hollow_warden\", \"radius\": 32}}, {\"camera_finished\": null}. Unit conditions may also be given as the bare strings \"in_world\" / \"camera_finished\"."
+        "description": "Exactly one of: {\"in_world\": null}, {\"chunks_loaded\": {\"radius\": 4}}, {\"screen\": {\"name\": \"Gameplay\"}}, {\"entity\": {\"matches\": \"cinnabar:hollow_warden\", \"radius\": 32}}, {\"camera_finished\": null}, {\"inventory_ready\": null} (an inventory screen is open and accepts clicks), {\"inventory_settled\": null} (no inventory request awaits the server). Unit conditions may also be given as the bare strings \"in_world\" / \"camera_finished\" / \"inventory_ready\" / \"inventory_settled\"."
     });
     // Built separately: one `json!` holding every tool exceeds the macro recursion limit.
     let log_filter_set = json!({
@@ -95,6 +95,11 @@ pub fn definitions() -> Value {
         {
             "name": "import_skin",
             "description": "Import a PNG, paired geometry JSON, or skin pack through the Dressing Room worker. The path is resolved against the checkout; poll state for completion.",
+            "inputSchema": { "type": "object", "properties": { "path": text }, "required": ["path"], "additionalProperties": false }
+        },
+        {
+            "name": "import_cape",
+            "description": "Import and equip a PNG cape through the Dressing Room worker; in a world it is sent to the server as a skin update. The path is resolved against the checkout.",
             "inputSchema": { "type": "object", "properties": { "path": text }, "required": ["path"], "additionalProperties": false }
         },
         {
@@ -179,7 +184,7 @@ pub fn definitions() -> Value {
         },
         {
             "name": "record_stop",
-            "description": "Stop recording and wait for the encode (and audio mux) to finish; returns the path and frame count.",
+            "description": "Stop recording and wait for the encode (and audio mux) to finish; returns the path, frame count, and dropped_frames/filled_frames: real-time slots the lagging encoder had no room for, which repeat the previous frame.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {

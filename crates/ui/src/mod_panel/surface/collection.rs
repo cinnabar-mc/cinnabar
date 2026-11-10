@@ -10,8 +10,8 @@ use std::{
 
 /// A collection can represent a catalogue without expanding every tile's descendants.
 pub const MAX_ITEMS: usize = 256;
-/// The fixed viewport must fit this many cells, including the virtualization margin.
-pub const MAX_VISIBLE_CELLS: usize = 24;
+/// Includes a five-column, three-row viewport and its bounded virtualization margin.
+pub const MAX_VISIBLE_CELLS: usize = 32;
 
 /// A reusable native grid with a small mutable list of immutable item indexes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,12 +19,20 @@ pub const MAX_VISIBLE_CELLS: usize = 24;
 pub struct SurfaceCollection {
     pub definition: Arc<CollectionDefinition>,
     pub order: Vec<usize>,
+    /// Host-admitted request identity survives publication without replaying on each frame.
+    #[serde(skip)]
+    pub reveal: Option<Arc<crate::mod_panel::CollectionRevealRequest>>,
 }
 
 impl PartialEq for SurfaceCollection {
     /// Admitted immutable metadata can compare by identity during ordinary frame publication.
     fn eq(&self, other: &Self) -> bool {
         self.order == other.order
+            && match (&self.reveal, &other.reveal) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            }
             && (Arc::ptr_eq(&self.definition, &other.definition)
                 || self.definition == other.definition)
     }
@@ -131,7 +139,6 @@ impl SurfaceCollection {
                 return Err("surface collection item has too many fields".into());
             }
             let values = Surface {
-                previews: Default::default(),
                 collections: Default::default(),
                 screen: String::new(),
                 document: String::new(),
@@ -139,6 +146,13 @@ impl SurfaceCollection {
                 transitions: Default::default(),
             };
             values.validate_bindings()?;
+            if item
+                .values
+                .values()
+                .any(|value| value.item().is_some() || value.projection().is_some())
+            {
+                return Err("surface collection items bind plain values only".into());
+            }
             if item.values.keys().any(|key| {
                 !key.starts_with("#item_") || key.starts_with("#item_art_") || key == "#item_exists"
             }) || item
@@ -273,7 +287,11 @@ pub(super) fn scope(value: &mut Value, name: &str) {
                 if binding
                     .get("binding_name")
                     .and_then(Value::as_str)
-                    .is_some_and(|name| name.starts_with("#item_"))
+                    .is_some_and(|name| {
+                        let properties = json_ui::expression_properties(name);
+                        !properties.is_empty()
+                            && properties.iter().all(|key| key.starts_with("#item_"))
+                    })
                 {
                     binding["binding_type"] = json!("collection");
                     binding["binding_collection_name"] = json!(name);
@@ -328,4 +346,58 @@ pub(super) fn replace(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Item-only expressions read the current card, while host globals retain their scope.
+    #[test]
+    fn preview_visibility_expressions_follow_their_collection_item() {
+        let mut node = json!({"type":"custom","bindings":[
+            {"binding_name":"(#item_kind = 'armor')","binding_name_override":"#visible"},
+            {"binding_name":"#item_name","binding_name_override":"#text"},
+            {"binding_name":"(#category = 'all')","binding_name_override":"#visible"},
+            {"binding_name":"(#item_kind = #category)","binding_name_override":"#visible"},
+            {"binding_name":"((#item_kind = '#category') and #item_exists)","binding_name_override":"#visible"},
+            {"binding_name":"('#item_kind' = 'armor')","binding_name_override":"#visible"},
+            {"binding_name":"true","binding_name_override":"#visible"}
+        ]});
+        scope(&mut node, "modules");
+        for i in [0, 1, 4] {
+            assert_eq!(node["bindings"][i]["binding_type"], "collection");
+            assert_eq!(node["bindings"][i]["binding_collection_name"], "modules");
+        }
+        for i in [2, 3, 5, 6] {
+            assert!(node["bindings"][i].get("binding_type").is_none());
+        }
+    }
+
+    /// Admits four- and five-column browsers while retaining a finite window for oversized
+    /// viewports and wider grids.
+    #[test]
+    fn card_browsers_keep_a_bounded_retained_window() {
+        let browser = |columns: usize, viewport: [f64; 2]| SurfaceCollection {
+            reveal: None,
+            definition: Arc::new(CollectionDefinition {
+                template: Surface {
+                    screen: "cards.tile".into(),
+                    document: json!({"namespace":"cards","tile":{"type":"panel","size":[111,97]}})
+                        .to_string(),
+                    bindings: Default::default(),
+                    transitions: Default::default(),
+                    collections: Default::default(),
+                },
+                columns,
+                viewport,
+                items: vec![CollectionItem::default(); 66],
+            }),
+            order: (0..66).collect(),
+        };
+        browser(4, [452., 289.]).validate("modules").unwrap();
+        browser(5, [563., 289.]).validate("modules").unwrap();
+        assert!(browser(5, [563., 486.]).validate("modules").is_err());
+        assert!(browser(6, [674., 289.]).validate("modules").is_err());
+    }
 }

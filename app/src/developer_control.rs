@@ -2,15 +2,18 @@
 //! and applies them through the same seams real input, chat and joins use.
 
 pub(crate) mod actors;
+mod benchmark;
 mod camera;
 mod cape;
 mod capture;
-mod cursor_isolation;
+pub(crate) mod cursor_isolation;
 mod input;
+mod inventory;
 #[cfg(target_os = "macos")]
 mod macos;
 mod scoreboards;
 mod state;
+mod surface;
 
 use std::path::PathBuf;
 
@@ -86,6 +89,7 @@ fn window_options(mut window: Window, size: Option<[u32; 2]>, hidden: bool, scal
 /// Starts the endpoint when `CINNABAR_DEVELOPER_CONTROL` names its file.
 pub(crate) fn configure(app: &mut App) {
     cursor_isolation::configure(app, hidden_window_requested());
+    surface::configure(app, hidden_window_requested());
     #[cfg(target_os = "macos")]
     if hidden_window_requested() {
         macos::verify_after_launch(app);
@@ -170,8 +174,17 @@ fn dispatch(world: &mut World) {
                 crash(kind);
             }
             Command::CameraPath(path) => camera::start(world, path),
+            Command::CameraPathRealTime(path) => camera::start_realtime(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),
+            Command::InventoryOpen => {
+                inventory::open(world, reply);
+                continue;
+            }
+            Command::InventoryClose => inventory::close(world),
+            Command::InventoryClick(click) => inventory::click(world, click),
+            Command::Inventory => Ok(inventory::snapshot(world)),
+            Command::BenchmarkState => benchmark::snapshot(world),
             Command::WaitFor {
                 condition,
                 timeout_ms,

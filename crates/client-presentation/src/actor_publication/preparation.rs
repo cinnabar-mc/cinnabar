@@ -22,8 +22,9 @@ pub struct ActorFrameState {
     pub(super) hat_state: super::hats::HatState,
     pub(super) cape_state: crate::presentation::cape::CapeState,
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
-    pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
+    pub(super) skin_layers: crate::presentation::skin_layers::ActorLayerCache,
     pub(super) poses: crate::presentation::actors::PoseConversions,
+    pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
@@ -49,7 +50,7 @@ pub struct ActorFrameState {
 
 impl ActorFrameState {
     /// Cosmetic motion shared by the world attachment and the HUD paperdoll for this frame.
-    pub fn cosmetic_motion(&self) -> Vec<(cosmetics::Item, render_model::hats::Motion)> {
+    pub fn cosmetic_motion(&mut self) -> &[(cosmetics::Item, render_model::hats::Motion)] {
         self.hat_state.local_motion()
     }
 
@@ -66,6 +67,11 @@ impl ActorFrameState {
         self.step
     }
 
+    /// This frame's staged actor clock step, before actor preparation consumes it.
+    pub fn motion_step(&self) -> Option<crate::actor_clock::ActorFrameStep> {
+        self.motion_step
+    }
+
     /// Returns the resolved camera rotation and position captured for actor evaluation.
     pub fn sampling_camera(&self) -> Option<([f32; 2], [f32; 3])> {
         self.captured_sampling_camera
@@ -77,12 +83,13 @@ impl ActorFrameState {
     }
 }
 
-/// Predicts remote poses from the supplied interval, independently of local physics.
+/// Stages remote motion from the supplied interval, independently of local physics.
 /// Live actor publication later consumes the same step.
 pub fn advance_actor_motion(
     state: &mut ActorFrameState,
     stream: Option<&mut WorldStream>,
     delta: std::time::Duration,
+    local_vehicle: Option<client_world::LocalVehicleFeed>,
 ) {
     let session_id = stream
         .as_ref()
@@ -93,6 +100,9 @@ pub fn advance_actor_motion(
     }
     let step = state.actor_clock.advance(delta);
     if let Some(stream) = stream {
+        // The steered boat's prediction lands first, so picks, the camera and the rider's
+        // seat all read this frame's boat.
+        stream.sync_local_vehicle_pose(local_vehicle);
         stream.predict_remote_actor_motion(step.ticks);
     }
     state.motion_step = Some(step);
@@ -139,6 +149,7 @@ pub fn advance_actor_frame(
         cape_state,
         hat_state,
         poses,
+        coverage_poses,
         layer_poses,
         java_hand,
         java_poses,
@@ -163,6 +174,7 @@ pub fn advance_actor_frame(
         server_camera,
         view,
         camera,
+        pack_cameras: _,
     } = presentation;
     let session_id = client_world
         .stream
@@ -215,7 +227,16 @@ pub fn advance_actor_frame(
         *published_pack = pack.clone();
         *published_items = items.clone();
         *published_artwork = prepared.clone();
-        let staged = StagedSessionIcons::stage(items.as_deref());
+        let placed = crate::prepared_actor_artwork::session_icons(
+            &artwork,
+            pack.as_ref(),
+            items.as_ref().and_then(|items| items.icons.as_ref()),
+            prepared.as_deref(),
+        );
+        let icons = match placed {
+            Some(placed) => SessionIconInput::Placed(placed),
+            None => SessionIconInput::Staged(StagedSessionIcons::stage(items.as_deref())),
+        };
         if new_session || pack_changed {
             *pack_geometry_ready = SessionGeometryReady::default();
         }
@@ -233,7 +254,7 @@ pub fn advance_actor_frame(
             &mut scene,
             &resources,
             pack.as_deref(),
-            staged,
+            icons,
             pack_geometry_ready,
             equipment.as_deref_mut(),
             profiler.as_deref(),
@@ -248,15 +269,15 @@ pub fn advance_actor_frame(
     partial_tick.0 = step.partial_tick;
     skin_rigs.begin_frame();
     poses.begin_frame();
+    coverage_poses.begin_frame();
     java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();
+        equipment.begin_shield_frame();
+        equipment.set_show_custom_item_models(settings.feel().show_custom_item_models);
     }
     layer_poses.begin_frame();
-    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let first_person = server_camera.as_deref().map_or(first_person, |camera| {
-        camera.renders_first_person(first_person)
-    });
+    let first_person = crate::camera::hand_first_person(Some(&*settings), server_camera.as_deref());
     let java_mode = settings.feel().java_animations;
     // Java selects poses and items; the shared combat profile always owns bob, hurt and glint.
     let combat_visuals = render_api::DEFAULT_COMBAT_VISUALS;
@@ -299,6 +320,12 @@ pub fn advance_actor_frame(
                 charged: timing.hand_charged,
             };
         }
+        // A seat that locks rotation faces the rider's body along the vehicle.
+        if let Some(feed) = &mut local_feed
+            && let Some(lock) = stream.authority().local_seat_view_lock(step.partial_tick)
+        {
+            feed.yaw = lock.facing();
+        }
         if let Some(feed) = &local_feed {
             stream.sync_local_player_pose(feed);
         }
@@ -306,7 +333,9 @@ pub fn advance_actor_frame(
         if let Some(progress) = input.swing_progress {
             stream.sync_local_swing(progress);
         }
-        stream.set_actor_camera_rotation(views::actor_camera_rotation(view.camera_rotation()));
+        stream.set_actor_camera_rotation(views::actor_camera_rotation(
+            view.camera_rotation(&settings),
+        ));
         if let Ok((transform, _)) = camera.single() {
             stream.set_actor_camera_position(transform.translation.to_array());
         }
@@ -345,7 +374,7 @@ pub fn advance_actor_frame(
         });
     publish_local_actor_visibility(
         &avatar,
-        settings.perspective(),
+        settings.rendered_perspective(),
         server_camera.as_deref(),
         authoritative_subject_eye,
         authoritative_subject_feet,
@@ -359,7 +388,7 @@ pub fn advance_actor_frame(
     };
     let sampling_camera = camera.single().ok().map(|(transform, _)| {
         (
-            views::actor_camera_rotation(view.camera_rotation()),
+            views::actor_camera_rotation(view.camera_rotation(&settings)),
             transform.translation.to_array(),
         )
     });

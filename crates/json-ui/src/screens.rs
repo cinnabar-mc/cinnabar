@@ -14,6 +14,8 @@ pub type ScreenRender = FormRender;
 
 /// Every `namespace.name` screen the engine renders.
 pub const ENGINE_SCREENS: &[&str] = &[
+    Reference::TradeTradeScreen.as_str(),
+    Reference::Trade2TradeScreen.as_str(),
     crate::vanilla::Reference::HudHudScreen.as_str(),
     crate::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
     Reference::ServerFormThirdPartyServerScreen.as_str(),
@@ -47,6 +49,7 @@ pub const ENGINE_SCREENS: &[&str] = &[
     Reference::HorseHorseScreen.as_str(),
     Reference::BookBookScreen.as_str(),
     Reference::NpcInteractNpcScreen.as_str(),
+    Reference::CommandBlockCommandBlockScreen.as_str(),
     Reference::PausePauseScreen.as_str(),
     Reference::InviteInviteScreen.as_str(),
     Reference::ChatChatScreen.as_str(),
@@ -105,12 +108,33 @@ pub fn screen_settings(
     catalog: &Catalog,
     context: &Context,
 ) -> Option<crate::ScreenSettings> {
-    let (namespace, name) = reference.split_once('.')?;
-    let root = context.root_env(catalog);
-    let (control_type, properties) =
-        crate::Resolver::new(catalog).resolve_root_properties(namespace, name, &root)?;
+    let (control_type, properties) = root_properties(reference, catalog, context)?;
     (control_type.as_deref() == Some("screen"))
         .then(|| crate::ScreenSettings::from_properties(&properties))
+}
+
+/// Reads scene policy without visiting descendants, including roots authored as non-screen controls.
+pub fn root_settings(
+    reference: &str,
+    catalog: &Catalog,
+    context: &Context,
+) -> Option<crate::ScreenSettings> {
+    let (_, properties) = root_properties(reference, catalog, context)?;
+    Some(crate::ScreenSettings::from_properties(&properties))
+}
+
+/// Resolves inherited root values with the same scope and ignored-control rules as a full tree.
+fn root_properties(
+    reference: &str,
+    catalog: &Catalog,
+    context: &Context,
+) -> Option<(
+    Option<String>,
+    std::collections::BTreeMap<String, serde_json::Value>,
+)> {
+    let (namespace, name) = reference.split_once('.')?;
+    let root = context.root_env(catalog);
+    crate::Resolver::new(catalog).resolve_root_properties(namespace, name, &root)
 }
 
 /// One data refresh of a resolved screen whose live bindings `state` keeps,

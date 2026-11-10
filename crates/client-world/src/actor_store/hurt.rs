@@ -1,6 +1,10 @@
 use assets::facts::entity::NativeEntityClass;
-use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
-use protocol_ids::Attribute;
+use std::sync::Arc;
+
+use protocol::{
+    ActorKind, ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent,
+};
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -23,7 +27,7 @@ const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
 pub const MAX_STATUS_NOTICES: usize = 256;
 
 /// A decoded actor status event with the actor's pose at the time, for particle and sound consumers.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActorStatusNotice {
     pub runtime_id: u64,
     pub kind: ActorStatusKind,
@@ -34,6 +38,8 @@ pub struct ActorStatusNotice {
     pub height: Option<f32>,
     /// Eating attachment for Feed; actor feet for other kinds.
     pub eating_position: [f32; 3],
+    /// The hook's state for fishing events on a fishing hook; `None` otherwise.
+    pub fishing: Option<FishingHookPose>,
 }
 
 /// A dropped item flying to the actor that collected it.
@@ -93,18 +99,27 @@ pub struct ActorStatus {
     pub death_time: u8,
     /// Signed death ticks for native camera effects, independent of body animation progress.
     pub(crate) native_death_ticks: i16,
+    /// Whether this death has completed its one-time player visibility transition.
+    pub(super) player_death_completed: bool,
     pub(crate) dragon_death_time: u16,
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
     pub dead: bool,
+    /// Commit sequence of the latest death observed in this lifetime; zero before any.
+    pub(crate) death_revision: u64,
     /// `age_ticks` when the fuse metadata was last received.
     pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
+    /// A thrown trident's ticks with its return flag set, which lengthen its loyalty rope.
+    pub(super) loyalty_return_ticks: u32,
     pub(super) fire: super::fire::FireAnimation,
     /// Runtime ID and spawn revision of the dragon's last selected healing crystal.
     pub(crate) healing_crystal: Option<(u64, u64)>,
     pub pickup: Option<ActorPickup>,
+    /// The body yaw the client predicts this frame for a vehicle it steers, which the rig
+    /// draws instead of easing between its ticks.
+    pub predicted_render_yaw: Option<f32>,
     /// Body water/lava contact; `None` before the first successful world sample.
     pub fluid: Option<(bool, bool)>,
     /// Breathing point below a liquid surface; `None` before the first world sample.
@@ -179,6 +194,7 @@ impl ActorStatus {
 
     fn die(&mut self) {
         self.creeper_swell.clear();
+        self.player_death_completed = false;
         self.dead = true;
     }
 
@@ -193,6 +209,19 @@ impl ActorStatus {
 }
 
 impl ActorSnapshot {
+    /// Restores depleted health on an alive notice without resetting a living actor's clocks.
+    fn apply_spawn_alive(&mut self) {
+        if let Some(health) = self.attributes.get_mut(Attribute::Health.wire_name()) {
+            if health.current > 0.0 {
+                return;
+            }
+            health.current = health.max;
+        } else if !self.status.dead {
+            return;
+        }
+        self.status.revive();
+    }
+
     /// Where this actor's eating crumbs scatter from: a player's mouth, else its position.
     pub fn eating_position(&self) -> [f32; 3] {
         let mut position = self.position;
@@ -204,6 +233,21 @@ impl ActorSnapshot {
             }
         }
         position
+    }
+
+    /// Counts a boat's synced hurt time down each tick, as the boat's own tick does, so its rock
+    /// settles without further server updates.
+    pub(super) fn tick_boat_hurt(&mut self) {
+        if self.entity_fact.native_class != NativeEntityClass::Boat {
+            return;
+        }
+        match self.metadata.get_mut(&ActorDataKey::Hurt.wire_value()) {
+            Some(ActorMetadataValue::Byte(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Short(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Int(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Long(time)) if *time > 0 => *time -= 1,
+            _ => {}
+        }
     }
 
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
@@ -225,6 +269,14 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
+    /// Records a death committed at `sequence` for the current lifetime of an admitted actor;
+    /// other runtime IDs are ignored.
+    pub(crate) fn note_death(&mut self, runtime_id: u64, sequence: u64) {
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.status.death_revision = sequence;
+        }
+    }
+
     pub(super) fn apply_status(&mut self, event: ActorStatusEvent) -> ActorApplyResult {
         let Some(actor) = self.actors.get_mut(&event.runtime_id) else {
             return ActorApplyResult::MissingActor;
@@ -241,6 +293,7 @@ impl ActorStore {
                 } else {
                     actor.position
                 },
+                fishing: FishingHookPose::for_event(actor, event.kind),
             });
         }
         match event.kind {
@@ -252,6 +305,9 @@ impl ActorStore {
                 self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
+                if let Some(health) = actor.attributes.get_mut(Attribute::Health.wire_name()) {
+                    health.current = health.min;
+                }
                 if actor.entity_fact.native_class == NativeEntityClass::EnderDragon {
                     actor.status.dead = true;
                     actor.status.dragon_death_time = 1;
@@ -259,7 +315,7 @@ impl ActorStore {
                     actor.status.die();
                 }
             }
-            ActorStatusKind::SpawnAlive => actor.status.revive(),
+            ActorStatusKind::SpawnAlive => actor.apply_spawn_alive(),
             // Entity event 39 (0x27) sets the shake countdown verbatim.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
             ActorStatusKind::KineticDamageDealt => actor.status.kinetic_hit_ticks = Some(0),
@@ -307,6 +363,67 @@ impl ActorStore {
             .then(|| [-x / length, -z / length])
     }
 }
+
+/// A fishing hook's state at the moment one of its fishing events was applied, kept with the
+/// event so its effects still play when the hook is removed in the same packet batch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FishingHookPose {
+    /// The hook's entity identifier, which selects its sounds.
+    pub identifier: Arc<str>,
+    /// Bottom of the hook's collision box.
+    pub bottom: f32,
+    /// Width of the hook's collision box.
+    pub width: f32,
+    /// Synced offset of the approaching fish from the hook, on x and z.
+    pub fish_offset: [f32; 2],
+    /// Synced approach angle of the fish, in radians.
+    pub fish_angle: f32,
+    /// The hook's silent flag, which mutes its sounds.
+    pub silent: bool,
+}
+
+impl FishingHookPose {
+    /// Captures a hook's state for a fishing event; `None` for other kinds and actors, which
+    /// ignore these event ids.
+    pub(super) fn for_event(actor: &ActorSnapshot, kind: ActorStatusKind) -> Option<Self> {
+        if !matches!(
+            kind,
+            ActorStatusKind::FishHookPosition
+                | ActorStatusKind::FishHookBite
+                | ActorStatusKind::FishHookTease
+        ) || actor.entity_fact.native_class != NativeEntityClass::FishingHook
+        {
+            return None;
+        }
+        let ActorKind::Entity { identifier } = &actor.kind else {
+            return None;
+        };
+        let (min, max) = actor.bounding_box()?;
+        Some(Self {
+            identifier: identifier.clone(),
+            bottom: min[1],
+            width: max[0] - min[0],
+            fish_offset: [
+                synced_float(actor, ActorDataKey::FishX),
+                synced_float(actor, ActorDataKey::FishZ),
+            ],
+            fish_angle: synced_float(actor, ActorDataKey::FishAngle),
+            silent: actor.flag(ActorFlag::Silent.wire_value()),
+        })
+    }
+}
+
+/// A synced float, reading 0 when the server has not sent it as a float.
+fn synced_float(actor: &ActorSnapshot, key: ActorDataKey) -> f32 {
+    match actor.metadata.get(&key.wire_value()) {
+        Some(ActorMetadataValue::Float(value)) => *value,
+        _ => 0.0,
+    }
+}
+
+#[cfg(test)]
+#[path = "fishing_tests.rs"]
+mod fishing_tests;
 
 #[cfg(test)]
 mod tests {
@@ -429,6 +546,54 @@ mod tests {
             kind,
             data: 0,
         })
+    }
+
+    /// A boat's streamed hurt time keeps counting down between server updates, whatever
+    /// integer width the server streams it as.
+    #[test]
+    fn boat_hurt_time_counts_down_without_server_updates() {
+        for (start, after_two, settled) in [
+            (
+                ActorMetadataValue::Byte(3),
+                ActorMetadataValue::Byte(1),
+                ActorMetadataValue::Byte(0),
+            ),
+            (
+                ActorMetadataValue::Short(3),
+                ActorMetadataValue::Short(1),
+                ActorMetadataValue::Short(0),
+            ),
+            (
+                ActorMetadataValue::Int(3),
+                ActorMetadataValue::Int(1),
+                ActorMetadataValue::Int(0),
+            ),
+            (
+                ActorMetadataValue::Long(3),
+                ActorMetadataValue::Long(1),
+                ActorMetadataValue::Long(0),
+            ),
+        ] {
+            let mut store = ActorStore::new(1, 0);
+            let protocol::ActorEvent::Spawn(mut boat) = spawn() else {
+                unreachable!();
+            };
+            boat.kind = protocol::ActorKind::Entity {
+                identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
+            };
+            boat.metadata = std::sync::Arc::from([protocol::ActorMetadata {
+                key: ActorDataKey::Hurt.wire_value(),
+                value: start,
+            }]);
+            store.apply(1, 1, protocol::ActorEvent::Spawn(boat));
+            let hurt = |store: &ActorStore| {
+                store.get(7).unwrap().metadata[&ActorDataKey::Hurt.wire_value()].clone()
+            };
+            store.advance_interpolation_ticks(2);
+            assert_eq!(hurt(&store), after_two);
+            store.advance_interpolation_ticks(3);
+            assert_eq!(hurt(&store), settled);
+        }
     }
 
     #[test]
@@ -559,5 +724,98 @@ mod tests {
         assert_eq!(actor.status.kinetic_hit_ticks, Some(6));
         actor.status.advance_kinetic_hit(false);
         assert_eq!(actor.status.kinetic_hit_ticks, None);
+    }
+
+    /// A streamed player with independent current, maximum and default health.
+    fn player_with_health(current: f32) -> ActorStore {
+        let protocol::ActorEvent::Spawn(mut spawn) = spawn() else {
+            unreachable!()
+        };
+        spawn.kind = protocol::ActorKind::Player {
+            uuid: [7; 16],
+            username: "Fixture".into(),
+        };
+        spawn.attributes = [protocol::ActorAttribute {
+            name: Attribute::Health.wire_name().into(),
+            min: 0.0,
+            max: 40.0,
+            current,
+            default: Some(20.0),
+            modifiers: [].into(),
+        }]
+        .into();
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, protocol::ActorEvent::Spawn(spawn));
+        store
+    }
+
+    #[test]
+    fn spawn_alive_restores_maximum_health_without_replacing_movement() {
+        let mut store = player_with_health(0.0);
+        store.advance_interpolation_ticks(1);
+        store.apply_player_move(
+            1,
+            2,
+            0,
+            protocol::MovePlayerEvent {
+                runtime_id: 7,
+                position: [6.0, 5.0, 0.0],
+                ..Default::default()
+            },
+        );
+        let before = store.get(7).unwrap().clone();
+        assert!(before.status.dead);
+        assert!(before.interpolation_ticks_remaining > 0);
+        store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
+        let actor = store.get(7).unwrap();
+        assert_eq!(
+            actor.attributes[Attribute::Health.wire_name()].current,
+            40.0
+        );
+        assert!(!actor.status.dead);
+        assert_eq!(actor.spawn_revision, before.spawn_revision);
+        assert_eq!(actor.position, before.position);
+        assert_eq!(actor.received_pose, before.received_pose);
+        assert_eq!(
+            actor.interpolation_ticks_remaining,
+            before.interpolation_ticks_remaining
+        );
+        store.advance_interpolation_ticks(1);
+        assert!(!store.get(7).unwrap().status.dead);
+        assert_ne!(store.get(7).unwrap().position, before.position);
+    }
+
+    #[test]
+    fn spawn_alive_keeps_positive_health_and_active_hurt_timing() {
+        for current in [0.5, 8.0, 40.0] {
+            let mut store = player_with_health(current);
+            store.apply(1, 2, status(ActorStatusKind::Hurt));
+            let before = store.get(7).unwrap().status;
+            assert!(before.hurt_time > 0);
+            store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
+            let actor = store.get(7).unwrap();
+            assert_eq!(
+                actor.attributes[Attribute::Health.wire_name()].current,
+                current
+            );
+            assert_eq!(actor.status.hurt_time, before.hurt_time);
+            assert_eq!(actor.status.hurt_direction, before.hurt_direction);
+        }
+    }
+
+    #[test]
+    fn death_then_spawn_alive_updates_health_without_an_attribute_packet() {
+        let mut store = player_with_health(8.0);
+        store.apply(1, 2, status(ActorStatusKind::Death));
+        let actor = store.get(7).unwrap();
+        assert_eq!(actor.attributes[Attribute::Health.wire_name()].current, 0.0);
+        assert!(actor.status.dead);
+        store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
+        let actor = store.get(7).unwrap();
+        assert_eq!(
+            actor.attributes[Attribute::Health.wire_name()].current,
+            40.0
+        );
+        assert!(!actor.status.dead);
     }
 }

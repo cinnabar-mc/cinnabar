@@ -26,6 +26,8 @@ mod device_poll;
 mod gpu_allocation;
 #[path = "it/support/gpu_snapshot.rs"]
 mod gpu_snapshot;
+#[path = "../src/startup_presentation.rs"]
+mod startup_presentation;
 
 #[path = "../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared checked shader constructor dependencies")]
@@ -35,6 +37,8 @@ mod material_shader;
 mod pipeline_warmup;
 #[path = "../src/render_bounds.rs"]
 mod render_bounds;
+#[path = "../src/render_scale.rs"]
+mod render_scale;
 #[path = "../src/scene_target.rs"]
 #[allow(
     dead_code,
@@ -65,6 +69,17 @@ mod screen_overlay_render {
         _: &mut bevy::render::renderer::RenderContext,
         _: &bevy::prelude::World,
     ) {
+    }
+}
+
+mod shaderpack {
+    /// Standalone UI views use the ordinary scene boundary without a shader pack.
+    pub(crate) fn native_pass_enabled(
+        _: &bevy::prelude::World,
+        _: bevy::prelude::Entity,
+        after_pack: bool,
+    ) -> bool {
+        !after_pack
     }
 }
 
@@ -131,7 +146,9 @@ use bevy::{
     render::{
         ExtractSchedule, Render, RenderApp, RenderStartup,
         render_phase::DrawFunctions,
-        render_resource::BlendFactor,
+        render_resource::{
+            BindingType, BlendFactor, BufferBindingType, ShaderStages, VertexFormat,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -163,9 +180,10 @@ fn repeated_draw_lists_reuse_shared_gpu_resources_and_preserve_batch_order() {
 }
 
 #[test]
-fn shader_parses_and_declares_premultiplied_texture_sampling() {
+fn shader_validates_all_entry_points() {
     let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
-    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    let module = naga::front::wgsl::parse_str(&source)
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
@@ -177,10 +195,10 @@ fn shader_parses_and_declares_premultiplied_texture_sampling() {
     assert!(source.contains("viewport_size"));
     assert!(source.contains(&format!(
         "const STYLE_ALPHA_TEST: u32 = {}u;",
-        render_model::UI_STYLE_ALPHA_TEST
+        render_api::UI_STYLE_ALPHA_TEST
     )));
     assert!(source.contains("sample.a < 0.5"));
-    assert!(source.find("discard;").unwrap() < source.find("let alpha =").unwrap());
+    assert_eq!(module.entry_points.len(), 3);
     let (_, viewport) = module
         .types
         .iter()
@@ -211,8 +229,20 @@ fn composite_shader_blends_in_gamma_space() {
 #[test]
 fn pipeline_is_one_depth_neutral_premultiplied_overlay_family() {
     let layout = ui_bind_group_layout();
-    // Viewport, pages, UI samplers, page format, and the independent item glint pair.
-    assert_eq!(layout.entries.len(), 7);
+    let palette = layout
+        .entries
+        .iter()
+        .find(|entry| entry.binding == 7)
+        .unwrap();
+    assert_eq!(palette.visibility, ShaderStages::VERTEX);
+    assert!(matches!(
+        palette.ty,
+        BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            ..
+        }
+    ));
     let descriptor = ui_pipeline_descriptor(layout);
     assert!(
         descriptor.depth_stencil.is_none(),
@@ -341,14 +371,24 @@ fn ui_model_uv_keeps_native_side_pixel_centers_without_rounding_or_half_texel_sh
     input.vertices = vertices.clone().into();
     input.validate().unwrap();
     assert_eq!(input.vertices[0].uv, [8.5, 4.5]);
+    assert_eq!(
+        render_model::project_ui_model_vertex(input.vertices[0], None)
+            .unwrap()
+            .vertex
+            .uv,
+        [8.5, 4.5]
+    );
     vertices[0].uv[1] = f32::NAN;
     input.vertices = vertices.into();
     assert_eq!(input.validate(), Err(UiRenderRejectReason::NonFiniteVertex));
-    let source = ui_render::shader::source(include_str!("../src/ui.wgsl"));
-    assert!(source.contains("@location(1) uv: vec2<f32>"));
-    assert!(source.contains("output.uv = uv;"));
-    assert!(source.contains("var sample_uv = input.uv + input.atlas_offset;"));
-    assert!(source.contains("let normalized_uv = sample_uv / dimensions;"));
+    let pipeline = ui_pipeline_descriptor(ui_bind_group_layout());
+    let uv = pipeline.vertex.buffers[0]
+        .attributes
+        .iter()
+        .find(|attribute| attribute.shader_location == 1)
+        .unwrap();
+    assert_eq!(uv.format, VertexFormat::Float32x2);
+    assert_eq!(uv.offset, std::mem::offset_of!(UiRenderVertex, uv) as u64);
 }
 
 #[test]
@@ -838,6 +878,7 @@ fn fixture_draw_list(revision: u64) -> UiRenderInput {
     ]
     .into();
     UiRenderInput {
+        models: Default::default(),
         revision,
         viewport_size: [64, 64],
         safe_area: [0, 0, 0, 0],

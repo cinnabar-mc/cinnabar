@@ -1,10 +1,40 @@
 use super::*;
 
 #[test]
+fn minecart_constructor_display_blocks_follow_native_membership() {
+    let facts = EntityFacts::pinned();
+    for (identifier, expected) in [
+        ("minecraft:minecart", None),
+        ("minecraft:chest_minecart", Some("minecraft:chest")),
+        ("minecraft:hopper_minecart", Some("minecraft:hopper")),
+        ("minecraft:tnt_minecart", Some("minecraft:tnt")),
+        (
+            "minecraft:command_block_minecart",
+            Some("minecraft:command_block"),
+        ),
+        ("minecraft:zombie", None),
+    ] {
+        let record = facts
+            .records
+            .iter()
+            .find(|record| record.identifier.as_ref() == identifier)
+            .unwrap();
+        assert_eq!(record.minecart_display_block(), expected, "{identifier}");
+    }
+    let unresolved = EntityFactRecord {
+        identifier: "fixture:hopper_minecart".into(),
+        fact: EntityFact::default(),
+    };
+    assert_eq!(unresolved.minecart_display_block(), None);
+}
+
+#[test]
 fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
     for (class, expected) in [
         (NativeEntityClass::Player, "minecraft:player"),
         (NativeEntityClass::Tnt, "minecraft:tnt"),
+        (NativeEntityClass::Sheep, "minecraft:sheep"),
+        (NativeEntityClass::Shulker, "minecraft:shulker"),
         (
             NativeEntityClass::FireworksRocket,
             "minecraft:fireworks_rocket",
@@ -27,7 +57,7 @@ fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
 #[test]
 fn pinned_facts_preserve_classes_components_and_equipment() {
     let facts = EntityFacts::pinned();
-    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_50.txt").lines() {
+    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_60.txt").lines() {
         assert_ne!(facts.get(actor).class_key, 0, "missing actor {actor}");
     }
     assert_eq!(
@@ -72,6 +102,9 @@ fn pinned_facts_preserve_classes_components_and_equipment() {
         NativeEntityClass::Painting
     );
     assert_eq!(facts.get("fixture:unknown"), EntityFact::default());
+    assert_eq!(facts.get("minecraft:shulker").pick_radius, 0.0);
+    assert_eq!(facts.get("minecraft:fireball").pick_radius, 1.0);
+    assert_eq!(facts.player().pick_radius, DEFAULT_ACTOR_PICK_RADIUS);
 }
 
 #[test]
@@ -92,6 +125,16 @@ fn corrupt_stale_or_trailing_carriers_are_rejected() {
     forged.records.swap(0, 1);
     forged.records[0].fact.shadow = ShadowRadius::Width(-1.0);
     assert!(forged.encode().is_err());
+}
+
+#[test]
+fn entity_pick_radius_must_be_finite_and_nonnegative() {
+    for radius in [-0.1, f32::INFINITY, f32::NAN] {
+        let mut facts =
+            EntityFacts::decode(SOURCE_BYTES, crate::active_content_registry_protocol()).unwrap();
+        facts.records[0].fact.pick_radius = radius;
+        assert!(facts.encode().is_err(), "radius {radius}");
+    }
 }
 
 #[test]
@@ -120,4 +163,13 @@ fn compiled_fish_animation_preserves_the_constructor_membership() {
             record.identifier
         );
     }
+}
+
+/// Bamboo is the one boat variant drawn as a raft.
+#[test]
+fn the_raft_variant_is_bamboo() {
+    assert_eq!(
+        super::BOAT_WOOD_TEXTURES[super::BOAT_RAFT_VARIANT],
+        "bamboo"
+    );
 }

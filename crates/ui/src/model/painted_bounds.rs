@@ -1,12 +1,19 @@
 //! Bounds of retained, indexed artwork after its batch scissors are applied.
 
-use super::UiDrawList;
+use super::{UiBlendMode, UiDrawList};
 use crate::{UiPoint, UiRect};
+
+/// Bounds the half-precision rounding error after homogeneous division.
+fn half_float_margin(value: f32, clip_w: f32) -> f32 {
+    // Half precision has 11 significant bits and a 2^-24 subnormal step.
+    value.abs() / 2048.0 + (1.0 / 33_554_432.0) / clip_w
+}
 
 impl UiDrawList {
     /// Conservative bounds of emitted triangles intersecting their scissors, without
     /// treating empty clip groups, unused vertices, or wholly clipped artwork as content.
-    /// Texture transparency is intentionally not sampled. Malformed geometry returns `None`.
+    /// Fully transparent alpha paint is excluded; texture transparency is not sampled.
+    /// Malformed geometry returns `None`.
     pub fn painted_bounds(&self) -> Option<UiRect> {
         let mut union: Option<[f32; 4]> = None;
         for batch in &self.batches {
@@ -16,6 +23,7 @@ impl UiDrawList {
             for triangle in indices.as_chunks::<3>().0 {
                 let mut low = [f32::INFINITY; 2];
                 let mut high = [f32::NEG_INFINITY; 2];
+                let mut ink = batch.blend != UiBlendMode::Alpha;
                 for index in triangle {
                     let vertex = self.vertices.get(*index as usize)?;
                     if !vertex.clip_w.is_finite() || vertex.clip_w <= 0.0 {
@@ -26,9 +34,29 @@ impl UiDrawList {
                         if !value.is_finite() {
                             return None;
                         }
-                        low[axis] = low[axis].min(value);
-                        high[axis] = high[axis].max(value);
+                        let margin = if vertex.style_flags & render_api::UI_STYLE_HALF_FLOAT_XY != 0
+                        {
+                            half_float_margin(value, vertex.clip_w)
+                        } else {
+                            0.0
+                        };
+                        low[axis] = low[axis].min(value - margin);
+                        high[axis] = high[axis].max(value + margin);
                     }
+                    ink |= if vertex.style_flags & u32::from(render_api::UI_STYLE_COVERAGE_PAINT)
+                        != 0
+                    {
+                        let paint = render_api::UiCoveragePaint::from_vertex_colors(
+                            vertex.color,
+                            vertex.overlay_color,
+                        );
+                        paint.fill[0][3] != 0 || paint.fill[1][3] != 0 || paint.border[3] != 0
+                    } else {
+                        vertex.color[3] != 0
+                    };
+                }
+                if !ink {
+                    continue;
                 }
                 let bounds = [
                     low[0].max(batch.clip.min().x()),
@@ -57,3 +85,6 @@ impl UiDrawList {
         .ok()
     }
 }
+
+#[cfg(test)]
+mod tests;

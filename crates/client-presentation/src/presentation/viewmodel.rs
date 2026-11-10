@@ -99,7 +99,8 @@ fn extra_shape_flags(extra: &[u8]) -> i128 {
         | (i128::from(extra.get(6..10) == Some(&[0; 4])) << 5)
         | ((extra.len() as i128) << 8)
 }
-fn stack_block_visual_id(
+/// Maps a stack's wire block id through the session palette to its stock block visual.
+pub(super) fn stack_block_visual_id(
     stream: &chunk_pipeline::WorldStream,
     assets: &assets::RuntimeAssets,
     wire_id: i32,
@@ -642,8 +643,7 @@ impl ViewmodelPublish<'_, '_> {
                 .is_some_and(|(air, max)| air < max),
         ) << 1);
         values[14] = runtime
-            .gameplay_hud()
-            .offhand_is_empty()
+            .local_offhand_is_empty(player_runtime)
             .map_or(0, |empty| if empty { 2 } else { 1 });
         if let Some(stream) = &world.stream {
             values[1] = i128::from(stream.authority().actor_session_id());
@@ -783,7 +783,7 @@ impl ViewmodelPublish<'_, '_> {
         let selected = player_runtime
             .selected_stack_snapshot()
             .ok_or(HandFallback::ItemsUnknownOrHeld)?;
-        if runtime.gameplay_hud().offhand_is_empty() != Some(true) {
+        if runtime.local_offhand_is_empty(player_runtime) != Some(true) {
             return Err(HandFallback::ItemsUnknownOrHeld);
         }
         let (owner, camera, target, msaa, hdr) =

@@ -9,8 +9,9 @@ use protocol::{
     CameraShakeAction, CameraShakeEvent, CameraShakeType, DaylightCycleUpdateEvent, EquipmentEvent,
     ExperienceMessage, GameModeEvent, GameModeUpdate, GameRulesEvent, ItemActorEvent,
     ItemRegistryEvent, LevelAudioEvent, MapDataEvent, MovementEffectEvent, MovementEffectKind,
-    OpenSignEvent, ParticleEvent, PlayerGameMode, PrimitiveShapesEvent, ShowCreditsEvent,
-    SubChunkReplyAdmissionEvent, SyncedBlockUpdateEvent, WorldClockState, WorldClockUpdateEvent,
+    OpenCommandBlockEvent, OpenSignEvent, ParticleEvent, PlayerGameMode, PrimitiveShapesEvent,
+    ShowCreditsEvent, SubChunkReplyAdmissionEvent, SyncedBlockUpdateEvent, WorldClockState,
+    WorldClockUpdateEvent,
 };
 
 const LOCAL: u64 = 1;
@@ -18,7 +19,7 @@ const REMOTE: u64 = 9;
 const ITEM: u64 = 10;
 
 /// Wire kinds; adding a `WorldEvent` variant fails to compile here until it gets a sample.
-const KINDS: usize = 48;
+const KINDS: usize = 49;
 
 /// Assigns every wire event a coverage index without accepting unknown variants.
 fn kind(event: &WorldEvent) -> usize {
@@ -73,6 +74,7 @@ fn kind(event: &WorldEvent) -> usize {
         WorldEvent::Ui(_) => 44,
         WorldEvent::BlockCrack(_) => 45,
         WorldEvent::WorldSpawn(_) => 46,
+        WorldEvent::OpenCommandBlock(_) => 48,
         WorldEvent::Equipment(_)
         | WorldEvent::ArmorEquipment(_)
         | WorldEvent::Inventory(_)
@@ -295,7 +297,7 @@ fn samples() -> Vec<WorldEvent> {
     };
     vec![
         WorldEvent::DimensionHeights(Vec::new()),
-        WorldEvent::Experience(ExperienceMessage { bytes: Vec::new() }),
+        WorldEvent::Experience(ExperienceMessage::new(Vec::new())),
         abilities(LOCAL as i64),
         abilities(REMOTE as i64),
         WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
@@ -353,6 +355,7 @@ fn samples() -> Vec<WorldEvent> {
         }),
         WorldEvent::MapData(MapDataEvent {
             map_id: 1,
+            initialized_ids: Default::default(),
             start_x: 0,
             start_y: 0,
             width: 1,
@@ -363,6 +366,10 @@ fn samples() -> Vec<WorldEvent> {
             dimension: 0,
             position: [0, -64, 0],
             front: true,
+        }),
+        WorldEvent::OpenCommandBlock(OpenCommandBlockEvent {
+            dimension: 0,
+            position: [0, -64, 0],
         }),
         WorldEvent::ChunkRadiusUpdated(8),
         WorldEvent::PublisherUpdate(PublisherUpdateEvent {
@@ -386,6 +393,7 @@ fn samples() -> Vec<WorldEvent> {
             subject: MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 1,
+            vehicle_angular_velocity: None,
         }),
         motion(LOCAL),
         motion(REMOTE),
@@ -439,6 +447,7 @@ fn samples() -> Vec<WorldEvent> {
             head_yaw: None,
             on_ground: None,
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),

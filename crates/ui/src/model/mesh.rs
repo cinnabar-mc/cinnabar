@@ -24,6 +24,8 @@ pub struct UiMeshVertex {
     /// (x, y, width, height) in texture-page texels.
     pub overlay_color: [f32; 4],
     pub style_flags: u16,
+    /// Samples terrain mip levels when this surface becomes smaller than its source texels.
+    pub terrain_mips: bool,
     pub alpha_test: bool,
 }
 
@@ -44,6 +46,8 @@ pub struct UiMesh {
     indices: Arc<[u32]>,
     batches: Arc<[UiMeshBatch]>,
     draw_vertex_count: usize,
+    compact_block_vertices: bool,
+    skinned: bool,
 }
 
 /// Meshes compare by contents. [`UiMesh::new`] admits only finite floats, so buffers shared
@@ -57,6 +61,8 @@ impl PartialEq for UiMesh {
         same(&self.vertices, &other.vertices)
             && same(&self.indices, &other.indices)
             && same(&self.batches, &other.batches)
+            && self.compact_block_vertices == other.compact_block_vertices
+            && self.skinned == other.skinned
     }
 }
 
@@ -84,6 +90,53 @@ impl fmt::Display for UiMeshError {
 impl std::error::Error for UiMeshError {}
 
 impl UiMesh {
+    /// Uses half precision for final XY and normalized unsigned shorts for block texture vertices.
+    pub fn with_compact_block_vertices(mut self) -> Self {
+        self.compact_block_vertices = true;
+        self
+    }
+
+    /// Whether this mesh uses the compact block vertex formats.
+    pub fn uses_compact_block_vertices(&self) -> bool {
+        self.compact_block_vertices
+    }
+
+    /// Builds a normal textured quad with explicit tint and blend mode.
+    pub fn sprite(
+        texture_page: u16,
+        uv: [f32; 4],
+        color: [u8; 4],
+        blend: UiBlendMode,
+    ) -> Result<Self, UiMeshError> {
+        let vertices = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]].map(|position| UiMeshVertex {
+            terrain_mips: false,
+            position,
+            clip_z: 0.,
+            clip_w: 1.,
+            uv: [
+                uv[0] + position[0] * (uv[2] - uv[0]),
+                uv[1] + position[1] * (uv[3] - uv[1]),
+            ],
+            color,
+            model_light: 1.,
+            overlay_color: [0.; 4],
+            style_flags: 0,
+            alpha_test: false,
+        });
+        Self::new(
+            vertices.into(),
+            Arc::from([0, 1, 2, 0, 2, 3]),
+            Arc::from([UiMeshBatch {
+                texture_page,
+                index_range: 0..6,
+                blend,
+                depth_test: false,
+                depth_write: false,
+                alpha_cutoff: None,
+            }]),
+        )
+    }
+
     /// Fades vertex tint while retaining topology and texture bindings.
     pub fn with_opacity(mut self, opacity: f32) -> Self {
         let opacity = if opacity.is_finite() {
@@ -213,7 +266,26 @@ impl UiMesh {
             indices,
             batches,
             draw_vertex_count,
+            compact_block_vertices: false,
+            skinned: false,
         })
+    }
+
+    /// Keeps model-space XYZ, a one-based bone index in W, and local normals in overlay RGB.
+    /// The publication must supply a matching palette for this control's depth scope.
+    pub fn skinned(
+        vertices: Arc<[UiMeshVertex]>,
+        indices: Arc<[u32]>,
+        batches: Arc<[UiMeshBatch]>,
+    ) -> Result<Self, UiMeshError> {
+        let mut mesh = Self::new(vertices, indices, batches)?;
+        mesh.skinned = true;
+        Ok(mesh)
+    }
+
+    /// Whether the renderer applies a model palette instead of the ordinary node projection.
+    pub fn is_skinned(&self) -> bool {
+        self.skinned
     }
 
     /// Reserves each referenced vertex once per material, keeping material cutoffs independent.

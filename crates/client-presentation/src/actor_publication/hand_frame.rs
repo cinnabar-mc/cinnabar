@@ -63,31 +63,38 @@ pub(super) fn prepare(
                 .authority()
                 .actor_rig(local_runtime_id)
                 .is_some_and(|rig| rig.held_item_scale.is_some());
-            if key == *ready_hand_key && !samples_item_scale {
+            let holds_map = [equipment_input.main.as_ref(), equipment_input.off.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|item| item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER);
+            let inputs = hand::HandInputs {
+                stream,
+                presentation,
+                equipment_input: &equipment_input,
+                owner_equipment: &equipment_input,
+                consume_ticks,
+                item_animation,
+                alpha: partial_tick,
+                artwork,
+                motion,
+                sampling_camera,
+                aspect,
+            };
+            let visibility = java_hand.native_pose.visibility(&inputs, java_mode);
+            if key == *ready_hand_key
+                && !samples_item_scale
+                && !holds_map
+                && ready_hand_source
+                    .as_ref()
+                    .is_some_and(|source| Some(source.visibility) == visibility)
+            {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;
                     source
                 });
             }
-            hand::source(
-                hand::HandInputs {
-                    stream,
-                    presentation,
-                    equipment_input: &equipment_input,
-                    owner_equipment: &equipment_input,
-                    consume_ticks,
-                    item_animation,
-                    alpha: partial_tick,
-                    artwork,
-                    motion,
-                    sampling_camera,
-                    aspect,
-                },
-                java_mode,
-                equipment,
-                java_hand,
-            )
+            hand::source(inputs, java_mode, equipment, java_hand)
         })
     } else {
         None
@@ -147,6 +154,6 @@ pub(super) fn lighting(
     if java_mode {
         hand_light.with_java_lighting(hand::java_light_matrix(hand_motion, rotation))
     } else {
-        hand_light
+        hand_light.with_bedrock_lighting(Mat4::from_quat(rotation))
     }
 }

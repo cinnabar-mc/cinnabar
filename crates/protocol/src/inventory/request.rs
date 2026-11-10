@@ -1,24 +1,26 @@
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     InteractAction, PacketViolationSeverity, PacketViolationType, TextProcessingEventOrigin,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     ContainerClose, Interact, ItemStackRequest, PacketViolationWarning,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ItemStackRequestID, ItemStackRequestPacketData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 use super::InventoryPacketError;
 mod actions;
 #[cfg(test)]
 mod batch_tests;
+#[cfg(test)]
+mod intra_request_tests;
 pub(super) mod mining;
 
 pub use actions::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
-    PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction, StackRequestContainer,
-    StackRequestSlot,
+    MAX_STACK_REQUEST_AMOUNT, PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction,
+    StackRequestContainer, StackRequestSlot,
 };
 
 /// Actions one request may carry.
@@ -42,14 +44,14 @@ pub fn open_inventory_packet(
         return Err(InventoryPacketError::InvalidInventoryTargetRuntimeId);
     }
     Ok(crate::Packet::new(Interact {
-        action: InteractAction::Openinventory,
+        action: InteractAction::OpenInventory,
         target_runtime_id: ActorRuntimeID(target_runtime_id),
         position: None,
     }))
 }
 
 /// Builds one request. Valid negative odd stack ids name an earlier sparse
-/// prediction, or this request's own created output.
+/// prediction, a cell changed earlier in this request, or its created output.
 pub fn item_stack_request_packet(
     request_id: i32,
     actions: &[StackRequestAction],
@@ -102,19 +104,32 @@ fn encode_request(
             actions.len(),
         ));
     }
-    for slot in actions.iter().flat_map(action_slots) {
-        let created_output = slot.container == StackRequestContainer::CreatedOutput
-            && slot.stack_network_id == request_id;
-        let prior_request = slot.stack_network_id < -1
-            && slot.stack_network_id & 1 != 0
-            && slot.stack_network_id > request_id;
-        // Legacy transactions and item stack requests have independent id sequences.
-        let prior_legacy = super::is_legacy_request_id(slot.stack_network_id);
-        if slot.stack_network_id < -1 && !created_output && !prior_request && !prior_legacy {
-            return Err(InventoryPacketError::InvalidRequestStackNetworkId(
-                slot.stack_network_id,
-            ));
+    let mut updated = Vec::new();
+    for action in actions {
+        for slot in action_slots(action) {
+            let created_output = slot.container == StackRequestContainer::CreatedOutput
+                && slot.stack_network_id == request_id;
+            let current_request = slot.stack_network_id == request_id
+                && updated
+                    .iter()
+                    .any(|previous| same_request_cell(*previous, slot));
+            let prior_request = slot.stack_network_id < -1
+                && slot.stack_network_id & 1 != 0
+                && slot.stack_network_id > request_id;
+            // Legacy transactions and item stack requests have independent id sequences.
+            let prior_legacy = super::is_legacy_request_id(slot.stack_network_id);
+            if slot.stack_network_id < -1
+                && !created_output
+                && !current_request
+                && !prior_request
+                && !prior_legacy
+            {
+                return Err(InventoryPacketError::InvalidRequestStackNetworkId(
+                    slot.stack_network_id,
+                ));
+            }
         }
+        updated.extend(action.updated_slots());
     }
     Ok(ItemStackRequestPacketData {
         client_request_id: ItemStackRequestID(request_id),
@@ -129,33 +144,33 @@ fn encode_request(
         strings_to_filter_origin: if filter_strings.is_empty() {
             TextProcessingEventOrigin::Unknown
         } else {
-            TextProcessingEventOrigin::Anviltext
+            TextProcessingEventOrigin::AnvilText
         },
     })
 }
 
 fn action_slots(action: &StackRequestAction) -> impl Iterator<Item = StackRequestSlot> {
-    let (first, second) = match action {
-        StackRequestAction::Take {
-            source,
-            destination,
-            ..
-        }
-        | StackRequestAction::Place {
-            source,
-            destination,
-            ..
-        }
-        | StackRequestAction::Swap {
-            source,
-            destination,
-        } => (Some(*source), Some(*destination)),
-        StackRequestAction::Drop { source, .. }
-        | StackRequestAction::Destroy { source, .. }
-        | StackRequestAction::Consume { source, .. } => (Some(*source), None),
-        _ => (None, None),
+    let consumed = match action {
+        StackRequestAction::Consume { source, .. } => Some(*source),
+        _ => None,
     };
-    first.into_iter().chain(second)
+    action.updated_slots().chain(consumed)
+}
+
+/// Compares request addresses independently of stack ID and player-container aliases.
+fn same_request_cell(left: StackRequestSlot, right: StackRequestSlot) -> bool {
+    let normalise = |mut slot: StackRequestSlot| {
+        if slot.container == StackRequestContainer::CombinedInventory {
+            slot.container = StackRequestContainer::PlayerInventory;
+        }
+        actions::slot(slot).ok()
+    };
+    match (normalise(left), normalise(right)) {
+        (Some(left), Some(right)) => {
+            left.full_container_name == right.full_container_name && left.slot == right.slot
+        }
+        _ => false,
+    }
 }
 
 /// Closes the named window using the native client's unspecified container type.
@@ -178,8 +193,8 @@ pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, Inventory
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::packets;
-    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
+    use bedrock_protocol_1_26_60::packets;
+    use bedrock_protocol_1_26_60::wire::{Decode, Encode};
 
     use super::*;
 
@@ -216,7 +231,7 @@ mod tests {
         let packets::Packet::Interact(interact) = *packet.data else {
             panic!("expected Interact packet");
         };
-        assert_eq!(interact.action, InteractAction::Openinventory);
+        assert_eq!(interact.action, InteractAction::OpenInventory);
         assert_eq!(interact.target_runtime_id.0, 42);
         assert_eq!(interact.position, None);
         assert_eq!(

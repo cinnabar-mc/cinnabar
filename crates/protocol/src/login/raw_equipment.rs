@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 use crate::raw_packet::RawPacket;
 

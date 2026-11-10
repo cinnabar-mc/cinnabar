@@ -11,24 +11,59 @@ impl PlayerInventoryLedger {
         }
     }
 
+    /// Names a chest-like window after the block entity it opened on: barrels and shulker
+    /// boxes share the generic window type, but servers validate their own container names.
+    pub fn name_storage_block(&mut self, position: [i32; 3], block_entity: Option<&str>) {
+        let name = match block_entity {
+            Some("Barrel") => Some(protocol_ids::ContainerName::Barrel.wire_value()),
+            Some("ShulkerBox") => Some(protocol_ids::ContainerName::ShulkerBox.wire_value()),
+            _ => None,
+        };
+        let Some(storage) = self
+            .storage
+            .as_mut()
+            .filter(|storage| storage.position == position && storage.actor_unique_id == -1)
+        else {
+            return;
+        };
+        if storage.block_container == name {
+            return;
+        }
+        storage.block_container = name;
+        let Some(previous) = storage.identity else {
+            return;
+        };
+        self.bind_storage_request_identity();
+        // Requests already queued keep answering under the address they were sent with.
+        let storage = self.storage.as_mut().expect("storage observed above");
+        if storage.identity != Some(previous) {
+            storage.superseded_identity = Some(previous);
+        }
+    }
+
     /// Uses the screen model's outbound address, independently of ignored packet descriptors.
     pub(super) fn storage_request_identity(&self) -> Option<ContainerIdentity> {
         let storage = self.storage.as_ref()?;
         let (container, _) = protocol::open_cell_request(storage.kind, 0, None, None)?;
-        let name =
-            if protocol::open_name_first_cell(storage.kind, protocol::CONTAINER_NAME_LEVEL_ENTITY)
-                .is_some()
-            {
-                protocol::CONTAINER_NAME_LEVEL_ENTITY
-            } else {
-                match container {
-                    StackRequestContainer::LevelEntity { .. } => {
-                        protocol::CONTAINER_NAME_LEVEL_ENTITY
-                    }
-                    StackRequestContainer::OpenWindow { name, .. } => name,
-                    _ => return None,
-                }
-            };
+        let block = storage
+            .block_container
+            .filter(|name| protocol::open_name_first_cell(storage.kind, *name).is_some());
+        let name = if let Some(name) = block {
+            name
+        } else if protocol::open_name_first_cell(
+            storage.kind,
+            protocol::CONTAINER_NAME_LEVEL_ENTITY,
+        )
+        .is_some()
+        {
+            protocol::CONTAINER_NAME_LEVEL_ENTITY
+        } else {
+            match container {
+                StackRequestContainer::LevelEntity { .. } => protocol::CONTAINER_NAME_LEVEL_ENTITY,
+                StackRequestContainer::OpenWindow { name, .. } => name,
+                _ => return None,
+            }
+        };
         Some(ContainerIdentity {
             window_id: Some(storage.window_id),
             slot_type: Some(name),
@@ -44,34 +79,86 @@ impl PlayerInventoryLedger {
         actions: &mut [StackRequestAction],
         request_id: i32,
     ) {
+        self.rebind_actions_in_order(
+            actions,
+            request_id,
+            |cell| {
+                self.queue
+                    .iter()
+                    .rev()
+                    .find(|pending| {
+                        !pending.locally_committed()
+                            && pending
+                                .predicted
+                                .iter()
+                                .any(|prediction| prediction.cell == cell && prediction.active)
+                    })
+                    .map(|owner| owner.request_id)
+            },
+            |cell| self.view().get(cell).map(|held| held.stack.count),
+        );
+    }
+
+    /// Rebinds `actions`' slots in order: `bind` gives a cell's stack id (`None` keeps the slot's
+    /// own). Later actions name transfer results through this request; an earlier Consume's
+    /// emptied cell is addressed as empty. `count` is a cell's count before the request.
+    pub(super) fn rebind_actions_in_order(
+        &self,
+        actions: &mut [StackRequestAction],
+        request_id: i32,
+        bind: impl Fn(Cell) -> Option<i32>,
+        count: impl Fn(Cell) -> Option<u16>,
+    ) {
+        let mut emptied = Vec::new();
+        let mut updated = Vec::new();
         for action in actions {
+            let consumed = match action {
+                StackRequestAction::Consume { amount, source } => Some((*amount, *source)),
+                _ => None,
+            };
             for slot in action_slots_mut(action) {
-                if slot.stack_network_id == request_id {
-                    continue;
-                }
                 let Some(cell) = self.request_cell(*slot) else {
                     continue;
                 };
-                if let Some(owner) = self.queue.iter().rev().find(|pending| {
-                    !pending.locally_committed()
-                        && pending
-                            .predicted
-                            .iter()
-                            .any(|prediction| prediction.cell == cell && prediction.active)
-                }) {
-                    slot.stack_network_id = owner.request_id;
+                if updated.contains(&cell) {
+                    slot.stack_network_id = request_id;
+                } else if emptied.contains(&cell) {
+                    slot.stack_network_id = 0;
+                } else if slot.stack_network_id == request_id {
+                    continue;
+                } else if let Some(id) = bind(cell) {
+                    slot.stack_network_id = id;
                 }
+            }
+            for cell in action
+                .updated_slots()
+                .filter_map(|slot| self.request_cell(slot))
+            {
+                emptied.retain(|empty| *empty != cell);
+                if !updated.contains(&cell) {
+                    updated.push(cell);
+                }
+            }
+            if let Some((amount, source)) = consumed
+                && let Some(cell) = self.request_cell(source)
+                && count(cell).is_some_and(|count| count <= u16::from(amount))
+            {
+                updated.retain(|updated| *updated != cell);
+                emptied.push(cell);
             }
         }
     }
 
     pub(super) fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
+        let byte = || u8::try_from(slot.slot).ok();
         Some(match slot.container {
-            StackRequestContainer::PlayerInventory => Cell::Inventory(slot.slot),
+            StackRequestContainer::PlayerInventory | StackRequestContainer::CombinedInventory => {
+                Cell::Inventory(byte()?)
+            }
             StackRequestContainer::Cursor => Cell::Cursor,
-            StackRequestContainer::Armor => Cell::Armor(slot.slot),
+            StackRequestContainer::Armor => Cell::Armor(byte()?),
             StackRequestContainer::Offhand => Cell::Offhand,
-            StackRequestContainer::CraftingInput => Cell::Craft(slot.slot),
+            StackRequestContainer::CraftingInput => Cell::Craft(byte()?),
             StackRequestContainer::CreatedOutput => Cell::CreatedOutput,
             StackRequestContainer::LevelEntity { .. } => Cell::Storage(slot.slot),
             StackRequestContainer::OpenWindow { name, dynamic_id } => {
@@ -81,7 +168,7 @@ impl PlayerInventoryLedger {
                         slot_type: Some(name),
                         dynamic_id,
                     },
-                    u16::from(slot.slot),
+                    slot.slot,
                 );
             }
         })
@@ -130,13 +217,24 @@ pub(crate) struct WindowAddress {
     pub(super) kind: protocol::WindowKind,
 }
 
+/// `request_slot` for a player cell under the combined hotbar-and-inventory name.
+pub(super) fn combined_request_slot(
+    slot: u8,
+    stack_network_id: i32,
+) -> Result<StackRequestSlot, InventoryGestureError> {
+    request_slot(Cell::Inventory(slot), stack_network_id, None).map(|slot| StackRequestSlot {
+        container: StackRequestContainer::CombinedInventory,
+        ..slot
+    })
+}
+
 pub(super) fn request_slot(
     cell: Cell,
     stack_network_id: i32,
     window: Option<WindowAddress>,
 ) -> Result<StackRequestSlot, InventoryGestureError> {
     let (container, slot) = match cell {
-        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, slot),
+        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, u16::from(slot)),
         Cell::Cursor => (StackRequestContainer::Cursor, 0),
         Cell::Storage(slot) => {
             let window = window.ok_or(InventoryGestureError::InvalidRequest)?;
@@ -148,16 +246,16 @@ pub(super) fn request_slot(
             )
             .ok_or(InventoryGestureError::InvalidRequest)?
         }
-        Cell::Armor(slot) => (StackRequestContainer::Armor, slot),
+        Cell::Armor(slot) => (StackRequestContainer::Armor, u16::from(slot)),
         Cell::Offhand => (StackRequestContainer::Offhand, 1),
         Cell::Craft(slot) => (
             protocol::ui_slot_request_container(slot)
                 .ok_or(InventoryGestureError::InvalidRequest)?,
-            slot,
+            u16::from(slot),
         ),
         Cell::CreatedOutput => (
             StackRequestContainer::CreatedOutput,
-            protocol::CREATED_OUTPUT_SLOT,
+            u16::from(protocol::CREATED_OUTPUT_SLOT),
         ),
     };
     Ok(StackRequestSlot {

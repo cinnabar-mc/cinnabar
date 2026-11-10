@@ -22,15 +22,15 @@ pub use npc::{
 };
 pub(crate) use npc::{normalize_npc_dialogue, normalize_server_settings};
 
-use bedrock_protocol_1_26_51::enums::ModalFormCancelReason;
-use bedrock_protocol_1_26_51::packets::{ModalFormRequest, ModalFormResponse};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::ModalFormCancelReason;
+use bedrock_protocol_1_26_60::packets::{ModalFormRequest, ModalFormResponse};
+use bedrock_protocol_1_26_60::wire;
 use serde::{
     Deserializer,
     de::{DeserializeSeed, IgnoredAny},
 };
 
-use super::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
+use super::{MAX_FORM_JSON_BYTES, UiEvent, UiPacketError};
 
 /// Array entries remain bounded by the document size, including their separators.
 pub const MAX_CUSTOM_FORM_ITEMS: usize = MAX_FORM_JSON_BYTES / 2;
@@ -323,7 +323,6 @@ fn bounded_form(value: wire::Str) -> Result<Arc<str>, UiPacketError> {
 struct FormHeader {
     kind: Option<FormKind>,
     title: Option<Arc<str>>,
-    title_overflow: Option<(usize, usize)>,
 }
 
 fn scan_form_header(json: &str, header: &mut FormHeader) -> Result<(), UiPacketError> {
@@ -332,9 +331,6 @@ fn scan_form_header(json: &str, header: &mut FormHeader) -> Result<(), UiPacketE
         .deserialize(&mut deserializer)
         .and_then(|()| deserializer.end())
         .map_err(|_| UiPacketError::InvalidFormJson)?;
-    if let Some((bytes, max)) = header.title_overflow.take() {
-        return Err(UiPacketError::TextTooLong { bytes, max });
-    }
     Ok(())
 }
 
@@ -376,12 +372,7 @@ impl<'de, 'a> serde::de::Visitor<'de> for FormHeaderProbe<'a> {
                 }
                 "title" => {
                     if let Some(value) = metadata_text(&mut map)? {
-                        if value.len() > MAX_UI_TEXT_BYTES {
-                            self.header.title_overflow = Some((value.len(), MAX_UI_TEXT_BYTES));
-                        } else {
-                            self.header.title = Some(Arc::from(value));
-                            self.header.title_overflow = None;
-                        }
+                        self.header.title = Some(Arc::from(value));
                     }
                 }
                 _ => {
@@ -486,7 +477,7 @@ pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
     crate::Packet::new(ModalFormResponse {
         form_id: wire::VarUInt(form_id),
         json_response: None,
-        form_cancel_reason: Some(ModalFormCancelReason::Userbusy),
+        form_cancel_reason: Some(ModalFormCancelReason::UserBusy),
     })
 }
 
@@ -496,6 +487,6 @@ pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
     crate::Packet::new(ModalFormResponse {
         form_id: wire::VarUInt(form_id),
         json_response: None,
-        form_cancel_reason: Some(ModalFormCancelReason::Userclosed),
+        form_cancel_reason: Some(ModalFormCancelReason::UserClosed),
     })
 }

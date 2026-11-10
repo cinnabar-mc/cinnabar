@@ -74,7 +74,9 @@ const (
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
 	// GameVersion: Game version reported by the client.
-	GameVersion = "1.26.50"
+	GameVersion = "1.26.60"
+	// BDSVersion: Dedicated server version used by integration fixtures.
+	BDSVersion = "1.26.60.6"
 	// DefaultBedrockPort: Default port for an addressed Bedrock server.
 	DefaultBedrockPort = 19132
 	// DefaultBedrockPortText: Text form of the default Bedrock server port.
@@ -99,8 +101,10 @@ const (
 	NetherNetTargetPrefix = "nethernet/"
 	// NetherNetSignalingJSONRPC: NetherNet JSON-RPC signaling selector.
 	NetherNetSignalingJSONRPC = "jsonrpc"
-	// NetherNetSignalingWebSocket: NetherNet WebSocket signaling selector.
-	NetherNetSignalingWebSocket = "websocket"
+	// NetherNetSignalingHTTP: NetherNet HTTP signaling selector for a host:port, probed for its endpoint without falling back to RakNet.
+	NetherNetSignalingHTTP = "http"
+	// RakNetTargetPrefix: Prefix for a host:port joined over RakNet without probing it for NetherNet.
+	RakNetTargetPrefix = "raknet/"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.
@@ -137,6 +141,8 @@ const (
 	MethodProfile = "profile.v1"
 	// MethodRealmMembership: Control method for realm membership.
 	MethodRealmMembership = "realm_membership.v1"
+	// MethodRealmLeave: Control method for leaving a joined realm.
+	MethodRealmLeave = "realm_leave.v1"
 	// MethodPacketDelay: Control method for packet delay.
 	MethodPacketDelay = "packet_delay.v1"
 	// MethodPresence: Control method for presence.
@@ -171,10 +177,16 @@ const (
 	MethodCinnabarAPI = "cinnabar_api.v1"
 	// MethodCinnabarPlayers: Control method for nearby Cinnabar emotes and cosmetics.
 	MethodCinnabarPlayers = "cinnabar_players.v1"
+	// MethodCinnabarMods: Control method for the authenticated marketplace library.
+	MethodCinnabarMods = "cinnabar_mods.v1"
+	// CinnabarModsMaxEntries: Maximum marketplace library selections; checked against the pinned API schema.
+	CinnabarModsMaxEntries = 100
+	// CinnabarAPIMaxFrameBytes: Bounded API frames including a full marketplace library.
+	CinnabarAPIMaxFrameBytes = 2097152
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
-	CinnabarAPIBaseURL = "https://cinnabar-api.cinnabar-api.workers.dev"
+	CinnabarAPIBaseURL = "https://api.cinnabar.gg"
 	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
 	CinnabarAPIMaxLookupXUIDs = 128
 	// CinnabarAPICacheTTLMS: Fallback lifetime of a Cinnabar lookup answer.
@@ -249,6 +261,8 @@ const (
 	DisconnectKeyInvalidName = "disconnectionScreen.invalidName"
 	// DisconnectKeyDeviceClock: Core disconnect message: The sign-in token was rejected because this device's clock is behind.
 	DisconnectKeyDeviceClock = "cinnabar.disconnect.deviceClock"
+	// DisconnectKeyLocalWorldOffline: Core disconnect message: The local Bedrock Dedicated Server world cannot be reached without a network connection.
+	DisconnectKeyLocalWorldOffline = "cinnabar.disconnect.localWorldOffline"
 	// RelayRefusalResume: A safe relay refusal code; unrecognized codes use the generic refusal. ResumeRefused.
 	RelayRefusalResume = "resume_refused"
 	// RelayRefusalAdmission: A safe relay refusal code; unrecognized codes use the generic refusal. AdmissionRefused.
@@ -427,6 +441,30 @@ type CinnabarPlayerUpdates struct {
 	OwnedCosmetics []string `json:"owned_cosmetics"`
 }
 
+// CinnabarModEntry: A marketplace selection hint; clients independently verify its signed release.
+type CinnabarModEntry struct {
+	// Slug: Project selector.
+	Slug string `json:"slug"`
+	// Version: Selected release version.
+	Version string `json:"version"`
+	// SHA256: Selected immutable artifact digest.
+	SHA256 string `json:"sha256"`
+	// Bytes: Claimed size, rechecked against signed metadata.
+	Bytes uint64 `json:"bytes"`
+	// SentAt: Explicit website send request identity.
+	SentAt string `json:"sent_at"`
+	// Pulled: Immediate withdrawal hint, independently checked against signed revocations.
+	Pulled bool `json:"pulled"`
+}
+
+// CinnabarModLibrary: Current authenticated account's marketplace selections; empty while disconnected.
+type CinnabarModLibrary struct {
+	// XUID: Verified local account identity.
+	XUID string `json:"xuid"`
+	// Mods: Whole library snapshot with no granting authority.
+	Mods []CinnabarModEntry `json:"mods"`
+}
+
 // InboxCategories: Inbox category names in display order.
 var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
 
@@ -434,4 +472,4 @@ var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
 var MessageEventTypes = [...]string{"Impression", "DeleteAllRead", "ReadAll", "Delete", "Click", "Dismiss", "ControlImpression"}
 
 // CoreDisconnectKeys: Every lang key the core sends as a whole disconnect message.
-var CoreDisconnectKeys = [...]string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "disconnectionScreen.outdatedClient", "disconnectionScreen.outdatedServer", "disconnectionScreen.invalidSkin", "disconnectionScreen.invalidName", "cinnabar.disconnect.deviceClock"}
+var CoreDisconnectKeys = [...]string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "disconnectionScreen.outdatedClient", "disconnectionScreen.outdatedServer", "disconnectionScreen.invalidSkin", "disconnectionScreen.invalidName", "cinnabar.disconnect.deviceClock", "cinnabar.disconnect.localWorldOffline"}

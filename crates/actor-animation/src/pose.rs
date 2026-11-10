@@ -3,6 +3,9 @@ pub(super) use composition::Composition;
 
 use assets::{EntityAnimationKeyframe, EntityAnimationProperty};
 
+#[cfg(test)]
+pub(crate) mod work;
+
 mod buffer;
 pub(crate) use buffer::PoseBuffer;
 
@@ -97,6 +100,8 @@ pub(super) fn sample_clips_reused<'a>(
     clips: &[WeightedClip],
     budget: &mut EvalBudget<'_>,
 ) -> Result<PoseBuffer, EvalError> {
+    #[cfg(test)]
+    work::sample();
     let assets = evaluator.assets;
     let mut local = PoseBuffer::lease(bones.len());
     // Shortest-path blends sample each state into its own fresh pose before composing.
@@ -243,6 +248,9 @@ pub(super) fn sample_clips_reused<'a>(
     }
     if let (Some(blend), Some(sides)) = (pending, sides.as_mut()) {
         compose_blend(&mut local, sides, blend.amount);
+    }
+    if super::boat::is_boat(evaluator.actor) {
+        super::boat::pose_paddles(evaluator.actor, channel_bones.names, &mut local);
     }
     if legacy_weight > 0.0 {
         super::legacy_swing::apply(
@@ -517,6 +525,8 @@ pub(super) fn compose_pose_with_targets(
     local: &[LocalDelta],
     targets: &[Option<BoneTransform>],
 ) -> Option<Vec<BoneTransform>> {
+    #[cfg(test)]
+    work::compose();
     let mut transforms = vec![None; bones.len()];
     let mut visiting = vec![false; bones.len()];
     for index in 0..bones.len() {

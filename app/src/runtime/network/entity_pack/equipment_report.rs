@@ -35,7 +35,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
@@ -102,14 +102,15 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             .iter()
             .filter(|binding| !binding.identifier.starts_with("minecraft:"))
             .filter_map(|binding| match binding.category {
-                assets::EquipmentCategory::Armor { slot } => {
+                assets::EquipmentCategory::Armor { slot }
+                | assets::EquipmentCategory::ArmorAndHeld { slot } => {
                     Some((binding.identifier.clone(), slot))
                 }
                 _ => None,
             })
             .take(8)
             .collect::<Vec<_>>();
-        // Textures past the pack's equipment texture budget leave their attachable undrawn.
+        // Textures past the pack's equipment pixel budget leave their attachable undrawn.
         let textured = |item: &str| {
             compiled.equipment_bindings.iter().any(|binding| {
                 binding.identifier.as_ref() == item
@@ -172,7 +173,10 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             runtime.set_session_items(Some(&items), None, Vec::new());
             let mut input = ActorEquipmentInput::default();
             input.armor[slot as usize] = Some(WornItem {
+                trim: None,
                 variant: Default::default(),
+                map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::ItemGrip::Unresolved,

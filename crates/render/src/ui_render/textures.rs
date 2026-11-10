@@ -293,11 +293,16 @@ impl UiGpuTextures {
             }
             let bytes = pages
                 .iter()
-                .map(|&page| catalog.pages()[page].pixels().len() as u64)
+                .map(|&page| catalog.pages()[page].byte_len() as u64)
                 .sum();
             let state = &mut self.state;
             let issued = gpu_allocation::checked(device, "UI texture page upload", bytes, || {
                 state.execute(catalog, &pages, |_, page, location| {
+                    queue.profiled_write_buffer(
+                        &bucket.format_uniform,
+                        render_model::ui_page_uniform::offset(location.layer),
+                        bytemuck::cast_slice(&render_model::ui_page_uniform::region(page)),
+                    );
                     write_page(queue, &bucket.texture, page, location, profile);
                     Ok::<(), UiRenderRejectReason>(())
                 })
@@ -377,10 +382,7 @@ impl UiGpuTextures {
 
 /// Counts the storage requested by a validated dimension bucket.
 fn bucket_bytes(bucket: &render_model::UiTextureBucket) -> u64 {
-    u64::from(bucket.dimensions[0])
-        * u64::from(bucket.dimensions[1])
-        * u64::from(bucket.layers)
-        * bucket.format.bytes_per_texel() as u64
+    bucket.byte_len() as u64
 }
 
 /// Creates bindings only after a bucket's texture has passed its allocation scope.
@@ -414,7 +416,7 @@ fn create_texture(device: &RenderDevice, bucket: &render_model::UiTextureBucket)
             height: bucket.dimensions[1],
             depth_or_array_layers: bucket.layers,
         },
-        mip_level_count: 1,
+        mip_level_count: bucket.mip_level_count,
         sample_count: 1,
         dimension: TextureDimension::D2,
         format: match bucket.format {
@@ -437,12 +439,13 @@ fn bind_texture(
         dimension: Some(TextureViewDimension::D2Array),
         ..Default::default()
     });
-    let coverage = u32::from(bucket.format == UiTextureFormat::Coverage);
+    let format = render_model::ui_page_uniform::words(bucket.format == UiTextureFormat::Coverage);
     let format_uniform =
         device.create_buffer_with_data(&bevy::render::render_resource::BufferInitDescriptor {
             label: Some("UI bucket page format"),
-            contents: bytemuck::cast_slice(&[coverage, 0, 0, 0]),
-            usage: bevy::render::render_resource::BufferUsages::UNIFORM,
+            contents: bytemuck::cast_slice(&format),
+            usage: bevy::render::render_resource::BufferUsages::UNIFORM
+                | bevy::render::render_resource::BufferUsages::COPY_DST,
         });
     GpuBucket {
         texture,
@@ -465,6 +468,7 @@ fn write_page(
     if page.font_atlas_side().is_some() {
         return;
     }
+    #[cfg(feature = "tracy")]
     let [width, height] = page.dimensions();
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
@@ -477,34 +481,33 @@ fn write_page(
     )
     .entered();
     if let Some(profile) = profile {
-        profile.record_upload(
-            super::profile::UploadKind::Texture,
-            page.pixels().len() as u64,
+        profile.record_upload(super::profile::UploadKind::Texture, page.byte_len() as u64);
+    }
+    for (level, ([width, height], pixels)) in page.mip_levels().enumerate() {
+        queue.profiled_write_texture(
+            TexelCopyTextureInfo {
+                texture,
+                mip_level: level as u32,
+                origin: Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: location.layer,
+                },
+                aspect: Default::default(),
+            },
+            pixels,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
+                rows_per_image: Some(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
     }
-    queue.profiled_write_texture(
-        TexelCopyTextureInfo {
-            texture,
-            mip_level: 0,
-            origin: Origin3d {
-                x: 0,
-                y: 0,
-                z: location.layer,
-            },
-            aspect: Default::default(),
-        },
-        page.pixels(),
-        TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(width * page.format().bytes_per_texel() as u32),
-            rows_per_image: Some(height),
-        },
-        Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-    );
 }
 
 /// Bind each page bucket with the viewport and both samplers once the frame is accepted.
@@ -536,7 +539,7 @@ pub(super) fn prepare_ui_bind_group(
             stats.retained_gpu_bytes = super::resources::retained_gpu_bytes(
                 gpu.vertex_capacity,
                 gpu.index_capacity,
-                gpu.textures.bytes + gpu.item_glint.bytes,
+                gpu.textures.bytes + gpu.item_glint.bytes + gpu.models.bytes(),
             );
         });
     }
@@ -547,6 +550,7 @@ pub(super) fn prepare_ui_bind_group(
         linear_sampler,
         item_glint,
         textures,
+        models,
         ..
     } = &mut *gpu;
     let (viewport, sampler, linear_sampler) = (&*viewport, &*sampler, &*linear_sampler);
@@ -586,6 +590,10 @@ pub(super) fn prepare_ui_bind_group(
                 BindGroupEntry {
                     binding: 6,
                     resource: BindingResource::Sampler(glint_sampler),
+                },
+                BindGroupEntry {
+                    binding: 7,
+                    resource: models.buffer.as_entire_binding(),
                 },
             ],
         ));

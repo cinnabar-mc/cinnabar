@@ -1,11 +1,12 @@
 //! Prevalidated local screen catalogs and bounded changes to retained panel values.
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Control, MAX_PANEL_CONTROLS, Panel, Surface, SurfaceValue, text};
+use super::{Control, MAX_PANEL_CONTROLS, Panel, Surface, SurfaceValue, WidgetColors, text};
 
 /// Local catalogs are read once outside callbacks, independently of guest memory.
 pub const MAX_PANEL_BUNDLE_BYTES: usize = 8 * 1024 * 1024;
@@ -13,6 +14,41 @@ pub const MAX_PANEL_BUNDLE_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_PANEL_PATCH_BYTES: usize = 32 * 1024;
 /// Maximum route documents admitted by one local catalog.
 pub const MAX_PANEL_SURFACES: usize = 128;
+
+/// A one-time request to show an immutable item in an admitted collection.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollectionReveal {
+    pub collection: String,
+    pub item: u32,
+}
+
+/// Shared consumption state keeps one accepted request from replaying across presenters.
+#[derive(Debug)]
+pub struct CollectionRevealRequest {
+    pub target: CollectionReveal,
+    consumed: AtomicBool,
+}
+
+impl CollectionRevealRequest {
+    /// Creates a fresh one-time request after its target has passed admission.
+    pub fn new(target: CollectionReveal) -> Self {
+        Self {
+            target,
+            consumed: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether any presenter still needs to consume this exact accepted request.
+    pub fn pending(&self) -> bool {
+        !self.consumed.load(Ordering::Relaxed)
+    }
+
+    /// Claims this request once, including when the same panel is presented again later.
+    pub fn consume(&self) -> bool {
+        !self.consumed.swap(true, Ordering::Relaxed)
+    }
+}
 
 /// An initial control schema with individually validated, reusable local routes.
 #[derive(Clone, Debug, Deserialize)]
@@ -30,11 +66,10 @@ impl PanelBundle {
     pub fn matches_schema(&self, panel: &Panel) -> bool {
         self.matches_controls(&self.panel.controls, panel)
             || self.control_schemas.iter().any(|(id, controls)| {
-                panel.surface.as_ref().is_some_and(|surface| {
-                    self.surfaces
-                        .get(id)
-                        .is_some_and(|original| original.same_definition(surface))
-                }) && self.matches_controls(controls, panel)
+                self.surfaces
+                    .get(id)
+                    .is_some_and(|original| original.same_definition(&panel.surface))
+                    && self.matches_controls(controls, panel)
             })
     }
 
@@ -50,7 +85,7 @@ impl PanelBundle {
     /// Builds a route from its admitted static schema and initial values.
     pub fn route_panel(&self, id: &str) -> Option<Panel> {
         let mut panel = self.panel.clone();
-        panel.surface = Some(self.surfaces.get(id)?.clone());
+        panel.surface = self.surfaces.get(id)?.clone();
         if let Some(controls) = self.control_schemas.get(id) {
             panel.controls.clone_from(controls);
         }
@@ -88,14 +123,9 @@ impl PanelBundle {
             .map_err(|e| e.to_string())?
             .into_iter()
             .sum::<usize>()
-            + self
-                .panel
-                .surface
-                .as_ref()
-                .map(serde_json::to_vec)
-                .transpose()
+            + serde_json::to_vec(&self.panel.surface)
                 .map_err(|e| e.to_string())?
-                .map_or(0, |bytes| bytes.len())
+                .len()
             + serde_json::to_vec(&self.control_schemas)
                 .map_err(|error| error.to_string())?
                 .len();
@@ -135,9 +165,11 @@ impl Control {
                 Self::Text {
                     min_chars,
                     max_chars,
+                    live,
+                    navigation_keys,
                     ..
                 } => {
-                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,..} if (min_chars,max_chars)==(b_min,b_max))
+                    matches!(other,Self::Text {min_chars:b_min,max_chars:b_max,live:b_live,navigation_keys:b_keys,..} if (min_chars,max_chars,live,navigation_keys)==(b_min,b_max,b_live,b_keys))
                 }
             }
     }
@@ -162,8 +194,21 @@ pub struct PanelPatch {
     /// Filters or sorts admitted tile data without resending its immutable metadata.
     #[serde(default)]
     collection_order: BTreeMap<String, Vec<usize>>,
+    /// Reveals an immutable item after applying this patch's filtered order.
+    #[serde(default)]
+    pub collection_reveal: Option<CollectionReveal>,
     #[serde(default)]
     capture_key: Option<bool>,
+    /// Changes the retained animation preference without replacing the panel schema.
+    #[serde(default)]
+    motion: Option<bool>,
+    /// Changes whether the gameplay HUD, mods' HUD surfaces included, stays drawn under the
+    /// open panel, until changed again or until new content replaces the panel.
+    #[serde(default)]
+    show_gameplay_hud: Option<bool>,
+    /// Replaces the popup widget colours; `{}` restores the built-in palette.
+    #[serde(default)]
+    widget_colors: Option<WidgetColors>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -265,41 +310,53 @@ impl PanelPatch {
                 .get(&id)
                 .ok_or("panel update names an unknown surface")?
                 .clone();
-            if let Some(current) = &panel.surface {
-                if current.same_definition(&route) {
-                    route.collections.clone_from(&current.collections);
-                }
-                route.bindings.clone_from(&current.bindings);
+            let current = &panel.surface;
+            if current.same_definition(&route) {
+                route.collections.clone_from(&current.collections);
             }
-            panel.surface = Some(route);
+            route.bindings.clone_from(&current.bindings);
+            panel.surface = route;
         }
         if let Some(bindings) = self.bindings {
-            let surface = panel
-                .surface
-                .as_mut()
-                .ok_or("panel bindings require a retained surface")?;
-            surface.bindings = bindings;
-            surface.validate_bindings()?;
+            panel.surface.bindings = bindings;
+            panel.surface.validate_bindings()?;
         }
         if let Some(changes) = self.binding_changes {
-            let surface = panel
-                .surface
-                .as_mut()
-                .ok_or("panel bindings require a retained surface")?;
-            surface.bindings.extend(changes);
-            surface.validate_bindings()?;
+            panel.surface.bindings.extend(changes);
+            panel.surface.validate_bindings()?;
         }
         if let Some(capture) = self.capture_key {
             panel.capture_key = capture;
         }
+        if let Some(motion) = self.motion {
+            panel.motion = motion;
+        }
+        if let Some(shown) = self.show_gameplay_hud {
+            panel.show_gameplay_hud = shown;
+        }
+        if let Some(colors) = self.widget_colors {
+            colors.validate()?;
+            panel.widget_colors = Some(colors);
+        }
         for (name, order) in self.collection_order {
             let collection = panel
                 .surface
-                .as_mut()
-                .and_then(|surface| surface.collections.get_mut(&name))
+                .collections
+                .get_mut(&name)
                 .ok_or("panel update names an unknown collection")?;
             collection.order = order;
             collection.validate_order()?;
+        }
+        if let Some(reveal) = self.collection_reveal {
+            let collection = panel
+                .surface
+                .collections
+                .get_mut(&reveal.collection)
+                .ok_or("panel reveal names an unknown collection")?;
+            if reveal.item as usize >= collection.definition.items.len() {
+                return Err("panel reveal names an unknown item".into());
+            }
+            collection.reveal = Some(std::sync::Arc::new(CollectionRevealRequest::new(reveal)));
         }
         Ok(panel)
     }

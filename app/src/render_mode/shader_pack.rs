@@ -1,0 +1,229 @@
+//! The Shader pack renderer's inputs: the packs listed in the Shaders tab and the
+//! [`ShaderPackRequest`] the render host loads from.
+
+use std::path::{Component, Path, PathBuf};
+
+use bevy::prelude::*;
+use launcher::install_layout::InstallLayout;
+use render_scene::shaderpack::ShaderPackRequest;
+use ui::RenderMode;
+
+use super::{MenuRuntime, RenderModeConfig, RuntimeSettings, compiled_render_mode};
+
+pub(super) mod import;
+pub(super) mod reload;
+pub(super) mod removal;
+pub(super) mod status;
+#[cfg(test)]
+mod tests;
+
+/// Shader settings and requests share one scheduling condition.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct ShaderPackUiSystems;
+
+/// Installs shader settings work separately from the always-available renderer controls.
+pub(super) fn configure(app: &mut App) {
+    app.add_message::<bevy::window::WindowFocused>()
+        .init_resource::<reload::ShaderPackReloadReport>()
+        .init_resource::<super::shader_options::ShaderOptionsHost>()
+        .configure_sets(Update, ShaderPackUiSystems.run_if(work_pending))
+        .add_systems(
+            Update,
+            (
+                (
+                    refresh_shader_packs,
+                    reload::reload_on_key,
+                    reload::apply_reload,
+                )
+                    .chain()
+                    .before(super::apply_menu_render_mode),
+                (
+                    sync_shader_pack_request,
+                    status::sync_shader_pack_status,
+                    reload::report_reload,
+                )
+                    .chain()
+                    .after(super::apply_menu_render_mode)
+                    .before(super::authored_textures::update_authored_textures),
+                super::shader_options::drive_shader_options.after(super::apply_menu_render_mode),
+            )
+                .in_set(ShaderPackUiSystems),
+        );
+    import::configure(app);
+    removal::configure(app);
+}
+
+/// Reads existing selection and worker state, retaining one screen-close frame for discovery.
+/// The local value only lets discovery observe closing; it never owns load or worker state.
+pub(super) fn work_pending(world: &World, mut screen_was_open: Local<bool>) -> bool {
+    let screen_open = world
+        .get_resource::<MenuRuntime>()
+        .is_some_and(MenuRuntime::takes_shader_pack_drops);
+    let closing = *screen_was_open && !screen_open;
+    *screen_was_open = screen_open;
+    closing
+        || world
+            .get_resource::<MenuRuntime>()
+            .is_some_and(MenuRuntime::has_shader_pack_work)
+        || world
+            .get_resource::<ShaderPackRequest>()
+            .is_some_and(|request| request.pack.is_some())
+        || world
+            .get_resource::<RuntimeSettings>()
+            .is_some_and(|settings| {
+                settings.user_settings_update().1.video.render_mode == RenderMode::ShaderPack
+            })
+        || world
+            .get_resource::<Messages<bevy::window::FileDragAndDrop>>()
+            .is_some_and(|drops| !drops.is_empty())
+        || import::work_pending(world)
+        || removal::work_pending(world)
+        || reload::work_pending(world)
+        || super::shader_options::work_pending(world)
+}
+
+/// The install's shader-pack folders and the packs last listed from them.
+pub(super) struct ShaderPackDirs {
+    /// Player-supplied packs.
+    packs: PathBuf,
+    /// Private translation cache.
+    cache: PathBuf,
+    /// `(name, path to open)` of each discovered pack, in picker order.
+    discovered: Vec<(String, PathBuf)>,
+}
+
+impl ShaderPackDirs {
+    /// The layout's shader-pack folders, before anything is listed.
+    pub(super) fn new(layout: &InstallLayout) -> Self {
+        Self {
+            packs: layout.shader_packs_dir(),
+            cache: layout.shader_pack_cache_dir(),
+            discovered: Vec::new(),
+        }
+    }
+
+    /// Where the pack saved as `name` opens from: its discovered path (which may be a nested
+    /// folder), else `name` inside the pack folder. Names that are not one plain path
+    /// component, such as `..` from a hand-edited file, resolve to nothing.
+    fn pack_path(&self, name: &str) -> Option<PathBuf> {
+        if let Some((_, path)) = self.discovered.iter().find(|(listed, _)| listed == name) {
+            return Some(path.clone());
+        }
+        let mut components = Path::new(name).components();
+        matches!(
+            (components.next(), components.next()),
+            (Some(Component::Normal(_)), None)
+        )
+        .then(|| self.packs.join(name))
+    }
+}
+
+/// `(name, path to open)` of each shader pack in `dir`.
+fn discover(dir: &Path) -> Vec<(String, PathBuf)> {
+    shaderpack::discover_packs(dir)
+        .into_iter()
+        .map(|pack| (pack.name, pack.path))
+        .collect()
+}
+
+/// Where Iris saves the options of the pack at `entry` (its zip or folder in the pack folder).
+fn option_file(entry: &Path) -> Option<PathBuf> {
+    shaderpack::option_file(entry)
+}
+
+/// The pack the settings select, by the name the player sees.
+pub(super) struct SelectedPack {
+    pub(super) name: String,
+    /// What the render host opens.
+    pub(super) path: PathBuf,
+    /// The pack's Iris option file.
+    pub(super) options: Option<PathBuf>,
+}
+
+/// The launch `--shader-pack`, else the selected pack in the shader-pack folder, while
+/// Shader pack is the requested renderer.
+pub(super) fn selected_pack(
+    config: &RenderModeConfig,
+    video: &ui::VideoSettings,
+) -> Option<SelectedPack> {
+    if compiled_render_mode(video.render_mode) != RenderMode::ShaderPack {
+        return None;
+    }
+    if let Some(path) = &config.cli_shader_pack {
+        return Some(SelectedPack {
+            name: path.file_name().map_or_else(
+                || path.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+            path: path.clone(),
+            options: option_file(path),
+        });
+    }
+    let name = video.shader_pack.as_deref()?;
+    let dirs = config.shader_packs.as_ref()?;
+    let path = dirs.pack_path(name)?;
+    Some(SelectedPack {
+        name: name.to_owned(),
+        path,
+        options: option_file(&dirs.packs.join(name)),
+    })
+}
+
+/// Re-lists the shader-pack folder into the menu's picker when the install layout is known.
+pub(super) fn refresh(config: &mut RenderModeConfig, menu: &mut MenuRuntime) {
+    let Some(dirs) = config.shader_packs.as_mut() else {
+        return;
+    };
+    let discovered = discover(&dirs.packs);
+    if dirs.discovered != discovered {
+        menu.sync_shader_packs(discovered.iter().map(|(name, _)| name.clone()).collect());
+        dirs.discovered = discovered;
+    }
+}
+
+/// Re-lists packs when Shaders opens, and again when the window regains focus on it so
+/// packs copied in from a file manager appear. Other settings pages never scan the pack
+/// folder. A saved shader-pack renderer also lists its packs at startup.
+pub(super) fn refresh_shader_packs(
+    mut config: ResMut<RenderModeConfig>,
+    menu: Option<ResMut<MenuRuntime>>,
+    mut focus: MessageReader<bevy::window::WindowFocused>,
+    mut settings_open: Local<bool>,
+) {
+    let mut regained = false;
+    for event in focus.read() {
+        regained |= event.focused;
+    }
+    let Some(mut menu) = menu else {
+        return;
+    };
+    let open = menu.takes_shader_pack_drops();
+    if open && (!*settings_open || regained) {
+        refresh(&mut config, &mut menu);
+    }
+    *settings_open = open;
+}
+
+/// The request for the [`selected_pack`].
+fn desired_request(config: &RenderModeConfig, video: &ui::VideoSettings) -> ShaderPackRequest {
+    let selected = selected_pack(config, video);
+    ShaderPackRequest {
+        pack: selected.as_ref().map(|pack| pack.path.clone()),
+        cache_dir: config.shader_packs.as_ref().map(|dirs| dirs.cache.clone()),
+        options: selected.and_then(|pack| pack.options),
+        revision: config.shader_pack_revision,
+    }
+}
+
+/// Keeps [`ShaderPackRequest`] following the settings, writing it only when it changes.
+pub(super) fn sync_shader_pack_request(
+    config: Res<RenderModeConfig>,
+    settings: Res<RuntimeSettings>,
+    mut request: ResMut<ShaderPackRequest>,
+) {
+    if !config.is_changed() && !settings.is_changed() && !request.is_added() {
+        return;
+    }
+    let next = desired_request(&config, &settings.user_settings_update().1.video);
+    request.set_if_neq(next);
+}

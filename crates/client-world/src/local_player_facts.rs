@@ -26,9 +26,15 @@ pub struct LocalPlayerFacts {
     server_authoritative_block_breaking: Option<bool>,
     hunger: Option<LocalPlayerStat>,
     mount_unique_id: Option<i64>,
-    immobile: bool,
+    movement: ActorMovementFacts,
     input_locks: protocol::ClientInputLocks,
-    /// Server-cleared `HasGravity`; the vanilla player spawns with it set.
+}
+
+/// Facts owned by one actor lifetime, separate from session permissions and abilities.
+#[derive(Clone, Debug, Default)]
+struct ActorMovementFacts {
+    immobile: bool,
+    /// A cleared gravity bit overrides the default player gravity.
     gravity_cleared: bool,
     uniform_air_drag: bool,
     air_drag_modifier: Option<f32>,
@@ -95,7 +101,7 @@ impl LocalPlayerFacts {
 
     /// Installs an explicit mode without clearing or inventing attribute values.
     pub fn publish_player_game_mode(&mut self, game_mode: PlayerGameMode) {
-        self.instabuild.assign_mode(game_mode);
+        self.assign_mode(game_mode);
         self.player_game_mode = Some(game_mode);
         self.player_mode_from_default = false;
     }
@@ -107,7 +113,7 @@ impl LocalPlayerFacts {
         world_default: PlayerGameMode,
         player_uses_world_default: bool,
     ) {
-        self.instabuild.assign_mode(player);
+        self.assign_mode(player);
         self.player_game_mode = Some(player);
         self.world_default_game_mode = Some(world_default);
         self.player_mode_from_default = player_uses_world_default;
@@ -117,7 +123,7 @@ impl LocalPlayerFacts {
     pub fn apply_game_mode_update(&mut self, update: GameModeUpdate) -> bool {
         match update {
             GameModeUpdate::Explicit(mode) => {
-                self.instabuild.assign_mode(mode);
+                self.assign_mode(mode);
                 self.player_game_mode = Some(mode);
                 self.player_mode_from_default = false;
                 true
@@ -127,7 +133,7 @@ impl LocalPlayerFacts {
             }
             GameModeUpdate::WorldDefault => match self.world_default_game_mode {
                 Some(default) => {
-                    self.instabuild.assign_mode(default);
+                    self.assign_mode(default);
                     self.player_game_mode = Some(default);
                     self.player_mode_from_default = true;
                     true
@@ -144,7 +150,7 @@ impl LocalPlayerFacts {
             GameModeUpdate::Explicit(mode) => {
                 self.world_default_game_mode = Some(mode);
                 if self.player_mode_from_default {
-                    self.instabuild.assign_mode(mode);
+                    self.assign_mode(mode);
                     self.player_game_mode = Some(mode);
                 }
                 true
@@ -154,6 +160,12 @@ impl LocalPlayerFacts {
             ),
             GameModeUpdate::WorldDefault | GameModeUpdate::Unknown(_) => false,
         }
+    }
+
+    /// Applies a committed mode's ability assignment to the mode-owned layers.
+    fn assign_mode(&mut self, mode: PlayerGameMode) {
+        self.instabuild.assign_mode(mode);
+        self.assign_mode_to_local_abilities(mode);
     }
 
     /// Returns effective creation permission after accepted mode and ability updates.
@@ -215,6 +227,13 @@ impl LocalPlayerFacts {
         self.mount_unique_id
     }
 
+    /// Retires actor-owned movement facts while retaining session permissions and abilities.
+    pub fn clear_actor_movement_authority(&mut self, session_id: u64) {
+        if self.session_id == session_id {
+            self.movement = ActorMovementFacts::default();
+        }
+    }
+
     /// Applies FIFO-committed local flags for this session; omitted fields retain their state.
     pub fn apply_local_movement_flags(
         &mut self,
@@ -225,13 +244,13 @@ impl LocalPlayerFacts {
             return false;
         }
         if let Some(immobile) = flags.immobile {
-            self.immobile = immobile;
+            self.movement.immobile = immobile;
         }
         if let Some(has_gravity) = flags.has_gravity {
-            self.gravity_cleared = !has_gravity;
+            self.movement.gravity_cleared = !has_gravity;
         }
         if let Some(uniform_air_drag) = flags.uniform_air_drag {
-            self.uniform_air_drag = uniform_air_drag;
+            self.movement.uniform_air_drag = uniform_air_drag;
         }
         true
     }
@@ -241,30 +260,30 @@ impl LocalPlayerFacts {
         if self.session_id != session_id {
             return false;
         }
-        self.air_drag_modifier = Some(current);
+        self.movement.air_drag_modifier = Some(current);
         true
     }
 
     #[must_use]
     pub const fn has_gravity(&self) -> bool {
-        !self.gravity_cleared
+        !self.movement.gravity_cleared
     }
 
     #[must_use]
     pub const fn uses_uniform_air_drag(&self) -> bool {
-        self.uniform_air_drag
+        self.movement.uniform_air_drag
     }
 
     /// Returns None until the server defines the attribute.
     #[must_use]
     pub const fn air_drag_modifier(&self) -> Option<f32> {
-        self.air_drag_modifier
+        self.movement.air_drag_modifier
     }
 
     /// Server immobility prevents travel without locking camera or raw input.
     #[must_use]
     pub const fn is_immobile(&self) -> bool {
-        self.immobile
+        self.movement.immobile
     }
 }
 

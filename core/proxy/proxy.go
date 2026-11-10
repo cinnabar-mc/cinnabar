@@ -213,7 +213,7 @@ func networkForAddress(target *resolvedUpstreamTarget, address string, trust min
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return remoteServerNetwork(slog.Default(), trust)
+	return remoteServerNetwork(slog.Default(), trust, target.relay)
 }
 
 func dialFollowingTransfers(
@@ -285,7 +285,7 @@ func newUpstreamDialerForAdmission(
 	dialer := minecraft.Dialer{
 		ClientData:           downstream.ClientData(),
 		DownloadResourcePack: ignoreResourcePack,
-		ResourcePackDownload: boundedResourcePackDownload(),
+		ResourcePackDownload: vanillaResourcePackDownload(),
 		EnableBatchReading:   true,
 		MaxDecompressedLen:   maxUpstreamDecompressedBatch,
 		FlushRate:            -1, // the relay's packet readers own flushing
@@ -305,6 +305,9 @@ func newUpstreamDialerForAdmission(
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,
 	}
+	// Let the dialer fill this from its final login identity, including the token's
+	// name. Offline listeners parse this field as DisplayName even for signed-in clients.
+	dialer.ClientData.ThirdPartyName = ""
 	if tokenSource == nil {
 		identity := downstream.IdentityData()
 		dialer.IdentityData = login.IdentityData{
@@ -320,19 +323,12 @@ func newUpstreamDialerForAdmission(
 // continues even when the upstream required bit is set.
 func ignoreResourcePack(_ uuid.UUID, _ string, _, _ int) bool { return false }
 
-// resourcePackRequestWindow is how many chunk requests a pack's download may hold
-// outstanding. A pack with more chunks than this window would otherwise defer its
-// overflow to one request per response, so a 123-chunk pack requested through a
-// 100-chunk window tricksles its last 23 chunks one at a time.
-const resourcePackRequestWindow = 1024
-
-// boundedResourcePackDownload keeps every chunk of a pack in flight at once: a pack's
-// chunk count is bounded by the server's own declaration, so the window only has to
-// stay large enough that no pack's requests are serialized behind its data.
-func boundedResourcePackDownload() minecraft.ResourcePackDownloadConfig {
-	return minecraft.ResourcePackDownloadConfig{
-		MaxInFlightChunks: max(resourcePackRequestWindow, minecraft.DefaultResourcePackMaxInFlightChunks),
-	}
+// vanillaResourcePackDownload requests a pack's chunks the way the vanilla client
+// does: at most minecraft.DefaultResourcePackMaxInFlightChunks requests outstanding,
+// and one more for each chunk received. Servers never see a larger request burst
+// from a vanilla client.
+func vanillaResourcePackDownload() minecraft.ResourcePackDownloadConfig {
+	return minecraft.ResourcePackDownloadConfig{MaxInFlightChunks: minecraft.DefaultResourcePackMaxInFlightChunks}
 }
 
 type packetSession interface {

@@ -39,9 +39,12 @@ mod modding;
 pub mod movement;
 mod named_audio;
 mod ordered_interactions;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod startup_feedback;
 
 mod particles;
 mod pick_block;
+pub mod platform_devices;
 #[cfg(not(target_arch = "wasm32"))]
 mod present_mode;
 mod primitive_shapes;
@@ -56,7 +59,9 @@ pub mod session_audio;
 #[cfg(test)]
 #[cfg(not(target_arch = "wasm32"))]
 mod session_cleanup_tests;
+mod shader_pack_inputs;
 mod survival_mining;
+mod terrain_markers;
 #[cfg(not(target_arch = "wasm32"))]
 mod thread_budget;
 #[cfg(feature = "tracy")]

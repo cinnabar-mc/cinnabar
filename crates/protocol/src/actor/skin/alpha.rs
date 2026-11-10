@@ -1,33 +1,40 @@
 //! Bedrock's non-persona skin alpha validation, before texture packing or resampling.
-use bedrock_protocol_1_26_51::types::SerializedSkinRef;
+#[cfg(test)]
+use bedrock_protocol_1_26_60::types::SerializedSkinRef;
+use bedrock_protocol_1_26_60::wire;
 
 use render_api::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE};
 
 /// Binarizes `skin`'s supported regions of `pixels`, its `width` by `height` raster, and protects
 /// classic body sides from excessive transparency.
-pub(super) fn normalize(skin: &SerializedSkinRef, width: u32, height: u32, pixels: &mut [u8]) {
-    if skin.is_persona
+pub(super) fn normalize(
+    is_persona: bool,
+    resource_patch: &wire::Str,
+    width: u32,
+    height: u32,
+    pixels: &mut [u8],
+) {
+    if is_persona
         || width != height
         || !(width as usize == CLASSIC_SKIN_SIDE || width as usize == MAX_CLASSIC_SKIN_SIDE)
     {
         return;
     }
-    let custom_geometry =
-        serde_json::from_slice::<serde_json::Value>(skin.resource_patch.as_bytes())
-            .ok()
-            .and_then(|patch| {
-                patch
-                    .get("geometry")?
-                    .get("default")?
-                    .as_str()
-                    .map(str::to_owned)
-            })
-            .is_some_and(|name| {
-                !matches!(
-                    name.as_str(),
-                    "geometry.humanoid.custom" | "geometry.humanoid.customSlim"
-                )
-            });
+    let custom_geometry = serde_json::from_slice::<serde_json::Value>(resource_patch.as_bytes())
+        .ok()
+        .and_then(|patch| {
+            patch
+                .get("geometry")?
+                .get("default")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .is_some_and(|name| {
+            !matches!(
+                name.as_str(),
+                "geometry.humanoid.custom" | "geometry.humanoid.customSlim"
+            )
+        });
     normalize_pixels(width, height, pixels, !custom_geometry);
 }
 
@@ -114,7 +121,13 @@ mod tests {
     fn classic_transparent_body_sides_become_visible_without_filling_the_hat() {
         for side in [CLASSIC_SKIN_SIDE as u32, MAX_CLASSIC_SKIN_SIDE as u32] {
             let (skin, mut pixels) = skin("geometry.humanoid.customSlim", side);
-            normalize(&skin, side, side, &mut pixels);
+            normalize(
+                skin.is_persona,
+                &skin.resource_patch,
+                side,
+                side,
+                &mut pixels,
+            );
             let scale = side as usize / CLASSIC_SKIN_SIDE;
             assert_eq!(pixels[((8 * scale * side as usize) * 4) + 3], 255);
             assert_eq!(pixels[(32 * scale * 4) + 3], 0);
@@ -127,7 +140,13 @@ mod tests {
         let (skin, mut pixels) = skin("geometry.fixture", side);
         let index = (64 * 4) + 3;
         pixels[index] = 56;
-        normalize(&skin, side, side, &mut pixels);
+        normalize(
+            skin.is_persona,
+            &skin.resource_patch,
+            side,
+            side,
+            &mut pixels,
+        );
         assert_eq!(pixels[index], 255);
         assert_eq!(pixels[16 * MAX_CLASSIC_SKIN_SIDE * 4 + 3], 0);
     }
@@ -139,7 +158,13 @@ mod tests {
         skin.is_persona = true;
         pixels[3] = 56;
         let before = pixels.clone();
-        normalize(&skin, side, side, &mut pixels);
+        normalize(
+            skin.is_persona,
+            &skin.resource_patch,
+            side,
+            side,
+            &mut pixels,
+        );
         assert_eq!(pixels, before);
     }
 }

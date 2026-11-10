@@ -129,10 +129,11 @@ impl Rule {
                     .is_none_or(|value| value < *minimum)
             })
             || self.state_maximum.as_ref().is_some_and(|key| {
-                let maximum = property_key(key).and_then(|p| match p.domain() {
-                    super::PropertyDomain::Int(values) => values.iter().max().copied(),
-                    _ => None,
-                });
+                let maximum =
+                    property_key(key).and_then(|p| match super::block_property_domain(name, p) {
+                        super::PropertyDomain::Int(values) => values.iter().max().copied(),
+                        _ => None,
+                    });
                 property(state, key).and_then(|s| s.value.as_i64()) != maximum.map(i64::from)
             })
             || self
@@ -204,7 +205,7 @@ pub fn components() -> &'static BTreeMap<String, BlockTraits> {
     static FACTS: OnceLock<BTreeMap<String, BlockTraits>> = OnceLock::new();
     FACTS.get_or_init(|| {
         let mut facts = BTreeMap::new();
-        for row in include_str!("../../data/block-components-v2193.tsv")
+        for row in include_str!("../../data/block-components-v2225.tsv")
             .lines()
             .skip(1)
         {

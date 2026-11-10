@@ -51,6 +51,7 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
             .map(|(index, component)| protocol::CustomBlock {
                 name: format!("fixture:offset_{index}").into(),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,
@@ -65,6 +66,9 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
                 }),
                 player_interact: false,
                 state_physics: Default::default(),
+                state_mining: Default::default(),
+                mining: Default::default(),
+                sound: None,
                 state_physics_complete: false,
             })
             .collect(),

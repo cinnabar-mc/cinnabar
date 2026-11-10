@@ -13,10 +13,225 @@ use ui_screens::container_actions::ReaderButton;
 
 const SIZE: [u32; 2] = [800, 600];
 
+mod ordered;
+mod scrollbar;
+mod sign_over;
+
+#[test]
+fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {
+    use bevy::input::mouse::MouseButtonInput;
+    let (mut app, window) = ordered::personal_app(2);
+    for button in [MouseButton::Left, MouseButton::Back] {
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(button);
+        app.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                button,
+                state: ButtonState::Pressed,
+                window,
+            }));
+    }
+    app.update();
+    assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+    let player = app.world().resource::<client_state::PlayerRuntime>();
+    // The pickup survives closing, followed by the usual cursor return request.
+    assert_eq!(player.inventory.ledger().pending_request_count(), 2);
+    assert!(player.inventory.ledger().cursor_stack().is_none());
+}
+
+#[test]
+fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
+    use super::super::{drive_chat_keyboard_input, drive_inventory_ui_actions};
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    for ordered in [false, true] {
+        let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+        let mut runtime = client_ui::test_support::inventory_session(&mut player);
+        runtime.toggle_inventory(&mut player, None);
+        let presentation = presentation(&player, &runtime);
+        let mut app = App::new();
+        app.add_message::<KeyboardInput>()
+            .add_message::<WindowEvent>()
+            .init_resource::<Time<Real>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<AccumulatedMouseMotion>()
+            .insert_resource(player)
+            .insert_resource(UiRuntimeResource(runtime))
+            .insert_resource(UiPresentationResource(presentation))
+            .add_systems(
+                Update,
+                (drive_chat_keyboard_input, drive_inventory_ui_actions).chain(),
+            );
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    focused: true,
+                    ..Default::default()
+                },
+                CursorOptions::default(),
+                PrimaryWindow,
+            ))
+            .id();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        if ordered {
+            app.world_mut()
+                .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                    button: MouseButton::Back,
+                    state: ButtonState::Pressed,
+                    window,
+                }));
+        }
+        app.update();
+        assert!(
+            !app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "ordered={ordered}"
+        );
+        assert!(
+            !app.world()
+                .resource::<ButtonInput<MouseButton>>()
+                .just_pressed(MouseButton::Back)
+        );
+        app.update();
+        assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+    }
+}
+
+/// Binding a hotbar slot to Mouse 4 takes the button from Menu Cancel, so it moves the item and
+/// the inventory stays open.
+#[test]
+fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
+    use bevy::input::mouse::MouseButtonInput;
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::PhysicalControl;
+
+    for ordered in [false, true] {
+        let (mut app, window) = ordered::personal_app(2);
+        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+        assert!(client_shell::menu::test_support::remap_control(
+            &mut menu,
+            BindingId::Hotbar4.row(false).unwrap(),
+            PhysicalControl::MouseButton(
+                client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap(),
+            ),
+        ));
+        app.insert_resource(menu);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Back);
+        if ordered {
+            app.world_mut()
+                .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                    button: MouseButton::Back,
+                    state: ButtonState::Pressed,
+                    window,
+                }));
+        }
+
+        app.update();
+
+        assert!(
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "ordered={ordered}"
+        );
+        let player = app.world().resource::<client_state::PlayerRuntime>();
+        let ledger = player.inventory.ledger();
+        assert!(ledger.displayed_stack(0).is_none(), "ordered={ordered}");
+        assert_eq!(
+            ledger.displayed_stack(3).map(|stack| stack.count),
+            Some(2),
+            "ordered={ordered}"
+        );
+        assert_eq!(ledger.pending_request_count(), 1, "ordered={ordered}");
+    }
+}
+
+/// Rebinding Menu Cancel moves screen cancelling to the new mouse button or key: it closes the
+/// inventory, and the Back button it left closes nothing.
+#[test]
+fn remapped_menu_cancel_closes_inventory() {
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseButtonInput};
+    use launcher::menu::settings_options::BindingId;
+    use semantic_input::PhysicalControl;
+
+    let forward = PhysicalControl::MouseButton(
+        client_shell::physical_input::mouse_button_code(MouseButton::Forward).unwrap(),
+    );
+    let x = PhysicalControl::KeyboardUsage(
+        client_shell::physical_input::keyboard_usage(KeyCode::KeyX).unwrap(),
+    );
+    for (control, ordered) in [(forward, false), (forward, true), (x, false)] {
+        let (mut app, window) = ordered::personal_app(2);
+        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+        assert!(client_shell::menu::test_support::remap_control(
+            &mut menu,
+            BindingId::MenuCancel.row(false).unwrap(),
+            control,
+        ));
+        app.insert_resource(menu);
+        let press_mouse = |app: &mut App, button: MouseButton| {
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(button);
+            if ordered {
+                app.world_mut()
+                    .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                        button,
+                        state: ButtonState::Pressed,
+                        window,
+                    }));
+            }
+        };
+
+        press_mouse(&mut app, MouseButton::Back);
+        app.update();
+        assert!(
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "{control:?} ordered={ordered}"
+        );
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+        if control == forward {
+            press_mouse(&mut app, MouseButton::Forward);
+        } else {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyX);
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::KeyX,
+                logical_key: Key::Character("x".into()),
+                state: ButtonState::Pressed,
+                text: Some("x".into()),
+                repeat: false,
+                window,
+            });
+        }
+        app.update();
+        assert!(
+            !app.world().resource::<UiRuntimeResource>().inventory_open(),
+            "{control:?} ordered={ordered}"
+        );
+    }
+}
+
 /// Draws original inventory and book fixtures with a close control on each screen.
 fn presentation(
     player: &client_state::PlayerRuntime,
     runtime: &UiRuntime,
+) -> UiPresentationRuntime {
+    presentation_with_controls(player, runtime, &[])
+}
+
+/// Extends the original screen fixture with controls used by pointer-routing tests.
+fn presentation_with_controls(
+    player: &client_state::PlayerRuntime,
+    runtime: &UiRuntime,
+    extra: &[serde_json::Value],
 ) -> UiPresentationRuntime {
     let files = [
         ("ui/_global_variables.json".to_owned(), b"{}".to_vec()),
@@ -33,7 +248,7 @@ fn presentation(
             ("crafting", "inventory_screen", "button.menu_exit"),
         ]
         .map(|(namespace, root, action)| {
-            let source = serde_json::json!({
+            let mut source = serde_json::json!({
                 "namespace": namespace,
                 (root): {
                     "type": "screen", "size": [160, 100],
@@ -46,6 +261,10 @@ fn presentation(
                     }}]
                 }
             });
+            source[root]["controls"]
+                .as_array_mut()
+                .unwrap()
+                .extend_from_slice(extra);
             (
                 format!("ui/{namespace}.json"),
                 serde_json::to_vec(&source).unwrap(),
@@ -390,6 +609,74 @@ fn ordered_close_press_survives_keyboard_dispatch_until_frame_release() {
     });
     app.update();
     assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+}
+
+/// A pressed container control plays the sound its definition declares; one that declares
+/// none stays silent.
+#[test]
+fn pressing_a_container_control_plays_only_its_declared_sound() {
+    const SOUND: &str = "test.container_press";
+    let queued = || {
+        client_ui::sound_requests::take_sounds()
+            .into_iter()
+            .filter(|(name, ..)| name == SOUND)
+            .collect::<Vec<_>>()
+    };
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = client_ui::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player, None);
+    let presentation = presentation_with_controls(
+        &player,
+        &runtime,
+        &[serde_json::json!({"declares_sound": {
+            "type": "button", "size": [10, 10], "offset": [50, 30],
+            "sound_name": SOUND, "sound_volume": 0.5, "sound_pitch": 1.25,
+            "button_mappings": [{"from_button_id": "button.menu_select",
+                "to_button_id": "button.test_press", "mapping_type": "pressed"}]
+        }})],
+    );
+    let declared = presentation
+        .engine_container_frame()
+        .expect("fixture container frame")
+        .hits
+        .iter()
+        .find(|hit| hit.sound.is_some())
+        .expect("fixture control declares a sound");
+    let at = window_point(
+        &presentation,
+        [
+            (declared.rect.x + declared.rect.w / 2.0) as f32,
+            (declared.rect.y + declared.rect.h / 2.0) as f32,
+        ],
+    );
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(at),
+        &presentation,
+        true,
+        false,
+    );
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(at),
+        &presentation,
+        false,
+        true,
+    );
+    assert_eq!(queued(), [(SOUND.to_owned(), 0.5, 1.25)]);
+
+    let close = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(close),
+        &presentation,
+        true,
+        false,
+    );
+    assert_eq!(queued(), []);
 }
 
 /// Plays one touch through the pointer emulation, delivering each edge at its own position.

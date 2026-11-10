@@ -1,5 +1,31 @@
 use super::*;
 
+#[test]
+fn release_indirect_validation_follows_the_selected_backend() {
+    let configured = wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL
+        | wgpu::InstanceFlags::DEBUG
+        | wgpu::InstanceFlags::GPU_BASED_VALIDATION;
+    for backend in [Backend::Metal, Backend::Vulkan, Backend::Gl] {
+        assert_eq!(
+            backend_instance_flags(backend, configured, false),
+            configured - wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL
+        );
+        assert_eq!(
+            backend_instance_flags(backend, configured, true),
+            configured
+        );
+    }
+    assert_eq!(
+        backend_instance_flags(Backend::Dx12, configured, false),
+        configured
+    );
+}
+
+#[test]
+fn vulkan_minimum_storage_limit_is_accepted() {
+    assert!(meets_requirements(capabilities(REQUIRED_DOWNLEVEL_FLAGS, 4)).is_ok());
+}
+
 /// Supplies native-independent capabilities to the production candidate filter.
 fn capabilities(flags: wgpu::DownlevelFlags, storage_buffers: u32) -> AdapterCapabilities {
     AdapterCapabilities {
@@ -13,7 +39,7 @@ fn capabilities(flags: wgpu::DownlevelFlags, storage_buffers: u32) -> AdapterCap
 
 #[test]
 fn adapters_must_support_every_renderer_capability_and_storage_limit() {
-    let required = render::required_vertex_storage_buffers();
+    let required = render::minimum_vertex_storage_buffers();
     assert!(meets_requirements(capabilities(REQUIRED_DOWNLEVEL_FLAGS, required)).is_ok());
     for flag in REQUIRED_DOWNLEVEL_FLAGS.iter() {
         assert!(
@@ -48,4 +74,54 @@ fn configured_storage_limits_cover_the_renderer_without_lowering_existing_limits
             initial.max(required)
         );
     }
+}
+
+/// Window targets use the adapter's full dimensions without requesting unsupported limits.
+#[test]
+fn window_texture_limits_match_the_adapter_even_for_oversized_requests() {
+    let adapter = wgpu::Limits {
+        max_texture_dimension_1d: 16384,
+        max_texture_dimension_2d: 16384,
+        ..wgpu::Limits::default()
+    };
+    for initial in [4096, 16384, u32::MAX] {
+        let mut limits = wgpu::Limits {
+            max_texture_dimension_1d: initial,
+            max_texture_dimension_2d: initial,
+            ..Default::default()
+        };
+        use_adapter_texture_limits(&mut limits, &adapter);
+        assert_eq!(
+            limits.max_texture_dimension_1d,
+            adapter.max_texture_dimension_1d
+        );
+        assert_eq!(
+            limits.max_texture_dimension_2d,
+            adapter.max_texture_dimension_2d
+        );
+    }
+}
+
+/// wgpu drops the DX12 backend when its DXC cannot load; only that case retries with FXC.
+#[cfg(windows)]
+#[test]
+fn dx12_retries_with_fxc_only_when_its_dxc_cannot_load() {
+    let settings = WgpuSettings::default();
+    let fxc = wgpu::Dx12Compiler::Fxc;
+    let with_fxc = instance(Backend::Dx12, &settings, fxc.clone(), None);
+    if !has_dx12(&with_fxc) {
+        eprintln!("missing fixture: a DX12 runtime");
+        return;
+    }
+    assert!(!dxc_failed(Backend::Dx12, &fxc, &with_fxc));
+    let missing = wgpu::Dx12Compiler::DynamicDxc {
+        dxc_path: std::env::temp_dir()
+            .join("cinnabar-missing-dxc")
+            .join("dxcompiler.dll")
+            .to_string_lossy()
+            .into_owned(),
+    };
+    let without_dxc = instance(Backend::Dx12, &settings, missing.clone(), None);
+    assert!(dxc_failed(Backend::Dx12, &missing, &without_dxc));
+    assert!(!dxc_failed(Backend::Vulkan, &missing, &without_dxc));
 }

@@ -28,6 +28,12 @@ impl UiPresentationRuntime {
     }
 
     pub fn set_menu_view(&mut self, view: Option<MenuView>) {
+        if !view
+            .as_ref()
+            .is_some_and(|view| view.visible && view.touch_editor_open)
+        {
+            self.close_touch_editor();
+        }
         if let (Some(current), Some(incoming)) = (&self.menu_view, &view)
             && current.as_ref() == incoming
         {
@@ -72,8 +78,12 @@ impl UiPresentationRuntime {
         &mut self.hud_frame
     }
 
-    /// Supplies the world-query adapter's projected nametag anchors for this frame.
-    pub fn set_nametag_anchors(&mut self, anchors: Vec<nametags::NametagAnchor>) {
+    /// Installs this frame's anchors and returns the retired buffer for reuse.
+    pub fn set_nametag_anchors(
+        &mut self,
+        anchors: Vec<nametags::NametagAnchor>,
+    ) -> Vec<nametags::NametagAnchor> {
+        self.nametag_bounds.finish_frame();
         if tracing::enabled!(tracing::Level::DEBUG) {
             let badges = anchors.iter().filter(|tag| tag.cinnabar_badge).count();
             let previous = self
@@ -89,7 +99,7 @@ impl UiPresentationRuntime {
                 );
             }
         }
-        self.nametag_anchors = anchors;
+        std::mem::replace(&mut self.nametag_anchors, anchors)
     }
 
     /// Selects the local actor identity for a separate own-tag cosmetic colour.
@@ -103,14 +113,10 @@ impl UiPresentationRuntime {
         self.nametag_atlas.set_palette(palette);
         let (font, glyphs) = (&self.font, &self.session_glyphs);
         let dynamic_start = self.textures.dynamic_start();
-        let style = self
-            .screens
-            .mod_ui
-            .mod_actor_style()
-            .and_then(|style| style.nametags.as_ref());
+        let style = self.screens.mod_ui.mod_nametag_style();
         let mut scene = nametags::build_nametag_scene(
             &self.nametag_anchors,
-            style.map_or(1.0, |style| style.scale),
+            style,
             font,
             &mut self.layouts,
             &mut self.nametag_atlas,
@@ -119,14 +125,34 @@ impl UiPresentationRuntime {
             },
         );
         if let Some(style) = style {
-            let own_anchor = self
-                .nametag_anchors
-                .iter()
-                .find(|anchor| Some(anchor.runtime_id) == self.nametag_local_actor)
-                .map(|anchor| anchor.position.to_array());
-            nametags::style_scene(&mut scene, style, own_anchor);
+            nametags::style::style_scene(&mut scene, style, self.nametag_local_actor);
         }
         scene
+    }
+
+    /// Installs this session's font before label bounds reserve presentation resources.
+    pub fn prepare_nametag_layout(&mut self, runtime: &UiRuntime) {
+        dynamic_textures::observe_session(self, runtime.session_id());
+        session_glyphs::observe(self, runtime.session_glyphs());
+        self.nametag_bounds.begin_frame();
+    }
+
+    /// Tests painted label bounds without changing actor eligibility or depth policy.
+    pub fn nametag_intersects_view(
+        &mut self,
+        anchor: &nametags::NametagAnchor,
+        clip_from_world: glam::Mat4,
+        rotation: glam::Quat,
+    ) -> bool {
+        let style = self.screens.mod_ui.mod_nametag_style();
+        self.nametag_bounds.intersects_view(
+            anchor,
+            clip_from_world,
+            rotation,
+            &self.font,
+            &mut self.layouts,
+            style,
+        )
     }
 
     /// Retained text-layout cache entries, exposed for the bounded-memory
@@ -156,5 +182,38 @@ impl UiPresentationRuntime {
     /// The effective GUI preference consumed by the app scale adapter.
     pub fn gui_scale_preference(&self) -> Option<u8> {
         self.gui_scale_preference
+    }
+
+    /// The gameplay HUD root's size in GUI units for a window, inset by the safe area; none
+    /// when the window cannot hold the HUD.
+    pub fn hud_gui_viewport(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<[f32; 2]> {
+        let geometry = HudGeometry::new(
+            physical_size,
+            dpi_scale,
+            self.safe_area,
+            self.gui_scale_preference,
+        )?;
+        Some([geometry.gui_width, geometry.gui_height])
+    }
+
+    /// A window-logical point in the gameplay HUD root's GUI units, from the root's top left:
+    /// the space of [`Self::hud_gui_viewport`], independent of any panel's own scaling.
+    pub fn hud_gui_point(
+        &self,
+        logical: [f32; 2],
+        physical_size: [u32; 2],
+        dpi_scale: f32,
+    ) -> Option<[f32; 2]> {
+        let geometry = HudGeometry::new(
+            physical_size,
+            dpi_scale,
+            self.safe_area,
+            self.gui_scale_preference,
+        )?;
+        let point = [
+            (logical[0] - self.safe_area.left()) / geometry.scale,
+            (logical[1] - self.safe_area.top()) / geometry.scale,
+        ];
+        point.iter().all(|value| value.is_finite()).then_some(point)
     }
 }

@@ -7,10 +7,7 @@ pub use use_profile::{
     EffectiveItemUse, ResolvedUseCooldown, UseCooldownCategory, resolve_item_use,
 };
 
-use assets::{
-    BlockVisualId, ItemStackIdentity, ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey,
-    ItemVisualRoute, RuntimeEntityAssets,
-};
+use assets::{ItemStackIdentity, ItemVisualRoute, RuntimeEntityAssets};
 use protocol::{
     ActorHandedness, ArmorEquipmentEvent, EquipmentEvent, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, NetworkItemStack,
@@ -28,7 +25,12 @@ mod animation_tests;
 mod glint;
 mod grip;
 #[cfg(test)]
+mod map_tests;
+#[cfg(test)]
 mod presentation_tests;
+#[cfg(test)]
+mod shield_tests;
+mod visual;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
@@ -37,6 +39,8 @@ pub const MAX_EQUIPMENT_NOTICES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemStack {
+    /// Root trim identifiers retained independently of item metadata and stack identity.
+    pub trim: Option<protocol::ItemTrim>,
     /// Drawing role resolved for the current numeric item registry.
     pub use_animation: assets::item_use::ItemUseAnimation,
     /// Grip resolved for the current numeric item registry generation.
@@ -48,6 +52,10 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// Signed image identity retained independently of visual metadata.
+    pub map_id: Option<i64>,
+    /// Shield cloth colors and overlays retained from this admitted stack.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Projectile drawing facts resolved when this stack enters canonical admission.
     pub charged_projectile_role: assets::item_use::ItemProjectileRole,
     /// Durability damage retained separately from the stack's visual metadata.
@@ -60,6 +68,8 @@ pub struct CanonicalItemStack {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemRegistryRecord {
+    /// A retail item identity with no registry component payload override.
+    pub(crate) unmodified_native: bool,
     /// Descriptor after the current component payload has been admitted.
     pub grip: assets::item::grip::ItemGrip,
     /// Intrinsic shine resolved for the current numeric registry generation.
@@ -107,6 +117,27 @@ pub struct ActorArmorSnapshot {
     pub leggings: ActorArmorPiece,
     pub boots: ActorArmorPiece,
     pub body: ActorArmorPiece,
+}
+
+impl ActorArmorSnapshot {
+    /// Worn stacks in wire order, including the separate body slot.
+    pub fn pieces(&self) -> [&ActorArmorPiece; 5] {
+        [
+            &self.helmet,
+            &self.chestplate,
+            &self.leggings,
+            &self.boots,
+            &self.body,
+        ]
+    }
+
+    /// Counts occupied slots independently of registry and drawable-model resolution.
+    pub fn equipment_count(&self) -> u8 {
+        self.pieces()
+            .iter()
+            .filter(|piece| !piece.item.identity.is_empty())
+            .count() as u8
+    }
 }
 
 /// Where one MobEquipment or MobArmorEquipment landed, for diagnostics.
@@ -179,7 +210,22 @@ impl ItemStateStore {
 
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         let registry = built_in_registry(assets.as_deref());
-        let mut store = Self {
+        let mut store = Self::with_registry(assets, registry);
+        store.rebuild_use_profiles();
+        store
+    }
+
+    /// Display actors never receive equipment or an item registry, so they need no retail tables.
+    pub(crate) fn empty() -> Self {
+        Self::with_registry(None, BTreeMap::new())
+    }
+
+    /// Starts item state around admitted records; normal stores then prepare their use profiles.
+    fn with_registry(
+        assets: Option<Arc<RuntimeEntityAssets>>,
+        registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
+    ) -> Self {
+        Self {
             presentation_generation: Arc::new(()),
             assets,
             registry,
@@ -195,9 +241,7 @@ impl ItemStateStore {
             use_overlays: None,
             attack_timings: None,
             notices: Vec::new(),
-        };
-        store.rebuild_use_profiles();
-        store
+        }
     }
 
     /// Records where an equipment event landed; the stacks are named through the registry.
@@ -449,15 +493,7 @@ impl ItemStateStore {
                 &mut snapshot.boots,
                 &mut snapshot.body,
             ] {
-                let charged = piece.item.charged_projectile.take();
-                let damage = piece.item.damage;
-                let enchanted = piece.item.enchanted;
-                piece.item = self.resolve_identity(piece.item.identity);
-                piece.item.charged_projectile = charged;
-                piece.item.charged_projectile_role =
-                    self.projectile_role(piece.item.charged_projectile.as_deref());
-                piece.item.damage = damage;
-                piece.item.enchanted = enchanted;
+                self.refresh_stack_facts(&mut piece.item);
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -465,36 +501,37 @@ impl ItemStateStore {
         let keys = self.equipment.keys().copied().collect::<Vec<_>>();
         self.pending.clear();
         for key in keys {
-            let Some(identity) = self
-                .equipment
-                .get(&key)
-                .map(|equipment| equipment.item.identity)
-            else {
+            let Some(mut equipment) = self.equipment.remove(&key) else {
                 continue;
             };
-            let mut item = self.resolve_identity(identity);
-            item.charged_projectile = self
-                .equipment
-                .get(&key)
-                .and_then(|equipment| equipment.item.charged_projectile.clone());
-            item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
-            item.damage = self
-                .equipment
-                .get(&key)
-                .and_then(|equipment| equipment.item.damage);
-            item.enchanted = self
-                .equipment
-                .get(&key)
-                .is_some_and(|equipment| equipment.item.enchanted);
+            self.refresh_stack_facts(&mut equipment.item);
+            let item = &equipment.item;
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
-            if let Some(equipment) = self.equipment.get_mut(&key) {
-                equipment.item = item;
-            }
+            self.equipment.insert(key, equipment);
             if unresolved {
                 self.retain_pending(key);
             }
         }
         true
+    }
+
+    /// Refreshes registry-owned facts without rebuilding or losing retained stack metadata.
+    fn refresh_stack_facts(&self, item: &mut CanonicalItemStack) {
+        let resolved = self.resolve_identity(item.identity);
+        item.use_animation = resolved.use_animation;
+        item.grip = resolved.grip;
+        item.glint = resolved.glint;
+        item.identifier = resolved.identifier;
+        if item
+            .identifier
+            .as_deref()
+            .is_some_and(|identifier| identifier != assets::gui_item::SHIELD_IDENTIFIER)
+        {
+            item.shield_pattern = None;
+        }
+        item.visual = resolved.visual;
+        item.durability = resolved.durability;
+        item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
     }
 
     pub(crate) fn get(&self, lifetime: ActorLifetimeId) -> Option<&ActorEquipmentSnapshot> {
@@ -541,6 +578,15 @@ impl ItemStateStore {
         item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
         item.damage = protocol::item_stack_damage(stack);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
+        item.trim = protocol::item_trim(&stack.extra_data);
+        item.map_id = protocol::item_map_id(&stack.extra_data);
+        item.shield_pattern = item
+            .identifier
+            .as_deref()
+            .is_none_or(|identifier| identifier == assets::gui_item::SHIELD_IDENTIFIER)
+            .then(|| protocol::item_shield_pattern(&stack.extra_data))
+            .flatten()
+            .map(Arc::new);
         Some(item)
     }
 
@@ -569,6 +615,7 @@ impl ItemStateStore {
     fn resolve_identity(&self, identity: ItemStackIdentity) -> CanonicalItemStack {
         if identity.is_empty() {
             return CanonicalItemStack {
+                trim: None,
                 use_animation: assets::item_use::ItemUseAnimation::None,
                 charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                 grip: assets::item::grip::ItemGrip::Unresolved,
@@ -576,6 +623,8 @@ impl ItemStateStore {
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
+                map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
                 damage: None,
                 durability: assets::item::durability::ItemDurability::NotDamageable,
@@ -586,15 +635,16 @@ impl ItemStateStore {
             .registry
             .get(&identity.network_id)
             .map(|record| Arc::clone(&record.identifier));
-        let visual = classify_retained_block(
+        let visual = visual::classify_retained_block(
             identifier
                 .as_deref()
                 .map_or(ItemVisualRoute::Missing, |identifier| {
-                    self.resolve_visual(identifier, identity.metadata)
+                    self.resolve_visual(identifier, identity.metadata, identity.block_runtime_id)
                 }),
             identity.block_runtime_id,
         );
         CanonicalItemStack {
+            trim: None,
             use_animation: self.item_use_profile(identity.network_id).animation,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             grip: self
@@ -608,48 +658,13 @@ impl ItemStateStore {
             identity,
             identifier,
             visual,
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             damage: None,
             durability: self.item_durability(identity.network_id),
             enchanted: false,
         }
-    }
-
-    /// Visual route for an item identifier with no stack context (e.g. the TNT block).
-    pub(crate) fn visual_for_identifier(&self, identifier: &str) -> ItemVisualRoute {
-        self.resolve_visual(identifier, 0)
-    }
-
-    fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
-        let Some(assets) = self.assets.as_ref() else {
-            return ItemVisualRoute::Missing;
-        };
-        let key = ItemVisualKey {
-            identifier: identifier.into(),
-            metadata,
-        };
-        if let Ok(index) = assets
-            .item_visuals()
-            .binary_search_by(|visual| visual.key.cmp(&key))
-        {
-            return match assets.item_visuals()[index].route {
-                ItemVisualDefinitionRoute::Sprite { .. } => {
-                    ItemVisualRoute::Compiled(ItemVisualId(index as u32))
-                }
-                ItemVisualDefinitionRoute::BlockItem { block_visual } => {
-                    ItemVisualRoute::BlockItem(BlockVisualId(block_visual.0))
-                }
-                ItemVisualDefinitionRoute::EmptyHand => ItemVisualRoute::EmptyHand,
-                ItemVisualDefinitionRoute::Missing => ItemVisualRoute::Missing,
-            };
-        }
-        assets
-            .item_visual_aliases()
-            .binary_search_by(|alias| alias.key.cmp(&key))
-            .ok()
-            .map_or(ItemVisualRoute::Missing, |index| {
-                ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual)
-            })
     }
 
     fn retain_pending(&mut self, key: EquipmentKey) {
@@ -693,47 +708,13 @@ fn built_in_registry(
         .collect()
 }
 
-/// Keeps compiled item visuals authoritative, including sprites for items that place blocks.
-/// A retained block identity supplies geometry only when no compiled visual resolves.
-fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> ItemVisualRoute {
-    if block_runtime_id == 0
-        || matches!(
-            route,
-            ItemVisualRoute::Compiled(_) | ItemVisualRoute::BlockItem(_)
-        )
-    {
-        return route;
-    }
-    ItemVisualRoute::RetainedBlock { block_runtime_id }
-}
-
-#[cfg(test)]
-mod visual_route_tests {
-    use super::*;
-
-    #[test]
-    fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
-        let sprite = ItemVisualRoute::Compiled(ItemVisualId(7));
-        for block_runtime_id in [1, i32::MIN] {
-            assert_eq!(classify_retained_block(sprite, block_runtime_id), sprite);
-        }
-        let block = ItemVisualRoute::BlockItem(BlockVisualId(3));
-        assert_eq!(classify_retained_block(block, 1), block);
-        assert_eq!(
-            classify_retained_block(ItemVisualRoute::Missing, i32::MIN),
-            ItemVisualRoute::RetainedBlock {
-                block_runtime_id: i32::MIN,
-            }
-        );
-    }
-}
-
 /// Resolves item-owned facts once for this registry generation.
 fn registry_record(
     entry: &ItemRegistryEntry,
     assets: Option<&RuntimeEntityAssets>,
 ) -> CanonicalItemRegistryRecord {
     CanonicalItemRegistryRecord {
+        unmodified_native: use_profile::unmodified_native(entry),
         grip: grip::resolve(entry, assets),
         glint: glint::resolve(entry, assets),
         identifier: Arc::clone(&entry.identifier),
@@ -862,7 +843,31 @@ mod armor_tests {
     }
 
     #[test]
-    fn registry_refresh_preserves_held_and_worn_damage_and_glint() {
+    fn canonical_armor_retains_trim_through_registry_replacement() {
+        let expected = protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        };
+        let extra = protocol::apply_item_trim(&[], &expected).unwrap();
+        let mut store = ItemStateStore::diagnostic();
+        let actor = lifetime(7, 1);
+        store.insert_spawn(actor, 1, stack(1, &extra));
+        assert!(store.apply_armor(actor, 2, &event(7, stack(1, &extra))));
+        assert!(store.apply_registry(ItemRegistryEvent {
+            entries: Arc::from([])
+        }));
+        assert_eq!(
+            store.get(actor).unwrap().item.trim.as_ref(),
+            Some(&expected)
+        );
+        assert_eq!(
+            store.armor(7).unwrap().helmet.item.trim.as_ref(),
+            Some(&expected)
+        );
+    }
+
+    #[test]
+    fn registry_refresh_preserves_held_and_worn_stack_metadata() {
         let mut extra = vec![0xff, 0xff, 0x01, 0x0a, 0x00, 0x00, 0x09];
         extra.extend_from_slice(&4u16.to_le_bytes());
         extra.extend_from_slice(b"ench");
@@ -870,11 +875,27 @@ mod armor_tests {
         extra.extend_from_slice(&6u16.to_le_bytes());
         extra.extend_from_slice(b"Damage");
         extra.extend_from_slice(&7u32.to_le_bytes());
+        extra.push(3);
+        extra.extend_from_slice(&4u16.to_le_bytes());
+        extra.extend_from_slice(b"Base");
+        extra.extend_from_slice(&15i32.to_le_bytes());
         extra.push(0);
+        let shield = protocol::vanilla_item_registry()
+            .iter()
+            .find(|item| item.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER)
+            .unwrap()
+            .network_id;
         let actor = lifetime(7, 1);
         let mut store = ItemStateStore::diagnostic();
-        store.insert_spawn(actor, 1, stack(1, &extra));
-        assert!(store.apply_armor(actor, 2, &event(7, stack(1, &extra))));
+        store.insert_spawn(actor, 1, stack(shield, &extra));
+        assert!(store.apply_armor(actor, 2, &event(7, stack(shield, &extra))));
+        let pattern = store
+            .get(actor)
+            .unwrap()
+            .item
+            .shield_pattern
+            .clone()
+            .unwrap();
         assert!(store.apply_registry(ItemRegistryEvent {
             entries: Arc::from([])
         }));
@@ -883,6 +904,7 @@ mod armor_tests {
             &store.armor(7).unwrap().helmet.item,
         ] {
             assert_eq!(item.damage, Some(7));
+            assert_eq!(item.shield_pattern.as_deref(), Some(pattern.as_ref()));
             assert!(
                 item.enchanted,
                 "registry resolution must retain the stack's enchantments"

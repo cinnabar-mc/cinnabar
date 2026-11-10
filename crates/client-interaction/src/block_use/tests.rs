@@ -7,6 +7,28 @@ use protocol::{
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+#[test]
+fn recent_actor_use_is_session_bound_and_expires() {
+    let mut runtime = super::BlockUseRuntime::default();
+    runtime.record_actor_use(1, 42, std::time::Duration::from_secs(10));
+    assert_eq!(
+        runtime.recent_actor_use(1, std::time::Duration::from_secs(15)),
+        Some(42)
+    );
+    assert_eq!(
+        runtime.recent_actor_use(1, std::time::Duration::from_secs(16)),
+        None
+    );
+    assert_eq!(
+        runtime.recent_actor_use(2, std::time::Duration::from_secs(10)),
+        None
+    );
+    assert_eq!(
+        runtime.recent_actor_use(1, std::time::Duration::from_secs(9)),
+        None
+    );
+}
+
 /// Builds a retained network stack for the adapter fixtures.
 fn network_item(network_id: i32, block_runtime_id: i32) -> NetworkItemStack {
     let extra_data: Arc<[u8]> = Arc::from([]);
@@ -167,14 +189,18 @@ fn world_backing_use_keeps_the_selected_item_while_a_screen_predicts_its_removal
 fn world_backing_use_ignores_recovery_on_inactive_screen_inputs() {
     let (mut runtime, mut ui) = selection_fixture();
     let ledger = ui.inventory_ledger_mut(&mut runtime);
+    // Without a stack id the input cannot be returned when the screen closes.
+    let mut ingredient = network_item(5, 0);
+    ingredient.stack_network_id = 0;
     ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
         identity: SlotIdentity {
             container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
             slot: 28,
         },
-        stack: network_item(5, 0),
+        stack: ingredient,
         storage_item: None,
     }));
+    ledger.request_personal_close();
     assert!(ledger.poll_timeout(inventory::inventory_ledger::INVENTORY_REQUEST_TIMEOUT_MILLIS));
     assert!(
         ledger.resync_required(),

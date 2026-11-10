@@ -112,6 +112,96 @@ fn divergent_fragments_keep_explicit_gradients_before_rejection() {
     }
 }
 
+/// Lists calls that pass a function's own matrix parameter on to another function.
+///
+/// Built-in shaders avoid this valid pattern for Adreno compiler compatibility.
+fn forwarded_matrix_arguments(module: &naga::Module) -> Vec<String> {
+    /// Visits calls in nested control flow without following calls into other functions.
+    fn visit(
+        module: &naga::Module,
+        function: &naga::Function,
+        block: &naga::Block,
+        found: &mut Vec<String>,
+    ) {
+        for statement in block.iter() {
+            match statement {
+                naga::Statement::Call {
+                    function: callee,
+                    arguments,
+                    ..
+                } => {
+                    for argument in arguments {
+                        let naga::Expression::FunctionArgument(index) =
+                            function.expressions[*argument]
+                        else {
+                            continue;
+                        };
+                        let parameter = &function.arguments[index as usize];
+                        if matches!(
+                            module.types[parameter.ty].inner,
+                            naga::TypeInner::Matrix { .. }
+                        ) {
+                            found.push(format!(
+                                "{} forwards {} to {}",
+                                function.name.as_deref().unwrap_or("?"),
+                                parameter.name.as_deref().unwrap_or("?"),
+                                module.functions[*callee].name.as_deref().unwrap_or("?"),
+                            ));
+                        }
+                    }
+                }
+                naga::Statement::Block(inner) => visit(module, function, inner, found),
+                naga::Statement::If { accept, reject, .. } => {
+                    visit(module, function, accept, found);
+                    visit(module, function, reject, found);
+                }
+                naga::Statement::Switch { cases, .. } => {
+                    for case in cases {
+                        visit(module, function, &case.body, found);
+                    }
+                }
+                naga::Statement::Loop {
+                    body, continuing, ..
+                } => {
+                    visit(module, function, body, found);
+                    visit(module, function, continuing, found);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for (_, function) in module.functions.iter() {
+        visit(module, function, &function.body, &mut found);
+    }
+    for entry in &module.entry_points {
+        visit(module, &entry.function, &entry.function.body, &mut found);
+    }
+    found
+}
+
+#[test]
+fn block_entity_stages_never_forward_matrix_parameters() {
+    let shader = shader_safety::from_block_entity_wesl(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        "block entity driver calls",
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
+    );
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("block entity constructor produces WESL");
+    };
+    let module = naga::front::wgsl::parse_str(&shader_source::standalone(&source, &[]))
+        .expect("block entity shader parses");
+    for entry in ["portal_vertex", "selection_line_vertex"] {
+        assert!(
+            module.entry_points.iter().any(|point| point.name == entry),
+            "{entry} remains in the checked module"
+        );
+    }
+    assert_eq!(forwarded_matrix_arguments(&module), Vec::<String>::new());
+}
+
 #[test]
 fn dragon_dissolve_passes_preserve_identical_vertex_depths() {
     let module = naga::front::wgsl::parse_str(&standalone(include_str!("../../src/actor.wesl")))
@@ -148,6 +238,8 @@ fn every_shader_parses_and_validates() {
             || name == "biome_tint.wesl"
             || name == "material.wesl"
             || name == "chunk_bindings.wesl"
+            // Spliced into `ui.wgsl`, which validates it through the production constructor.
+            || name == "ui_texture_vertex.wgsl"
         {
             continue;
         }
@@ -213,12 +305,116 @@ fn every_shader_parses_and_validates() {
                 {
                     failures.push(format!("{name}: {error:?}"));
                 }
+                for call in forwarded_matrix_arguments(&module) {
+                    failures.push(format!("{name}: {call}"));
+                }
             }
         }
         validated += 1;
     }
     assert!(validated >= 10, "shader sources were not found");
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn render_fragment_interfaces_fit_fifteen_slots_including_builtins() {
+    // Raspberry Pi V3DV exposes fifteen inter-stage variables, and wgpu counts
+    // front-facing, sample-index and sample-mask inputs against that budget.
+    fn slots(
+        module: &naga::Module,
+        ty: naga::Handle<naga::Type>,
+        binding: Option<&naga::Binding>,
+    ) -> u32 {
+        match binding {
+            Some(naga::Binding::Location { location, .. }) => {
+                assert!(
+                    *location < 14,
+                    "location {location} leaves no fifteenth slot for front-facing"
+                );
+                1
+            }
+            Some(naga::Binding::BuiltIn(
+                naga::BuiltIn::FrontFacing | naga::BuiltIn::SampleIndex | naga::BuiltIn::SampleMask,
+            )) => 1,
+            Some(_) => 0,
+            None => {
+                let naga::TypeInner::Struct { members, .. } = &module.types[ty].inner else {
+                    panic!("fragment inputs must carry a binding or be a struct");
+                };
+                members
+                    .iter()
+                    .map(|member| slots(module, member.ty, member.binding.as_ref()))
+                    .sum()
+            }
+        }
+    }
+
+    fn assert_fragments_fit(label: &str, source: &str, definitions: &[&str]) {
+        let module = naga::front::wgsl::parse_str(source).expect("shader parses");
+        for entry in module
+            .entry_points
+            .iter()
+            .filter(|entry| entry.stage == naga::ShaderStage::Fragment)
+        {
+            let count: u32 = entry
+                .function
+                .arguments
+                .iter()
+                .map(|argument| slots(&module, argument.ty, argument.binding.as_ref()))
+                .sum();
+            assert!(
+                count <= 15,
+                "{label} {} with {definitions:?} needs {count} varying slots including builtins",
+                entry.name,
+            );
+        }
+    }
+
+    for definitions in [
+        &[][..],
+        &["ALPHA_TO_COVERAGE"][..],
+        &["PACKED_TERRAIN"][..],
+        &["PACKED_TERRAIN", "ALPHA_TO_COVERAGE"][..],
+        &["ENHANCED"][..],
+        &["ENHANCED", "ALPHA_TO_COVERAGE"][..],
+        &["ENHANCED_SHADOW"][..],
+    ] {
+        for (name, source) in [
+            ("cube", include_str!("../../src/chunk.wesl")),
+            ("model", include_str!("../../src/model.wesl")),
+            ("liquid", include_str!("../../src/liquid.wesl")),
+            (
+                "transparent",
+                include_str!("../../src/transparent_terrain.wesl"),
+            ),
+        ] {
+            let source = shader_source::composed(source, definitions);
+            assert_fragments_fit(name, &source, definitions);
+        }
+    }
+
+    let shader = shader_safety::from_actor_wesl(
+        include_str!("../../src/actor.wesl"),
+        "actor.wesl",
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
+    );
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("actor constructor must produce WESL");
+    };
+    for definitions in [
+        &[][..],
+        &["ALPHA_TO_COVERAGE"][..],
+        &["COMPACT_BONES"][..],
+        &["ACTOR_MOTION"][..],
+        &["ACTOR_MOTION", "ALPHA_TO_COVERAGE"][..],
+        &["ACTOR_MASK"][..],
+        &["MASK_DISSOLVE"][..],
+        &["MASK_DISSOLVE", "MASK_DISSOLVE_MSAA"][..],
+    ] {
+        let source = shader_source::composed(&source, definitions);
+        assert_fragments_fit("actor", &source, definitions);
+    }
 }
 
 #[test]

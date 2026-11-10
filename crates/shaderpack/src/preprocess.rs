@@ -6,7 +6,7 @@ use crate::options::{OptionValues, PackOption, rewrite_option_line};
 use crate::source::{MAX_TEXT_FILE_BYTES, PackSource, normalize_newlines};
 use crate::token::{Tok, TokKind, punct};
 use pp_rs::pp::Preprocessor;
-use pp_rs::token::TokenValue;
+use pp_rs::token::{PreprocessorError, TokenValue};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -25,7 +25,7 @@ pub(crate) enum Directive {
 }
 
 /// One `const` directive line, as written (OptiFine/Iris read these even inside comments).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ConstDirective {
     pub ty: String,
     pub name: String,
@@ -234,16 +234,29 @@ impl<'a> Expander<'a> {
             let line = rewritten.as_deref().unwrap_or(line);
             let logical = line.replace("\\\n", "");
             let scan = scan_line(&logical, &mut false);
+            let undef = defined_name(scan.code.trim_start()).map(|name| format!("#undef {name}"));
             let comment_bytes = scan.comments.iter().map(|(_, text)| text.len() + 1).sum();
             // Include lines count too: duplicating empty files still spends traversal work.
             self.remaining = self
                 .remaining
-                .checked_sub(line.len().saturating_add(1).max(comment_bytes))
+                .checked_sub(
+                    line.len()
+                        .saturating_add(1)
+                        .max(comment_bytes)
+                        .saturating_add(undef.as_ref().map_or(0, |text| text.len() + 1)),
+                )
                 .ok_or_else(|| {
                     Diagnostic::new(Phase::Include, "expanded GLSL exceeds byte limit")
                         .at(Some(here.clone()))
                 })?;
             let code = &scan.code;
+            if is_unknown_directive(code.trim_start()) {
+                self.append("", frame.file, n as u32 + 1);
+                continue;
+            }
+            if let Some(undef) = undef {
+                self.append(&undef, frame.file, n as u32 + 1);
+            }
             let directive = code.trim_start().strip_prefix('#').map(str::trim_start);
             if let Some(rest) = directive
                 .and_then(|d| d.strip_prefix("include"))
@@ -294,6 +307,36 @@ impl<'a> Expander<'a> {
             .lines
             .extend((0..text.split('\n').count()).map(|index| (file, line + index as u32)));
     }
+}
+
+/// The macro name a `#define` line defines.
+fn defined_name(trimmed: &str) -> Option<&str> {
+    let rest = trimmed.strip_prefix('#')?.trim_start();
+    let rest = rest.strip_prefix("define")?;
+    if !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let rest = rest.trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    (end > 0).then(|| &rest[..end])
+}
+
+/// A `#` line whose directive name GLSL doesn't define. A lone `#` is the null directive.
+fn is_unknown_directive(trimmed: &str) -> bool {
+    let Some(rest) = trimmed.strip_prefix('#') else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(rest.len());
+    let word = &rest[..end];
+    if word.is_empty() {
+        return !rest.is_empty() && !rest.starts_with("//") && !rest.starts_with("/*");
+    }
+    word != "include" && !Preprocessor::is_directive(word)
 }
 
 /// `shaders/`-relative target of an `#include` argument written in `from`.
@@ -521,6 +564,8 @@ fn preprocess_limited(
     };
     let mut pp = Preprocessor::new(text);
     pp.set_work_limit(work);
+    pp.set_iris_conditions(true);
+    pp.set_iris_recovery(true);
     pp.set_preserve_glsl_text();
     pp.set_source_lines(expanded.map.lines.iter().map(|(_, line)| *line).collect());
     for (k, v) in defines {
@@ -537,19 +582,36 @@ fn preprocess_limited(
         consts: Vec::new(),
     };
     let mut active = String::new();
+    // Line of an `#endif` without an open block: JCPP, which Iris runs, reports it, skips the
+    // rest of that line and carries on, so packs whose includes close one block too many load.
+    let mut unmatched_endif = None;
     while let Some(item) = pp.next_text() {
-        let token = item.map_err(|(error, location)| {
-            Diagnostic::new(
-                Phase::Preprocess,
-                if pp.work_remaining() == 0 {
-                    "GLSL preprocessing exceeds work limit".into()
-                } else {
-                    format!("{error:?}")
-                },
-            )
-            .at(expanded.map.locate(line_of(location.start)))
-        })?;
+        let token = match item {
+            Ok(token) => token,
+            Err((PreprocessorError::EndifOutsideOfBlock, location)) => {
+                unmatched_endif = Some(line_of(location.start));
+                continue;
+            }
+            Err((error, location)) => {
+                return Err(Diagnostic::new(
+                    Phase::Preprocess,
+                    if pp.work_remaining() == 0 {
+                        "GLSL preprocessing exceeds work limit".into()
+                    } else {
+                        format!("{error:?}")
+                    },
+                )
+                .at(expanded.map.locate(line_of(location.start))));
+            }
+        };
         let line = line_of(token.source_offset);
+        if unmatched_endif == Some(line) {
+            if token.value.is_some() {
+                continue;
+            }
+        } else {
+            unmatched_endif = None;
+        }
         retained = retained
             .checked_sub(token.text.len())
             .ok_or_else(|| storage_limit().at(expanded.map.locate(line)))?;
@@ -565,7 +627,14 @@ fn preprocess_limited(
             TokenValue::Version(value) => {
                 for token in value.tokens {
                     match token.value {
-                        TokenValue::Integer(value) => out.version = value.value as u32,
+                        TokenValue::Integer(value) => {
+                            out.version = pp_rs::token::parse_integer(&value)
+                                .map_err(|error| {
+                                    Diagnostic::new(Phase::Preprocess, format!("{error:?}"))
+                                        .at(expanded.map.locate(line))
+                                })?
+                                .value as u32;
+                        }
                         TokenValue::Ident(name) => out.profile = Some(name),
                         _ => {}
                     }

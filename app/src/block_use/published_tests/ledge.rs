@@ -34,18 +34,14 @@ fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
                 }]),
             )
             .unwrap();
-        test_time::eventually_within(Duration::from_secs(5), "ledge fixture decode", || {
+        test_time::eventually("ledge fixture decode", || {
             stream.poll(start, 0);
             stream.committed_sequence() >= 4
         });
     }
     let origin = frame_origin(&world, Vec3::from_array(start), rotation);
-    let authority = world
-        .resource::<MovementTicker>()
-        .interaction_authority_identity();
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&origin, authority);
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    retain_pick(&mut world, &origin);
     world.insert_resource(origin);
     (world, captured)
 }
@@ -126,18 +122,13 @@ fn a_picked_actor_prevents_indirect_support_use_and_outline() {
         Vec3::new(4.5, 2.620_01, 6.1),
         Quat::from_rotation_x(-0.9601),
     );
-    let authority = world
-        .resource::<MovementTicker>()
-        .interaction_authority_identity();
-    world
-        .resource_mut::<BlockUseRuntime>()
-        .retain_pick(&origin, authority);
+    retain_pick(&mut world, &origin);
     world.insert_resource(origin);
     world.init_resource::<client_state::RuntimeSettings>();
     assert!(published_outline(&mut world).is_none());
     world.run_system_cached(produce_block_use).unwrap();
     assert!(transaction_targets(&mut captured).is_empty());
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
 }
 
 #[test]
@@ -168,7 +159,7 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
     )>::new(world);
     let (context, player, runtime, movement) = system.get_mut(world).unwrap();
     let input = context.input.snapshot()?;
-    let authority = movement.interaction_authority_identity();
+    let authority = movement.position_authority_identity();
     observe_use_target(
         &player,
         &context,
@@ -178,14 +169,14 @@ fn observed_target(world: &mut World, trigger: ItemUseTrigger) -> Option<FrozenB
         (input.authority_generation, input.frame_sequence),
         authority.1,
         &runtime,
-        runtime.pick(authority),
+        runtime.pick(&movement),
         trigger,
         &movement.build_action_state()?,
     )
 }
 
 #[test]
-fn indirect_support_starts_use_but_does_not_repeat_without_a_line() {
+fn indirect_support_refresh_reclips_the_downward_segment_as_a_direct_hit() {
     let (mut world, _) = ledge_fixture(-0.9601);
     assert!(observed_target(&mut world, ItemUseTrigger::PlayerInput).is_some());
     world.resource_mut::<BlockUseRuntime>().intention.record(
@@ -196,7 +187,9 @@ fn indirect_support_starts_use_but_does_not_repeat_without_a_line() {
         false,
         [4.5, 1.0, 6.1],
     );
-    assert!(observed_target(&mut world, ItemUseTrigger::SimulationTick).is_none());
+    let refreshed = observed_target(&mut world, ItemUseTrigger::SimulationTick).unwrap();
+    assert_eq!(refreshed.target.position, [4, 0, 6]);
+    assert_eq!(refreshed.target.face, 1);
 }
 
 #[test]
@@ -243,6 +236,7 @@ fn a_locked_line_uses_the_indirect_intercept_instead_of_the_forward_miss_segment
 /// Corners of the outline the production selection system publishes, if any.
 fn published_outline(world: &mut World) -> Option<[[f32; 3]; 2]> {
     world.init_resource::<render_scene::BlockSelectionFrameResource>();
+    world.init_resource::<crate::block_selection::CrosshairActor>();
     world
         .run_system_cached(crate::block_selection::publish)
         .unwrap();

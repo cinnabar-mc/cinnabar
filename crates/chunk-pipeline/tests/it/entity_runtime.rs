@@ -116,6 +116,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     name: "root".into(),
                     binding: None,
                     texture_meshes: Box::new([]),
+                    poly_mesh: None,
                     parent: None,
                     pivot: Some([scalar(1.0), scalar(0.0), scalar(0.0)]),
                     rotation: None,
@@ -144,6 +145,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
                     name: "wing".into(),
                     binding: None,
                     texture_meshes: Box::new([]),
+                    poly_mesh: None,
                     parent: Some("root".into()),
                     pivot: Some([scalar(0.0), scalar(2.0), scalar(0.0)]),
                     rotation: None,
@@ -271,6 +273,7 @@ fn compiled_entity_assets(fallback: EntityRigFallback) -> CompiledEntityAssets {
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
             scale_expressions: None,
             held_item_scale: None,
+            hide_held_items: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -442,6 +445,7 @@ fn teleport_incompatible_metadata_and_replacement_reset_both_palettes() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: Some(2),
                 interpolation: Default::default(),
@@ -519,7 +523,8 @@ fn rigs_outside_the_animation_view_hold_their_pose_and_resume_unblended() {
     let held = stream.authority().actor_rig(42).unwrap().current.to_vec();
     stream.set_actor_animation_view(Some(ActorAnimationView {
         planes: [[1.0, 0.0, 0.0, -100.0]; 6],
-        camera: [0.0, 64.0, 0.0],
+        // Outside the actor's box, which the view admits whenever it contains the camera.
+        camera: [0.0, 80.0, 0.0],
         player_distance: 192.0,
         entity_radius: 72.0,
     }));
@@ -706,6 +711,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: false,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: Some(2),
                 interpolation: Default::default(),
@@ -732,6 +738,7 @@ fn movement_updates_velocity_queries_and_teleport_restarts_clip_time() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: Some(3),
                 interpolation: Default::default(),
@@ -815,6 +822,7 @@ fn turn(sequence: u64, yaw: f32) -> WorldEvent {
         head_yaw: Some(yaw),
         on_ground: Some(true),
         teleported: false,
+        force_local_move: false,
         player_mode: None,
         source_tick: Some(sequence),
         interpolation: Default::default(),

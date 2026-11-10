@@ -12,6 +12,7 @@ use sim::{
 };
 use thiserror::Error;
 
+mod mining;
 mod multipart;
 mod placement;
 mod selection;
@@ -30,16 +31,24 @@ struct InteractionBlock {
     build_intention: bool,
     shape_flags: assets::block_shapes::ShapeFlags,
     tags: Arc<[Arc<str>]>,
-    connections: Option<(
-        assets::ModelFamily,
-        assets::ContributorRole,
-        bool,
-        Option<u32>,
-    )>,
+    states: Option<protocol::DiggerStates>,
+    connections: Option<ConnectionFacts>,
     /// Offset to the other block of a two-block structure such as a door or bed.
     second_part: Option<[i32; 3]>,
     /// Sleep heading compiled from the admitted direction state, when present.
     bed_rotation: Option<f32>,
+}
+
+/// Registry facts that pane, fence and gate connection predicates read from a neighbour.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConnectionFacts {
+    pub(crate) family: assets::ModelFamily,
+    pub(crate) role: assets::ContributorRole,
+    pub(crate) occludes_full_face: bool,
+    /// Panes and fences link to it on every side; see [`assets::facts::connection`].
+    pub(crate) links_as_unit_cube: bool,
+    /// The gate axis selector, when the state has one.
+    pub(crate) orientation: Option<u32>,
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
@@ -73,6 +82,9 @@ pub struct PhysicsCollisionRegistries {
     max_vanilla_sort_key: u64,
     /// Hashes this session added to `hashed`, dropped when the next session begins.
     session_hashes: Arc<Vec<u32>>,
+    /// First palette state of each materialized session block, by id mode.
+    session_defaults: Arc<BTreeMap<Arc<str>, u32>>,
+    hashed_session_defaults: Arc<BTreeMap<Arc<str>, u32>>,
 }
 
 #[derive(Debug, Error)]
@@ -111,7 +123,7 @@ impl PhysicsCollisionRegistries {
     /// [`PhysicsCollisionRegistryError::ProtocolMismatch`], naming both
     /// protocols and both artifact paths (the installed physics registry and
     /// the loaded world carrier). Without this comparison, a future partial
-    /// flip (world 2193 + physics 1001 or reverse) would recreate the live
+    /// flip (world 2225 + physics 1001 or reverse) would recreate the live
     /// block-identity aliasing mechanism with zero decode errors. Malformed
     /// headers fall through to the full decoder so structural errors keep
     /// their precise existing messages.
@@ -218,14 +230,16 @@ impl PhysicsCollisionRegistries {
                     .iter()
                     .map(|tag| Arc::from(tag.as_ref()))
                     .collect(),
-                connections: Some((
-                    record.model_family,
-                    record.contributor_role,
-                    record
+                states: mining::native_states(states.as_ref()),
+                connections: Some(ConnectionFacts {
+                    family: record.model_family,
+                    role: record.contributor_role,
+                    occludes_full_face: record
                         .flags
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
-                    record.model_state.get(assets::ModelStateField::Orientation),
-                )),
+                    links_as_unit_cube: assets::facts::connection::links_as_unit_cube(record),
+                    orientation: record.model_state.get(assets::ModelStateField::Orientation),
+                }),
                 bed_rotation: states.as_ref().and_then(sleeping::rotation),
                 second_part: states.as_ref().and_then(|states| {
                     multipart::second_part_offset(block_facts.get(record.sequential_id), states)
@@ -351,6 +365,8 @@ impl PhysicsCollisionRegistries {
             named_block_identities: Arc::new(named_block_identities),
             max_vanilla_sort_key,
             session_hashes: Arc::default(),
+            session_defaults: Arc::default(),
+            hashed_session_defaults: Arc::default(),
         })
     }
 
@@ -365,6 +381,7 @@ impl PhysicsCollisionRegistries {
         let first = u32::try_from(self.sequential_count).ok()?;
         self.sequential.remove_runtime_ids_from(first);
         Arc::make_mut(&mut self.interaction_blocks).split_off(&first);
+        Arc::make_mut(&mut self.session_defaults).clear();
         let vanilla_remap = self.admit_server_definitions(custom);
         if custom.blocks.is_empty() {
             return Some((first..first, vanilla_remap));
@@ -394,7 +411,9 @@ impl PhysicsCollisionRegistries {
                 next = next.checked_add(block.state_count)?;
                 continue;
             }
+            Arc::make_mut(&mut self.session_defaults).insert(Arc::clone(&block.name), next);
             let definition = Arc::new(block.clone());
+            let state_values = block.hashed_states();
             for state in 0..block.state_count {
                 let effective = block.physics_for_state(state);
                 Arc::make_mut(&mut self.interaction_blocks).insert(
@@ -404,9 +423,10 @@ impl PhysicsCollisionRegistries {
                         identifier: Arc::clone(&block.name),
                         facts: custom_block_facts(block),
                         full_cube: custom_block_is_full_cube(&effective),
-                        build_intention: false,
+                        build_intention: custom_build_intention(&effective),
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
+                        states: mining::custom_states(block, state_values.get(state as usize)),
                         connections: None,
                         second_part: None,
                         bed_rotation: None,
@@ -439,6 +459,7 @@ impl PhysicsCollisionRegistries {
             self.hashed.remove_runtime_id(hash);
             Arc::make_mut(&mut self.hashed_interaction_blocks).remove(&hash);
         }
+        Arc::make_mut(&mut self.hashed_session_defaults).clear();
         for block in custom.blocks.iter() {
             let definition = Arc::new(block.clone());
             for (index, state) in block.hashed_states().into_iter().enumerate() {
@@ -459,9 +480,10 @@ impl PhysicsCollisionRegistries {
                             identifier: Arc::clone(&block.name),
                             facts: custom_block_facts(block),
                             full_cube: custom_block_is_full_cube(&effective),
-                            build_intention: false,
+                            build_intention: custom_build_intention(&effective),
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
+                            states: mining::custom_states(block, Some(&state)),
                             connections: None,
                             second_part: None,
                             bed_rotation: None,
@@ -477,6 +499,10 @@ impl PhysicsCollisionRegistries {
                         self.hashed.set_random_offset(state.hash, offset);
                     }
                     Arc::make_mut(&mut self.session_hashes).push(state.hash);
+                    if index == 0 {
+                        Arc::make_mut(&mut self.hashed_session_defaults)
+                            .insert(Arc::clone(&block.name), state.hash);
+                    }
                 }
             }
         }
@@ -503,6 +529,21 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
         map.get(&runtime_id).map(|block| block.identifier.as_ref())
+    }
+
+    /// Returns a custom block's `minecraft:sound` material for one admitted state.
+    pub fn block_sound_material(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<&str> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)
+            .and_then(|block| block.custom_state.as_ref())
+            .and_then(|(definition, _state)| definition.sound.as_deref())
     }
 
     /// The offset from `runtime_id`'s block to the other block of its two-block structure
@@ -540,6 +581,28 @@ impl PhysicsCollisionRegistries {
         })
     }
 
+    /// The default state of the vanilla or session block named `name`. A block's default
+    /// is its first palette permutation.
+    pub fn block_default_runtime_id(&self, mode: assets::NetworkIdMode, name: &str) -> Option<u32> {
+        let session = match mode {
+            assets::NetworkIdMode::Sequential => &self.session_defaults,
+            assets::NetworkIdMode::Hashed => &self.hashed_session_defaults,
+        };
+        if let Some(&id) = session.get(name) {
+            return Some(id);
+        }
+        let identity = self.named_block_identities.get(name)?;
+        let &(sequential, hashed) = self
+            .state_ids
+            .get(identity)?
+            .values()
+            .min_by_key(|(sequential, _)| *sequential)?;
+        Some(match mode {
+            assets::NetworkIdMode::Sequential => sequential,
+            assets::NetworkIdMode::Hashed => hashed,
+        })
+    }
+
     /// Whether `runtime_id` is a cube-model block with one full collision box.
     pub fn block_is_full_cube(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> bool {
         let map = match mode {
@@ -550,16 +613,11 @@ impl PhysicsCollisionRegistries {
     }
 
     /// Borrows the registry facts used by the renderer's neighbor connection predicates.
-    pub fn block_connection_facts(
+    pub(crate) fn block_connection_facts(
         &self,
         mode: assets::NetworkIdMode,
         runtime_id: u32,
-    ) -> Option<(
-        assets::ModelFamily,
-        assets::ContributorRole,
-        bool,
-        Option<u32>,
-    )> {
+    ) -> Option<ConnectionFacts> {
         let map = match mode {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
@@ -655,13 +713,21 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
 }
 
 /// A server block's facts: a declared player-interact handler makes a use interact with it, as
-/// vanilla's container blocks do, instead of placing the held block against it.
+/// vanilla's container blocks do, instead of placing the held block against it, and makes the
+/// block interactive, so it takes use presses from the held item.
 fn custom_block_facts(block: &protocol::CustomBlock) -> assets::facts::BlockFact {
     let mut facts = assets::facts::BlockFact::custom(&block.name);
     if block.player_interact {
-        facts.traits |= assets::registry::BlockTraits::USES_LOCALLY;
+        facts.traits |= assets::registry::BlockTraits::USES_LOCALLY
+            | assets::registry::BlockTraits::INTERACTIVE;
     }
     facts
+}
+
+/// Whether held placement continues a bridge from this custom state, as vanilla's verified
+/// cube family does; other custom shapes keep following the aim ray.
+fn custom_build_intention(block: &protocol::CustomBlockPhysics) -> bool {
+    custom_block_is_full_cube(block)
 }
 
 /// Whether the final movement bounds fill exactly one block after transformation.

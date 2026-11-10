@@ -38,7 +38,7 @@ fn saturated_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntim
 
     // Chat at its retention cap.
     for index in 0..(MAX_CHAT_MESSAGES + 32) {
-        let _ = runtime.chat.push(ChatMessage {
+        let _ = runtime.session.chat.push(ChatMessage {
             fifo_sequence: index as u64,
             received_millis: index as u64,
             kind: ChatMessageKind::Chat,
@@ -140,14 +140,17 @@ fn saturated_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntim
             )
             .unwrap();
     }
-    runtime.hud.set_stats(
+    runtime.session.hud.set_stats(
         ui::BoundedStat::new(37, 40),
         ui::BoundedStat::new(13, 20),
         ui::BoundedStat::new(15, 20),
         ui::BoundedStat::new(120, 300),
     );
-    runtime.hud.set_absorption(ui::BoundedStat::new(8, 8));
-    runtime.hud.set_experience(30, 0.62);
+    runtime
+        .session
+        .hud
+        .set_absorption(ui::BoundedStat::new(8, 8));
+    runtime.session.hud.set_experience(30, 0.62);
     let stack = |id: i32| NetworkItemStack {
         network_id: id,
         metadata: 0,
@@ -175,8 +178,12 @@ fn saturated_runtime(player_runtime: &mut player_state::PlayerState) -> UiRuntim
         )
         .unwrap();
     runtime.drain_pending_inventory(player_runtime);
-    runtime.hud.set_title(Arc::from("§6Title"), next(), 0);
     runtime
+        .session
+        .hud
+        .set_title(Arc::from("§6Title"), next(), 0);
+    runtime
+        .session
         .hud
         .set_actionbar(Arc::from("action bar"), next(), 0);
     runtime

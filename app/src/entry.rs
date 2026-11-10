@@ -30,13 +30,27 @@ pub(crate) fn dispatch() {
     {
         std::process::exit(lifecycle::run_first_run_setup());
     }
+    // iOS starts no monitor, so it is never re-run as one.
+    #[cfg(not(target_os = "ios"))]
     if mode.as_ref().is_some_and(|arg| arg == crash::MONITOR_FLAG) {
         std::process::exit(lifecycle::run_crash_monitor());
+    }
+    if mode
+        .as_ref()
+        .is_some_and(|arg| arg == bootstrap_ui::startup::FLAG)
+    {
+        if let Err(error) = bootstrap_ui::startup::run() {
+            eprintln!("startup screen failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
     }
     match ClientArgs::parse_env() {
         Ok(ParseOutcome::Help) => print!("{}", cinnabar::args::HELP),
         Ok(ParseOutcome::Run(args)) => {
-            match lifecycle::before_run(args.assets.is_some()) {
+            match render_scene::startup_timing::measure("lifecycle", || {
+                lifecycle::before_run(args.assets.is_some())
+            }) {
                 Ok(true) => {}
                 Ok(false) => {
                     crash::announce_exit(0);

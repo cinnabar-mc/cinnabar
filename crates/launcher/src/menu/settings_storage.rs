@@ -20,17 +20,47 @@ pub struct StorageItem {
     pub name: String,
     pub bytes: u64,
     pub date: String,
+    pub version: String,
+    pub pack_id: String,
+    pub icon: Option<std::sync::Arc<[u8]>>,
     pub game_type: String,
     pub last_played: i64,
     pub path: PathBuf,
 }
 
+impl StorageItem {
+    /// The artwork key for this archive, independent of its displayed name or search position.
+    pub fn icon_key(&self) -> String {
+        format!("storage-pack:{}", self.path.display())
+    }
+
+    /// Matches the pack's display identity or cache filename without changing its inventory index.
+    pub fn matches_query(&self, query: &str) -> bool {
+        let query = query.trim().to_lowercase();
+        [
+            &self.name,
+            &self.version,
+            &self.pack_id,
+            &self
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        ]
+        .iter()
+        .any(|value| value.to_lowercase().contains(&query))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StorageView {
+    pub loading: bool,
     pub worlds: Vec<StorageItem>,
     pub cached: Vec<StorageItem>,
     pub screenshots: Vec<StorageItem>,
     pub deleting_screenshots: bool,
+    pub delete_summary: String,
     pub expanded: [bool; CATEGORIES.len()],
     pub selected: Option<usize>,
     pub selected_world: Option<usize>,
@@ -39,25 +69,31 @@ pub struct StorageView {
     pub return_from_world: bool,
     pub error: Option<String>,
     pub opens_folders: bool, // the host can show a `StorageFolder` in a file manager
+    pub accepts_file_drops: bool, // the window receives files dragged onto it
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageAction {
     Toggle(u8),
+    Search,
+    ClearSearch,
     Select(usize),
     SelectWorld(usize),
     RequestClear,
     RequestDelete,
+    DeletePack(usize),
     RequestScreenshots,
     ConfirmDelete,
     OpenFolder(StorageFolder),
 }
 
-/// A user data folder Storage can reveal in the OS file manager.
+/// A user data folder the host can reveal in the OS file manager.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageFolder {
     Worlds,
     ResourcePacks,
+    /// Java shader packs, offered in the Shaders tab.
+    ShaderPacks,
 }
 
 impl StorageFolder {
@@ -66,17 +102,19 @@ impl StorageFolder {
         match self {
             Self::Worlds => layout.local_worlds_dir(),
             Self::ResourcePacks => layout.global_resource_packs_dir(),
+            Self::ShaderPacks => layout.shader_packs_dir(),
         }
     }
 }
 
 impl StorageView {
-    /// Returns the items represented by a vanilla storage category.
-    pub fn items(&self, category: &str) -> &[StorageItem] {
+    /// Returns the items of a vanilla storage category, or `None` for one the client does not
+    /// keep (world templates, resource, behavior and skin packs).
+    pub fn items(&self, category: &str) -> Option<&[StorageItem]> {
         match category {
-            "world" => &self.worlds,
-            "cache" => &self.cached,
-            _ => &[],
+            "world" => Some(&self.worlds),
+            "cache" => Some(&self.cached),
+            _ => None,
         }
     }
 }
@@ -86,7 +124,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folders_open_the_layout_dirs_that_hold_worlds_and_imported_packs() {
+    fn folders_open_the_layout_dirs_that_hold_worlds_and_packs() {
         let layout = crate::test_support::scratch("storage-folders");
         assert_eq!(
             StorageFolder::Worlds.dir(&layout),
@@ -96,7 +134,15 @@ mod tests {
             StorageFolder::ResourcePacks.dir(&layout),
             layout.global_resource_packs_dir()
         );
-        for folder in [StorageFolder::Worlds, StorageFolder::ResourcePacks] {
+        assert_eq!(
+            StorageFolder::ShaderPacks.dir(&layout),
+            layout.shader_packs_dir()
+        );
+        for folder in [
+            StorageFolder::Worlds,
+            StorageFolder::ResourcePacks,
+            StorageFolder::ShaderPacks,
+        ] {
             assert!(folder.dir(&layout).starts_with(&layout.user_data_root));
         }
     }

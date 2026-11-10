@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use crate::raw_packet::{RawPacket, decode_packet_raw};
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 use bytes::{BufMut, BytesMut};
 
 use super::decode_world_raw_with;

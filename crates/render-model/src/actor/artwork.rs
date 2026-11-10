@@ -14,9 +14,15 @@ use std::{
 mod color_mask_tests;
 #[path = "artwork/multitexture.rs"]
 mod multitexture;
+#[path = "artwork/page_budget.rs"]
+mod page_budget;
+#[path = "artwork/page_pixels.rs"]
+mod page_pixels;
+pub use page_pixels::PagePixels;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
+use page_budget::push_group;
 #[path = "artwork/pixel_cache.rs"]
 mod pixel_cache;
 #[cfg(test)]
@@ -25,15 +31,19 @@ mod raster_page_tests;
 #[path = "artwork/raster_pages.rs"]
 mod raster_pages;
 #[cfg(test)]
+#[path = "artwork/render_coverage.rs"]
+mod render_coverage;
+#[cfg(test)]
 #[path = "artwork/retained_equipment_tests.rs"]
 mod retained_equipment_tests;
+#[cfg(test)]
+#[path = "artwork/shared_layers_tests.rs"]
+mod shared_layers_tests;
 
 /// CPU draw routing selects an artwork page independently of the shader's texture layer.
 pub type ActorArtworkPageId = u16;
 /// Player skins occupy page zero; generic artwork occupies the remaining page IDs.
 pub const MAX_ACTOR_TEXTURE_PAGES: usize = ActorArtworkPageId::MAX as usize + 1;
-/// Layers per generic entity page, within every backend's array-layer limit.
-const MAX_ACTOR_PAGE_LAYERS: usize = 256;
 // Cinnabar declared RGBA allocation ceiling, not retail or measured driver memory: vanilla
 // startup art takes about 20 MiB. It covers full pack and equipment art; a page past it is
 // downscaled to fit, never dropped.
@@ -61,39 +71,6 @@ impl EquipmentRaster {
             rgba8: rgba8.into(),
         })
     }
-}
-
-fn within_page_budget(generic_pages: usize, declared_pixel_bytes: usize) -> bool {
-    generic_pages < MAX_ACTOR_TEXTURE_PAGES && declared_pixel_bytes <= MAX_ACTOR_GPU_PIXEL_BYTES
-}
-
-/// Appends `page`, box-filtered down until it fits the byte budget, and returns its page id;
-/// `None` only once every page id is taken.
-fn push_page(
-    pages: &mut Vec<ActorTexturePage>,
-    gpu_bytes: &mut usize,
-    page: ActorTexturePage,
-) -> Option<ActorArtworkPageId> {
-    let mut page = page;
-    while !within_page_budget(pages.len() + 1, gpu_bytes.saturating_add(page.rgba8.len())) {
-        let longest = u32::from(page.width.max(page.height));
-        if pages.len() + 1 >= MAX_ACTOR_TEXTURE_PAGES || longest <= 1 {
-            return None;
-        }
-        page = page.fit_within(longest / 2).into_owned();
-    }
-    *gpu_bytes += page.rgba8.len();
-    pages.push(page);
-    ActorArtworkPageId::try_from(pages.len()).ok()
-}
-
-/// Copies ordered texture layers into one allocation without a per-byte iterator.
-fn concatenate_layers<'a>(layers: impl Iterator<Item = &'a [u8]> + Clone) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity(layers.clone().map(<[u8]>::len).sum());
-    for layer in layers {
-        pixels.extend_from_slice(layer);
-    }
-    pixels
 }
 
 const fn player_page_bytes() -> usize {
@@ -124,7 +101,7 @@ pub struct ActorTexturePage {
     pub width: u16,
     pub height: u16,
     pub layers: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: PagePixels,
     /// Native USE_COLOR_MASK rasters cannot share a neutral-opacity material binding.
     pub color_mask: bool,
     pub multitexture: bool,
@@ -136,18 +113,29 @@ impl ActorTexturePage {
     pub fn layers(&self) -> u32 {
         self.layers
     }
-    pub fn pixels(&self) -> &[u8] {
-        &self.rgba8
+    /// Every layer's bytes in one slice; copies the whole page when layers keep separate
+    /// allocations, so per-texel readers use `rgba8.range` and size checks use `rgba8.len`.
+    pub fn pixels(&self) -> std::borrow::Cow<'_, [u8]> {
+        self.rgba8.joined()
     }
-    pub fn shared_pixels(&self) -> Arc<[u8]> {
-        Arc::clone(&self.rgba8)
+    pub fn shared_pixels(&self) -> PagePixels {
+        self.rgba8.clone()
     }
 
     /// This page box-filtered down by the smallest power of two that fits `limit` per side.
     pub fn fit_within(&self, limit: u32) -> std::borrow::Cow<'_, Self> {
-        let Some(([width, height], rgba8)) =
-            crate::fit_rgba_within(self.width, self.height, &self.rgba8, limit)
-        else {
+        let mut fitted: Option<([u16; 2], Vec<u8>)> = None;
+        for part in self.rgba8.parts() {
+            let Some((size, pixels)) = crate::fit_rgba_within(self.width, self.height, part, limit)
+            else {
+                return std::borrow::Cow::Borrowed(self);
+            };
+            match &mut fitted {
+                Some((_, joined)) => joined.extend_from_slice(&pixels),
+                None => fitted = Some((size, pixels)),
+            }
+        }
+        let Some(([width, height], rgba8)) = fitted else {
             return std::borrow::Cow::Borrowed(self);
         };
         std::borrow::Cow::Owned(Self {
@@ -257,31 +245,37 @@ impl ActorArtworkPages {
         // The existing player page retains all 128 layers and its full byte budget.
         let mut gpu_bytes = player_page_bytes();
         for ((width, height, color_mask, multitexture), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                let pixels = multitexture::page_pixels(catalog, indices, width, height);
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: pixels.into(),
-                    color_mask,
-                    multitexture,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
-                    continue;
-                };
-                for (layer, index) in indices.iter().enumerate() {
-                    locations.insert(
-                        *index as u32,
-                        ActorArtworkLocation {
-                            page,
-                            layer: layer as u32,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
-                    );
-                }
-            }
+            push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                multitexture,
+                |indices| {
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: multitexture::page_pixels(catalog, indices, width, height).into(),
+                        color_mask,
+                        multitexture,
+                    };
+                    (page, ())
+                },
+                |indices, page, (), _| {
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations.insert(
+                            *index as u32,
+                            ActorArtworkLocation {
+                                page,
+                                layer: layer as u32,
+                                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                                multitexture: None,
+                            },
+                        );
+                    }
+                },
+            );
         }
         let routes: BTreeMap<_, _> = catalog
             .bindings()
@@ -362,7 +356,7 @@ impl ActorArtworkPages {
         let page = self
             .pages
             .get(usize::from(retained.location.page.checked_sub(1)?))?;
-        (Arc::ptr_eq(&page.rgba8, &retained.page.rgba8)
+        (page.rgba8.ptr_eq(&retained.page.rgba8)
             && page.width == retained.page.width
             && page.height == retained.page.height
             && page.layers == retained.page.layers
@@ -415,46 +409,52 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height, color_mask), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update((indices.len() as u32).to_le_bytes());
-                let bytes: usize = indices
-                    .iter()
-                    .map(|index| rasters[*index].rgba8.len())
-                    .sum();
-                hasher.update((bytes as u64).to_le_bytes());
-                hasher.update([u8::from(color_mask)]);
-                hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
-                let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| rasters[*index].rgba8.as_ref()),
-                    &mut hasher,
-                );
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: Arc::clone(&pixels),
-                    color_mask,
-                    multitexture: false,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
-                    continue;
-                };
-                let index = usize::from(page) - 1;
-                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
-                    shared.push((key, index));
-                }
-                for (layer, index) in indices.iter().enumerate() {
-                    locations[*index] = Some(ActorArtworkLocation {
-                        page,
-                        layer: layer as u32,
-                        pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                        multitexture: None,
-                    });
-                    equipment.insert((page, layer as u32));
-                }
-            }
+            push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                false,
+                |indices| {
+                    hasher.update(width.to_le_bytes());
+                    hasher.update(height.to_le_bytes());
+                    hasher.update((indices.len() as u32).to_le_bytes());
+                    let bytes: usize = indices
+                        .iter()
+                        .map(|index| rasters[*index].rgba8.len())
+                        .sum();
+                    hasher.update((bytes as u64).to_le_bytes());
+                    hasher.update([u8::from(color_mask)]);
+                    hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
+                    let (key, pixels) = pixel_cache::pack(
+                        indices.iter().map(|index| &rasters[*index].rgba8),
+                        &mut hasher,
+                    );
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: pixels,
+                        color_mask,
+                        multitexture: false,
+                    };
+                    (page, key)
+                },
+                |indices, page, key, kept| {
+                    if kept {
+                        shared.push((key, usize::from(page) - 1));
+                    }
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations[*index] = Some(ActorArtworkLocation {
+                            page,
+                            layer: layer as u32,
+                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                            multitexture: None,
+                        });
+                        equipment.insert((page, layer as u32));
+                    }
+                },
+            );
         }
         if pages.len() != self.pages.len() {
             self.identity = hasher.finalize().into();
@@ -487,48 +487,54 @@ impl ActorArtworkPages {
         let mut hasher = Sha256::new();
         hasher.update(self.identity);
         for ((width, height), indices) in groups {
-            for indices in indices.chunks(MAX_ACTOR_PAGE_LAYERS) {
-                hasher.update(width.to_le_bytes());
-                hasher.update(height.to_le_bytes());
-                hasher.update((indices.len() as u32).to_le_bytes());
-                let bytes: usize = indices
-                    .iter()
-                    .map(|index| textures[*index].rgba8.len())
-                    .sum();
-                hasher.update((bytes as u64).to_le_bytes());
-                hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
-                hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
-                let (key, pixels) = pixel_cache::pack(
-                    indices.iter().map(|index| textures[*index].rgba8.as_ref()),
-                    &mut hasher,
-                );
-                let page = ActorTexturePage {
-                    width,
-                    height,
-                    layers: indices.len() as u32,
-                    rgba8: Arc::clone(&pixels),
-                    color_mask: false,
-                    multitexture: false,
-                };
-                let Some(page) = push_page(&mut pages, &mut gpu_bytes, page) else {
-                    continue;
-                };
-                let index = usize::from(page) - 1;
-                if Arc::ptr_eq(&pixels, &pages[index].rgba8) {
-                    shared.push((key, index));
-                }
-                for (layer, index) in indices.iter().enumerate() {
-                    locations.insert(
-                        *index as u32,
-                        ActorArtworkLocation {
-                            page,
-                            layer: layer as u32,
-                            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                            multitexture: None,
-                        },
+            push_group(
+                &mut pages,
+                &mut gpu_bytes,
+                &indices,
+                [width, height],
+                false,
+                |indices| {
+                    hasher.update(width.to_le_bytes());
+                    hasher.update(height.to_le_bytes());
+                    hasher.update((indices.len() as u32).to_le_bytes());
+                    let bytes: usize = indices
+                        .iter()
+                        .map(|index| textures[*index].rgba8.len())
+                        .sum();
+                    hasher.update((bytes as u64).to_le_bytes());
+                    hasher.update([0u8]); // Pack pages use literal RGBA, like unmasked rasters.
+                    hasher.update([0u8]); // No native three-sampler contract for arbitrary packs.
+                    let (key, pixels) = pixel_cache::pack(
+                        indices.iter().map(|index| &textures[*index].rgba8),
+                        &mut hasher,
                     );
-                }
-            }
+                    let page = ActorTexturePage {
+                        width,
+                        height,
+                        layers: indices.len() as u32,
+                        rgba8: pixels,
+                        color_mask: false,
+                        multitexture: false,
+                    };
+                    (page, key)
+                },
+                |indices, page, key, kept| {
+                    if kept {
+                        shared.push((key, usize::from(page) - 1));
+                    }
+                    for (layer, index) in indices.iter().enumerate() {
+                        locations.insert(
+                            *index as u32,
+                            ActorArtworkLocation {
+                                page,
+                                layer: layer as u32,
+                                pose_mode: assets::ActorPoseMode::CompiledLiteral,
+                                multitexture: None,
+                            },
+                        );
+                    }
+                },
+            );
         }
         let pack_source_locations: BTreeMap<u32, ActorArtworkLocation> = textures
             .iter()
@@ -616,6 +622,19 @@ impl ActorArtworkPages {
         location.pose_mode = route.pose_mode;
         Some(location)
     }
+    /// Where catalog source `source` lives for a body without its own artwork route, such as a
+    /// player wearing a runtime skin whose controller also names a catalog texture. `pack`
+    /// selects the session pack catalog. The location poses with the body's animated bones.
+    pub fn source_location(&self, pack: bool, source: u32) -> Option<ActorArtworkLocation> {
+        let sources = if pack {
+            &self.pack_source_locations
+        } else {
+            &self.source_locations
+        };
+        let mut location = sources.get(&source).copied()?;
+        location.pose_mode = assets::ActorPoseMode::CompiledLiteral;
+        Some(location)
+    }
     pub fn rejected_bindings(&self) -> usize {
         self.rejected_bindings
     }
@@ -648,6 +667,15 @@ impl ActorArtworkPages {
         if !self.valid_multitexture(location) {
             return false;
         }
+        // A skin's own model wears the runtime skin, and its animated layers' images live in
+        // equipment pages; its controllers may also name any entity texture of either catalog,
+        // as a vanilla player's do.
+        if crate::is_skin_rig_id(rig) {
+            let texture = (location.page, location.layer);
+            return self.equipment.contains(&texture)
+                || self.pack_locations.contains(&texture)
+                || self.entity_locations.contains(&texture);
+        }
         if crate::is_equipment_rig_id(rig) {
             return self.equipment.contains(&(location.page, location.layer));
         }
@@ -672,320 +700,5 @@ impl ActorArtworkPages {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::MAX_RENDERED_PLAYERS;
-
-    /// Route-only changes can retain the pixel identity but must invalidate prepared artwork.
-    #[test]
-    fn shared_artwork_snapshot_checks_routes_as_well_as_pixels() {
-        let original = ActorArtworkPages::default();
-        let mut changed = original.clone();
-        assert!(original.shares_storage_with(&changed));
-        Arc::make_mut(&mut changed.routes).insert(
-            EntityRigId(0),
-            ActorArtworkLocation {
-                page: 1,
-                layer: 0,
-                pose_mode: assets::ActorPoseMode::CompiledLiteral,
-                multitexture: None,
-            },
-        );
-        assert_eq!(original.identity(), changed.identity());
-        assert!(Arc::ptr_eq(&original.pages, &changed.pages));
-        assert!(!original.shares_storage_with(&changed));
-    }
-
-    #[test]
-    fn page_budget_reserves_player_capacity_and_checks_exact_boundaries() {
-        assert_eq!(MAX_RENDERED_PLAYERS, 128);
-        assert!(player_page_bytes() < MAX_ACTOR_GPU_PIXEL_BYTES);
-        assert_eq!(assets::MAX_ACTOR_TEXTURES, 2048);
-        assert!(within_page_budget(
-            MAX_ACTOR_TEXTURE_PAGES - 1,
-            MAX_ACTOR_GPU_PIXEL_BYTES
-        ));
-        assert!(!within_page_budget(
-            MAX_ACTOR_TEXTURE_PAGES,
-            MAX_ACTOR_GPU_PIXEL_BYTES
-        ));
-        assert!(!within_page_budget(
-            MAX_ACTOR_TEXTURE_PAGES - 1,
-            MAX_ACTOR_GPU_PIXEL_BYTES + 1
-        ));
-    }
-
-    #[test]
-    fn base_source_override_retargets_variants_and_releases_replaced_pixels() {
-        // Keep common pack pixels live across the override's release assertion.
-        let unrelated = ActorArtworkPages::default().with_pack_artwork(
-            &[assets::ActorTexture {
-                source: 0,
-                width: 2,
-                height: 2,
-                pixel_sha256: Sha256::digest([7; 16]).into(),
-                rgba8: Arc::from([7; 16]),
-            }],
-            &[],
-        );
-        let route = ActorArtworkLocation {
-            page: 1,
-            layer: 0,
-            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-            multitexture: None,
-        };
-        let base = ActorArtworkPages {
-            pages: vec![ActorTexturePage {
-                width: 1,
-                height: 1,
-                layers: 1,
-                rgba8: vec![3; 4].into(),
-                color_mask: false,
-                multitexture: false,
-            }]
-            .into(),
-            routes: Arc::new(BTreeMap::from([(EntityRigId(0), route)])),
-            source_locations: Arc::new(BTreeMap::from([(5, route)])),
-            entity_locations: Arc::new(BTreeSet::from([(1, 0)])),
-            ..Default::default()
-        };
-        // Distinct bytes give the lifetime assertion its own allocation.
-        let replacement_pixels = *b"override pixels!";
-        let replacement = EquipmentRaster {
-            width: 2,
-            height: 2,
-            rgba8: replacement_pixels.into(),
-        };
-        let applied = base
-            .clone()
-            .with_source_texture_overrides(&[(5, replacement)]);
-        let new_route = applied.variant_location(EntityRigId(0), 5).unwrap();
-        assert_eq!(applied.route(EntityRigId(0)), Some(new_route));
-        assert_ne!(new_route.page, route.page);
-        let page = &applied.pages()[usize::from(new_route.page) - 1];
-        assert_eq!((page.width, page.height), (2, 2));
-        assert_eq!(&page.rgba8[..], &replacement_pixels);
-        let pixels = Arc::downgrade(&page.rgba8);
-        drop(applied);
-        assert!(pixels.upgrade().is_none());
-        assert_eq!(base.route(EntityRigId(0)), Some(route));
-        assert_eq!(unrelated.pages()[0].pixels(), &[7; 16]);
-    }
-
-    #[test]
-    /// Different pixel and alpha values stay in their assigned texture layers.
-    fn packed_artwork_preserves_layer_pixels_and_equipment_locations() {
-        let first: Arc<[u8]> = Arc::from([1, 2, 3, 4]);
-        let second: Arc<[u8]> = Arc::from([5, 6, 7, 8]);
-        let textures = [first.clone(), second.clone()].map(|rgba8| assets::ActorTexture {
-            source: 0,
-            width: 1,
-            height: 1,
-            pixel_sha256: [0; 32],
-            rgba8,
-        });
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
-        assert_eq!(pages.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(pages.pages()[0].layers(), 2);
-        let rasters = [first, second].map(|rgba8| EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8,
-        });
-        let (equipment, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
-        assert_eq!(equipment.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
-        assert_eq!(locations[0].unwrap().layer(), 0);
-        assert_eq!(locations[1].unwrap().layer(), 1);
-        assert_eq!(locations[0].unwrap().page(), locations[1].unwrap().page());
-        assert_eq!(pages.identity(), equipment.identity());
-    }
-
-    // A pack with a texture size per page past the old 32-page cap places every texture.
-    #[test]
-    fn pack_art_of_many_sizes_gets_a_page_per_size() {
-        let textures: Vec<_> = (1..=40u16)
-            .map(|side| assets::ActorTexture {
-                source: u32::from(side),
-                width: side,
-                height: 1,
-                pixel_sha256: [0; 32],
-                rgba8: vec![9; usize::from(side) * 4].into(),
-            })
-            .collect();
-        let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
-        assert_eq!(pages.pages().len(), 40);
-    }
-
-    // Same-size equipment rasters past one page's layer limit spill onto further pages.
-    #[test]
-    fn equipment_rasters_past_one_page_spill_onto_more_pages() {
-        let raster = EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8: vec![9; 4].into(),
-        };
-        let rasters = vec![raster; MAX_ACTOR_PAGE_LAYERS + 3];
-        let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
-        assert_eq!(pages.pages().len(), 2);
-        assert!(locations.iter().all(Option::is_some));
-    }
-
-    // Past the byte budget a page is downscaled to fit rather than dropped.
-    #[test]
-    fn a_page_past_the_byte_budget_is_downscaled_not_dropped() {
-        let page = ActorTexturePage {
-            width: 16,
-            height: 16,
-            layers: 1,
-            rgba8: vec![9; 16 * 16 * 4].into(),
-            color_mask: false,
-            multitexture: false,
-        };
-        let mut pages = Vec::new();
-        let mut gpu_bytes = MAX_ACTOR_GPU_PIXEL_BYTES - 16 * 16;
-        assert_eq!(push_page(&mut pages, &mut gpu_bytes, page), Some(1));
-        assert_eq!(pages[0].dimensions(), (8, 8));
-        assert_eq!(gpu_bytes, MAX_ACTOR_GPU_PIXEL_BYTES);
-    }
-
-    #[test]
-    fn fitting_a_page_halves_until_it_fits_and_averages_texels() {
-        let page = ActorTexturePage {
-            width: 2,
-            height: 6,
-            layers: 1,
-            rgba8: [[0u8, 0, 0, 255], [255, 255, 255, 255]]
-                .repeat(6)
-                .concat()
-                .into(),
-            color_mask: true,
-            multitexture: false,
-        };
-        let fitted = page.fit_within(4);
-        assert_eq!((fitted.width, fitted.height), (1, 3));
-        assert_eq!(&fitted.rgba8[..4], &[127, 127, 127, 255]);
-        assert!(
-            fitted.color_mask,
-            "downscaling retains the material contract"
-        );
-        assert!(matches!(page.fit_within(6), std::borrow::Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn pack_artwork_routes_bindings_under_pack_rig_ids() {
-        let texture = |side: u16| assets::ActorTexture {
-            source: 0,
-            width: side,
-            height: side,
-            pixel_sha256: [1; 32],
-            rgba8: vec![7; usize::from(side) * usize::from(side) * 4].into(),
-        };
-        let binding = |candidate: u32, texture: u32| assets::ActorArtworkBinding {
-            rig: 0,
-            geometry_candidate: candidate,
-            entity_symbol: 0,
-            geometry: 0,
-            render_controller: 0,
-            texture,
-            material: "entity".into(),
-            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-        };
-        let pages = ActorArtworkPages::default()
-            .with_pack_artwork(&[texture(2)], &[binding(5, 0), binding(6, 9)]);
-        assert_eq!(pages.pages().len(), 1);
-        let location = pages.route(crate::pack_rig_id(5)).unwrap();
-        assert!(pages.valid(crate::pack_rig_id(5), location));
-        assert_eq!(pages.route(crate::pack_rig_id(6)), None);
-        assert!(!crate::is_equipment_rig_id(crate::pack_rig_id(5)));
-        assert!(crate::is_pack_rig_id(crate::pack_rig_id(5)));
-        assert_eq!(pages.rejected_bindings(), 1);
-        assert_ne!(pages.identity(), [0; 32]);
-    }
-
-    // Pack render layers name pack-catalog sources, never vanilla ones.
-    #[test]
-    fn pack_rig_variants_resolve_in_the_pack_source_space() {
-        let texture = |source: u32, fill: u8| assets::ActorTexture {
-            source,
-            width: 2,
-            height: 2,
-            pixel_sha256: [fill; 32],
-            rgba8: vec![fill; 16].into(),
-        };
-        let binding = assets::ActorArtworkBinding {
-            rig: 0,
-            geometry_candidate: 0,
-            entity_symbol: 0,
-            geometry: 0,
-            render_controller: 0,
-            texture: 0,
-            material: "entity".into(),
-            pose_mode: assets::ActorPoseMode::CompiledLiteral,
-        };
-        let pages = ActorArtworkPages::default()
-            .with_pack_artwork(&[texture(4, 1), texture(9, 2)], &[binding]);
-        let rig = crate::pack_rig_id(0);
-        let variant = pages.variant_location(rig, 9).unwrap();
-        assert_eq!((variant.page(), variant.layer()), (1, 1));
-        assert!(pages.valid(rig, variant));
-        assert_eq!(pages.variant_location(rig, 5), None);
-        assert_eq!(pages.variant_location(EntityRigId(0), 9), None);
-    }
-
-    #[test]
-    fn equipment_rasters_group_by_size_and_validate_by_location() {
-        let raster = |side: u16| EquipmentRaster {
-            width: side,
-            height: side,
-            rgba8: vec![9; usize::from(side) * usize::from(side) * 4].into(),
-        };
-        let bad = EquipmentRaster {
-            width: 2,
-            height: 2,
-            rgba8: vec![0; 3].into(),
-        };
-        let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&[
-            raster(2),
-            bad,
-            raster(4),
-            raster(2),
-        ]);
-        assert_eq!(pages.pages().len(), 2);
-        assert_ne!(pages.identity(), [0; 32]);
-        assert_eq!(locations[1], None);
-        let (first, second) = (locations[0].unwrap(), locations[3].unwrap());
-        assert_eq!((first.page(), second.page()), (1, 1));
-        assert_eq!((first.layer(), second.layer()), (0, 1));
-        assert_eq!(locations[2].unwrap().page(), 2);
-        let equipment_rig = crate::equipment_rig_id(3);
-        assert!(pages.valid(equipment_rig, first));
-        let unknown = ActorArtworkLocation { layer: 9, ..first };
-        assert!(!pages.valid(equipment_rig, unknown));
-    }
-    #[test]
-    fn review_render_artwork_identity_distinguishes_page_boundaries() {
-        let marker = EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8: Arc::from([2, 0, 1, 0]),
-        };
-        let pair = EquipmentRaster {
-            width: 2,
-            height: 1,
-            rgba8: Arc::from([9; 8]),
-        };
-        let pixel = EquipmentRaster {
-            width: 1,
-            height: 1,
-            rgba8: Arc::from([9; 4]),
-        };
-        let (a, _) = ActorArtworkPages::default().with_equipment_rasters(&[marker.clone(), pair]);
-        let (b, _) = ActorArtworkPages::default().with_equipment_rasters(&[
-            marker.clone(),
-            marker,
-            pixel.clone(),
-            pixel,
-        ]);
-        assert_ne!(a.identity(), b.identity());
-    }
-}
+#[path = "artwork/tests.rs"]
+mod tests;

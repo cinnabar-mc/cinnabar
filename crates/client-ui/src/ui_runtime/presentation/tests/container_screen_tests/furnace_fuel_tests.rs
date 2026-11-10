@@ -127,8 +127,8 @@ fn furnace_quick_move_does_not_treat_a_custom_suffix_as_fuel() {
             ledger.displayed_stack(slot).map(|_| icon);
     }
     for slot in 0..3 {
-        presentation.hud_frame.storage_icons.0[slot] =
-            ledger.storage_stack(slot as u8).map(|_| icon);
+        std::sync::Arc::make_mut(&mut presentation.hud_frame.storage_icons.0)[slot] =
+            ledger.storage_stack(slot as u16).map(|_| icon);
     }
     let input = presentation
         .build(

@@ -46,6 +46,7 @@ pub(super) fn init_ui_gpu(
         vertex_arena_id: 0,
         index_arena_id: 0,
         viewport_buffer,
+        models: super::models::UiModels::new(&render_device),
         viewport_uploads: viewport::ViewportUploads::default(),
         #[cfg(test)]
         geometry_writes: [0; 2],
@@ -64,6 +65,7 @@ pub(super) fn init_ui_gpu(
         batches: Arc::from([]),
         accepted_revision: None,
         animated: false,
+        backdrop_blur: 0.,
         animation_damage: Arc::from([]),
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
@@ -120,7 +122,13 @@ pub(crate) fn prepare_ui_resources(
         );
         return;
     }
-    let animated = if gpu.accepted_revision == Some(input.revision) {
+    let previous = gpu.last_admitted_publication.upgrade();
+    let retained_geometry = gpu.accepted_revision.is_some()
+        && previous
+            .as_deref()
+            .is_some_and(|previous| input.shares_draw_buffers(previous))
+        && gpu.textures.resident(&input.textures);
+    let animated = if gpu.accepted_revision == Some(input.revision) || retained_geometry {
         gpu.animated
     } else {
         input
@@ -194,6 +202,46 @@ pub(crate) fn prepare_ui_resources(
             return;
         }
     }
+    if retained_geometry {
+        let prepared = input
+            .validate_update(previous.as_deref().expect("retained publication"))
+            .and_then(|()| {
+                gpu.models
+                    .prepare(&input.models, &uploads, profile.as_deref())
+            });
+        match prepared {
+            Ok(replaced) => {
+                if replaced {
+                    for bucket in gpu.textures.buckets.iter_mut().flatten() {
+                        bucket.bind_group = None;
+                    }
+                }
+                if gpu.animated && !input.models.is_empty() {
+                    super::damage::update_model_animation_damage(
+                        input,
+                        Arc::make_mut(&mut gpu.animation_damage),
+                    );
+                }
+                gpu.accepted_revision = Some(input.revision);
+                gpu.last_admitted_revision = Some(input.revision);
+                gpu.last_admitted_publication = Arc::downgrade(input);
+                stats.update(|stats| {
+                    stats.accepted_revision = Some(input.revision);
+                    stats.uploaded_vertices = 0;
+                    stats.uploaded_indices = 0;
+                    stats.rejected_revision = None;
+                    stats.rejected_reason = None;
+                });
+            }
+            Err(reason) => {
+                gpu.accepted_revision = None;
+                gpu.batches = Arc::from([]);
+                gpu.animation_damage = Arc::from([]);
+                record_render_rejection(&stats, input.revision, reason);
+            }
+        }
+        return;
+    }
     if let Err(reason) = input.validate() {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
@@ -243,6 +291,24 @@ pub(crate) fn prepare_ui_resources(
             return;
         }
     };
+    match gpu
+        .models
+        .prepare(&input.models, &uploads, profile.as_deref())
+    {
+        Ok(true) => {
+            for bucket in gpu.textures.buckets.iter_mut().flatten() {
+                bucket.bind_group = None;
+            }
+        }
+        Ok(false) => {}
+        Err(reason) => {
+            gpu.accepted_revision = None;
+            gpu.batches = Arc::from([]);
+            gpu.animation_damage = Arc::from([]);
+            record_render_rejection(&stats, input.revision, reason);
+            return;
+        }
+    }
     gpu.viewport_size = input.viewport_size;
 
     gpu.animation_damage = super::damage::animated_batches(input).into();
@@ -251,6 +317,7 @@ pub(crate) fn prepare_ui_resources(
     gpu.index_count = input.indices.len();
     gpu.accepted_revision = Some(input.revision);
     gpu.last_admitted_revision = Some(input.revision);
+    gpu.backdrop_blur = super::backdrop_levels::maximum(input);
     gpu.last_admitted_publication = Arc::downgrade(input);
     stats.update(|stats| {
         stats.accepted_revision = Some(input.revision);
@@ -263,7 +330,7 @@ pub(crate) fn prepare_ui_resources(
         stats.retained_gpu_bytes = retained_gpu_bytes(
             gpu.vertex_capacity,
             gpu.index_capacity,
-            gpu.textures.bytes + gpu.item_glint.bytes,
+            gpu.textures.bytes + gpu.item_glint.bytes + gpu.models.bytes(),
         );
         stats.rejected_revision = None;
         stats.rejected_reason = None;

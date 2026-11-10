@@ -116,8 +116,57 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
     }
 }
 
+/// Versioned cube bottoms keep both their thumbnails and held face sheets.
 #[test]
-fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support() {
+fn versioned_cube_items_keep_thumbnails_and_held_sheets() {
+    use super::super::super::item_icons::custom_block_icons;
+
+    for isotropic in [false, true] {
+        let mut material = CustomMaterialInstance::with_authored_defaults("*", "lucky");
+        if isotropic {
+            material.packed_bools |= 2;
+        }
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:lucky",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some("minecraft:geometry.full_block_v1".into()),
+                        materials: Some(vec![material].into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+        let icons = custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            false,
+            &[("test:lucky".into(), "test:lucky".into())],
+            None,
+        );
+        assert!(icons.misses.is_empty(), "{isotropic}: {:?}", icons.misses);
+        assert_eq!(icons.icons.len(), 1);
+        assert_eq!(icons.block_sheets.len(), 1);
+        for icon in [&icons.icons[0], &icons.block_sheets[0]] {
+            assert!(
+                icon.rgba8
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel[3] != 0)
+            );
+        }
+    }
+}
+
+#[test]
+fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
     use super::super::super::item_icons::custom_block_icons;
 
     let identity = CustomTransformation {
@@ -129,12 +178,9 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
                     tint_method: Option<&str>|
      -> Option<Box<[CustomMaterialInstance]>> {
         Some(Box::new([CustomMaterialInstance {
-            name: "*".into(),
-            texture: "lucky".into(),
-            render_method: render_method.map(Into::into),
+            render_method: protocol_ids::BlockRenderMethod::from_network(render_method),
             tint_method: tint_method.map(Into::into),
-            ambient_occlusion: None,
-            face_dimming: None,
+            ..CustomMaterialInstance::with_authored_defaults("*", "lucky")
         }]))
     };
     for (case, transformation, materials, thumbnail) in [
@@ -145,31 +191,6 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
                 ..identity
             }),
             material(None, None),
-            true,
-        ),
-        (
-            "scale",
-            Some(CustomTransformation {
-                scale: [0.5; 3],
-                ..identity
-            }),
-            material(None, None),
-            true,
-        ),
-        (
-            "translation",
-            Some(CustomTransformation {
-                translation: [0.25, 0.0, 0.0],
-                ..identity
-            }),
-            material(None, None),
-            true,
-        ),
-        ("blend", None, material(Some("blend"), None), true),
-        (
-            "unknown method",
-            None,
-            material(Some("unknown"), None),
             true,
         ),
         (
@@ -216,6 +237,61 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
         );
         assert_eq!(icons.misses.len(), usize::from(!thumbnail), "{case}");
         assert!(icons.block_sheets.is_empty(), "{case}");
+    }
+    // Scale and translation reshape the cube, so it draws as a model with a block sheet.
+    for (case, transformation) in [
+        (
+            "scale",
+            CustomTransformation {
+                scale: [0.5; 3],
+                ..identity
+            },
+        ),
+        (
+            "translation",
+            CustomTransformation {
+                translation: [0.25, 0.0, 0.0],
+                ..identity
+            },
+        ),
+    ] {
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:cube",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some(super::super::FULL_BLOCK.into()),
+                        materials: material(None, None),
+                        transformation: Some(transformation),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+        assert_eq!(
+            compiled.overlay.visuals[0].kind,
+            VisualKind::Model,
+            "{case}"
+        );
+        let icons = custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            false,
+            &[("test:cube".into(), "test:cube".into())],
+            None,
+        );
+        assert!(icons.misses.is_empty(), "{case}");
+        assert_eq!(icons.block_sheets.len(), 1, "{case}");
+        assert_eq!(
+            icons.block_sheets[0].identifier.as_ref(),
+            "test:cube",
+            "{case}"
+        );
     }
 }
 
@@ -347,7 +423,7 @@ fn authored_inventory_visuals_use_their_own_geometry_and_materials() {
                 item_visual: Some(CustomVisualComponents {
                     geometry: Some("minecraft:geometry.full_block".into()),
                     materials: materials("lucky").map(|mut materials| {
-                        materials[0].face_dimming = Some(false);
+                        materials[0].packed_bools &= !1;
                         materials
                     }),
                     ..Default::default()

@@ -48,18 +48,21 @@ pub(crate) fn drain_committed_ui_before_authority(
     };
     let authority = stream.authority();
     if let Some(name) = authority.actor_display_name(authority.local_player_unique_id()) {
-        ui_runtime.set_chat_source_name(name);
+        ui_runtime.set_local_player_display_name(name);
     }
     ui_runtime.note_stream_dimension(stream.current_dimension());
     let current_dimension = stream.current_dimension();
     let dimension_epoch = stream.form_dimension_epoch();
     #[cfg(not(target_arch = "wasm32"))]
     {
-        ui_runtime.experiences.epoch = dimension_epoch;
+        ui_runtime.session.experiences.epoch = dimension_epoch;
     }
     ui_runtime
         .server_forms_mut()
         .synchronize_epoch(session, dimension_epoch);
+    ui_runtime
+        .command_block_mut()
+        .synchronize_epoch(dimension_epoch);
     let committed_ui = stream.take_committed_ui();
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     if !committed_ui.is_empty() {
@@ -71,6 +74,7 @@ pub(crate) fn drain_committed_ui_before_authority(
             known_player_names,
         );
         ui_runtime
+            .session
             .player_roster
             .set_entries(stream.authority().player_list_roster());
         refresh_roster_skins(stream, &mut ui_runtime);
@@ -81,10 +85,10 @@ pub(crate) fn drain_committed_ui_before_authority(
             // world epoch it has left, while their sequence numbers stay spent.
             CommittedUiEvent::Experience { event, .. } => {
                 #[cfg(not(target_arch = "wasm32"))]
-                ui_runtime.experiences.receive(&event.bytes, local_millis);
+                ui_runtime.session.experiences.receive(event, local_millis);
                 #[cfg(target_arch = "wasm32")]
                 bevy::log::debug!(
-                    bytes = event.bytes.len(),
+                    bytes = event.as_bytes().len(),
                     "server extension execution unavailable on this host"
                 );
                 Ok(())
@@ -144,6 +148,15 @@ pub(crate) fn drain_committed_ui_before_authority(
                             store.bind_npc_actor(identity, actor);
                         }
                     })
+            }
+            CommittedUiEvent::OpenCommandBlock {
+                dimension_epoch: event_epoch,
+                position,
+            } => {
+                if event_epoch == dimension_epoch {
+                    ui_runtime.command_block_mut().request(position);
+                }
+                Ok(())
             }
             // A generic UI entry must never bypass the form lifetime fence.
             CommittedUiEvent::Ui {
@@ -254,6 +267,21 @@ pub(crate) fn drain_committed_ui_before_authority(
                 event,
                 local_millis,
             ),
+            CommittedUiEvent::LocalSpawn {
+                sequence,
+                health,
+                ridden_unique_id,
+            } => ui_runtime.apply_local_spawn(
+                &mut player_runtime,
+                SequencedLocalAttributes {
+                    session_id: clock.session_generation(),
+                    fifo_sequence: sequence,
+                    local_millis,
+                    server_tick: 0,
+                    attributes: health,
+                },
+                ridden_unique_id,
+            ),
             CommittedUiEvent::LocalMount {
                 sequence,
                 ridden_unique_id,
@@ -269,6 +297,9 @@ pub(crate) fn drain_committed_ui_before_authority(
                 sequence,
                 local_millis,
             ),
+            CommittedUiEvent::LocalRespawnReady { sequence } => {
+                ui_runtime.apply_respawn_ready(clock.session_generation(), sequence, local_millis)
+            }
         };
         if let Err(error) = result {
             player_runtime.facts.clear_local_abilities();
@@ -302,6 +333,7 @@ pub(super) fn refresh_player_list_cache_for_controls(
         stream.authority().player_list_usernames(),
     );
     ui_runtime
+        .session
         .player_roster
         .set_entries(stream.authority().player_list_roster());
     refresh_roster_skins(stream, ui_runtime);
@@ -309,12 +341,12 @@ pub(super) fn refresh_player_list_cache_for_controls(
 
 /// Copies admitted skin handles from the roster, without requiring a spawned actor.
 fn refresh_roster_skins(stream: &WorldStream, ui_runtime: &mut UiRuntime) {
-    ui_runtime
-        .player_roster
-        .set_skins(|uuid| match stream.authority().player_list_skin(uuid) {
+    ui_runtime.session.player_roster.set_skins(|uuid| {
+        match stream.authority().player_list_skin(uuid) {
             Some(protocol::PlayerSkin::Standard(skin)) => Some(skin.clone()),
             _ => None,
-        });
+        }
+    });
 }
 
 #[cfg(test)]

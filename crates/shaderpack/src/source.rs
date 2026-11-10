@@ -44,7 +44,7 @@ impl fmt::Display for PackError {
 impl std::error::Error for PackError {}
 
 /// Where the pack was loaded from, for reading binary assets (custom textures) later.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum PackOrigin {
     /// The pack's canonical `shaders/` directory.
     Directory(PathBuf),
@@ -89,6 +89,9 @@ pub(crate) fn normalize_newlines(text: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(normalized)
 }
 
+/// Largest shader-pack ZIP accepted by the importer and loader.
+pub const MAX_ARCHIVE_BYTES: usize = 256 * 1024 * 1024;
+
 /// Bounds eager pack ingestion.
 #[derive(Clone, Copy)]
 struct LoadLimits {
@@ -103,13 +106,13 @@ impl LoadLimits {
         file_bytes: MAX_TEXT_FILE_BYTES,
         total_bytes: 64 * 1024 * 1024,
         entries: 16384,
-        archive_bytes: 256 * 1024 * 1024,
+        archive_bytes: MAX_ARCHIVE_BYTES,
     };
 }
 
 /// The text files under a pack's `shaders/` folder, keyed by `shaders/`-relative path with
 /// forward slashes. Text is loaded eagerly and can be shared across worker threads.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PackSource {
     origin: PackOrigin,
     files: BTreeMap<String, String>,
@@ -181,7 +184,7 @@ impl PackSource {
                 if is_binary_name(&rel) {
                     continue;
                 }
-                let file = std::fs::File::open(&p).map_err(io_err(&p))?;
+                let file = open_regular_file(&p).map_err(io_err(&p))?;
                 if let Some(text) = budget.text(file, &p)? {
                     files.insert(rel, text);
                 }
@@ -276,7 +279,7 @@ impl PackSource {
                         "asset path resolves outside shaders/",
                     ));
                 }
-                read_bounded(std::fs::File::open(resolved)?, limit)
+                read_file_bounded(&resolved, limit)
             }
             PackOrigin::Zip { archive, prefix } => {
                 let mut zip =
@@ -330,6 +333,14 @@ fn shaders_prefix<'a>(names: impl Iterator<Item = &'a str>) -> Option<String> {
     best
 }
 
+/// Whether the zip at `path` opens within the ingestion limits and holds `shaders/` at its
+/// root or under one top-level folder, the archives [`PackSource::open`] accepts. Reads only
+/// the entry names.
+pub(crate) fn zip_holds_pack(path: &Path) -> bool {
+    open_archive(path, LoadLimits::DEFAULT)
+        .is_ok_and(|archive| shaders_prefix(archive.file_names()).is_some())
+}
+
 /// Recognises binary asset extensions without regard to case.
 fn is_binary_name(path: &str) -> bool {
     path.rsplit_once('.')
@@ -346,7 +357,7 @@ fn open_archive(
         path: path.to_path_buf(),
         error: io::Error::new(io::ErrorKind::InvalidData, error),
     };
-    let file = std::fs::File::open(path).map_err(|error| PackError::Io {
+    let file = open_regular_file(path).map_err(|error| PackError::Io {
         path: path.to_path_buf(),
         error,
     })?;
@@ -438,6 +449,44 @@ fn read_bounded(reader: impl Read, limit: usize) -> io::Result<Vec<u8>> {
         ));
     }
     Ok(out)
+}
+
+/// Opens regular pack files without waiting on named pipes or reading device streams.
+fn open_regular_file(path: &Path) -> io::Result<std::fs::File> {
+    let regular = |metadata: std::fs::Metadata| {
+        if metadata.is_file() {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "pack input must be a regular file",
+            ))
+        }
+    };
+    regular(std::fs::metadata(path)?)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A file replaced with a FIFO after the metadata check must not block open.
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    regular(file.metadata()?)?;
+    Ok(file)
+}
+
+/// Reads a regular pack file within `limit`, including when it grows during the read.
+pub(crate) fn read_file_bounded(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+    let file = open_regular_file(path)?;
+    if file.metadata()?.len() > limit as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            "pack byte limit exceeded",
+        ));
+    }
+    read_bounded(file, limit)
 }
 
 #[cfg(test)]

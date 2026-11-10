@@ -15,6 +15,7 @@ use crate::ui_runtime::presentation::screens::{
     self, CREATIVE_PANEL, GRID_CELLS, GRID_COLUMNS, GRID_ROWS, PlacedSlot, SLOT_SIZE, tab_origin,
     tab_size,
 };
+use crate::ui_runtime::screen_state::FieldCaret;
 use inventory::inventory_ledger::InventoryTarget;
 use ui_screens::container_actions::{
     BEACON_LEVEL_FOR, InventoryCellHit, LOOM_PATTERNS, SEARCH_TAB, STONECUTTER_CELLS, TAB_COUNT,
@@ -30,6 +31,8 @@ const FAST_COOK_TICKS: f32 = 100.0;
 const BREW_TICKS: f32 = 400.0;
 const DEFAULT_FUEL_TOTAL: f32 = 20.0;
 const TEXT_GUI_PX: f32 = 9.0;
+/// The fallback search and anvil fields' selection highlight.
+const FIELD_SELECTION: [u8; 4] = [80, 110, 200, 255];
 
 static EMPTY_FURNACE_ICONS: std::sync::LazyLock<Arc<[Option<IconRef>]>> =
     std::sync::LazyLock::new(|| Arc::from([]));
@@ -49,7 +52,7 @@ pub struct WindowIcons {
     pub creative: [Option<IconRef>; GRID_CELLS],
     pub creative_tabs: [Option<IconRef>; TAB_COUNT as usize],
     /// Output icons of the stonecutter's recipe cells.
-    pub recipe: [Option<IconRef>; STONECUTTER_CELLS],
+    pub recipe: Vec<Option<IconRef>>,
     /// The result a recipe screen would produce now, drawn while the server
     /// previews none.
     pub recipe_output: Option<ui_screens::container_source::StationOutput>,
@@ -74,7 +77,7 @@ impl Default for WindowIcons {
             ui: [None; UI_ICON_SLOTS],
             creative: [None; GRID_CELLS],
             creative_tabs: [None; TAB_COUNT as usize],
-            recipe: [None; STONECUTTER_CELLS],
+            recipe: vec![None; STONECUTTER_CELLS],
             recipe_output: None,
             ghost_armor: [None; 4],
             ghost_shield: None,
@@ -364,6 +367,40 @@ impl HudLayout<'_> {
         }
         self.window_widgets(player_runtime, runtime, frame, kind, origin)?;
         self.held_item(player_runtime, runtime, frame)
+    }
+
+    /// Draws a search or anvil field's `text`. A focused field, which has a `caret`, shows its
+    /// selection highlighted behind the text, or else the caret glyph at the edit point.
+    fn field_text(
+        &mut self,
+        text: &str,
+        caret: Option<FieldCaret>,
+        position: [f32; 2],
+        color: [u8; 4],
+    ) -> Result<(), UiPresentationError> {
+        let Some(caret) = caret else {
+            self.ui_text(text, position, color, false)?;
+            return Ok(());
+        };
+        if let Some([start, end]) = caret.selection
+            && let (Some(before), Some(selected)) = (text.get(..start), text.get(start..end))
+        {
+            let left = self.measure(before)?;
+            let width = self.measure(selected)?;
+            self.solid_gui(
+                [position[0] + left, position[1] - 1.0],
+                [width, TEXT_GUI_PX + 1.0],
+                FIELD_SELECTION,
+            )?;
+            self.ui_text(text, position, color, false)?;
+            return Ok(());
+        }
+        let shown = match text.get(..caret.byte).zip(text.get(caret.byte..)) {
+            Some((before, after)) => format!("{before}{}{after}", json_ui::CARET_GLYPH),
+            None => format!("{text}{}", json_ui::CARET_GLYPH),
+        };
+        self.ui_text(&shown, position, color, false)?;
+        Ok(())
     }
 
     pub(super) fn measure(&mut self, text: &str) -> Result<f32, UiPresentationError> {
@@ -656,16 +693,11 @@ impl HudLayout<'_> {
                         [size[0] - 2.0, size[1] - 2.0],
                         [0, 0, 0, 255],
                     )?;
-                    let text = format!(
-                        "{}{}",
-                        state.anvil_name,
-                        if state.anvil_focused { "_" } else { "" }
-                    );
-                    self.ui_text(
-                        &text,
+                    self.field_text(
+                        &state.anvil_name,
+                        state.field_caret().filter(|_| state.anvil_focused),
                         [at[0] + 3.0, at[1] + 2.0],
                         [224, 224, 224, 255],
-                        false,
                     )?;
                 }
                 // Book controls draw with their own panels.
@@ -675,11 +707,15 @@ impl HudLayout<'_> {
                 | Widget::InventoryLayout(_)
                 | Widget::InventoryRightTab(_)
                 | Widget::FurnaceTab(_)
+                | Widget::StorageRadio { .. }
                 | Widget::FurnaceClearRecipe
                 | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)
                 | Widget::BookPage { .. }
                 | Widget::Reader(_)
+                | Widget::TradeOffer { .. }
+                | Widget::TradeCycle { .. }
+                | Widget::Trade
                 | Widget::Close => {}
             }
         }
@@ -718,12 +754,12 @@ impl HudLayout<'_> {
         if runtime.creative_tab(player_runtime) == SEARCH_TAB {
             let field = [origin[0] + 82.0, origin[1] + 5.0];
             self.solid_gui(field, [89.0, 12.0], [0, 0, 0, 255])?;
-            let text = format!(
-                "{}{}",
-                state.search,
-                if state.search_focused { "_" } else { "" }
-            );
-            self.ui_text(&text, [field[0] + 2.0, field[1] + 2.0], [255; 4], false)?;
+            self.field_text(
+                &state.search,
+                state.field_caret().filter(|_| !state.anvil_focused),
+                [field[0] + 2.0, field[1] + 2.0],
+                [255; 4],
+            )?;
         }
         let entries = visible_creative_entries(player_runtime, runtime);
         for slot in screens::creative_slots() {
@@ -861,6 +897,7 @@ pub const fn default_title(kind: WindowKind) -> &'static str {
         WindowKind::Smithing => "Upgrade Gear",
         WindowKind::Crafter => "Crafter",
         WindowKind::Lectern => "Lectern",
+        WindowKind::Trade { .. } => "Trade",
     }
 }
 
@@ -887,5 +924,6 @@ pub const fn title_key(kind: WindowKind) -> &'static str {
         WindowKind::Smithing => "container.upgrade",
         WindowKind::Crafter => "container.crafter",
         WindowKind::Lectern => "container.lectern",
+        WindowKind::Trade { .. } => json_ui::vanilla::TextKey::TradeTrade.as_str(),
     }
 }

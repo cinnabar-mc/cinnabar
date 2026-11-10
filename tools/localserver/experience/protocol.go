@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"slices"
+
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // The Go mirror of the adapter protocol in crates/experience-runtime/src/protocol.rs, which
@@ -17,7 +19,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 6
+const protocolVersion = 12
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -46,21 +48,31 @@ func (f *Face) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, f, 
 
 // Info describes the world and the event that a callback runs for.
 type Info struct {
-	WorldID       string `json:"world_id"`
-	DimensionID   string `json:"dimension_id"`
-	Tick          uint64 `json:"tick"`
-	EventSequence uint64 `json:"event_sequence"`
+	Simulation    *SimulationContext `json:"simulation,omitempty"`
+	Context       *WorldContext      `json:"context,omitempty"`
+	WorldID       string             `json:"world_id"`
+	DimensionID   string             `json:"dimension_id"`
+	Tick          uint64             `json:"tick"`
+	EventSequence uint64             `json:"event_sequence"`
+}
+
+// newInfo builds callback metadata with an explicit world tick and event sequence.
+func newInfo(worldID, dimensionID string, tick, eventSequence uint64) Info {
+	return Info{WorldID: worldID, DimensionID: dimensionID, Tick: tick, EventSequence: eventSequence}
 }
 
 // Cell is one snapshot cell. ID is empty when the cell is not loaded; Data is lowercase hex.
-// States are an owned block's state values.
+// States are an owned block's state values, Overlays an owned overlay host's overlays in slot
+// order, and Power the redstone power, 0 to 15, that an owned redstone block receives.
 type Cell struct {
-	Pos    BlockPos    `json:"pos"`
-	Loaded bool        `json:"loaded"`
-	ID     string      `json:"id"`
-	Owned  bool        `json:"owned"`
-	Data   *string     `json:"data"`
-	States BlockStates `json:"states"`
+	Pos      BlockPos    `json:"pos"`
+	Loaded   bool        `json:"loaded"`
+	ID       string      `json:"id"`
+	Owned    bool        `json:"owned"`
+	Data     *string     `json:"data"`
+	States   BlockStates `json:"states"`
+	Overlays Overlays    `json:"overlays,omitempty"`
+	Power    uint8       `json:"power,omitempty"`
 }
 
 // Cause is what made a block change.
@@ -88,25 +100,16 @@ type Change struct {
 	PreviousData *string  `json:"previous_data"`
 }
 
-// Scalar is one value of a client-channel record, in the form the client part's wire protocol
-// gives it: a leaf, or on wire v2 a list or record of values. Exactly one field is set.
-type Scalar struct {
-	Bool    *bool
-	Integer *int64
-	Text    *string
-	Choice  *uint16
-	// List holds the items of a list field, all of its one item type.
-	List *[]Scalar
-	// Record holds one value per field of a record field, in order.
-	Record *[]Scalar
-}
-
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
 type Call struct {
-	Place         *PlaceCall
-	Break         *BreakCall
-	Interact      *InteractCall
-	Neighbor      *NeighborCall
+	Entity          *EntityCall
+	Tick            *TickCall
+	Timer           *TimerCall
+	Player          *PlayerCall
+	Place           *PlaceCall
+	Break           *BreakCall
+	Interact        *InteractCall
+	Neighbor        *NeighborCall
 	ClientMessage   *ClientMessageCall
 	Epoch           *EpochCall
 	ScheduledUpdate *ScheduledUpdateCall
@@ -117,16 +120,20 @@ type PlaceCall struct {
 	Change Change `json:"change"`
 }
 
-// BreakCall follows a player break; the change carries the old id and data.
+// BreakCall follows a player break; the change carries the old id and data. Harvest is set when
+// the player broke the block in a game mode that drops what is broken.
 type BreakCall struct {
-	Change Change `json:"change"`
+	Change  Change `json:"change"`
+	Harvest bool   `json:"harvest,omitempty"`
 }
 
-// InteractCall is a player's interaction with a block.
+// InteractCall is a player's interaction with a block. Hit is where the click met the block, in
+// pixels from its corner, when the client sent one within the cell.
 type InteractCall struct {
 	Player string   `json:"player"`
 	Pos    BlockPos `json:"pos"`
 	Face   Face     `json:"face"`
+	Hit    *Pixel   `json:"hit,omitempty"`
 }
 
 // NeighborCall reports that the block at Neighbor changed next to the block at Pos.
@@ -139,11 +146,11 @@ type NeighborCall struct {
 // Schema. Its callback's actor is Player. With Focus, the block of Player's focus, its snapshot
 // is the one an interaction with that block would have; without, it is empty.
 type ClientMessageCall struct {
-	Player  string    `json:"player"`
-	Channel string    `json:"channel"`
-	Schema  uint16    `json:"schema"`
-	Payload []Scalar  `json:"payload"`
-	Focus   *BlockPos `json:"focus"`
+	Player  string               `json:"player"`
+	Channel string               `json:"channel"`
+	Schema  uint16               `json:"schema"`
+	Payload []cinnabarext.Scalar `json:"payload"`
+	Focus   *BlockPos            `json:"focus"`
 }
 
 // EpochCall tells the guest that Player's client part moved to a new world epoch and kept
@@ -183,7 +190,10 @@ type CallbackRequest struct {
 	Network *Network `json:"network"`
 	// Inventory is the actor's inventory, when the callback has an actor.
 	Inventory *Inventory `json:"inventory"`
-	Call      Call       `json:"call"`
+	// Containers are the containers in reach of the anchor and its network, for a callback with
+	// an anchor.
+	Containers *Containers `json:"containers,omitempty"`
+	Call       Call        `json:"call"`
 }
 
 // ShutdownRequest ends the session.
@@ -210,8 +220,8 @@ type Breakable struct {
 }
 
 // BlockDef is a validated block of the Experience: its 0.1 definition, then server WIT 0.5's
-// states, placement traits, look and network membership. A block with a Visual binds no
-// Textures.
+// states, placement traits, look and network membership, and 0.12's drops, item and redstone. A
+// block with a Visual binds no Textures.
 type BlockDef struct {
 	ID           string           `json:"id"`
 	DisplayName  string           `json:"display_name"`
@@ -222,6 +232,11 @@ type BlockDef struct {
 	Visual       *Visual          `json:"visual"`
 	Permutations []Permutation    `json:"permutations"`
 	Network      bool             `json:"network"`
+	Drops        BlockDrops       `json:"drops"`
+	Item         BlockItem        `json:"item"`
+	// Redstone is set for a block that takes part in redstone: it receives power, emits what
+	// its callbacks set and gets on-neighbor-changed when what it receives changes.
+	Redstone bool `json:"redstone,omitempty"`
 }
 
 // FailKind is why a callback failed.
@@ -242,15 +257,28 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
-	SetBlock      *SetBlockOp
-	SetBlockData  *SetBlockDataOp
-	Tell          *TellOp
-	SendClient    *SendClientOp
-	SetBlockState *SetBlockStateOp
-	SetSlot        *SetSlotOp
-	DropItem       *DropItemOp
-	ScheduleUpdate *ScheduleUpdateOp
+	Entity           *EntityCommand
+	Schedule         *ScheduleOp
+	CancelSchedule   *CancelScheduleOp
+	World            *WorldActionOp
+	StoreWrite       *StoreWriteOp
+	SetBlock         *SetBlockOp
+	SetBlockData     *SetBlockDataOp
+	Tell             *TellOp
+	SendClient       *SendClientOp
+	SetBlockState    *SetBlockStateOp
+	SetSlot          *SetSlotOp
+	DropItem         *DropItemOp
+	ScheduleUpdate   *ScheduleUpdateOp
+	SetOverlays      *SetOverlaysOp
+	PassInteraction  *PassInteractionOp
+	SetContainerSlot *SetContainerSlotOp
+	SetRedstonePower *SetRedstonePowerOp
 }
+
+// PassInteractionOp passes an interaction's click on: once the rest of its result commits, the
+// actor's held item is used on the interacted block as if the block had no action.
+type PassInteractionOp struct{}
 
 // SetBlockOp sets the block at Pos to ID.
 type SetBlockOp struct {
@@ -273,10 +301,12 @@ type TellOp struct {
 // SendClientOp sends Payload on Channel, revision Schema, to Player's client part once the rest
 // of its result has committed.
 type SendClientOp struct {
-	Player  string   `json:"player"`
-	Channel string   `json:"channel"`
-	Schema  uint16   `json:"schema"`
-	Payload []Scalar `json:"payload"`
+	// Control retains negotiation replies after transport budget refusal.
+	Control bool                 `json:"control,omitempty"`
+	Player  string               `json:"player"`
+	Channel string               `json:"channel"`
+	Schema  uint16               `json:"schema"`
+	Payload []cinnabarext.Scalar `json:"payload"`
 }
 
 // Outcome is the outcome of a callback. Exactly one field is set.
@@ -311,14 +341,19 @@ type Response struct {
 
 // Loaded answers load with the artifact's identity and its validated blocks. Focus is set when
 // the Experience's world takes its player's focus in client messages and epochs; one that does
-// not is never given one.
+// not is never given one. Overlays are its overlay hosts and types, for a world of 0.10 or
+// later.
 type Loaded struct {
-	Protocol uint32     `json:"protocol"`
-	ID       string     `json:"id"`
-	Version  string     `json:"version"`
-	Blocks   []BlockDef `json:"blocks"`
-	Items    []ItemDef  `json:"items"`
-	Focus    bool       `json:"focus"`
+	Entities   []EntityDefinition   `json:"entities,omitempty"`
+	Simulation bool                 `json:"simulation,omitempty"`
+	Worlds     *WorldRegistration   `json:"worlds,omitempty"`
+	Overlays   *OverlayRegistration `json:"overlays,omitempty"`
+	Protocol   uint32               `json:"protocol"`
+	ID         string               `json:"id"`
+	Version    string               `json:"version"`
+	Blocks     []BlockDef           `json:"blocks"`
+	Items      []ItemDef            `json:"items"`
+	Focus      bool                 `json:"focus"`
 }
 
 // LoadFailed answers load when the artifact does not load; the runtime then exits.
@@ -362,7 +397,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	length := binary.LittleEndian.Uint32(prefix[:])
 	if length > maxFrameBytes {
-		return Response{}, fmt.Errorf("frame of %d bytes exceeds %d", length, maxFrameBytes)
+		return Response{}, fmt.Errorf("%w: frame of %d bytes exceeds %d", errGuestFault, length, maxFrameBytes)
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(r, body); err != nil {
@@ -370,7 +405,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	var resp Response
 	if err := decodeStrict(body, &resp); err != nil {
-		return Response{}, fmt.Errorf("decoding a frame: %w", err)
+		return Response{}, fmt.Errorf("%w: decoding a frame: %w", errGuestFault, err)
 	}
 	return resp, nil
 }
@@ -413,33 +448,28 @@ func unmarshalEnum[T ~string](data []byte, v *T, values []T) error {
 
 // The "type" that names each union variant on the wire, as protocol.rs names it.
 const (
-	typeLoad          = "load"
-	typeCallback      = "callback"
-	typeShutdown      = "shutdown"
-	typePlace         = "place"
-	typeBreak         = "break"
-	typeInteract      = "interact"
-	typeNeighbor      = "neighbor"
-	typeClientMessage = "client_message"
-	typeEpoch         = "epoch"
-	typeUnbreakable   = "unbreakable"
-	typeBreakable     = "breakable"
-	typeSetBlock      = "set_block"
-	typeSetBlockData  = "set_block_data"
-	typeTell          = "tell"
-	typeSendClient    = "send_client"
-	typeCommitted     = "committed"
-	typeRejected      = "rejected"
-	typeFailed        = "failed"
-	typeLoaded        = "loaded"
-	typeLoadFailed    = "load_failed"
-	typeResult        = "result"
-	typeBool          = "bool"
-	typeInteger       = "integer"
-	typeText          = "text"
-	typeChoice        = "choice"
-	typeList          = "list"
-	typeRecord        = "record"
+	typeLoad            = "load"
+	typeCallback        = "callback"
+	typeShutdown        = "shutdown"
+	typePlace           = "place"
+	typeBreak           = "break"
+	typeInteract        = "interact"
+	typeNeighbor        = "neighbor"
+	typeClientMessage   = "client_message"
+	typeEpoch           = "epoch"
+	typeUnbreakable     = "unbreakable"
+	typeBreakable       = "breakable"
+	typeSetBlock        = "set_block"
+	typeSetBlockData    = "set_block_data"
+	typeTell            = "tell"
+	typeSendClient      = "send_client"
+	typeCommitted       = "committed"
+	typeRejected        = "rejected"
+	typeFailed          = "failed"
+	typeLoaded          = "loaded"
+	typeLoadFailed      = "load_failed"
+	typeResult          = "result"
+	typePassInteraction = "pass_interaction"
 )
 
 // variantTag is the "type" member of a union variant on the wire.
@@ -462,6 +492,10 @@ type (
 	shutdownWire struct {
 		variantTag
 		*ShutdownRequest
+	}
+	passInteractionWire struct {
+		variantTag
+		*PassInteractionOp
 	}
 	placeWire struct {
 		variantTag
@@ -537,12 +571,6 @@ type (
 	}
 )
 
-// scalarWire is a Scalar on the wire: "type" names its field, and "value" holds it.
-type scalarWire[T any] struct {
-	Type  string `json:"type"`
-	Value *T     `json:"value"`
-}
-
 // unionTag returns the "type" of data, a JSON object.
 func unionTag(data []byte) (string, error) {
 	var head struct {
@@ -565,6 +593,14 @@ func fresh[T any](p **T) *T {
 
 func (c Call) MarshalJSON() ([]byte, error) {
 	switch {
+	case c.Entity != nil:
+		return json.Marshal(entityCallWire{variantTag{"entity"}, c.Entity})
+	case c.Tick != nil:
+		return json.Marshal(tickCallWire{variantTag{"tick"}, c.Tick})
+	case c.Timer != nil:
+		return json.Marshal(timerCallWire{variantTag{"timer"}, c.Timer})
+	case c.Player != nil:
+		return json.Marshal(playerCallWire{variantTag{"player"}, c.Player})
 	case c.Place != nil:
 		return json.Marshal(placeWire{variantTag{typePlace}, c.Place})
 	case c.Break != nil:
@@ -590,6 +626,14 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 	}
 	*c = Call{}
 	switch tag {
+	case "entity":
+		return decodeStrict(data, &entityCallWire{EntityCall: fresh(&c.Entity)})
+	case "tick":
+		return decodeStrict(data, &tickCallWire{TickCall: fresh(&c.Tick)})
+	case "timer":
+		return decodeStrict(data, &timerCallWire{TimerCall: fresh(&c.Timer)})
+	case "player":
+		return decodeStrict(data, &playerCallWire{PlayerCall: fresh(&c.Player)})
 	case typePlace:
 		return decodeStrict(data, &placeWire{PlaceCall: fresh(&c.Place)})
 	case typeBreak:
@@ -606,73 +650,6 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &scheduledUpdateWire{ScheduledUpdateCall: fresh(&c.ScheduledUpdate)})
 	}
 	return fmt.Errorf("unknown call type %q", tag)
-}
-
-// MarshalJSON writes the client wire protocol's form, escaping no HTML: the encoder that embeds
-// it escapes HTML only when it is set to.
-func (s Scalar) MarshalJSON() ([]byte, error) {
-	switch {
-	case s.Bool != nil:
-		return marshalUnescaped(scalarWire[bool]{typeBool, s.Bool})
-	case s.Integer != nil:
-		return marshalUnescaped(scalarWire[int64]{typeInteger, s.Integer})
-	case s.Text != nil:
-		return marshalUnescaped(scalarWire[string]{typeText, s.Text})
-	case s.Choice != nil:
-		return marshalUnescaped(scalarWire[uint16]{typeChoice, s.Choice})
-	case s.List != nil:
-		return marshalUnescaped(scalarWire[[]Scalar]{typeList, s.List})
-	case s.Record != nil:
-		return marshalUnescaped(scalarWire[[]Scalar]{typeRecord, s.Record})
-	}
-	return nil, errors.New("empty scalar")
-}
-
-// marshalUnescaped encodes v like json.Marshal, but leaves <, > and & as they are.
-func marshalUnescaped(v any) ([]byte, error) {
-	var out bytes.Buffer
-	encoder := json.NewEncoder(&out)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
-}
-
-func (s *Scalar) UnmarshalJSON(data []byte) error {
-	tag, err := unionTag(data)
-	if err != nil {
-		return err
-	}
-	*s = Scalar{}
-	switch tag {
-	case typeBool:
-		return scalarValue(data, &s.Bool)
-	case typeInteger:
-		return scalarValue(data, &s.Integer)
-	case typeText:
-		return scalarValue(data, &s.Text)
-	case typeChoice:
-		return scalarValue(data, &s.Choice)
-	case typeList:
-		return scalarValue(data, &s.List)
-	case typeRecord:
-		return scalarValue(data, &s.Record)
-	}
-	return fmt.Errorf("unknown scalar type %q", tag)
-}
-
-// scalarValue decodes data, a Scalar on the wire whose value must be present and a T, into *p.
-func scalarValue[T any](data []byte, p **T) error {
-	var wire scalarWire[T]
-	if err := decodeStrict(data, &wire); err != nil {
-		return err
-	}
-	if wire.Value == nil {
-		return errors.New(`a scalar without a "value"`)
-	}
-	*p = wire.Value
-	return nil
 }
 
 func (r Request) MarshalJSON() ([]byte, error) {
@@ -731,6 +708,16 @@ func (m *Mining) UnmarshalJSON(data []byte) error {
 
 func (o Op) MarshalJSON() ([]byte, error) {
 	switch {
+	case o.Entity != nil:
+		return json.Marshal(entityCommandWire{variantTag{"entity"}, o.Entity})
+	case o.Schedule != nil:
+		return json.Marshal(scheduleWire{variantTag{"schedule"}, o.Schedule})
+	case o.CancelSchedule != nil:
+		return json.Marshal(cancelScheduleWire{variantTag{"cancel_schedule"}, o.CancelSchedule})
+	case o.World != nil:
+		return json.Marshal(worldActionWire{variantTag{"world"}, o.World})
+	case o.StoreWrite != nil:
+		return json.Marshal(storeWriteWire{variantTag{"store_write"}, o.StoreWrite})
 	case o.SetBlock != nil:
 		return json.Marshal(setBlockWire{variantTag{typeSetBlock}, o.SetBlock})
 	case o.SetBlockData != nil:
@@ -747,6 +734,14 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(dropItemWire{variantTag{typeDropItem}, o.DropItem})
 	case o.ScheduleUpdate != nil:
 		return json.Marshal(scheduleUpdateWire{variantTag{typeScheduleUpdate}, o.ScheduleUpdate})
+	case o.SetOverlays != nil:
+		return json.Marshal(setOverlaysWire{variantTag{typeSetOverlays}, o.SetOverlays})
+	case o.PassInteraction != nil:
+		return json.Marshal(passInteractionWire{variantTag{typePassInteraction}, o.PassInteraction})
+	case o.SetContainerSlot != nil:
+		return json.Marshal(setContainerSlotWire{variantTag{typeSetContainerSlot}, o.SetContainerSlot})
+	case o.SetRedstonePower != nil:
+		return json.Marshal(setRedstonePowerWire{variantTag{typeSetRedstonePower}, o.SetRedstonePower})
 	}
 	return nil, errors.New("empty op")
 }
@@ -758,6 +753,16 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 	}
 	*o = Op{}
 	switch tag {
+	case "entity":
+		return decodeStrict(data, &entityCommandWire{EntityCommand: fresh(&o.Entity)})
+	case "schedule":
+		return decodeStrict(data, &scheduleWire{ScheduleOp: fresh(&o.Schedule)})
+	case "cancel_schedule":
+		return decodeStrict(data, &cancelScheduleWire{CancelScheduleOp: fresh(&o.CancelSchedule)})
+	case "world":
+		return decodeStrict(data, &worldActionWire{WorldActionOp: fresh(&o.World)})
+	case "store_write":
+		return decodeStrict(data, &storeWriteWire{StoreWriteOp: fresh(&o.StoreWrite)})
 	case typeSetBlock:
 		return decodeStrict(data, &setBlockWire{SetBlockOp: fresh(&o.SetBlock)})
 	case typeSetBlockData:
@@ -774,6 +779,14 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &dropItemWire{DropItemOp: fresh(&o.DropItem)})
 	case typeScheduleUpdate:
 		return decodeStrict(data, &scheduleUpdateWire{ScheduleUpdateOp: fresh(&o.ScheduleUpdate)})
+	case typeSetOverlays:
+		return decodeStrict(data, &setOverlaysWire{SetOverlaysOp: fresh(&o.SetOverlays)})
+	case typePassInteraction:
+		return decodeStrict(data, &passInteractionWire{PassInteractionOp: fresh(&o.PassInteraction)})
+	case typeSetContainerSlot:
+		return decodeStrict(data, &setContainerSlotWire{SetContainerSlotOp: fresh(&o.SetContainerSlot)})
+	case typeSetRedstonePower:
+		return decodeStrict(data, &setRedstonePowerWire{SetRedstonePowerOp: fresh(&o.SetRedstonePower)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

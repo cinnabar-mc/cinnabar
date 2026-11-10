@@ -197,9 +197,13 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             retention: true,
             ..Footprint::session(C::NONE)
         },
-        WorldEvent::Respawn(_) => Footprint {
+        WorldEvent::Respawn(respawn) => Footprint {
             retention: true,
-            ..Footprint::session(C::CONTROLS)
+            ..Footprint::session(if respawn.ready_to_spawn() {
+                C::CONTROLS.with(C::UI)
+            } else {
+                C::CONTROLS
+            })
         },
         WorldEvent::MovePlayer(movement) if !local(movement.runtime_id) => {
             Footprint::session(C::ACTORS)
@@ -213,11 +217,32 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             local_authority: true,
             ..Footprint::session(C::CONTROLS.with(C::ACTORS))
         },
+        WorldEvent::Actor(ActorEvent::Move(movement))
+            if local(movement.runtime_id)
+                && movement.dimension == context.dimension
+                && movement.player_mode.is_none()
+                && movement.controls_local_actor() =>
+        {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
+            }
+        }
         WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_player() => {
             Footprint {
                 positional: true,
                 local_authority: true,
                 ..Footprint::session(C::CONTROLS)
+            }
+        }
+        // A vehicle correction reads the steered vehicle and its revision from the actors, so
+        // it keeps wire order with their links and moves.
+        WorldEvent::PlayerMovementCorrection(correction) if correction.subject.is_vehicle() => {
+            Footprint {
+                positional: true,
+                local_authority: true,
+                ..Footprint::session(C::CONTROLS.with(C::ACTORS))
             }
         }
         WorldEvent::PlayerMovementCorrection(_) => Footprint::session(C::NONE),
@@ -279,6 +304,11 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             ..Footprint::terrain([column(context.dimension, event.position)], false)
         },
         WorldEvent::OpenSign(event) => Footprint {
+            consumers: C::UI,
+            ..Footprint::terrain([column(event.dimension, event.position)], false)
+        },
+        // Ordered after the column's block actor data, which the editor loads from.
+        WorldEvent::OpenCommandBlock(event) => Footprint {
             consumers: C::UI,
             ..Footprint::terrain([column(event.dimension, event.position)], false)
         },
@@ -349,8 +379,21 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         WorldEvent::ItemActor(ItemActorEvent::Registry(_)) => {
             Footprint::session(C::ACTORS.with(C::INVENTORY))
         }
-        WorldEvent::Ui(UiEvent::PlayerGameMode { .. } | UiEvent::DefaultGameMode(_)) => {
-            Footprint::session(C::UI.with(C::ACTORS))
+        // A local game-mode update also commits an ordered item-use control.
+        WorldEvent::Ui(UiEvent::PlayerGameMode {
+            actor_unique_id, ..
+        }) if *actor_unique_id == context.local_unique_id => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
+        }
+        // A default change may commit an ordered item-use control for a local
+        // player following the default.
+        WorldEvent::Ui(UiEvent::DefaultGameMode(_)) => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
+        }
+        WorldEvent::Ui(UiEvent::PlayerGameMode { .. }) => Footprint::session(C::UI.with(C::ACTORS)),
+        WorldEvent::Ui(UiEvent::GameMode(_)) => Footprint::session(C::UI.with(C::CONTROLS)),
+        WorldEvent::Ui(UiEvent::Hud(protocol::HudEvent::Health { .. })) => {
+            Footprint::session(C::UI.with(C::ACTORS).with(C::CONTROLS))
         }
         WorldEvent::Ui(UiEvent::Boss(_)) => Footprint::session(C::UI.with(C::ACTORS)),
         WorldEvent::Ui(_) | WorldEvent::Experience(_) | WorldEvent::MapData(_) => {
@@ -370,6 +413,13 @@ fn actor_consumers(event: &ActorEvent, context: LaneContext) -> Consumers {
     let local_runtime = |runtime_id: u64| runtime_id == context.local_runtime_id;
     match event {
         ActorEvent::Move(_) | ActorEvent::Identifiers(_) => C::ACTORS,
+        ActorEvent::Spawn(spawn)
+        | ActorEvent::PlayerSpawn { spawn, .. }
+        | ActorEvent::PaintingSpawn { spawn, .. }
+            if local_runtime(spawn.runtime_id) =>
+        {
+            C::ACTORS.with(C::CONTROLS).with(C::UI)
+        }
         ActorEvent::Metadata(update) if local_runtime(update.runtime_id) => {
             C::ACTORS.with(C::CONTROLS).with(C::UI)
         }

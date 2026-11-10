@@ -60,6 +60,30 @@ const HELMET_PLAYER: &str = r#"{"format_version":"1.10.0","minecraft:attachable"
     "animations":{"offset":"animation.armor.helmet.offset"},
     "render_controllers":["controller.render.armor"]}}}"#;
 
+const CUSTOM_HELMET: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+    "identifier":"geyser_custom:fixture_helmet",
+    "materials":{"default":"entity_alphatest_one_sided"},
+    "textures":{"default":"textures/atlas/page_11"},
+    "geometry":{"default":"geometry.geyser_custom.fixture_helmet"},
+    "scripts":{"pre_animation":["v.head = c.item_slot == 'head';"],"animate":[{"thirdperson_head":"v.head&&!c.is_first_person"}]},
+    "render_controllers":["controller.render.item_default"]}}}"#;
+
+const CUSTOM_DUAL_HELMET: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+    "identifier":"geyser_custom:fixture_dual_helmet",
+    "materials":{"default":"entity_alphatest_one_sided"},
+    "textures":{"default":"textures/atlas/page_11"},
+    "geometry":{"default":"geometry.geyser_custom.fixture_dual_helmet"},
+    "scripts":{"pre_animation":["v.main_hand = c.item_slot == 'main_hand';","v.head = c.item_slot == 'head';"],"animate":[{"thirdperson_hand":"v.main_hand&&!c.is_first_person","thirdperson_head":"v.head&&!c.is_first_person"}]},
+    "render_controllers":["controller.render.item_default"]}}}"#;
+
+const CUSTOM_HELD_WITH_HEAD_CONTEXT: &str = r#"{"format_version":"1.10.0","minecraft:attachable":{"description":{
+    "identifier":"geyser_custom:fixture_tool",
+    "materials":{"default":"entity_alphatest_one_sided"},
+    "textures":{"default":"textures/atlas/page_11"},
+    "geometry":{"default":"geometry.geyser_custom.fixture_tool"},
+    "scripts":{"pre_animation":["v.main_hand = c.item_slot == 'main_hand';","v.head = c.item_slot == 'head';"],"animate":[{"thirdperson_hand":"v.main_hand&&!c.is_first_person"},{"firstperson_head":"v.head"}]},
+    "render_controllers":["controller.render.item_default"]}}}"#;
+
 #[test]
 fn trident_carries_literal_first_and_third_person_transforms() {
     let payloads = payloads(&[
@@ -88,7 +112,8 @@ fn trident_carries_literal_first_and_third_person_transforms() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 1);
     let trident = &bindings[0];
     assert_eq!(trident.category, EquipmentCategory::Held);
@@ -124,7 +149,8 @@ fn owner_armor_variants_are_retained_with_the_player_geometry_in_catalog() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 2);
     let helmet = &bindings[1];
     assert_eq!(helmet.identifier.as_ref(), "minecraft:diamond_helmet");
@@ -178,7 +204,8 @@ fn molang_bone_keyframes_stay_needs_measurement() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings[0].category, EquipmentCategory::Shield);
     assert!(bindings[0].third_person.literal().is_none());
 }
@@ -215,7 +242,8 @@ fn elytra_keeps_only_literal_poses_sorted_by_key() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings[0].category, EquipmentCategory::Elytra);
     let keys = bindings[0]
         .poses
@@ -271,7 +299,8 @@ fn shield_third_person_resolves_the_hand_conditional_into_one_pose_per_hand() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     let shield = &bindings[0];
     assert_eq!(shield.category, EquipmentCategory::Shield);
     assert_eq!(shield.poses.len(), 2);
@@ -412,7 +441,8 @@ fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     let dye = Some(0x00b0_2e26);
     let inventory = payloads
         .iter()
@@ -485,6 +515,77 @@ fn equipment_category_uses_the_admitted_slot_with_neutral_geometry() {
 }
 
 #[test]
+fn player_armor_geometry_admits_custom_attachables_to_the_wearable_slot() {
+    assert_eq!(
+        category(
+            "geyser_custom:fixture_chestplate",
+            "geometry.player.armor.chestplate"
+        ),
+        EquipmentCategory::Armor {
+            slot: ArmorSlot::Chestplate
+        }
+    );
+}
+
+#[test]
+fn head_item_slot_script_admits_custom_geometry_as_a_helmet() {
+    let payloads = payloads(&[("attachables/custom_helmet.json", CUSTOM_HELMET)]);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &[],
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap()
+    .bindings;
+    assert_eq!(
+        bindings[0].category,
+        EquipmentCategory::Armor {
+            slot: ArmorSlot::Helmet
+        }
+    );
+}
+
+#[test]
+fn head_context_without_a_thirdperson_head_branch_stays_held() {
+    let payloads = payloads(&[(
+        "attachables/custom_tool.json",
+        CUSTOM_HELD_WITH_HEAD_CONTEXT,
+    )]);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &[],
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap()
+    .bindings;
+    assert_eq!(bindings[0].category, EquipmentCategory::Held);
+}
+
+#[test]
+fn head_and_hand_branches_admit_a_dual_purpose_helmet() {
+    let payloads = payloads(&[("attachables/custom_dual_helmet.json", CUSTOM_DUAL_HELMET)]);
+    let bindings = compile_bindings(
+        &SourceDocuments::new(&payloads),
+        &[],
+        &[],
+        &BTreeMap::new(),
+        false,
+    )
+    .unwrap()
+    .bindings;
+    assert_eq!(
+        bindings[0].category,
+        EquipmentCategory::ArmorAndHeld {
+            slot: ArmorSlot::Helmet
+        }
+    );
+}
+
+#[test]
 fn merged_animation_document_is_parsed_once_for_many_attachables() {
     let mut payloads = payloads(&[("animations/_pack.json", TRIDENT_ANIM)]);
     for index in 0..65 {
@@ -517,7 +618,8 @@ fn merged_animation_document_is_parsed_once_for_many_attachables() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 65);
     assert!(
         bindings
@@ -548,7 +650,8 @@ fn unreferenced_animation_documents_are_not_parsed_for_bindings() {
         &BTreeMap::new(),
         false,
     )
-    .unwrap();
+    .unwrap()
+    .bindings;
     assert_eq!(bindings.len(), 1);
     assert_eq!(ANIMATION_PARSES.get(), 0);
 }

@@ -24,6 +24,57 @@ fn long_authored_scripts_compile_as_one_program_with_ordered_assignments() {
     );
 }
 
+/// Compiles `entries` as one script and returns how many assignments the retained program makes.
+fn retained_assignments(entries: &[&str]) -> usize {
+    let mut compiler = MolangCompiler::default();
+    let (expression, dropped) = compiler.compile_script(entries).unwrap();
+    assert_eq!(dropped, 0);
+    let payload = compiler.finish().unwrap();
+    let expression = &payload.expressions[expression.expect("complete script retained") as usize];
+    payload.ops[expression.first_op as usize..][..usize::from(expression.op_count)]
+        .iter()
+        .filter(|op| matches!(op, MolangOp::StoreVariable(_)))
+        .count()
+}
+
+#[test]
+fn player_scripts_with_hundreds_of_entries_compile_whole() {
+    let entries = (0..600)
+        .map(|index| format!("v.initialized_{index} = 0;"))
+        .collect::<Vec<_>>();
+    let entries = entries.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
+#[test]
+fn pre_animation_scripts_longer_than_32_kib_compile_whole() {
+    let entries = (0..3_000)
+        .map(|index| format!("v.pre_animation_{index} = q.life_time;"))
+        .collect::<Vec<_>>();
+    let entries = entries.iter().map(String::as_str).collect::<Vec<_>>();
+    assert!(entries.join("\n").len() > 32 * 1024);
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
+#[test]
+fn graphics_and_pack_setting_queries_are_admitted() {
+    for source in [
+        "q.graphics_mode_is_any('simple', 'fancy')",
+        "q.is_pack_setting_selected('repro:mode', 'enabled')",
+        "q.is_pack_setting_enabled('repro:enabled')",
+        "q.get_pack_setting('repro:slider')",
+        "q.bone_orientation_trs('rightarm')",
+    ] {
+        assert!(compiles(source), "{source}");
+    }
+    let entries = [
+        "v.simple = q.graphics_mode_is_any('simple');",
+        "v.enabled = q.is_pack_setting_enabled('repro:enabled');",
+        "v.arm = q.bone_orientation_trs('rightarm');",
+    ];
+    assert_eq!(retained_assignments(&entries), entries.len());
+}
+
 #[test]
 fn server_pre_animation_retains_visibility_after_optional_item_and_property_branches() {
     let mut compiler = MolangCompiler::default();
@@ -239,6 +290,30 @@ fn malformed_script_shapes_drop_the_whole_script_for_entities_and_controllers_al
     assert!(script.is_some() && dropped == 0);
 }
 
+#[test]
+fn block_math_calls_preserve_values_and_stop_at_unknown_arguments() {
+    for (source, expected) in [
+        ("math.abs(q.block_state('test:value'))", Some(2.0)),
+        ("math.max(q.block_state('test:value'), 3)", Some(3.0)),
+        (
+            "math.clamp(math.abs(q.block_state('test:value')), 0, 1)",
+            Some(1.0),
+        ),
+        (
+            "math.max(q.block_state('test:missing'), q.block_state('test:value'))",
+            None,
+        ),
+    ] {
+        let calls = std::cell::Cell::new(0);
+        let value = BlockMolang::parse(source).unwrap().evaluate(&|name| {
+            calls.set(calls.get() + 1);
+            (name == "test:value").then_some(BlockStateValue::Number(-2.0))
+        });
+        assert_eq!(value, expected, "{source}");
+        assert_eq!(calls.get(), 1, "{source}");
+    }
+}
+
 // Block contexts compare strings and read integer/boolean states as numbers.
 #[test]
 fn block_expressions_read_block_states() {
@@ -268,6 +343,44 @@ fn block_expressions_read_block_states() {
     );
     assert_eq!(evaluate("q.is_baby"), None, "other queries do not parse");
     assert_eq!(evaluate("math.random(0, 1) > 0.5"), None);
+}
+
+// Scripted conditions must evaluate, or their permutations never apply.
+#[test]
+fn block_scripts_assign_branch_and_return() {
+    let state = |name: &str| match name {
+        "minecraft:cardinal_direction" => Some(BlockStateValue::String("north")),
+        "test:level" => Some(BlockStateValue::Number(3.0)),
+        _ => None,
+    };
+    let evaluate = |source| BlockMolang::parse(source)?.evaluate(&state);
+    assert_eq!(
+        evaluate("t.level = q.block_state('test:level'); return t.level > 2;"),
+        Some(1.0)
+    );
+    assert_eq!(
+        evaluate(
+            "temp.facing = q.block_state('minecraft:cardinal_direction'); \
+             return temp.facing == 'north';"
+        ),
+        Some(1.0)
+    );
+    assert_eq!(
+        evaluate("q.block_state('test:level') > 1 ? { return 2; }; return 5;"),
+        Some(2.0)
+    );
+    assert_eq!(evaluate("{ v.x = 4; }; return v.x + t.unset;"), Some(4.0));
+    assert_eq!(
+        evaluate("t.x = 1;"),
+        Some(0.0),
+        "a script without return reads zero"
+    );
+    assert_eq!(evaluate("return;"), Some(0.0));
+    assert_eq!(evaluate("loop(2, { t.x = 1; }); return t.x;"), None);
+    assert_eq!(
+        evaluate("t.x = q.block_state('test:missing'); return 1;"),
+        None
+    );
 }
 
 #[test]
@@ -323,4 +436,23 @@ fn overdeep_scripts_drop_and_count_all_entries_without_retaining_a_program() {
     assert!(compiler.programs.is_empty());
     assert_eq!(MolangCompiler::evaluate_default("20 - 5 - 2"), Some(13.0));
     assert_eq!(MolangCompiler::evaluate_default("24 / 3 / 2"), Some(4.0));
+}
+#[test]
+fn incomplete_tag_membership_remains_unknown_through_negation() {
+    let expression = super::ItemTagMolang::parse("!q.any_tag('wood')").unwrap();
+    assert_eq!(expression.evaluate_partial(&|_| None), None);
+    assert_eq!(expression.evaluate_partial(&|_| Some(true)), Some(false));
+    assert_eq!(expression.evaluate_partial(&|_| Some(false)), Some(true));
+    for tags in ["'unknown', 'known'", "'known', 'unknown'"] {
+        let expression = super::ItemTagMolang::parse(&format!("q.any_tag({tags})")).unwrap();
+        assert_eq!(
+            expression.evaluate_partial(&|tag| (tag == "known").then_some(true)),
+            Some(true)
+        );
+        let expression = super::ItemTagMolang::parse(&format!("q.all_tags({tags})")).unwrap();
+        assert_eq!(
+            expression.evaluate_partial(&|tag| (tag == "known").then_some(false)),
+            Some(false)
+        );
+    }
 }

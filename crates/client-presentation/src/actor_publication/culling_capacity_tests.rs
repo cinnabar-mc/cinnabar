@@ -1,10 +1,11 @@
 use super::*;
 use crate::presentation::actors::{PoseConversions, select_actor_presentations};
-use crate::presentation::skin_rig::{MAX_SKIN_RIGS, SkinRigCache};
+use crate::presentation::skin_rig::SkinRigCache;
 use bevy::math::Vec3;
 use protocol::{
     ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, WorldEvent,
 };
+use render_model::MAX_SKIN_RIGS;
 use render_model::{ActorArtworkPages, ActorRigFrameBuilder, ActorRigRoute};
 use std::sync::Arc;
 
@@ -274,6 +275,8 @@ fn input() -> ActorFrameInput {
 
 #[derive(Default)]
 struct Caches {
+    coverage: Vec<u64>,
+    occluded: bool,
     poses: PoseConversions,
     java_poses: java::PoseScratch,
     native_pose: hand::NativePoseCache,
@@ -325,6 +328,7 @@ impl Caches {
             ),
             artwork,
             bodies::BodyCaches {
+                coverage: &self.coverage,
                 poses: &mut self.poses,
                 java_poses: &mut self.java_poses,
                 native_pose: &mut self.native_pose,
@@ -332,7 +336,7 @@ impl Caches {
                 equipment: None,
                 scratch: &mut self.scratch,
             },
-            |_, _, _, _| false,
+            |_, _, _, _| self.occluded,
             &mut geometries,
         );
         (sampled, geometries)
@@ -459,7 +463,7 @@ fn selected_wide_geometry_is_drawn_when_only_its_base_is_outside() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| frame.layers(id),
+        |id| frame.layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -524,7 +528,7 @@ fn selected_geometry_keeps_empty_layer_base_fallback_and_unknown_bounds() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| sampled.render_frame.as_mut().unwrap().layers(id),
+        |id| sampled.render_frame.as_mut().unwrap().layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -600,7 +604,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
         }
         let mut batch =
             select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
-        let mut layers = crate::presentation::skin_layers::SkinLayerCache::default();
+        let mut layers = crate::presentation::skin_layers::ActorLayerCache::default();
         let _ = layers.apply(
             &mut batch,
             &artwork,
@@ -615,6 +619,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
             },
             &mut caches.skin_rigs,
             |geometry| geometries.push(geometry),
+            |_, _| None,
         );
         let persona = batch
             .submissions
@@ -632,6 +637,24 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
                 .any(|draw| draw.identity == persona_identity)
         );
     }
+}
+
+#[test]
+fn a_remote_player_containing_the_camera_reaches_the_draw_frame() {
+    let (assets, artwork) = catalog(None, true, "Geometry.default");
+    let stream = player_world(&assets, 0, |id| skin(id, true), [0.0; 3]);
+    let (sampled, mut geometries) = Caches::default().sample(&stream, &artwork, 1.0);
+    assert_eq!(sampled.remotes.len(), 1);
+    let batch = select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
+    geometries.extend(render_model::pack_geometries(&assets));
+    let mut builder = ActorRigFrameBuilder::new(geometries).unwrap();
+    let built = builder.build(1.0, Some(view()), batch.submissions);
+    assert!(
+        built
+            .manifest
+            .iter()
+            .any(|draw| draw.identity.runtime_id == 1)
+    );
 }
 
 #[test]
@@ -697,5 +720,27 @@ fn remote_body_batches_keep_serial_order_layers_and_budget() {
         caches
             .scratch
             .recycle(sampled.java_posed, sampled.remote_skin_layers);
+    }
+}
+
+#[test]
+fn translated_coverage_prepares_remote_sources_outside_the_live_view_or_behind_terrain() {
+    for (feet, occluded) in [
+        ([0., 0., 5.], false),
+        ([8., 0., -5.], false),
+        ([500., 0., -5.], false),
+        ([0., 0., -5.], true),
+    ] {
+        let (assets, artwork) = catalog(None, true, "Geometry.default");
+        let stream = player_world(&assets, 0, |id| skin(id, false), feet);
+        let mut caches = Caches {
+            occluded,
+            ..Default::default()
+        };
+        assert!(caches.sample(&stream, &artwork, 0.5).0.remotes.is_empty());
+        caches.coverage.push(1);
+        let sampled = caches.sample(&stream, &artwork, 0.5).0;
+        assert_eq!(sampled.remotes.len(), 1, "source at {feet:?}");
+        assert_eq!(sampled.mask_only_runtime_ids, [1]);
     }
 }

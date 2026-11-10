@@ -25,6 +25,8 @@ pub enum CraftGridMatch {
     NoMatch,
     Ambiguous,
     Unique(RecipeHandle),
+    /// A banner applied to the current shield through its advertised special recipe.
+    Shield(crate::inventory_ledger::ShieldCraft),
 }
 
 /// Whether a decoded ingredient view accepts an item and its declared tags.
@@ -132,7 +134,7 @@ pub(crate) fn match_crafting_grid_where(
     {
         return CraftGridMatch::Unavailable;
     }
-    // The lowest priority wins; recipes tied at it must agree on output.
+    // The lowest priority wins; recipes tied at it must agree on every result.
     let mut best: Option<(i32, RecipeHandle)> = None;
     let mut ambiguous = false;
     for handle in catalog.crafting_recipes() {
@@ -152,7 +154,8 @@ pub(crate) fn match_crafting_grid_where(
         match &best {
             Some((priority, _)) if recipe.priority() > *priority => {}
             Some((priority, chosen)) if recipe.priority() == *priority => {
-                ambiguous |= chosen.recipe().output() != recipe.output();
+                ambiguous |= chosen.recipe().output() != recipe.output()
+                    || !chosen.recipe().extra_outputs().eq(recipe.extra_outputs());
             }
             _ => {
                 best = Some((recipe.priority(), handle.clone()));

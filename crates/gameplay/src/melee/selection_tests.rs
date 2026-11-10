@@ -20,6 +20,8 @@ fn reject_block_press(
         .press_sample(Crosshair::Block, movement, recent_ticks, 1)
         .unwrap();
     let press = PressContext {
+        refused_destroy: None,
+        actor_life: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -212,6 +214,8 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
         )
         .unwrap();
     let press = PressContext {
+        refused_destroy: None,
+        actor_life: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -418,6 +422,8 @@ fn synchronized(movement: &crate::movement::MovementTicker) -> (MeleeRuntime, Sw
 fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
+        refused_destroy: None,
+        actor_life: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,

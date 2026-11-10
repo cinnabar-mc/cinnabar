@@ -41,7 +41,8 @@ use {
 
 pub(crate) mod bindings;
 mod gpu;
-mod node;
+pub(crate) mod node;
+pub(crate) mod shaderpack_source;
 use gpu::*;
 #[cfg(test)]
 mod tests;
@@ -62,7 +63,12 @@ const HAND_MATERIAL: HandMaterialUniform = HandMaterialUniform {
         HAND_BLEND_LAYER_FLAG,
         HAND_CUTOUT_LAYER_FLAG,
     ],
-    layer_mask: [HAND_TEXTURE_LAYER_MASK, 0, 0, 0],
+    layer_mask: [
+        HAND_TEXTURE_LAYER_MASK,
+        render_model::hand::HAND_MAP_BACKGROUND_FLAG,
+        0,
+        0,
+    ],
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
@@ -117,7 +123,7 @@ pub(crate) fn enhanced_post_pass(
 ) -> Option<bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem>> {
     world.contains_resource::<Installed>().then(|| {
         crate::gpu_timing::profiled(
-            node::hand_rig,
+            node::hand_rig::<false>,
             Some(render_scene::RuntimeStage::GpuHand),
             "EnhancedHandRigLabel",
         )
@@ -133,7 +139,7 @@ pub(crate) fn install_graph(world: &mut World) {
         .try_schedule_scope(Core3d, |_, schedule| {
             schedule.add_systems(
                 crate::gpu_timing::profiled(
-                    node::hand_rig,
+                    node::hand_rig::<false>,
                     Some(render_scene::RuntimeStage::GpuHand),
                     "HandRigLabel",
                 )

@@ -315,7 +315,7 @@ fn captured_partial_repair_retains_result_durability() {
         u16::from(ANVIL_MATERIAL_SLOT),
         diamonds,
     );
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         local_player_unique_id: 1,
         local_player_runtime_id: 1,
@@ -338,7 +338,7 @@ fn captured_partial_repair_retains_result_durability() {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         ItemIconFrames::default(),
@@ -657,7 +657,7 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
             let ledger = runtime.inventory_ledger(&player);
             protocol::StackRequestSlot {
                 container: protocol::ui_slot_request_container(slot).unwrap(),
-                slot,
+                slot: u16::from(slot),
                 stack_network_id: ledger
                     .target_stack(InventoryTarget::Craft(slot))
                     .unwrap()
@@ -677,42 +677,33 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
         assert_eq!(ledger.cursor_stack().unwrap().count, 1);
         assert_eq!(ledger.pending_request_count(), 1);
         use protocol::{
-            CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
-            StackRequestSlot,
+            StackRequestAction as Action, StackRequestContainer as Container, StackRequestSlot,
         };
         let (packet, requests) = ledger.pending_batch().unwrap().unwrap();
         assert_eq!(requests, 1);
         let request_id = ledger.pending_request_id().unwrap();
+        // The prefilled book name is not the enchanted book's default name, so it is sent.
+        let typed = runtime.screen_state().anvil_name.clone();
         let expected = protocol::item_stack_request_packet_filtered(
             request_id,
             &[
                 Action::CraftRecipeOptional {
                     recipe_network_id: 0,
-                    filtered_string_index: -1,
-                },
-                Action::CraftResultsDeprecated {
-                    results: Arc::from([CraftResult {
-                        identifier: Arc::from("minecraft:enchanted_book"),
-                        aux: 0,
-                        count: 1,
-                        block_runtime_id: 0,
-                        user_data: Arc::clone(&preview.stack.extra_data),
-                    }]),
-                    crafts: 1,
-                },
-                Action::Consume {
-                    amount: u8::try_from(count).unwrap(),
-                    source: target,
+                    filtered_string_index: 0,
                 },
                 Action::Consume {
                     amount: 1,
                     source: material,
                 },
+                Action::Consume {
+                    amount: u8::try_from(count).unwrap(),
+                    source: target,
+                },
                 Action::Take {
                     amount: 1,
                     source: StackRequestSlot {
                         container: Container::CreatedOutput,
-                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
                         stack_network_id: request_id,
                     },
                     destination: StackRequestSlot {
@@ -722,13 +713,10 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
                     },
                 },
             ],
-            &[],
+            &[typed],
         )
         .unwrap();
-        assert_eq!(
-            packet, expected,
-            "the result declaration and take both carry a single book"
-        );
+        assert_eq!(packet, expected, "the take carries a single book");
     }
 }
 
@@ -739,11 +727,11 @@ fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
         publish::{capture_hud_frame, hovered_stack, item_icons::ItemIconFrames},
     };
     let (mut runtime, mut player) = anvil();
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     player
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
-    runtime.hud.set_experience(0, 0.0);
+    runtime.session.hud.set_experience(0, 0.0);
     runtime.sync_anvil_name(&player);
     let low_cost = runtime.anvil_preview(&player).unwrap();
     assert!(low_cost.outcome.cost < inventory::ANVIL_TOO_EXPENSIVE);
@@ -798,7 +786,7 @@ fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         ItemIconFrames::default(),
@@ -922,7 +910,7 @@ fn snapshot_component_weapon_anvil() {
     presentation.enable_json_ui(ui).unwrap();
     presentation.set_gui_scale_preference(Some(2));
     let (mut runtime, mut player) = component_weapon_anvil();
-    runtime.inventory_open = true;
+    runtime.session.inventory_open = true;
     player
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Creative);

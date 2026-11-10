@@ -1,6 +1,9 @@
 use super::*;
 use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
+use bevy::{camera::Viewport, prelude::UVec2};
 
+#[path = "reservation_tests.rs"]
+mod reservation_tests;
 mod viewport_raster;
 use bevy::prelude::UVec4;
 
@@ -12,12 +15,14 @@ fn mask_raster_viewport_uses_main_pass_resolution_and_camera_depth() {
         depth: 0.25..0.75,
     };
     let resolution = MainPassResolutionOverride(UVec2::new(32, 24));
-    let viewport = raster_viewport(Some(&camera), Some(&resolution), [128, 96]).unwrap();
+    let viewport =
+        crate::render_bounds::camera_viewport(Some(&camera), Some(&resolution), [128, 96]).unwrap();
     assert_eq!(viewport.physical_position, UVec2::new(12, 8));
     assert_eq!(viewport.physical_size, resolution.0);
     assert_eq!(viewport.depth, 0.25..0.75);
 
-    let viewport = raster_viewport(None, Some(&resolution), [128, 96]).unwrap();
+    let viewport =
+        crate::render_bounds::camera_viewport(None, Some(&resolution), [128, 96]).unwrap();
     assert_eq!(viewport.physical_position, UVec2::ZERO);
     assert_eq!(viewport.physical_size, resolution.0);
     assert_eq!(viewport.depth, 0.0..1.0);
@@ -25,7 +30,7 @@ fn mask_raster_viewport_uses_main_pass_resolution_and_camera_depth() {
 
 #[test]
 fn mask_raster_viewport_clips_to_attachments_and_handles_empty_views() {
-    let viewport = raster_viewport(None, None, [128, 96]).unwrap();
+    let viewport = crate::render_bounds::camera_viewport(None, None, [128, 96]).unwrap();
     assert_eq!(viewport.physical_position, UVec2::ZERO);
     assert_eq!(viewport.physical_size, UVec2::new(128, 96));
     assert_eq!(viewport.depth, 0.0..1.0);
@@ -35,14 +40,16 @@ fn mask_raster_viewport_clips_to_attachments_and_handles_empty_views() {
         physical_size: UVec2::new(96, 64),
         depth: 0.25..0.75,
     };
-    let viewport = raster_viewport(Some(&camera), None, [64, 48]).unwrap();
+    let viewport = crate::render_bounds::camera_viewport(Some(&camera), None, [64, 48]).unwrap();
     assert_eq!(viewport.physical_position, UVec2::new(12, 8));
     assert_eq!(viewport.physical_size, UVec2::new(52, 40));
     assert_eq!(viewport.depth, 0.25..0.75);
-    assert!(raster_viewport(Some(&camera), None, [12, 8]).is_none());
-    assert!(raster_viewport(Some(&camera), None, [0, 0]).is_none());
+    assert!(crate::render_bounds::camera_viewport(Some(&camera), None, [12, 8]).is_none());
+    assert!(crate::render_bounds::camera_viewport(Some(&camera), None, [0, 0]).is_none());
     let empty = MainPassResolutionOverride(UVec2::ZERO);
-    assert!(raster_viewport(Some(&camera), Some(&empty), [128, 96]).is_none());
+    assert!(
+        crate::render_bounds::camera_viewport(Some(&camera), Some(&empty), [128, 96]).is_none()
+    );
 }
 
 #[test]
@@ -60,6 +67,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
     draw_frame(&mut app, &frame);
     let identity = frame.rig.manifest[0].identity;
     let mask = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -77,7 +85,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     let spans = selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>()).unwrap();
@@ -145,6 +153,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
     assert_eq!(draw_frame(&mut app, &control).len(), 1);
     let identity = &control.rig.manifest[0].identity;
     let mut mask = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -162,7 +171,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(mask.authorized());
@@ -288,6 +297,7 @@ fn actor_mask_pixels_preserve_cutouts_and_blended_coverage() {
         wgpu::Features::empty(),
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            max_inter_stage_shader_variables: 15,
             ..Default::default()
         },
     ) else {
@@ -378,6 +388,7 @@ fn actor_mask_pixels_preserve_dissolve_rejection() {
         wgpu::Features::empty(),
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            max_inter_stage_shader_variables: 15,
             ..Default::default()
         },
     ) else {
@@ -453,11 +464,23 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
     let device = RenderDevice::from(device);
     let original = test_depth(&device, 64, 1);
-    let mask = MaskTarget::new(&device, &original).unwrap();
+    let mask = MaskTarget::new(
+        &device,
+        &PipelineCache::new(device.clone(), true),
+        &original,
+        None,
+    )
+    .unwrap();
     assert!(mask.matches(&original));
     assert!(!mask.matches(&test_depth(&device, 127, 1)));
     assert!(!mask.matches(&test_depth(&device, 64, 4)));
-    let multisampled = MaskTarget::new(&device, &test_depth(&device, 127, 4)).unwrap();
+    let multisampled = MaskTarget::new(
+        &device,
+        &PipelineCache::new(device.clone(), true),
+        &test_depth(&device, 127, 4),
+        None,
+    )
+    .unwrap();
     assert!(multisampled.matches(&test_depth(&device, 127, 4)));
     assert_eq!(multisampled.view.texture().sample_count(), 1);
     assert_eq!(multisampled.render_view.texture().sample_count(), 4);
@@ -501,10 +524,11 @@ fn masks_split_shared_coverage_after_membership_changes() {
             connection: entry.identity.session_id,
             dimension: entry.identity.dimension,
             runtime_id: entry.identity.runtime_id,
-            spawn_revision: entry.identity.spawn_revision,
+            spawn_revision: entry.identity.spawn_revision.get(),
         })
         .collect();
     let mut first = mod_render::masks::Mask {
+        position: None,
         handle: DrawingHandle {
             owner: 1,
             generation: 1,
@@ -574,4 +598,106 @@ fn masks_split_shared_coverage_after_membership_changes() {
         masks.attachment_bytes,
         mod_render::masks::attachment_bytes(64, 64, 1).unwrap()
     );
+}
+
+#[test]
+fn attachment_pressure_preserves_fitting_groups_and_shares_owner_turns() {
+    let masks: Vec<_> = [1, 1, 1, 1, 1, 1, 2, 3]
+        .into_iter()
+        .enumerate()
+        .map(|(i, owner)| mod_render::masks::Mask {
+            position: None,
+            handle: DrawingHandle {
+                owner,
+                generation: owner,
+                slot: i as u64 + 1,
+            },
+            session: mod_api::drawing::DrawingSession::default(),
+            depth: MaskDepth::Always,
+            entities: Vec::new(),
+            style: None,
+        })
+        .collect();
+    for (width, height, expected) in [(1920, 1080, 6), (2560, 1440, 3), (3840, 2160, 1)] {
+        let mut groups: Vec<_> = masks.iter().collect();
+        let bytes = mod_render::masks::attachment_bytes(width, height, 2);
+        let charged = admit_groups(&mut groups, bytes);
+        assert_eq!(groups.len(), expected);
+        assert!(charged <= MAX_MASK_ATTACHMENT_BYTES);
+        if expected >= 3 {
+            assert_eq!(
+                groups
+                    .iter()
+                    .take(3)
+                    .map(|mask| mask.handle.owner)
+                    .collect::<Vec<_>>(),
+                [1, 2, 3]
+            );
+        }
+    }
+    let mut groups: Vec<_> = masks.iter().collect();
+    assert_eq!(admit_groups(&mut groups, None), 0);
+    assert!(groups.is_empty());
+}
+
+#[test]
+fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20], 1);
+    let identity = frame.rig.manifest[0].identity;
+    frame.mask_only_runtime_ids = std::sync::Arc::from([identity.runtime_id]);
+    draw_frame(&mut app, &frame);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert!(gpu.spans.is_empty());
+    assert!(!gpu.mask_spans.is_empty());
+    let mask = mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        position: Some([5., 64., 3.]),
+        style: None,
+        depth: MaskDepth::Always,
+        session: mod_api::drawing::DrawingSession {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        },
+        entities: vec![MaskEntity {
+            connection: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision.get(),
+        }],
+    };
+    assert!(!selection(&mask, gpu).unwrap().is_empty());
+    let root = &gpu.instances[0].world_from_actor;
+    assert_eq!(
+        displacement(&mask, gpu),
+        [5. - root[0][3], 64. - root[1][3], 3. - root[2][3], 0.]
+    );
+    let ordinary = mod_render::masks::Mask {
+        position: None,
+        ..mask.clone()
+    };
+    assert!(!compatible(&mask, &ordinary));
+}
+
+#[test]
+fn an_independent_layer_stays_visible_beside_its_coverage_only_owner() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20, 20], 1);
+    let runtime_id = frame.rig.manifest[0].identity.runtime_id;
+    let manifest = std::sync::Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity.runtime_id = runtime_id;
+    manifest[0].identity.layer = render_model::hats::ACTOR_LAYER_HAT;
+    frame.mask_only_runtime_ids = std::sync::Arc::from([runtime_id]);
+    frame.main_pass_instance_count = Some(1);
+    draw_frame(&mut app, &frame);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert_eq!(gpu.spans.iter().map(|span| span.count).sum::<u32>(), 1);
+    assert_eq!(gpu.mask_spans.iter().map(|span| span.count).sum::<u32>(), 2);
+    assert_eq!(gpu.main_manifest.len(), 1);
 }

@@ -36,6 +36,7 @@ pub(crate) fn reflect(
     stages: &[(&CompiledStage, StageNames<'_>)],
     draw_buffers: &[u32],
 ) -> Result<ProgramReflection, String> {
+    crate::reflect_link::validate(&stages.iter().map(|(stage, _)| *stage).collect::<Vec<_>>())?;
     let mut out = ProgramReflection {
         kind,
         entry_points: vec![],
@@ -73,6 +74,9 @@ pub(crate) fn reflect(
                 .map(|(_, _, n)| n.clone())
                 .or_else(|| var.name.clone())
                 .unwrap_or_default();
+            if compiled.stage == StageKind::Geometry && rb.group == crate::GEOMETRY_GROUP {
+                continue;
+            }
             let res = resource(module, var, name, rb.group, rb.binding, compiled.stage)?;
             match resources.get_mut(&(rb.group, rb.binding)) {
                 Some(existing) => merge(existing, res, rb)?,
@@ -262,6 +266,7 @@ fn resource(
                             format: *format,
                             read: access.contains(naga::StorageAccess::LOAD),
                             write: access.contains(naga::StorageAccess::STORE),
+                            atomic: access.contains(naga::StorageAccess::ATOMIC),
                             stages,
                         })
                     }
@@ -312,6 +317,7 @@ fn merge(existing: &mut Resource, new: Resource, rb: &naga::ResourceBinding) -> 
         {
             a.read |= b.read;
             a.write |= b.write;
+            a.atomic |= b.atomic;
             union(&mut a.stages, b.stages);
         }
         _ => return Err(conflict()),
@@ -359,7 +365,7 @@ fn scalar(s: naga::Scalar) -> ScalarType {
 }
 
 /// Describes scalar, vector and matrix interface values.
-fn value_type(inner: &TypeInner) -> Option<ValueType> {
+pub(crate) fn value_type(inner: &TypeInner) -> Option<ValueType> {
     Some(match inner {
         TypeInner::Scalar(s) => ValueType::Scalar(scalar(*s)),
         TypeInner::Vector { size, scalar: s } => ValueType::Vector {
@@ -390,7 +396,9 @@ fn flatten_uniforms(
     match &module.types[ty].inner {
         TypeInner::Struct { members, .. } => {
             for m in members {
-                let name = m.name.clone().unwrap_or_default();
+                let name =
+                    crate::transform::original_identifier(m.name.as_deref().unwrap_or_default())
+                        .to_owned();
                 let p = if path.is_empty() {
                     name
                 } else {
@@ -568,12 +576,13 @@ mod tests {
                 lines: &lines,
             },
         )
+        .map_err(|failure| failure.diagnostics)
     }
 
     const FRAGMENT: &str = "#version 450
 layout(set = 0, binding = 0) uniform IrisUniforms { float frameTimeCounter; vec3 cameraPosition; };
 layout(set = 1, binding = 0) uniform sampler iris_sampler;
-layout(set = 1, binding = 2) uniform texture2D colortex0;
+layout(set = 1, binding = 5) uniform texture2D colortex0;
 layout(location = 0) out vec4 outColor;
 void main() {
     vec4 base = texture(sampler2D(colortex0, iris_sampler), vec2(frameTimeCounter));

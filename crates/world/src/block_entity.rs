@@ -3,7 +3,14 @@ use std::{collections::BTreeMap, ops::Range, sync::Arc};
 use thiserror::Error;
 
 use crate::{BlockIds, ChunkKey, SubChunk, SubChunkKey};
+mod cell_overlays;
+mod piston_motion;
 mod shape_actor;
+pub use cell_overlays::{
+    CELL_OVERLAYS_BLOCK_ENTITY_ID, CellOverlay, CellOverlays, OverlayItem, OverlayLook,
+    ResolvedCellOverlays,
+};
+pub use piston_motion::{PistonMotion, PistonStep};
 pub use shape_actor::ShapeActor;
 
 /// Maximum encoded size retained for one block entity.
@@ -65,6 +72,7 @@ impl BlockEntityKey {
 #[derive(Debug, Clone)]
 pub struct BlockEntityNbt {
     shape_actor: ShapeActor,
+    cell_overlays: Option<Arc<CellOverlays>>,
     bytes: Arc<[u8]>,
     pub(crate) parsed: Arc<std::sync::OnceLock<Option<Arc<crate::NbtCompound>>>>,
     id: Option<Arc<str>>,
@@ -122,6 +130,7 @@ impl BlockEntityNbt {
             return Ok((
                 Self {
                     shape_actor: ShapeActor::None,
+                    cell_overlays: None,
                     bytes: Arc::from(&input[..consumed]),
                     parsed: Arc::default(),
                     id: None,
@@ -230,6 +239,7 @@ impl BlockEntityNbt {
         let consumed = reader.position();
         let mut nbt = Self {
             shape_actor: ShapeActor::None,
+            cell_overlays: None,
             bytes: Arc::from(&input[..consumed]),
             parsed: Arc::default(),
             id,
@@ -239,6 +249,7 @@ impl BlockEntityNbt {
         };
         if semantic_error.is_none() {
             nbt.shape_actor = ShapeActor::from_nbt(&nbt);
+            nbt.cell_overlays = CellOverlays::from_nbt(&nbt);
         }
         Ok((nbt, consumed, semantic_error))
     }
@@ -271,6 +282,42 @@ impl BlockEntityNbt {
     /// Returns actor geometry inputs cached when this immutable NBT snapshot was decoded.
     pub const fn shape_actor(&self) -> &ShapeActor {
         &self.shape_actor
+    }
+
+    /// The client motion of a piston arm actor.
+    #[must_use]
+    pub const fn piston_motion(&self) -> Option<&PistonMotion> {
+        match &self.shape_actor {
+            ShapeActor::Piston { motion } => Some(motion),
+            _ => None,
+        }
+    }
+
+    /// Anchors a piston arm actor's reported state once the client has simulated `tick`,
+    /// continuing `previous`, the motion of the actor it replaces. Returns the motion.
+    pub(crate) fn report_piston(
+        &mut self,
+        previous: Option<&PistonMotion>,
+        tick: u64,
+    ) -> Option<PistonMotion> {
+        let ShapeActor::Piston { motion } = &mut self.shape_actor else {
+            return None;
+        };
+        *motion = PistonMotion::reported(previous, motion.state(), tick);
+        Some(*motion)
+    }
+
+    /// Replaces a piston arm actor's client motion.
+    pub(crate) fn set_piston_motion(&mut self, replacement: PistonMotion) {
+        if let ShapeActor::Piston { motion } = &mut self.shape_actor {
+            *motion = replacement;
+        }
+    }
+
+    /// Returns the cell overlays decoded when this NBT snapshot was admitted, if it is an overlay
+    /// host's `CinnabarOverlays` block entity.
+    pub fn cell_overlays(&self) -> Option<&Arc<CellOverlays>> {
+        self.cell_overlays.as_ref()
     }
 }
 
@@ -357,6 +404,10 @@ impl DecodedBlockEntities {
 
     pub(crate) fn entities(&self) -> impl Iterator<Item = (BlockEntityKey, &BlockEntityNbt)> {
         self.entities.iter().map(|(&key, nbt)| (key, nbt.as_ref()))
+    }
+
+    pub(crate) fn entities_mut(&mut self) -> &mut BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>> {
+        &mut self.entities
     }
 }
 

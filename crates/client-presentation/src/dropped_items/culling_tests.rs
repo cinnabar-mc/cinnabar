@@ -28,6 +28,7 @@ fn item(position: [f32; 3]) -> DroppedItemView {
         render_scale: 1.0,
         yaw_radians: 0.0,
         item: CanonicalItemStack {
+            trim: None,
             use_animation: Default::default(),
             grip: Default::default(),
             glint: Default::default(),
@@ -38,6 +39,8 @@ fn item(position: [f32; 3]) -> DroppedItemView {
             },
             identifier: Some("test:item".into()),
             visual: ItemVisualRoute::Missing,
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             charged_projectile_role: Default::default(),
             damage: None,
@@ -149,7 +152,7 @@ fn draw(
         work.resolves.set(work.resolves.get() + 1);
         cache.model(
             key.clone(),
-            || Some(model.texture_layers()),
+            || render_model::dropped_item::ItemModelCost::from_model(&model),
             || {
                 work.builds.set(work.builds.get() + 1);
                 Some(model.clone())
@@ -275,7 +278,11 @@ fn hidden_to_visible_keeps_first_admitted_camera_for_cached_and_cold_models() {
         frame(&mut cache, std::slice::from_ref(&key));
         if cached {
             cache
-                .model(key.clone(), || Some(1), || Some(sprite()))
+                .model(
+                    key.clone(),
+                    || render_model::dropped_item::ItemModelCost::from_model(&sprite()),
+                    || Some(sprite()),
+                )
                 .unwrap();
         }
         let frustum = frustum();
@@ -723,7 +730,7 @@ fn a_hidden_admitted_route_does_not_fall_through_to_an_icon() {
         .model(&mut cache, &key, DroppedItemShape::Cube, |cache| {
             cache.model(
                 key.clone(),
-                || Some(cube().texture_layers()),
+                || render_model::dropped_item::ItemModelCost::from_model(&cube()),
                 || Some(cube()),
             )
         })

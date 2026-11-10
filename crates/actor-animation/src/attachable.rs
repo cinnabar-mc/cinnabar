@@ -44,6 +44,14 @@ pub struct AttachableAnimationInput<'a> {
 }
 
 impl AttachableAnimationInput<'_> {
+    /// Index of the separately replicated body slot in worn-item query context.
+    pub const BODY_SLOT: u8 = 4;
+
+    /// Returns the model binding name assigned to the rendered equipment slot.
+    pub fn item_slot(self) -> &'static str {
+        item_slot(self.worn, self.worn_slot, self.off_hand)
+    }
+
     /// Keeps owner item scaling independent of offhand and worn item models.
     pub fn main_hand_scale(self) -> f32 {
         if self.off_hand || self.worn {
@@ -87,18 +95,23 @@ pub struct AttachableQueryContext {
 impl AttachableQueryContext {
     /// Returns the model binding name assigned to the rendered equipment slot.
     pub(super) fn item_slot(self) -> &'static str {
-        if self.worn {
-            match self.worn_slot {
-                0 => "head",
-                1 => "torso",
-                4 => "body",
-                _ => "",
-            }
-        } else if self.off_hand {
-            "off_hand"
-        } else {
-            "main_hand"
+        item_slot(self.worn, self.worn_slot, self.off_hand)
+    }
+}
+
+/// Shares the slot context between query evaluation and owner-bone placement.
+fn item_slot(worn: bool, worn_slot: u8, off_hand: bool) -> &'static str {
+    if worn {
+        match worn_slot {
+            0 => "head",
+            1 => "torso",
+            AttachableAnimationInput::BODY_SLOT => "body",
+            _ => "",
         }
+    } else if off_hand {
+        "off_hand"
+    } else {
+        "main_hand"
     }
 }
 
@@ -365,9 +378,10 @@ impl AttachablesRuntime {
         state
             .history
             .push_back(selection::owner_frame(owner, owner_rig, input));
-        let mut world_left = MAX_MOLANG_OPS_PER_ACTOR_TICK;
+        let allowance = molang_tick_budget(&self.assets, binding);
+        let mut world_left = allowance;
         let mut budget = EvalBudget {
-            actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+            actor_left: allowance,
             world_left: &mut world_left,
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
             transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,

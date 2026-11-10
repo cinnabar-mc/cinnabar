@@ -20,16 +20,22 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
     },
 ];
 
-pub const TYPEFACES: &[SettingChoice] = &[
+/// Client presentation preference; Java's input line over the game remains the default.
+pub const CHAT_INPUT_OPTION: SettingDefinition = super::SettingId::CinnabarChatInput.definition();
+
+/// The open chat's input presentations, in saved-value order. Each choice's name is also the
+/// built-in HUD pack's context flag for it.
+pub const CHAT_INPUTS: &[SettingChoice] = &[
     SettingChoice {
-        name: "typeface_radio_mojangles",
-        label: "typeface.mojangles",
+        name: "cinnabar_chat_input_java",
+        label: "Java",
     },
     SettingChoice {
-        name: "typeface_radio_notoSans",
-        label: "typeface.notoSans",
+        name: "cinnabar_chat_input_bedrock",
+        label: "Bedrock",
     },
 ];
+
 /// One color's text code and rendered swatch.
 #[derive(Clone, Copy, Debug)]
 pub struct ChatColor {
@@ -59,6 +65,15 @@ chat_colors! {
     4 => "color.light_purple", 'd', LightPurple;
     5 => "color.yellow", 'e', Yellow;
     6 => "color.gold", '6', Gold;
+    7 => "color.gray", '7', Gray;
+    8 => "color.dark_gray", '8', DarkGray;
+    9 => "color.blue", '9', Blue;
+    10 => "color.dark_green", '2', DarkGreen;
+    11 => "color.dark_aqua", '3', DarkAqua;
+    12 => "color.dark_purple", '5', DarkPurple;
+    13 => "color.dark_red", '4', DarkRed;
+    14 => "color.dark_blue", '1', DarkBlue;
+    15 => "color.black", '0', Black;
 }
 
 impl SettingsOptions {
@@ -67,18 +82,14 @@ impl SettingsOptions {
         self.value(CHAT_POSITION_OPTION.id) == 1
     }
 
-    /// Vanilla disables smooth chat for these four locales.
-    pub fn chat_smooth_available(&self) -> bool {
-        !matches!(self.language(), Some("zh_TW" | "zh_CN" | "ko_KR" | "ja_JP"))
+    /// Selects vanilla Bedrock's full chat screen instead of Java's input line.
+    pub fn bedrock_chat_input(&self) -> bool {
+        self.value(CHAT_INPUT_OPTION.id) == 1
     }
 
-    /// Scales the open chat's text; the exact retail font-size option range remains unverified.
+    /// Scales the bundled chat font independently of any retired typeface preference.
     pub fn chat_font_scale(&self) -> f64 {
-        if !self.chat_smooth_available() || self.value(SettingId::ChatTypeface) == 0 {
-            1.0
-        } else {
-            f64::from(self.value(SettingId::ChatFontSize)) / 10.0
-        }
+        f64::from(self.value(SettingId::ChatFontSize)) / 10.0
     }
 
     /// Applies vanilla's one-decimal padding plus its nonzero epsilon.
@@ -86,9 +97,16 @@ impl SettingsOptions {
         f64::from(self.value(SettingId::ChatLineSpacing)) / 10.0 + 0.001
     }
 
-    /// Uses the seven legacy chat colors from the vanilla indexed palette.
+    /// Uses the saved index in the chat presentation palette.
     pub fn chat_color_code(&self) -> char {
-        CHAT_PALETTE[self.value(SettingId::ChatColor) as usize].code
+        let val = self.value(SettingId::ChatColor) as usize;
+        CHAT_PALETTE.get(val).map_or('f', |c| c.code)
+    }
+
+    /// Uses the saved index in the mention presentation palette.
+    pub fn mentions_color_code(&self) -> char {
+        let val = self.value(SettingId::MentionsColor) as usize;
+        CHAT_PALETTE.get(val).map_or('e', |c| c.code)
     }
 
     /// Matches the three authored notification-duration radio choices.

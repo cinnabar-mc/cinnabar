@@ -1,4 +1,4 @@
-//! Item tooltip text: name, potion effects, enchantments and lore.
+//! Item tooltip text: name, potion effects, enchantments, firework details and lore.
 
 use assets::facts::PotionForm;
 use protocol::NetworkItemStack;
@@ -6,10 +6,14 @@ use protocol::NetworkItemStack;
 use super::UiRuntime;
 use super::hud_layout::TooltipLine;
 
+mod fireworks;
+
 const NAME_COLOR: [u8; 4] = [255, 255, 255, 255];
 const ENCHANT_COLOR: [u8; 4] = [170, 170, 170, 255];
 const LORE_COLOR: [u8; 4] = [170, 0, 170, 255];
-const BENEFICIAL_EFFECT_COLOR: [u8; 4] = [85, 85, 255, 255];
+/// The fallback colour of the `§9` (blue) format code.
+const BLUE_TEXT_COLOR: [u8; 4] = [85, 85, 255, 255];
+const BENEFICIAL_EFFECT_COLOR: [u8; 4] = BLUE_TEXT_COLOR;
 const HARMFUL_EFFECT_COLOR: [u8; 4] = [255, 85, 85, 255];
 
 /// The potion form of a vanilla potion item identifier.
@@ -129,6 +133,17 @@ pub(super) fn name_line(
     stated_name: Option<&str>,
     display: &protocol::ItemDisplay,
 ) -> Option<TooltipLine> {
+    name_line_with_style(runtime, identifier, metadata, stated_name, display, true)
+}
+
+fn name_line_with_style(
+    runtime: &UiRuntime,
+    identifier: Option<&str>,
+    metadata: u32,
+    stated_name: Option<&str>,
+    display: &protocol::ItemDisplay,
+    italic_custom_name: bool,
+) -> Option<TooltipLine> {
     let custom_name = stated_name.or(display.name.as_deref());
     let mut name = custom_name
         .map(str::to_owned)
@@ -143,7 +158,7 @@ pub(super) fn name_line(
         name.insert(0, descriptor.code);
         name.insert(0, '§');
     }
-    if custom_name.is_some() {
+    if italic_custom_name && custom_name.is_some() {
         name.insert_str(0, "§o");
     }
     name.push_str("§r");
@@ -157,14 +172,40 @@ pub(super) fn tooltip_lines(
     identifier: Option<&str>,
     stated_name: Option<&str>,
 ) -> Vec<TooltipLine> {
+    tooltip_lines_with_name_style(runtime, stack, identifier, stated_name, true)
+}
+
+/// Builds a tooltip whose external name is a group heading, not an item custom name.
+pub(super) fn tooltip_lines_plain_name(
+    runtime: &UiRuntime,
+    stack: &NetworkItemStack,
+    identifier: Option<&str>,
+    name: Option<&str>,
+) -> Vec<TooltipLine> {
+    tooltip_lines_with_name_style(runtime, stack, identifier, name, false)
+}
+
+fn tooltip_lines_with_name_style(
+    runtime: &UiRuntime,
+    stack: &NetworkItemStack,
+    identifier: Option<&str>,
+    stated_name: Option<&str>,
+    italic_custom_name: bool,
+) -> Vec<TooltipLine> {
     let facts = runtime.stack_facts(stack);
     let display = &facts.display;
     let mut lines = vec![
-        name_line(runtime, identifier, stack.metadata, stated_name, display).unwrap_or_else(|| {
-            TooltipLine {
-                text: "Unknown Item".to_owned(),
-                color: NAME_COLOR,
-            }
+        name_line_with_style(
+            runtime,
+            identifier,
+            stack.metadata,
+            stated_name,
+            display,
+            italic_custom_name,
+        )
+        .unwrap_or_else(|| TooltipLine {
+            text: "Unknown Item".to_owned(),
+            color: NAME_COLOR,
         }),
     ];
     if let Some((descriptor, form)) = potion(identifier, stack.metadata) {
@@ -175,6 +216,9 @@ pub(super) fn tooltip_lines(
             text: enchantment_name(runtime, *id, *level),
             color: ENCHANT_COLOR,
         });
+    }
+    if let Some(identifier) = identifier {
+        lines.extend(fireworks::lines(runtime, identifier, &stack.extra_data));
     }
     lines.extend(display.lore.iter().map(|line| TooltipLine {
         text: line.to_string(),

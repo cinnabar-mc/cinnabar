@@ -42,6 +42,11 @@ impl WorldAuthority {
     pub fn local_sleeping_bed(&self) -> Option<([i32; 3], f32)> {
         self.actor(self.local_player_runtime_id)?.sleeping_bed()
     }
+    /// Borrows the local player's admitted actor state, including data the server sent
+    /// before its presentation body exists.
+    pub fn local_actor(&self) -> Option<&ActorSnapshot> {
+        self.actors.actor_authority(self.local_player_runtime_id)
+    }
     /// Reads the committed form dimension epoch.
     pub const fn form_dimension_epoch(&self) -> u64 {
         self.form_dimension_epoch
@@ -75,13 +80,18 @@ impl WorldAuthority {
         &self.resolved_biome_tints
     }
     /// Resolves and retains a server position using this session's existing anchor.
-    pub fn resolve_position(&mut self, position: [f32; 3]) -> ResolvedServerPosition {
+    pub fn resolve_position(
+        &mut self,
+        sequence: u64,
+        position: [f32; 3],
+    ) -> ResolvedServerPosition {
         let resolved = resolve_server_position(
             position,
             self.resolved_server_position.position,
             self.resolved_server_position.surface_anchor,
         );
         self.resolved_server_position = resolved;
+        self.retain_local_actor_position(sequence, resolved.position.map(Some));
         resolved
     }
     /// Accepts correction ticks in their original nondecreasing order.
@@ -127,6 +137,8 @@ impl WorldAuthority {
             !remap.is_identity(),
         );
         self.id_remap = Arc::new(remap);
+        self.actors
+            .set_air_block_network_id(self.block_network_id(self.air_block_id));
     }
     /// Captures the session registry view used by one admitted decode job.
     pub fn decode_ids(&self, dimension: i32) -> crate::ingestion::DecodeIds {

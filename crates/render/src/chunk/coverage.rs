@@ -122,13 +122,17 @@ pub(super) fn publish_terrain_coverage(
         (None, None) => true,
         _ => false,
     };
-    if let Some((revision, empty)) = coverage.source.as_ref().and_then(|source| {
-        source.changed_empty(if same_target {
-            coverage.source_revision
-        } else {
-            None
+    // Only a far target reads empty proofs. Without one, copying them on every receipt is
+    // O(loaded) waste; the next target is never `same_target`, so it replays them all.
+    if target.is_some()
+        && let Some((revision, empty)) = coverage.source.as_ref().and_then(|source| {
+            source.changed_empty(if same_target {
+                coverage.source_revision
+            } else {
+                None
+            })
         })
-    }) {
+    {
         coverage.state.replace_empty(empty);
         coverage.source_revision = Some(revision);
         coverage.dirty = true;
@@ -162,7 +166,7 @@ pub(super) fn publish_terrain_coverage(
             );
             if coverage.mask.as_deref() != Some(&mask) {
                 let mask = Arc::new(mask);
-                gpu.publish_mask(&device, &queue, Arc::clone(&mask));
+                let _ = gpu.publish_mask(&device, &queue, Arc::clone(&mask));
                 coverage.mask = Some(mask);
             }
             scene.residency.publish_near(

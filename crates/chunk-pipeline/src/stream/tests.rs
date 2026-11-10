@@ -113,6 +113,7 @@ mod column_residency;
 mod commit_budget;
 mod dimension_ranges;
 mod dimension_transfer;
+mod empty_retirement;
 mod job_snapshots;
 mod light_scheduler;
 mod local_retention;
@@ -436,7 +437,8 @@ fn block_entity_runtime_id(name: &str) -> u32 {
         .sequential_id
 }
 
-/// Gives synthetic cube artwork the pinned registry's state and hash identities.
+/// Gives synthetic artwork the pinned registry's state and hash identities: cubes, except
+/// model-only block-entity backings, which are models so their admitted geometry matches.
 fn block_entity_visual_assets() -> RuntimeAssets {
     let visual = BlockVisual {
         native_material: assets::native_material::NativeMaterialFacts::Unresolved,
@@ -450,6 +452,7 @@ fn block_entity_visual_assets() -> RuntimeAssets {
         variant: 0,
         destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
+    let (side, uv) = (assets::MODEL_POSITION_SCALE, assets::MODEL_UV_SCALE);
     let records = block_entity_visual_registry();
     let count = records
         .iter()
@@ -463,7 +466,27 @@ fn block_entity_visual_assets() -> RuntimeAssets {
         .collect::<Vec<_>>();
     hashed.sort_unstable();
     let compiled = CompiledAssets {
-        visuals: vec![visual; count].into_boxed_slice(),
+        visuals: (0..count as u32)
+            .map(|sequential_id| {
+                let model_only = assets::facts::BlockEntityFacts::pinned()
+                    .get(sequential_id)
+                    .is_some_and(|backing| {
+                        let geometry = backing.entity.geometry;
+                        !geometry.accepts(VisualKind::Cube, false)
+                            && geometry.accepts(VisualKind::Model, false)
+                    });
+                if model_only {
+                    BlockVisual {
+                        kind: VisualKind::Model,
+                        flags: BlockFlags::empty(),
+                        model_template: 0,
+                        ..visual
+                    }
+                } else {
+                    visual
+                }
+            })
+            .collect(),
         light_properties: vec![assets::LightProperties::default(); count].into_boxed_slice(),
         hashed: hashed.into_boxed_slice(),
         materials: vec![Material {
@@ -473,8 +496,17 @@ fn block_entity_visual_assets() -> RuntimeAssets {
             ..assets::Material::unvaried()
         }]
         .into_boxed_slice(),
-        model_templates: Box::new([]),
-        model_quads: Box::new([]),
+        model_templates: Box::new([assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }]),
+        model_quads: Box::new([assets::ModelQuad {
+            positions: [[0, 0, 0], [0, side, 0], [side, side, 0], [side, 0, 0]],
+            uvs: [[0, 0], [0, uv], [uv, uv], [uv, 0]],
+            material: 0,
+            flags: 0,
+        }]),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray {
@@ -486,7 +518,7 @@ fn block_entity_visual_assets() -> RuntimeAssets {
                     rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
@@ -796,7 +828,7 @@ fn cave_test_assets() -> RuntimeAssets {
                     rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
@@ -860,6 +892,7 @@ mod mesh_dispatch;
 mod mesh_publication;
 mod mesh_removal;
 mod near_drawn;
+mod placed_block_entities;
 mod player_grid_interest;
 mod player_retention;
 mod prediction;
@@ -871,6 +904,7 @@ mod render_distance;
 mod request_admission;
 mod request_lifecycle;
 mod request_order;
+mod sample_cache;
 mod service;
 mod streaming_harness;
 mod sub_chunk_recovery;

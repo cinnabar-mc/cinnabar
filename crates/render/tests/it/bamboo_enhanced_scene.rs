@@ -48,7 +48,7 @@ fn fixture() -> Option<(
         Err(error) => panic!("Enhanced bamboo carrier {}: {error}", path.display()),
     };
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../assets/data/block-registry-v2225.bin"),
         target["wire_protocol"].as_u64().unwrap() as u32,
     )
     .unwrap()
@@ -446,7 +446,8 @@ fn enhanced_bamboo_uses_the_production_graph_under_changing_views_and_shadows() 
             .clone()
     };
     assert!(!cracked.crack.is_empty());
-    app.world_mut().insert_resource(cracked);
+    app.world_mut()
+        .insert_resource(render_scene::BlockEntityFrameResource(cracked));
     let cracked = capture(&mut app);
     assert_ne!(
         close, cracked,

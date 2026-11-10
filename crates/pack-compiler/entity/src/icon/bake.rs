@@ -6,6 +6,7 @@ use std::{
     path::Path,
 };
 
+use assets::gui_item::CubeLighting;
 use assets::{
     AssetError, BlockVisualId, CompiledEntityAssets, EntityGeometry, IconBlockModel,
     IconBlockSheet, IconSprite, NetworkIdMode, RuntimeAssets, compose_block_item_sheet,
@@ -14,11 +15,38 @@ use sha2::{Digest, Sha256};
 
 use super::{blocks::IconBlocks, cube, model};
 
+#[cfg(test)]
+#[path = "bake/pane_tests.rs"]
+mod pane_tests;
+
+#[derive(Default)]
+struct SpriteBindings {
+    /// Reserved sprites, with a world state only when they also bind a held model.
+    isolated: BTreeMap<u32, Option<BlockVisualId>>,
+    unshaded: BTreeSet<u32>,
+}
+
+impl SpriteBindings {
+    /// Allows pixel reuse only for unreserved thumbnails with the same lighting.
+    fn can_reuse(&self, sprite: u32, lighting: CubeLighting) -> bool {
+        !self.isolated.contains_key(&sprite)
+            && self.unshaded.contains(&sprite) == (lighting == CubeLighting::Unshaded)
+    }
+
+    /// Retains the lighting policy of a newly allocated thumbnail.
+    fn record_lighting(&mut self, sprite: u32, lighting: CubeLighting) {
+        if lighting == CubeLighting::Unshaded {
+            self.unshaded.insert(sprite);
+        }
+    }
+}
+
 pub(super) struct BakedBlocks {
     pub flat_sprites: BTreeMap<u32, u32>,
     pub model_sprites: BTreeMap<(u32, u32), u32>,
     pub block_sprites: BTreeMap<u32, u32>,
     pub block_sheets: Vec<IconBlockSheet>,
+    pub gui_block_sheets: Vec<IconBlockSheet>,
     /// Model thumbnails by sprite, with the world state whose quads they project.
     pub block_models: Vec<IconBlockModel>,
 }
@@ -32,22 +60,41 @@ pub(super) fn run(
     compiled: &CompiledEntityAssets,
     sprites: &mut Vec<IconSprite>,
 ) -> Result<BakedBlocks, AssetError> {
-    let mut block_models = BTreeMap::new();
+    let mut bindings = SpriteBindings::default();
+    let unshaded_visuals: BTreeSet<_> = compiled
+        .item_visuals
+        .iter()
+        .filter_map(|definition| {
+            let assets::ItemVisualDefinitionRoute::BlockItem { block_visual } = definition.route
+            else {
+                return None;
+            };
+            (assets::gui_item::cube_lighting(&definition.key.identifier) == CubeLighting::Unshaded)
+                .then_some(block_visual.0)
+        })
+        .collect();
+    let lighting_for_visual = |visual| {
+        if unshaded_visuals.contains(&visual) {
+            CubeLighting::Unshaded
+        } else {
+            CubeLighting::Directional
+        }
+    };
+    let mut held_sprites = BTreeMap::new();
     let mut flat_by_path: BTreeMap<Box<str>, Option<u32>> = BTreeMap::new();
     let mut flat_sprites = BTreeMap::new();
     for (&visual, path) in flat_plan {
         let Some(path) = path else {
             continue;
         };
-        let sprite = match flat_by_path.get(path) {
-            Some(existing) => *existing,
-            None => {
-                let sprite = IconBlocks::sprite(root, path)?
-                    .map(|sprite| insert_sprite(sprites, sprite, &block_models));
-                flat_by_path.insert(path.clone(), sprite);
-                sprite
-            }
-        };
+        let sprite = cached_flat_sprite(
+            root,
+            blocks,
+            path,
+            sprites,
+            &mut bindings,
+            &mut flat_by_path,
+        )?;
         if let Some(sprite) = sprite {
             flat_sprites.insert(visual, sprite);
         }
@@ -56,13 +103,26 @@ pub(super) fn run(
     if let (Some(world), Some(blocks)) = (world, blocks) {
         for &visual in block_plan.keys() {
             let id = BlockVisualId(visual);
-            if blocks.is_carried_cube(world, id)
+            if !blocks
+                .name(id)
+                .is_some_and(assets::gui_item::has_carried_bitmap_shape)
+                && blocks.is_carried_cube(world, id)
                 && let Some(tiles) = blocks.carried_cube_tiles(root, id)?
             {
                 carried_tiles.insert(visual, tiles);
             } else if let Some(tiles) = blocks.inventory_cube_tiles(root, id)? {
                 // Chests draw as a cube of their inventory tiles, so the GUI can draw them in 3D.
                 carried_tiles.insert(visual, tiles);
+            }
+        }
+    }
+    let mut gui_tiles = BTreeMap::new();
+    if let Some(blocks) = blocks {
+        for &visual in block_plan.keys() {
+            if let Some(gui) = blocks.gui_cube_tiles(root, BlockVisualId(visual))?
+                && carried_tiles.get(&visual) != Some(&gui)
+            {
+                gui_tiles.insert(visual, gui);
             }
         }
     }
@@ -87,31 +147,71 @@ pub(super) fn run(
             .collect();
         for (visual, metadata) in model_keys {
             let plan = &block_plan[&visual];
-            let raster = if let Some(tiles) = carried_tiles.get(&visual) {
+            let raster = if let Some(tiles) = gui_tiles
+                .get(&visual)
+                .or_else(|| carried_tiles.get(&visual))
+            {
                 Some((
                     model::Model::cube(
                         tiles.clone().map(|tile| tile.rgba8.to_vec().into()),
                         cube_blending(world, BlockVisualId(visual)),
                     )
+                    .with_render_kind(gui_kind(blocks, BlockVisualId(visual)))
                     .raster(),
-                    None,
+                    // GUI-only cube artwork keeps the world model binding for held rendering.
+                    (!carried_tiles.contains_key(&visual)).then(|| {
+                        blocks.map_or(BlockVisualId(visual), |blocks| {
+                            blocks.icon_state(BlockVisualId(visual))
+                        })
+                    }),
                 ))
-            } else if plan.is_ok() {
+            } else if plan.is_ok()
+                && !blocks
+                    .and_then(|blocks| blocks.name(BlockVisualId(visual)))
+                    .is_some_and(assets::gui_item::has_carried_bitmap_shape)
+            {
                 continue;
             } else {
                 model_raster(root, world, blocks, &compiled.geometries, visual, metadata)?
             };
             if let Some((raster, state)) = raster {
+                let held = if state.is_some() {
+                    match blocks.and_then(|blocks| blocks.held_texture_path(BlockVisualId(visual)))
+                    {
+                        Some(path) => cached_flat_sprite(
+                            root,
+                            blocks,
+                            &path,
+                            sprites,
+                            &mut bindings,
+                            &mut flat_by_path,
+                        )?,
+                        None => None,
+                    }
+                } else {
+                    None
+                };
                 let sprite = if let Some(state) = state {
                     *model_sprites_by_state.entry(state.0).or_insert_with(|| {
                         let sprite = sprites.len() as u32;
                         sprites.push(raster);
-                        block_models.insert(sprite, state);
+                        bindings.isolated.insert(sprite, Some(state));
                         sprite
                     })
+                } else if assets::gui_item::forces_covered_gui_alpha(gui_kind(
+                    blocks,
+                    BlockVisualId(visual),
+                )) {
+                    let sprite = sprites.len() as u32;
+                    sprites.push(raster);
+                    bindings.isolated.insert(sprite, None);
+                    sprite
                 } else {
-                    insert_sprite(sprites, raster, &block_models)
+                    insert_sprite(sprites, raster, &mut bindings, lighting_for_visual(visual))
                 };
+                if let Some(held) = held {
+                    held_sprites.insert(sprite, held);
+                }
                 model_sprites.insert((visual, metadata), sprite);
             }
         }
@@ -123,12 +223,17 @@ pub(super) fn run(
             .iter()
             .filter(|(visual, value)| value.is_ok() && !model_sprites.contains_key(&(**visual, 0)))
             .count();
-        preflight(sprites, block_count, carried_tiles.len(), compiled)?;
+        preflight(
+            sprites,
+            block_count,
+            carried_tiles.len() + gui_tiles.len(),
+            compiled,
+        )?;
     }
     let mut baked: BTreeMap<[u8; 32], Vec<(&cube::Cube<'_>, u32)>> = BTreeMap::new();
     let mut output_hashes: BTreeMap<[u8; 32], Vec<u32>> = BTreeMap::new();
     for (index, sprite) in sprites.iter().enumerate() {
-        if !block_models.contains_key(&(index as u32)) {
+        if !bindings.isolated.contains_key(&(index as u32)) {
             output_hashes
                 .entry(Sha256::digest(&sprite.rgba8).into())
                 .or_default()
@@ -143,12 +248,14 @@ pub(super) fn run(
         let Ok(plan) = plan else {
             continue;
         };
+        let lighting = lighting_for_visual(visual);
         let sprite = if let Some((_, index)) = baked
             .get(&plan.digest())
             .into_iter()
             .flat_map(|bucket| bucket.iter())
-            .find(|(previous, _)| plan.same_source(previous))
-        {
+            .find(|(previous, index)| {
+                plan.same_source(previous) && bindings.can_reuse(*index, lighting)
+            }) {
             *index
         } else {
             let raster = plan.raster();
@@ -158,11 +265,14 @@ pub(super) fn run(
                 .get(&output)
                 .into_iter()
                 .flat_map(|bucket| bucket.iter())
-                .find(|&&index| sprites[index as usize] == raster)
+                .find(|&&index| {
+                    sprites[index as usize] == raster && bindings.can_reuse(index, lighting)
+                })
                 .copied()
                 .unwrap_or_else(|| {
                     let index = sprites.len() as u32;
                     sprites.push(raster);
+                    bindings.record_lighting(index, lighting);
                     output_hashes.entry(output).or_default().push(index);
                     index
                 });
@@ -177,7 +287,17 @@ pub(super) fn run(
             let sprite = compose_block_item_sheet(tiles)?;
             Some(IconBlockSheet {
                 visual: BlockVisualId(visual),
-                sprite: insert_sprite(sprites, sprite, &block_models),
+                sprite: insert_sprite(sprites, sprite, &mut bindings, CubeLighting::Directional),
+            })
+        })
+        .collect();
+    let gui_block_sheets = gui_tiles
+        .iter()
+        .filter_map(|(&visual, tiles)| {
+            let sprite = compose_block_item_sheet(tiles)?;
+            Some(IconBlockSheet {
+                visual: BlockVisualId(visual),
+                sprite: insert_sprite(sprites, sprite, &mut bindings, CubeLighting::Directional),
             })
         })
         .collect();
@@ -186,26 +306,57 @@ pub(super) fn run(
         model_sprites,
         block_sprites,
         block_sheets,
-        block_models: block_models
+        gui_block_sheets,
+        block_models: bindings
+            .isolated
             .into_iter()
-            .map(|(sprite, visual)| IconBlockModel { sprite, visual })
+            .filter_map(|(sprite, visual)| {
+                Some(IconBlockModel {
+                    sprite,
+                    visual: visual?,
+                    held_sprite: held_sprites.get(&sprite).copied(),
+                })
+            })
             .collect(),
     })
 }
 
-/// Reuses thumbnail pixels only when the sprite is not bound to a native block model.
+/// Shares flat carried artwork by source path without aliasing GUI model thumbnails.
+fn cached_flat_sprite(
+    root: &Path,
+    blocks: Option<&IconBlocks>,
+    path: &str,
+    sprites: &mut Vec<IconSprite>,
+    bindings: &mut SpriteBindings,
+    cache: &mut BTreeMap<Box<str>, Option<u32>>,
+) -> Result<Option<u32>, AssetError> {
+    if let Some(sprite) = cache.get(path) {
+        return Ok(*sprite);
+    }
+    let sprite = blocks
+        .map(|blocks| blocks.flat_sprite(root, path))
+        .transpose()?
+        .flatten()
+        .map(|sprite| insert_sprite(sprites, sprite, bindings, CubeLighting::Directional));
+    cache.insert(path.into(), sprite);
+    Ok(sprite)
+}
+
+/// Reuses pixels only when thumbnail lighting and model bindings allow it.
 fn insert_sprite(
     sprites: &mut Vec<IconSprite>,
     sprite: IconSprite,
-    block_models: &BTreeMap<u32, BlockVisualId>,
+    bindings: &mut SpriteBindings,
+    lighting: CubeLighting,
 ) -> u32 {
     sprites
         .iter()
         .enumerate()
         .find_map(|(index, known)| {
-            (*known == sprite && !block_models.contains_key(&(index as u32))).then_some(index)
+            (*known == sprite && bindings.can_reuse(index as u32, lighting)).then_some(index)
         })
         .unwrap_or_else(|| {
+            bindings.record_lighting(sprites.len() as u32, lighting);
             sprites.push(sprite);
             sprites.len() - 1
         }) as u32
@@ -267,8 +418,15 @@ fn model_raster(
     metadata: u32,
 ) -> Result<Option<(IconSprite, Option<BlockVisualId>)>, AssetError> {
     let visual = BlockVisualId(visual);
+    if let Some(blocks) = blocks
+        && blocks
+            .name(visual)
+            .is_some_and(assets::gui_item::has_carried_bitmap_shape)
+    {
+        return Ok(super::shapes::raster(root, blocks, visual)?.map(|raster| (raster, None)));
+    }
     let state = blocks.map_or(visual, |blocks| blocks.icon_state(visual));
-    if let Ok(model) = model::Model::read(world, state) {
+    if let Ok(model) = model::Model::read(world, state, gui_kind(blocks, state)) {
         return Ok(Some((model.raster(), Some(state))));
     }
     Ok(
@@ -295,6 +453,7 @@ fn fallback_raster(
                 tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
                 [false; 6],
             )
+            .with_render_kind(gui_kind(Some(blocks), visual))
             .raster(),
         ));
     }
@@ -308,8 +467,18 @@ fn fallback_raster(
             tiles.map(|tile| tile.rgba8.to_vec().into_boxed_slice()),
             cube_blending(world, visual),
         )
+        .with_render_kind(gui_kind(Some(blocks), visual))
         .raster()
     }))
+}
+
+/// Resolves the inventory sampling family from the retained block identity.
+fn gui_kind(blocks: Option<&IconBlocks>, visual: BlockVisualId) -> assets::facts::BlockRenderKind {
+    blocks
+        .and_then(|blocks| blocks.name(visual))
+        .map(assets::facts::block_render_fact)
+        .map(|fact| fact.kind)
+        .unwrap_or_default()
 }
 
 fn cube_blending(world: &RuntimeAssets, visual: BlockVisualId) -> [bool; 6] {
@@ -451,6 +620,7 @@ mod block_entity_tests {
                 16,
                 [130, 60, 20, 255],
             ),
+            ("textures/blocks/planks_oak", 16, 16, [160, 120, 70, 255]),
             ("textures/blocks/lectern_base", 16, 16, [150, 90, 40, 255]),
             ("textures/blocks/lectern_sides", 16, 16, [130, 70, 30, 255]),
             ("textures/blocks/lectern_top", 16, 16, [180, 110, 60, 255]),
@@ -702,3 +872,19 @@ mod block_entity_tests {
         assert_eq!(rasters[1], rasters[2]);
     }
 }
+
+#[cfg(test)]
+#[path = "bake/dried_ghast_tests.rs"]
+mod dried_ghast_tests;
+
+#[cfg(test)]
+#[path = "bake/sensor_tests.rs"]
+mod sensor_tests;
+
+#[cfg(test)]
+#[path = "bake/shrieker_tests.rs"]
+mod shrieker_tests;
+
+#[cfg(test)]
+#[path = "bake/dripleaf_tests.rs"]
+mod dripleaf_tests;

@@ -96,6 +96,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     out.skin_layer = HAND_FIXTURE_LAYER;
     out.valid = 1u;
     out.shade = 1.0;
+    out.native_light = vec3(1.0);
     out.glint_instance = 0xffffffffu;
     return out;
 }"#
@@ -152,7 +153,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
     let bounded_sampler = gpu
         .device
         .create_sampler(&crate::material_shader::native_leaf_sampler_descriptor());
-    let mut atmosphere = [0.0; 36];
+    let mut atmosphere = [0.0; 40];
     atmosphere[19] = 100.0;
     atmosphere[20] = 200.0;
     let atmosphere = gpu.buffer(&atmosphere, wgpu::BufferUsages::UNIFORM);
@@ -170,7 +171,10 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
         ],
         wgpu::BufferUsages::UNIFORM,
     );
-    let hand_light = gpu.buffer(&[0.0; 24], wgpu::BufferUsages::UNIFORM);
+    let hand_light = gpu.buffer(
+        bytemuck::cast_slice(&[render_model::HandRigLight::default()]),
+        wgpu::BufferUsages::UNIFORM,
+    );
     let instances = gpu.buffer(
         bytemuck::cast_slice(&[render_model::ActorGpuInstance::default()]),
         wgpu::BufferUsages::STORAGE,
@@ -190,6 +194,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
                 light: &hand_light,
                 main_atlas: &view,
                 offhand_atlas: &view,
+                map_background: &view,
                 item_glint: &glint,
                 glint_sampler: &sampler,
             }

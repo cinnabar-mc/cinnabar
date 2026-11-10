@@ -1,5 +1,6 @@
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::GpuResourceAppExt;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use render_scene::actor::{
@@ -16,6 +17,7 @@ pub(crate) mod phase;
 pub(crate) mod pipeline;
 #[cfg(feature = "publication-test-support")]
 pub(crate) mod publication_test_support;
+pub(crate) mod shaderpack_source;
 mod skins;
 use crate::gpu_allocation;
 use artwork::{GpuArtwork, draw_spans};
@@ -36,8 +38,8 @@ use bevy::{
         },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query, Res,
-        ResMut, Resource, Result, Shader, Vec3, World, default,
+        App, Assets, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query,
+        Res, ResMut, Resource, Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -77,12 +79,20 @@ const ACTOR_RIG_SHADER_HANDLE: Handle<Shader> =
 
 /// Registers `render::actor_rig`, the rig skinning the actor and hand passes share.
 pub(crate) fn load_rig_shader(app: &mut App) {
-    load_internal_asset!(
-        app,
+    let (id, shader) = rig_shader_asset();
+    app.world_mut()
+        .resource_mut::<Assets<Shader>>()
+        .insert(id, shader)
+        .expect("the rig uses a stable shader ID");
+}
+
+/// Builds the shared rig module for a renderer-owned shader cache.
+pub(crate) fn rig_shader_asset() -> (AssetId<Shader>, Shader) {
+    crate::shader_asset::internal_shader_asset!(
         ACTOR_RIG_SHADER_HANDLE,
         "actor_rig.wesl",
         crate::shader_safety::from_wesl
-    );
+    )
 }
 
 #[cfg(test)]
@@ -137,15 +147,17 @@ fn install_actor_render(app: &mut App) {
         render_model::ACTOR_RIG_VERTEX_WORDS
     );
     crate::nametag_render::install_nametag_render(app);
+    crate::pipeline_warmup::register_pending::<render_scene::ActorPipelineReadiness>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     crate::device_poll::install(app.sub_app_mut(RenderApp));
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)
         .insert_resource(runtime_witness)
         .insert_resource(pipeline_readiness)
-        .init_resource::<ActorPipeline>()
+        .init_gpu_resource::<ActorPipeline>()
         .init_resource::<ActorDrawTracker>()
         .add_render_command::<Opaque3d, DrawActorCommands>()
         .add_render_command::<Transparent3d, DrawTransparentActorCommands>()
@@ -158,7 +170,7 @@ fn install_actor_render(app: &mut App) {
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_actors
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame.in_set(crate::device_poll::FrameSubmissions),
             )
@@ -168,6 +180,7 @@ fn install_actor_render(app: &mut App) {
         .add_systems(
             Render,
             prepare_actor_pipelines
+                .run_if(render_scene::startup_work::world_work_allowed)
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );
@@ -182,8 +195,12 @@ pub(crate) struct ActorGpu {
     color_mask_material: Buffer,
     multitexture_material: Buffer,
     spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    mask_spans: Vec<crate::actor::gpu::ActorDrawSpan>,
+    main_manifest: std::sync::Arc<[render_model::ActorDrawManifestEntry]>,
     sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
+    /// Equal-depth overlays share the native depth surface with their producing layers.
+    pack_depth_dependency: bool,
     executed_instances: std::sync::atomic::AtomicU32,
     /// The immutable draw identity installed by the current queue pass.
     queued_draw: Option<ActorDrawBatch>,
@@ -192,7 +209,9 @@ pub(crate) struct ActorGpu {
     instance_buffer: Buffer,
     previous_bone_buffer: Buffer,
     current_bone_buffer: Buffer,
+    current_bone_offset: u64,
     bones: bones::BoneResidency,
+    receipt_scratch: std::sync::Mutex<render_model::FrameScratch<crate::actor::gpu::ActorDrawSpan>>,
     geometry_vertices: crate::actor::gpu::SegmentedVertexBuffer,
     geometry_span_buffer: Option<Buffer>,
     instance_count: u32,
@@ -236,6 +255,8 @@ fn init_actor_gpu(
 
 /// Builds checked actor resources without publishing partially initialized state.
 fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) -> Option<ActorGpu> {
+    let (previous_bone_buffer, current_bone_buffer, current_bone_offset) =
+        bones::gpu_buffers(render_device)?;
     let sampler = gpu_allocation::checked(render_device, "actor sampler", 0, || {
         render_device.create_sampler(&SamplerDescriptor {
             label: Some("nearest shared actor artwork sampler"),
@@ -279,8 +300,11 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
             BufferUsages::UNIFORM,
         )?,
         spans: Vec::new(),
+        mask_spans: Vec::new(),
+        main_manifest: std::sync::Arc::from([]),
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
+        pack_depth_dependency: false,
         executed_instances: std::sync::atomic::AtomicU32::new(0),
         queued_draw: None,
         artwork_identity: [0; 32],
@@ -295,25 +319,11 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
                 mapped_at_creation: false,
             },
         )?,
-        previous_bone_buffer: gpu_allocation::buffer(
-            render_device,
-            &BufferDescriptor {
-                label: Some("bounded shared actor previous-bone arena"),
-                size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
-        )?,
-        current_bone_buffer: gpu_allocation::buffer(
-            render_device,
-            &BufferDescriptor {
-                label: Some("bounded shared actor current-bone arena"),
-                size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
-        )?,
+        previous_bone_buffer,
+        current_bone_buffer,
+        current_bone_offset,
         bones: bones::BoneResidency::default(),
+        receipt_scratch: default(),
         geometry_vertices: default(),
         geometry_span_buffer: None,
         instance_count: 0,
@@ -348,9 +358,22 @@ fn prepare_actor_resources(
     witness: Res<ActorRuntimeWitness>,
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
+    raw_views: Option<Res<crate::actor::gpu::ArtworkRawViews>>,
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    gpu.bones.begin_frame();
+    {
+        let mut receipts = gpu
+            .receipt_scratch
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        receipts.clear();
+        receipts.finish_frame();
+    }
+    let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
+    gpu.artwork.set_raw_views(raw_views);
+    gpu.skins.set_raw_views(raw_views);
     if gpu.skins.failed(&frame.skins) {
         gpu.instance_count = 0;
         gate.clear();
@@ -441,8 +464,9 @@ fn prepare_actor_resources(
         }
         let prepared = structurally_valid
             .then(|| {
-                let instances = dissolve::instances(&rig.instances, &rig.manifest);
-                gpu.bones.prepare(rig, instances)
+                gpu.bones.prepare(rig, |instances| {
+                    dissolve::instances(instances, &rig.manifest)
+                })
             })
             .flatten();
         structurally_valid &= prepared.is_some();
@@ -464,25 +488,35 @@ fn prepare_actor_resources(
                 "actor instance and bone upload",
                 (std::mem::size_of_val(&*prepared.instances) + prepared.uploaded_bytes()) as u64,
                 || {
-                    let mut writes =
-                        Vec::with_capacity(1 + prepared.previous.len() + prepared.current.len());
-                    writes.push((
-                        &*gpu.instance_buffer,
-                        0,
-                        bytemuck::cast_slice::<ActorGpuInstance, u8>(&prepared.instances),
-                    ));
-                    gpu.bones.writes(&prepared, |current, offset, bytes| {
-                        let buffer = if current {
-                            &gpu.current_bone_buffer
-                        } else {
-                            &gpu.previous_bone_buffer
-                        };
-                        writes.push((&**buffer, offset, bytes));
-                    });
-                    uploads.write_batch(&writes);
+                    uploads.write_generated(
+                        1 + prepared.previous.len() + prepared.current.len(),
+                        |index| {
+                            if index == 0 {
+                                return (
+                                    &*gpu.instance_buffer,
+                                    0,
+                                    bytemuck::cast_slice::<ActorGpuInstance, u8>(
+                                        &prepared.instances,
+                                    ),
+                                );
+                            }
+                            let (current, offset, bytes) = gpu.bones.write_at(&prepared, index - 1);
+                            let buffer = if current {
+                                &gpu.current_bone_buffer
+                            } else {
+                                &gpu.previous_bone_buffer
+                            };
+                            (
+                                &**buffer,
+                                offset + if current { gpu.current_bone_offset } else { 0 },
+                                bytes,
+                            )
+                        },
+                    );
                 },
             );
             if uploaded.is_none() {
+                gpu.bones.recycle(prepared.previous, prepared.current);
                 gpu.bones.clear();
                 gpu.instance_count = 0;
                 gpu.frame_generation = rig.frame_generation;
@@ -501,6 +535,31 @@ fn prepare_actor_resources(
                 &rig.geometry_spans,
                 prepared.manifest.iter().map(|entry| entry.identity.layer),
             );
+            gpu.mask_spans.clear();
+            if frame.mask_only_runtime_ids.is_empty() {
+                gpu.main_manifest = std::sync::Arc::clone(&prepared.manifest);
+            } else {
+                gpu.mask_spans = gpu.spans.clone();
+                gpu.spans = artwork::visible_spans(
+                    &gpu.spans,
+                    &prepared.manifest,
+                    &frame.mask_only_runtime_ids,
+                    frame.main_pass_instance_count,
+                );
+                let main_count = gpu
+                    .spans
+                    .last()
+                    .map_or(0, |span| (span.first + span.count) as usize);
+                // Coverage-only submissions follow the contiguous visible prefix at publication.
+                gpu.main_manifest = std::sync::Arc::from(&prepared.manifest[..main_count]);
+            }
+            {
+                gpu.pack_depth_dependency = prepared.instances.iter().any(|instance| {
+                    crate::actor::material::state(instance.material)
+                        .is_some_and(|state| state.depth_equal && !state.depth_always)
+                });
+            }
+            gpu.bones.recycle(prepared.previous, prepared.current);
             gpu.manifest = prepared.manifest;
             gpu.instances = prepared.instances;
             let ActorGpu {
@@ -516,8 +575,13 @@ fn prepare_actor_resources(
             gpu.maximum_vertex_count = 0;
             gpu.manifest = std::sync::Arc::from([]);
             gpu.spans.clear();
+            gpu.mask_spans.clear();
+            gpu.main_manifest = std::sync::Arc::from([]);
             gpu.sorted.prepare(&[], &[]);
             gpu.instances = std::sync::Arc::from([]);
+            {
+                gpu.pack_depth_dependency = false;
+            }
             gate.clear();
             tracker.clear();
         }
@@ -625,7 +689,7 @@ pub(crate) fn prepare_actor_bind_group(
                     render_device.create_bind_group(
                         "neutral actor page bind group",
                         &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-                        &[
+                        &pipeline.entries(&[
                             BindGroupEntry {
                                 binding: 0,
                                 resource: view_binding.clone(),
@@ -692,14 +756,14 @@ pub(crate) fn prepare_actor_bind_group(
                                 binding: 11,
                                 resource: BindingResource::TextureView(&gpu.skins.placeholder),
                             },
-                        ],
+                        ]),
                     )
                 })
                 .collect();
             let player_group = render_device.create_bind_group(
                 "instanced standard actor bind group",
                 &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-                &[
+                &pipeline.entries(&[
                     BindGroupEntry {
                         binding: 0,
                         resource: view_binding,
@@ -760,7 +824,7 @@ pub(crate) fn prepare_actor_bind_group(
                         binding: 11,
                         resource: BindingResource::TextureView(gpu.skins.view(3)),
                     },
-                ],
+                ]),
             );
             (generic_groups, player_group)
         })

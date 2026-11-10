@@ -71,7 +71,7 @@ pub struct MenuInput<'a> {
 /// Settings geometry input reads between frames.
 #[derive(Default)]
 pub struct MenuGeometry {
-    pub slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub slider_tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
     pub focus_targets: Vec<SettingsFocusTarget>,
     pub focus_landmarks: Vec<SettingsFocusLandmark>,
 }
@@ -126,6 +126,31 @@ fn focus_actions(canvas: &Canvas<'_>) -> Vec<MenuAction> {
         .iter()
         .map(|(action, _)| *action)
         .collect()
+}
+
+/// Draws a route that publishes its focus order, drawing it once more when
+/// revealing the focused control scrolled a view, and returns that order.
+fn paint_revealing<'a>(
+    canvas: &mut Canvas<'a>,
+    scrolls: &mut MenuScrolls<MenuAction>,
+    view: &MenuView,
+    mut draw: impl FnMut(&mut Canvas<'a>) -> Result<(), PaintError>,
+) -> Result<Vec<MenuAction>, PaintError> {
+    canvas.capture_focus = true;
+    let rollback = (canvas.nodes.len(), *canvas.next);
+    for attempt in 0..2 {
+        draw(canvas)?;
+        if !scroll_focus::reveal(canvas, scrolls, view) || attempt == 1 {
+            break;
+        }
+        canvas.nodes.truncate(rollback.0);
+        *canvas.next = rollback.1;
+        canvas.hits.clear();
+        canvas.clear_focus_geometry();
+        canvas.spots.clear();
+        canvas.scrolls.clear();
+    }
+    Ok(focus_actions(canvas))
 }
 
 impl OreUiScreen {
@@ -336,6 +361,13 @@ impl Screen for OreUiScreen {
                     focus = Some(focus_actions(&canvas));
                 }
                 MenuScreen::Settings => {
+                    if self.settings_state.query != view.settings_query {
+                        scrolls.scroll_to_start(settings::SEARCH_SCROLL_KEY);
+                        canvas
+                            .offsets
+                            .insert(settings::SEARCH_SCROLL_KEY.to_owned(), 0.0);
+                        self.settings_state.query.clone_from(&view.settings_query);
+                    }
                     let section = SettingSection::from_index(view.settings.section)
                         .unwrap_or(SettingSection::Accessibility);
                     canvas
@@ -351,6 +383,7 @@ impl Screen for OreUiScreen {
                             size,
                             translate,
                             artwork.get(&view.feeds.profile.picture_path).copied(),
+                            &mut self.settings_state,
                         )?;
                         let adjusted = scroll_focus::reveal(&mut canvas, scrolls, view);
                         if !adjusted || attempt == 1 {
@@ -369,26 +402,19 @@ impl Screen for OreUiScreen {
                 MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
                     match world_settings::route(view.local.screen, &view.local) {
                         Some(route) => {
-                            canvas.capture_focus = true;
-                            let rollback = (canvas.nodes.len(), *canvas.next);
-                            for attempt in 0..2 {
+                            focus = Some(paint_revealing(&mut canvas, scrolls, view, |canvas| {
                                 let entrance = canvas.begin_entrance(motion::Surface::World(route));
-                                world_settings::draw(&mut canvas, view, size, route)?;
-                                canvas.end_entrance(entrance, size)?;
-                                if !scroll_focus::reveal(&mut canvas, scrolls, view) || attempt == 1
-                                {
-                                    break;
-                                }
-                                canvas.nodes.truncate(rollback.0);
-                                *canvas.next = rollback.1;
-                                canvas.hits.clear();
-                                canvas.clear_focus_geometry();
-                                canvas.spots.clear();
-                                canvas.scrolls.clear();
-                            }
-                            focus = Some(focus_actions(&canvas));
+                                world_settings::draw(canvas, view, size, route)?;
+                                canvas.end_entrance(entrance, size)
+                            })?);
                         }
-                        None => play::draw(&mut canvas, view, size, artwork)?,
+                        // The play tabs publish their painted focus order, so keys walk
+                        // the controls as drawn and scroll a focused row into view.
+                        None => {
+                            focus = Some(paint_revealing(&mut canvas, scrolls, view, |canvas| {
+                                play::draw(canvas, view, size, artwork)
+                            })?);
+                        }
                     }
                     if let Some(dialog) = modal::local_world_modal(&view.local) {
                         modal::draw(&mut canvas, view, size, &dialog)?;
@@ -400,21 +426,9 @@ impl Screen for OreUiScreen {
                     canvas.clear_focus_geometry();
                     canvas.spots.clear();
                     canvas.scrolls.clear();
-                    canvas.capture_focus = true;
-                    let rollback = (canvas.nodes.len(), *canvas.next);
-                    for attempt in 0..2 {
-                        add_server::draw(&mut canvas, view, size)?;
-                        if !scroll_focus::reveal(&mut canvas, scrolls, view) || attempt == 1 {
-                            break;
-                        }
-                        canvas.nodes.truncate(rollback.0);
-                        *canvas.next = rollback.1;
-                        canvas.hits.clear();
-                        canvas.clear_focus_geometry();
-                        canvas.spots.clear();
-                        canvas.scrolls.clear();
-                    }
-                    focus = Some(focus_actions(&canvas));
+                    focus = Some(paint_revealing(&mut canvas, scrolls, view, |canvas| {
+                        add_server::draw(canvas, view, size)
+                    })?);
                 }
                 _ => friends::draw(&mut canvas, view, size)?,
             }

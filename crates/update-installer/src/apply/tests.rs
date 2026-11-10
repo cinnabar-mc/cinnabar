@@ -2,6 +2,159 @@ use super::*;
 use crate::fixtures::*;
 use crate::recovery::{cleanup_confirmed_backup, confirm_start, confirmation, remove};
 
+/// Older releases install only for the exact build the user chose to leave, with startup rollback.
+#[cfg(target_os = "linux")]
+#[test]
+fn explicit_channel_switches_apply_older_builds_and_reject_stale_consent() {
+    let baseline = update_manifest::build::Build {
+        version: "3.0.0".into(),
+        number: 7,
+        channel: None,
+    };
+    for (installed, number, consent, applies) in [
+        ("3.0.0", 7, None, false),
+        ("3.0.0", 7, Some(&baseline), true),
+        ("3.0.0", 8, Some(&baseline), false),
+        ("4.0.0", 1, Some(&baseline), false),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let (directory, keys) = staged(root.path(), "linux-x86_64");
+        let target = root.path().join("client.AppImage");
+        fs::write(&target, "current installation").unwrap();
+        let request = || Request {
+            stage_dir: &directory,
+            target: &target,
+            keys: &keys,
+            check: Check {
+                current: installed,
+                current_build: number,
+                ..check("linux-x86_64")
+            },
+            switch_from: consent,
+            now: now(),
+        };
+        if applies {
+            assert!(
+                after_exit(
+                    request(),
+                    crate::lease::Lease::acquire(root.path()).unwrap(),
+                    |_| { anyhow::bail!("older release failed startup") }
+                )
+                .is_err()
+            );
+            assert_eq!(fs::read(&target).unwrap(), b"current installation");
+        }
+        after_exit(
+            request(),
+            crate::lease::Lease::acquire(root.path()).unwrap(),
+            |installed| {
+                assert!(crate::lease::Lease::try_acquire(root.path()).is_err());
+                assert_eq!(
+                    fs::read(installed).unwrap(),
+                    if applies {
+                        PAYLOAD
+                    } else {
+                        b"current installation"
+                    }
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!target::backup(&target).unwrap().exists());
+    }
+}
+
+/// Downgrade consent cannot authorize bytes that differ from the signed artifact.
+#[cfg(target_os = "linux")]
+#[test]
+fn explicit_channel_switches_still_reject_tampered_payloads() {
+    let root = tempfile::tempdir().unwrap();
+    let (directory, keys) = staged(root.path(), "linux-x86_64");
+    let target = root.path().join("client.AppImage");
+    fs::write(&target, "retained installation").unwrap();
+    fs::write(
+        directory.join(stage::ARTIFACT_FILE),
+        vec![b'x'; PAYLOAD.len()],
+    )
+    .unwrap();
+    let baseline = update_manifest::build::Build {
+        version: "3.0.0".into(),
+        number: 7,
+        channel: None,
+    };
+    assert!(
+        after_exit(
+            Request {
+                stage_dir: &directory,
+                target: &target,
+                keys: &keys,
+                check: Check {
+                    current: &baseline.version,
+                    current_build: baseline.number,
+                    ..check("linux-x86_64")
+                },
+                switch_from: Some(&baseline),
+                now: now(),
+            },
+            crate::lease::Lease::acquire(root.path()).unwrap(),
+            |_| panic!("tampered release started")
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(target).unwrap(), b"retained installation");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_signed_appdir_update_rolls_back_failed_startup_then_relaunches_the_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let platform = update_manifest::platform_key("linux", std::env::consts::ARCH).unwrap();
+    let (directory, keys) = staged_payload(root.path(), &platform, &linux_payload());
+    let target = root.path().join("installed build");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("retained"), "old").unwrap();
+    let request = || Request {
+        stage_dir: &directory,
+        target: &target,
+        keys: &keys,
+        switch_from: None,
+        check: check(&platform),
+        now: now(),
+    };
+    assert!(
+        after_exit(
+            request(),
+            crate::lease::Lease::acquire(root.path()).unwrap(),
+            |installed| {
+                assert!(installed.is_dir());
+                let backup = target::backup(installed).unwrap();
+                assert_eq!(fs::read(backup.join("retained")).unwrap(), b"old");
+                assert_eq!(target::installed_build(installed)?.version, "2.0.0");
+                anyhow::bail!("failed startup")
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(target.join("retained")).unwrap(), b"old");
+    after_exit(
+        request(),
+        crate::lease::Lease::acquire(root.path()).unwrap(),
+        |installed| {
+            assert!(crate::lease::Lease::try_acquire(root.path()).is_err());
+            assert_eq!(target::installed_build(installed)?.number, 2);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert!(!target.join("retained").exists());
+    assert!(!target::backup(&target).unwrap().exists());
+    assert_eq!(
+        target::resolve("linux", &target::linux_executable(&target), None).unwrap(),
+        target
+    );
+}
+
 #[test]
 fn an_equal_or_newer_installed_build_is_relaunched_without_swapping() {
     let platform =
@@ -17,6 +170,7 @@ fn an_equal_or_newer_installed_build_is_relaunched_without_swapping() {
                 stage_dir: &directory,
                 target: &target,
                 keys: &keys,
+                switch_from: None,
                 check: Check {
                     current: version,
                     current_build: build,
@@ -195,6 +349,7 @@ fn apply_keeps_the_writer_lease_and_rolls_back_a_failed_new_start() {
         stage_dir: &directory,
         target: &target,
         keys: &keys,
+        switch_from: None,
         check: check("linux-x86_64"),
         now: now(),
     };
@@ -260,6 +415,7 @@ fn all_tampered_stages_are_refused_before_start_or_swap() {
                     stage_dir: &directory,
                     target: &target,
                     keys: &keys,
+                    switch_from: None,
                     check: policy,
                     now: clock
                 },
@@ -286,6 +442,7 @@ fn a_refused_swap_cannot_restore_another_clients_unconfirmed_predecessor() {
             stage_dir: &directory,
             target: &target,
             keys: &keys,
+            switch_from: None,
             check: check("linux-x86_64"),
             now: now(),
         },
@@ -296,4 +453,58 @@ fn a_refused_swap_cannot_restore_another_clients_unconfirmed_predecessor() {
     assert!(error.is::<Untouched>());
     assert_eq!(fs::read(&target).unwrap(), b"other client's installation");
     assert_eq!(fs::read(&backup).unwrap(), b"other client's predecessor");
+}
+
+/// Restart swaps in the copy unpacked before exit instead of unpacking the payload again.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_prepared_candidate_installs_without_the_staged_payload() {
+    let root = tempfile::tempdir().unwrap();
+    let (directory, keys) = staged(root.path(), "linux-x86_64");
+    let target = root.path().join("client.AppImage");
+    fs::write(&target, "current installation").unwrap();
+    let stale = root.path().join(".client.AppImage.prepared-older");
+    fs::write(&stale, "another release").unwrap();
+    let lease = crate::lease::Lease::acquire(root.path()).unwrap();
+    prepare(
+        &directory,
+        &target,
+        &keys,
+        check("linux-x86_64"),
+        now(),
+        &lease,
+    )
+    .unwrap();
+    drop(lease);
+    assert!(!stale.exists());
+    fs::remove_file(directory.join(stage::ARTIFACT_FILE)).unwrap();
+    after_exit(
+        Request {
+            stage_dir: &directory,
+            target: &target,
+            keys: &keys,
+            switch_from: None,
+            check: check("linux-x86_64"),
+            now: now(),
+        },
+        crate::lease::Lease::acquire(root.path()).unwrap(),
+        |installed| {
+            assert_eq!(fs::read(installed).unwrap(), PAYLOAD);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(fs::read(&target).unwrap(), PAYLOAD);
+    let leftovers = fs::read_dir(root.path())
+        .unwrap()
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".client.AppImage.")
+        })
+        .count();
+    assert_eq!(leftovers, 0);
 }

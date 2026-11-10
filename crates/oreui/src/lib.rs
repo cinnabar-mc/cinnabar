@@ -12,6 +12,7 @@ pub mod bed_screen;
 mod bedtime;
 #[cfg(test)]
 mod dark_mode_tests;
+pub mod data_driven_screen;
 mod death;
 #[cfg(test)]
 mod destructive_tests;
@@ -76,6 +77,9 @@ pub use paint::Originals;
 pub use play_servers::animated_server_details;
 pub use transitions::Transitions;
 
+/// The Settings category list's scroll view, which stays put while categories swap beside it.
+pub const SETTINGS_SIDEBAR_SCROLL_KEY: &str = "oreui_settings_sidebar";
+
 /// The character area a route leaves for the adapter's player preview, as logical
 /// `[left, top, right, bottom]` rects.
 pub struct CharacterPreview {
@@ -103,6 +107,8 @@ pub struct OreUiScreen {
     pub dark_mode: bool,
     extra_large_ui: bool,
     pub transitions: Transitions,
+    /// Search scrolling and shader-option help retained between settings frames.
+    settings_state: settings::State,
     /// The last menu paint's leftovers for its adapter.
     paint: Option<menu_screen::MenuPaint>,
 }

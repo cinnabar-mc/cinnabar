@@ -90,3 +90,43 @@ fn actor_light_at_preserves_dark_body_inside_height_and_lights_crossing_body() {
     assert_eq!(stream.actor_light_at(actor, [f32::NAN, 1.0, 4.5]), None);
     assert_eq!(stream.actor_light_at(actor, [4.5, 100.0, 4.5]), None);
 }
+
+#[test]
+fn a_lead_takes_its_leashed_actors_light_rather_than_the_attachment_point() {
+    let mut stream = fixture();
+    let mut lower = SubChunkLight::uniform(1, 2, 1).unwrap();
+    lower.set(LightChannel::Block, 4, 14, 4, 12).unwrap();
+    stream
+        .lighting
+        .store
+        .insert_resident(SubChunkKey::new(0, 0, 0, 0), lower);
+    stream.lighting.store.insert_resident(
+        SubChunkKey::new(0, 0, 1, 0),
+        SubChunkLight::uniform(3, 11, 1).unwrap(),
+    );
+    let feet = [4.5, 14.5, 4.5];
+    let lead = client_world::RopeView {
+        kind: client_world::RopeKind::Lead,
+        owner_runtime_id: None,
+        leashed: Some((7, feet)),
+        from: [4.5, 15.2, 4.5],
+        to: [8.5, 15.2, 4.5],
+    };
+    let body = stream.actor_light_at(stream.authority.actor(7).unwrap(), feet);
+    assert_eq!(body, Some((12, 11)));
+    assert_ne!(stream.light_level_at(lead.from), (12, 11));
+    assert_eq!(stream.rope_light(&lead), (12, 11));
+
+    let unknown = client_world::RopeView {
+        leashed: Some((99, feet)),
+        ..lead
+    };
+    assert_eq!(stream.rope_light(&unknown), (15, 15));
+    let line = client_world::RopeView {
+        kind: client_world::RopeKind::FishingLine,
+        owner_runtime_id: Some(7),
+        leashed: None,
+        ..lead
+    };
+    assert_eq!(stream.rope_light(&line), (15, 15));
+}

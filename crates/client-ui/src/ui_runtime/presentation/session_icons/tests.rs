@@ -515,3 +515,114 @@ fn unshaded_session_cubes_keep_their_baked_thumbnail_and_held_sheet() {
     assert!(packed.refs["test:variant"].contains_key(&0));
     assert!(packed.sheets["test:variant"].contains_key(&0));
 }
+
+/// One flat-coloured icon of the given size.
+fn flat(identifier: &str, side: u32, color: [u8; 4]) -> SessionIcon {
+    SessionIcon {
+        identifier: Arc::from(identifier),
+        metadata: 0,
+        width: side,
+        height: side,
+        rgba8: color.repeat((side * side) as usize).into(),
+    }
+}
+
+#[test]
+fn icons_past_the_largest_page_shrink_the_largest_instead_of_dropping_small_ones() {
+    let side = device_policy()
+        .max_side()
+        .min(render_model::MAX_UI_TEXTURE_SIDE);
+    // Four quarter-page posters fill the page on their own.
+    let quarter = side / 2 - GUTTER * 2;
+    let mut icons = (0..4)
+        .map(|index| {
+            flat(
+                &format!("fixture:poster_{index}"),
+                quarter,
+                [200, 10, 10, 255],
+            )
+        })
+        .collect::<Vec<_>>();
+    icons.push(flat("fixture:helmet", 32, [10, 200, 10, 255]));
+    let packed = pack(
+        &SessionIcons {
+            icons,
+            ..Default::default()
+        },
+        0,
+    )
+    .unwrap();
+    let helmet = packed.refs["fixture:helmet"][&0];
+    assert_eq!(helmet.uv[2] - helmet.uv[0], 32);
+    for index in 0..4 {
+        let poster = packed.refs[format!("fixture:poster_{index}").as_str()][&0];
+        let width = u32::from(poster.uv[2] - poster.uv[0]);
+        assert!(width < quarter, "oversized icons give up resolution");
+        let texel = ((u32::from(poster.uv[1]) * packed.page.dimensions()[0]
+            + u32::from(poster.uv[0]))
+            * 4) as usize;
+        assert_eq!(&packed.page.pixels()[texel..texel + 4], &[200, 10, 10, 255]);
+    }
+}
+
+#[test]
+fn shrinking_weights_colour_by_coverage() {
+    let mut icon = flat("fixture:edge", 2, [0, 0, 0, 0]);
+    icon.rgba8[..4].copy_from_slice(&[240, 120, 60, 255]);
+    let (size, pixels) = fit::shrink(&icon, 1);
+    assert_eq!(size, [1, 1]);
+    assert_eq!(pixels, [240, 120, 60, 63]);
+}
+
+#[test]
+fn session_icon_lookup_keeps_namespaces_and_explicit_aliases_separate() {
+    let catalog = assets::RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog(
+            [5; 32],
+            &[assets::IconSprite {
+                width: 1,
+                height: 1,
+                rgba8: Arc::from([255; 4]),
+            }],
+            &[assets::IconEntry {
+                identifier: "minecraft:diamond_sword".into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+        Arc::new(catalog),
+    )
+    .unwrap();
+    let startup = presentation
+        .startup_item_icon("minecraft:diamond_sword", 7)
+        .unwrap();
+    let icons = Arc::new(SessionIcons {
+        icons: vec![
+            flat("custom:diamond_sword", 16, [240, 120, 60, 255]),
+            flat("diamond_sword", 8, [20, 40, 80, 255]),
+        ],
+        ..Default::default()
+    });
+    install_landed(&mut presentation, &icons);
+    assert_eq!(
+        presentation.item_icon("minecraft:diamond_sword", 7),
+        Some(startup)
+    );
+    assert!(
+        presentation
+            .session_item_icon("minecraft:diamond_sword", 7)
+            .is_none()
+    );
+    assert!(presentation.item_icon("other:diamond_sword", 0).is_none());
+    let custom = presentation.item_icon("custom:diamond_sword", 7).unwrap();
+    let alias = presentation.item_icon("diamond_sword", 7).unwrap();
+    assert_ne!(custom, alias);
+    assert_eq!(alias.uv[2] - alias.uv[0], 8);
+    assert_eq!(custom.uv[2] - custom.uv[0], 16);
+}

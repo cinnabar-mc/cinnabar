@@ -87,13 +87,26 @@ impl RecipeCatalog {
     /// The network id of the item-repair multi-recipe the anvil names.
     #[must_use]
     pub fn repair_multi_recipe_id(&self) -> Option<u32> {
+        self.unique_multi_recipe_id(super::screen::MultiRecipe::is_repair)
+    }
+
+    /// The current banner-on-shield recipe, absent when its advertisement is ambiguous.
+    pub fn shield_multi_recipe_id(&self) -> Option<u32> {
+        self.unique_multi_recipe_id(super::screen::MultiRecipe::is_shield)
+    }
+
+    /// Resolves exactly one advertised special recipe without retaining a second ID index.
+    fn unique_multi_recipe_id(
+        &self,
+        accepts: impl Fn(&super::screen::MultiRecipe) -> bool,
+    ) -> Option<u32> {
         let mut repairs = self
             .storage
             .as_ref()?
             .screen
             .multi
             .iter()
-            .filter(|multi| multi.is_repair());
+            .filter(|multi| accepts(multi));
         let repair = repairs.next()?;
         repairs.next().is_none().then_some(repair.id)
     }
@@ -315,8 +328,9 @@ mod tests {
                             aux: 0,
                             count: 4,
                             block: 0,
-                            empty_envelope: false,
+                            user_data: crate::RecipeOutputData::Absent,
                         },
+                        extra_outputs: Box::new([]),
                     }),
                 }],
                 clear,
@@ -473,5 +487,36 @@ mod tests {
         assert_eq!(owner.used(), charge);
         drop(replacement);
         assert_eq!(owner.used(), 0);
+    }
+
+    #[test]
+    fn multi_result_recipes_keep_every_result_and_need_all_of_them_valid() {
+        use crate::test_support::recipes::{
+            CraftingDataFixture, IngredientFixture, OutputFixture, RecipeFixture,
+        };
+        let recipe = |id, results| RecipeFixture {
+            net_id: id,
+            ..RecipeFixture::shaped(
+                "test:cake",
+                1,
+                1,
+                vec![IngredientFixture::named("minecraft:milk_bucket", 0)],
+                results,
+            )
+        };
+        let update = CraftingDataFixture::clearing(vec![
+            recipe(1, vec![OutputFixture::new(7, 1), OutputFixture::new(8, 3)]),
+            recipe(2, vec![OutputFixture::new(7, 1), OutputFixture::new(0, 1)]),
+        ])
+        .update();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update));
+        let cake = catalog.recipe(1).unwrap();
+        assert_eq!(cake.output().network_id, 7);
+        let extra: Vec<_> = cake.extra_outputs().collect();
+        assert_eq!(extra.len(), 1);
+        assert_eq!((extra[0].network_id, extra[0].count), (8, 3));
+        assert!(catalog.recipe(2).is_none());
     }
 }

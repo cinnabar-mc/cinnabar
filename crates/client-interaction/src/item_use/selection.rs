@@ -59,6 +59,19 @@ pub fn selected_riptide_use(
     })
 }
 
+/// Whether the selected stack is a brush, whose held use starts locally from its use on a
+/// block rather than in the air.
+pub(super) fn selected_brush(
+    player_runtime: &client_state::PlayerRuntime,
+    stream: &WorldStream,
+) -> bool {
+    player_runtime
+        .selected_backing_stack()
+        .and_then(|stack| stream.authority().item_identifier(stack.network_id))
+        .as_deref()
+        == Some(assets::facts::BRUSH_IDENTIFIER)
+}
+
 /// The selected stack's authoritative air use, if supported.
 pub fn selected_air_use(
     player_runtime: &client_state::PlayerRuntime,
@@ -86,7 +99,7 @@ pub(super) fn air_use_for_stack(
     let canonical = stream.authority().canonical_item_stack(stack)?;
     let quick_charge = protocol::item_enchantment_level(
         &stack.extra_data,
-        i16::from(Enchantment::Quickcharge.wire_value()),
+        i16::from(Enchantment::QuickCharge.wire_value()),
     )
     .unwrap_or(0);
     let profile = stream.authority().item_use_profile(stack.network_id);
@@ -140,7 +153,7 @@ pub fn needs_met(
         let ledger = ui.inventory_ledger(player_runtime);
         (0..protocol::PLAYER_INVENTORY_SLOTS)
             .filter_map(|slot| ledger.backing_stack(slot))
-            .chain(ui.gameplay_hud().offhand_stack())
+            .chain(ui.local_backing_offhand_stack(player_runtime))
             .any(|stack| is(stack, assets::item_use::ItemProjectileRole::Arrow))
     };
     match needs {
@@ -149,8 +162,7 @@ pub fn needs_met(
         Needs::ArrowOrOffhandRocket => {
             arrow_in_inventory()
                 || ui
-                    .gameplay_hud()
-                    .offhand_stack()
+                    .local_backing_offhand_stack(player_runtime)
                     .is_some_and(|stack| is(stack, assets::item_use::ItemProjectileRole::Firework))
         }
         // Peaceful difficulty's always-edible rule is not modeled.
@@ -179,7 +191,7 @@ pub fn loading_projectile(
                 .projectile
         }
     };
-    if let Some(offhand) = ui.gameplay_hud().offhand_stack() {
+    if let Some(offhand) = ui.local_backing_offhand_stack(player_runtime) {
         match role(offhand) {
             assets::item_use::ItemProjectileRole::Firework => {
                 return Some(assets::item_use::ItemProjectileRole::Firework);

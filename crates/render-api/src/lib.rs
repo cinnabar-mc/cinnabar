@@ -6,16 +6,26 @@
 mod actor_lighting;
 pub mod far_terrain;
 mod frame_rate_limit;
-mod hurt_camera;
+mod held_item;
 mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod shield;
+pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
+mod vsync;
+pub use held_item::{
+    DEFAULT_ITEM_RENDER_OFFSETS, HeldItemHand, HeldItemHandSide, HeldItemPerspective,
+    HeldItemPlacement, HeldItemTransform, ItemRenderOffsets,
+};
 pub use pose_generation::PoseGeneration;
 mod skin;
+pub mod sprite_mask;
 pub mod sub_chunk_requests;
 mod ui_backdrop;
 mod ui_coverage_paint;
+pub mod ui_repeat;
+pub mod ui_shadow;
 mod vrr;
 
 pub use ui_backdrop::{UI_BACKDROP_MAX_BLUR_PIXELS, UI_BACKDROP_MAX_FACTOR, UiBackdropPaint};
@@ -25,7 +35,6 @@ pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
 };
 pub use frame_rate_limit::FrameRateLimit;
-pub use hurt_camera::{HurtCameraStyle, MAX_HURT_CAMERA_INTENSITY};
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
@@ -38,9 +47,12 @@ pub use skin::{
     StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use vrr::VrrPreference;
+pub use vsync::VsyncMode;
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
 pub const MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
+/// Hidden terrain is culled unless the player disables the optimization.
+pub const DEFAULT_CHUNK_OCCLUSION_CULLING: bool = true;
 /// Retention radius before the server grants one, so an unbounded maximum never pins old terrain.
 pub const UNGRANTED_VIEW_RADIUS_CHUNKS: i32 = 16;
 
@@ -49,3 +61,46 @@ pub const CAMERA_NEAR_PLANE_BLOCKS: f32 = 0.025;
 
 /// Separation that keeps block selection and destroy overlays in front of their surfaces.
 pub const BLOCK_OVERLAY_FACE_OFFSET: f32 = 0.002;
+
+/// Vertex style bit selecting linear filtering for UI sprites.
+pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
+
+/// Structured report emitted after the first presented main-menu frame.
+pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";
+
+/// Requests an acceptance client to exit after reporting its first completed menu frame.
+pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";
+
+/// Absolute directory that replaces the platform's user config and data roots.
+pub const USER_ROOT_ENV: &str = "CINNABAR_USER_ROOT";
+/// Environment option selecting the bounded stage-trace event budget.
+pub const STAGE_PROFILE_EVENTS_ENV: &str = "CINNABAR_STAGE_PROFILE_EVENTS";
+/// Largest explicit stage trace; overflow is reported rather than treated as complete evidence.
+pub const MAX_STAGE_PROFILE_EVENTS: usize = 2_097_152;
+
+/// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
+pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
+
+/// Selects source mip levels from the projected footprint of an inventory surface.
+pub const UI_STYLE_TERRAIN_MIPS: u32 = UI_STYLE_RGB_COVERAGE << 1;
+
+/// Rounds projected item XY to half precision before viewport conversion.
+pub const UI_STYLE_HALF_FLOAT_XY: u32 = UI_STYLE_TERRAIN_MIPS << 1;
+
+/// Stores block GUI texture coordinates as unsigned normalized 16-bit vertices.
+pub const UI_STYLE_UNORM16_UV: u32 = UI_STYLE_HALF_FLOAT_XY << 1;
+
+/// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
+pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
+
+/// Selects a retained model vertex whose position and normal use a GPU bone palette.
+pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;
+
+/// Uses the brightest sampled RGB channel as coverage, multiplied by texture alpha.
+pub const UI_STYLE_RGB_COVERAGE: u32 = 1 << 18;
+
+const _: () = assert!(
+    (UI_STYLE_TERRAIN_MIPS | UI_STYLE_HALF_FLOAT_XY | UI_STYLE_UNORM16_UV)
+        & (UI_STYLE_MODEL_VERTEX | UI_STYLE_RGB_COVERAGE | UI_STYLE_SPRITE_COLOR_MASK)
+        == 0
+);

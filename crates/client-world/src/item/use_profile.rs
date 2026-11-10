@@ -31,6 +31,8 @@ pub struct EffectiveItemUse {
     pub movement: f64,
     pub cooldown: Option<ResolvedUseCooldown>,
     pub projectile: ItemProjectileRole,
+    /// How a flat sprite of this item sits in the hand.
+    pub held_placement: render_api::HeldItemPlacement,
 }
 
 impl Default for EffectiveItemUse {
@@ -45,8 +47,23 @@ impl Default for EffectiveItemUse {
             movement: 1.0,
             cooldown: None,
             projectile: ItemProjectileRole::None,
+            held_placement: render_api::HeldItemPlacement::Retail,
         }
     }
+}
+
+/// Server-defined items use render offsets. Retail identities with no component payload override
+/// keep the retail sprite transforms, whose rest pose those default tables reproduce.
+fn held_placement(entry: &CanonicalItemRegistryRecord) -> render_api::HeldItemPlacement {
+    use render_api::HeldItemPlacement::{DeclaredOffsets, DefaultOffsets, Retail};
+    if !entry.component_based || entry.unmodified_native {
+        return Retail;
+    }
+    entry
+        .components
+        .as_deref()
+        .and_then(|components| components.render_offsets)
+        .map_or(DefaultOffsets, DeclaredOffsets)
 }
 
 /// Resolves immutable rules outside gameplay; stack-dependent crossbow timing remains separate.
@@ -92,10 +109,19 @@ pub fn resolve_item_use(
                 ticks: cooldown.ticks,
             }),
         projectile: *projectile,
+        held_placement: render_api::HeldItemPlacement::Retail,
     }
 }
 
 impl ItemStateStore {
+    /// Returns a retail item identity admitted without a component payload override.
+    pub(crate) fn native_identifier(&self, network_id: i32) -> Option<&str> {
+        let record = self.registry.get(&network_id)?;
+        record
+            .unmodified_native
+            .then_some(record.identifier.as_ref())
+    }
+
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
         self.presentation_generation = Arc::new(());
@@ -120,6 +146,9 @@ impl ItemStateStore {
             {
                 ticks = ticks.or_else(|| self.use_durations.as_ref()?.get(alias.as_ref()).copied());
             }
+            if let Some(components) = entry.components.as_deref() {
+                admit_shooter(&mut profile, components);
+            }
             if let Some(overlay) = self
                 .use_overlays
                 .as_ref()
@@ -131,6 +160,18 @@ impl ItemStateStore {
             if let Some(components) = entry.components.as_deref() {
                 ticks = components.use_duration_ticks.or(ticks);
                 overlay_components(&mut profile, components);
+            }
+            // A consumable that declares a zero duration takes the standard consume time.
+            if ticks == Some(0)
+                && matches!(
+                    profile,
+                    ItemUseProfile::Provisional {
+                        consumption: ItemConsumption::Eat | ItemConsumption::Drink,
+                        ..
+                    }
+                )
+            {
+                ticks = Some(assets::item_use::DEFAULT_CONSUME_USE_TICKS);
             }
             let category = match &profile {
                 ItemUseProfile::Provisional {
@@ -146,7 +187,10 @@ impl ItemStateStore {
             };
             profiles.insert(
                 entry.network_id,
-                resolve_item_use(&profile, ticks, category),
+                EffectiveItemUse {
+                    held_placement: held_placement(entry),
+                    ..resolve_item_use(&profile, ticks, category)
+                },
             );
         }
         self.projectile_roles = self
@@ -182,6 +226,35 @@ impl ItemStateStore {
             .get(&network_id)
             .copied()
             .unwrap_or_default()
+    }
+}
+
+/// Admits a retail identity only when the negotiated payload is canonically empty.
+pub(super) fn unmodified_native(entry: &protocol::ItemRegistryEntry) -> bool {
+    !matches!(entry.version, protocol::ItemRegistryVersion::Unknown(_))
+        && entry.canonical_empty_component_data
+        && protocol::vanilla_item_capacity(&entry.identifier, 0).is_some()
+}
+
+/// Admits a drawing shooter as a held use that its release ends, as a bow does. It runs before
+/// any overlay so authored and wire facts refine the admitted use instead of being dropped.
+fn admit_shooter(profile: &mut ItemUseProfile, components: &protocol::ItemComponents) {
+    if matches!(profile, ItemUseProfile::Unresolved)
+        && components
+            .shooter
+            .is_some_and(protocol::ItemShooter::starts_held_draw)
+    {
+        *profile = ItemUseProfile::Provisional {
+            animation: assets::item_use::ItemUseAnimation::None,
+            kind: ItemUseKind::Hold,
+            duration: ItemUseDurationRule::Declared,
+            requirement: ItemUseRequirement::Nothing,
+            consumption: ItemConsumption::None,
+            movement_bits: DEFAULT_USE_MOVEMENT_MODIFIER.to_bits(),
+            cooldown: None,
+            projectile: ItemProjectileRole::None,
+            duration_alias: None,
+        };
     }
 }
 
@@ -304,6 +377,44 @@ mod tests {
         }
     }
 
+    /// Regression: a server item's in-hand facts must select render offsets over the retail grip.
+    #[test]
+    fn held_placement_follows_the_item_registry() {
+        use render_api::{DEFAULT_ITEM_RENDER_OFFSETS, HeldItemPlacement};
+        let declared = protocol::ItemComponents {
+            render_offsets: Some(DEFAULT_ITEM_RENDER_OFFSETS),
+            ..Default::default()
+        };
+        let mut legacy = entry(3, "test:legacy", Default::default());
+        legacy.component_based = false;
+        let retail = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:snowball")
+            .unwrap()
+            .clone();
+        let mut flagged_retail = retail.clone();
+        flagged_retail.component_based = true;
+        flagged_retail.canonical_empty_component_data = true;
+        let flagged_retail_id = flagged_retail.network_id;
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(1, "test:default", Default::default()),
+                entry(2, "test:declared", declared),
+                legacy,
+                flagged_retail,
+            ]),
+        }));
+        let placement = |id| store.item_use_profile(id).held_placement;
+        assert_eq!(placement(1), HeldItemPlacement::DefaultOffsets);
+        assert_eq!(
+            placement(2),
+            HeldItemPlacement::DeclaredOffsets(DEFAULT_ITEM_RENDER_OFFSETS)
+        );
+        assert_eq!(placement(3), HeldItemPlacement::Retail);
+        assert_eq!(placement(flagged_retail_id), HeldItemPlacement::Retail);
+    }
+
     #[test]
     fn animation_facts_follow_numeric_registry_replacements_and_retail_fallback() {
         use assets::facts::ItemTraits;
@@ -340,6 +451,36 @@ mod tests {
                 .traits
                 .contains(ItemTraits::SWORD)
         );
+    }
+
+    #[test]
+    fn retail_tridents_and_brushes_use_their_native_animations() {
+        use assets::facts::ItemUseAnimationFact::{Brush, Spear};
+        let entries = protocol::vanilla_item_registry();
+        // A brush starts its use on a block, so it predicts no use in the air; the use it
+        // starts lasts 200 ticks, as BDS 1.26.61.1 holds a brushing player's use.
+        for (identifier, animation, kind, ticks) in [
+            (
+                "minecraft:trident",
+                Spear,
+                ItemUseKind::Hold,
+                Some(assets::item_use::LONG_WEAPON_USE_TICKS),
+            ),
+            ("minecraft:brush", Brush, ItemUseKind::None, Some(200)),
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.identifier.as_ref() == identifier)
+                .unwrap();
+            let mut store = ItemStateStore::diagnostic();
+            assert!(store.apply_registry(protocol::ItemRegistryEvent {
+                entries: Arc::from([entry.clone()]),
+            }));
+            let profile = store.item_use_profile(entry.network_id);
+            assert_eq!(profile.animation.fact(), Some(animation), "{identifier}");
+            assert_eq!(profile.kind, Some(kind), "{identifier}");
+            assert_eq!(profile.ticks, ticks, "{identifier}");
+        }
     }
 
     #[test]
@@ -478,6 +619,123 @@ mod tests {
         assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
         assert_eq!(profile.consumption, ItemConsumption::Unresolved);
         assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    /// Regression: Hive's potions declare `food`, a drink animation and a duration of 0; the
+    /// zero made every use finish at once, so no drinking was shown and the held button
+    /// re-sent the use every few ticks.
+    #[test]
+    fn a_zero_duration_on_a_consumable_takes_the_standard_consume_time() {
+        let components = |ticks| protocol::ItemComponents {
+            food: true,
+            food_can_always_eat: Some(true),
+            use_animation: Some("drink".into()),
+            use_duration_ticks: Some(ticks),
+            use_modifiers_present: true,
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(15000, "fixture:zero", components(0)),
+                entry(15001, "fixture:declared", components(17)),
+                entry(
+                    15002,
+                    "fixture:hold",
+                    protocol::ItemComponents {
+                        use_duration_ticks: Some(0),
+                        ..Default::default()
+                    },
+                ),
+            ]),
+        }));
+        assert_eq!(
+            store.item_use_profile(15000).ticks,
+            Some(assets::item_use::DEFAULT_CONSUME_USE_TICKS)
+        );
+        assert_eq!(store.item_use_profile(15001).ticks, Some(17));
+        assert_eq!(store.item_use_profile(15002).ticks, Some(0));
+    }
+
+    #[test]
+    fn drawing_shooter_with_a_duration_is_a_held_use() {
+        let shooter = |shooter: protocol::ItemShooter| protocol::ItemComponents {
+            use_duration_ticks: Some(2_000_000_000),
+            use_modifiers_present: true,
+            use_movement_modifier_bits: Some(0.65_f64.to_bits()),
+            shooter: Some(shooter),
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(
+                    15000,
+                    "fixture:blaster",
+                    shooter(protocol::ItemShooter {
+                        draws: true,
+                        ..Default::default()
+                    }),
+                ),
+                entry(15001, "fixture:instant", shooter(Default::default())),
+            ]),
+        }));
+        let profile = store.item_use_profile(15000);
+        assert_eq!(profile.kind, Some(ItemUseKind::Hold));
+        assert_eq!(profile.ticks, Some(2_000_000_000));
+        assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
+        assert_eq!(profile.movement, 0.65);
+        assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    #[test]
+    fn authored_shooter_slowdown_and_cooldown_survive_admission_under_wire_facts() {
+        let blaster = |movement: Option<f64>| protocol::ItemComponents {
+            use_duration_ticks: Some(2_000_000_000),
+            use_modifiers_present: movement.is_some(),
+            use_movement_modifier_bits: movement.map(f64::to_bits),
+            shooter: Some(protocol::ItemShooter {
+                draws: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(15000, "fixture:authored_blaster", blaster(None)),
+                entry(15001, "fixture:wire_blaster", blaster(Some(0.65))),
+            ]),
+        }));
+        let authored = |identifier: &str| {
+            (
+                Box::from(identifier),
+                assets::equipment::CompiledItemUseOverlay {
+                    identifier: Box::from(identifier),
+                    duration_ticks: None,
+                    food_can_always_eat: None,
+                    consumption: None,
+                    use_modifiers_present: true,
+                    movement_modifier_bits: Some(0.4_f64.to_bits()),
+                    cooldown: Some(assets::item_use::ItemUseCategory {
+                        category: "fixture:blasters".into(),
+                        ticks: 6,
+                    }),
+                },
+            )
+        };
+        store.set_use_overlays(Arc::new(BTreeMap::from([
+            authored("fixture:authored_blaster"),
+            authored("fixture:wire_blaster"),
+        ])));
+        let authored = store.item_use_profile(15000);
+        assert_eq!(authored.kind, Some(ItemUseKind::Hold));
+        assert_eq!(authored.movement, 0.4);
+        assert_eq!(authored.cooldown.map(|cooldown| cooldown.ticks), Some(6));
+        let wire = store.item_use_profile(15001);
+        assert_eq!(wire.kind, Some(ItemUseKind::Hold));
+        assert_eq!(wire.movement, 0.65);
+        assert_eq!(wire.cooldown.map(|cooldown| cooldown.ticks), Some(6));
     }
 
     #[test]

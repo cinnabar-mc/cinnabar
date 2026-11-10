@@ -13,7 +13,9 @@ const HEIGHT: f32 = 9.6;
 
 /// Whether the home layout must reserve space for an app or mod update notice.
 pub(super) fn available(view: &MenuView) -> bool {
-    view.updates.ready.is_some() || !view.mods.library.updates.is_empty()
+    view.updates.manual_pending
+        || view.updates.ready.is_some()
+        || view.mods.library.available_updates().next().is_some()
 }
 
 /// Fits the complete card and its inset inside the viewport.
@@ -41,23 +43,34 @@ pub(super) fn notice(
     view: &MenuView,
     size: [f32; 2],
 ) -> Result<(), PaintError> {
-    let (status, label, action) = if let Some(ready) = &view.updates.ready {
-        let status = if ready.protocol_required {
+    let (status, label, action) = if view.updates.manual_pending {
+        (
+            format!("Close other {} windows", launcher::PRODUCT_NAME),
+            "Install pending",
+            None,
+        )
+    } else if let Some(ready) = &view.updates.ready {
+        let status = if ready.switching {
+            "Switch ready"
+        } else if ready.protocol_required {
             "Update required"
         } else {
             "Update available"
         };
         (
-            format!("{status} · {}", ready.version),
-            if ready.writable {
-                "Restart and update"
-            } else {
-                "Download update"
-            },
-            MenuAction::Update(ready.action()),
+            format!(
+                "{status} · {} {}",
+                ready
+                    .release
+                    .channel
+                    .map_or("Release", |channel| channel.title()),
+                ready.release.version
+            ),
+            ready.action_label(),
+            Some(MenuAction::Update(ready.action())),
         )
     } else {
-        let updates = &view.mods.library.updates;
+        let updates: Vec<_> = view.mods.library.available_updates().collect();
         let Some(update) = updates.first() else {
             return Ok(());
         };
@@ -75,7 +88,7 @@ pub(super) fn notice(
         (
             title,
             "View mod updates",
-            MenuAction::Mods(launcher::mods::Action::ViewUpdates),
+            Some(MenuAction::Mods(launcher::mods::Action::ViewUpdates)),
         )
     };
     if view.over_world {
@@ -103,7 +116,7 @@ pub(super) fn notice(
             [x, bottom - canvas.r(4.4), right, bottom],
             Variant::Secondary,
             label,
-            Some(action),
+            action,
         )
     })
 }
@@ -116,13 +129,32 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn a_manual_copy_waiting_for_the_original_client_shows_no_install_action() {
+        for size in [[1280.0, 720.0], [360.0, 240.0]] {
+            let mut view = MenuView::new(true, "Player".into());
+            view.updates.active = false;
+            view.updates.manual_pending = true;
+            assert!(available(&view));
+            let (_, hits, _) = paint(HashMap::new(), |canvas| {
+                notice(canvas, &view, size).unwrap();
+            });
+            assert!(hits.is_empty());
+        }
+    }
+
+    #[test]
     fn corner_card_directly_offers_one_update_button_without_later_or_an_extra_opener() {
         for writable in [false, true] {
             for required in [false, true] {
                 for size in [[1280.0, 720.0], [360.0, 240.0]] {
                     let mut view = MenuView::new(true, "Player".into());
                     view.updates.ready = Some(Ready {
-                        version: "2.0.0".into(),
+                        release: update_manifest::build::Build {
+                            version: "2.0.0".into(),
+                            number: 2,
+                            channel: Some(update_manifest::channel::Channel::Beta),
+                        },
+                        switching: false,
                         writable,
                         protocol_required: required,
                     });
@@ -166,12 +198,40 @@ mod tests {
         let mut view = MenuView::new(true, "Player".into());
         view.over_world = true;
         view.updates.ready = Some(Ready {
-            version: "2.0.0".into(),
+            release: update_manifest::build::Build {
+                version: "2.0.0".into(),
+                number: 2,
+                channel: Some(update_manifest::channel::Channel::Beta),
+            },
+            switching: false,
             writable: true,
             protocol_required: true,
         });
         let (_, hits, _) = paint(HashMap::new(), |canvas| {
             notice(canvas, &view, [1280.0, 720.0]).unwrap();
+        });
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn home_ignores_local_mod_update_sources() {
+        let mut view = MenuView::new(true, "Player".into());
+        let library = &mut std::sync::Arc::make_mut(&mut view.mods).library;
+        library.installed.push(launcher::mods::InstalledMod {
+            id: 1,
+            file: "local.wasm".into(),
+            bytes: 1,
+            permissions: Vec::new(),
+            metadata: Default::default(),
+        });
+        library.updates.push(launcher::mods::AvailableUpdate {
+            id: 1,
+            version: "2.0.0".into(),
+            release_url: String::new(),
+        });
+        assert!(!available(&view));
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            notice(canvas, &view, [1280.0, 720.0]).unwrap()
         });
         assert!(hits.is_empty());
     }
@@ -189,6 +249,16 @@ mod tests {
                     version: "1.1.0".into(),
                     release_url: String::new(),
                 });
+            std::sync::Arc::make_mut(&mut view.mods)
+                .library
+                .installed
+                .push(launcher::mods::InstalledMod {
+                    id: 1,
+                    file: format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX),
+                    bytes: 1,
+                    permissions: Vec::new(),
+                    metadata: Default::default(),
+                });
             let (_, hits, _) = paint(HashMap::new(), |canvas| {
                 notice(canvas, &view, size).unwrap();
             });
@@ -198,7 +268,12 @@ mod tests {
             assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
             assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
             view.updates.ready = Some(Ready {
-                version: "2.0.0".into(),
+                release: update_manifest::build::Build {
+                    version: "2.0.0".into(),
+                    number: 2,
+                    channel: Some(update_manifest::channel::Channel::Beta),
+                },
+                switching: false,
                 writable: true,
                 protocol_required: false,
             });

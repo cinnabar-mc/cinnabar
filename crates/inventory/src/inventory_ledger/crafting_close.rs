@@ -18,6 +18,12 @@ impl PlayerInventoryLedger {
         screen_input_cells(self.window_kind()).chain(std::iter::once(Cell::Cursor))
     }
 
+    /// Whether server-owned inputs still require close cleanup, independently of predictions.
+    pub(super) fn has_confirmed_close_inputs(&self) -> bool {
+        self.close_return_cells()
+            .any(|cell| self.confirmed.get(cell).is_some())
+    }
+
     /// Build every return against one staged ledger, so an identity, pressure,
     /// or capacity failure cannot publish a partial cleanup or lose an input.
     pub(super) fn return_crafting_on_close(&mut self) -> Result<bool, InventoryGestureError> {
@@ -44,14 +50,28 @@ impl PlayerInventoryLedger {
         Ok(true)
     }
 
-    fn return_close_cell(&mut self, source: Cell) -> Result<(), InventoryGestureError> {
+    /// Returns `source` to the player, merging first and dropping what does not fit.
+    /// Large stacks use several encodable requests; returns the last request's id.
+    pub(super) fn return_close_cell(&mut self, source: Cell) -> Result<i32, InventoryGestureError> {
+        let mut last = self.return_close_chunk(source)?;
+        while self.view().get(source).is_some() {
+            last = self.return_close_chunk(source)?;
+        }
+        Ok(last)
+    }
+
+    /// Returns at most one action's quantity so every move or drop stays encodable.
+    fn return_close_chunk(&mut self, source: Cell) -> Result<i32, InventoryGestureError> {
         let personal_generation = self.gesture_preflight(true)?;
         self.check_surfaces([source])?;
         let from = self
             .named(self.view().get(source).cloned())?
             .ok_or(InventoryGestureError::EmptyGesture)?;
         let address = self.window_address();
-        let mut remaining = from.stack.count;
+        let mut remaining = from
+            .stack
+            .count
+            .min(u16::from(protocol::MAX_STACK_REQUEST_AMOUNT));
         let mut actions = Vec::new();
         let mut groups = Vec::new();
         let (mut distinct, mut registry_bound) = (false, false);
@@ -138,8 +158,7 @@ impl PlayerInventoryLedger {
             personal_generation,
             requires_distinct_stack_ids: distinct,
             registry_bound_merge: registry_bound,
-        })?;
-        Ok(())
+        })
     }
 
     /// A close follows every gesture still waiting for transport, so the server

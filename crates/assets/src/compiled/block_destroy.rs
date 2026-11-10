@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::OnceLock};
 use sha2::{Digest, Sha256};
 
 /// The single generated hardness and provisional tool source.
-pub const DESTROY_SOURCE: &str = include_str!("../../data/block-destroy-v2193.tsv");
+pub const DESTROY_SOURCE: &str = include_str!("../../data/block-destroy-v2225.tsv");
 
 /// Hashes destroy source text with LF endings for carrier encoding and admission.
 pub(crate) fn destroy_source_sha256(source: &str) -> [u8; 32] {
@@ -43,6 +43,20 @@ impl ToolKind {
     }
 }
 
+impl ToolKind {
+    /// The native block tag the generated table's effective-tool column records for this family.
+    /// Sword and shears effectiveness also folds in older evidence, so it identifies no tag.
+    pub const fn native_destructible_tag(self) -> Option<&'static str> {
+        match self {
+            Self::Pickaxe => Some("minecraft:is_pickaxe_item_destructible"),
+            Self::Axe => Some("minecraft:is_axe_item_destructible"),
+            Self::Shovel => Some("minecraft:is_shovel_item_destructible"),
+            Self::Hoe => Some("minecraft:is_hoe_item_destructible"),
+            Self::Sword | Self::Shears => None,
+        }
+    }
+}
+
 /// Every carrier bit defined by the supported tool family enum.
 const TOOL_MASK: u8 = ToolKind::Shears.bit() * 2 - 1;
 
@@ -71,11 +85,25 @@ pub enum BlockDestroyFacts {
     Unresolved,
     ProvisionalIndestructible,
     Provisional(ProvisionalDestroy),
+    /// A resolved server component value, including negative and instant values.
+    Custom {
+        seconds_to_destroy_bits: u32,
+        effective_tools: u8,
+    },
 }
 
 impl BlockDestroyFacts {
     /// Rejects non-finite values and unsupported tool or harvest encodings.
     pub(crate) fn validate(self) -> Result<(), crate::AssetError> {
+        if let Self::Custom {
+            seconds_to_destroy_bits,
+            effective_tools,
+        } = self
+            && (!f32::from_bits(seconds_to_destroy_bits).is_finite()
+                || effective_tools & !TOOL_MASK != 0)
+        {
+            return Err(invalid());
+        }
         if let Self::Provisional(facts) = self {
             let hardness = f32::from_bits(facts.hardness_bits);
             let speed = f32::from_bits(facts.sword_speed_bits);
@@ -96,6 +124,15 @@ impl BlockDestroyFacts {
     /// Appends the canonical twelve-byte representation after validation.
     pub(crate) fn write(self, bytes: &mut Vec<u8>) {
         match self {
+            Self::Custom {
+                seconds_to_destroy_bits,
+                effective_tools,
+            } => {
+                bytes.extend_from_slice(&seconds_to_destroy_bits.to_le_bytes());
+                bytes.push(effective_tools);
+                bytes.extend_from_slice(&[0; 6]);
+                bytes.push(3);
+            }
             Self::Unresolved | Self::ProvisionalIndestructible => {
                 bytes.extend_from_slice(&[0; 11]);
                 bytes.push(u8::from(matches!(self, Self::ProvisionalIndestructible)) * 2);
@@ -121,6 +158,10 @@ impl BlockDestroyFacts {
             return Err(invalid());
         }
         let facts = match bytes[11] {
+            3 if bytes[5..11] == [0; 6] => Self::Custom {
+                seconds_to_destroy_bits: u32::from_le_bytes(bytes[..4].try_into().unwrap()),
+                effective_tools: bytes[4],
+            },
             0 | 2 if bytes[..11] == [0; 11] => {
                 if bytes[11] == 0 {
                     Self::Unresolved
@@ -148,6 +189,26 @@ impl BlockDestroyFacts {
 }
 
 /// Produces one consistently bounded carrier error for invalid destroy facts.
+impl BlockDestroyFacts {
+    /// Reads the carried native tool tags, preserving unknown tags and unresolved facts.
+    pub fn native_tool_tag(self, tag: &str) -> Option<bool> {
+        let Self::Provisional(facts) = self else {
+            return None;
+        };
+        [
+            ToolKind::Pickaxe,
+            ToolKind::Axe,
+            ToolKind::Shovel,
+            ToolKind::Hoe,
+        ]
+        .into_iter()
+        .find_map(|kind| {
+            (kind.native_destructible_tag() == Some(tag))
+                .then_some(facts.effective_tools & kind.bit() != 0)
+        })
+    }
+}
+
 fn invalid() -> crate::AssetError {
     crate::AssetError::InvalidCompiledAssets {
         detail: "invalid compiled destroy facts".into(),
@@ -242,6 +303,14 @@ mod tests {
     #[test]
     fn destroy_records_keep_unknown_distinct_and_reject_invalid_facts() {
         for facts in [
+            BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: 2.0_f32.to_bits(),
+                effective_tools: ToolKind::Pickaxe.bit(),
+            },
+            BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits: (-1.0_f32).to_bits(),
+                effective_tools: 0,
+            },
             BlockDestroyFacts::Unresolved,
             builtin_destroy_facts("minecraft:stone"),
             builtin_destroy_facts("minecraft:bedrock"),
@@ -263,5 +332,31 @@ mod tests {
         bytes[..4].copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
         assert!(BlockDestroyFacts::read(&bytes).is_err());
         assert!(BlockDestroyFacts::read(&[3; 12]).is_err());
+    }
+
+    #[test]
+    fn native_tool_tags_follow_the_effective_tool_column() {
+        let concrete = builtin_destroy_facts("minecraft:red_concrete");
+        assert_eq!(
+            concrete.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            Some(true)
+        );
+        assert_eq!(
+            concrete.native_tool_tag("minecraft:is_shovel_item_destructible"),
+            Some(false)
+        );
+        let dirt = builtin_destroy_facts("minecraft:dirt");
+        assert_eq!(
+            dirt.native_tool_tag("minecraft:is_shovel_item_destructible"),
+            Some(true)
+        );
+        assert_eq!(
+            dirt.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            Some(false)
+        );
+        assert_eq!(
+            BlockDestroyFacts::Unresolved.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            None
+        );
     }
 }

@@ -12,6 +12,8 @@ use super::request::StackRequestContainer;
 /// Unspecified type used by client closes and acknowledgements for absent windows.
 pub const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const WINDOW_TYPE_CONTAINER: i8 = WindowType::Container.wire_value();
+/// The command block editor: an unmanaged window with no slots, opened over a block or a minecart.
+pub const WINDOW_TYPE_COMMAND_BLOCK: i8 = WindowType::CommandBlock.wire_value();
 pub const WINDOW_TYPE_WORKBENCH: i8 = WindowType::Workbench.wire_value();
 pub const WINDOW_TYPE_FURNACE: i8 = WindowType::Furnace.wire_value();
 pub const WINDOW_TYPE_ENCHANTMENT: i8 = WindowType::Enchantment.wire_value();
@@ -34,6 +36,11 @@ pub const WINDOW_TYPE_CARTOGRAPHY: i8 = WindowType::Cartography.wire_value();
 pub const WINDOW_TYPE_SMITHING_TABLE: i8 = WindowType::SmithingTable.wire_value();
 pub const WINDOW_TYPE_CHEST_BOAT: i8 = WindowType::ChestBoat.wire_value();
 pub const WINDOW_TYPE_CRAFTER: i8 = WindowType::Crafter.wire_value();
+pub const WINDOW_TYPE_TRADE: i8 = WindowType::Trade.wire_value();
+
+/// Fixed UI inventory cells used by each trading screen's two inputs.
+pub const MODERN_TRADE_SLOTS: [u8; 2] = [4, 5];
+pub const LEGACY_TRADE_SLOTS: [u8; 2] = [6, 7];
 
 const NAME_ANVIL_INPUT: u8 = ContainerName::AnvilInput.wire_value();
 const NAME_ANVIL_MATERIAL: u8 = ContainerName::AnvilMaterial.wire_value();
@@ -66,7 +73,7 @@ const NAME_SMITHING_TEMPLATE: u8 = ContainerName::SmithingTableTemplate.wire_val
 const NAME_CRAFTER: u8 = ContainerName::CrafterLevelEntity.wire_value();
 
 /// Result-preview container names; each shows the screen's output at UI slot 50.
-const RESULT_PREVIEW_NAMES: [u8; 8] = [
+const RESULT_PREVIEW_NAMES: [u8; 9] = [
     ContainerName::AnvilResultPreview.wire_value(),
     ContainerName::SmithingTableResultPreview.wire_value(),
     ContainerName::CraftingOutputPreview.wire_value(),
@@ -75,13 +82,15 @@ const RESULT_PREVIEW_NAMES: [u8; 8] = [
     ContainerName::StonecutterResultPreview.wire_value(),
     ContainerName::CartographyResultPreview.wire_value(),
     ContainerName::TradeResultPreview.wire_value(),
+    ContainerName::TradeTwoResultPreview.wire_value(),
 ];
 
 /// Slots of the personal UI inventory (cursor, inputs, grids, output).
 pub const UI_SLOT_COUNT: usize = 54;
 
-/// Storage cells addressable by the protocol's one-byte stack-request slot.
-pub const MAX_GENERIC_STORAGE_SLOTS: usize = u8::MAX as usize + 1;
+/// Retained storage cells. Native sizes an actor's chest from a synced int and no cap on it has
+/// been identified, so this bound is an implementation limit, not a verified parity limit.
+pub const MAX_GENERIC_STORAGE_SLOTS: usize = 1024;
 
 /// Derives every nonempty container length that the retained slot address can represent.
 const fn generic_storage_lengths() -> [usize; MAX_GENERIC_STORAGE_SLOTS] {
@@ -120,6 +129,9 @@ pub enum WindowKind {
     Smithing,
     Crafter,
     Lectern,
+    Trade {
+        modern: bool,
+    },
 }
 
 /// One run of a window's own cells that share a container name.
@@ -200,6 +212,7 @@ impl WindowKind {
             WINDOW_TYPE_SMITHING_TABLE => Self::Smithing,
             WINDOW_TYPE_CRAFTER => Self::Crafter,
             WINDOW_TYPE_LECTERN => Self::Lectern,
+            WINDOW_TYPE_TRADE => Self::Trade { modern: true },
             _ => return None,
         })
     }
@@ -247,6 +260,7 @@ impl WindowKind {
             | Self::Cartography
             | Self::Smithing
             | Self::Lectern => return None,
+            Self::Trade { .. } => return None,
         })
     }
 
@@ -266,16 +280,15 @@ impl WindowKind {
     }
 }
 
-/// The container name and window index request slot `cell` of an open window
-/// carries. `content_name` is the name the window's content arrived under, so a
+/// The container name and cell a request for `cell` of an open window names. `content_name` is the name the window's content arrived under, so a
 /// barrel or shulker box echoes its own name instead of the level-entity one.
 #[must_use]
 pub fn open_cell_request(
     kind: WindowKind,
-    cell: u8,
+    cell: u16,
     dynamic_id: Option<u32>,
     content_name: Option<u8>,
-) -> Option<(StackRequestContainer, u8)> {
+) -> Option<(StackRequestContainer, u16)> {
     match kind.open_cells()? {
         OpenCells::Generic(_) => Some(match content_name {
             Some(name @ (NAME_SHULKER_BOX | NAME_BARREL)) => {
@@ -284,6 +297,7 @@ pub fn open_cell_request(
             _ => (StackRequestContainer::LevelEntity { dynamic_id }, cell),
         }),
         OpenCells::Named { segments, .. } => {
+            let cell = u8::try_from(cell).ok()?;
             let segment = segment_of_cell(segments, cell)?;
             let container = if segment.name == super::address::CONTAINER_NAME_LEVEL_ENTITY {
                 StackRequestContainer::LevelEntity { dynamic_id }
@@ -293,7 +307,7 @@ pub fn open_cell_request(
                     dynamic_id: None,
                 }
             };
-            Some((container, cell))
+            Some((container, u16::from(cell)))
         }
     }
 }
@@ -356,6 +370,10 @@ pub const fn ui_slot_container_name(slot: u8) -> Option<u8> {
         1 => NAME_ANVIL_INPUT,
         2 => NAME_ANVIL_MATERIAL,
         3 => NAME_STONECUTTER_INPUT,
+        slot if slot == MODERN_TRADE_SLOTS[0] => ContainerName::TradeTwoIngredientOne.wire_value(),
+        slot if slot == MODERN_TRADE_SLOTS[1] => ContainerName::TradeTwoIngredientTwo.wire_value(),
+        slot if slot == LEGACY_TRADE_SLOTS[0] => ContainerName::TradeIngredientOne.wire_value(),
+        slot if slot == LEGACY_TRADE_SLOTS[1] => ContainerName::TradeIngredientTwo.wire_value(),
         9 => NAME_LOOM_INPUT,
         10 => NAME_LOOM_DYE,
         11 => NAME_LOOM_MATERIAL,
@@ -404,7 +422,7 @@ pub fn ui_slot_request_container(slot: u8) -> Option<StackRequestContainer> {
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::enums::ContainerEnumName as Name;
+    use bedrock_protocol_1_26_60::enums::ContainerEnumName as Name;
 
     use super::*;
 
@@ -416,52 +434,52 @@ mod tests {
     #[test]
     fn container_name_codes_match_the_protocol_enum() {
         let pairs = [
-            (NAME_ANVIL_INPUT, Name::Anvilinputcontainer),
-            (NAME_ANVIL_MATERIAL, Name::Anvilmaterialcontainer),
-            (NAME_SMITHING_INPUT, Name::Smithingtableinputcontainer),
-            (NAME_SMITHING_MATERIAL, Name::Smithingtablematerialcontainer),
-            (NAME_BEACON_PAYMENT, Name::Beaconpaymentcontainer),
-            (NAME_BREWING_INPUT, Name::Brewingstandinputcontainer),
-            (NAME_BREWING_RESULT, Name::Brewingstandresultcontainer),
-            (NAME_BREWING_FUEL, Name::Brewingstandfuelcontainer),
-            (NAME_CRAFTING_INPUT, Name::Craftinginputcontainer),
-            (NAME_ENCHANTING_INPUT, Name::Enchantinginputcontainer),
-            (NAME_ENCHANTING_MATERIAL, Name::Enchantingmaterialcontainer),
-            (NAME_FURNACE_FUEL, Name::Furnacefuelcontainer),
-            (NAME_FURNACE_INGREDIENT, Name::Furnaceingredientcontainer),
-            (NAME_FURNACE_RESULT, Name::Furnaceresultcontainer),
-            (NAME_HORSE_EQUIP, Name::Horseequipcontainer),
-            (NAME_SHULKER_BOX, Name::Shulkerboxcontainer),
-            (NAME_LOOM_INPUT, Name::Loominputcontainer),
-            (NAME_LOOM_DYE, Name::Loomdyecontainer),
-            (NAME_LOOM_MATERIAL, Name::Loommaterialcontainer),
+            (NAME_ANVIL_INPUT, Name::AnvilInputContainer),
+            (NAME_ANVIL_MATERIAL, Name::AnvilMaterialContainer),
+            (NAME_SMITHING_INPUT, Name::SmithingTableInputContainer),
+            (NAME_SMITHING_MATERIAL, Name::SmithingTableMaterialContainer),
+            (NAME_BEACON_PAYMENT, Name::BeaconPaymentContainer),
+            (NAME_BREWING_INPUT, Name::BrewingStandInputContainer),
+            (NAME_BREWING_RESULT, Name::BrewingStandResultContainer),
+            (NAME_BREWING_FUEL, Name::BrewingStandFuelContainer),
+            (NAME_CRAFTING_INPUT, Name::CraftingInputContainer),
+            (NAME_ENCHANTING_INPUT, Name::EnchantingInputContainer),
+            (NAME_ENCHANTING_MATERIAL, Name::EnchantingMaterialContainer),
+            (NAME_FURNACE_FUEL, Name::FurnaceFuelContainer),
+            (NAME_FURNACE_INGREDIENT, Name::FurnaceIngredientContainer),
+            (NAME_FURNACE_RESULT, Name::FurnaceResultContainer),
+            (NAME_HORSE_EQUIP, Name::HorseEquipContainer),
+            (NAME_SHULKER_BOX, Name::ShulkerBoxContainer),
+            (NAME_LOOM_INPUT, Name::LoomInputContainer),
+            (NAME_LOOM_DYE, Name::LoomDyeContainer),
+            (NAME_LOOM_MATERIAL, Name::LoomMaterialContainer),
             (
                 NAME_BLAST_FURNACE_INGREDIENT,
-                Name::Blastfurnaceingredientcontainer,
+                Name::BlastFurnaceIngredientContainer,
             ),
-            (NAME_SMOKER_INGREDIENT, Name::Smokeringredientcontainer),
-            (NAME_GRINDSTONE_INPUT, Name::Grindstoneinputcontainer),
+            (NAME_SMOKER_INGREDIENT, Name::SmokerIngredientContainer),
+            (NAME_GRINDSTONE_INPUT, Name::GrindstoneInputContainer),
             (
                 NAME_GRINDSTONE_ADDITIONAL,
-                Name::Grindstoneadditionalcontainer,
+                Name::GrindstoneAdditionalContainer,
             ),
-            (NAME_STONECUTTER_INPUT, Name::Stonecutterinputcontainer),
-            (NAME_CARTOGRAPHY_INPUT, Name::Cartographyinputcontainer),
+            (NAME_STONECUTTER_INPUT, Name::StonecutterInputContainer),
+            (NAME_CARTOGRAPHY_INPUT, Name::CartographyInputContainer),
             (
                 NAME_CARTOGRAPHY_ADDITIONAL,
-                Name::Cartographyadditionalcontainer,
+                Name::CartographyAdditionalContainer,
             ),
-            (NAME_BARREL, Name::Barrelcontainer),
-            (NAME_SMITHING_TEMPLATE, Name::Smithingtabletemplatecontainer),
-            (NAME_CRAFTER, Name::Crafterlevelentitycontainer),
-            (2, Name::Anvilresultpreviewcontainer),
-            (5, Name::Smithingtableresultpreviewcontainer),
-            (14, Name::Craftingoutputpreviewcontainer),
-            (44, Name::Loomresultpreviewcontainer),
-            (52, Name::Grindstoneresultpreviewcontainer),
-            (54, Name::Stonecutterresultpreviewcontainer),
-            (57, Name::Cartographyresultpreviewcontainer),
-            (33, Name::Traderesultpreviewcontainer),
+            (NAME_BARREL, Name::BarrelContainer),
+            (NAME_SMITHING_TEMPLATE, Name::SmithingTableTemplateContainer),
+            (NAME_CRAFTER, Name::CrafterLevelEntityContainer),
+            (2, Name::AnvilResultPreviewContainer),
+            (5, Name::SmithingTableResultPreviewContainer),
+            (14, Name::CraftingOutputPreviewContainer),
+            (44, Name::LoomResultPreviewContainer),
+            (52, Name::GrindstoneResultPreviewContainer),
+            (54, Name::StonecutterResultPreviewContainer),
+            (57, Name::CartographyResultPreviewContainer),
+            (33, Name::TradeResultPreviewContainer),
         ];
         for (expected, name) in pairs {
             assert_eq!(code(name), expected);
@@ -506,6 +524,13 @@ mod tests {
                 dynamic_id: Some(4)
             }
         );
+    }
+
+    #[test]
+    fn generic_cells_past_one_byte_keep_their_cell() {
+        let (_, slot) = open_cell_request(WindowKind::Storage, 508, None, None).unwrap();
+        assert_eq!(slot, 508);
+        assert!(open_cell_request(WindowKind::Furnace, 256, None, None).is_none());
     }
 
     #[test]

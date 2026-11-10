@@ -11,7 +11,7 @@ use std::{
 use time::OffsetDateTime;
 use update_manifest::select::Check;
 
-/// Resolves only native app bundles, MSI layouts and mounted AppImage source files.
+/// Resolves native app bundles, MSI layouts, AppImage source files and extracted AppDirs.
 pub(super) fn installed_target() -> Result<PathBuf> {
     update_installer::target::resolve(
         std::env::consts::OS,
@@ -41,18 +41,33 @@ pub(super) fn spawn(layout: &InstallLayout, ready: &Ready) -> Result<()> {
     if let Some(lease) = &ready.lease {
         lease.set_modified(SystemTime::now())?;
     }
-    let args = [
-        ready.stage.as_os_str().to_owned(),
-        installed_target()?.into_os_string(),
-        std::process::id().to_string().into(),
-        ready.channel.name().into(),
-    ];
+    let args = helper_args(ready, apply_target(ready)?, std::process::id());
     spawn_with_args(layout, &args)?;
     if let Some(lease) = &ready.lease {
         // Keep the parent reader through actual process exit, just like the helper copy reader.
         std::mem::forget(lease.clone());
     }
     Ok(())
+}
+
+/// Carries downgrade consent separately from the selected signed stage and its publishing channel.
+pub(super) fn helper_args(ready: &Ready, target: PathBuf, parent: u32) -> Vec<OsString> {
+    let mut args = vec![
+        ready.stage.as_os_str().to_owned(),
+        target.into_os_string(),
+        parent.to_string().into(),
+        ready.channel().name().into(),
+    ];
+    if let Some(build) = &ready.switch_from {
+        args.push(build.version.clone().into());
+        args.push(build.number.to_string().into());
+    }
+    args
+}
+
+/// A downloaded copy applies to its original installation, rather than replacing itself.
+pub(super) fn apply_target(ready: &Ready) -> Result<PathBuf> {
+    ready.target.clone().map_or_else(installed_target, Ok)
 }
 
 /// Starts rollback recovery with the same exact-parent exit barrier as an ordinary apply.
@@ -163,19 +178,29 @@ fn manual_package(ready: &Ready) -> Result<ManualPackage> {
     let name =
         update_manifest::platforms::artifact_name(std::env::consts::OS, std::env::consts::ARCH)
             .context("unknown native artifact")?;
+    let current = update_manifest::build::Build::current();
     snapshot_package(
         &ready.stage,
         name,
         &keys,
-        Check {
-            channel: ready.channel.name(),
-            platform: &platform,
-            current: env!("CARGO_PKG_VERSION"),
-            current_build: update_manifest::build_number(),
-            switch_now: ready.switch_now,
-        },
+        manual_check(ready, &platform, &current),
         OffsetDateTime::now_utc,
     )
+}
+
+/// Reauthenticates a selected repair package independently of the temporary running copy's build.
+pub(super) fn manual_check<'a>(
+    ready: &Ready,
+    platform: &'a str,
+    current: &'a update_manifest::build::Build,
+) -> Check<'a> {
+    Check {
+        channel: ready.channel().name(),
+        platform,
+        current: &current.version,
+        current_build: current.number,
+        switch_now: ready.switch_from.is_some() || ready.target.is_some(),
+    }
 }
 
 /// A verified manual installer held independently of further stage replacement or deletion.

@@ -28,33 +28,6 @@ fn bed_collisions(app: &mut App, bed: [i32; 3], direction: usize) -> TestCollisi
     }
 }
 
-/// Applies camera effects with the same world observation used to sample hand motion.
-#[allow(clippy::too_many_arguments)]
-fn present(
-    time: Res<Time>,
-    settings: Res<CameraSettingsAuthority>,
-    hand: Res<FirstPersonHandMotion>,
-    view: Res<LocalViewPose>,
-    world: Res<TestWorld>,
-    server: ResMut<ServerCameraView>,
-    cameras: Query<(&mut Transform, Option<&mut Projection>), With<FlyCamera>>,
-) {
-    crate::camera::presentation::apply_camera_presentation(
-        time,
-        settings,
-        None,
-        hand,
-        None,
-        view,
-        Some(WorldObservation {
-            stream: Some(&world.0),
-        }),
-        None,
-        server,
-        cameras,
-    );
-}
-
 #[derive(Resource, Default)]
 struct TestCollisions {
     registry: sim::CollisionRegistry,
@@ -260,7 +233,7 @@ fn sleeping_pose_is_shared_before_camera_publication_and_reanchors_only_on_trans
                         look
                     };
                     // These getters also supply both actor query publication passes.
-                    assert!(view.camera_rotation().abs_diff_eq(rotation, 1e-5));
+                    assert!(view.player_camera_rotation().abs_diff_eq(rotation, 1e-5));
                     let expected = crate::camera::perspective_pose(eye, rotation, perspective);
                     assert!(captured.translation.abs_diff_eq(expected.translation, 1e-5));
                     assert!(captured.rotation.abs_diff_eq(expected.rotation, 1e-5));
@@ -371,7 +344,7 @@ fn sleep_state(app: &mut App, sequence: u64, sleeping: bool, bed: Option<[i32; 3
 }
 
 #[test]
-fn sleeping_camera_keeps_its_published_eye_height_and_restores_java_adjustment_on_waking() {
+fn sleeping_camera_keeps_its_published_eye_height_in_both_animation_modes() {
     let bed = BED;
     let (eye, feet) = crate::local_player::sleeping_subject_position(bed);
     for java in [false, true] {
@@ -399,7 +372,7 @@ fn sleeping_camera_keeps_its_published_eye_height_and_restores_java_adjustment_o
                     .world_mut()
                     .spawn((FlyCamera::default(), Transform::from_translation(eye)))
                     .id();
-                // Keep the same lowered eye to check that only awake Java poses are corrected.
+                // Keep the same lowered eye: neither animation mode moves the camera off it.
                 for (sequence, sleeping) in [(2, false), (3, true), (4, false)] {
                     sleep_state(&mut app, sequence, sleeping, bed_metadata);
                     *app.world_mut().get_mut::<Transform>(camera).unwrap() =
@@ -407,23 +380,8 @@ fn sleeping_camera_keeps_its_published_eye_height_and_restores_java_adjustment_o
                     app.world_mut().run_system_cached(sample).unwrap();
                     app.world_mut().run_system_cached(present).unwrap();
 
-                    let adjustment = if java && !sleeping {
-                        protocol::STANDING_PLAYER_EYE_HEIGHT - (eye.y - feet.y)
-                    } else {
-                        0.0
-                    };
-                    assert_eq!(
-                        app.world()
-                            .resource::<FirstPersonHandMotion>()
-                            .eye_height_adjustment,
-                        adjustment
-                    );
                     let rendered = app.world().get::<Transform>(camera).unwrap();
-                    assert!(
-                        rendered
-                            .translation
-                            .abs_diff_eq(eye + Vec3::Y * adjustment, 1e-5)
-                    );
+                    assert!(rendered.translation.abs_diff_eq(eye, 1e-5));
                     assert_eq!(rendered.rotation, Quat::IDENTITY);
                     assert_eq!(*app.world().resource::<LocalViewPose>(), view);
                     assert_eq!(app.world().resource::<TestPhysics>().state, physics);
@@ -582,7 +540,10 @@ fn sleep_entry_after_freelook_reanchors_the_first_person_hand() {
                 .unwrap();
             assert_sway(&mut app, 0.0, 0.0);
             let view = app.world().resource::<LocalViewPose>();
-            assert!(view.camera_rotation().abs_diff_eq(view.rotation(), 1e-5));
+            assert!(
+                view.player_camera_rotation()
+                    .abs_diff_eq(view.rotation(), 1e-5)
+            );
             assert_eq!(app.world().resource::<TestPhysics>().state, physics);
             // A real turn immediately after waking must retain its ordinary hand lag.
             app.world_mut()

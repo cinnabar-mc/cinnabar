@@ -64,12 +64,13 @@ func (r *tellRecorder) all() []recordedTell {
 // hostFixture is a running Host over a world of the registered blocks, holding a player without
 // a session who acts in every event, and a tellRecorder in place of player messages.
 type hostFixture struct {
-	t     *testing.T
-	store *Store
-	host  *Host
-	w     *world.World
-	actor *world.EntityHandle
-	tells *tellRecorder
+	t        *testing.T
+	store    *Store
+	host     *Host
+	w        *world.World
+	instance worldInstance
+	actor    *world.EntityHandle
+	tells    *tellRecorder
 }
 
 // newHostFixture runs a Host of sups without a server half for client parts, logging to log. It
@@ -118,6 +119,10 @@ func newIdleClientFixture(
 	t.Cleanup(func() { w.Close() })
 	f := &hostFixture{t: t, store: openTestStore(t, t.TempDir()), w: w, tells: &tellRecorder{}}
 	f.host = NewHost(reg, f.store, sups, "world", channels, log)
+	if _, err := f.host.BindWorld(OverworldInstance, w); err != nil {
+		t.Fatal(err)
+	}
+	f.instance, _ = f.host.worlds.of(w)
 	f.host.tell = f.tells
 	f.actor = world.EntitySpawnOpts{Position: mgl64.Vec3{0.5, 100, 40.5}}.
 		New(player.Type, player.Config{Name: "Actor"})
@@ -157,7 +162,7 @@ func (f *hostFixture) place(id string, pos BlockPos, data []byte) {
 	if !ok {
 		f.t.Fatalf("no registered block %q", id)
 	}
-	f.do(func(tx *world.Tx) { tx.SetBlock(pos.cube(), b, nil) })
+	f.do(func(tx *world.Tx) { tx.SetBlock(pos.cube(), b.inWorld(nil), nil) })
 	f.store.Place(b.t.exp, overworldKey(pos))
 	if data != nil {
 		if err := f.store.SetData(b.t.exp, overworldKey(pos), data, true); err != nil {
@@ -219,6 +224,18 @@ func (f *hostFixture) waitData(exp string, pos BlockPos, want []byte) {
 	}
 }
 
+// waitUntil waits up to within for done to hold, then fails with what describes the state.
+func (f *hostFixture) waitUntil(within time.Duration, done func() bool, what func() string) {
+	f.t.Helper()
+	deadline := time.Now().Add(within)
+	for !done() {
+		if time.Now().After(deadline) {
+			f.t.Fatal(what())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // assertData checks the data that the store holds for exp at pos.
 func (f *hostFixture) assertData(exp string, pos BlockPos, want []byte) {
 	f.t.Helper()
@@ -241,7 +258,7 @@ func dataText(data []byte) string {
 
 // overworldKey is the store key of pos in the overworld.
 func overworldKey(pos BlockPos) Key {
-	return Key{Dim: 0, X: pos.X, Y: pos.Y, Z: pos.Z}
+	return Key{Instance: OverworldInstance, X: pos.X, Y: pos.Y, Z: pos.Z}
 }
 
 // counter is the probe counter's data holding n.
@@ -343,24 +360,32 @@ func TestHealthyExperienceRespondsBesideHostile(t *testing.T) {
 	f.assertData("probe", healthy, counter(1))
 }
 
-// A player break deletes the block's data at once and calls on-break with the old data.
+// A player break deletes the block's data at once and calls on-break with the old data, as a
+// harvest in survival and not in creative.
 func TestBreakDeletesDataAndSendsPrevious(t *testing.T) {
 	log, _ := testLog(t)
 	sup, _ := startProbe(t, log)
 	f := newHostFixture(t, log, map[string]*Supervisor{"probe": sup})
 	pos := probePos(probeCount)
-	f.place(probeCounter, pos, []byte{1, 2, 3, 4})
-	f.do(func(tx *world.Tx) {
-		// As a player break does: the block goes, then its BreakHandler runs.
-		b := tx.Block(pos.cube()).(Block)
-		tx.SetBlock(pos.cube(), nil, nil)
-		b.BreakInfo().BreakHandler(pos.cube(), tx, f.player(tx))
-	})
+	breakAs := func(mode world.GameMode) {
+		f.place(probeCounter, pos, []byte{1, 2, 3, 4})
+		f.do(func(tx *world.Tx) {
+			p := f.player(tx)
+			p.SetGameMode(mode)
+			// As a player break does: the block goes, then its BreakHandler runs.
+			b := tx.Block(pos.cube()).(Block)
+			tx.SetBlock(pos.cube(), nil, nil)
+			b.BreakInfo().BreakHandler(pos.cube(), tx, p)
+		})
+	}
+	breakAs(world.GameModeSurvival)
 	if tok, ok := f.store.Token("probe", overworldKey(pos)); ok {
 		t.Fatalf("token %+v survived the break", tok)
 	}
 	f.assertData("probe", pos, nil)
-	f.waitTells(5*time.Second, "broke 4")
+	f.waitTells(5*time.Second, "broke 4 harvested")
+	breakAs(world.GameModeCreative)
+	f.waitTells(5*time.Second, "broke 4 harvested", "broke 4")
 }
 
 // Setting an own block over an owned one starts a new generation without data.
@@ -577,7 +602,7 @@ func TestQuotaCheckedOnNetData(t *testing.T) {
 	f.place(probeCounter, b, full)
 	// Blocks elsewhere fill the rest of the quota.
 	for i := range dataQuota/maxBlockDataBytes - 1 {
-		k := Key{X: 1000 + int32(i), Y: 64}
+		k := Key{Instance: OverworldInstance, X: 1000 + int32(i), Y: 64}
 		f.store.Place("probe", k)
 		if err := f.store.SetData("probe", k, full, true); err != nil {
 			t.Fatalf("filling the quota: %v", err)
@@ -587,7 +612,7 @@ func TestQuotaCheckedOnNetData(t *testing.T) {
 		t.Fatalf("budget = %d, want the quota full", budget)
 	}
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: a.cube(), call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: a.cube(), call: Call{
 		Neighbor: &NeighborCall{Pos: a, Neighbor: b},
 	}}
 	snap, err := f.host.snapshot(context.Background(), d, &ev)

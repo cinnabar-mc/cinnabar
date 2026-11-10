@@ -65,6 +65,36 @@ fn groups_admitted_columns_in_one_request() {
 }
 
 #[test]
+fn distant_requests_encode_the_prepared_origin_after_send_rejection() {
+    let mut stream = requested_columns(&[0]);
+    let expected = protocol::request_sub_chunks(0, [0, -4, 0], [[0, -4, 0]].into_iter()).unwrap();
+    let mut sent_receipt = None;
+    for (center, reject) in [([255, 0, 0], true), ([-255, 0, 0], false)] {
+        let sent = flush_sub_chunk_requests(&mut stream, 1, center, |receipt, packet| {
+            assert_eq!(packet, expected);
+            assert_eq!(
+                protocol::decode_batch(protocol::encode(&packet).unwrap())
+                    .unwrap()
+                    .as_slice(),
+                std::slice::from_ref(&expected)
+            );
+            if reject {
+                Err(client_session::PacketSendError::Full(packet))
+            } else {
+                sent_receipt = Some(receipt);
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(sent, usize::from(!reject));
+        assert_eq!(stream.pending_request_count(), usize::from(reject));
+        assert_eq!(stream.stats().awaiting_sub_chunk_responses, 0);
+    }
+    stream.acknowledge_sub_chunk_request_sent(&sent_receipt.unwrap(), Instant::now());
+    assert_eq!(stream.stats().awaiting_sub_chunk_responses, 1);
+}
+
+#[test]
 fn full_outbound_queue_retries_the_same_request_then_preserves_fifo_order() {
     let mut stream = requested_columns(&[0, 1, 2]);
 

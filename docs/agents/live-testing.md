@@ -22,7 +22,9 @@ fresh output from that run. A missing capture is incomplete validation.
 
 Headless sessions render through a hidden window. They can verify pixels and
 rendering work, but displayed-frame pacing, OS focus, and occlusion gates require
-appropriate presentation evidence and remain incomplete without it.
+appropriate presentation evidence and remain incomplete without it. With no swap chain
+to wait on, the render world's frame poll waits for the GPU once three frames are queued,
+so an uncapped hidden client runs at the GPU's completion rate.
 
 A signed-in capture account still receives Xbox join requests and other toasts, which `F1` does
 not hide. `--hide-toasts` (`developer-control` builds only) stops drawing toasts for the session
@@ -30,8 +32,16 @@ so they cannot land in a comparison capture; they still queue and expire as usua
 
 To compare frames against another renderer at a known time of day, launch a `developer-control`
 build with `--fixed-time <TICKS>` (0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight).
-The sky and lighting then draw at that time for the whole session, ahead of any mod's time
-changer; the server clock, and so gameplay, keep running. Release builds reject the flag.
+The sky, lighting and shader-pack uniforms then draw at that time for the whole session, ahead of
+any mod's time changer; the server clock, and so gameplay, keep running. Release builds reject the
+flag.
+
+Shader-pack animations driven by `frameTimeCounter` (BSL's clouds, water waves) depend on how long
+the pack has been loaded. `--frame-time-counter <SECONDS>` (0 up to 3600, `developer-control`
+builds only) freezes that uniform for the session so a capture shows the same phase as a reference
+taken at a known counter value. Iris has no such option; its counter starts at 0 when it creates
+the pipeline, so read the reference's value back from the pack (for example a stamp the pack
+writes into a corner pixel).
 
 Server compatibility tests can establish connection, transfer, or server-authority
 behavior. They do not by themselves establish version-matched Bedrock parity.
@@ -227,6 +237,9 @@ show it as a background-work counter at receipt, not a continuous execution span
 Both `main_frame` and input pacing's main-thread estimate include that wait.
 `CINNABAR_WORLD_SERVICE=0` keeps every world-stream poll on the main thread, a
 same-binary control for chunk-streaming comparisons.
+`CINNABAR_CPU_CORES=<n>` sizes every thread pool (rayon, Bevy task pools, world workers) as on a
+machine with `n` logical processors, at most the real count, to check pool starvation on low-core
+laptops. It does not limit the cores the OS schedules on.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the
@@ -353,10 +366,12 @@ session) to record each session in full to `logs/packets-<session start unix ms>
 set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
 never replaced; the start time is added to the name instead. Before each capture into `logs/`, the
 oldest `packets-*.cnbrcap` there are deleted so the folder keeps at most 10 captures and 2 GiB,
-counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the v2 format that
+counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the versioned format that
 `tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
-when the client read each batch, which trails socket arrival while ingress is backlogged. It
-stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
+when the client read each batch, which trails socket arrival while ingress is backlogged.
+Version 3 also records frozen numeric pick state for outgoing actor attacks and mouseover
+reports; see the [capture format](../../tools/bedrock-replay/README.md#fidelity-and-report-interpretation).
+It stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
 slowing the network thread. Session teardown finishes the file, waiting at most 2 s; a crash
 loses at most the queued packets and 64 KiB of written ones and leaves a capture that
 `bedrock-replay` reports as truncated. Login, handshake and resource-pack offer packets are left

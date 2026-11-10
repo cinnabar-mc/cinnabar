@@ -16,15 +16,30 @@ type HandRigViewQuery = (
     &'static crate::scene_target::SceneTarget,
     &'static Msaa,
     Has<render_scene::EnhancedRendering>,
+    Has<render_scene::shaderpack::ShaderPackRendering>,
 );
 
-/// Draws the first-person rig over the scene with its own depth attachment.
-pub(crate) fn hand_rig(
+/// Draws the first-person rig over the scene with its own depth attachment, except on
+/// shader-pack cameras whose pack draws the hand itself.
+pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     world: &World,
     query: bevy::render::renderer::ViewQuery<HandRigViewQuery>,
     mut context: RenderContext,
+    coverage: crate::shaderpack::native_actors::NativeActorCoverage,
 ) -> bevy::ecs::error::Result {
-    let (target, scene_target, msaa, enhanced) = query.into_inner();
+    let view_entity = query.entity();
+    if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK) {
+        return Ok(());
+    }
+    let (target, scene_target, msaa, enhanced, pack_view) = query.into_inner();
+    if pack_view
+        && coverage.hand(view_entity)
+        && world
+            .get_resource::<render_scene::shaderpack::ShaderPackDrawnCategories>()
+            .is_some_and(|drawn| drawn.hand)
+    {
+        return Ok(());
+    }
     let context = &mut context;
     let (Some(gpu), Some(cache)) = (
         world.get_resource::<HandRigGpu>(),
@@ -52,12 +67,15 @@ pub(crate) fn hand_rig(
     {
         return Ok(());
     }
+    let encoded = gpu.uniforms.as_ref().is_some_and(|(_, light)| {
+        super::bindings::hand_uses_encoded_color(light, !scene_target.format().is_srgb())
+    });
     let final_world_draw =
-        !(render_model::enhanced_rendering_enabled() && enhanced) && msaa.samples() > 1;
+        !encoded && !(render_model::enhanced_rendering_enabled() && enhanced) && msaa.samples() > 1;
     let attachments = [Some(if final_world_draw {
         scene_target.final_attachment(target.main_texture_view())
     } else {
-        scene_target.color_attachment(target, false)
+        scene_target.color_attachment(target, encoded)
     })];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("first-person animated rig"),

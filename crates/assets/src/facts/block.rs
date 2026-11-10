@@ -13,9 +13,26 @@ pub enum BlockStateIdentity<'a> {
 }
 /// Canonical empty-block identity checked against the pinned air trait.
 pub const AIR_IDENTIFIER: &str = "minecraft:air";
+/// The piston whose head wears the sticky art when its actor data does not say.
+pub const STICKY_PISTON_IDENTIFIER: &str = "minecraft:sticky_piston";
 
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
+
+/// Resolves the ordinary digging tools a custom block's declared tags accelerate.
+pub fn custom_block_effective_tools<'a>(tags: impl IntoIterator<Item = &'a str>) -> u8 {
+    use crate::compiled::block_destroy::ToolKind;
+    tags.into_iter().fold(0, |mask, tag| {
+        let shared = [ToolKind::Pickaxe, ToolKind::Shovel, ToolKind::Hoe]
+            .into_iter()
+            .find(|kind| kind.native_destructible_tag() == Some(tag));
+        mask | match shared {
+            Some(kind) => kind.bit(),
+            None if tag == "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
+            None => 0,
+        }
+    })
+}
 
 /// Identity, placement and support metadata for one runtime ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +52,8 @@ pub struct BlockFact {
     pub alternate: Option<u32>,
     /// First sequential state of this block identity, shared by its variants.
     pub identity: Option<u32>,
+    /// Domains this block's states narrow, in key order; other keys use the shared domain.
+    pub narrowed_domains: &'static [(super::BlockProperty, super::PropertyDomain)],
 }
 
 impl Default for BlockFact {
@@ -52,11 +71,17 @@ impl Default for BlockFact {
             support: super::SupportKind::Unresolved,
             alternate: None,
             identity: None,
+            narrowed_domains: &[],
         }
     }
 }
 
 impl BlockFact {
+    /// Returns the values this block's own states admit for `key`.
+    pub fn domain(&self, key: super::BlockProperty) -> super::PropertyDomain {
+        super::properties::narrowed_domain(self.narrowed_domains, key)
+    }
+
     /// Retains readable custom support without inventing a compiled placement identity.
     pub fn custom(identifier: &str) -> Self {
         Self {
@@ -98,19 +123,22 @@ impl BlockFacts {
             records: records
                 .iter()
                 .map(|r| {
+                    let render = super::block_render_fact(&r.name);
                     let mut fact = BlockFact {
                         readable: true,
                         traits: r.traits,
                         family: r.model_family,
                         survival: r.survival,
-                        render: super::block_render_fact(&r.name),
-                        ambient: super::presentation_generated::ambient_block(&r.name),
+                        render,
+                        ambient: super::presentation::ambient_callback(&r.name, render.kind),
                         leaf_particle: (r.model_family == ModelFamily::Leaves)
                             .then(|| super::presentation::leaf_particle(&r.name))
                             .flatten(),
                         ..BlockFact::default()
                     };
                     fact.identity = names.get(r.name.as_ref()).copied();
+                    fact.narrowed_domains =
+                        super::property_domains_generated::block_domains(&r.name);
                     if let Some(entry) = catalog.get(r.name.as_ref()) {
                         fact.placement = entry.rule;
                         fact.support = entry.support;

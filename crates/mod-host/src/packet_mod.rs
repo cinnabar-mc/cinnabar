@@ -10,7 +10,10 @@ mod core;
 mod limits;
 pub(crate) mod native_capabilities;
 mod native_frame;
-pub mod native_menu;
+mod native_observation;
+pub use native_observation::NativeFrame;
+mod native_render;
+pub mod panel;
 mod wasi;
 
 pub use adapt::packet_mod_component;
@@ -63,13 +66,34 @@ trait Guest: Send {
     fn frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
         Ok(Ok(None))
     }
-    /// Whether startup negotiated the optional focused menu capability.
-    fn has_native_menu(&self) -> bool {
+    /// Whether the optional general camera callback was negotiated.
+    fn has_native_camera(&self) -> bool {
         false
     }
-    /// Exchanges bounded retained menu state through the session's serial worker.
-    fn menu(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+    /// Whether frame observations may include remote player positions.
+    fn native_camera_players(&self) -> bool {
+        self.has_native_frame()
+    }
+    /// Exchanges bounded generic camera effects, independently of legacy rotation support.
+    fn camera_frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
         Ok(Ok(None))
+    }
+    /// Whether startup admitted the independent drawing callback.
+    /// Consent bits for optional actor and block output in the drawing callback.
+    fn native_render_capabilities(&self) -> u32 {
+        0
+    }
+
+    fn has_native_render(&self) -> bool {
+        false
+    }
+    /// Exchanges a bounded desired world scene.
+    fn render_frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
+        Ok(Ok(None))
+    }
+    /// Shares grant-gated surface state without calling guest code on the frame thread.
+    fn panel(&self) -> Option<panel::PanelHandle> {
+        None
     }
     /// The largest linear memory the guest has requested.
     fn peak_memory(&self) -> usize;
@@ -89,6 +113,7 @@ pub struct CompiledPacketMod {
     engine: Engine,
     ticker: Arc<execution::EpochTicker>,
     program: Program,
+    current_frame_wire: bool,
 }
 
 impl CompiledPacketMod {
@@ -123,6 +148,7 @@ impl CompiledPacketMod {
                     engine,
                     ticker: Arc::new(ticker),
                     program,
+                    current_frame_wire: native_observation::current_wire(bytes)?,
                 },
                 image_bytes,
             ))
@@ -139,8 +165,8 @@ impl CompiledPacketMod {
         .context("initialize packet mod")?;
         Ok(PacketMod {
             guest,
+            current_frame_wire: self.current_frame_wire,
             status: Status::Active,
-            menu_input_extensions: mod_api::native_menu::InputExtensions::default(),
             call_deadline: PACKET_MOD_CALL_DEADLINE,
             _ticker: Arc::clone(&self.ticker),
         })
@@ -157,13 +183,18 @@ enum Status {
 /// One session's packet-mod instance. Every call is synchronous and bounded by a deadline.
 pub struct PacketMod {
     guest: Box<dyn Guest>,
+    current_frame_wire: bool,
     status: Status,
-    menu_input_extensions: mod_api::native_menu::InputExtensions,
     call_deadline: Duration,
     _ticker: Arc<execution::EpochTicker>,
 }
 
 impl PacketMod {
+    /// Returns the generic panel/input mailbox for this live instance.
+    pub fn panel(&self) -> Option<panel::PanelHandle> {
+        self.is_active().then(|| self.guest.panel()).flatten()
+    }
+
     /// Begins the session and returns the packs the mod adds; none once inactive.
     pub fn start(
         &mut self,
@@ -210,6 +241,9 @@ impl PacketMod {
     pub fn stop(&mut self) {
         let deadline = self.call_deadline;
         let _ = self.call("stop", deadline, |guest| guest.stop().map(Ok));
+        if let Some(panel) = self.guest.panel() {
+            panel.deactivate();
+        }
         if self.status == Status::Active {
             self.status = Status::Stopped;
         }
@@ -243,6 +277,9 @@ impl PacketMod {
             })
         });
         result.map(Some).map_err(|error| {
+            if let Some(panel) = self.guest.panel() {
+                panel.deactivate();
+            }
             self.status = Status::Quarantined;
             tracing::warn!(
                 call = name,

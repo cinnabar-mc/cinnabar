@@ -26,8 +26,8 @@ fn entering_panel() -> Panel {
             "color":color})
     };
     let mut panel = panel();
-    panel.surface = Some(Surface { collections: Default::default(), previews: Default::default(),
-        screen: "extension.screen".into(),
+    panel.motion = true;
+    panel.surface = Surface { collections: Default::default(),        screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
             "type":"screen","size":["100%","100%"],"controls":[
                 {"card":{"type":"panel","size":[100,60],"offset":[60,60],
@@ -52,7 +52,7 @@ fn entering_panel() -> Panel {
                 exit: None,
             },
         )]),
-    });
+    };
     panel
 }
 

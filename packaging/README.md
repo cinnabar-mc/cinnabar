@@ -1,14 +1,20 @@
 # Packaging
 
 Release installers ship the client, the Go core, the dragonfly local-world server and its
-`cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
-carriers. A packaged launch whose carriers are
-missing or stale runs `crates/first-run`: a setup window (a `--first-run-setup` child process, or
-native dialogs if no window opens) asks consent, downloads the pinned `bedrock-samples` pack
+`cinnabar-cxb` verifier beside it, the shader-pack compiler, the Cinnangles Sans font and a prep
+kit, never Mojang-derived carriers. A packaged launch whose carriers are missing or stale runs
+`crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
+window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
 carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). `prepared.json`
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
-pack archive is kept so carrier-only updates need no download. Status: `logs/first-run-status.json`;
+pack archive and extracted resource versions are kept so carrier-only updates skip downloading
+and unpacking cached resources, even when the archive was removed. Extracted caches are bound to
+the pinned archive's SHA-256, independently of the Cinnabar version. On macOS and extracted Linux
+AppDirs the running client builds a staged update's carriers at the lowest priority into
+`prepare/next/` (log: `logs/first-run-next.log`), which the update's first launch promotes when
+current; a new pack pin, an unfinished build or a Windows MSI update prepares at launch instead,
+resuming any partial set. Status: `logs/first-run-status.json`;
 details: `logs/first-run.log`. Every launch logs to `logs/client.log`, including stderr and panics
 whether or not a terminal is attached. Each launch archives the previous session as
 `client-<UTC yyyymmdd-hhmmss>.log` (and `first-run.log` likewise); a session past 8 MiB continues
@@ -85,6 +91,14 @@ The update manifest points to the MSI. No Mojang artwork is embedded. Local pack
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
 
+Windows payloads also install Microsoft's `dxcompiler.dll` beside `cinnabar.exe`; DX12 compiles
+shaders with it instead of the much slower FXC. `packaging/windows/fetch-dxc.ps1` downloads the
+release that `packaging/windows/dxc.json` pins, caches it under `.local/downloads`, and installs the
+library only when both the archive and the library match their pinned SHA-256; `make play` runs it
+for development builds. The client uses only that copy and falls back to FXC, logging why, when it
+is missing or fails to load. Intel drivers older than the `24.x` branch, which lose the device on
+DXC's output, and `WGPU_DX12_COMPILER=fxc` also select FXC.
+
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
 so they inherit the launching process's permissions. Installation may still require administrator
@@ -143,7 +157,10 @@ launcher runs and `app/previous` the one it replaced; each install keeps only th
 `--channel nightly` or `--version TAG` when invoking the script directly to test a particular release; these are explicit opt-ins to builds outside the Beta channel.
 
 Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
-or Intel DMG. The website is deployed separately and links directly to GitHub's latest release.
+or Intel DMG. The [website](https://github.com/cinnabar-mc/website) owns its deployment
+and links directly to this repository's latest release. Its build reads the release
+manifest, API contract and branding from a pinned client revision; shared inputs
+remain in this repository.
 
 ## Release symbols
 

@@ -2,9 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
-use bedrock_protocol_1_26_51::enums::CommandPermissionLevel;
-use bedrock_protocol_1_26_51::packets::AvailableCommands;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::CommandPermissionLevel;
+use bedrock_protocol_1_26_60::packets::AvailableCommands;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 use protocol_ids::{CommandArgFlag, CommandArgType};
@@ -18,7 +18,8 @@ const MAX_COMMANDS: usize = 4_096;
 const MAX_SOFT_ENUM_VALUES: usize = 16_384;
 const MAX_USAGE_ENUM_VALUES: usize = 6;
 const SELECTORS: [&str; 6] = ["@a", "@e", "@n", "@p", "@r", "@s"];
-const ALL_PLAYERS_MENTION: &str = "@here";
+/// The chat mention that addresses every player.
+pub const ALL_PLAYERS_MENTION: &str = "@here";
 
 // Parameter type word layout: flag bits over a table index or basic type id.
 const ARG_ENUM: u32 = CommandArgFlag::Enum.wire_value();
@@ -78,7 +79,7 @@ mod id_tests;
 /// Resolves the permission name to the generated wire permission level.
 fn permission_level(name: &str) -> u8 {
     match name {
-        "gamedirectors" => CommandPermissionLevel::Gamedirectors,
+        "gamedirectors" => CommandPermissionLevel::GameDirectors,
         "admin" => CommandPermissionLevel::Admin,
         "host" => CommandPermissionLevel::Host,
         "owner" => CommandPermissionLevel::Owner,
@@ -632,7 +633,7 @@ fn command_tokens(line: &str) -> Vec<&str> {
 }
 
 /// Quotes player names with punctuation outside the command word alphabet or only digits.
-fn quoted_player(name: &str) -> String {
+pub fn quote_chat_player_name(name: &str) -> String {
     let word = name
         .bytes()
         .all(|ch| ch.is_ascii_alphanumeric() || b"()-.:?_".contains(&ch));
@@ -646,7 +647,7 @@ fn quoted_player(name: &str) -> String {
 /// Adds matching roster names, retaining a mention marker for editor replacement.
 fn extend_players(out: &mut Vec<Arc<str>>, players: &[Arc<str>], partial: &str, mention: bool) {
     for player in players {
-        let name = quoted_player(player);
+        let name = quote_chat_player_name(player);
         if contains_partial(&name, partial) {
             out.push(Arc::from(if mention { format!("@{name}") } else { name }));
         }

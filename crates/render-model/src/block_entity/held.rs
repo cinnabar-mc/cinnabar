@@ -1,22 +1,26 @@
-//! Block-entity items held in hand: chests, shulker boxes, decorated pots and conduits drawn
-//! as their placed models, closed and at rest, centred in the unit block the held cube uses.
+//! Block-entity items held in hand as their placed models, closed and at rest, centred in
+//! the unit block the held cube uses.
 //!
 //! Provisional: the native item renderer's pose for these models (front facing and lid state)
-//! is unmeasured; they face south like placed blocks with default facing.
+//! is unmeasured; each model keeps its placed rest state.
 
 use std::sync::Arc;
 
 mod artwork;
+mod dropped;
 pub use artwork::PreparedHeldBlockModels;
 
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas},
     chest::{self, ChestModel, ChestPair, ChestVariant},
     conduit::{self, ConduitModel},
+    heads::HeadModels,
     mesh::{BlockEntityVertex, Facing, MeshBuilder},
     pot::{self, DecoratedPotModel},
     scene::SceneClock,
     shulker::{self, ShulkerModel},
+    skull::{self, SkullKind, SkullModel, SkullMount},
+    statue::{self, Oxidation, StatueModel, StatuePose},
 };
 use crate::{ActorRigGeometry, ActorRigSurface, ActorRigVertex, EntityRigId};
 
@@ -25,6 +29,7 @@ use crate::{ActorRigGeometry, ActorRigSurface, ActorRigVertex, EntityRigId};
 pub struct HeldBlockEntityModel {
     pub geometry: ActorRigGeometry,
     pub glint_span: [f32; 2],
+    dropped: Option<crate::DroppedItemBlock>,
 }
 
 /// A block-entity item with a held model.
@@ -34,6 +39,11 @@ pub enum HeldBlockEntity {
     Shulker(&'static str),
     DecoratedPot,
     Conduit,
+    /// The standing statue with its oxidation artwork.
+    Statue(Oxidation),
+    /// The lectern stand without a book.
+    Lectern,
+    Skull(SkullKind),
 }
 
 /// An orderable stand-in for [`ChestVariant`], so held models can key a map.
@@ -76,6 +86,9 @@ impl HeldBlockEntity {
     #[must_use]
     pub fn from_item(identifier: &str) -> Option<Self> {
         use assets::facts::{BlockEntityFacts, BlockEntityRenderer};
+        if let Some(kind) = SkullKind::from_block_identifier(identifier) {
+            return Some(Self::Skull(kind));
+        }
         let renderer = BlockEntityFacts::pinned()
             .by_block_identifier(identifier)
             .map(|entry| entry.renderer);
@@ -93,6 +106,8 @@ impl HeldBlockEntity {
         match renderer? {
             BlockEntityRenderer::DecoratedPot => Some(Self::DecoratedPot),
             BlockEntityRenderer::Conduit => Some(Self::Conduit),
+            BlockEntityRenderer::Statue => Oxidation::from_block_name(identifier).map(Self::Statue),
+            BlockEntityRenderer::Lectern => Some(Self::Lectern),
             _ => None,
         }
     }
@@ -106,6 +121,7 @@ impl HeldBlockEntity {
             Self::Chest(ChestVariantKey::Ender),
             Self::DecoratedPot,
             Self::Conduit,
+            Self::Lectern,
         ];
         all.extend((0..4).map(|age| Self::Chest(ChestVariantKey::Copper(age))));
         all.extend(
@@ -113,11 +129,21 @@ impl HeldBlockEntity {
                 .iter()
                 .map(|color| Self::Shulker(color)),
         );
+        all.extend(SkullKind::kinds().map(Self::Skull));
+        all.extend(
+            assets::facts::BlockEntityFacts::pinned()
+                .entries()
+                .iter()
+                .filter(|entry| entry.renderer == assets::facts::BlockEntityRenderer::Statue)
+                .flat_map(|entry| &entry.backing_blocks)
+                .filter_map(|name| Self::from_item(name))
+                .collect::<std::collections::BTreeSet<_>>(),
+        );
         all
     }
 
     /// Emits the placed model at the origin block.
-    fn emit(self, builder: &mut MeshBuilder, atlas: &BlockEntityAtlas) {
+    fn emit(self, builder: &mut MeshBuilder, atlas: &BlockEntityAtlas, heads: &HeadModels) {
         let block = [0; 3];
         match self {
             Self::Chest(key) => chest::emit(
@@ -161,6 +187,40 @@ impl HeldBlockEntity {
                 },
                 SceneClock { ticks: 0.0 },
             ),
+            Self::Statue(oxidation) => {
+                let Some(geometry) = heads.statues[StatuePose::Standing.index()].as_ref() else {
+                    return;
+                };
+                for texture in
+                    assets::block_entity_geometry::heads::statue_textures(oxidation.age())
+                {
+                    builder.required_texture(atlas, &texture, geometry.texture);
+                }
+                statue::emit(
+                    builder,
+                    atlas,
+                    heads,
+                    block,
+                    &StatueModel {
+                        pose: StatuePose::Standing,
+                        oxidation,
+                        facing: Facing::South,
+                    },
+                );
+            }
+            Self::Lectern => super::book::emit_lectern_stand(builder, atlas, block),
+            Self::Skull(kind) => skull::emit(
+                builder,
+                atlas,
+                heads,
+                block,
+                &SkullModel {
+                    kind,
+                    mount: SkullMount::Floor {
+                        rotation_degrees: 0.0,
+                    },
+                },
+            ),
         }
     }
 }
@@ -173,6 +233,16 @@ pub fn held_block_entity_model(
     atlas: &BlockEntityAtlas,
     kind: HeldBlockEntity,
 ) -> Option<HeldBlockEntityModel> {
+    model_with_heads(id, atlas, kind, &HeadModels::default())
+}
+
+/// Builds the held model with the same entity-derived head geometry as placed skulls.
+fn model_with_heads(
+    id: EntityRigId,
+    atlas: &BlockEntityAtlas,
+    kind: HeldBlockEntity,
+    heads: &HeadModels,
+) -> Option<HeldBlockEntityModel> {
     let [atlas_width, atlas_height] = atlas.size();
     let static_height = atlas.static_height();
     if static_height == 0 {
@@ -181,7 +251,7 @@ pub fn held_block_entity_model(
     let mut builder = MeshBuilder::new(atlas.size());
     // The actor rig needs face normals; its submission supplies the actual light.
     builder.actor_light = crate::pack_actor_light(0, 0);
-    kind.emit(&mut builder, atlas);
+    kind.emit(&mut builder, atlas, heads);
     if builder.missing_required_texture || builder.solid.is_empty() {
         return None;
     }
@@ -245,6 +315,7 @@ pub fn held_block_entity_model(
     Some(HeldBlockEntityModel {
         geometry,
         glint_span,
+        dropped: dropped::model(atlas, &builder.solid, center),
     })
 }
 
@@ -566,6 +637,7 @@ mod tests {
             "minecraft:oxidized_copper_chest",
             "minecraft:decorated_pot",
             "minecraft:conduit",
+            "minecraft:lectern",
         ]
         .into_iter()
         .map(String::from)
@@ -573,6 +645,23 @@ mod tests {
             assets::block_entity_geometry::SHULKER_COLORS
                 .iter()
                 .map(|color| format!("minecraft:{color}_shulker_box")),
+        )
+        .chain(
+            assets::facts::BlockEntityFacts::pinned()
+                .entries()
+                .iter()
+                .filter(|entry| entry.renderer == assets::facts::BlockEntityRenderer::Statue)
+                .flat_map(|entry| entry.backing_blocks.iter().cloned()),
+        )
+        .chain(
+            assets::read_registry_for_protocol(
+                assets::pinned_block_registry_bytes(),
+                assets::active_content_registry_protocol(),
+            )
+            .unwrap()
+            .into_iter()
+            .filter(|block| SkullKind::from_block_identifier(&block.name).is_some())
+            .map(|block| block.name.to_string()),
         );
         let reached: std::collections::BTreeSet<_> = items
             .filter_map(|identifier| HeldBlockEntity::from_item(&identifier))

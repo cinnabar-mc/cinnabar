@@ -1,0 +1,356 @@
+//! Stage transform tests: whole stages through naga.
+
+use super::*;
+use crate::compile::{OutputMap, compile};
+use crate::options::OptionValues;
+use crate::preprocess::{expand, preprocess};
+use crate::reflection::{SamplerClass, VertexAttribute};
+use crate::source::PackSource;
+
+const VERTEX: &str = "#version 120
+varying vec2 texcoord;
+varying vec4 color;
+void main() {
+gl_Position = ftransform();
+texcoord = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
+color = gl_Color;
+}
+";
+
+const FRAGMENT: &str = "#version 120
+uniform sampler2D colortex0;
+uniform float viewWidth;
+varying vec2 texcoord;
+varying vec4 color;
+void main() {
+gl_FragData[0] = texture2D(colortex0, texcoord) * color * viewWidth;
+}
+";
+
+/// Expands and transforms an in-memory stage with a shared program interface.
+fn draft(
+    file: &str,
+    text: &str,
+    stage: StageKind,
+    iface: &mut ProgramInterface,
+) -> (StageDraft, crate::preprocess::LineMap) {
+    let source = PackSource::from_files([(file, text)]);
+    let expanded = expand(&source, file, &[], &OptionValues::new()).expect("expands");
+    let pp = preprocess(expanded, &[]).expect("preprocesses");
+    let names = ResourceNames {
+        software_fused_dot: false,
+        image_formats: &HashMap::new(),
+        sampler_classes: &SamplerClasses::default(),
+        normalize_legacy: true,
+        geometry: file.starts_with("gbuffers_"),
+        vertex_clip: true,
+        bound_core_inputs: crate::translate::bound_core_inputs(
+            file.rsplit_once('.').map_or(file, |(stem, _)| stem),
+            &pp,
+        ),
+    };
+    let draft = transform(&pp, stage, iface, &names).expect("transforms");
+    (draft, pp.map)
+}
+
+#[test]
+fn a_version_120_program_becomes_vulkan_glsl_naga_validates() {
+    let mut iface = ProgramInterface::default();
+    let vertex = draft("gbuffers_basic.vsh", VERTEX, StageKind::Vertex, &mut iface);
+    let fragment = draft(
+        "gbuffers_basic.fsh",
+        FRAGMENT,
+        StageKind::Fragment,
+        &mut iface,
+    );
+    let ubo = merge_uniforms([&vertex.0, &fragment.0]).expect("uniforms agree");
+    let names: Vec<_> = ubo.iter().map(|m| m.name.as_str()).collect();
+    assert!(names.contains(&"viewWidth"), "{names:?}");
+
+    let inputs: Vec<_> = vertex
+        .0
+        .vertex_inputs
+        .iter()
+        .map(|(_, n)| n.as_str())
+        .collect();
+    // `ftransform()` reads the position, so the raw packed-position parts follow the inputs.
+    assert_eq!(
+        inputs,
+        [
+            "iris_Vertex",
+            "iris_Color",
+            "iris_MultiTexCoord0",
+            "iris_PackedPosition",
+            "iris_DrawOrigin",
+        ]
+    );
+    assert_eq!(
+        fragment.0.frag_outputs,
+        [(0, ALPHA_TESTED_OUTPUT.to_owned())]
+    );
+    assert!(
+        fragment
+            .0
+            .resource_names
+            .iter()
+            .any(|(_, _, name)| name == "colortex0")
+    );
+
+    for ((draft, lines), stage) in [(vertex, StageKind::Vertex), (fragment, StageKind::Fragment)] {
+        let (glsl, origins) = assemble(&draft, &ubo, &iface.location_defines().unwrap());
+        let map = OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        };
+        let compiled = compile(stage, &map)
+            .unwrap_or_else(|errors| panic!("{stage:?} does not validate: {errors:?}\n{glsl}"));
+        if stage == StageKind::Fragment {
+            // The host finds the alpha-tested output by this name in the compiled module.
+            let module = &compiled.module;
+            let result = module.entry_points[0].function.result.as_ref();
+            let result = result.expect("the fragment stage has outputs");
+            let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+                panic!("the fragment result is a struct of outputs");
+            };
+            assert!(
+                members
+                    .iter()
+                    .any(|m| m.name.as_deref() == Some(ALPHA_TESTED_OUTPUT))
+            );
+        }
+    }
+}
+
+#[test]
+fn a_vertex_stage_reading_an_undeclared_attribute_gets_iris_input() {
+    let mut iface = ProgramInterface::default();
+    let source = "#version 330 compatibility
+in vec4 mc_Entity;
+out float id;
+void main() { id = mc_Entity.x; gl_Position = gl_Vertex; }
+";
+    let (vertex, _) = draft(
+        "gbuffers_terrain.vsh",
+        source,
+        StageKind::Vertex,
+        &mut iface,
+    );
+    let inputs: Vec<_> = vertex
+        .vertex_inputs
+        .iter()
+        .map(|(location, name)| (name.as_str(), Some(*location)))
+        .collect();
+    // The position also reads the raw packed-position parts, at the next free locations.
+    assert_eq!(
+        inputs[..2],
+        [
+            ("mc_Entity", VertexAttribute::BlockId.location()),
+            ("iris_Vertex", VertexAttribute::Position.location()),
+        ]
+    );
+    let parts: Vec<_> = inputs[2..].iter().map(|(name, _)| *name).collect();
+    assert_eq!(parts, ["iris_PackedPosition", "iris_DrawOrigin"]);
+}
+
+#[test]
+fn integer_and_float_gathers_compile_with_separate_sampler_bindings() {
+    let mut iface = ProgramInterface::default();
+    let (fragment, lines) = draft("composite.fsh", "#version 400 compatibility
+uniform usampler2D colortex0;
+uniform isampler2D noisetex;
+uniform sampler2D colortex1;
+void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(textureGather(noisetex, vec2(0.5))) + textureGather(colortex1, vec2(0.5)); }
+", StageKind::Fragment, &mut iface);
+    let (glsl, origins) = assemble(&fragment, &[], &iface.location_defines().unwrap());
+    let compiled = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    )
+    .expect("mixed gathers compile");
+    let mut bindings: Vec<_> = compiled
+        .module
+        .global_variables
+        .iter()
+        .filter(|(_, variable)| {
+            matches!(
+                compiled.module.types[variable.ty].inner,
+                naga::TypeInner::Sampler { comparison: false }
+            )
+        })
+        .map(|(_, variable)| variable.binding.as_ref().unwrap().binding)
+        .collect();
+    bindings.sort_unstable();
+    let mut expected = [
+        SamplerClass::ClampNearest,
+        SamplerClass::RepeatNonFiltering,
+        SamplerClass::ClampLinear,
+    ]
+    .map(SamplerClass::binding);
+    expected.sort_unstable();
+    assert_eq!(bindings, expected);
+}
+
+#[test]
+fn loop_shadowing_preserves_a_valid_shader() {
+    let mut iface = ProgramInterface::default();
+    let (stage, lines) = draft(
+        "composite.fsh",
+        "#version 330\nuniform bool enabled; out vec4 color; void main() { float value = 0.0; for (int enabled = 0; enabled < 2; enabled++) { value += float(enabled); } color = vec4(enabled ? value : 0.0); }",
+        StageKind::Fragment,
+        &mut iface,
+    );
+    let uniforms = merge_uniforms([&stage]).unwrap();
+    let (glsl, origins) = assemble(&stage, &uniforms, &iface.location_defines().unwrap());
+    let result = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    );
+    assert!(result.is_ok(), "{result:?}\n{glsl}");
+}
+
+/// Transforms one fragment stage and compiles it through naga.
+fn compile_fragment(text: &str) -> crate::compile::CompiledStage {
+    let mut iface = ProgramInterface::default();
+    let (stage, lines) = draft("composite.fsh", text, StageKind::Fragment, &mut iface);
+    let uniforms = merge_uniforms([&stage]).unwrap();
+    let (glsl, origins) = assemble(&stage, &uniforms, &iface.location_defines().unwrap());
+    let result = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    );
+    result.unwrap_or_else(|errors| panic!("{errors:?}\n{glsl}"))
+}
+
+#[test]
+fn words_reserved_after_the_source_version_stay_identifiers() {
+    // Eclipse's `#version 330 compatibility` composite1 names an SSAO sample vector `sample`.
+    for header in [
+        "#version 330 compatibility",
+        "#version 330 core",
+        "#version 330",
+    ] {
+        compile_fragment(&format!(
+            "{header}
+uniform float readonly;
+float buffer(float value) {{ return value * readonly; }}
+void main() {{
+    vec3 sample = vec3(0.5) * buffer(2.0);
+    gl_FragData[0] = vec4(sample + sample.x, 1.0);
+}}
+"
+        ));
+    }
+    // A program without `#version` is GLSL 1.10, where every word in the table is a name.
+    compile_fragment(
+        "float sample = 0.5;
+void main() { float shared = sample; gl_FragData[0] = vec4(shared); }
+",
+    );
+    const VERSIONS: [u32; 12] = [110, 120, 130, 140, 150, 330, 400, 410, 420, 430, 440, 450];
+    for &(word, since) in legacy::RESERVED_SINCE {
+        let version = VERSIONS
+            .iter()
+            .rev()
+            .find(|version| **version < since)
+            .unwrap();
+        compile_fragment(&format!(
+            "#version {version}
+void main() {{ float {word}[2] = float[2](0.25, 0.5); gl_FragData[0] = vec4({word}[1]); }}
+"
+        ));
+    }
+}
+
+#[test]
+fn struct_names_reserved_after_the_source_version_compile_at_every_use() {
+    for &(word, _) in legacy::RESERVED_SINCE {
+        compile_fragment(&format!(
+            "#version 120
+struct {word} {{ float value; }};
+{word} copy({word} source) {{
+    {word} result = {word}(source.value);
+    return result;
+}}
+void main() {{
+    {word} value = copy({word}(1.0));
+    gl_FragData[0] = vec4(value.value);
+}}
+"
+        ));
+    }
+}
+
+#[test]
+fn keyword_escapes_do_not_hide_pack_identifiers() {
+    compile_fragment(
+        "#version 330
+uniform float resource;
+uniform float _r_resource;
+void main() { gl_FragData[0] = vec4(resource + _r_resource); }
+",
+    );
+}
+
+#[test]
+fn a_sample_qualifier_stays_a_qualifier() {
+    // From GLSL 4.00, or with GL_ARB_gpu_shader5 before it, `sample` qualifies an input.
+    for header in [
+        "#version 400 compatibility",
+        "#version 330 compatibility\n#extension GL_ARB_gpu_shader5 : enable",
+    ] {
+        let compiled = compile_fragment(&format!(
+            "{header}
+sample in vec2 uv;
+void main() {{ gl_FragData[0] = vec4(uv, 0.0, 1.0); }}
+"
+        ));
+        let entry = &compiled.module.entry_points[0];
+        assert!(
+            entry
+                .function
+                .arguments
+                .iter()
+                .any(|argument| matches!(argument.binding, Some(naga::Binding::Location { .. }))),
+            "{header}: `uv` is not a stage input"
+        );
+    }
+}
+
+#[test]
+fn only_compatibility_stages_write_the_alpha_tested_output() {
+    let text = "#version 150\nvoid main() { gl_FragData[0] = vec4(1.0); }\n";
+    let source = PackSource::from_files([("gbuffers_basic.fsh", text)]);
+    let expanded =
+        expand(&source, "gbuffers_basic.fsh", &[], &OptionValues::new()).expect("expands");
+    let pp = preprocess(expanded, &[]).expect("preprocesses");
+    let outputs = |normalize_legacy| {
+        let names = ResourceNames {
+            software_fused_dot: false,
+            image_formats: &HashMap::new(),
+            sampler_classes: &SamplerClasses::default(),
+            normalize_legacy,
+            geometry: true,
+            vertex_clip: true,
+            bound_core_inputs: false,
+        };
+        let mut iface = ProgramInterface::default();
+        transform(&pp, StageKind::Fragment, &mut iface, &names)
+            .expect("transforms")
+            .frag_outputs
+    };
+    assert_eq!(outputs(true), [(0, ALPHA_TESTED_OUTPUT.to_owned())]);
+    assert_ne!(outputs(false), [(0, ALPHA_TESTED_OUTPUT.to_owned())]);
+}

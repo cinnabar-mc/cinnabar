@@ -10,27 +10,66 @@ use crate::ui::{
     UiRenderRejectReason,
 };
 
+mod mipmaps;
+use mipmaps::{UiMip, storage_bytes};
+
 /// Buckets bind independently; page count and byte limits bound their residency.
 pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
 /// Replaceable pages after static UI: models, session glyphs, server UI, local font and particles.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PARTICLE_PAGE_OFFSET + 1;
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
 pub const UI_PLAYER_SKIN_PAGE_OFFSET: usize = 1;
 pub const UI_MODEL_ATLAS_PAGE_OFFSET: usize = UI_PLAYER_SKIN_PAGE_OFFSET + 1;
-pub const MAX_UI_MODEL_ATLAS_PAGES: usize = 7;
+/// Model-source pages for item cubes, equipment, held artwork and actor flames. Version-matched
+/// vanilla carriers fill nine pages with mip-aligned item sources and a tenth with flames; the
+/// remainder is headroom for optional block meshes before they fall back to thumbnails.
+pub const MAX_UI_MODEL_ATLAS_PAGES: usize = 16;
 pub const UI_SESSION_ICON_PAGE_OFFSET: usize =
     UI_MODEL_ATLAS_PAGE_OFFSET + MAX_UI_MODEL_ATLAS_PAGES;
 /// Bounded session-font allocation, shared by the default and named bitmap fonts.
 pub const UI_SESSION_GLYPH_PAGE_OFFSET: usize = UI_SESSION_ICON_PAGE_OFFSET + 1;
 pub const UI_SESSION_GLYPH_PAGES: usize = 8;
+/// Dynamic pages reserved for server resource-pack UI textures.
+pub const UI_SERVER_UI_PAGES: usize = 8;
+/// Dynamic pages reserved for a client part's modal textures.
+pub const UI_MODAL_UI_PAGES: usize = 4;
+/// Dynamic pages reserved for a player mod's screen textures.
+pub const UI_MOD_UI_PAGES: usize = 4;
 pub const UI_SESSION_GLYPH_PAGE_SIDE: u32 = 512;
 pub const UI_MODEL_ATLAS_SIDE: u32 = 512;
+/// Model-atlas residency includes every prepared terrain level.
+const fn model_atlas_texels() -> usize {
+    let mut level = 0;
+    let mut texels = 0;
+    while level < assets::texture::VANILLA_TERRAIN_MIP_COUNT {
+        texels += (UI_MODEL_ATLAS_SIDE >> level).pow(2) as usize;
+        level += 1;
+    }
+    texels
+}
 /// Dedicated bounded local-font slot, outside the server glyph and UI allocations.
-pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = 34;
+pub const UI_LOCAL_FONT_PAGE_OFFSET: usize = UI_SESSION_GLYPH_PAGE_OFFSET
+    + UI_SESSION_GLYPH_PAGES
+    + UI_SERVER_UI_PAGES
+    + UI_MODAL_UI_PAGES
+    + UI_MOD_UI_PAGES;
 /// Dedicated original-resolution atlas for particles in player previews.
 pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
+/// Recoverable per-stack shield artwork follows the other fixed dynamic producers.
+pub const UI_SHIELD_PAGE_OFFSET: usize = UI_PARTICLE_PAGE_OFFSET + 1;
+pub const MAX_UI_SHIELD_PAGES: usize = 8;
+/// Per-stack trim icons and worn preview sheets share one recoverable atlas.
+pub const UI_TRIM_PAGE_OFFSET: usize = UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES;
+pub const MAX_UI_TRIM_PAGES: usize = 4;
+/// Session art of the worn armor and held items, apart from the model atlas that base items
+/// can fill. Four armor slots and two hands each get a whole page.
+pub const UI_PACK_EQUIPMENT_PAGE_OFFSET: usize = UI_TRIM_PAGE_OFFSET + MAX_UI_TRIM_PAGES;
+pub const MAX_UI_PACK_EQUIPMENT_PAGES: usize = 6;
+/// Shield artwork and pack equipment: whole model-atlas pages that resize within their capacity.
+const UI_SESSION_MODEL_PAGES: std::ops::Range<usize> =
+    UI_SHIELD_PAGE_OFFSET..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
 /// Dense local icon fonts use coverage texels, keeping the ordinary RGBA page's byte budget.
 pub const UI_LOCAL_ICON_FONT_PAGE_SIDE: u32 = UI_LOCAL_FONT_PAGE_SIDE * 2;
@@ -41,13 +80,16 @@ pub const UI_ART_PAGE_SIDE: u32 = 1024;
 /// Original-resolution UI images occupy independent, bounded logical slots.
 pub const UI_NATIVE_SHEET_PAGE_OFFSET: usize = MAX_UI_DYNAMIC_PAGES + MAX_UI_ART_PAGES;
 pub const MAX_UI_NATIVE_SHEET_PAGES: usize = 8;
+/// Selected model sources follow fixed producers and share the catalog's layer and byte budgets.
+pub const UI_SELECTED_MODEL_PAGE_OFFSET: usize =
+    UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES;
 pub const MAX_UI_NATIVE_SHEET_BYTES: usize = 96 * 1024 * 1024;
 /// Virtual sheets are tiled into ordinary device-supported texture extents.
 pub const MAX_UI_NATIVE_SHEET_SIDE: u32 = MAX_UI_TEXTURE_SIDE * 4;
 /// Growth beyond blank extents of bounded skin, model, session-icon and UI-image slots.
 pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_SKIN_SIDE as usize
     * render_api::MAX_STANDARD_SKIN_SIDE as usize
-    + MAX_UI_MODEL_ATLAS_PAGES * UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
+    + MAX_UI_MODEL_ATLAS_PAGES * model_atlas_texels()
     + MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
     + UI_SESSION_GLYPH_PAGES
         * UI_SESSION_GLYPH_PAGE_SIDE as usize
@@ -57,6 +99,13 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
     + MAX_UI_NATIVE_SHEET_BYTES
+    + (MAX_UI_SHIELD_PAGES + MAX_UI_TRIM_PAGES)
+        * (UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
+            - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
+        * UiTextureFormat::Rgba8.bytes_per_texel()
+    + MAX_UI_PACK_EQUIPMENT_PAGES
+        * (model_atlas_texels() - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
+        * UiTextureFormat::Rgba8.bytes_per_texel()
     + (MAX_UI_TEXTURE_SIDE as usize * MAX_UI_TEXTURE_SIDE as usize
         - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
         * UiTextureFormat::Rgba8.bytes_per_texel();
@@ -96,6 +145,8 @@ pub struct UiTexturePage {
     pixels: Pixels,
     /// Every texel is zero, as in an unused reserved slot.
     blank: bool,
+    repeat_content: Option<[u32; 4]>,
+    mips: Arc<[UiMip]>,
 }
 
 impl UiTexturePage {
@@ -114,6 +165,8 @@ impl UiTexturePage {
             format: UiTextureFormat::Coverage,
             blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
+            repeat_content: None,
+            mips: Arc::from([]),
         })
     }
     pub fn owned(dimensions: [u32; 2], pixels: Arc<[u8]>) -> Result<Self, UiRenderRejectReason> {
@@ -130,6 +183,8 @@ impl UiTexturePage {
             format: UiTextureFormat::Rgba8,
             blank: pixels.iter().all(|&byte| byte == 0),
             pixels: Pixels::Owned(pixels),
+            repeat_content: None,
+            mips: Arc::from([]),
         })
     }
 
@@ -162,7 +217,33 @@ impl UiTexturePage {
             format,
             pixels: Pixels::Font { catalog, page },
             blank: false,
+            repeat_content: None,
+            mips: Arc::from([]),
         })
+    }
+
+    /// Records the non-overlapping content of an original-image page, excluding its filter halo.
+    pub fn with_repeat_content(mut self, bounds: [u32; 4]) -> Result<Self, UiRenderRejectReason> {
+        if bounds[0] >= bounds[2]
+            || bounds[1] >= bounds[3]
+            || bounds[2] > self.dimensions[0]
+            || bounds[3] > self.dimensions[1]
+        {
+            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        }
+        let mut identity = Sha256::new();
+        identity.update(self.identity);
+        for value in bounds {
+            identity.update(value.to_le_bytes());
+        }
+        self.identity = identity.finalize().into();
+        self.repeat_content = Some(bounds);
+        Ok(self)
+    }
+
+    /// The source texels this page owns, separate from overlapping linear-filter neighbors.
+    pub fn repeat_content(&self) -> Option<[u32; 4]> {
+        self.repeat_content
     }
 
     /// Font pages reserve a bounded demand atlas; source texels remain in catalog coordinates.
@@ -186,6 +267,49 @@ impl UiTexturePage {
             Pixels::Owned(pixels) => pixels,
             Pixels::Font { catalog, page } => catalog.pages()[*page].pixels.bytes(),
         }
+    }
+
+    /// Adds independently averaged terrain levels while retaining the original source pixels.
+    pub fn with_terrain_mips(mut self) -> Result<Self, UiRenderRejectReason> {
+        if !self.mips.is_empty() {
+            return Ok(self);
+        }
+        if self.format != UiTextureFormat::Rgba8 || self.font_atlas_side().is_some() {
+            return Err(UiRenderRejectReason::InvalidTextureExtent);
+        }
+        self.mips = mipmaps::terrain_levels(self.pixels(), self.dimensions)?;
+        if self.mips.is_empty() {
+            return Ok(self);
+        }
+        let mut identity = Sha256::new();
+        identity.update(self.identity);
+        for mip in self.mips.iter() {
+            for side in mip.dimensions {
+                identity.update(side.to_le_bytes());
+            }
+            identity.update(&mip.pixels);
+        }
+        self.identity = identity.finalize().into();
+        Ok(self)
+    }
+
+    /// Includes the source level and every prepared smaller level, in upload order.
+    pub fn mip_levels(&self) -> impl Iterator<Item = ([u32; 2], &[u8])> {
+        std::iter::once((self.dimensions, self.pixels())).chain(
+            self.mips
+                .iter()
+                .map(|mip| (mip.dimensions, mip.pixels.as_ref())),
+        )
+    }
+
+    /// Number of levels that the GPU texture must retain.
+    pub fn mip_level_count(&self) -> u32 {
+        self.mips.len() as u32 + 1
+    }
+
+    /// Total upload storage across every source level.
+    pub fn byte_len(&self) -> usize {
+        self.pixels().len() + self.mips.iter().map(|mip| mip.pixels.len()).sum::<usize>()
     }
 
     pub const fn dimensions(&self) -> [u32; 2] {
@@ -231,6 +355,7 @@ pub struct UiTextureBucket {
     pub dimensions: [u32; 2],
     pub format: UiTextureFormat,
     pub layers: u32,
+    pub mip_level_count: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -254,15 +379,26 @@ impl UiTexturePlan {
     pub fn with_formats(
         pages: &[([u32; 2], UiTextureFormat)],
     ) -> Result<Self, UiRenderRejectReason> {
+        let levels = pages
+            .iter()
+            .map(|&(dimensions, format)| (dimensions, format, 1))
+            .collect::<Vec<_>>();
+        Self::with_levels(&levels)
+    }
+
+    /// Groups only pages whose extents, format and complete mip storage agree.
+    fn with_levels(
+        pages: &[([u32; 2], UiTextureFormat, u32)],
+    ) -> Result<Self, UiRenderRejectReason> {
         if pages.is_empty() || pages.len() > MAX_UI_TEXTURE_LAYERS as usize {
             return Err(UiRenderRejectReason::InvalidTextureExtent);
         }
         let mut buckets = Vec::<UiTextureBucket>::new();
         let mut locations = Vec::with_capacity(pages.len());
         let mut bytes = 0usize;
-        for &(dimensions, format) in pages {
+        for &(dimensions, format, mip_level_count) in pages {
             bytes = bytes
-                .checked_add(page_bytes_in(dimensions, format)?)
+                .checked_add(storage_bytes(dimensions, format, mip_level_count)?)
                 .ok_or(UiRenderRejectReason::InvalidTextureExtent)?;
             if bytes > MAX_UI_TEXTURE_BYTES {
                 return Err(UiRenderRejectReason::TextureByteLimitExceeded {
@@ -270,10 +406,11 @@ impl UiTexturePlan {
                     limit: MAX_UI_TEXTURE_BYTES,
                 });
             }
-            let bucket = if let Some(index) = buckets
-                .iter()
-                .position(|b| b.dimensions == dimensions && b.format == format)
-            {
+            let bucket = if let Some(index) = buckets.iter().position(|b| {
+                b.dimensions == dimensions
+                    && b.format == format
+                    && b.mip_level_count == mip_level_count
+            }) {
                 index
             } else {
                 if buckets.len() == MAX_UI_TEXTURE_BUCKETS {
@@ -283,6 +420,7 @@ impl UiTexturePlan {
                     dimensions,
                     format,
                     layers: 0,
+                    mip_level_count,
                 });
                 buckets.len() - 1
             };
@@ -360,15 +498,7 @@ impl UiTexturePlan {
                 ..*bucket
             })
             .collect();
-        let bytes = buckets
-            .iter()
-            .map(|bucket| {
-                bucket.dimensions[0] as usize
-                    * bucket.dimensions[1] as usize
-                    * bucket.layers as usize
-                    * bucket.format.bytes_per_texel()
-            })
-            .sum();
+        let bytes = buckets.iter().map(|bucket| bucket.byte_len()).sum();
         Self {
             buckets,
             locations,
@@ -429,8 +559,12 @@ impl UiTextureCatalog {
                     && page.dimensions == [UI_ART_PAGE_SIDE; 2]
             })
             .count();
-        let native = dynamic.len().saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET);
-        let small = dynamic.len() - art - native;
+        let native = dynamic
+            .len()
+            .saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET)
+            .min(MAX_UI_NATIVE_SHEET_PAGES);
+        let selected = dynamic.len().saturating_sub(UI_SELECTED_MODEL_PAGE_OFFSET);
+        let small = dynamic.len() - art - native - selected;
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
             || native > MAX_UI_NATIVE_SHEET_PAGES
@@ -445,7 +579,7 @@ impl UiTextureCatalog {
         let native_bytes = dynamic
             .iter()
             .skip(UI_NATIVE_SHEET_PAGE_OFFSET)
-            .map(|page| page.pixels().len().saturating_sub(blank_bytes))
+            .map(|page| page.byte_len().saturating_sub(blank_bytes))
             .sum::<usize>();
         if native_bytes > MAX_UI_NATIVE_SHEET_BYTES {
             return Err(UiRenderRejectReason::TextureByteLimitExceeded {
@@ -455,9 +589,15 @@ impl UiTextureCatalog {
         }
         let planned = pages
             .iter()
-            .map(|page| (page.resident_dimensions(), page.format))
+            .map(|page| {
+                (
+                    page.resident_dimensions(),
+                    page.format,
+                    page.mip_level_count(),
+                )
+            })
             .collect::<Vec<_>>();
-        let plan = UiTexturePlan::with_formats(&planned)?;
+        let plan = UiTexturePlan::with_levels(&planned)?;
         let fixed_bytes = fixed_budget_bytes(&pages, dynamic_start);
         if fixed_bytes > MAX_UI_FIXED_TEXTURE_BYTES {
             return Err(UiRenderRejectReason::TextureByteLimitExceeded {
@@ -473,7 +613,12 @@ impl UiTextureCatalog {
         static_pages.update((dynamic_start as u64).to_le_bytes());
         // Reserved logical slots keep their identity when model or session icon pages resize.
         all.update((pages.len() as u64).to_le_bytes());
-        static_pages.update((pages.len() as u64).to_le_bytes());
+        // Selected sources may enter and leave after admission. Their count belongs to the
+        // full catalog identity; the fixed identity describes only the retained producers.
+        let fixed_pages = pages
+            .len()
+            .min(dynamic_start + UI_SELECTED_MODEL_PAGE_OFFSET);
+        static_pages.update((fixed_pages as u64).to_le_bytes());
         for (index, page) in pages.iter().enumerate() {
             for side in page.dimensions {
                 all.update(side.to_le_bytes());
@@ -502,7 +647,9 @@ impl UiTextureCatalog {
         &self,
         replacement: Vec<UiTexturePage>,
     ) -> Result<Self, UiRenderRejectReason> {
-        if replacement.len() != self.pages.len() - self.dynamic_start
+        let fixed = UI_SELECTED_MODEL_PAGE_OFFSET;
+        let old_len = self.pages.len() - self.dynamic_start;
+        if (replacement.len() != old_len && (replacement.len() < fixed || old_len < fixed))
             || replacement
                 .iter()
                 .zip(&self.pages[self.dynamic_start..])
@@ -555,7 +702,7 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
             {
                 blank
             } else {
-                page.pixels().len()
+                page.byte_len()
             }
         })
         .sum()
@@ -563,7 +710,9 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
-    offset == UI_LOCAL_FONT_PAGE_OFFSET
+    offset >= UI_SELECTED_MODEL_PAGE_OFFSET
+        || offset == UI_LOCAL_FONT_PAGE_OFFSET
+        || UI_SESSION_MODEL_PAGES.contains(&offset)
         || offset == UI_PARTICLE_PAGE_OFFSET
         || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
         || (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
@@ -578,9 +727,7 @@ fn valid_dynamic_dimensions(
     [width, height]: [u32; 2],
     format: UiTextureFormat,
 ) -> bool {
-    if (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
-        .contains(&offset)
-    {
+    if offset >= UI_NATIVE_SHEET_PAGE_OFFSET {
         return width > 0
             && height > 0
             && width <= MAX_UI_TEXTURE_SIDE
@@ -593,6 +740,9 @@ fn valid_dynamic_dimensions(
     }
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
+    }
+    if UI_SESSION_MODEL_PAGES.contains(&offset) {
+        return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
     }
     if (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
         .contains(&offset)
@@ -623,6 +773,33 @@ mod budget_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_page_ownership_is_validated_and_changes_content_identity() {
+        let page = UiTexturePage::owned([2, 2], Arc::from([255; 16])).unwrap();
+        let left = page.clone().with_repeat_content([0, 0, 1, 2]).unwrap();
+        let right = page.clone().with_repeat_content([1, 0, 2, 2]).unwrap();
+        assert_ne!(left.identity(), right.identity());
+        assert_eq!(left.repeat_content(), Some([0, 0, 1, 2]));
+        for bounds in [[0, 0, 3, 2], [2, 0, 1, 2], [0, 1, 2, 1]] {
+            assert!(page.clone().with_repeat_content(bounds).is_err());
+        }
+    }
+
+    /// Pack equipment takes whole model-atlas pages, resizing within the native growth budget.
+    #[test]
+    fn pack_equipment_slots_hold_model_atlas_pages() {
+        for offset in UI_PACK_EQUIPMENT_PAGE_OFFSET
+            ..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES
+        {
+            assert!(valid_dynamic_dimensions(
+                offset,
+                [UI_MODEL_ATLAS_SIDE; 2],
+                UiTextureFormat::Rgba8
+            ));
+            assert!(is_resizable_slot(offset));
+        }
+    }
 
     /// Dense icon coverage fits the old local-font byte budget; RGBA cannot use the larger extent.
     #[test]

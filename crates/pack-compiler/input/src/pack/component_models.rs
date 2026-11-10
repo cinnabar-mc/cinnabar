@@ -5,8 +5,12 @@ use super::{
 };
 use assets::{
     AssetError, RegistryRecord,
-    facts::{BlockRenderKind, block_render_fact},
+    facts::{
+        BlockProperty, BlockRenderKind, StateValue, block_render_fact,
+        pack::{PackBlock, PackTexture},
+    },
 };
+use protocol_ids::BlockRenderMethod;
 use serde_json::Value;
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
@@ -119,12 +123,14 @@ fn resolve(
     }
     let (instance, material) = instances.iter().next()?;
     let material = material.as_object()?;
-    if material.get("render_method")?.as_str()? != "alpha_test_single_sided"
+    let method = BlockRenderMethod::from_name(material.get("render_method")?.as_str()?)?;
+    if method != BlockRenderMethod::AlphaTestSingleSided
         || material.get("ambient_occlusion")?.as_f64()? != 0.0
     {
         return None;
     }
-    let mut flags = assets::MATERIAL_FLAG_ALPHA_CUTOUT | assets::MATERIAL_FLAG_DISABLE_AO;
+    let mut flags =
+        assets::compiled::block_render_method_flags(method) | assets::MATERIAL_FLAG_DISABLE_AO;
     if material.get("face_dimming").and_then(Value::as_bool) == Some(false) {
         flags |= assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
     }
@@ -151,6 +157,44 @@ fn resolve(
         texture: material.get("texture")?.as_str()?.into(),
         material_instance: instance.as_str().into(),
         flags,
+        rotation,
+    })
+}
+
+/// Resolves built-in straw-bed components against the current pack's geometry.
+fn native_model(
+    record: &RegistryRecord,
+    models: &BTreeMap<String, Arc<Value>>,
+) -> Option<ComponentModel> {
+    if record.name.as_ref() != PackBlock::StrawBed.identifier() {
+        return None;
+    }
+    let StateValue::Bool(head) = record.property(BlockProperty::HeadPieceBit)? else {
+        return None;
+    };
+    let identifier = if *head {
+        "minecraft:geometry.straw_bed_head"
+    } else {
+        "minecraft:geometry.straw_bed_foot"
+    };
+    let StateValue::String(direction) =
+        record.property(BlockProperty::MinecraftCardinalDirection)?
+    else {
+        return None;
+    };
+    let rotation = match direction.as_ref() {
+        "south" => 0,
+        "east" => 1,
+        "north" => 2,
+        "west" => 3,
+        _ => return None,
+    };
+    Some(ComponentModel {
+        identifier: identifier.into(),
+        document: models.get(identifier)?.clone(),
+        texture: PackTexture::StrawBed.key().into(),
+        material_instance: "all".into(),
+        flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
         rotation,
     })
 }
@@ -215,6 +259,26 @@ pub(super) fn install(
                     });
                 }
             }
+        }
+    }
+    for record in admitted {
+        if pack
+            .blocks
+            .component_models
+            .contains_key(&record.sequential_id)
+        {
+            continue;
+        }
+        if let Some(model) = native_model(record, &models) {
+            if pack.terrain.get(&model.texture).is_none() {
+                return Err(AssetError::MissingTerrainKey {
+                    block: record.name.clone(),
+                    key: model.texture,
+                });
+            }
+            pack.blocks
+                .component_models
+                .insert(record.sequential_id, model);
         }
     }
     Ok(())

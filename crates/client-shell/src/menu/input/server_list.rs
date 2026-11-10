@@ -4,6 +4,7 @@ use ui::UiPoint;
 
 use super::super::MenuRuntime;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drive(
     presentation: &mut UiPresentationRuntime,
     menu: &mut MenuRuntime,
@@ -11,6 +12,7 @@ pub(super) fn drive(
     held: bool,
     pressed: bool,
     touches: &Touches,
+    owner: Option<u64>,
     captured_touch: &mut Option<u64>,
 ) -> bool {
     let screen = (menu.is_visible() && menu.dialog.is_none() && !menu.is_connecting())
@@ -19,10 +21,11 @@ pub(super) fn drive(
         |presentation: &mut UiPresentationRuntime, menu: &mut MenuRuntime, point, held, pressed| {
             let (captured, action) =
                 presentation.menu_server_list_pointer(screen, point, held, pressed);
+            // The press that grabs a section sounds; its later toggle or drop does not.
+            if captured && pressed {
+                client_ui::sound_requests::ui_click();
+            }
             if let Some(action) = action {
-                if let Some(sound) = presentation.menu_sound(action) {
-                    client_ui::sound_requests::ui_control_sound(sound);
-                }
                 menu.activate_from_input(action);
             }
             captured
@@ -38,7 +41,10 @@ pub(super) fn drive(
         }
         return captured;
     }
-    for touch in touches.iter_just_pressed() {
+    for touch in touches
+        .iter_just_pressed()
+        .filter(|touch| owner == Some(touch.id()))
+    {
         let point = UiPoint::new(touch.position().x, touch.position().y).ok();
         if input(presentation, menu, point, true, true) {
             *captured_touch = Some(touch.id());

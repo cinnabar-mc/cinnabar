@@ -83,7 +83,7 @@ fn reference_frame(
         emit_submission(
             &mut builder,
             atlas,
-            (&scene.heads, scene.bed.as_ref()),
+            (&scene.heads, scene.bed.as_ref(), &scene.chalkboards),
             submission,
             clock,
         );
@@ -364,7 +364,7 @@ fn assert_cached_fragment_capacity(
         emit_submission(
             builder,
             atlas,
-            (&scene.heads, scene.bed.as_ref()),
+            (&scene.heads, scene.bed.as_ref(), &scene.chalkboards),
             &submission,
             SceneClock::default(),
         );
@@ -551,7 +551,8 @@ fn lobby_block_entity_frame_cost() {
                                 pattern: "stripe_bottom",
                                 color: [0.9, 0.1, 0.1],
                             },
-                        ],
+                        ]
+                        .into(),
                     }),
                 });
             }

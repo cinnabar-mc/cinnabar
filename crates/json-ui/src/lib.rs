@@ -36,6 +36,7 @@ mod pack;
 pub mod position;
 mod predicate;
 mod resolve;
+pub mod rounded;
 mod scene;
 mod screens;
 mod sidecar;
@@ -53,8 +54,8 @@ mod widgets;
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use anim::{
-    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
-    NodeAnim, Written,
+    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, AnimationRecord, Animator, ControlAnims,
+    Easing, FlipWrite, GeometryLayout, NodeAnim, Written,
 };
 pub use bind::{
     BindState, CUSTOM_CONTROL_INSTANCE_KEY, CollectionItem, ControlLibrary, DataSource,
@@ -69,8 +70,8 @@ pub use component::{
 };
 pub use context::Context;
 pub use emit::{
-    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, StateGate, TextAlign, UvRect, color_value,
-    emit, emit_gated,
+    Draw, DrawNode, RectOut, SpriteFilter, SpriteQuad, SpriteRepeat, StateGate, TextAlign, UvRect,
+    color_value, emit, emit_gated,
 };
 pub use env::Env;
 pub use expr::{AxisContext, Length, Resolved, Term, Unit, length_from_value, parse_length};
@@ -82,8 +83,8 @@ pub use form::{
     render_form_with,
 };
 pub use hud::{
-    BossBar, HudBindings, HudChanges, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
-    hud_context, hud_data_source,
+    BossBar, ChatText, HudBindings, HudChanges, HudModel, HudSlot, HudTitle, Sidebar, Timed,
+    hud_clocks, hud_context, hud_data_source,
 };
 pub use input::{
     ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
@@ -97,7 +98,8 @@ pub use input::{
 };
 pub use label::{LabelShape, TextOptions};
 pub use layout::{
-    LaidOut, LayoutEnv, MeasureCache, Rect, TextMeasure, TextureSource, layout, layout_with,
+    LaidOut, LayoutEnv, MeasureCache, Rect, SiblingKeys, TextMeasure, TextureSource, child_key,
+    grid_template_columns, layout, layout_with,
 };
 pub use layout_cache_key::LayoutCacheKey;
 pub use localize::{localize_text, localize_text_chars, localize_text_prefix};
@@ -107,7 +109,7 @@ pub use resolve::Resolver;
 pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};
 pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, bind_screen_incremental, is_engine_screen,
-    rebind_screen, render_screen, resolve_screen, screen_settings,
+    rebind_screen, render_screen, resolve_screen, root_settings, screen_settings,
 };
 pub use sidecar::{
     AsepriteFrame, NineSlice, TextureMeta, parse_aseprite_frames, parse_texture_meta,
@@ -169,4 +171,9 @@ fn resolve_in(catalog: &Catalog, reference: &str, root: &env::Env) -> Resolution
         control,
         diagnostics: resolver.into_diagnostics(),
     }
+}
+
+/// Returns the property names read by a binding expression, excluding quoted text.
+pub fn expression_properties(expression: &str) -> Vec<String> {
+    predicate::property_tokens(expression)
 }

@@ -1,6 +1,6 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
-use json_ui::vanilla::Reference;
+pub mod audio_output;
 pub mod auth;
 pub mod death;
 pub mod dialogs;
@@ -11,6 +11,7 @@ pub mod invite;
 pub mod join_progress;
 pub mod join_requests;
 mod list;
+pub mod play;
 pub mod profile;
 pub mod profile_achievements;
 pub mod realm_membership;
@@ -19,7 +20,9 @@ pub mod settings_options;
 pub mod settings_sections;
 pub mod settings_storage;
 pub mod settings_support;
+pub mod shader_pack_status;
 pub mod sign_in;
+mod text_fields;
 pub mod updates;
 pub mod view;
 pub mod worlds_tab;
@@ -32,8 +35,8 @@ pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, CatalogServer, EXPERIENCE_ADDRESS_PREFIX,
     FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
     LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
-    MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
-    ServerTrustPrompt, pingable,
+    MenuRealmCard, MenuServerCard, MenuView, PingInfo, REALM_ADDRESS_PREFIX, SavedServer,
+    ServerDetails, ServerTrustPrompt, is_nethernet_target, joined_realm, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -81,6 +84,9 @@ pub enum MenuDialog {
     Exit,
     DeathQuit,
     RemoveSaved(usize),
+    /// Confirms leaving the joined Realm with this service id.
+    LeaveRealm(u32),
+    RemoveShaderPack(u16, u64),
     StorageDelete,
     StorageError,
     /// A dismissible host notice whose body is supplied by the menu view.
@@ -92,16 +98,31 @@ pub enum MenuDialog {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuField {
+    /// Filters the friends drawer by gamertag.
+    FriendQuery,
+    /// Searches options across settings categories.
+    SettingsQuery,
+    StorageQuery,
     Name,
     Address,
     Port,
     /// The local-world create or edit screen's name field.
     WorldName,
     WorldSeed,
+    WorldOption(crate::local_worlds::options::WorldOption),
     SkinName,
     RealmCode,
     /// One command macro slot's command box.
     MacroCommand(usize),
+}
+
+/// A renderer or shader-pack choice; packs carry their list revision so stale picks miss.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum RendererChoice {
+    /// The vanilla renderer ("Off").
+    Vanilla,
+    Enhanced,
+    ShaderPack(u16, u64),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +156,10 @@ pub enum MenuAction {
     PlayRealm(usize),
     /// Opens or advances Realm membership through an invite link or code.
     RealmMembership(realm_membership::Action),
+    /// Asks to confirm leaving the joined Realm with this service id.
+    LeaveRealmDialog(u32),
+    /// Leaves the joined Realm with this service id after the player confirmed.
+    ConfirmLeaveRealm(u32),
     PlayFriend(usize),
     ToggleFavorite(usize),
     RemoveSavedDialog(usize),
@@ -143,11 +168,17 @@ pub enum MenuAction {
     AddAddress,
     AddPort,
     EditSkinName,
+    SearchFriends,
+    SearchSettings,
+    ClearSettingsSearch,
+    /// Opens a matching category and clears its search query.
+    SettingsSearchSection(u8),
     AddSave,
     AddSaveConnect,
     AddBack,
+    /// Opens the native touch-control layout draft.
+    EditTouchControls,
     SettingsScale(i8),
-    SettingsScalePicker,
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),
@@ -166,7 +197,18 @@ pub enum MenuAction {
     SettingsConfirmResetGroup(settings_options::SettingsGroup),
     SettingsResetChat,
     SettingsAdvancedGraphics,
+    /// The JSON-UI Enhanced switch: Vanilla and Enhanced flip; a shader pack turns into Enhanced.
     ToggleRenderMode,
+    /// The OreUI renderer and shader-pack pickers.
+    SelectRenderer(RendererChoice),
+    /// Opens the Shaders settings tab from Video.
+    SettingsShaders,
+    /// Re-lists shader packs and reloads the selected pack with its saved options.
+    ReloadShaders,
+    /// Opens the platform file picker to add shader-pack archives.
+    ImportShaderPacks,
+    RemoveShaderPackDialog(u16, u64),
+    ConfirmRemoveShaderPack(u16, u64),
     PauseResume,
     PauseDisconnect,
     OpenDeathQuit,
@@ -182,11 +224,14 @@ pub enum MenuAction {
     PlayLocalWorld(usize),
     /// A press on a local-world screen (create, edit, templates) or its modals.
     LocalWorld(LocalWorldAction),
+    /// A press in Settings' Game section for the world being played.
+    WorldSettings(crate::local_worlds::in_world::Action),
     SignOut,
     /// Show a featured server in the Servers tab's info panel.
     SelectFeatured(usize),
     /// Show a saved server's details on the Servers tab.
     SelectSaved(usize),
+    ServerDetail(view::ServerDetailPart),
     /// Show a Realm's details on the Realms tab.
     SelectRealm(usize),
     /// Flip the info panel's description (0) or news (1) past "read more".
@@ -203,46 +248,8 @@ pub enum MenuAction {
     Invite(invite::Action),
     /// Answers the oldest Discord join request: Accept (true) or Decline.
     JoinRequest(bool),
-}
-
-impl MenuAction {
-    /// The text field a press on this control focuses.
-    pub fn text_field(self) -> Option<MenuField> {
-        match self {
-            Self::SettingsMacroCommand(slot) => Some(MenuField::MacroCommand(slot)),
-            Self::RealmMembership(realm_membership::Action::EditCode) => Some(MenuField::RealmCode),
-            Self::AddName => Some(MenuField::Name),
-            Self::AddAddress => Some(MenuField::Address),
-            Self::AddPort => Some(MenuField::Port),
-            Self::EditSkinName => Some(MenuField::SkinName),
-            Self::LocalWorld(action) => action.field(),
-            _ => None,
-        }
-    }
-}
-
-/// Joining the featured-list entry at `index`.
-pub fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
-    (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
-}
-
-/// The vanilla screen family used by both menu history and scene composition.
-pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
-    Some(match screen {
-        MenuScreen::Death => Reference::DeathDeathScreen.as_str(),
-        MenuScreen::Pause => Reference::PausePauseScreen.as_str(),
-        MenuScreen::Home => Reference::StartStartScreen.as_str(),
-        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
-            Reference::PlayPlayScreen.as_str()
-        }
-        MenuScreen::AddServer => Reference::AddExternalServerAddExternalServerScreenNew.as_str(),
-        MenuScreen::Settings => Reference::SettingsScreenControlsAndSettings.as_str(),
-        MenuScreen::Invite => Reference::InviteInviteScreen.as_str(),
-        MenuScreen::Profile
-        | MenuScreen::DressingRoom
-        | MenuScreen::Inbox
-        | MenuScreen::Friends => return None,
-    })
+    /// A press on the Shader Pack Settings screen or its Shaders-tab button.
+    ShaderOptions(crate::shader_options::Action),
 }
 
 /// The default Bedrock server port displayed by launcher address fields.

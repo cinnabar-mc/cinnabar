@@ -34,9 +34,33 @@ pub struct ControlAnims {
     pub reset_name: Option<String>,
     /// Sprite animations (clip, color, uv) only run on a control with a sprite.
     pub has_sprite: bool,
+    /// Placement consumes the entrance's authored property without replacing it.
+    pub layout_authoritative: bool,
 }
 
 impl ControlAnims {
+    /// Selects an automatic entrance using only the existing component clock.
+    pub(crate) fn entrance_property(&self) -> Option<&'static str> {
+        let Self {
+            key: _,
+            graph,
+            rest_alpha: _,
+            rest_offset: _,
+            rect: _,
+            anchor: _,
+            born: _,
+            clock: _,
+            disable_fast_forward,
+            reset_name,
+            has_sprite: _,
+            layout_authoritative,
+        } = self;
+        if !layout_authoritative || *disable_fast_forward || reset_name.is_some() {
+            return None;
+        }
+        graph.entrance_property()
+    }
+
     /// Whether `other` runs the same animations, whatever their pixel ends.
     pub(crate) fn same_program(&self, other: &ControlAnims) -> bool {
         let graph = (&self.graph, &other.graph);
@@ -110,6 +134,8 @@ pub struct Animated {
     pub color: Option<[u8; 4]>,
     /// A replacement sprite uv rect, from uv or flip-book animations or a clip crop.
     pub uv: Option<UvRect>,
+    /// Tile coordinates after clipping; source UV animations remain independent.
+    pub repeat: Option<crate::SpriteRepeat>,
     /// Removed by `destroy_at_end`.
     pub hidden: bool,
     /// The paint transform mapping `dest` to painted coordinates; `clip` is already painted.
@@ -132,17 +158,21 @@ impl DrawNode {
             opacity: self.alpha,
             color: None,
             uv: None,
+            repeat: match &self.draw {
+                Draw::Sprite { repeat, .. } => *repeat,
+                _ => None,
+            },
             hidden: false,
             transform: None,
         };
-        let Some(anim) = &self.anim else {
-            return out;
-        };
-        out.transform = anim.transform;
         if animator.hides(&self.key) {
             out.hidden = true;
             return out;
         }
+        let Some(anim) = &self.anim else {
+            return out;
+        };
+        out.transform = anim.transform;
         out.opacity = anim
             .alpha
             .iter()
@@ -150,6 +180,14 @@ impl DrawNode {
                 let written = animator.sample(control, now, clocks);
                 opacity * written.alpha.unwrap_or(control.rest_alpha)
             });
+        // A draw its settled alphas leave at zero paints nothing whatever its other animations
+        // write; they still tick, but a recorded paint is not changing with them.
+        let unseen = out.opacity <= 0.0
+            && anim
+                .alpha
+                .iter()
+                .all(|control| !animator.playing(&control.key));
+        let quiet = animator.set_quiet(unseen);
         if let Some(own) = &anim.own {
             let written = animator.sample(own, now, clocks);
             if let Draw::Sprite { texture, uv, .. } = &self.draw {
@@ -168,7 +206,14 @@ impl DrawNode {
                 } else {
                     *uv
                 };
-                let (dest, uv) = clip_crop(anim, own, &written, self.dest, uv);
+                let (dest, uv) = if let Some(mut repeat) = out.repeat {
+                    let (dest, coords) = clip_crop(anim, own, &written, self.dest, repeat.uv);
+                    repeat.uv = coords;
+                    out.repeat = Some(repeat);
+                    (dest, uv)
+                } else {
+                    clip_crop(anim, own, &written, self.dest, uv)
+                };
                 out.dest = dest;
                 out.uv = Some(uv);
             }
@@ -181,6 +226,7 @@ impl DrawNode {
             let written = animator.sample(mover, now, clocks);
             out.clip = moved(mover, &written, out.clip);
         }
+        animator.set_quiet(quiet);
         out
     }
 }

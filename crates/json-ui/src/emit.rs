@@ -39,6 +39,13 @@ pub struct SpriteQuad {
     pub uv: UvRect,
 }
 
+/// Tile coordinates across one sprite region. Untiled axes keep their 0..1 span.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpriteRepeat {
+    pub uv: UvRect,
+    pub axes: [bool; 2],
+}
+
 /// A serialisable rect; layout's [`Rect`] is copied into it for emit output.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RectOut {
@@ -83,6 +90,8 @@ pub enum Draw {
     Sprite {
         texture: String,
         uv: UvRect,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repeat: Option<SpriteRepeat>,
         color: [u8; 4],
         #[serde(default)]
         filter: SpriteFilter,
@@ -118,6 +127,9 @@ pub struct DrawNode {
     pub clip: RectOut,
     pub layer: i32,
     pub alpha: f32,
+    /// The inherited application-owned paint region, if one was declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paint_region: Option<std::num::NonZeroU64>,
     /// Animations reaching this draw; see [`DrawNode::animate`].
     #[serde(skip)]
     pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
@@ -135,13 +147,18 @@ pub struct StateGate {
     pub mask: u8,
 }
 
+impl StateGate {
+    /// Whether the controlling component shows this state child in the current view.
+    pub(crate) fn shown(&self, state: &crate::state::ViewState) -> bool {
+        self.mask & (1 << crate::widgets::state_index(state, &self.key)) != 0
+    }
+}
+
 impl DrawNode {
     /// Whether the node shows under `state`: every state child it sits under is
     /// the one its control shows.
     pub fn shown(&self, state: &crate::state::ViewState) -> bool {
-        self.gates
-            .iter()
-            .all(|gate| gate.mask & (1 << crate::widgets::state_index(state, &gate.key)) != 0)
+        self.gates.iter().all(|gate| gate.shown(state))
     }
 }
 
@@ -161,26 +178,28 @@ pub fn emit(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
 pub fn emit_gated(root: &LaidOut, env: &LayoutEnv) -> Vec<DrawNode> {
     let mut nodes = Vec::new();
     let mut order = 0usize;
-    let mut gates = Vec::new();
-    collect_gated(
-        root,
-        env,
-        &mut nodes,
-        &mut order,
-        &mut gates,
-        &mut Vec::new(),
-    );
+    visit_gated(root, |node, gates| {
+        let first = nodes.len();
+        emit_own(node, env, &mut nodes, &mut order);
+        for (_, _, drawn) in &mut nodes[first..] {
+            drawn.gates = gates.to_vec();
+        }
+    });
     nodes.sort_by_key(|(layer, index, _)| (*layer, *index));
     nodes.into_iter().map(|(_, _, node)| node).collect()
 }
 
+/// Visits every potentially shown control with the same inherited interaction gates as paint.
+pub(crate) fn visit_gated(root: &LaidOut, mut visit: impl FnMut(&LaidOut, &[StateGate])) {
+    collect_gated(root, &mut Vec::new(), &mut Vec::new(), &mut visit);
+}
+
+/// Carries state-target overrides through controls, including those without draw primitives.
 fn collect_gated(
     node: &LaidOut,
-    env: &LayoutEnv,
-    out: &mut Vec<(i32, usize, DrawNode)>,
-    order: &mut usize,
     gates: &mut Vec<StateGate>,
     pending: &mut Vec<(usize, StateGate)>,
+    visit: &mut impl FnMut(&LaidOut, &[StateGate]),
 ) {
     let gate = pending
         .iter()
@@ -194,11 +213,7 @@ fn collect_gated(
     }
     let gated = gate.is_some();
     gates.extend(gate);
-    let first = out.len();
-    emit_own(node, env, out, order);
-    for (_, _, drawn) in &mut out[first..] {
-        drawn.gates.clone_from(gates);
-    }
+    visit(node, gates);
     let before = pending.len();
     pending.extend(
         node.state_targets
@@ -215,7 +230,7 @@ fn collect_gated(
             }),
     );
     for child in &node.children {
-        collect_gated(child, env, out, order, gates, pending);
+        collect_gated(child, gates, pending, visit);
     }
     pending.truncate(before);
     if gated {
@@ -254,6 +269,14 @@ pub(crate) fn emit_own(
         // A primitive wholly outside its clip (a scrolled-away cell) draws nothing;
         // a hover tooltip draws beside the pointer instead of in its rect.
         let paint = match &draw {
+            Draw::Custom { renderer, data } if renderer == crate::rounded::RENDERER => {
+                crate::rounded::paint_bounds(
+                    data,
+                    env.text.paint_rect(dest),
+                    env.text.physical_pixel_size(),
+                    node.paint.transform,
+                )
+            }
             Draw::Custom { renderer, data } if renderer == crate::vector_path::RENDERER => {
                 crate::vector_path::bounds(data).map_or(dest, |bounds| {
                     bounds.at(env.text.paint_rect(dest), env.text.physical_pixel_size())
@@ -268,8 +291,7 @@ pub(crate) fn emit_own(
             .transform
             .map_or(paint, |transform| transform.bounds(paint));
         let clipped = painted.intersect(clip);
-        let floats =
-            matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
+        let floats = matches!(&draw, Draw::Custom { renderer, .. } if matches!(renderer.as_str(), "hover_text_renderer" | "paper_doll_renderer" | "hud_player_renderer" | "live_player_renderer"));
         let moves_geometry = node
             .anim
             .as_ref()
@@ -292,6 +314,7 @@ pub(crate) fn emit_own(
                 clip: clip.into(),
                 layer: node.layer,
                 alpha: node.alpha,
+                paint_region: node.paint.region,
                 anim: node.anim.clone(),
                 draw,
                 gates: Vec::new(),
@@ -357,12 +380,13 @@ fn sprite_draws(
     }
     crate::sprite::quads(control, rect, meta.as_ref(), clip_ratio)
         .into_iter()
-        .map(|(dest, uv)| {
+        .map(|(dest, uv, repeat)| {
             (
                 dest,
                 Draw::Sprite {
                     texture: path.to_owned(),
                     uv,
+                    repeat,
                     color,
                     filter,
                 },

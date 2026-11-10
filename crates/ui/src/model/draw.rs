@@ -54,6 +54,9 @@ impl FrameAffine {
     fn apply(&self, vertices: &mut [UiVertex]) {
         let [a, b, c, d] = self.linear;
         for vertex in vertices {
+            if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX != 0 {
+                continue;
+            }
             let w = vertex.clip_w;
             if w == 0.0 {
                 continue;
@@ -66,10 +69,6 @@ impl FrameAffine {
         }
     }
 }
-
-/// Design-pixel lean of an italic glyph's top edge, scaled by the layout
-/// scale. Native visual confirmation pending.
-const ITALIC_SHEAR_PX: f32 = 1.0;
 
 /// Emits `visual` at `bounds`, then moves its vertices by the space's paint transform; the
 /// batch clip stays a frame-space scissor.
@@ -102,6 +101,16 @@ fn emit_untransformed(
     match visual {
         UiVisual::None => Ok(()),
         UiVisual::Mesh(mesh) => mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches),
+        UiVisual::TintedMesh { mesh, color } => {
+            let start = vertices.len();
+            mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches)?;
+            if !mesh.is_skinned() {
+                for vertex in &mut vertices[start..] {
+                    vertex.color = *color;
+                }
+            }
+            Ok(())
+        }
         UiVisual::Solid {
             texture_page,
             color,
@@ -122,7 +131,52 @@ fn emit_untransformed(
                 batches,
             )
         }
+        UiVisual::ColorMaskSprite {
+            texture_page,
+            uv,
+            color,
+            tint,
+            glint,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let start = vertices.len();
+            emit_quad(
+                bounds,
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                *color,
+                if *glint { super::UI_STYLE_GLINT } else { 0 },
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[start..] {
+                vertex.style_flags |= render_api::UI_STYLE_SPRITE_COLOR_MASK;
+                vertex.overlay_color = [
+                    f32::from(tint[0]) / 255.0,
+                    f32::from(tint[1]) / 255.0,
+                    f32::from(tint[2]) / 255.0,
+                    0.0,
+                ];
+                vertex.alpha_cutoff = 1.0 / 255.0;
+            }
+            Ok(())
+        }
         UiVisual::Sprite {
+            texture_page,
+            uv,
+            color,
+        }
+        | UiVisual::RgbCoverageSprite {
             texture_page,
             uv,
             color,
@@ -140,6 +194,7 @@ fn emit_untransformed(
             } else {
                 0
             };
+            let start = vertices.len();
             emit_quad(
                 bounds,
                 [
@@ -156,7 +211,13 @@ fn emit_untransformed(
                 vertices,
                 indices,
                 batches,
-            )
+            )?;
+            if matches!(visual, UiVisual::RgbCoverageSprite { .. }) {
+                for vertex in &mut vertices[start..] {
+                    vertex.style_flags |= render_api::UI_STYLE_RGB_COVERAGE;
+                }
+            }
+            Ok(())
         }
         UiVisual::Gradient {
             texture_page,
@@ -220,6 +281,45 @@ fn emit_untransformed(
                 indices,
                 batches,
             )
+        }
+        UiVisual::RepeatedSprite {
+            texture_page,
+            tile_uv: uv,
+            source,
+            color,
+            style,
+        } => {
+            if is_empty(bounds) {
+                return Ok(());
+            }
+            let first = vertices.len();
+            emit_colored_quad(
+                [
+                    [bounds.min().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.min().y()],
+                    [bounds.max().x(), bounds.max().y()],
+                    [bounds.min().x(), bounds.max().y()],
+                ],
+                [
+                    [uv[0], uv[1]],
+                    [uv[2], uv[1]],
+                    [uv[2], uv[3]],
+                    [uv[0], uv[3]],
+                ],
+                *texture_page,
+                [*color; 4],
+                0,
+                UiBlendMode::Alpha,
+                clip,
+                vertices,
+                indices,
+                batches,
+            )?;
+            for vertex in &mut vertices[first..] {
+                vertex.style_flags |= u32::from(*style);
+                vertex.overlay_color = *source;
+            }
+            Ok(())
         }
         UiVisual::RotatedSprite {
             texture_page,
@@ -391,9 +491,9 @@ fn emit_text(
             };
             // §k swaps to a same-width raster, stable within a frame
             // (so both passes agree) and animated across frames.
-            let (page, uv) = obfuscated_raster(glyph, index, layout_id, effects);
+            let (page, uv) = effects.glyph_raster(glyph, index, layout_id);
             let shear = if glyph.style.italic {
-                ITALIC_SHEAR_PX * effect_scale
+                crate::TEXT_ITALIC_SHEAR_PX * effect_scale
             } else {
                 0.0
             };
@@ -422,24 +522,21 @@ fn emit_text(
     Ok(())
 }
 
-/// The `(page, uv)` to draw for one glyph: a same-width scramble target when
-/// obfuscated and a pool is present, otherwise the glyph's own raster.
-fn obfuscated_raster(
-    glyph: &GlyphQuad,
-    index: usize,
-    layout_id: u64,
-    effects: TextEffects<'_>,
-) -> (u16, [u16; 4]) {
-    if glyph.style.obfuscated
-        && let Some(pool) = effects.obfuscation
-    {
-        let width = glyph.uv[2].saturating_sub(glyph.uv[0]);
-        let selector = obfuscation_selector(effects.obfuscation_seed, layout_id, index);
-        if let Some(swapped) = pool.pick(width, selector) {
-            return swapped;
+impl TextEffects<'_> {
+    /// The `(page, uv)` to draw for one glyph: a same-width scramble target when
+    /// obfuscated and a pool is present, otherwise the glyph's own raster.
+    pub fn glyph_raster(self, glyph: &GlyphQuad, index: usize, layout_id: u64) -> (u16, [u16; 4]) {
+        if glyph.style.obfuscated
+            && let Some(pool) = self.obfuscation
+        {
+            let width = glyph.uv[2].saturating_sub(glyph.uv[0]);
+            let selector = obfuscation_selector(self.obfuscation_seed, layout_id, index);
+            if let Some(swapped) = pool.pick(width, selector) {
+                return swapped;
+            }
         }
+        (glyph.page, glyph.uv)
     }
-    (glyph.page, glyph.uv)
 }
 
 /// splitmix64 mix so a `(seed, layout, glyph)` triple selects one pool slot;
@@ -667,10 +764,15 @@ fn emit_colored_quad(
             clip_w,
             uv,
             color,
-            style_flags,
-            alpha_test: clip
-                .projection
-                .is_some_and(|projection| projection.alpha_test),
+            style_flags: u32::from(style_flags)
+                | if clip
+                    .projection
+                    .is_some_and(|projection| projection.alpha_test)
+                {
+                    render_api::UI_STYLE_ALPHA_TEST
+                } else {
+                    0
+                },
             alpha_cutoff: -1.0,
             model_light: 1.0,
             overlay_color: [0.0; 4],

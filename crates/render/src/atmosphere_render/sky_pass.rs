@@ -50,13 +50,21 @@ type AtmosphereQuery = (
     Option<&'static MainPassResolutionOverride>,
 );
 
-/// Draws the stock sky, stars and finite pack cube before world geometry can cover them.
+/// Draws the stock sky, stars and finite pack cube before world geometry can cover them,
+/// except under a shader pack that draws the view's sky and world itself.
 fn atmosphere(world: &World, query: ViewQuery<AtmosphereQuery>, mut context: RenderContext) {
+    let view = query.entity();
+    if crate::scene_target::unavailable(world, query.entity()) {
+        return;
+    }
     let (camera, target, scene, depth, offset, msaa, resolution) = query.into_inner();
     if world
         .get_resource::<render_scene::PanoramaScene>()
         .is_some_and(|scene| !scene.game_visible())
     {
+        return;
+    }
+    if crate::shaderpack::plugin::draws_world(world, view) {
         return;
     }
     let Some(gpu) = world.get_resource::<AtmosphereGpu>() else {

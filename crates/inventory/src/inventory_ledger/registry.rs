@@ -68,6 +68,7 @@ impl PlayerInventoryLedger {
             self.item_registry = Some(std::sync::Arc::new(next));
             self.item_facts = facts;
             self.refresh_fuel_facts();
+            self.refresh_trade_items();
             return;
         };
         let affected_cells = self.registry_affected_cells(previous, &next);
@@ -75,7 +76,10 @@ impl PlayerInventoryLedger {
             .queue
             .iter()
             .filter(|pending| {
-                self.placement_admission_changes(pending, &facts)
+                // Item facts feed derived results, so any unsent one is recomputed by a new take.
+                (pending.state == super::InventoryPendingState::AwaitingTransport
+                    && pending.predicts_derived_result())
+                    || self.placement_admission_changes(pending, &facts)
                     || pending
                         .predicted
                         .iter()
@@ -102,6 +106,7 @@ impl PlayerInventoryLedger {
         self.item_registry = Some(std::sync::Arc::new(next));
         self.item_facts = facts;
         self.refresh_fuel_facts();
+        self.refresh_trade_items();
         self.retire_rerouted_quick_moves();
         self.refold();
     }
@@ -299,6 +304,7 @@ pub(super) fn recipe_input_valid(stack: &NetworkItemStack) -> bool {
     <[u8; 32]>::from(Sha256::digest(&stack.extra_data)) == stack.nbt_digest
 }
 
+#[cfg(test)]
 pub(super) fn plain_stack(stack: &NetworkItemStack) -> bool {
     let digest: [u8; 32] = Sha256::digest(&stack.extra_data).into();
     // Plainness describes user data, independently of aux and block identity.

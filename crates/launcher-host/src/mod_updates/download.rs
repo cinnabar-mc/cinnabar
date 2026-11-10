@@ -1,4 +1,4 @@
-//! Exact-asset downloads with GitHub's digest, bounded staging and cancellation fencing.
+//! Exact first-party assets with verified digests, bounded staging and cancellation fencing.
 
 use super::{Candidate, progress::Progress};
 use anyhow::{Context, Result, ensure};
@@ -17,14 +17,18 @@ use std::{
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Asset {
-    id: u64,
-    name: String,
-    size: u64,
-    digest: Option<String>,
+    pub(super) name: String,
+    pub(super) size: u64,
+    pub(super) digest: Option<String>,
+    #[serde(skip)]
+    pub(super) url: Option<String>,
+    #[serde(skip)]
+    pub(super) revision_update: Option<ui::mod_metadata::RevisionModUpdate>,
 }
 
 /// A verified release artifact. Dropping it removes its temporary file.
 pub struct Downloaded {
+    pub revision_update: Option<Box<ui::mod_metadata::RevisionModUpdate>>,
     pub id: u64,
     pub version: String,
     pub repository: String,
@@ -51,6 +55,12 @@ impl Downloaded {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(bytes).unwrap();
         Self {
+            revision_update: ui::mod_metadata::RevisionModUpdate::parse(serde_json::json!({
+                "source": format!("https://github.com/{repository}/releases/latest/download/{asset}"),
+                "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE,
+                "revision": format!("{:x}", Sha256::digest(version.trim_start_matches('v').as_bytes()))[..40],
+                "api_revision": "a".repeat(40),
+            }).to_string().as_bytes()).map(Box::new),
             id,
             version: version.into(),
             repository: repository.into(),
@@ -98,39 +108,12 @@ fn digest(asset: &Asset) -> Option<[u8; 32]> {
     Some(bytes)
 }
 
-/// Allows GitHub's asset redirect hosts, always over credential-free HTTPS.
-fn trusted(url: &url::Url) -> bool {
-    url.scheme() == "https"
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.port_or_known_default() == Some(443)
-        && matches!(
-            url.host_str(),
-            Some(
-                "api.github.com"
-                    | "github.com"
-                    | "release-assets.githubusercontent.com"
-                    | "objects.githubusercontent.com"
-            )
-        )
-}
-
 /// Builds the asset client separately from the API client, which rejects all redirects.
 pub(super) fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .user_agent(format!(
-            "{}/{}",
-            launcher::PRODUCT_NAME,
-            launcher::PRODUCT_VERSION
-        ))
+        .user_agent(launcher::PRODUCT_USER_AGENT)
         .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() > 4 || !trusted(attempt.url()) {
-                attempt.error("untrusted mod asset redirect")
-            } else {
-                attempt.follow()
-            }
-        }))
+        .redirect(reqwest::redirect::Policy::none())
         .build()?)
 }
 
@@ -143,7 +126,7 @@ pub(super) struct Fence {
     pub progress: Progress,
 }
 
-/// Fetches the selected immutable asset ID, never a moving `latest` URL, and verifies its digest.
+/// Fetches the compatible service's exact immutable URL and verifies its digest.
 pub(super) async fn fetch(
     client: &reqwest::Client,
     candidate: &Candidate,
@@ -151,6 +134,7 @@ pub(super) async fn fetch(
     asset: &Asset,
     fence: Fence,
     limit: usize,
+    staging: &Path,
 ) -> Result<Downloaded> {
     fence.progress.set(
         candidate.id,
@@ -160,15 +144,17 @@ pub(super) async fn fetch(
         asset.size,
     );
     let response = client
-        .get(format!(
-            "https://api.github.com/repos/{}/releases/assets/{}",
-            candidate.repository, asset.id
-        ))
+        .get(
+            asset
+                .url
+                .as_ref()
+                .context("missing official download URL")?,
+        )
         .header(reqwest::header::ACCEPT, "application/octet-stream")
         .send()
         .await?
         .error_for_status()?;
-    receive(response, candidate, version, asset, fence, limit).await
+    receive(response, candidate, version, asset, fence, limit, staging).await
 }
 
 /// Stages one response without trusting its length, framing, or contents.
@@ -179,6 +165,7 @@ async fn receive(
     asset: &Asset,
     fence: Fence,
     limit: usize,
+    staging: &Path,
 ) -> Result<Downloaded> {
     ensure!(
         response
@@ -186,7 +173,8 @@ async fn receive(
             .is_none_or(|size| size == asset.size),
         "asset length changed"
     );
-    let mut file = tempfile::NamedTempFile::new().context("stage mod download")?;
+    std::fs::create_dir_all(staging).context("create mod download staging directory")?;
+    let mut file = tempfile::NamedTempFile::new_in(staging).context("stage mod download")?;
     let mut length = 0;
     let mut hash = Sha256::new();
     while let Some(chunk) = response.chunk().await? {
@@ -223,6 +211,7 @@ async fn receive(
         "mod download SHA-256 mismatch"
     );
     Ok(Downloaded {
+        revision_update: asset.revision_update.clone().map(Box::new),
         id: candidate.id,
         version: version.into(),
         repository: candidate.repository.clone(),

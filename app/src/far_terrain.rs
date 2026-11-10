@@ -7,15 +7,15 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
-use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
+use bevy::prelude::{AppExit, DetectChangesMut, Local, MessageReader, Res, ResMut, Resource};
+use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, TerrainPublicationCursor, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
     RetiringSession, SummaryBudget, TileView,
 };
 use render_api::far_terrain::{DeviceTier, far_reach_chunks, full_detail_chunks};
-use render_scene::FarTerrainScene;
+use render_scene::{FarTerrainScene, shaderpack::ShaderPackStatus};
 
 use crate::{runtime::world::ClientWorld, session::SessionController};
 
@@ -34,8 +34,8 @@ pub(crate) struct FarTerrain {
     drained: Vec<FarColumnSummary>,
     unloaded: Vec<::world::ChunkKey>,
     near: Arc<NearMask>,
-    /// Centre column, near radius and drawn-set revision the mask was built for.
-    near_view: Option<([i32; 2], i32, u64)>,
+    /// Centre column, near radius, horizon and drawn-set revision the mask was built for.
+    near_view: Option<([i32; 2], i32, i32, u64)>,
     /// When turning far terrain off began waiting for near terrain to cover its columns.
     drain_since: Option<Instant>,
     near_radius: NearRadius,
@@ -44,6 +44,7 @@ pub(crate) struct FarTerrain {
     publication: Option<PublicationKey>,
     /// Session/dimension identity and residency indexes used by near publication receipts.
     source_revision: Option<((u64, u64), u64, u64)>,
+    source_cursor: TerrainPublicationCursor,
     retiring: Vec<Retiring>,
 }
 
@@ -79,6 +80,7 @@ impl FarTerrain {
             published: None,
             publication: None,
             source_revision: None,
+            source_cursor: TerrainPublicationCursor::default(),
             retiring: Vec::new(),
         }
     }
@@ -92,7 +94,7 @@ impl FarTerrain {
         horizon: i32,
     ) -> bool {
         let (revision, _) = stream.near_drawn_columns();
-        let view = ([centre.x, centre.z], radius, revision);
+        let view = ([centre.x, centre.z], radius, horizon, revision);
         if self.near_view == Some(view) {
             return false;
         }
@@ -113,25 +115,39 @@ impl FarTerrain {
         true
     }
 
-    /// Keeps near receipts bounded and scoped to the stream even while far terrain is disabled.
-    fn publish_source(&mut self, stream: Option<&WorldStream>, scene: &mut FarTerrainScene) {
-        let revision = stream.map(WorldStream::terrain_publication_source);
+    /// Updates shared near receipts and reports whether extraction needs a new source handle.
+    fn publish_source(
+        &mut self,
+        stream: Option<&mut WorldStream>,
+        scene: &mut FarTerrainScene,
+    ) -> bool {
+        let revision = stream
+            .as_deref()
+            .map(WorldStream::terrain_publication_source);
         if self.source_revision == revision {
-            return;
+            return false;
         }
-        if self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0) {
-            scene.publications = stream.map(|_| Default::default());
+        let replaced = self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0);
+        if replaced {
+            scene.publications = stream.as_ref().map(|_| Default::default());
             self.publication = None;
+            self.source_cursor = TerrainPublicationCursor::default();
         }
         if let (Some(stream), Some(publications)) = (stream, &scene.publications) {
-            publications.retain(stream.terrain_publication_sections());
+            let (reset, columns) = stream.take_terrain_publication_columns(&self.source_cursor);
+            publications.retain(reset, columns);
         }
         self.source_revision = revision;
+        replaced
     }
 
-    /// Shares current section requirements without rebuilding an unchanged publication target.
-    fn publish_target(&mut self, stream: &WorldStream, horizon: i32, scene: &mut FarTerrainScene) {
-        self.publish_source(Some(stream), scene);
+    /// Updates section requirements and reports whether extraction needs a new target.
+    fn publish_target(
+        &mut self,
+        stream: &WorldStream,
+        horizon: i32,
+        scene: &mut FarTerrainScene,
+    ) -> bool {
         let revision = stream.terrain_publication_revision();
         let centre = stream.far_terrain_centre();
         let key = (
@@ -141,7 +157,7 @@ impl FarTerrain {
             horizon,
         );
         if self.publication == Some(key) && scene.target.is_some() {
-            return;
+            return false;
         }
         let mut target = self
             .publication
@@ -154,6 +170,7 @@ impl FarTerrain {
         target.empty_far = Arc::new(self.tiles.empty_columns().collect());
         scene.target = Some(Arc::new(target));
         self.publication = Some(key);
+        true
     }
 
     /// Summarises the stream's resident columns before it is dropped, so this session's
@@ -288,8 +305,7 @@ impl FarTerrain {
             Some(now + EXIT_SUMMARY_WAIT),
             &mut SummaryBudget::new(usize::MAX, usize::MAX),
         );
-        self.cache.leave_world();
-        self.cache.sync();
+        self.cache.finish();
     }
 }
 
@@ -321,6 +337,7 @@ type WorldIdentity<D> = (D, Option<u64>, i32, (u64, u64), [u8; 32]);
 pub(crate) struct ActiveWorld(Option<WorldIdentity<String>>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn feed_far_terrain(
     far: Option<ResMut<FarTerrain>>,
     world: Option<ResMut<ClientWorld>>,
@@ -328,13 +345,14 @@ pub(crate) fn feed_far_terrain(
     settings: Res<RuntimeSettings>,
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
     scene: Option<ResMut<FarTerrainScene>>,
+    pack: Option<Res<ShaderPackStatus>>,
     mut active: Local<ActiveWorld>,
 ) {
     let (Some(mut far), Some(mut world), Some(mut scene)) = (far, world, scene) else {
         return;
     };
     let far = &mut *far;
-    let video = settings.user_settings_update().1.video;
+    let video = &settings.user_settings_update().1.video;
     let tier = menu.as_ref().map_or(DeviceTier::Mid, |menu| {
         DeviceTier::from_recommended_render_distance(
             menu.settings_snapshot()
@@ -344,10 +362,14 @@ pub(crate) fn feed_far_terrain(
         )
     });
     // Auto runs far terrain only past what this device meshes in full detail by default;
-    // below that nothing of it runs, exactly as with Off.
-    let wanted = video
-        .far_terrain
-        .enabled(u32::from(video.render_distance_chunks), tier);
+    // below that nothing of it runs, exactly as with Off. A loaded shader pack draws the
+    // world as Java does, without far terrain (its frames show sky past render distance), so
+    // none of it runs then either and near terrain meshes every loaded column.
+    let shader_pack = pack.as_deref().is_some_and(ShaderPackStatus::is_ready);
+    let wanted = !shader_pack
+        && video
+            .far_terrain
+            .enabled(u32::from(video.render_distance_chunks), tier);
     // A transfer or rejoin to the same address is a new session and so a fresh visit: the
     // lobby behind it may be another instance under the same identity.
     let destination = session
@@ -355,8 +377,9 @@ pub(crate) fn feed_far_terrain(
         .and_then(SessionController::destination_identity);
     let now = Instant::now();
     // Turned off, by the setting or by Auto, far terrain stays until near terrain has drawn
-    // every column it covered.
+    // every column it covered; a shader pack never shows it, so nothing waits for it then.
     let draining = !wanted
+        && !shader_pack
         && far.published.is_some()
         && world
             .stream
@@ -466,7 +489,7 @@ pub(crate) fn feed_far_terrain(
         .stream
         .as_ref()
         .filter(|_| wanted)
-        .and_then(|stream| full_detail_radius(stream, &video, tier));
+        .and_then(|stream| full_detail_radius(stream, video, tier));
     if world
         .stream
         .as_ref()
@@ -475,8 +498,16 @@ pub(crate) fn feed_far_terrain(
     {
         stream.set_full_detail_radius(full_detail);
     }
+    if far.source_revision
+        != world
+            .stream
+            .as_ref()
+            .map(WorldStream::terrain_publication_source)
+        && far.publish_source(world.stream.as_mut(), scene.bypass_change_detection())
+    {
+        scene.set_changed();
+    }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
-        far.publish_source(world.stream.as_ref(), &mut scene);
         far.cache.poll_budgeted(now, &mut summary_budget);
         if far.published.take().is_some() {
             *scene = FarTerrainScene {
@@ -509,7 +540,7 @@ pub(crate) fn feed_far_terrain(
         }
     }
     let centre = stream.far_terrain_centre();
-    let loaded = loaded_radius(stream, &video);
+    let loaded = loaded_radius(stream, video);
     let reach = far_reach_chunks(
         u32::from(video.render_distance_chunks),
         loaded.max(0) as u32,
@@ -571,8 +602,10 @@ pub(crate) fn feed_far_terrain(
             scene.near = Arc::clone(&far.near);
         }
     }
-    if let Some(stream) = world.stream.as_ref() {
-        far.publish_target(stream, loaded + reach, &mut scene);
+    if let Some(stream) = world.stream.as_ref()
+        && far.publish_target(stream, loaded + reach, scene.bypass_change_detection())
+    {
+        scene.set_changed();
     }
 }
 
@@ -629,6 +662,7 @@ pub(crate) fn finish_far_terrain_on_exit(
     let mut world = world;
     let stream = world.as_mut().and_then(|world| world.stream.as_mut());
     far.finish(stream);
+    client_runtime::shutdown::log_shutdown_phase("far_terrain_finish");
 }
 
 #[cfg(test)]

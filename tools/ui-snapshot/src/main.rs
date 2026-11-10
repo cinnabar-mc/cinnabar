@@ -97,7 +97,7 @@ fn run() -> Result<(), String> {
         }
     }
     if list {
-        for state in fixtures::STATES {
+        for state in fixtures::states() {
             println!(
                 "{} {}x{} gui-scale={}",
                 state.name, state.size[0], state.size[1], state.gui_scale
@@ -118,8 +118,7 @@ fn run() -> Result<(), String> {
     }
     let state = match name.as_ref() {
         Some(name) => Some(
-            fixtures::STATES
-                .iter()
+            fixtures::states()
                 .find(|state| state.name == name)
                 .ok_or_else(|| format!("unknown state {name}; use --list"))?,
         ),
@@ -146,7 +145,12 @@ fn run() -> Result<(), String> {
             resource_pack.as_deref(),
         )
     } else {
-        render::png_at(state.expect("named state checked"), &dir, seconds)
+        render::png_at(
+            state.expect("named state checked"),
+            &dir,
+            seconds,
+            resource_pack.as_deref(),
+        )
     };
     let (name, size, gui_scale) = state.map_or(("mod-panel", size, gui_scale), |state| {
         (state.name, state.size, state.gui_scale)

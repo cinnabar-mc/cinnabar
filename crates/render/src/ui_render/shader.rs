@@ -12,13 +12,60 @@ pub(super) struct UiViewportUniform {
 
 pub(crate) fn source(raw: &str) -> String {
     // Keep the GPU style bits owned by the renderer, with no UI-crate dependency or WGSL copy.
+    let raw = raw.replace("UI_REPEAT_DECODER", render_api::ui_repeat::WGSL_DECODER);
+    let raw = raw.replace("UI_SHADOW_DECODER", render_api::ui_shadow::WGSL);
+    let raw = raw.replace(
+        "UI_HALF_FLOAT_ROUNDING",
+        include_str!("../ui_half_float.wgsl"),
+    );
+    let raw = raw.replace(
+        "UI_TEXTURE_VERTEX",
+        include_str!("../ui_texture_vertex.wgsl"),
+    );
     raw.replace(
+        "UI_STYLE_MODEL_VERTEX",
+        &format!("{}u", render_api::UI_STYLE_MODEL_VERTEX),
+    )
+    .replace(
+        "UI_MODEL_LAYER_BITS",
+        &format!("{}u", render_model::UI_MODEL_LAYER_BITS),
+    )
+    .replace(
+        "// ACTOR_SHADE_CONSTANTS",
+        &format!(
+            "const ACTOR_SHADE: array<f32, 5> = array({});",
+            render_api::ACTOR_SHADE_COEFFICIENTS
+                .map(|value| format!("{value:?}"))
+                .join(", ")
+        ),
+    )
+    .replace(
         "GLINT_TINT_RGB",
         &crate::material_shader::glint_tint_source(),
     )
     .replace(
+        "UI_STYLE_RGB_COVERAGE",
+        &format!("{}u", render_api::UI_STYLE_RGB_COVERAGE),
+    )
+    .replace(
         "UI_STYLE_ALPHA_TEST",
-        &format!("{}u", render_model::UI_STYLE_ALPHA_TEST),
+        &format!("{}u", render_api::UI_STYLE_ALPHA_TEST),
+    )
+    .replace(
+        "UI_STYLE_TERRAIN_MIPS",
+        &format!("{}u", render_api::UI_STYLE_TERRAIN_MIPS),
+    )
+    .replace(
+        "UI_STYLE_UNORM16_UV",
+        &format!("{}u", render_api::UI_STYLE_UNORM16_UV),
+    )
+    .replace(
+        "UI_STYLE_HALF_FLOAT_XY",
+        &format!("{}u", render_api::UI_STYLE_HALF_FLOAT_XY),
+    )
+    .replace(
+        "UI_STYLE_SHADOW",
+        &format!("{}u", render_api::ui_shadow::UI_STYLE_SHADOW),
     )
     .replace(
         "UI_STYLE_COVERAGE_PAINT",
@@ -27,6 +74,10 @@ pub(crate) fn source(raw: &str) -> String {
     .replace(
         "UI_STYLE_GLINT",
         &format!("{}u", render_model::UI_STYLE_GLINT),
+    )
+    .replace(
+        "UI_STYLE_SPRITE_COLOR_MASK",
+        &format!("{}u", render_api::UI_STYLE_SPRITE_COLOR_MASK),
     )
     .replace(
         "UI_STYLE_COLOR_MASK",
@@ -41,6 +92,18 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", render_model::UI_STYLE_PARTICLE),
     )
     .replace(
+        "UI_STYLE_BILINEAR",
+        &format!("{}u", render_api::UI_STYLE_BILINEAR),
+    )
+    .replace(
+        "UI_STYLE_REPEAT_X",
+        &format!("{}u", render_api::ui_repeat::UI_STYLE_REPEAT_X),
+    )
+    .replace(
+        "UI_STYLE_REPEAT_Y",
+        &format!("{}u", render_api::ui_repeat::UI_STYLE_REPEAT_Y),
+    )
+    .replace(
         "UI_STYLE_RADIAL_GRADIENT",
         &format!("{}u", render_model::UI_STYLE_RADIAL_GRADIENT),
     )
@@ -49,6 +112,14 @@ pub(crate) fn source(raw: &str) -> String {
         &format!("{}u", assets::FONT_STYLE_COVERAGE_GAMMA),
     )
     .replace("FONT_STYLE_SDF", &format!("{}u", assets::FONT_STYLE_SDF))
+    .replace(
+        "MAX_UI_TEXTURE_LAYERS",
+        &render_model::MAX_UI_TEXTURE_LAYERS.to_string(),
+    )
+    .replace(
+        "UI_STYLE_REPEAT_PAGE",
+        &format!("{}u", render_api::ui_repeat::UI_STYLE_REPEAT_PAGE),
+    )
     .replace(
         "FONT_STYLE_OUTLINE_COVERAGE",
         &format!("{}u", assets::FONT_STYLE_OUTLINE_COVERAGE),

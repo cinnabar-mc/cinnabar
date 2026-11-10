@@ -266,14 +266,14 @@ const WITNESS: &str = r#"
         corner,
         geometry_streams[word + 2u],
     );
-    let world = vec3<f32>(chunk_origins[geometry_streams[word + 3u]].value.xyz) + local;
+    let world = vec3<f32>(chunk_origins(geometry_streams[word + 3u]).value.xyz) + local;
     let shade = f32(record % 7u) / 7.0;
     var out: VertexOutput;
     out.clip_position = view.clip_from_world * vec4(world, 1.0);
     out.world_position = world;
     out.uv = vec2(0.5);
-    out.current_texture = 0u;
-    out.next_texture = 0u;
+    out.textures.x = 0u;
+    out.textures.y = 0u;
     out.frame_blend = 0.0;
     out.water_tint = vec4(0.2 + 0.6 * shade, 0.9 - 0.6 * shade, 0.5, 0.5);
     out.lighting = vec3(1.0);

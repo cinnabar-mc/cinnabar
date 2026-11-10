@@ -16,6 +16,7 @@ use ui::{IconRef, LoadingStage, UiNode, UiPoint, UiRect};
 
 use super::super::player_preview::MenuPreviewConfig;
 use super::super::{UiPresentationError, UiPresentationRuntime};
+use super::menu_sounds::MenuSounds;
 use crate::ui_runtime::UiRuntime;
 use ui_engine::engine::screen::{PaintFrame, Screen, Translate};
 use ui_engine::text_metrics::TextMetrics;
@@ -187,7 +188,7 @@ impl UiPresentationRuntime {
         } else {
             paint.apply_entrance(nodes, size)?;
         }
-        self.screens.menu_sounds.clear();
+        self.screens.menu_sounds = MenuSounds::OreUi;
         Ok(Some(hits))
     }
 
@@ -224,7 +225,7 @@ impl UiPresentationRuntime {
         let scrolls = self.window_scrolls(scrolls)?;
         let hits = self.window_hits(output.hits)?;
         self.menu_scrolls.set_areas(scrolls);
-        self.screens.menu_sounds.clear();
+        self.screens.menu_sounds = MenuSounds::OreUi;
         Ok(hits)
     }
 
@@ -510,35 +511,6 @@ impl UiPresentationRuntime {
         self.screens.oreui.originals = Some(Arc::new(Originals::new(first, images)));
         Ok(())
     }
-
-    /// Prepares additional native art before drawing; unchanged requests retain texture pages.
-    pub fn prepare_oreui_artwork(&mut self, keys: &[&str]) -> Result<(), String> {
-        if self
-            .screens
-            .oreui
-            .originals
-            .as_ref()
-            .is_some_and(|old| old.has_sprites(keys))
-        {
-            return Ok(());
-        }
-        let images = oreui::images::loaded_oreui_images().ok_or("OreUI artwork was not loaded")?;
-        let old_start = self
-            .screens
-            .oreui
-            .originals
-            .as_ref()
-            .map_or(self.textures.dynamic_start(), |old| usize::from(old.page()));
-        let previous_artwork = self.textures.pages()[old_start..self.textures.dynamic_start()]
-            .iter()
-            .map(|page| page.pixels().len())
-            .sum::<usize>();
-        let resident = self.textures.fixed_budget_bytes() - previous_artwork;
-        let available = render_model::MAX_UI_FIXED_TEXTURE_BYTES
-            .checked_sub(resident)
-            .ok_or("Resident UI textures exceed the texture budget")?;
-        self.enable_oreui_originals(images.with_artwork_budget(keys, available)?)
-    }
 }
 
 /// OreUI paints in safe-content space while the retained tree moves its visuals by the
@@ -577,8 +549,8 @@ impl UiPresentationRuntime {
 
     fn window_slider_tracks(
         &self,
-        tracks: Vec<(u16, UiRect, Option<UiRect>)>,
-    ) -> Result<Vec<(u16, UiRect, Option<UiRect>)>, UiPresentationError> {
+        tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
+    ) -> Result<Vec<(MenuAction, UiRect, Option<UiRect>)>, UiPresentationError> {
         tracks
             .into_iter()
             .map(|(index, track, thumb)| {

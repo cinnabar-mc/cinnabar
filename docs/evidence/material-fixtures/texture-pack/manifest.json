@@ -1,0 +1,17 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Cinnabar material evidence fixtures",
+    "description": "Original synthetic texture-set field-isolation fixtures",
+    "uuid": "5ef982ea-fd80-4c44-9156-c88262192001",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 26, 50]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "5ef982ea-fd80-4c44-9156-c88262192002",
+      "version": [1, 0, 0]
+    }
+  ]
+}

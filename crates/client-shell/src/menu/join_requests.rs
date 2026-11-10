@@ -53,6 +53,15 @@ impl MenuRuntime {
         }
     }
 
+    /// Runs an actionable toast's press, from a click, tap or controller View, and returns
+    /// whether it opened the menu.
+    pub fn press_toast(&mut self, press: ToastPress) -> bool {
+        match press {
+            ToastPress::JoinRequests => self.open_join_requests(),
+        }
+        self.visible
+    }
+
     /// Stands the oldest request's toast while playing until Discord closes it, and slides the
     /// toast out once that request is answered, closed or shown as the popup. Touches `runtime`
     /// only on a change.
@@ -63,7 +72,10 @@ impl MenuRuntime {
     ) {
         let millis = |at: Duration| u64::try_from(at.as_millis()).unwrap_or(u64::MAX);
         let now = millis(now);
-        let standing = runtime.hud().standing_toast();
+        let standing = runtime
+            .hud()
+            .standing_toast()
+            .filter(|toast| toast.press == Some(ToastPress::JoinRequests));
         let Some(request) = self
             .join_requests
             .requests
@@ -89,7 +101,7 @@ impl MenuRuntime {
             id: request.user_id,
             title: Arc::from(join_requests::title(&request.name)),
             message: Arc::from(hint),
-            press: ToastPress::JoinRequests,
+            press: Some(ToastPress::JoinRequests),
             since_millis: now,
             until_millis: until,
         });

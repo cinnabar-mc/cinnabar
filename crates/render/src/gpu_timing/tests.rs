@@ -4,6 +4,61 @@ use bevy::prelude::Component;
 use bevy::{ecs::system::RunSystemOnce, render::renderer::PendingCommandBuffers};
 use render_scene::RuntimeStage;
 
+#[test]
+fn shaderpack_owned_query_policy_claims_only_detailed_owned_passes() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for detailed in [false, true] {
+        for owned_passes in [false, true] {
+            let mut timestamps = GpuTimestamps::new(&device, &queue, detailed).unwrap();
+            timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));
+            let span =
+                timestamps.shaderpack_owned_span(RuntimeStage::GpuShaderpackOpaque, owned_passes);
+            assert_eq!(span.is_some(), detailed && owned_passes);
+            if let Some(span) = span {
+                assert!(std::ptr::eq(span.queries, &timestamps.queries));
+                assert_eq!(span.begin, 0);
+            }
+        }
+    }
+}
+
+#[test]
+fn shaderpack_owned_pass_queries_follow_frame_detail() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for detailed in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, detailed).unwrap();
+        timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));
+        let expected = detailed && cfg!(target_os = "macos");
+        let stages = [
+            RuntimeStage::GpuShaderpackOpaque,
+            RuntimeStage::GpuShaderpackDeferred,
+            RuntimeStage::GpuShaderpackComposite,
+        ];
+        for stage in stages {
+            let render = timestamps.shaderpack_render_pass(stage);
+            let compute = timestamps.shaderpack_compute_pass(stage);
+            assert_eq!(render.is_some(), expected);
+            assert_eq!(compute.is_some(), expected);
+            if let (Some(render), Some(compute)) = (render, compute) {
+                assert!(std::ptr::eq(render.query_set, &timestamps.queries));
+                assert!(std::ptr::eq(compute.query_set, &timestamps.queries));
+                assert_eq!(
+                    render.end_of_pass_write_index,
+                    render.beginning_of_pass_write_index.map(|index| index + 1)
+                );
+                assert_eq!(
+                    compute.beginning_of_pass_write_index,
+                    render.end_of_pass_write_index.map(|index| index + 1)
+                );
+            }
+        }
+        assert_eq!(
+            timestamps.frame.passes.load(Ordering::Relaxed),
+            if expected { stages.len() as u32 * 2 } else { 0 }
+        );
+    }
+}
+
 /// Creates a validation device with the requested timestamp capabilities.
 pub(crate) fn noop_device(features: wgpu::Features) -> (RenderDevice, RenderQueue) {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
@@ -873,4 +928,33 @@ fn idle_pairing_preserves_recording_identity_and_coverage() {
         assert!(whole);
         assert_eq!(frame.get(RuntimeStage::GpuIdle), None);
     });
+}
+
+/// Raster profiling includes both the reset compute pass and the fragment box test.
+#[test]
+fn raster_pass_queries_include_compute_and_render_work_only_in_detailed_frames() {
+    let (device, queue) = noop_device(wgpu::Features::TIMESTAMP_QUERY);
+    for detailed in [false, true] {
+        let mut timestamps = GpuTimestamps::new(&device, &queue, detailed).unwrap();
+        timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));
+        let mut world = World::new();
+        world.insert_resource(timestamps);
+        let reset = compute_pass_timestamps(&world, RuntimeStage::GpuCullRaster);
+        let draw = render_pass_timestamps(&world, RuntimeStage::GpuCullRaster);
+        let expected = detailed && !cfg!(target_os = "macos");
+        assert_eq!(reset.is_some(), expected);
+        assert_eq!(
+            draw.is_some(),
+            expected,
+            "box fragments must be included in the raster GPU span"
+        );
+        assert_eq!(
+            world
+                .resource::<GpuTimestamps>()
+                .frame
+                .passes
+                .load(Ordering::Relaxed),
+            if expected { 2 } else { 0 }
+        );
+    }
 }
