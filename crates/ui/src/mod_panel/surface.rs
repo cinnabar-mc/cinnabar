@@ -583,7 +583,6 @@ fn node(
                     name,
                     json_ui::rounded::RENDERER
                         | backdrop::GLASS_RENDERER
-                        | "cinnabar_vector_icon"
                         | "cinnabar_vector_path"
                         | "gradient_renderer"
                         | ITEM_RENDERER
