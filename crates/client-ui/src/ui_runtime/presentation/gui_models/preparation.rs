@@ -75,14 +75,13 @@ impl GuiModelPreparation {
                 && let Some(icon) = self.shield
                 && let Some(source) =
                     atlas.insert_or_fallback([texture.width, texture.height], &texture.rgba8)
+                && let Some(mesh) = item_gui::shield(geometry, texture, source)
             {
-                if let Some(mesh) = item_gui::shield(geometry, texture, source) {
-                    models.insert(icon_key(icon), mesh);
-                    shield = Some(Arc::new(shield_icons::Source {
-                        geometry: geometry.clone(),
-                        texture: texture.clone(),
-                    }));
-                }
+                models.insert(icon_key(icon), mesh);
+                shield = Some(Arc::new(shield_icons::Source {
+                    geometry: geometry.clone(),
+                    texture: texture.clone(),
+                }));
             }
         }
         let mut sources = BTreeMap::new();
