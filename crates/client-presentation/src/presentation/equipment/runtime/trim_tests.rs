@@ -146,6 +146,77 @@ fn worn_trim_pixels_are_shared_until_the_appearance_retires() {
 }
 
 #[test]
+fn trim_dye_uses_the_draw_mask_and_preserves_authored_alpha() {
+    use assets::EntityRenderMaterialState;
+    use render_api::render_state::{BlendState, RenderState};
+
+    let (mut runtime, pages, item) = trim_fixture();
+    let (pages, locations) = pages.with_equipment_rasters(&[EquipmentRaster {
+        width: 2,
+        height: 1,
+        rgba8: vec![10, 20, 30, 64, 40, 50, 60, 64].into(),
+    }]);
+    let body = block_fixture().1;
+    let catalog = Arc::clone(runtime.catalog.as_ref().unwrap());
+    let texture = catalog
+        .textures()
+        .iter()
+        .position(|texture| texture.identifier.as_ref() == "textures/models/armor/diamond_1")
+        .unwrap();
+    runtime.trims.remember_worn(
+        body.input.identity,
+        trims::WornSource {
+            catalog: Arc::clone(&catalog),
+            binding: 0,
+            artwork: catalog,
+            texture,
+        },
+    );
+    let plain = EntityRenderMaterialState::default();
+    let masked = EntityRenderMaterialState {
+        color_mask: true,
+        ..plain
+    };
+    let emissive = EntityRenderMaterialState {
+        emissive: true,
+        ..plain
+    };
+    for (color_mask, state, blend, expected) in [
+        (false, None, None, [40, 50, 60, 64]),
+        (true, None, None, [35, 37, 44, 255]),
+        (true, Some(plain), None, [35, 37, 44, 255]),
+        (true, Some(plain), Some(BlendState::ALPHA), [35, 37, 44, 64]),
+        (true, Some(emissive), None, [35, 37, 44, 64]),
+        (false, Some(masked), None, [35, 37, 44, 64]),
+    ] {
+        let mut draw = body.clone();
+        draw.material = render_model::ActorMaterial {
+            color_mask,
+            state,
+            render_state: Some(RenderState {
+                blend,
+                ..assets::entity::material::UNAUTHORED_RENDER_STATE
+            }),
+            ..Default::default()
+        };
+        draw.tint = u32::from_le_bytes([128, 0, 0, 255]);
+        let (raster, _) = runtime
+            .trim_draw(&item, &pages, locations[0].unwrap(), &mut draw, true)
+            .unwrap();
+        assert_eq!(&raster.rgba8[..4], &[240, 170, 20, 255]);
+        assert_eq!(&raster.rgba8[4..], &expected);
+        assert_eq!(
+            draw.tint,
+            if color_mask || state.is_some_and(|state| state.color_mask) {
+                0
+            } else {
+                u32::from_le_bytes([128, 0, 0, 255])
+            }
+        );
+    }
+}
+
+#[test]
 fn worn_trim_palette_follows_the_item_when_a_pack_renames_its_texture() {
     let (mut runtime, pages, mut item) = trim_fixture();
     item.trim.as_mut().unwrap().material = "diamond".into();
