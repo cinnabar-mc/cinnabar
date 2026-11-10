@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	DefaultQuota    uint64 = 512 << 20
+	DefaultQuota    uint64 = 2 << 30
 	maxVersionBytes        = 256
 	maxIndexEntries        = 100_000
 	objectSuffix           = ".mcpack"

@@ -61,10 +61,13 @@ fn resolve_key_with_carrier(
         tried.push(format!("key '{key}' not in the merged item_texture.json"));
     }
     let bare = key.rsplit_once(':').map_or(key, |(_, name)| name);
-    for path in [
-        format!("textures/items/{key}"),
-        format!("textures/items/{bare}"),
-    ] {
+    let mut candidates = Vec::new();
+    if key.starts_with("textures/") {
+        candidates.push(key.to_string());
+    }
+    candidates.push(format!("textures/items/{key}"));
+    candidates.push(format!("textures/items/{bare}"));
+    for path in candidates {
         if let Some(mut texture) = decode(view, &path, &carrier) {
             texture.retain_first_strip_frame();
             if texture.rgba8.len() <= remaining_bytes {

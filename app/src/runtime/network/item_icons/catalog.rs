@@ -78,7 +78,8 @@ pub(super) fn icon_keys(
             let key = icon
                 .as_str()
                 .or_else(|| icon["textures"]["default"].as_str())
-                .or_else(|| icon["texture"].as_str());
+                .or_else(|| icon["texture"].as_str())
+                .or_else(|| icon["textures"].as_str());
             if let Some(key) = key.filter(|key| !key.is_empty() && key.len() <= 256)
                 && (keys.len() < MAX_CATALOG_ENTRIES || keys.contains_key(identifier))
             {
