@@ -19,7 +19,7 @@ use super::{
 };
 use crate::entity::{invalid, molang::MolangCompiler};
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 struct Raster {
     material: EntityRenderMaterial,
     state: Option<EntityRenderMaterialState>,
@@ -29,6 +29,22 @@ struct Raster {
     masks: Option<u32>,
     /// Textures the controller must supply for this material to draw.
     required_textures: u16,
+    /// Whether the material applies the controller's `uv_anim`.
+    uv_anim: bool,
+}
+
+impl Default for Raster {
+    /// A layer naming no material, which applies its controller's `uv_anim`.
+    fn default() -> Self {
+        Self {
+            material: EntityRenderMaterial::default(),
+            state: None,
+            definition: None,
+            masks: None,
+            required_textures: 0,
+            uv_anim: true,
+        }
+    }
 }
 
 pub(super) struct Group {
@@ -49,6 +65,7 @@ fn raster(target: Option<&str>, materials: &MaterialStates, table: &mut Material
         masks: None,
         required_textures: resolved
             .map_or(0, |(_, definition)| table.required_textures(definition)),
+        uv_anim: target.is_none_or(|target| materials.applies_uv_anim(target, table)),
     }
 }
 
@@ -95,13 +112,16 @@ pub(super) fn resolve(
         .map(|(pattern, target)| (pattern, raster(Some(target), materials, table)))
         .collect::<Vec<_>>();
     for (pattern, material) in materials.extension_rules(entity, controller_name) {
-        if let Some((state, definition, masks)) = materials.resolve_extension(material, table) {
+        if let Some((state, definition, masks)) =
+            materials.resolve_extension(material, true, table)
+        {
             let raster = Raster {
                 material: EntityRenderMaterial::Default,
                 state: Some(state),
                 definition: Some(definition),
                 masks,
                 required_textures: table.required_textures(definition),
+                uv_anim: materials.extension_applies_uv_anim(material, table),
             };
             rules.push((pattern.to_owned(), raster));
         }
@@ -267,6 +287,8 @@ pub(super) struct Records<'a> {
     pub candidates: &'a mut Vec<EntityRenderCandidate>,
     pub visibility: &'a mut Vec<EntityRenderVisibility>,
     pub geometries: &'a mut Vec<EntityRenderGeometry>,
+    /// Material draws dropped because the controller supplies too few textures.
+    pub skipped_draws: &'a mut u32,
 }
 
 pub(super) fn append(
@@ -277,7 +299,9 @@ pub(super) fn append(
 ) -> Result<(), AssetError> {
     // A material whose controller supplies too few textures is not drawn, as on Bedrock; its
     // bones stay hidden in the other groups.
+    let before = groups.len();
     groups.retain(|group| group.raster.required_textures <= base.slot_count);
+    *records.skipped_draws += (before - groups.len()) as u32;
     if groups.is_empty() {
         return Ok(());
     }
@@ -288,6 +312,7 @@ pub(super) fn append(
         candidates,
         visibility,
         geometries,
+        skipped_draws: _,
     } = records;
     let extra = groups.len().saturating_sub(1);
     let candidate_count: usize = slots[base.first_slot as usize..]
@@ -317,6 +342,7 @@ pub(super) fn append(
             material_state: group.raster.state,
             material_definition: group.raster.definition,
             material_masks: group.raster.masks,
+            uv_anim: base.uv_anim.filter(|_| group.raster.uv_anim),
             material_selection: group
                 .selection
                 .and_then(|selection| retain_selection(selection, selections, molang)),
@@ -370,6 +396,7 @@ pub(super) fn append(
         layer.material_state = group.raster.state;
         layer.material_definition = group.raster.definition;
         layer.material_masks = group.raster.masks;
+        layer.uv_anim = base.uv_anim.filter(|_| group.raster.uv_anim);
         layer.material_selection = group
             .selection
             .and_then(|selection| retain_selection(selection, selections, molang));

@@ -25,6 +25,7 @@ fn pack() -> assets::SessionEntityPack {
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
         equipment: None,
+        material_diagnostics: None,
     }
 }
 

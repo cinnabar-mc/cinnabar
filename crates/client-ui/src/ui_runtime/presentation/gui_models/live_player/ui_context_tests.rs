@@ -133,6 +133,7 @@ fn pack_with_overlay(
             )
             .unwrap(),
         )),
+        material_diagnostics: None,
     })
 }
 

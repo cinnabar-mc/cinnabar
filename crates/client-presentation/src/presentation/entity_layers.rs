@@ -157,6 +157,24 @@ fn pack_layer_tint(color: [f32; 4]) -> u32 {
     }
 }
 
+/// The glint of a `GLINT` layer at the actor's completed tick; publication then interpolates
+/// it and applies the glint settings. Other layers keep the placed body's own foil. The draw
+/// adds the client's actor glint; Bedrock's glint constants are unknown.
+fn layer_glint(
+    submission: &ActorRigSubmission,
+    layer: &RenderTextureLayer,
+) -> render_model::ActorGlint {
+    if !layer.material_state.is_some_and(|state| state.glint) {
+        // A native foil set on the placed body survives its controller's layers.
+        return submission.material.glint;
+    }
+    render_model::ActorGlint {
+        time_seconds: submission.input.completed_tick as f32
+            * simulation_clock::TICK_DURATION.as_secs_f32(),
+        ..Default::default()
+    }
+}
+
 /// Resolves one admitted controller layer for both body drawing and equipment styling.
 fn resolve_layer(
     submission: &ActorRigSubmission,
@@ -196,7 +214,7 @@ fn resolve_layer(
                 .or_else(|| {
                     if layer
                         .material_state
-                        .is_some_and(|state| state.masked_multitexture)
+                        .is_some_and(|state| state.texture_mask)
                     {
                         artwork.variant_location(rig, layer.source)
                     } else {
@@ -215,8 +233,7 @@ fn resolve_layer(
     Some(ResolvedLayer {
         material: render_model::ActorMaterial {
             color_mask: false,
-            // A native foil set on the placed body survives its controller's layers.
-            glint: submission.material.glint,
+            glint: layer_glint(submission, layer),
             kind: layer.material,
             state: layer.material_state,
             render_state: layer.render_state,

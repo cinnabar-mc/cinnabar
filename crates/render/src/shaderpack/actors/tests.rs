@@ -78,6 +78,17 @@ fn actors_draw_in_the_iris_program_their_material_selects() {
         classify(0, &unauthored, 0.5, None, false).unwrap().glint,
         "item glint extent"
     );
+    let defined =
+        assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+            glint: true,
+            ..Default::default()
+        }));
+    assert!(
+        classify(defined, &unauthored, 0.0, None, false)
+            .unwrap()
+            .glint,
+        "a GLINT material classifies as glint like the glint kind"
+    );
 }
 
 #[test]

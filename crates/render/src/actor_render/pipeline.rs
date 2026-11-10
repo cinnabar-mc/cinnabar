@@ -1,6 +1,5 @@
 use super::*;
 use render_model::{ActorGpuInstance, ActorRigGeometrySpan};
-use std::collections::hash_map::Entry;
 
 pub(super) struct ActorPipelineSpecializer;
 
@@ -16,8 +15,16 @@ pub(crate) struct ActorPipeline {
     >,
     motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
     motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
-    /// Unique draw and motion pipelines for each view, retained for readiness and shader reloads.
+    /// Contracts the render targets cannot represent and pipelines that failed to compile,
+    /// both drawn with the view's unauthored pipeline instead.
+    pub(super) targets: targets::TargetValidation,
+    /// Unique built-in draw and motion pipelines for each view, retained for readiness and
+    /// shader reloads.
     prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
+    /// Pipelines the current session's authored materials and frames requested, per view.
+    /// A pack change retires them from readiness; the pipelines themselves stay in Bevy's
+    /// cache, which cannot destroy them, and are reused if a later pack requests them again.
+    session_prewarmed: std::collections::HashMap<(Msaa, bool, bool), Vec<CachedRenderPipelineId>>,
     /// The session's published authored rasters and the views that already requested them.
     session_rasters: (AuthoredRasters, Vec<(Msaa, bool, bool)>),
     /// (view, word, raster) pairs a frame drew that are already requested, so an unchanged
@@ -56,6 +63,8 @@ impl FromWorld for ActorPipeline {
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
             prewarmed: Default::default(),
+            session_prewarmed: Default::default(),
+            targets: Default::default(),
             session_rasters: (std::sync::Arc::from([]), Vec::new()),
             frame_requests: Default::default(),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
@@ -103,23 +112,12 @@ impl ActorPipeline {
                     material,
                     raster,
                 };
-                let contract = key.contract();
-                let id = match self.draw_variants.entry(contract) {
-                    Entry::Occupied(entry) => *entry.get(),
-                    Entry::Vacant(entry) => {
-                        *entry.insert(self.variants.specialize(cache, key).ok()?)
-                    }
-                };
+                let id = self.request_draw(cache, key)?;
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
                 if self.motion_supported && super::motion::eligible(material, &key.raster()) {
-                    let id = match self.motion_ids.entry(contract) {
-                        Entry::Occupied(entry) => *entry.get(),
-                        Entry::Vacant(entry) => {
-                            *entry.insert(self.motion_variants.specialize(cache, key).ok()?)
-                        }
-                    };
+                    let id = self.request_motion(cache, key)?;
                     if !ids.contains(&id) {
                         ids.push(id);
                     }
@@ -178,23 +176,14 @@ impl ActorPipeline {
                 material,
                 raster,
             };
-            let contract = key.contract();
-            let id = match self.draw_variants.entry(contract) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(self.variants.specialize(cache, key).ok()?),
-            };
-            let ids = self.prewarmed.entry(view).or_default();
+            let id = self.request_draw(cache, key)?;
+            let ids = self.session_prewarmed.entry(view).or_default();
             if !ids.contains(&id) {
                 ids.push(id);
             }
             if self.motion_supported && super::motion::eligible(material, &raster) {
-                let id = match self.motion_ids.entry(contract) {
-                    Entry::Occupied(entry) => *entry.get(),
-                    Entry::Vacant(entry) => {
-                        *entry.insert(self.motion_variants.specialize(cache, key).ok()?)
-                    }
-                };
-                let ids = self.prewarmed.entry(view).or_default();
+                let id = self.request_motion(cache, key)?;
+                let ids = self.session_prewarmed.entry(view).or_default();
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
@@ -226,6 +215,22 @@ impl ActorPipeline {
         Some(())
     }
 
+    /// Adopts a session's published authored rasters. Equal contents keep the views that
+    /// already requested them, so an unchanged reload requests nothing; a change retires the
+    /// previous session's pipelines from readiness.
+    pub(super) fn adopt_session_rasters(&mut self, rasters: &AuthoredRasters) {
+        if std::sync::Arc::ptr_eq(&self.session_rasters.0, rasters) {
+            return;
+        }
+        if *self.session_rasters.0 == **rasters {
+            self.session_rasters.0 = std::sync::Arc::clone(rasters);
+            return;
+        }
+        self.session_rasters = (std::sync::Arc::clone(rasters), Vec::new());
+        self.session_prewarmed.clear();
+        self.frame_requests.clear();
+    }
+
     /// Looks up a motion contract already requested by the loading path.
     pub(super) fn motion_variant(&self, key: ActorPipelineKey) -> Option<CachedRenderPipelineId> {
         self.motion_ids.get(&key.contract()).copied()
@@ -253,12 +258,19 @@ impl ActorPipeline {
         self.prewarmed
             .get(&view)
             .is_some_and(|ids| ids.iter().copied().all(&mut compiled))
+            && self
+                .session_prewarmed
+                .get(&view)
+                .is_none_or(|ids| ids.iter().copied().all(&mut compiled))
     }
 }
 
 #[cfg(test)]
 #[path = "pipeline_readiness_tests.rs"]
 mod readiness_tests;
+
+#[path = "pipeline/targets.rs"]
+pub(crate) mod targets;
 
 /// The (instance word, raster) pairs the generated native material table, and a layer that
 /// names no material, draw with under every presentation variant: both combat profiles, glint,
@@ -283,7 +295,9 @@ fn prewarm_materials() -> impl Iterator<Item = (u32, render_api::render_state::R
                     disable_overlay: native.disable_overlay,
                     color_mask: class == Some(MaterialKind::ColorMask),
                     multitexture: class == Some(MaterialKind::Multitexture),
-                    masked_multitexture: native.masked_multitexture,
+                    texture_mask: native.masked_multitexture,
+                    // The native table names no glint or tint defines.
+                    ..Default::default()
                 }),
                 render_state: Some(native.definition().render_state()),
                 ..Default::default()
@@ -327,11 +341,21 @@ pub(super) fn prepare_actor_pipelines(
     preflight: Option<Res<render_scene::SampleCountPreflight>>,
     views: ActorViews,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
+    adapter: Option<Res<bevy::render::renderer::RenderAdapter>>,
 ) {
-    if let Some(frame) = &frame
-        && !std::sync::Arc::ptr_eq(&pipeline.session_rasters.0, &frame.authored_rasters)
+    if let Some(adapter) = adapter
+        && !pipeline.targets.has_features()
     {
-        pipeline.session_rasters = (std::sync::Arc::clone(&frame.authored_rasters), Vec::new());
+        let adapter = adapter.clone();
+        pipeline
+            .targets
+            .set_features(std::sync::Arc::new(move |format| {
+                adapter.get_texture_format_features(format)
+            }));
+    }
+    pipeline.settle_failures(&cache, |id| targets::compile_outcome(&cache, id));
+    if let Some(frame) = &frame {
+        pipeline.adopt_session_rasters(&frame.authored_rasters);
     }
     let changed = frame.filter(bevy::ecs::change_detection::DetectChanges::is_changed);
     let mut has_view = false;
@@ -373,6 +397,9 @@ pub(super) fn prepare_actor_pipelines(
         }
     }
     readiness.publish(has_view && ready);
+    readiness.publish_material_fallbacks(
+        u32::try_from(pipeline.targets.fallback_count()).unwrap_or(u32::MAX),
+    );
 }
 
 /// A sample-count switch waits on actor variants as it does on every other warm-up owner.
@@ -638,7 +665,7 @@ impl ActorPipelineKey {
         let alpha_to_coverage = self.msaa.samples() > 1
             && raster.blend.is_none()
             && (raster.alpha_to_coverage || state.alpha_test)
-            && !state.masked_multitexture
+            && !state.texture_mask
             && !state.emissive
             && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
             && self.material & assets::EntityRenderMaterialState::KIND_MASK

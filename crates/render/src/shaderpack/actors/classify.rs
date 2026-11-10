@@ -106,7 +106,9 @@ pub(crate) fn classify(
         kind,
         shadow: !hand && !additive,
         one_sided: raster.cull == render_api::render_state::CullMode::Back,
-        glint: kind_bits == EntityRenderMaterial::Glint as u32 || item_extent != 0.0,
+        glint: kind_bits == EntityRenderMaterial::Glint as u32
+            || material & EntityRenderMaterialState::GLINT != 0
+            || item_extent != 0.0,
     })
 }
 

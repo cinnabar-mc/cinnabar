@@ -91,8 +91,12 @@ pub struct BlockMaskPaths {
     pub strength: f32,
 }
 
-/// Resolves a pack's block bindings against its `.material` documents (in path order).
-pub fn block_bindings(material_documents: &[Value], document: &Value) -> Vec<ResolvedBlockBinding> {
+/// Resolves a pack's block bindings against its material documents, keyed by pack path and
+/// loaded as the entity material list orders them.
+pub fn block_bindings(
+    material_documents: &[(String, Value)],
+    document: &Value,
+) -> Vec<ResolvedBlockBinding> {
     super::MaterialStates::block_bindings(material_documents, document)
 }
 

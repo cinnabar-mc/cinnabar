@@ -53,7 +53,7 @@ pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> V
             "disable_color_write",
             definition.has_state(State::DisableColorWrite),
         ),
-        ("masked_multitexture", state.masked_multitexture),
+        ("masked_multitexture", state.texture_mask),
     ] {
         if enabled {
             summary[key] = true.into();

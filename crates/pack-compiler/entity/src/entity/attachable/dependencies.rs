@@ -20,7 +20,9 @@ pub struct EquipmentBindingDependencies {
 
 impl EquipmentBindingDependencies {
     /// Reads installed material parents and applies the stack's winning material declarations.
-    pub fn load(root: Option<&Path>, authored: &[Value]) -> Result<Self, AssetError> {
+    /// `authored` holds the stack's material documents keyed by pack path, as
+    /// [`MaterialStates::from_documents`] loads them.
+    pub fn load(root: Option<&Path>, authored: &[(String, Value)]) -> Result<Self, AssetError> {
         let mut dependencies = Self::default();
         // Installed material parents cannot affect classification without authored materials.
         if let Some(root) = root.filter(|_| !authored.is_empty()) {
@@ -34,10 +36,11 @@ impl EquipmentBindingDependencies {
             }
         }
         if !authored.is_empty() {
-            let mut upper = MaterialStates::default();
-            for document in authored {
-                upper.read(document);
-            }
+            let upper = MaterialStates::from_documents(
+                authored
+                    .iter()
+                    .map(|(path, document)| (path.as_str(), document)),
+            );
             dependencies.authored_materials = dependencies.materials.overlay(upper);
         }
         Ok(dependencies)
