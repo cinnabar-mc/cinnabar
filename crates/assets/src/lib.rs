@@ -128,8 +128,7 @@ pub use compiled::{
     MATERIAL_LEAF_AO_EXPONENT_MASK, MATERIAL_LEAF_AO_EXPONENT_MAX, MATERIAL_LEAF_AO_EXPONENT_SCALE,
     MATERIAL_LEAF_AO_EXPONENT_SHIFT, MATERIAL_LEAF_METADATA_MASK, MAX_CARRIER_TEXTURE_LAYERS,
     MAX_CARRIER_TEXTURE_PAGES, MAX_MATERIALS, MAX_TEXTURE_LAYERS, Material, TEXTURE_LAYER_MASK,
-    block_render_method_flags, material_leaf_ao_exponent, material_position_random,
-    positional_material_id,
+    material_leaf_ao_exponent, material_position_random, positional_material_id,
 };
 pub use effects::{EFFECT_DESCRIPTORS, EffectDescriptor};
 pub use effects::{effect_descriptor, effect_descriptor_by_identifier, effect_registry_version};

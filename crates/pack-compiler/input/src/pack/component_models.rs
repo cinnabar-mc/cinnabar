@@ -129,7 +129,8 @@ fn resolve(
     {
         return None;
     }
-    let mut flags = assets::block_render_method_flags(method) | assets::MATERIAL_FLAG_DISABLE_AO;
+    let mut flags =
+        assets::compiled::block_render_method_flags(method) | assets::MATERIAL_FLAG_DISABLE_AO;
     if material.get("face_dimming").and_then(Value::as_bool) == Some(false) {
         flags |= assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
     }

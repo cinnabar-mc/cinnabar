@@ -1,5 +1,7 @@
 //! State-aware material replacement and block-specific texture rebinding.
 
+use assets::MATERIAL_FLAG_ALPHA_CUTOUT;
+
 use super::*;
 
 impl Builder<'_> {

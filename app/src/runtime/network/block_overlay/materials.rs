@@ -25,7 +25,7 @@ impl Builder<'_> {
             return (DIAGNOSTIC_MATERIAL, 0, false);
         };
         let two_sided = chosen.render_method.two_sided();
-        let mut flags = assets::block_render_method_flags(chosen.render_method);
+        let mut flags = assets::compiled::block_render_method_flags(chosen.render_method);
         let alpha_flags = flags;
         flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
         match ao_exponent_flags(chosen.ambient_occlusion) {
