@@ -2,7 +2,7 @@ use super::RuntimeAssets;
 mod topology;
 use crate::model::{
     MODEL_QUAD_FLAG_TWO_SIDED, covered_grass_variant_is_valid, model_template_flags_are_valid,
-    unit_cube_quad_geometry_is_valid,
+    terrain_marker_variant_is_valid, unit_cube_quad_geometry_is_valid,
 };
 use crate::{
     ANIMATION_FLAG_BLEND, Animation, AssetError, BLOB_MAGIC, BLOB_VERSION, BiomeRule, BlockFlags,
@@ -302,6 +302,9 @@ fn validate_fixed(
         let kind = VisualKind::from_raw(record[25])?;
         if !covered_grass_variant_is_valid(kind, u32_at(record, 40), header.counts[2]) {
             return Err(invalid("visual has invalid covered-grass material"));
+        }
+        if !terrain_marker_variant_is_valid(kind, u32_at(record, 40)) {
+            return Err(invalid("visual has an invalid terrain marker"));
         }
         let contributor_role = ContributorRole::read(record[26])?;
         let support = VisualSupport::from_raw(record[28])?;

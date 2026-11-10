@@ -69,6 +69,58 @@ pub(crate) fn covered_grass_variant_is_valid(
         && (material as usize) < material_count
 }
 
+/// The conditional terrain layer of an otherwise invisible block, held in its visual's variant.
+///
+/// Vanilla tessellates barriers and light blocks as camera-facing sprites and structure voids as
+/// boxes, each into its own terrain layer that is drawn only while that layer is shown.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TerrainMarker {
+    Barrier = 1,
+    Light = 2,
+    StructureVoid = 3,
+}
+
+impl TerrainMarker {
+    pub const ALL: [Self; 3] = [Self::Barrier, Self::Light, Self::StructureVoid];
+
+    /// The marker an invisible visual's `variant` names; other kinds and variant zero name none.
+    #[must_use]
+    pub const fn from_variant(kind: VisualKind, variant: u32) -> Option<Self> {
+        match (kind, variant) {
+            (VisualKind::Invisible, 1) => Some(Self::Barrier),
+            (VisualKind::Invisible, 2) => Some(Self::Light),
+            (VisualKind::Invisible, 3) => Some(Self::StructureVoid),
+            _ => None,
+        }
+    }
+
+    /// The visual variant that stores this marker.
+    #[must_use]
+    pub const fn variant(self) -> u32 {
+        self as u32
+    }
+
+    /// This marker's bit in a set of shown layers, as vanilla's render-block flags order them.
+    #[must_use]
+    pub const fn layer(self) -> u8 {
+        1 << (self as u32 - 1)
+    }
+
+    /// Whether the marker is a sprite facing the camera rather than a box.
+    #[must_use]
+    pub const fn is_camera_facing(self) -> bool {
+        !matches!(self, Self::StructureVoid)
+    }
+}
+
+/// An invisible visual names no marker or one marker class; its art may be missing.
+pub(crate) const fn terrain_marker_variant_is_valid(kind: VisualKind, variant: u32) -> bool {
+    !matches!(kind, VisualKind::Invisible)
+        || variant == 0
+        || TerrainMarker::from_variant(kind, variant).is_some()
+}
+
 /// Template selects its body or head quads from the primary block above it.
 pub const MODEL_TEMPLATE_FLAG_KELP: u32 = 1 << 0;
 /// Template belongs to a contiguous five-shape stair topology group.

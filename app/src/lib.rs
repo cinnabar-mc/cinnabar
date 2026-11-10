@@ -61,6 +61,7 @@ pub mod session_audio;
 mod session_cleanup_tests;
 mod shader_pack_inputs;
 mod survival_mining;
+mod terrain_markers;
 #[cfg(not(target_arch = "wasm32"))]
 mod thread_budget;
 #[cfg(feature = "tracy")]

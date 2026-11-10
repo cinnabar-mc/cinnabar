@@ -92,6 +92,7 @@ pub(crate) fn configure_world(app: &mut App) {
     configure_pack_publication(app);
     configure_actor_render_systems(app);
     interaction::configure(app);
+    crate::terrain_markers::configure(app);
     app.add_systems(
         Update,
         (

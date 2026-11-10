@@ -345,8 +345,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
-- [ ] Verify invisible-block presentation, including conditional camera-facing marker
-  sprites and their display/input conditions; invisible terrain alone does not close acceptance.
+- [ ] Verify invisible-block presentation. Barriers and light blocks draw camera-facing sprites
+  and structure voids textured boxes, each in its own marker layer shown while a creative local
+  player holds a block of that layer. Remaining gaps: the main-hand-only held check, the
+  unidentified level-renderer options and services that also gate or force the layers, the
+  near-chunk limit, sprite size and alpha cutoff are unverified against native code, and
+  native frame comparison is missing.
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
