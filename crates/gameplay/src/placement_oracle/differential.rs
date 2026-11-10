@@ -65,6 +65,7 @@ struct SupportInput {
     name: Option<String>,
     label: String,
     fact: BlockFact,
+    liquid_depth: Option<i32>,
     count: u64,
 }
 
@@ -73,16 +74,22 @@ fn support_inputs(records: &[RegistryRecord], facts: &BlockFacts) -> Vec<Support
     let mut inputs: Vec<SupportInput> = Vec::new();
     for record in records {
         let fact = facts.get(record.sequential_id);
-        if let Some(input) = inputs
-            .iter_mut()
-            .find(|input| input.name.as_deref() == Some(record.name.as_ref()) && input.fact == fact)
-        {
+        let liquid_depth = match record.property(assets::facts::BlockProperty::LiquidDepth) {
+            Some(assets::facts::StateValue::Int(depth)) => Some(*depth),
+            _ => None,
+        };
+        if let Some(input) = inputs.iter_mut().find(|input| {
+            input.name.as_deref() == Some(record.name.as_ref())
+                && input.fact == fact
+                && input.liquid_depth == liquid_depth
+        }) {
             input.count += 1;
         } else {
             inputs.push(SupportInput {
                 name: Some(record.name.to_string()),
                 label: record.name.to_string(),
                 fact,
+                liquid_depth,
                 count: 1,
             });
         }
@@ -96,7 +103,7 @@ fn custom_support_inputs() -> Vec<SupportInput> {
     let mut registry = crate::movement::PhysicsCollisionRegistries::from_assets(
         assets::pinned_block_registry_bytes(),
         &records,
-        include_bytes!("../../../assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../assets/data/block-physics-v2225.bin"),
         assets::active_content_registry_protocol(),
     )
     .unwrap();
@@ -138,6 +145,7 @@ fn custom_support_inputs() -> Vec<SupportInput> {
                 ),
                 name,
                 fact: registry.block_facts(mode, id),
+                liquid_depth: None,
                 count: 1,
             });
         }
@@ -189,6 +197,7 @@ fn exhaustive_support_differential_covers_every_state_pair_and_custom_session() 
                                 placement_support::support_acceptance(
                                     held.name.as_deref().unwrap(),
                                     name,
+                                    support.liquid_depth,
                                     full_cube,
                                 ),
                             )

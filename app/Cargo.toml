@@ -13,8 +13,10 @@ reads = [
     "assets/vanilla-source.json",
     "crates/assets/data/*",
     "crates/mod-api/wit/extension.wit",
+    "crates/client-extensions/src/modding/scroll_probe.wat",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/launcher-host/src/marketplace/fixtures/*.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
@@ -39,11 +41,11 @@ test = false
 alloc-stats = ["dep:test-alloc", "test-alloc/global-stats", "render/alloc-stats", "render-scene/alloc-stats"]
 # Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
-acceptance = ["dep:acceptance", "bridge/join-profile"]
+acceptance = ["dep:acceptance", "bridge/join-profile", "client-interaction/developer-control"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
+developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control", "client-interaction/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
 # Chrome trace through the app's own subscriber layer.
 frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
@@ -161,6 +163,9 @@ wgpu = { workspace = true, features = ["gles"] }
 libc = "0.2"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
+
 # The display link that requests full ProMotion and window refresh rates.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
@@ -177,6 +182,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+base64 = "0.22"
 resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }
@@ -185,6 +191,7 @@ wat = "1"
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }
+mod-ui = { path = "../crates/mod-ui", features = ["test-support"] }
 client-interaction = { path = "../crates/client-interaction", features = ["test-support"] }
 assets = { path = "../crates/assets", features = ["test-support"] }
 client-runtime = { path = "../crates/client-runtime", features = ["test-support"] }

@@ -12,7 +12,8 @@ pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
     instance.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
-        && !crate::actor::material::state(instance.material).is_some_and(|state| state.emissive)
+        && !crate::actor::material::state(instance.material)
+            .is_some_and(|state| state.emissive || state.color_mask)
 }
 
 /// Pack actor draws reproduce back-face or no culling, opaque, alpha or one-one additive
@@ -169,6 +170,18 @@ mod tests {
     }
 
     #[test]
+    fn authored_color_masks_keep_native_rendering() {
+        let instance = ActorGpuInstance {
+            material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                color_mask: true,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        assert!(!instance_supported(&instance));
+    }
+
+    #[test]
     fn native_texture_masks_and_paired_depth_materials_keep_native_composition() {
         let mut instance = ActorGpuInstance::default();
         assert!(instance_supported(&instance));
@@ -203,7 +216,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 layers: 1,
-                rgba8: std::sync::Arc::from([255; 4]),
+                rgba8: [255; 4].into(),
                 multitexture,
             };
             let mut artwork = render_model::ActorArtworkPages::default();

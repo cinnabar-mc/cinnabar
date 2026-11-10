@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 
 /// Summarizes a layer's shading features and its definition's raster as the flags these
 /// fixtures assert: cutout, back-face culling, blending, depth writes, emissive weighting,
-/// additive factors, overlay suppression, depth comparisons and channel writes. False optional
-/// flags are omitted.
+/// additive factors, overlay suppression, depth comparisons, channel writes and masked
+/// multitexturing. False optional flags are omitted.
 pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> Value {
     let (Some(state), Some(definition)) = (
         layer.material_state,
@@ -53,6 +53,7 @@ pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> V
             "disable_color_write",
             definition.has_state(State::DisableColorWrite),
         ),
+        ("masked_multitexture", state.masked_multitexture),
     ] {
         if enabled {
             summary[key] = true.into();
@@ -76,6 +77,36 @@ fn state(material: &str, definitions: Option<&Value>) -> Value {
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
     summary(runtime.render_data(), &runtime.render_data().layers[0])
+}
+
+#[test]
+fn profession_material_keeps_masked_multitexture_through_inheritance() {
+    let definitions = json!({"materials": {"version": "1.0.0",
+        "fixture_clothes:entity_alphatest": {"+defines": ["MASKED_MULTITEXTURE"]},
+        "fixture_inherited:fixture_clothes": {},
+        "fixture_removed:fixture_clothes": {"-defines": ["MASKED_MULTITEXTURE"]},
+        "fixture_replaced:fixture_clothes": {"defines": ["ALPHA_TEST"]}
+    }});
+    for material in ["villager_v2_masked", "zombie_villager_v2_masked"] {
+        assert_eq!(
+            state(material, None)["masked_multitexture"],
+            true,
+            "{material}"
+        );
+    }
+    for material in ["fixture_clothes", "fixture_inherited"] {
+        assert_eq!(
+            state(material, Some(&definitions))["masked_multitexture"],
+            true
+        );
+    }
+    for material in ["villager_v2", "fixture_removed", "fixture_replaced"] {
+        assert!(
+            state(material, Some(&definitions))["masked_multitexture"]
+                .as_bool()
+                .is_none_or(|masked| !masked)
+        );
+    }
 }
 
 #[test]

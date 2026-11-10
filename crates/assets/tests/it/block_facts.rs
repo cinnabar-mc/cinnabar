@@ -1,5 +1,5 @@
 use assets::{
-    facts::{BlockFacts, BlockProperty, StateValue},
+    facts::{BlockFacts, BlockProperty, PropertyDomain, StateValue, SupportKind},
     registry::{BlockTraits, SurvivalRule},
 };
 
@@ -82,6 +82,36 @@ fn placement_counterparts_join_real_block_identities() {
     assert!(slabs > 0 && signs > 0);
     assert_eq!(facts.get(u32::MAX).placement, R::Unresolved);
     assert!(facts.get(u32::MAX).identity.is_none());
+}
+
+#[test]
+fn water_source_support_uses_each_runtime_states_depth() {
+    let records = palette();
+    let facts = BlockFacts::new(&records).unwrap();
+    let PropertyDomain::Int(depths) = BlockProperty::LiquidDepth.domain() else {
+        panic!("liquid depth must have an integer domain");
+    };
+    for name in ["minecraft:water", "minecraft:flowing_water"] {
+        for &depth in depths {
+            let record = records
+                .iter()
+                .find(|record| {
+                    record.name.as_ref() == name
+                        && record.property(BlockProperty::LiquidDepth)
+                            == Some(&StateValue::Int(depth))
+                })
+                .unwrap();
+            assert_eq!(
+                facts.get(record.sequential_id).support,
+                if depth == 0 {
+                    SupportKind::WaterSource
+                } else {
+                    SupportKind::Water
+                },
+                "{name} depth={depth}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -169,7 +199,7 @@ fn typed_lantern_properties_and_copper_bars_are_admitted_end_to_end() {
 
 #[test]
 fn pinned_property_vocabulary_is_complete_and_domains_match_admitted_values() {
-    let vocabulary = include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv");
+    let vocabulary = include_str!("../../data/vanilla-pack-vocabulary-1.26.60.tsv");
     let names: std::collections::BTreeSet<_> = vocabulary
         .lines()
         .filter_map(|row| row.strip_prefix("property\t"))
@@ -235,7 +265,7 @@ fn per_block_domains_match_each_blocks_palette_values() {
 #[test]
 fn compiled_support_and_block_entity_membership_have_one_input_owner() {
     let records = palette();
-    let bytes = include_bytes!("../../data/block-physics-v2193.bin");
+    let bytes = include_bytes!("../../data/block-physics-v2225.bin");
     let physics = assets::read_physics_registry_for_protocol(
         bytes,
         assets::pinned_block_registry_bytes(),
@@ -296,14 +326,14 @@ fn dense_facts_reject_an_out_of_order_palette() {
 #[test]
 fn pinned_block_components_are_compiled_without_runtime_json() {
     let records = palette();
-    for row in include_str!("../../data/block-components-v2193.tsv")
+    for row in include_str!("../../data/block-components-v2225.tsv")
         .lines()
         .skip(1)
     {
         let (name, components) = row.split_once('\t').unwrap();
         let matched: Vec<_> = records.iter().filter(|r| r.name.as_ref() == name).collect();
         if matched.is_empty() {
-            let expansion = include_str!("../../data/facts-expansion-v2193.tsv")
+            let expansion = include_str!("../../data/facts-expansion-v2225.tsv")
                 .lines()
                 .find(|row| row.split('\t').next() == Some(name))
                 .unwrap();

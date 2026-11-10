@@ -100,8 +100,8 @@ impl PlayerInventoryLedger {
     }
 
     /// Rebinds `actions`' slots in order: `bind` gives a cell's stack id (`None` keeps the slot's
-    /// own), except that a cell an earlier Consume in the same request emptied is addressed as
-    /// empty. `count` is a cell's count before the request; slots naming `request_id` stay.
+    /// own). Later actions name transfer results through this request; an earlier Consume's
+    /// emptied cell is addressed as empty. `count` is a cell's count before the request.
     pub(super) fn rebind_actions_in_order(
         &self,
         actions: &mut [StackRequestAction],
@@ -110,42 +110,55 @@ impl PlayerInventoryLedger {
         count: impl Fn(Cell) -> Option<u16>,
     ) {
         let mut emptied = Vec::new();
+        let mut updated = Vec::new();
         for action in actions {
             let consumed = match action {
                 StackRequestAction::Consume { amount, source } => Some((*amount, *source)),
                 _ => None,
             };
             for slot in action_slots_mut(action) {
-                if slot.stack_network_id == request_id {
-                    continue;
-                }
                 let Some(cell) = self.request_cell(*slot) else {
                     continue;
                 };
-                if emptied.contains(&cell) {
+                if updated.contains(&cell) {
+                    slot.stack_network_id = request_id;
+                } else if emptied.contains(&cell) {
                     slot.stack_network_id = 0;
+                } else if slot.stack_network_id == request_id {
+                    continue;
                 } else if let Some(id) = bind(cell) {
                     slot.stack_network_id = id;
+                }
+            }
+            for cell in action
+                .updated_slots()
+                .filter_map(|slot| self.request_cell(slot))
+            {
+                emptied.retain(|empty| *empty != cell);
+                if !updated.contains(&cell) {
+                    updated.push(cell);
                 }
             }
             if let Some((amount, source)) = consumed
                 && let Some(cell) = self.request_cell(source)
                 && count(cell).is_some_and(|count| count <= u16::from(amount))
             {
+                updated.retain(|updated| *updated != cell);
                 emptied.push(cell);
             }
         }
     }
 
     pub(super) fn request_cell(&self, slot: StackRequestSlot) -> Option<Cell> {
+        let byte = || u8::try_from(slot.slot).ok();
         Some(match slot.container {
             StackRequestContainer::PlayerInventory | StackRequestContainer::CombinedInventory => {
-                Cell::Inventory(slot.slot)
+                Cell::Inventory(byte()?)
             }
             StackRequestContainer::Cursor => Cell::Cursor,
-            StackRequestContainer::Armor => Cell::Armor(slot.slot),
+            StackRequestContainer::Armor => Cell::Armor(byte()?),
             StackRequestContainer::Offhand => Cell::Offhand,
-            StackRequestContainer::CraftingInput => Cell::Craft(slot.slot),
+            StackRequestContainer::CraftingInput => Cell::Craft(byte()?),
             StackRequestContainer::CreatedOutput => Cell::CreatedOutput,
             StackRequestContainer::LevelEntity { .. } => Cell::Storage(slot.slot),
             StackRequestContainer::OpenWindow { name, dynamic_id } => {
@@ -155,7 +168,7 @@ impl PlayerInventoryLedger {
                         slot_type: Some(name),
                         dynamic_id,
                     },
-                    u16::from(slot.slot),
+                    slot.slot,
                 );
             }
         })
@@ -221,7 +234,7 @@ pub(super) fn request_slot(
     window: Option<WindowAddress>,
 ) -> Result<StackRequestSlot, InventoryGestureError> {
     let (container, slot) = match cell {
-        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, slot),
+        Cell::Inventory(slot) => (StackRequestContainer::PlayerInventory, u16::from(slot)),
         Cell::Cursor => (StackRequestContainer::Cursor, 0),
         Cell::Storage(slot) => {
             let window = window.ok_or(InventoryGestureError::InvalidRequest)?;
@@ -233,16 +246,16 @@ pub(super) fn request_slot(
             )
             .ok_or(InventoryGestureError::InvalidRequest)?
         }
-        Cell::Armor(slot) => (StackRequestContainer::Armor, slot),
+        Cell::Armor(slot) => (StackRequestContainer::Armor, u16::from(slot)),
         Cell::Offhand => (StackRequestContainer::Offhand, 1),
         Cell::Craft(slot) => (
             protocol::ui_slot_request_container(slot)
                 .ok_or(InventoryGestureError::InvalidRequest)?,
-            slot,
+            u16::from(slot),
         ),
         Cell::CreatedOutput => (
             StackRequestContainer::CreatedOutput,
-            protocol::CREATED_OUTPUT_SLOT,
+            u16::from(protocol::CREATED_OUTPUT_SLOT),
         ),
     };
     Ok(StackRequestSlot {

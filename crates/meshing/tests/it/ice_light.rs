@@ -31,11 +31,11 @@ impl LightBlockAccess for Shoreline {
 /// light; its background remains lit. Packed ice deliberately blocks both.
 #[test]
 fn shipped_ice_lights_its_interior_and_background_under_a_sand_ledge() {
-    let breg = include_bytes!("../../../assets/data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../../assets/data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(breg).unwrap();
     let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
     let lights = assets::read_light_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-light-registry-v2193.bin"),
+        include_bytes!("../../../assets/data/block-light-registry-v2225.bin"),
         breg,
         records.len(),
         protocol,

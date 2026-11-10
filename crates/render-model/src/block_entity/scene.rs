@@ -8,8 +8,11 @@ use assets::block_entity_geometry::heads::HeadModel;
 mod cache;
 use cache::{CachedSubmission, PreviousFragments};
 
+/// Retired arrays cover multiple draw layers and overlapping render frames.
+type LayerBuffers = crate::FrameBuffers<BlockEntityVertex, 16>;
+
 use super::{
-    artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork},
+    artwork::{BlockEntityArtworkPreparer, MAX_ATLAS_SIDE, PreparedBlockEntityArtwork},
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
     banner::BannerModel,
     beam::BeaconModel,
@@ -25,6 +28,7 @@ use super::{
     heads::HeadModels,
     loyalty_rope::LoyaltyRopeModel,
     mesh::{BlockEntityVertex, MeshBuilder},
+    piston::PistonArmModel,
     pot::DecoratedPotModel,
     shulker::ShulkerModel,
     sign::SignModel,
@@ -37,6 +41,7 @@ use super::{
 pub enum BlockEntityKind {
     Chest(ChestModel),
     Shulker(ShulkerModel),
+    PistonArm(PistonArmModel),
     Skull(SkullModel),
     Banner(BannerModel),
     Bed(BedModel),
@@ -45,9 +50,9 @@ pub enum BlockEntityKind {
     EnchantTable {
         book: super::book::BookPose,
     },
+    /// The open book on a lectern; terrain draws the stand.
     Lectern {
         facing_yaw_degrees: f32,
-        has_book: bool,
     },
     Bell(BellModel),
     ItemFrame(ItemFrameModel),
@@ -88,6 +93,7 @@ impl BlockEntityKind {
             | Self::DragonDeath(_) => false,
             Self::Chest(_)
             | Self::Shulker(_)
+            | Self::PistonArm(_)
             | Self::Banner(_)
             | Self::Sign(_)
             | Self::EnchantTable { .. }
@@ -213,6 +219,8 @@ pub struct BlockEntityScene {
     spare_submissions: Vec<Option<Box<CachedSubmission>>>,
     /// Layer buffers kept between rebuilds; each frame copies them into its shared layers.
     mesh: Option<MeshBuilder>,
+    /// Immutable layer arrays available again after their last reader releases them.
+    buffers: LayerBuffers,
     #[cfg(test)]
     static_rebuilds: usize,
 }
@@ -250,27 +258,40 @@ impl BlockEntityScene {
             text.reset(artwork.atlas.size()[0])
                 .expect("prepared artwork admits dynamic atlas rows");
         }
-        self.reload_prepared_assets(artwork);
+        assert!(self.reload_prepared_assets(artwork));
     }
 
     /// Prepares artwork on the caller; runtime reloads use [`Self::reload_prepared_assets`].
-    pub fn reload_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) {
-        if let Some(prepared) = self.artwork_preparer().prepare(assets) {
-            self.reload_prepared_assets(&prepared);
-        }
+    /// Returns false if preparation or publication cannot fit the atlas.
+    #[must_use]
+    pub fn reload_assets(&mut self, assets: &assets::RuntimeBlockEntityAssets) -> bool {
+        self.artwork_preparer()
+            .prepare(assets)
+            .is_some_and(|prepared| self.reload_prepared_assets(&prepared))
     }
 
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
-    pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
-        self.prepared = Some(artwork.clone());
-        self.chalkboards = artwork.chalkboards.clone();
+    /// Returns false without changing the scene if cached pages or text headroom do not fit.
+    #[must_use]
+    pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) -> bool {
         let mut atlas = artwork.atlas.clone();
         let text = self.text.get_or_insert_with(|| {
             DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
         });
+        if text
+            .set_height_limit(MAX_ATLAS_SIDE - atlas.static_height())
+            .is_none()
+        {
+            tracing::warn!(
+                "block-entity artwork reload cannot retain canvas pages and text capacity"
+            );
+            return false;
+        }
         text.resize_width(atlas.size()[0])
             .expect("prepared artwork admits dynamic atlas rows");
-        atlas.set_text_pages(text.text_pages());
+        atlas.set_layout(text.layout());
+        self.prepared = Some(artwork.clone());
+        self.chalkboards = artwork.chalkboards.clone();
         self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame {
@@ -281,6 +302,7 @@ impl BlockEntityScene {
         };
         self.reusable = None;
         self.cached_submissions.clear();
+        true
     }
 
     /// Builds block models from the entity catalog's geometry.
@@ -317,24 +339,29 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let text = self.text.as_mut()?;
-        let slot = text.text_slot(key, make)?;
-        let pages = text.text_pages();
-        let atlas = self.atlas.as_mut()?;
-        if atlas.text_pages() != pages {
-            // A taller atlas renormalizes every UV, so no cached geometry survives.
-            Arc::make_mut(atlas).set_text_pages(pages);
-            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
-            self.reusable = None;
-            self.cached_submissions.clear();
-        }
-        self.atlas.as_ref()?.text_cell(slot)
+        let slot = self.text.as_mut()?.text_slot(key, make);
+        self.sync_canvas_layout();
+        self.atlas.as_ref()?.text_cell(slot?)
     }
 
     /// The atlas rect of the 128x128 map canvas for `key`, rasterizing `make` on a miss.
     pub fn map_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.map_slot(key, make)?;
-        self.atlas.as_ref()?.map_cell(slot)
+        let slot = self.text.as_mut()?.map_slot(key, make);
+        self.sync_canvas_layout();
+        self.atlas.as_ref()?.map_cell(slot?)
+    }
+
+    /// A taller atlas changes normalized UVs, while append-only pages preserve pixel rects.
+    fn sync_canvas_layout(&mut self) {
+        let (Some(text), Some(atlas)) = (self.text.as_ref(), self.atlas.as_mut()) else {
+            return;
+        };
+        if atlas.layout() != text.layout() {
+            Arc::make_mut(atlas).set_layout(text.layout());
+            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
+            self.reusable = None;
+            self.cached_submissions.clear();
+        }
     }
 
     pub fn update(
@@ -434,11 +461,11 @@ impl BlockEntityScene {
             } else {
                 Arc::clone(&self.frame.dynamic_rgba8)
             },
-            solid: shared_layer(&self.frame.solid, &builder.solid),
-            overlay: shared_layer(&self.frame.overlay, &builder.overlay),
-            crack: shared_layer(&self.frame.crack, &builder.crack),
-            portal: shared_layer(&self.frame.portal, &builder.portal),
-            additive: shared_layer(&self.frame.additive, &builder.additive),
+            solid: shared_layer(&self.frame.solid, &builder.solid, &mut self.buffers),
+            overlay: shared_layer(&self.frame.overlay, &builder.overlay, &mut self.buffers),
+            crack: shared_layer(&self.frame.crack, &builder.crack, &mut self.buffers),
+            portal: shared_layer(&self.frame.portal, &builder.portal, &mut self.buffers),
+            additive: shared_layer(&self.frame.additive, &builder.additive, &mut self.buffers),
             portal_star_rect: self.frame.portal_star_rect,
             portal_time_seconds: self.frame.portal_time_seconds,
         };
@@ -471,15 +498,21 @@ impl BlockEntityScene {
 }
 
 /// `previous` itself when it holds exactly the bytes of `vertices`, so consumers that compare
-/// allocations skip an unchanged layer; otherwise a new shared copy of `vertices`.
+/// allocations skip an unchanged layer; otherwise publishes a reusable exclusive array.
 fn shared_layer(
     previous: &Arc<[BlockEntityVertex]>,
     vertices: &[BlockEntityVertex],
+    buffers: &mut LayerBuffers,
 ) -> Arc<[BlockEntityVertex]> {
     if bytemuck::cast_slice::<_, u8>(previous) == bytemuck::cast_slice::<_, u8>(vertices) {
         Arc::clone(previous)
     } else {
-        Arc::from(vertices)
+        buffers
+            .write(vertices.len(), |output| {
+                output.copy_from_slice(vertices);
+                Ok::<_, std::convert::Infallible>(())
+            })
+            .expect("infallible layer copy")
     }
 }
 
@@ -495,6 +528,10 @@ mod skull_tests;
 #[path = "scene/reach_tests.rs"]
 mod reach_tests;
 
+#[cfg(test)]
+#[path = "scene/canvas_tests.rs"]
+mod canvas_tests;
+
 fn emit_submission(
     builder: &mut MeshBuilder,
     atlas: &BlockEntityAtlas,
@@ -506,6 +543,7 @@ fn emit_submission(
     match &submission.kind {
         BlockEntityKind::Chest(model) => super::chest::emit(builder, atlas, block, model),
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
+        BlockEntityKind::PistonArm(model) => super::piston::emit(builder, atlas, block, model),
         BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model, bed),
@@ -516,10 +554,9 @@ fn emit_submission(
         BlockEntityKind::EnchantTable { book } => {
             super::book::emit_enchant_table(builder, atlas, block, *book);
         }
-        BlockEntityKind::Lectern {
-            facing_yaw_degrees,
-            has_book,
-        } => super::book::emit_lectern(builder, atlas, block, *facing_yaw_degrees, *has_book),
+        BlockEntityKind::Lectern { facing_yaw_degrees } => {
+            super::book::emit_lectern_book(builder, atlas, block, *facing_yaw_degrees);
+        }
         BlockEntityKind::Bell(model) => super::bell::emit(builder, atlas, block, model),
         BlockEntityKind::ItemFrame(model) => super::frame::emit(builder, atlas, block, model),
         BlockEntityKind::Conduit(model) => {

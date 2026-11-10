@@ -548,6 +548,7 @@ impl WorldStream {
                 self.publisher.provisional_rebase = false;
             }
             WorldEvent::OpenSign(event) => self.consume_open_sign(event),
+            WorldEvent::OpenCommandBlock(event) => self.authority.consume_open_command_block(event),
             WorldEvent::MapData(event) => self.consume_map_data(&event),
             WorldEvent::BlockEvent(event) => {
                 let sequence = sequence.expect("sequenced block events commit through submit");
@@ -612,6 +613,8 @@ impl WorldStream {
                 if movement.runtime_id != self.authority.local_player_runtime_id() {
                     return;
                 }
+                let riding_actor_resolved = movement.riding_runtime_id != 0
+                    && self.authority.actor(movement.riding_runtime_id).is_some();
                 let source_cohort = self.publisher.cohort;
                 if self.publisher.source_capture_sequence == Some(sequence) {
                     self.capture_source_columns();
@@ -628,6 +631,7 @@ impl WorldStream {
                     .push_committed_control(CommittedControlEvent::MovePlayer {
                         sequence,
                         movement,
+                        riding_actor_resolved,
                         resolved,
                         source_cohort,
                     });

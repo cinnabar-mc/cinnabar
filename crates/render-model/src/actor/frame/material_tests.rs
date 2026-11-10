@@ -116,3 +116,21 @@ fn authored_cull_and_blend_bits_follow_the_raster_state() {
         );
     }
 }
+
+#[test]
+fn authored_color_mask_keeps_its_state_bit_outside_the_leather_flag() {
+    let material = ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            color_mask: true,
+            ..Default::default()
+        }),
+        glint: crate::ActorGlint {
+            profile: render_api::CombatVisuals::Legacy112,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let word = material.gpu_word();
+    assert!(EntityRenderMaterialState::from_word(word).is_some_and(|state| state.color_mask));
+    assert_eq!(word & crate::ACTOR_COLOR_MASK_MATERIAL_FLAG, 0);
+}

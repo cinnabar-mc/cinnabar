@@ -27,8 +27,8 @@ pub struct TextureSetDefinition {
     pub color: TextureSetLayer,
     /// Normal map image; exclusive with `heightmap`.
     pub normal: Option<Box<str>>,
-    /// Single-channel height image or uniform scalar; exclusive with `normal`.
-    pub heightmap: Option<TextureSetLayer>,
+    /// Single-channel height image; exclusive with `normal`.
+    pub heightmap: Option<Box<str>>,
     /// Metalness, emissive and roughness, plus subsurface when `material_has_subsurface`.
     pub material: Option<TextureSetLayer>,
     pub material_has_subsurface: bool,
@@ -83,7 +83,7 @@ pub fn parse_texture_set(root: &Value) -> Result<TextureSetDefinition, TextureSe
     let field = |key| layer_value(set, key);
     let color = uniform_or_image(field("color")?.ok_or(TextureSetError::MissingColor)?, 4)?;
     let normal = field("normal")?.map(image).transpose()?;
-    let heightmap = field("heightmap")?.map(scalar_or_image).transpose()?;
+    let heightmap = field("heightmap")?.map(image).transpose()?;
     if normal.is_some() && heightmap.is_some() {
         return Err(TextureSetError::ConflictingLayers);
     }
@@ -125,20 +125,6 @@ fn image(value: &Value) -> Result<Box<str>, TextureSetError> {
         .filter(|name| !name.is_empty() && !name.starts_with('#'))
         .map(Into::into)
         .ok_or(TextureSetError::InvalidLayer)
-}
-
-/// A height image name, or a number taken as a uniform grey height.
-/// Numbers clamp to `0..=255`; non-integral numbers take full intensity as uniform channels do.
-fn scalar_or_image(value: &Value) -> Result<TextureSetLayer, TextureSetError> {
-    match value {
-        Value::Number(number) => {
-            let height = number
-                .as_i64()
-                .map_or(255, |value| value.clamp(0, 255) as u8);
-            Ok(TextureSetLayer::Uniform([height, height, height, 255]))
-        }
-        _ => image(value).map(TextureSetLayer::Image),
-    }
 }
 
 /// A uniform of exactly `channels` integers, a `#AARRGGBB` hex string, or an image name.
@@ -223,33 +209,25 @@ mod tests {
     }
 
     #[test]
-    fn scalar_heightmaps_keep_the_set_and_its_colour() {
-        let set = parse(json!({"color": [10, 20, 30, 255], "heightmap": 128})).unwrap();
-        assert_eq!(set.color, TextureSetLayer::Uniform([10, 20, 30, 255]));
-        assert_eq!(
-            set.heightmap,
-            Some(TextureSetLayer::Uniform([128, 128, 128, 255]))
-        );
-        assert_eq!(
-            parse(json!({"color": "c", "heightmap": 400}))
-                .unwrap()
-                .heightmap,
-            Some(TextureSetLayer::Uniform([255, 255, 255, 255]))
-        );
-        assert_eq!(
-            parse(json!({"color": "c", "heightmap": "h"}))
-                .unwrap()
-                .heightmap,
-            Some(TextureSetLayer::Image("h".into()))
-        );
-        assert_eq!(
-            parse(json!({"color": "c", "normal": "n", "heightmap": 0})),
-            Err(TextureSetError::ConflictingLayers)
-        );
-        assert_eq!(
-            parse(json!({"color": "c", "heightmap": [1]})),
-            Err(TextureSetError::InvalidLayer)
-        );
+    fn heightmaps_accept_only_image_references() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../docs/evidence/material-fixtures/texture-pack/textures/height_uniform.texture_set.json"
+        ))
+        .unwrap();
+        for version in ["1.16.100", "1.21.30"] {
+            let mut document = fixture.clone();
+            document["format_version"] = json!(version);
+            assert_eq!(
+                parse_texture_set(&document),
+                Err(TextureSetError::InvalidLayer),
+                "{version}: scalar heightmaps discard the set"
+            );
+            document["minecraft:texture_set"]["heightmap"] = json!("height");
+            assert_eq!(
+                parse_texture_set(&document).unwrap().heightmap.as_deref(),
+                Some("height")
+            );
+        }
     }
 
     #[test]

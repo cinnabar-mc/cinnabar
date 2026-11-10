@@ -57,13 +57,13 @@ impl ActorArtworkPages {
                 width: raster.width,
                 height: raster.height,
                 layers: 1,
-                rgba8: Arc::clone(&raster.rgba8),
+                rgba8: Arc::clone(&raster.rgba8).into(),
                 multitexture: false,
             };
             hasher.update(page_id.to_le_bytes());
             hasher.update(page.width.to_le_bytes());
             hasher.update(page.height.to_le_bytes());
-            hash_pixels(&mut hasher, &page.rgba8);
+            hash_pixels(&mut hasher, &raster.rgba8);
             if *index == pages.len() {
                 pages.push(page);
             } else {

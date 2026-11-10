@@ -8,13 +8,7 @@ pub(super) fn icon_cost(
     icon: ui::IconRef,
     native: bool,
 ) -> Option<ItemModelCost> {
-    icons.resolved_item_cost(
-        icon,
-        assets::texture::policy::device_policy()
-            .max_side()
-            .min(MAX_ITEM_SPRITE_SIDE),
-        native,
-    )
+    icons.resolved_item_cost(icon, item_sprite_side(), native)
 }
 
 /// Measures the same carried sheet and compatible shape used by the startup cube route.

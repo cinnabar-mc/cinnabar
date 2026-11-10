@@ -123,6 +123,7 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
         armor: [
             None,
             Some(WornItem {
+                trim: None,
                 identifier: "minecraft:iron_chestplate".into(),
                 kind: HeldKind::Other,
                 grip: assets::item::grip::ItemGrip::default(),
@@ -134,6 +135,7 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
                 glint: Default::default(),
                 variant: Default::default(),
                 map_id: None,
+                shield_pattern: None,
                 charged_projectile: None,
             }),
             None,
@@ -152,7 +154,6 @@ fn hiding_a_player_torso_keeps_its_chestplate_visible() {
             local_runtime_id: 2,
             local_equipment: &input,
             java_posed: &[],
-            java_item_blocking: true,
             combat_visuals: render_api::DEFAULT_COMBAT_VISUALS,
             local_emote_pose: None,
             remote_emote_poses: &Default::default(),

@@ -124,7 +124,7 @@ fn live_artwork_reload_uploads_all_32_cached_sign_canvases_without_a_blank_frame
             .count()
             > 1_000
     );
-    scene.reload_assets(&artwork(512, 128));
+    assert!(scene.reload_assets(&artwork(512, 128)));
     for tick in 0..3 {
         for key in 0..SIGN_COUNT {
             let _ = scene.text_rect(key as u64, || canvas(key));

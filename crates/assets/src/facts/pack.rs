@@ -20,6 +20,7 @@ macro_rules! domain {
 }
 
 domain!(PackTexture {
+    Missing,
     PaleMossCarpetSide,
     BambooFenceGate,
     BeaconCore,
@@ -50,23 +51,39 @@ domain!(PackTexture {
     StrawBed
 });
 domain!(PackBlock {
+    RedstoneTorch,
+    RedstoneWire,
+    UnlitRedstoneTorch,
     Beacon,
     Obsidian,
     Glass,
+    GlassPane,
     BeeNest,
     Beehive,
     ChiseledBookshelf,
     Cactus,
+    Sunflower,
     Cake,
     Farmland,
     ResinClump,
     Dirt,
+    ChorusPlant,
+    EndStone,
+    SporeBlossom,
+    CarvedPumpkin,
+    ChorusFlower,
+    PointedDripstone,
+    SulfurSpike,
+    WeepingVines,
+    TwistingVines,
     CobblestoneWall,
     Air,
     Stone,
     HeavyCore,
     Crafter,
     DriedGhast,
+    TurtleEgg,
+    TripWire,
     SculkSensor,
     CalibratedSculkSensor,
     SculkShrieker,
@@ -150,6 +167,9 @@ pub struct NativeMaterialState {
     /// `DisableColorWrite` is present.
     #[serde(default)]
     pub disable_color_write: bool,
+    /// `MASKED_MULTITEXTURE` is defined.
+    #[serde(default)]
+    pub masked_multitexture: bool,
 }
 
 impl NativeMaterialState {
@@ -176,6 +196,7 @@ impl NativeMaterialState {
             (self.emissive, "USE_EMISSIVE"),
             (self.only_emissive, "USE_ONLY_EMISSIVE"),
             (!self.disable_overlay, "USE_OVERLAY"),
+            (self.masked_multitexture, "MASKED_MULTITEXTURE"),
         ]
         .into_iter()
         .filter_map(|(enabled, define)| enabled.then_some(define))
@@ -279,7 +300,7 @@ fn vocabulary() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
     static VOCABULARY: OnceLock<BTreeMap<&str, BTreeSet<&str>>> = OnceLock::new();
     VOCABULARY.get_or_init(|| {
         let mut vocabulary = BTreeMap::<&str, BTreeSet<&str>>::new();
-        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
+        for row in include_str!("../../data/vanilla-pack-vocabulary-1.26.60.tsv").lines() {
             let (domain, name) = row
                 .split_once('\t')
                 .expect("pack vocabulary rows are tabbed");

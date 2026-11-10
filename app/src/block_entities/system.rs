@@ -13,8 +13,9 @@ use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
 use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-        BlockEntitySubmission, ConduitModel, CrackShapeCache, FramedMap, SceneClock, SignFace,
-        SignModel, StaticItemPlacement, item_frame_item_transform, matrix_rows,
+        BlockEntitySubmission, ConduitModel, CrackShape, CrackShapeCache, FramedMap, SceneClock,
+        SignFace, SignModel, StaticItemPlacement, item_frame_block_transform,
+        item_frame_item_transform, matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };
@@ -49,6 +50,7 @@ mod beacon;
 mod beacon_tests;
 mod bed;
 mod bell_rings;
+mod piston_arms;
 use bell_rings::{BELL_RING_EVENT_TYPE, bell_elapsed, prune_bell_rings};
 pub(super) mod columns;
 mod crystal_beams;
@@ -135,6 +137,7 @@ pub(crate) struct BlockEntityRuntime {
     layouts: TextLayoutCache,
     shapes: CrackShapeCache,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
+    piston_motions: HashMap<[i32; 3], piston_arms::PistonMotion>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
     /// Session and dimension the runtime-id keyed caches were filled from.
@@ -159,6 +162,7 @@ impl BlockEntityRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
+            piston_motions: HashMap::new(),
             missing_maps: Vec::new(),
             session: None,
             beam_source: None,
@@ -203,6 +207,7 @@ impl BlockEntityRuntime {
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
+        self.piston_motions.clear();
         self.books = books::TableBooks::default();
     }
 }
@@ -271,6 +276,7 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
         BlockEntityKind::Skull(_)
             | BlockEntityKind::Chalkboard(_)
             | BlockEntityKind::EnchantTable { .. }
+            | BlockEntityKind::PistonArm(_)
     ) {
         BlockEntityLight::Actor { block, sky }
     } else {
@@ -469,7 +475,14 @@ pub(crate) fn update_block_entity_scene(
                         store.sub_chunk(key)?.runtime_id(0, x, y, z)
                     })
                 });
-                shapes.shape(assets, mode, runtime_id, entry.position, template)
+                let shape = shapes.shape(assets, mode, runtime_id, entry.position, template);
+                // A bed has no terrain faces, so only its own mattress-height box fits it.
+                match (shape, runtime_id) {
+                    (CrackShape::Cube, Some(id)) if bed::is_bed(&collisions, mode, id) => {
+                        render_model::bed_crack_shape()
+                    }
+                    (shape, _) => shape,
+                }
             })
         });
 
@@ -527,8 +540,19 @@ pub(crate) fn update_block_entity_scene(
                 budget,
                 columns::ColumnScan::is_current,
                 |previous| {
-                    let portals = portals::column_cells(chunk_key, chunk, |id| {
-                        portal_kind(&collisions, mode, id)
+                    let mut portals = portals::column_cells(chunk_key, chunk, |id| {
+                        portal_kind(&collisions, mode, id).or_else(|| {
+                            piston_arms::resting(runtime, &collisions, mode, id)
+                                .or_else(|| bed::resting(runtime, &collisions, mode, id))
+                        })
+                    });
+                    bed::settle(&mut portals, |block| {
+                        bed::entity_dye(store, dimension, block)
+                    });
+                    // Actor data, when present, drives the head instead.
+                    portals.retain(|(block, kind)| {
+                        !matches!(kind, BlockEntityKind::PistonArm(_))
+                            || !piston_arms::has_actor(chunk, dimension, *block)
                     });
                     let entities = columns::routed_entities(
                         chunk,
@@ -564,7 +588,9 @@ pub(crate) fn update_block_entity_scene(
             settled &= scan.is_current(chunk);
             scan.seen_frame = frame_stamp;
             let before_portals = submissions.len();
-            portals::submit(&mut submissions, &scan.portals, eye);
+            portals::submit(&mut submissions, &scan.portals, eye, daylight, |position| {
+                stream.light_level_at(position)
+            });
             let portals = (submissions.len() - before_portals) as u32;
             work.candidates += portals;
             work.prepared += portals;
@@ -650,7 +676,9 @@ pub(crate) fn update_block_entity_scene(
                             stream.light_level_at(position)
                         })
                     } else {
-                        let (block_light, sky_light) = stream.light_level_at(center.to_array());
+                        let sample = piston_arms::light_sample(&kind, [x, y, z])
+                            .unwrap_or(center.to_array());
+                        let (block_light, sky_light) = stream.light_level_at(sample);
                         model_light(&kind, block_light, sky_light, daylight)
                     };
                     submissions.push(BlockEntitySubmission {
@@ -673,6 +701,7 @@ pub(crate) fn update_block_entity_scene(
     scans.retain(|_, scan| scan.seen_frame == frame_stamp);
     runtime.columns = scans;
     runtime.settled = settled.then_some(window);
+    piston_arms::prune(&mut runtime.piston_motions, now_seconds);
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)
@@ -814,9 +843,13 @@ fn resolve(
                 viewer_yaw_degrees: yaw_toward(context.eye, position),
             })
         }),
+        &Template::PistonArm { .. } => {
+            piston_arms::resolve(template, position, context.now_seconds, runtime)
+                .filter(|_| !hidden)
+        }
         &Template::Bell {
             attachment,
-            direction,
+            ring_direction,
         } => {
             let sequence = stream
                 .block_event_cue(position)
@@ -830,7 +863,7 @@ fn resolve(
             );
             (!hidden).then_some(BlockEntityKind::Bell(BellModel {
                 attachment,
-                direction,
+                ring_direction,
                 seconds_since_ring,
             }))
         }
@@ -862,12 +895,18 @@ fn resolve(
             if let (Some(item), None) = (item, map)
                 && item.identifier.as_ref() != assets::facts::FILLED_MAP_IDENTIFIER
             {
-                held.push(held_placement(
+                let mut placement = held_placement(
                     item,
                     item_frame_item_transform(position, model.outward, rotation_degrees),
                     model.glow.then_some((15, 15)),
                     Some(stream),
+                );
+                placement.world_from_block = Some(item_frame_block_transform(
+                    position,
+                    model.outward,
+                    rotation_degrees,
                 ));
+                held.push(placement);
             }
             Some(BlockEntityKind::ItemFrame(model))
         }
@@ -881,6 +920,8 @@ fn resolve(
                 &plant.states,
             )?;
             held.push(StaticItemPlacement {
+                shield_pattern: None,
+                trim: None,
                 allow_block_models: false,
                 identifier: Arc::clone(&plant.identifier),
                 metadata: 0,
@@ -891,6 +932,7 @@ fn resolve(
                     0.0,
                     1.0,
                 ),
+                world_from_block: None,
                 light: None,
             });
             None

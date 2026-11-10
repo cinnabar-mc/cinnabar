@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(test)]
-use bedrock_protocol_1_26_51::packets::ClientCacheBlobStatus;
+use bedrock_protocol_1_26_60::packets::ClientCacheBlobStatus;
 
 /// The sealed classification of one cached packet's unique blob references.
 ///

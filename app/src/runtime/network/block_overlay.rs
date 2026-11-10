@@ -236,6 +236,7 @@ pub(super) fn compile_block_overlay_with_textures(
         let _zone = bevy::log::info_span!("pack.blocks.vanilla_overrides").entered();
         builder.override_vanilla_materials(keys);
         builder.override_vanilla_bindings(keys, &legacy);
+        builder.override_marker_bindings(keys, &legacy);
     }
     if blocks.blocks.is_empty()
         && builder.overlay.material_overrides.is_empty()
@@ -376,16 +377,14 @@ impl Builder<'_> {
                 || transform.scale.iter().any(|&axis| axis <= 0.0)
         });
         let visual = match components.geometry.as_deref() {
+            // Blending cubes take the model path: each face keeps its own render layer, and
+            // blended faces stay drawn against identical neighbours.
             None | Some(FULL_BLOCK | FULL_BLOCK_V1)
-                if components.random_offset.is_none() && cube_transform =>
+                if components.random_offset.is_none()
+                    && cube_transform
+                    && !cube_blends(components) =>
             {
-                if cube_blends(components) {
-                    // Each face keeps its own render layer, and blended faces stay drawn against
-                    // identical neighbours, so blending cubes use the full-block model path.
-                    self.model(components, &geometry::Geometry::full_block(), &[])
-                } else {
-                    self.cube(components)
-                }
+                self.cube(components)
             }
             None | Some(FULL_BLOCK | FULL_BLOCK_V1) => {
                 self.model(components, &geometry::Geometry::full_block(), &[])
@@ -405,8 +404,7 @@ impl Builder<'_> {
         visual
     }
 
-    /// Resolves the six world-face materials of a cube, returning whether every face is opaque.
-    fn cube_faces(&mut self, components: &CustomVisualComponents) -> ([u32; 6], bool) {
+    fn cube(&mut self, components: &CustomVisualComponents) -> BlockVisual {
         let rotation = components
             .transformation
             .map_or([0; 3], |transform| transform.rotation);
@@ -418,7 +416,8 @@ impl Builder<'_> {
             let uv_flags = if components.geometry.as_deref() == Some(FULL_BLOCK_V1)
                 && source == assets::BlockFace::Down as usize
             {
-                render_scene::MATERIAL_UV_ROTATE_180
+                // Both reflections preserve the bottom orientation alongside positional turns.
+                assets::MATERIAL_FLAG_UV_INVERT
             } else {
                 0
             };
@@ -427,11 +426,6 @@ impl Builder<'_> {
             opaque &= flags == 0;
             *slot = material;
         }
-        (faces, opaque)
-    }
-
-    fn cube(&mut self, components: &CustomVisualComponents) -> BlockVisual {
-        let (faces, opaque) = self.cube_faces(components);
         // Failed faces keep the diagnostic material so the cube still
         // renders; one missing texture never sinks the other five faces.
         if faces.contains(&DIAGNOSTIC_MATERIAL) {
@@ -499,6 +493,12 @@ impl Builder<'_> {
                     face_quad.uvs = face_quad.uvs.map(|uv| {
                         std::array::from_fn(|axis| geometry.texture_size[axis] - uv[axis])
                     });
+                }
+                if components.geometry_needs_legacy_top_rotation
+                    && cube.per_face_uv
+                    && face_quad.face == assets::BlockFace::Up as usize
+                {
+                    face_quad.uvs.rotate_left(2);
                 }
                 let (material, _, two_sided) =
                     self.face_material(components, FACE_NAMES[face_quad.face], instance, 0);
@@ -737,7 +737,10 @@ impl Builder<'_> {
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            textures.push(TextureArray { layers, mips });
+            textures.push(TextureArray {
+                layers,
+                mips: mips.into(),
+            });
         }
         self.overlay.texture_source_sizes = sizes;
         self.overlay.texture_source_grids = grids;

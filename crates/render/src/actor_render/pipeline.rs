@@ -283,6 +283,7 @@ fn prewarm_materials() -> impl Iterator<Item = (u32, render_api::render_state::R
                     disable_overlay: native.disable_overlay,
                     color_mask: class == Some(MaterialKind::ColorMask),
                     multitexture: class == Some(MaterialKind::Multitexture),
+                    masked_multitexture: native.masked_multitexture,
                 }),
                 render_state: Some(native.definition().render_state()),
                 ..Default::default()
@@ -306,15 +307,25 @@ fn with_late_dissolve(
         .map(move |word| (word, raster))
 }
 
+/// The camera state that selects each view's actor pipeline variants.
+type ActorViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static bevy::render::camera::ExtractedCamera,
+        &'static Msaa,
+        Option<&'static render_scene::EnhancedRendering>,
+        bevy::prelude::Has<render_scene::shaderpack::ShaderPackRendering>,
+        bevy::prelude::Has<bevy::prelude::Camera3d>,
+    ),
+>;
+
 pub(super) fn prepare_actor_pipelines(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<ActorPipeline>,
     readiness: Res<render_scene::ActorPipelineReadiness>,
-    views: Query<(
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-        Option<&render_scene::EnhancedRendering>,
-    )>,
+    preflight: Option<Res<render_scene::SampleCountPreflight>>,
+    views: ActorViews,
     frame: Option<Res<render_scene::ActorRenderFrame>>,
 ) {
     if let Some(frame) = &frame
@@ -325,9 +336,18 @@ pub(super) fn prepare_actor_pipelines(
     let changed = frame.filter(bevy::ecs::change_detection::DetectChanges::is_changed);
     let mut has_view = false;
     let mut ready = true;
-    for (camera, msaa, enhanced) in &views {
+    for (camera, msaa, enhanced, shader_pack, world_camera) in &views {
         has_view = true;
-        for msaa in crate::pipeline_warmup::sample_modes(*msaa) {
+        let requested = crate::pipeline_warmup::requested_sample_mode(
+            preflight
+                .as_ref()
+                .and_then(|preflight| preflight.requested())
+                .and_then(|request| request.for_view(camera.hdr, enhanced.is_some())),
+            world_camera,
+            shader_pack,
+        );
+        let counts = std::iter::once(*msaa).chain(requested);
+        for msaa in counts.flat_map(crate::pipeline_warmup::sample_modes) {
             let view = (msaa, camera.hdr, enhanced.is_some());
             // A session's authored materials compile once per view, when its pack loads.
             if !pipeline.session_rasters.1.contains(&view) {
@@ -353,6 +373,13 @@ pub(super) fn prepare_actor_pipelines(
         }
     }
     readiness.publish(has_view && ready);
+}
+
+/// A sample-count switch waits on actor variants as it does on every other warm-up owner.
+impl crate::pipeline_warmup::PendingPipelines for render_scene::ActorPipelineReadiness {
+    fn pending(&self) -> bool {
+        !self.is_ready()
+    }
 }
 
 pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {
@@ -611,6 +638,7 @@ impl ActorPipelineKey {
         let alpha_to_coverage = self.msaa.samples() > 1
             && raster.blend.is_none()
             && (raster.alpha_to_coverage || state.alpha_test)
+            && !state.masked_multitexture
             && !state.emissive
             && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0
             && self.material & assets::EntityRenderMaterialState::KIND_MASK

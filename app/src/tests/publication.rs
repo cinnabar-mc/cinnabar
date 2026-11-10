@@ -14,8 +14,9 @@ use crate::runtime::movement_evidence::emit_movement_evidence;
 use crate::runtime::shutdown::finish_acceptance_run;
 use crate::runtime::telemetry::send_player_auth_inputs;
 use crate::runtime::world::{
-    camera_environment::update_camera_medium, drive_world_stream,
-    mesh_change_has_publication_permit, reconcile_world_stream_before_physics,
+    camera_environment::update_camera_medium,
+    publication::{drive_world_stream, mesh_change_has_publication_permit},
+    reconcile_world_stream_before_physics,
 };
 use crate::semantic_controls::{
     collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
@@ -630,7 +631,11 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     };
 
     const COHORT_ITEMS: usize = 6_951;
-    let config = PublicationServiceConfig::DEFAULT;
+    // This fixture checks work per frame; elapsed-time admission has separate deterministic tests.
+    let config = PublicationServiceConfig {
+        maximum_frame_preparation_time: Duration::MAX,
+        ..PublicationServiceConfig::DEFAULT
+    };
     let runtime_assets = Arc::new(assets::RuntimeAssets::diagnostic());
     let stream = chunk_pipeline::WorldStream::new_with_assets(
         WorldBootstrap {

@@ -91,8 +91,7 @@ pub(super) fn catalogue() -> Panel {
             "button_mappings":[{"from_button_id":"button.menu_select","mapping_type":"pressed","to_button_id":"mod.item:open"}],
             "controls":[{"label":{"type":"label","text":"#item_name","size":[95,20],
                 "bindings":[{"binding_name":"#item_name"}]}}]}}).to_string()});
-    serde_json::from_value(json!({"toggle_key":"ShiftRight",
-        "controls":(0..99).map(|i|json!({"kind":"button","id":format!("module_{i}"),"label":format!("Module {i}")})).collect::<Vec<_>>(),
+    serde_json::from_value(json!({"controls":(0..99).map(|i|json!({"kind":"button","id":format!("module_{i}"),"label":format!("Module {i}")})).collect::<Vec<_>>(),
         "surface":{"screen":"list.root","document":json!({"namespace":"list","root":{
             "type":"panel","size":[308,120],"controls":[{"tiles":{"type":"panel","cinnabar_collection":"modules"}}]}}).to_string(),
         "collections":{"modules":{"definition":{"template":template,"columns":3,"viewport":[308,120],

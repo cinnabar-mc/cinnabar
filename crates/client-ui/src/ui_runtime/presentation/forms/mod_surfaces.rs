@@ -101,7 +101,6 @@ impl UiPresentationRuntime {
                 .value(SettingId::HideHud)
                 == 0
             && (!mod_ui.mod_panel_open() || mod_ui.mod_panel_shows_gameplay_hud())
-            && !mod_ui.mod_hud_editor_painting()
     }
 
     /// Draws the extension label through JSON-UI only while the gameplay HUD owns focus.
@@ -186,7 +185,7 @@ impl UiPresentationRuntime {
         (self.screens.mod_ui.hud_viewport(), self.hud_elements.states)
     }
 
-    /// Draws the personal panel, or the HUD editor while it owns the panel surface.
+    /// Draws the personal panel.
     pub(in super::super) fn append_mod_panel(
         &mut self,
         _player: &player_state::PlayerState,
@@ -197,20 +196,6 @@ impl UiPresentationRuntime {
         content: [f32; 2],
     ) {
         let translate = |key: &str| runtime.translation(key);
-        if self.screens.mod_ui.mod_hud_editor_painting() {
-            let Some(resolved) = self
-                .screens
-                .mod_ui
-                .mod_hud_editor_icons(|id, metadata| self.item_icon(id, metadata))
-            else {
-                return;
-            };
-            let mut paint = paint_frame!(self, runtime, nodes, next, metrics, content, &translate);
-            self.screens
-                .mod_ui
-                .paint_mod_hud_editor(self.engine.as_deref(), &mut paint, &resolved);
-            return;
-        }
         let session_icons = &self.session_icons;
         let icon_catalog = self.icon_catalog.as_deref();
         let icon_refs = self.icon_refs.as_deref();

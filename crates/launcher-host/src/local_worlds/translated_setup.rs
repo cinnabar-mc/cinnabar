@@ -139,7 +139,6 @@ impl Translation {
             Launch {
                 address: loopback(port),
                 timeout: BDS_START_TIMEOUT,
-                can_pause: false,
                 ready: |line| line.contains(BDS_READY_MARKER),
                 label: "bds setup".to_owned(),
                 on_exit: Some(on_exit),

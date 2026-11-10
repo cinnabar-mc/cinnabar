@@ -31,8 +31,9 @@ pub use added::{AddedPack, compose_added_packs};
 pub use dependencies::{PackDependencies, PackDependency};
 pub use fingerprint::StackFingerprint;
 pub use import::{
-    GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection, PreparedImport,
-    is_pack_import_path, merge_global_selection, parse_global_selection, prepare_import,
+    CachedPackMetadata, GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection,
+    PreparedImport, cached_pack_metadata, is_pack_import_path, merge_global_selection,
+    parse_global_selection, prepare_import,
 };
 pub use library::{
     ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,
@@ -51,6 +52,9 @@ pub const MAX_PACKS: usize = 32;
 pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 /// Maximum compressed archive bytes accepted in one local import.
 pub const MAX_STACK_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
+/// Maximum encoded pack thumbnail bytes retained for optional presentation.
+pub const MAX_PACK_ICON_BYTES: usize = 4 * 1024 * 1024;
+
 /// Explicit read allowance for local import metadata and skin manifests.
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 /// Explicit name allowance for stored global selections and local skin import.

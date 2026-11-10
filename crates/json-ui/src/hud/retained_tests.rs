@@ -52,6 +52,8 @@ fn independent_updates_match_fresh_bindings_and_remove_retired_inputs() {
                 });
                 model.tip = model.actionbar.clone();
                 model.item_name = model.actionbar.clone();
+                model.popup = model.actionbar.clone();
+                model.jukebox_popup = model.actionbar.clone();
                 HudChanges {
                     text: true,
                     ..Default::default()
@@ -107,6 +109,8 @@ fn independent_updates_match_fresh_bindings_and_remove_retired_inputs() {
     }
     model.title = None;
     model.actionbar = None;
+    model.popup = None;
+    model.jukebox_popup = None;
     model.tip = None;
     model.item_name = None;
     model.chat_visible = false;
@@ -177,6 +181,8 @@ fn component_binding_names_are_disjoint() {
         actionbar: Some(Timed::default()),
         tip: Some(Timed::default()),
         item_name: Some(Timed::default()),
+        popup: Some(Timed::default()),
+        jukebox_popup: Some(Timed::default()),
         chat_visible: true,
         sidebar: Some(Sidebar::default()),
         player_position: Some(String::new()),

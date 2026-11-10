@@ -6,6 +6,8 @@ use crate::render_frame::{cache::Inputs, sampling};
 struct Layer {
     inputs: Inputs,
     color: [f32; 4],
+    /// The damage state that chose between the overlay and hurt colours.
+    hurt: bool,
     output: Option<LayerOutput>,
 }
 
@@ -27,10 +29,8 @@ impl RenderCache {
         layer: &assets::EntityRenderLayer,
         color: [f32; 4],
         budget: &mut EvalBudget<'_>,
-    ) -> Result<LayerOutput, EvalError> {
-        if !crate::render_frame::cache::enabled() {
-            return evaluate_layer(evaluator, variables, rig, layer, color, budget);
-        }
+    ) -> Result<&LayerOutput, EvalError> {
+        let hurt = evaluator.actor.shows_damage();
         if index == self.layers.len() {
             self.layers.push(Layer {
                 inputs: Inputs::new(
@@ -38,23 +38,27 @@ impl RenderCache {
                     sampling::render_layer_expressions(evaluator.assets, layer).expressions,
                 ),
                 color,
+                hurt,
                 output: None,
             });
         }
         let cached = &mut self.layers[index];
-        if !cached.inputs.pure() {
-            return evaluate_layer(evaluator, variables, rig, layer, color, budget);
-        }
         let unchanged = cached.inputs.update(evaluator, variables, budget)
-            && cached.color.map(f32::to_bits) == color.map(f32::to_bits);
-        if unchanged && let Some(output) = &cached.output {
-            return Ok(output.clone());
+            && cached.color.map(f32::to_bits) == color.map(f32::to_bits)
+            && cached.hurt == hurt;
+        let reusable = unchanged
+            && cached.inputs.pure()
+            && crate::render_frame::cache::enabled()
+            && cached.output.is_some();
+        // Returning the borrow from a pattern match would keep it alive for the writes below.
+        if reusable {
+            return Ok(cached.output.as_ref().expect("reusable output is present"));
         }
         // A failed evaluation cannot make the previous result valid for the new inputs.
         cached.output = None;
         cached.color = color;
+        cached.hurt = hurt;
         let output = evaluate_layer(evaluator, variables, rig, layer, color, budget)?;
-        cached.output = Some(output.clone());
-        Ok(output)
+        Ok(cached.output.insert(output))
     }
 }

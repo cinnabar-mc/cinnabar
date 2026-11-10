@@ -83,6 +83,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.baseTextureIcon {
 		registerBaseTextureIcon()
 	}
+	if cfg.heldItemFixture {
+		registerHeldItemFixture()
+	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
 	var ext *extension.Server
@@ -149,6 +152,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if ext != nil {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = ext.Listener(listen)
+		}
+	}
+	if cfg.heldItemFixture {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = heldItemFixtureListener(listen)
 		}
 	}
 	if cfg.cameraTest {

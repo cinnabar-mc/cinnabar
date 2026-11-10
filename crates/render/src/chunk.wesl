@@ -6,7 +6,7 @@ import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
 import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma, uniform_biome_tint_gamma};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
-import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, light_colour, lit_colour, material_ambient_occlusion, material_face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
 @if(ENHANCED)
@@ -28,6 +28,8 @@ struct AtmosphereUniform {
     fog_end_time: vec4<f32>,
     sunrise_band: vec4<f32>,
     sky_extra: vec4<f32>,
+    liquid_distance: vec4<f32>,
+    fog_gamma: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -300,7 +302,7 @@ const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
 const CUBE_SEAM_MIN_EDGE_SINE: f32 = 1.0 / 16.0;
 // Largest in-plane step per unit of clip w, reached only when an edge points
 // along the view ray and moving along it barely changes the screen position.
-const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
+const CUBE_SEAM_MAX_STEP: f32 = CUBE_SEAM_MAX_STEP_VALUE;
 
 /// Returns bounded in-plane corner steps that advance both projected edges by seal_pixels.
 /// Reverses steps behind the camera to preserve sealing after near-plane clipping.
@@ -407,7 +409,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
     let dimming = material_face_shade(face_normal(face), (light_sample & 2048u) != 0u, material.flags);
     @if(ENHANCED)
-    out.lighting = light_colour(light_sample) * ao * dimming;
+    out.lighting = light_colour(light_sample) * material_ao_shade(ao * dimming, material.flags);
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
     @if(ENHANCED)
@@ -617,10 +619,9 @@ fn native_leaf_colour(
     tint_gamma: vec3<f32>,
     ao_face: f32,
     lightmap_gamma: vec3<f32>,
-    fog_linear: vec3<f32>,
+    fog_gamma: vec3<f32>,
     fog_amount: f32,
 ) -> vec3<f32> {
-    let fog_gamma = tint_to_gamma(vec4(fog_linear, 1.0)).rgb;
     let lit_gamma = ((texture_gamma * tint_gamma) * ao_face) * lightmap_gamma;
     return tint_to_linear(vec4(mix(lit_gamma, fog_gamma, fog_amount), 1.0)).rgb;
 }
@@ -628,7 +629,7 @@ fn native_leaf_colour(
 // Terrain lighting operates on encoded RGB before the framebuffer conversion.
 fn native_cube_colour(
     texture: vec4<f32>, flags: u32, tint_gamma: vec3<f32>,
-    ao_face: f32, lightmap_gamma: vec3<f32>, fog_linear: vec3<f32>, fog_amount: f32,
+    ao_face: f32, lightmap_gamma: vec3<f32>, fog_gamma: vec3<f32>, fog_amount: f32,
 ) -> vec4<f32> {
     let texture_gamma = texture.rgb;
     // Current atlas overlay and installed near-version opaque
@@ -636,7 +637,7 @@ fn native_cube_colour(
     // Apply this in the same gamma domain as the native terrain product.
     let overlay = material_uses_overlay_mask(flags);
     let masked_tint = select(tint_gamma, mix(vec3(1.0), tint_gamma, texture.a), overlay);
-    let colour = native_leaf_colour(texture_gamma, masked_tint, ao_face, lightmap_gamma, fog_linear, fog_amount);
+    let colour = native_leaf_colour(texture_gamma, masked_tint, ao_face, lightmap_gamma, fog_gamma, fog_amount);
     let alpha = select(texture.a, 1.0, overlay || material_uses_native_leaf_colour(flags));
     return vec4(colour, alpha);
 }
@@ -816,8 +817,8 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.material_flags,
         tint_gamma,
         in.native_ao_face,
-        terrain_light_colour(in.native_light_levels),
-        atmosphere.fog_color_start.rgb,
+        point_lit_terrain_light_colour(in.native_light_levels, in.world_position),
+        atmosphere.fog_gamma.rgb,
         distance_fog_amount(in.world_position),
     );
     @if(!ENHANCED)

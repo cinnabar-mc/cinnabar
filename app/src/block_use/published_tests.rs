@@ -35,6 +35,9 @@ mod riptide_tests;
 #[path = "published_tests/attack_swing.rs"]
 mod attack_swing_tests;
 
+#[path = "published_tests/attack_use_order.rs"]
+mod attack_use_order_tests;
+
 #[path = "published_tests/attack_hit_position.rs"]
 mod attack_hit_position_tests;
 
@@ -56,6 +59,9 @@ mod attack_validation_tests;
 #[path = "published_tests/attack_mod_reach.rs"]
 mod attack_mod_reach_tests;
 
+#[path = "published_tests/block_mining_input.rs"]
+mod block_mining_input_tests;
+
 #[path = "published_tests/attack_frame.rs"]
 mod attack_frame_tests;
 
@@ -64,6 +70,10 @@ mod attack_progress_tests;
 
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
+#[path = "published_tests/entity_storage.rs"]
+mod entity_storage_tests;
+#[path = "published_tests/freeform_pick.rs"]
+mod freeform_pick_tests;
 
 #[path = "published_tests/held_equipment.rs"]
 mod held_equipment_tests;
@@ -73,6 +83,9 @@ mod ledge_tests;
 
 #[path = "published_tests/selection.rs"]
 mod selection_tests;
+
+#[path = "published_tests/block_pick_reach.rs"]
+mod block_pick_reach_tests;
 
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
@@ -85,6 +98,12 @@ mod touch_tests;
 
 #[path = "published_tests/harvesting.rs"]
 mod harvesting_tests;
+
+#[path = "published_tests/held_book.rs"]
+mod held_book_tests;
+
+#[path = "published_tests/brush.rs"]
+mod brush_tests;
 
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
@@ -107,7 +126,7 @@ fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
 }
 
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
-fn fixture() -> (World, client_session::CapturedPackets) {
+pub(crate) fn fixture() -> (World, client_session::CapturedPackets) {
     fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
 }
 
@@ -142,7 +161,7 @@ fn fixture_with_entity_assets(
     let collisions = PhysicsCollisionRegistries::from_assets(
         bytes,
         &records,
-        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../crates/assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();
@@ -277,6 +296,7 @@ fn fixture_with_entity_assets(
     world.init_resource::<SwingTracker>();
     world.init_resource::<client_interaction::item_use::ItemUseRuntime>();
     world.insert_resource(movement);
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     world.spawn((
         Window {
             focused: true,
@@ -635,7 +655,6 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
-    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 
@@ -750,85 +769,6 @@ fn held_repeats_follow_simulation_ticks_not_render_frames() {
     assert_eq!(held_attempts(6_250), per_tick);
 }
 
-/// Drives a tapped attack plus a Use press in one frame; melee resolves the attack against
-/// `crosshair` before the next frame. Returns the block transactions sent over both frames.
-fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
-    let (mut world, mut captured) = fixture();
-    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
-    let frame = |router: &mut crate::semantic_controls::SemanticInputRuntime, tap: bool| {
-        router
-            .route_and_finalize(semantic_input::DeviceFrame {
-                keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
-                    mouse_buttons: vec![2],
-                    mouse_edges: semantic_input::ButtonEdges {
-                        pressed: if tap { vec![1, 2] } else { Vec::new() },
-                        released: if tap { vec![1] } else { Vec::new() },
-                    },
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
-            .unwrap()
-    };
-    let tapped = frame(&mut router, true);
-    let attack = tapped.phases[Action::Attack as usize];
-    assert!(
-        attack.pressed && !attack.held,
-        "the attack was tapped between frames"
-    );
-    assert!(tapped.phases[Action::Use as usize].pressed);
-    world.insert_resource(client_state::SemanticInputSnapshot(
-        semantic_input::finalized::FinalizedInput::from_finalized(tapped),
-    ));
-    world.run_system_cached(produce_block_use).unwrap();
-    // Melee runs later in the frame and resolves the same tap.
-    let mut melee = world.resource_mut::<client_interaction::melee::MeleeRuntime>();
-    assert!(melee.observe_input(true, false));
-    melee.resolve(
-        crosshair,
-        &gameplay::melee::PressContext {
-            refused_destroy: None,
-            actor_life: None,
-            tick: 102,
-            player_position: [4.5, 2.620_01, 8.5],
-            input_mode: protocol::PlayerInputMode::Mouse,
-            local_runtime_id: 42,
-            selection: None,
-            swing_duration: 6,
-            item_attack: None,
-            now_millis: 1_000,
-        },
-        &mut gameplay::melee::SwingTracker::default(),
-    );
-    let held = frame(&mut router, false);
-    assert!(!held.phases[Action::Use as usize].pressed);
-    world.insert_resource(client_state::SemanticInputSnapshot(
-        semantic_input::finalized::FinalizedInput::from_finalized(held),
-    ));
-    world.run_system_cached(produce_block_use).unwrap();
-    transaction_targets(&mut captured)
-}
-
-/// An attack handled first holds off a Use pressed in the same frame: only the hit lands.
-#[test]
-fn a_tapped_actor_attack_holds_off_the_same_frame_use() {
-    let hit = gameplay::melee::Crosshair::Actor(gameplay::melee::ActorHit {
-        runtime_id: 9,
-        distance: 2.0,
-        point: [4.5, 2.5, 6.5],
-    });
-    assert!(attack_tap_then_use(hit).is_empty());
-}
-
-/// A tap that only swings at a block leaves the Use to resolve on the next frame.
-#[test]
-fn a_tapped_block_attack_lets_the_same_frame_use_follow() {
-    assert_eq!(
-        attack_tap_then_use(gameplay::melee::Crosshair::Block),
-        [[4, 2, 6]]
-    );
-}
-
 /// Publishes held use without another press while preserving the fixture's input authority.
 fn hold_use(world: &mut World) {
     let snapshot = world
@@ -921,6 +861,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
             Duration::from_millis(950),
             100,
             LocalUse::Place,
+            false,
             RepeatClock {
                 now: Duration::from_millis(950),
                 sneaking: false,
@@ -1022,6 +963,7 @@ fn a_held_nonblock_item_repeats_the_chest_use() {
         Duration::from_millis(500),
         100,
         LocalUse::Place,
+        false,
         RepeatClock {
             now: Duration::from_millis(500),
             sneaking: false,
@@ -1148,6 +1090,12 @@ mod cooldown;
 
 #[path = "published_tests/bridging.rs"]
 mod bridging;
+
+#[path = "published_tests/seed_planting.rs"]
+mod seed_planting;
+
+#[path = "published_tests/paired_items.rs"]
+mod paired_items;
 
 /// Publishes another frame from the fixture's fixed camera ray against its updated world.
 fn publish_fixed_pick(world: &mut World) {

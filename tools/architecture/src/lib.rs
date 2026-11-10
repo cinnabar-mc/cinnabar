@@ -10,6 +10,7 @@ mod conditions;
 mod contracts;
 mod dependencies;
 mod identifiers;
+mod input_owner;
 mod markers;
 #[cfg(test)]
 mod material_evidence;
@@ -82,6 +83,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     platforms::check_platforms(root, &policy, &files, &mut diagnostics)?;
     reads::check_reads(root, &policy, &files, &mut diagnostics)?;
     check_timing(root, &policy, &files, &mut diagnostics)?;
+    input_owner::check_input_owner(root, &policy, &files, &mut diagnostics)?;
     identifiers::check_identifiers(root, &policy, &files, &mut diagnostics)?;
     diagnostics.sort();
     diagnostics.dedup();

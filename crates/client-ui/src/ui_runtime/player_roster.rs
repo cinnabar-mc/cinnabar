@@ -12,6 +12,7 @@ use ui_screens::player_list::RosterRow;
 #[derive(Clone, Debug, Default)]
 pub struct PlayerRoster {
     entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>,
+    level_name: Arc<str>,
     revision: u64,
     reported: Arc<HashSet<String>>,
     hide_badges: bool,
@@ -20,6 +21,16 @@ pub struct PlayerRoster {
 }
 
 impl PlayerRoster {
+    /// Sets this session's server-provided level display name.
+    pub fn set_level_name(&mut self, name: Arc<str>) {
+        self.level_name = name;
+    }
+
+    /// The level display name, empty when the server supplied none.
+    pub fn level_name(&self) -> &str {
+        &self.level_name
+    }
+
     /// Replaces the mod spans drawn on roster rows, keyed by the player's roster UUID; rows
     /// rebuild only when the spans change.
     pub fn set_annotations(&mut self, annotations: HashMap<[u8; 16], Arc<Spans>>) {

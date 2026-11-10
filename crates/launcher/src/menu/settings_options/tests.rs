@@ -334,10 +334,13 @@ fn reset_restores_a_shared_default_without_changing_other_actions() {
 #[test]
 fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     let mut settings = SettingsOptions::default();
+    assert!(!settings.mentions_only_self());
     for (name, value) in [
         ("chat_font_size", 15),
         ("chat_line_spacing", 25),
         ("chat_color", 3),
+        ("mentions_color", 2),
+        ("mentions_target", 1),
         ("chat_message_duration", 2),
     ] {
         settings.set(index(name), value);
@@ -346,6 +349,8 @@ fn chat_settings_survive_reload_and_feed_the_chat_renderer() {
     assert_eq!(restored.chat_font_scale(), 1.5);
     assert_eq!(restored.chat_line_padding(), 2.501);
     assert_eq!(restored.chat_color_code(), 'c');
+    assert_eq!(restored.mentions_color_code(), 'b');
+    assert!(restored.mentions_only_self());
     assert_eq!(restored.chat_lifetime(), 30.0);
 }
 
@@ -642,36 +647,6 @@ fn animations_default_to_bedrock_and_persist_both_choices() {
     settings.set(index, 0);
     settings.reset_group(super::SettingsGroup::Video);
     assert!(!settings.user_settings().video.java_animations);
-}
-
-#[test]
-fn java_blocking_preferences_are_independent_and_persisted() {
-    let mut settings = SettingsOptions::default();
-    let ids = [
-        (
-            SettingId::ItemBlockingAnimation,
-            ui::AnimationSettings::DEFAULT_ITEM_BLOCKING,
-        ),
-        (
-            SettingId::BlockingSlowdown,
-            ui::AnimationSettings::DEFAULT_BLOCKING_SLOWDOWN,
-        ),
-        (
-            SettingId::KeepSprintWhileBlocking,
-            ui::AnimationSettings::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING,
-        ),
-    ];
-    for (id, default) in ids {
-        assert_eq!(settings.value(id), if default { 1 } else { 0 });
-    }
-    assert!(settings.set(SettingId::ItemBlockingAnimation.index(), 0));
-    assert!(settings.set(SettingId::BlockingSlowdown.index(), 1));
-    assert!(settings.set(SettingId::KeepSprintWhileBlocking.index(), 0));
-    let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-    let animation = loaded.user_settings().animation;
-    assert!(!animation.item_blocking);
-    assert!(animation.blocking_slowdown);
-    assert!(!animation.keep_sprint_while_blocking);
 }
 
 /// Old toggle values retain their meaning, Minimal persists and Video reset restores Full.

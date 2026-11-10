@@ -1,37 +1,16 @@
-//! Bedrock's non-persona skin alpha validation, before texture packing or resampling.
-use bedrock_protocol_1_26_51::types::SerializedSkinRef;
+//! Skin alpha normalization at the network and local-import boundaries.
 
 use render_api::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE};
 
-/// Binarizes `skin`'s supported regions of `pixels`, its `width` by `height` raster, and protects
-/// classic body sides from excessive transparency.
-pub(super) fn normalize(skin: &SerializedSkinRef, width: u32, height: u32, pixels: &mut [u8]) {
-    if skin.is_persona
-        || width != height
-        || !(width as usize == CLASSIC_SKIN_SIDE || width as usize == MAX_CLASSIC_SKIN_SIDE)
-    {
-        return;
+/// Binarizes received non-persona texels while preserving authored holes in every model.
+/// Classic body-coverage protection belongs to local imports, not received appearances.
+pub(super) fn normalize(is_persona: bool, width: u32, height: u32, pixels: &mut [u8]) {
+    if !is_persona {
+        normalize_pixels(width, height, pixels, false);
     }
-    let custom_geometry =
-        serde_json::from_slice::<serde_json::Value>(skin.resource_patch.as_bytes())
-            .ok()
-            .and_then(|patch| {
-                patch
-                    .get("geometry")?
-                    .get("default")?
-                    .as_str()
-                    .map(str::to_owned)
-            })
-            .is_some_and(|name| {
-                !matches!(
-                    name.as_str(),
-                    "geometry.humanoid.custom" | "geometry.humanoid.customSlim"
-                )
-            });
-    normalize_pixels(width, height, pixels, !custom_geometry);
 }
 
-/// Validates classic image size and applies native wide/slim alpha and body-coverage rules.
+/// Validates a local classic import and applies wide/slim alpha and body-coverage rules.
 pub fn normalize_classic_skin_rgba8(width: u32, height: u32, pixels: &mut [u8]) -> bool {
     normalize_pixels(width, height, pixels, true)
 }
@@ -101,20 +80,11 @@ fn region(pixels: &mut [u8], side: usize, [x0, y0, x1, y1]: [usize; 4], protect:
 mod tests {
     use super::*;
 
-    /// Makes a classic raster with transparent body texels and a named resource-patch model.
-    fn skin(name: &str, side: u32) -> (SerializedSkinRef, Vec<u8>) {
-        let skin = SerializedSkinRef {
-            resource_patch: format!(r#"{{"geometry":{{"default":"{name}"}}}}"#).into(),
-            ..Default::default()
-        };
-        (skin, vec![0; (side * side * 4) as usize])
-    }
-
     #[test]
-    fn classic_transparent_body_sides_become_visible_without_filling_the_hat() {
+    fn imported_classic_body_sides_become_visible_without_filling_the_hat() {
         for side in [CLASSIC_SKIN_SIDE as u32, MAX_CLASSIC_SKIN_SIDE as u32] {
-            let (skin, mut pixels) = skin("geometry.humanoid.customSlim", side);
-            normalize(&skin, side, side, &mut pixels);
+            let mut pixels = vec![0; (side * side * 4) as usize];
+            assert!(normalize_classic_skin_rgba8(side, side, &mut pixels));
             let scale = side as usize / CLASSIC_SKIN_SIDE;
             assert_eq!(pixels[((8 * scale * side as usize) * 4) + 3], 255);
             assert_eq!(pixels[(32 * scale * 4) + 3], 0);
@@ -122,12 +92,12 @@ mod tests {
     }
 
     #[test]
-    fn custom_geometry_keeps_holes_and_capture_partial_alpha_becomes_opaque() {
+    fn received_skin_keeps_holes_and_binarizes_partial_alpha() {
         let side = MAX_CLASSIC_SKIN_SIDE as u32;
-        let (skin, mut pixels) = skin("geometry.fixture", side);
+        let mut pixels = vec![0; (side * side * 4) as usize];
         let index = (64 * 4) + 3;
         pixels[index] = 56;
-        normalize(&skin, side, side, &mut pixels);
+        normalize(false, side, side, &mut pixels);
         assert_eq!(pixels[index], 255);
         assert_eq!(pixels[16 * MAX_CLASSIC_SKIN_SIDE * 4 + 3], 0);
     }
@@ -135,11 +105,10 @@ mod tests {
     #[test]
     fn persona_alpha_is_not_reinterpreted_as_classic() {
         let side = CLASSIC_SKIN_SIDE as u32;
-        let (mut skin, mut pixels) = skin("geometry.humanoid.custom", side);
-        skin.is_persona = true;
+        let mut pixels = vec![0; (side * side * 4) as usize];
         pixels[3] = 56;
         let before = pixels.clone();
-        normalize(&skin, side, side, &mut pixels);
+        normalize(true, side, side, &mut pixels);
         assert_eq!(pixels, before);
     }
 }

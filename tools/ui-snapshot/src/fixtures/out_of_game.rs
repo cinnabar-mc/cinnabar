@@ -8,6 +8,19 @@ fn menu() -> MenuView {
     MenuView::new(true, "Player".into())
 }
 
+/// Shows the loaded Profile card with an anonymous account and no featured screenshot.
+pub(super) fn profile_loaded() -> Fixture {
+    let mut view = MenuView::new(true, "ExamplePlayer".into());
+    view.screen = MenuScreen::Profile;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    view.feeds.profile.loaded = true;
+    view.feeds.profile.avatar_loaded = true;
+    view.feeds.profile.featured_screenshot_loaded = true;
+    view.feeds.profile.gamertag = "ExamplePlayer".into();
+    view.feeds.profile.xuid = "0".into();
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows invalid-cache failure or the fresh sign-in prompt with anonymous credentials.
 pub(super) fn sign_in_recovery(recovered: bool) -> Fixture {
     use launcher::menu::{auth::AuthState, sign_in::BrowserState};
@@ -136,7 +149,13 @@ pub(super) fn remove_server() -> Fixture {
 
 /// Shows the cached-data deletion confirmation.
 pub(super) fn storage_delete() -> Fixture {
-    dialog(MenuDialog::StorageDelete)
+    let Fixture::Menu(mut view) = settings_storage() else {
+        unreachable!()
+    };
+    view.dialog = Some(MenuDialog::StorageDelete);
+    Arc::make_mut(&mut view.storage).delete_summary =
+        "Cloud Islands 1.2.3\naaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".into();
+    Fixture::Menu(view)
 }
 
 /// Shows a local storage failure.
@@ -189,6 +208,55 @@ pub(super) fn reset_settings() -> Fixture {
     ))
 }
 
+/// Play keyboard focus, joined Realm selection and leave confirmation.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "play-worlds-keyboard-focus",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: play_worlds_keyboard_focus,
+    },
+    State {
+        name: "realms-joined",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || realms_joined(None),
+    },
+    State {
+        name: "leave-realm",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || realms_joined(Some(MenuDialog::LeaveRealm(7))),
+    },
+];
+
+/// Shows the Realms tab with an owned and a selected joined Realm, optionally under a dialog.
+pub(super) fn realms_joined(dialog: Option<MenuDialog>) -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Social;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    let realm = |name: &str, id: u32, member: bool| launcher::menu::MenuRealmCard {
+        name: name.to_owned(),
+        state: "OPEN".to_owned(),
+        target: format!("{}{id}", launcher::menu::REALM_ADDRESS_PREFIX),
+        address: String::new(),
+        owner: String::new(),
+        online_players: 2,
+        max_players: 10,
+        days_left: 30,
+        expired: false,
+        member,
+    };
+    view.realms = vec![
+        realm("My Realm", 3, false),
+        realm("Friend's Realm", 7, true),
+    ]
+    .into();
+    view.feeds.selected_realm = Some(1);
+    view.dialog = dialog;
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows the Worlds tab with one saved world under its create and import buttons.
 pub(super) fn play_worlds() -> Fixture {
     let mut view = menu();
@@ -204,6 +272,26 @@ pub(super) fn play_worlds() -> Fixture {
     }]
     .into();
     Fixture::Menu(Box::new(view))
+}
+
+/// The Worlds tab while a controller drives the menu, showing the bumper hints.
+pub(super) fn play_worlds_gamepad() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!("play_worlds is a menu fixture")
+    };
+    view.gamepad_input = true;
+    view.navigation_focus_visible = true;
+    Fixture::Menu(view)
+}
+
+/// The Worlds tab with keyboard focus on the first world, outlined on every side.
+pub(super) fn play_worlds_keyboard_focus() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!("play_worlds is a menu fixture")
+    };
+    view.focused_action = Some(MenuAction::PlayLocalWorld(0));
+    view.navigation_focus_visible = true;
+    Fixture::Menu(view)
 }
 
 /// Shows the modal over the Worlds tab while a world file is copied in.
@@ -289,7 +377,35 @@ pub(super) fn world_edit_after_delete_back() -> Fixture {
 /// Shows Storage as a desktop host fills it, with the folder buttons.
 pub(super) fn settings_storage() -> Fixture {
     let mut view = settings(SettingSection::StorageManagement.definition().name);
-    Arc::make_mut(&mut view.storage).opens_folders = true;
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.opens_folders = true;
+    storage.expanded =
+        launcher::menu::settings_storage::CATEGORIES.map(|category| category == "cache");
+    storage.cached = [
+        (
+            "Cloud Islands",
+            "1.2.3",
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        ),
+        (
+            "Harbor Textures",
+            "2.0.0",
+            "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(name, version, id)| launcher::menu::settings_storage::StorageItem {
+            name: name.into(),
+            icon: (name == "Cloud Islands").then(super::mods::icon),
+            version: version.into(),
+            pack_id: id.into(),
+            bytes: 12 * 1024 * 1024,
+            path: format!("{id}.mcpack").into(),
+            ..Default::default()
+        },
+    )
+    .collect();
     Fixture::Menu(Box::new(view))
 }
 
@@ -302,14 +418,13 @@ pub(super) fn world_create(tab: usize) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
-/// Shows validation when natural terrain is requested on the built-in server.
-pub(super) fn world_create_dragonfly_natural() -> Fixture {
-    let Fixture::Menu(mut view) = world_create(0) else {
-        unreachable!()
-    };
-    view.local.create.backend = bridge::Backend::Dragonfly;
-    view.local.form_error = view.local.create.build().err().map(|error| error.message());
-    Fixture::Menu(view)
+/// Shows the preserved-save error without starting a server.
+pub(super) fn world_legacy_conversion() -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Play;
+    view.local.screen = launcher::local_worlds::Screen::Error;
+    view.local.error = Some(launcher::local_worlds::world::LEGACY_WORLD_REQUIRES_CONVERSION.into());
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows saved BDS generation settings beside editable advanced rules.
@@ -344,10 +459,10 @@ pub(super) fn world_edit_advanced() -> Fixture {
 /// Create and edit world-form states, one per tab plus the tall full-advanced view.
 pub(super) const WORLD_FORM_STATES: &[State] = &[
     State {
-        name: "world-create-dragonfly-natural",
+        name: "world-legacy-conversion",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: world_create_dragonfly_natural,
+        fixture: world_legacy_conversion,
     },
     State {
         name: "world-create-general",

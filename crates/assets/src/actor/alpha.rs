@@ -17,7 +17,7 @@ fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
 }
 
 /// Sources whose fractional alpha reaches the shader: dissolve masks, art any drawing material
-/// blends, lights, colour-masks or multitextures by alpha, and art every drawing material
+/// blends, lights, colour-masks or (masked) multitextures by alpha, and art every drawing material
 /// alpha-tests. Every other raster's alpha rounds at 0.5.
 pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
     // Per source: (every drawing material alpha-tests, some drawing material reads alpha).
@@ -28,8 +28,12 @@ pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
                 definition.has_state(crate::entity::material::EntityMaterialState::Blending)
             });
             let reads = blends
-                || state
-                    .is_some_and(|state| state.emissive || state.color_mask || state.multitexture);
+                || state.is_some_and(|state| {
+                    state.emissive
+                        || state.color_mask
+                        || state.multitexture
+                        || state.masked_multitexture
+                });
             for source in layer_sources(render, layer) {
                 let (tests, read) = drawn.entry(source).or_insert((true, false));
                 *tests &= state.is_some_and(|state| state.alpha_test);
@@ -47,17 +51,17 @@ pub fn actor_sources_keeping_alpha(render: &EntityRenderData) -> BTreeSet<u32> {
     keep
 }
 
-/// Sources any possible `USE_MULTITEXTURE` material of a layer samples, including Molang
-/// material choices; they share one array page so the draw can read all three.
+/// Sources any possible `USE_MULTITEXTURE` or `MASKED_MULTITEXTURE` material of a layer samples,
+/// including Molang material choices; they share one array page so the draw can read them together.
 pub fn actor_multitexture_sources(render: &EntityRenderData) -> ActorMultitextureSources {
     ActorMultitextureSources::from_draws(
         render
             .layers
             .iter()
             .filter(|layer| {
-                render
-                    .materials(layer)
-                    .any(|(_, state, _)| state.is_some_and(|state| state.multitexture))
+                render.materials(layer).any(|(_, state, _)| {
+                    state.is_some_and(|state| state.multitexture || state.masked_multitexture)
+                })
             })
             .map(|layer| layer_sources(render, layer)),
     )

@@ -56,16 +56,13 @@ fn captured_entity_stack_retains_animation_payloads() {
         .expect("captured stack contains entity assets")
         .assets;
     eprintln!(
-        "compiled stack: sources={} symbols={} geometries={} clips={}/{} channels={}/{} keyframes={}/{} controllers={} rigs={}",
+        "compiled stack: sources={} symbols={} geometries={} clips={} channels={} keyframes={} controllers={} rigs={}",
         compiled.sources.len(),
         compiled.symbols.len(),
         compiled.geometries.len(),
         compiled.animation_clips.len(),
-        assets::MAX_ENTITY_ANIMATION_CLIPS,
         compiled.animation_channels.len(),
-        assets::MAX_ENTITY_ANIMATION_CHANNELS,
         compiled.animation_keyframes.len(),
-        assets::MAX_ENTITY_ANIMATION_KEYFRAMES,
         compiled.controllers.len(),
         compiled.rig_bindings.len(),
     );

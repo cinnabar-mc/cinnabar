@@ -47,6 +47,10 @@ pub struct EntityRenderMaterialState {
     /// `USE_MULTITEXTURE`: the draw samples its controller's first three textures together.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub multitexture: bool,
+    /// `MASKED_MULTITEXTURE`: a second sampler replaces texels except for its colored
+    /// transparent keep mask.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub masked_multitexture: bool,
 }
 
 impl EntityRenderMaterialState {
@@ -62,6 +66,8 @@ impl EntityRenderMaterialState {
     pub const DISABLE_OVERLAY: u32 = 1 << 14;
     /// `USE_COLOR_MASK`: texture alpha weights the dye multiplier.
     pub const COLOR_MASK: u32 = 1 << 15;
+    /// `MASKED_MULTITEXTURE`. Bits 16 and 17 belong to the renderer's own profile flags.
+    pub const MASKED_MULTITEXTURE: u32 = 1 << 20;
 
     /// Reads the word's shading flags; `None` when no material was authored. Multitexturing
     /// travels in the instance's texture layers instead.
@@ -73,6 +79,7 @@ impl EntityRenderMaterialState {
             only_emissive: word & Self::ONLY_EMISSIVE != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
             color_mask: word & Self::COLOR_MASK != 0,
+            masked_multitexture: word & Self::MASKED_MULTITEXTURE != 0,
             ..Self::default()
         })
     }
@@ -98,6 +105,10 @@ impl EntityRenderMaterial {
                 EntityRenderMaterialState::DISABLE_OVERLAY,
             )
             | flag(state.color_mask, EntityRenderMaterialState::COLOR_MASK)
+            | flag(
+                state.masked_multitexture,
+                EntityRenderMaterialState::MASKED_MULTITEXTURE,
+            )
     }
 }
 
@@ -321,10 +332,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         let raster = compiled
             .sources
             .get(candidate.source as usize)
-            .is_some_and(|source| {
-                source.path.starts_with("textures/")
-                    && (source.path.ends_with(".png") || source.path.ends_with(".tga"))
-            });
+            .is_some_and(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
         if !raster || candidate.condition.is_some_and(|index| !expression(index)) {
             return Err(invalid("entity render texture candidate is invalid"));
         }

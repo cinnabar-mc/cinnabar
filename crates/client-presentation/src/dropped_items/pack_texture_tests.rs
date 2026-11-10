@@ -6,6 +6,11 @@ use client_ui::ui_runtime::{
     presentation::{SessionIcon, SessionIcons},
 };
 
+#[path = "pack_texture_tests/shield_tests.rs"]
+mod shields;
+#[path = "pack_texture_tests/trim_tests.rs"]
+mod trims;
+
 const ITEM: &str = "minecraft:stone";
 
 /// Creates original one-pixel base artwork and an ordinary dropped stack.
@@ -238,12 +243,15 @@ fn framed_cube_faces_follow_pack_replacement_and_removal() {
     world.init_resource::<DroppedItemScene>();
     world.insert_resource(render_scene::StaticItemPlacementsResource(
         render_model::StaticItemPlacements(vec![render_model::StaticItemPlacement {
+            shield_pattern: None,
+            trim: None,
             allow_block_models: true,
             identifier: ITEM.into(),
             metadata: 0,
             potted_block: None,
             carried_block: Some(assets::BlockVisualId(1)),
             world_from_item: render_model::dropped_item_transform([10.0, 2.0, 3.0], 0.0, 1.0),
+            world_from_block: None,
             light: None,
         }]),
     ));
@@ -467,12 +475,15 @@ fn framed_session_cube_uses_session_sprite_under_cache_pressure() {
     let (mut icons, _) = fixture(0);
     install(&mut icons, Some(160), true, 0);
     let placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
+        trim: None,
         allow_block_models: true,
         identifier: ITEM.into(),
         metadata: 0,
         potted_block: None,
         carried_block: Some(assets::BlockVisualId(1)),
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        world_from_block: None,
         light: None,
     };
     for free in 1..assets::BlockFace::ALL.len() {
@@ -509,12 +520,15 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
         frustum: None,
     };
     let placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
+        trim: None,
         allow_block_models: true,
         identifier: ITEM.into(),
         metadata: 0,
         potted_block: None,
         carried_block: Some(assets::BlockVisualId(1)),
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        world_from_block: None,
         light: None,
     };
     for native in [false, true] {
@@ -715,12 +729,15 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
         let models: Vec<_> = (0..43)
             .map(|metadata| {
                 let placement = render_model::StaticItemPlacement {
+                    shield_pattern: None,
+                    trim: None,
                     allow_block_models: true,
                     identifier: ITEM.into(),
                     metadata,
                     potted_block: None,
                     carried_block: Some(assets::BlockVisualId(1)),
                     world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+                    world_from_block: None,
                     light: None,
                 };
                 DroppedItemPublisher::placement_model(
@@ -779,12 +796,15 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
             (0..count)
                 .map(|metadata| {
                     let placement = render_model::StaticItemPlacement {
+                        shield_pattern: None,
+                        trim: None,
                         allow_block_models: true,
                         identifier: ITEM.into(),
                         metadata,
                         potted_block: None,
                         carried_block: Some(assets::BlockVisualId(1)),
                         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+                        world_from_block: None,
                         light: None,
                     };
                     DroppedItemPublisher::placement_model(
@@ -928,12 +948,15 @@ fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_
     let (mut icons, _) = fixture(0);
     install(&mut icons, Some(90), true, 0);
     let mut placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
+        trim: None,
         identifier: ITEM.into(),
         metadata: 0,
         potted_block: None,
         carried_block: None,
         allow_block_models: true,
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+        world_from_block: None,
         light: None,
     };
     let mut cache = ModelCache::default();

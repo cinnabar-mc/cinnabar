@@ -2,6 +2,26 @@ use super::*;
 use mod_render::retained::{GeometrySpec, Store, Vertex};
 
 #[test]
+fn debug_geometry_survives_personal_and_server_publication() {
+    let mut scene = ModRenderScene::default();
+    let debug: Arc<[ModVertex]> = vec![ModVertex::default(); 6].into();
+    scene.set_debug_vertices(Arc::clone(&debug));
+    scene.apply(&output(), 1);
+    scene.apply_server(&output(), 1);
+    assert!(Arc::ptr_eq(&debug, &scene.debug_vertices));
+    assert_eq!(scene.retained.len(), 2);
+    assert_eq!(scene.vertex_count(), debug.len());
+    let extracted = ModRenderScene::extract_resource(&scene);
+    assert!(Arc::ptr_eq(&debug, &extracted.debug_vertices));
+    scene.set_debug_vertices(Arc::from([]));
+    assert!(scene.debug_vertices.is_empty());
+    assert_eq!(scene.retained.len(), 2);
+    scene.set_debug_vertices(debug);
+    scene.clear();
+    assert_eq!(scene.vertex_count(), 0);
+}
+
+#[test]
 fn bundle_primitives_render_only_the_admitted_shared_budget() {
     let outputs: Vec<_> = (0..2)
         .map(|index| {

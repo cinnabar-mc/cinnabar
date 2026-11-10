@@ -1,11 +1,12 @@
 //! Per-actor Molang variable storage. Slots are plain data, with strings kept in a side table,
-//! so copying a variable set is a memory copy rather than a per-value clone.
+//! so independent copies reuse arrays and visit only assigned slots.
 
 use std::cell::RefCell;
 
 use super::*;
 
 pub(crate) mod frame;
+mod storage;
 
 /// One stored value. A string names its entry in the owning set's string table.
 #[derive(Clone, Copy, Debug, Default)]
@@ -29,90 +30,49 @@ enum SlotView<'a> {
 #[derive(Debug, Default)]
 pub(crate) struct MolangVariables {
     pub(super) frame: Option<Box<frame::ScratchState>>,
-    values: Vec<Slot>,
-    temps: Vec<Slot>,
-    /// Temporary slots assigned since the last clear; every assigned temporary is listed.
-    live_temps: Vec<usize>,
-    /// Strings of `values` and `temps`; each string slot owns exactly one live entry.
-    strings: Vec<Option<Arc<str>>>,
-    /// Released `strings` entries, reused before the table grows.
-    free_strings: Vec<u32>,
+    buffers: storage::Storage,
+    spares: storage::Spares,
     random: u64,
     random_draws: u64,
     publication_random: Option<(u64, u64)>,
     capture_writes: bool,
-    writes: Vec<u64>,
 }
 
 impl Clone for MolangVariables {
+    /// Takes cleared arrays for an independent copy, excluding frame-only scratch state.
     fn clone(&self) -> Self {
-        let Self {
-            frame: _,
-            values,
-            temps,
-            live_temps,
-            strings,
-            free_strings,
-            random,
-            random_draws,
-            publication_random,
-            capture_writes,
-            writes,
-        } = self;
-        Self {
+        let mut copy = Self {
             frame: None,
-            values: values.clone(),
-            temps: temps.clone(),
-            live_temps: live_temps.clone(),
-            strings: strings.clone(),
-            free_strings: free_strings.clone(),
-            random: *random,
-            random_draws: *random_draws,
-            publication_random: *publication_random,
-            capture_writes: *capture_writes,
-            writes: writes.clone(),
-        }
+            buffers: self.spares.lease(),
+            spares: storage::Spares::default(),
+            ..Self::default()
+        };
+        copy.clone_from(self);
+        copy
     }
 
-    /// Copies into this set's existing buffers instead of allocating new ones.
+    /// Copies assigned slots and evaluation bookkeeping into this set's reusable arrays.
     fn clone_from(&mut self, source: &Self) {
-        let Self {
-            frame: _,
-            values,
-            temps,
-            live_temps,
-            strings,
-            free_strings,
-            random,
-            random_draws,
-            publication_random,
-            capture_writes,
-            writes,
-        } = source;
         self.frame = None;
-        self.values.clone_from(values);
-        self.temps.clone_from(temps);
-        self.live_temps.clone_from(live_temps);
-        self.strings.clone_from(strings);
-        self.free_strings.clone_from(free_strings);
-        self.random = *random;
-        self.random_draws = *random_draws;
-        self.publication_random = *publication_random;
-        self.capture_writes = *capture_writes;
-        self.writes.clone_from(writes);
+        self.buffers.copy_from(&source.buffers);
+        self.spares.clone_from(&source.spares);
+        self.random = source.random;
+        self.random_draws = source.random_draws;
+        self.publication_random = source.publication_random;
+        self.capture_writes = source.capture_writes;
+    }
+}
+
+impl Drop for MolangVariables {
+    fn drop(&mut self) {
+        self.spares.recycle(std::mem::take(&mut self.buffers));
     }
 }
 
 impl MolangVariables {
     /// Clears scratch values and string ownership while retaining their allocated buffers.
     pub(crate) fn reset(&mut self, seed: u64) {
-        #[cfg(test)]
-        super::selection_work::record(|work| work.reset += self.values.len() + self.temps.len());
-        self.values.fill(Slot::Unset);
-        self.temps.fill(Slot::Unset);
-        self.live_temps.clear();
-        self.strings.clear();
-        self.free_strings.clear();
+        self.buffers.clear();
         self.restore_random(seed | 1);
     }
 
@@ -129,7 +89,7 @@ impl MolangVariables {
 
     /// Marks the temporary-list prefix retained before a scratch predicate assigns new slots.
     pub(super) fn temporary_checkpoint(&self) -> usize {
-        self.live_temps.len()
+        self.buffers.live_temps.len()
     }
 
     /// Restores journaled slots and drops the temporary-list suffix added by their writes.
@@ -144,17 +104,27 @@ impl MolangVariables {
             super::selection_work::record(|work| work.restored += 1);
             self.put(place, value);
         }
-        self.live_temps.truncate(temporary_checkpoint);
+        self.buffers.live_temps.truncate(temporary_checkpoint);
     }
 
     /// An unassigned set sized for one layout's variables and temporaries.
     pub(super) fn fresh(layout: &VariableLayout, seed: u64) -> Self {
-        Self {
-            values: vec![Slot::Unset; layout.variable_count],
-            temps: vec![Slot::Unset; layout.temp_count],
+        let mut variables = Self {
+            frame: None,
+            buffers: storage::Storage::default(),
+            spares: storage::Spares::default(),
             random: seed | 1,
-            ..Default::default()
-        }
+            ..Self::default()
+        };
+        variables
+            .buffers
+            .values
+            .resize(layout.variable_count, Slot::Unset);
+        variables
+            .buffers
+            .temps
+            .resize(layout.temp_count, Slot::Unset);
+        variables
     }
 
     /// The value a slot holds; `None` when unassigned.
@@ -162,7 +132,7 @@ impl MolangVariables {
         match slot {
             Slot::Unset => None,
             Slot::Number(value) => Some(MolangValue::Number(value)),
-            Slot::String(index) => self.strings[index as usize]
+            Slot::String(index) => self.buffers.strings[index as usize]
                 .clone()
                 .map(MolangValue::String),
             Slot::ActorReference(id) => Some(MolangValue::ActorReference(id)),
@@ -174,7 +144,7 @@ impl MolangVariables {
         match slot {
             Slot::Unset => None,
             Slot::Number(value) => Some(SlotView::Number(value)),
-            Slot::String(index) => self.strings[index as usize]
+            Slot::String(index) => self.buffers.strings[index as usize]
                 .as_deref()
                 .map(SlotView::String),
             Slot::ActorReference(id) => Some(SlotView::ActorReference(id)),
@@ -183,15 +153,15 @@ impl MolangVariables {
 
     fn slot(&self, place: Place) -> Option<Slot> {
         match place {
-            Place::Variable(slot) => self.values.get(slot).copied(),
-            Place::Temporary(slot) => self.temps.get(slot).copied(),
+            Place::Variable(slot) => self.buffers.values.get(slot).copied(),
+            Place::Temporary(slot) => self.buffers.temps.get(slot).copied(),
         }
     }
 
     fn slot_mut(&mut self, place: Place) -> Option<&mut Slot> {
         match place {
-            Place::Variable(slot) => self.values.get_mut(slot),
-            Place::Temporary(slot) => self.temps.get_mut(slot),
+            Place::Variable(slot) => self.buffers.values.get_mut(slot),
+            Place::Temporary(slot) => self.buffers.temps.get_mut(slot),
         }
     }
 
@@ -227,6 +197,13 @@ impl MolangVariables {
             self.release_string(index);
         }
         *self.slot_mut(place)? = new;
+        if !matches!(new, Slot::Unset) {
+            let slot = match place {
+                Place::Variable(slot) => slot,
+                Place::Temporary(slot) => self.buffers.values.len() + slot,
+            };
+            self.buffers.assign(slot);
+        }
         Some(matches!(old, Slot::Unset))
     }
 
@@ -234,21 +211,21 @@ impl MolangVariables {
     fn hold_string(&mut self, old: Slot, text: Arc<str>) -> u32 {
         let index = match old {
             Slot::String(index) => index,
-            _ => match self.free_strings.pop() {
+            _ => match self.buffers.free_strings.pop() {
                 Some(index) => index,
                 None => {
-                    self.strings.push(None);
-                    (self.strings.len() - 1) as u32
+                    self.buffers.strings.push(None);
+                    (self.buffers.strings.len() - 1) as u32
                 }
             },
         };
-        self.strings[index as usize] = Some(text);
+        self.buffers.strings[index as usize] = Some(text);
         index
     }
 
     fn release_string(&mut self, index: u32) {
-        self.strings[index as usize] = None;
-        self.free_strings.push(index);
+        self.buffers.strings[index as usize] = None;
+        self.buffers.free_strings.push(index);
     }
 
     /// The value at `place`; `None` when unassigned or out of range.
@@ -263,7 +240,7 @@ impl MolangVariables {
 
     /// Reads a numeric variable without constructing a tagged value; unset slots read zero.
     pub(super) fn numeric_variable(&self, slot: usize) -> Option<f32> {
-        match self.values.get(slot)? {
+        match self.buffers.values.get(slot)? {
             Slot::Unset => Some(0.0),
             Slot::Number(value) => Some(*value),
             Slot::String(_) | Slot::ActorReference(_) => None,
@@ -272,7 +249,8 @@ impl MolangVariables {
 
     /// Every assigned variable as `(slot, value)`, in slot order.
     pub(super) fn assigned_variables(&self) -> impl Iterator<Item = (usize, MolangValue)> + '_ {
-        self.values
+        self.buffers
+            .values
             .iter()
             .enumerate()
             .inspect(|_| {
@@ -291,7 +269,7 @@ impl MolangVariables {
     pub(crate) fn begin_effects(&mut self) -> EffectsCapture {
         let capture = EffectsCapture {
             enabled: self.capture_writes,
-            writes: std::mem::take(&mut self.writes),
+            writes: std::mem::take(&mut self.buffers.writes),
             random_draws: self.random_draws,
             random: self.random,
         };
@@ -307,28 +285,28 @@ impl MolangVariables {
             random_end: self.random,
             ..Default::default()
         };
-        for (word, &bits) in self.writes.iter().enumerate() {
+        for (word, &bits) in self.buffers.writes.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
                 let slot = word * u64::BITS as usize + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
-                let (place, value) = if slot < self.values.len() {
-                    (Place::Variable(slot), self.values[slot])
+                let (place, value) = if slot < self.buffers.values.len() {
+                    (Place::Variable(slot), self.buffers.values[slot])
                 } else {
-                    let slot = slot - self.values.len();
-                    (Place::Temporary(slot), self.temps[slot])
+                    let slot = slot - self.buffers.values.len();
+                    (Place::Temporary(slot), self.buffers.temps[slot])
                 };
                 effects.writes.push((place, self.load(value)));
             }
         }
         let mut writes = capture.writes;
         if capture.enabled {
-            writes.resize(writes.len().max(self.writes.len()), 0);
-            for (target, bits) in writes.iter_mut().zip(&self.writes) {
+            writes.resize(writes.len().max(self.buffers.writes.len()), 0);
+            for (target, bits) in writes.iter_mut().zip(&self.buffers.writes) {
                 *target |= bits;
             }
         }
-        self.writes = writes;
+        self.buffers.writes = writes;
         self.capture_writes = capture.enabled;
         effects
     }
@@ -336,7 +314,7 @@ impl MolangVariables {
     /// Records authored assignments after endpoint pre-animation without copying frozen inputs.
     pub(crate) fn capture_writes(&mut self) {
         self.capture_writes = true;
-        self.writes.clear();
+        self.buffers.writes.clear();
         self.publication_random = Some((self.random, self.random_draws));
     }
 
@@ -345,19 +323,19 @@ impl MolangVariables {
         if let Some((random, draws)) = self.publication_random {
             target.advance_random(random, self.random, self.random_draws.wrapping_sub(draws));
         }
-        for (word, &bits) in self.writes.iter().enumerate() {
+        for (word, &bits) in self.buffers.writes.iter().enumerate() {
             let mut bits = bits;
             while bits != 0 {
                 let slot = word * u64::BITS as usize + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
-                if slot < self.values.len() {
-                    target.put(Place::Variable(slot), self.load(self.values[slot]));
+                if slot < self.buffers.values.len() {
+                    target.put(Place::Variable(slot), self.load(self.buffers.values[slot]));
                 } else {
-                    let slot = slot - self.values.len();
-                    let value = self.load(self.temps[slot]);
+                    let slot = slot - self.buffers.values.len();
+                    let value = self.load(self.buffers.temps[slot]);
                     let assigned = value.is_some();
                     if target.put(Place::Temporary(slot), value) == Some(true) && assigned {
-                        target.live_temps.push(slot);
+                        target.buffers.live_temps.push(slot);
                     }
                 }
             }
@@ -370,9 +348,9 @@ impl MolangVariables {
             Place::Variable(slot) => slot,
             Place::Temporary(slot) => {
                 if unset {
-                    self.live_temps.push(slot);
+                    self.buffers.live_temps.push(slot);
                 }
-                self.values.len() + slot
+                self.buffers.values.len() + slot
             }
         };
         self.record_write(slot);
@@ -388,17 +366,17 @@ impl MolangVariables {
     fn record_write(&mut self, slot: usize) {
         if self.capture_writes {
             let word = slot / u64::BITS as usize;
-            if self.writes.len() <= word {
-                self.writes.resize(word + 1, 0);
+            if self.buffers.writes.len() <= word {
+                self.buffers.writes.resize(word + 1, 0);
             }
-            self.writes[word] |= 1 << (slot % u64::BITS as usize);
+            self.buffers.writes[word] |= 1 << (slot % u64::BITS as usize);
         }
     }
 
     /// Mapped scripts inherit write recording without retaining an earlier invocation's writes.
     pub(crate) fn inherit_write_capture(&mut self, source: &Self) {
         self.capture_writes = source.capture_writes;
-        self.writes.clear();
+        self.buffers.writes.clear();
         self.publication_random = None;
     }
 
@@ -423,6 +401,7 @@ impl MolangVariables {
                 self.put(Place::Variable(slot), Some(value));
                 if variables.capture_writes
                     && variables
+                        .buffers
                         .writes
                         .get(offset / u64::BITS as usize)
                         .is_some_and(|bits| bits & (1 << (offset % u64::BITS as usize)) != 0)
@@ -438,8 +417,8 @@ impl MolangVariables {
         let Some(slot) = slot else {
             return;
         };
-        if let Some(Slot::String(index)) = self.values.get(slot).copied()
-            && self.strings[index as usize].as_deref() == Some(value)
+        if let Some(Slot::String(index)) = self.buffers.values.get(slot).copied()
+            && self.buffers.strings[index as usize].as_deref() == Some(value)
         {
             return;
         }
@@ -471,7 +450,7 @@ impl MolangVariables {
     }
 
     pub(crate) fn get(&self, slot: Option<usize>) -> Option<f32> {
-        match *self.values.get(slot?)? {
+        match *self.buffers.values.get(slot?)? {
             Slot::Unset => None,
             Slot::Number(value) => Some(value),
             Slot::String(_) | Slot::ActorReference(_) => Some(0.0),
@@ -487,8 +466,9 @@ impl MolangVariables {
     ) -> bool {
         match layout.place(symbol) {
             Some(Place::Variable(slot)) => {
-                self.values.get(slot).map(|value| self.view(*value))
+                self.buffers.values.get(slot).map(|value| self.view(*value))
                     != completed
+                        .buffers
                         .values
                         .get(slot)
                         .map(|value| completed.view(*value))
@@ -500,22 +480,23 @@ impl MolangVariables {
     /// Unassigns every temporary; only slots assigned since the last clear are visited.
     pub(crate) fn clear_temporaries(&mut self) {
         #[cfg(test)]
-        super::selection_work::record(|work| work.reset += self.live_temps.len());
-        let mut live = std::mem::take(&mut self.live_temps);
+        super::selection_work::record(|work| work.reset += self.buffers.live_temps.len());
+        let mut live = std::mem::take(&mut self.buffers.live_temps);
         for slot in live.drain(..) {
             self.put(Place::Temporary(slot), None);
         }
-        self.live_temps = live;
+        self.buffers.live_temps = live;
     }
 
     #[cfg(test)]
     pub(crate) fn slots(count: usize) -> Self {
-        Self {
-            values: vec![Slot::Unset; count],
-            temps: Vec::new(),
-            random: 1,
-            ..Default::default()
-        }
+        Self::fresh(
+            &VariableLayout {
+                variable_count: count,
+                ..Default::default()
+            },
+            1,
+        )
     }
 
     #[cfg(test)]
@@ -546,6 +527,9 @@ impl MolangVariables {
         (state >> 40) as f32 / (1_u64 << 24) as f32
     }
 }
+
+#[cfg(test)]
+mod copy_tests;
 
 #[cfg(test)]
 mod tests {
@@ -594,15 +578,15 @@ mod tests {
                     variables.read(Place::Temporary(1)),
                     Some(MolangValue::ActorReference(42))
                 );
-                assert_eq!(variables.live_temps, [0, 1]);
-                assert_eq!(variables.strings.iter().flatten().count(), 1);
+                assert_eq!(variables.buffers.live_temps, [0, 1]);
+                assert_eq!(variables.buffers.strings.iter().flatten().count(), 1);
                 for slot in 2..count + 2 {
                     assert_eq!(variables.read(Place::Temporary(slot)), None);
                 }
             }
             variables.clear_temporaries();
-            assert!(variables.live_temps.is_empty());
-            assert!(variables.strings.iter().all(Option::is_none));
+            assert!(variables.buffers.live_temps.is_empty());
+            assert!(variables.buffers.strings.iter().all(Option::is_none));
         }
     }
 
@@ -636,8 +620,8 @@ mod tests {
             );
             assert_eq!(variables.variable(1), Some(MolangValue::ActorReference(42)));
             assert_eq!(variables.read(Place::Temporary(0)), None);
-            assert!(variables.live_temps.is_empty());
-            assert_eq!(variables.strings.iter().flatten().count(), 1);
+            assert!(variables.buffers.live_temps.is_empty());
+            assert_eq!(variables.buffers.strings.iter().flatten().count(), 1);
             assert_eq!(variables.random_state(), 7);
             assert_eq!(variables.random_draws, 0);
         }
@@ -645,7 +629,7 @@ mod tests {
         assert_eq!(variables.variable(0), None);
         assert_eq!(variables.variable(1), None);
         assert_eq!(variables.read(Place::Temporary(0)), None);
-        assert!(variables.strings.is_empty());
+        assert!(variables.buffers.strings.is_empty());
         variables.set_string(Some(0), "next owner");
         assert_eq!(
             variables.variable(0),
@@ -662,8 +646,12 @@ mod tests {
         variables.set_string(Some(0), "c");
         variables.set(Some(1), 2.0);
         variables.set_string(Some(2), "d");
-        assert_eq!(variables.strings.iter().flatten().count(), 2);
-        assert_eq!(variables.strings.len(), 2, "the released entry is reused");
+        assert_eq!(variables.buffers.strings.iter().flatten().count(), 2);
+        assert_eq!(
+            variables.buffers.strings.len(),
+            2,
+            "the released entry is reused"
+        );
         assert_eq!(
             variables.variable(0),
             Some(MolangValue::String(Arc::from("c")))

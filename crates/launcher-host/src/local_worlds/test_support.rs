@@ -297,9 +297,8 @@ pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\
 #[cfg(unix)]
 pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) for arg; do case \"$arg\" in *:/data/worlds/*) world=\"${arg%%:/data/worlds/*}\" ;; esac; done\n    echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done; rm -f \"$log.stop\"\n    [ -z \"$world\" ] || [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\"; exit \"${FAKE_DOCKER_EXIT:-0}\" ;;\nesac\n";
 
-/// Records every pause request and host grant; exits once stopped.
+/// Records console commands and host grants; exits once stopped.
 pub(crate) struct FakeInstance {
-    pub paused: Mutex<Vec<bool>>,
     /// Every console command sent, in order.
     pub console: Mutex<Vec<String>>,
     /// Console commands fail, as an unreachable container does.
@@ -314,7 +313,6 @@ pub(crate) struct FakeInstance {
     grant_error: Option<fn() -> WorldError>,
     exit: Mutex<Option<Sender<()>>>,
     exited: Receiver<()>,
-    pub can_pause: bool,
     pub lan: Option<String>,
     /// Holds a stop, as a world save would, until disconnected.
     save: Option<Receiver<()>>,
@@ -324,10 +322,10 @@ pub(crate) struct FakeInstance {
 }
 
 impl FakeInstance {
-    pub(crate) fn new(can_pause: bool) -> Self {
+    /// A server that exits on stop, with no console or host-grant failures.
+    pub(crate) fn new() -> Self {
         let (exit, exited) = crossbeam_channel::bounded(0);
         Self {
-            paused: Mutex::default(),
             console: Mutex::default(),
             console_fails: std::sync::atomic::AtomicBool::new(false),
             unclean: false,
@@ -336,7 +334,6 @@ impl FakeInstance {
             grant_error: None,
             exit: Mutex::new(Some(exit)),
             exited,
-            can_pause,
             lan: None,
             save: None,
             cleanup: None,
@@ -365,11 +362,6 @@ impl Instance for FakeInstance {
         "127.0.0.1:1"
     }
 
-    fn set_paused(&self, paused: bool) -> std::io::Result<()> {
-        lock(&self.paused).push(paused);
-        Ok(())
-    }
-
     fn request_stop(&self) {
         if self.save.is_none() {
             self.exit();
@@ -391,10 +383,6 @@ impl Instance for FakeInstance {
 
     fn exited(&self) -> Receiver<()> {
         self.exited.clone()
-    }
-
-    fn can_pause(&self) -> bool {
-        self.can_pause
     }
 
     fn lan_address(&self) -> Option<&str> {
@@ -430,7 +418,6 @@ impl Instance for FakeInstance {
 pub(crate) struct FakeRunner {
     pub gate: Option<Receiver<()>>,
     pub error: Option<fn() -> WorldError>,
-    pub can_pause: Option<bool>,
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
     /// Starts begun, counted before any gate.
     pub entered: AtomicUsize,
@@ -452,10 +439,8 @@ pub(crate) struct FakeRunner {
     pub console_fails: bool,
     /// Passed to each instance.
     pub unclean: bool,
-    pub discarded: std::sync::atomic::AtomicUsize,
     /// Set when a start ran while an earlier instance was still alive.
     pub overlapped: std::sync::atomic::AtomicBool,
-    pub prepared: std::sync::atomic::AtomicUsize,
 }
 
 impl FakeRunner {
@@ -538,7 +523,7 @@ impl Runner for FakeRunner {
             unclean: self.unclean,
             grant_gate: self.grant_gate.clone(),
             grant_error: self.grant_error,
-            ..FakeInstance::new(self.can_pause.unwrap_or(true))
+            ..FakeInstance::new()
         });
         made.push(Arc::clone(&instance));
         drop(made);
@@ -548,16 +533,6 @@ impl Runner for FakeRunner {
 
     fn host_grant(&self) -> HostGrant {
         self.host_grant.unwrap_or(HostGrant::WhenReady)
-    }
-
-    fn prepare(&self) {
-        self.prepared
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    fn discard_standby(&self) {
-        self.discarded
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

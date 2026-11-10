@@ -171,7 +171,6 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                             partial_tick: alpha,
                             first_person: true,
                             java_mode,
-                            java_item_blocking: true,
                             combat_visuals: Default::default(),
                             sampling_camera: None,
                             aspect: 1.0,
@@ -204,7 +203,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                 );
                 let mut layer_poses = crate::presentation::entity_layers::LayerPoseCache::default();
                 let mut cape = crate::presentation::cape::CapeState::default();
-                let mut skin_layers = crate::presentation::skin_layers::SkinLayerCache::default();
+                let mut skin_layers = crate::presentation::skin_layers::ActorLayerCache::default();
                 let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
                 super::super::layers::attach(
                     &mut batch,
@@ -214,7 +213,6 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         local_runtime_id: 1,
                         local_equipment: &local_equipment,
                         java_posed: &bodies.java_posed,
-                        java_item_blocking: true,
                         combat_visuals: Default::default(),
                         local_emote_pose: None,
                         remote_emote_poses: &bodies.remote_emote_poses,
@@ -260,7 +258,6 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                             None,
                             alpha,
                             &mut java::PoseScratch::default(),
-                            true,
                         )
                         .unwrap();
                         assert_eq!(body.input.previous_bones, expected.bones);
@@ -543,7 +540,6 @@ fn sample_shared_bodies<'a>(
                 partial_tick: 0.5,
                 first_person: true,
                 java_mode,
-                java_item_blocking: true,
                 combat_visuals: Default::default(),
                 sampling_camera: None,
                 aspect: 1.0,

@@ -12,9 +12,8 @@ use protocol::CustomVisualComponents;
 use super::{Builder, DIAGNOSTIC_MATERIAL};
 
 impl Builder<'_> {
-    /// Resolves a face's material instance: an explicit geometry name, then the
-    /// face, then `side` for horizontal faces, then `*`.
-    /// Diagnostic fallback keeps the selected instance's sidedness.
+    /// Returns the face's material id, coverage flags and sidedness; diagnostic fallback keeps
+    /// the selected instance's sidedness.
     pub(super) fn face_material(
         &mut self,
         components: &CustomVisualComponents,
@@ -26,7 +25,7 @@ impl Builder<'_> {
             return (DIAGNOSTIC_MATERIAL, 0, false);
         };
         let two_sided = chosen.render_method.two_sided();
-        let mut flags = assets::block_render_method_flags(chosen.render_method);
+        let mut flags = assets::compiled::block_render_method_flags(chosen.render_method);
         let alpha_flags = flags;
         flags |= uv_flags | tint_flags(chosen.tint_method.as_deref());
         match ao_exponent_flags(chosen.ambient_occlusion) {
@@ -81,7 +80,7 @@ fn ao_exponent_flags(exponent: f32) -> Option<u32> {
 
 /// Resolves a face's material instance: an explicit geometry name, then the face, then `side`
 /// for horizontal faces, then `*`.
-pub(super) fn material_instance<'c>(
+fn material_instance<'c>(
     components: &'c CustomVisualComponents,
     face: &str,
     instance: Option<&str>,

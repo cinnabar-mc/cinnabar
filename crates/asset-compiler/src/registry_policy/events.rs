@@ -13,7 +13,7 @@ pub const GENERATED_PATH: &str = "crates/assets/src/facts/events_generated.rs";
 #[serde(deny_unknown_fields)]
 pub(super) struct Rules {
     status: String,
-    legacy_particles: BTreeMap<i32, String>,
+    legacy_particles: BTreeMap<String, String>,
     level_particles: BTreeMap<String, String>,
     level_sounds: Vec<(String, String, String)>,
     note_instruments: Vec<String>,
@@ -28,7 +28,7 @@ pub fn write(out: &Path) -> Result<()> {
         "event rules require explicit provisional status",
     )?;
     let particles: BTreeSet<_> =
-        include_str!("../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+        include_str!("../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv")
             .lines()
             .filter_map(|row| row.strip_prefix("particle\t"))
             .collect();
@@ -42,10 +42,16 @@ pub fn write(out: &Path) -> Result<()> {
             "unknown particle route",
         )?;
     }
-    check(
-        rules.legacy_particles.keys().all(|id| *id > 0),
-        "invalid legacy particle id",
-    )?;
+    let legacy_particles = rules
+        .legacy_particles
+        .iter()
+        .map(|(name, effect)| {
+            protocol_ids::ParticleType::from_name(name)
+                .filter(|kind| kind.wire_value() > 0)
+                .map(|kind| (kind.wire_value(), effect.clone()))
+                .ok_or_else(|| format!("unknown legacy particle type {name}").into())
+        })
+        .collect::<Result<BTreeMap<i32, String>>>()?;
     let event_id = |name: &str| -> Result<i32> {
         protocol_ids::LevelEvent::from_name(name)
             .map(|event| event.wire_value())
@@ -89,7 +95,7 @@ pub fn write(out: &Path) -> Result<()> {
         &mut text,
         "LEGACY_PARTICLES",
         "(i32, ParticleEffect)",
-        rules.legacy_particles,
+        legacy_particles,
     )?;
     emit(
         &mut text,

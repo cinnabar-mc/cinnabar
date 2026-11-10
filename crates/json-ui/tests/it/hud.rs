@@ -14,6 +14,7 @@ use json_ui::{
 };
 
 mod offhand;
+mod titles;
 mod world_text;
 
 fn pack() -> Option<PathBuf> {
@@ -145,6 +146,46 @@ fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
     render_full(model, java).map(|render| render.nodes.to_vec())
+}
+
+#[test]
+fn actionbar_keeps_its_authored_fade_and_reappears_for_a_new_request() {
+    let mut model = HudModel {
+        actionbar: Some(Timed {
+            text: "Action".into(),
+            born: 0.0,
+        }),
+        ..Default::default()
+    };
+    let Some(nodes) = render_with(&model, true) else {
+        return;
+    };
+    let label = nodes
+        .iter()
+        .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "Action"))
+        .expect("action bar label");
+    let mut animator = json_ui::Animator::new();
+    let clocks = json_ui::hud_clocks(&model);
+    let drawn = label.animate(&mut animator, 0.1, Some(&clocks), None);
+    assert!(!drawn.hidden && drawn.opacity > 0.9);
+    let drawn = label.animate(&mut animator, 2.5, Some(&clocks), None);
+    assert!(!drawn.hidden && (drawn.opacity - 0.5).abs() < 0.05);
+    let drawn = label.animate(&mut animator, 3.1, Some(&clocks), None);
+    assert!(drawn.hidden || drawn.opacity == 0.0);
+    animator.end_frame();
+
+    model.actionbar.as_mut().unwrap().born = 4.0;
+    let nodes = render_with(&model, true).expect("same installed HUD fixture");
+    let label = nodes
+        .iter()
+        .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == "Action"))
+        .expect("new action bar label");
+    let clocks = json_ui::hud_clocks(&model);
+    let drawn = label.animate(&mut animator, 4.1, Some(&clocks), None);
+    assert!(
+        !drawn.hidden && drawn.opacity > 0.9,
+        "a later action-bar request must appear after the first has faded"
+    );
 }
 
 /// The vanilla UI catalog for the pack's directory, before any overlay.
@@ -282,7 +323,7 @@ fn vanilla_hud_draws_its_bound_surfaces() {
         "heart_renderer",
         "hunger_renderer",
         "armor_renderer",
-        "hotbar_renderer",
+        "hotbar_slots_renderer",
     ] {
         assert!(
             customs.contains(&renderer),
@@ -292,9 +333,9 @@ fn vanilla_hud_draws_its_bound_surfaces() {
     assert_eq!(
         customs
             .iter()
-            .filter(|name| **name == "hotbar_renderer")
+            .filter(|name| **name == "hotbar_slots_renderer")
             .count(),
-        9
+        1
     );
     let texts: Vec<&str> = nodes
         .iter()
@@ -353,6 +394,36 @@ fn descendant<'a>(
 }
 
 #[test]
+fn popups_create_their_own_named_item_text_controls() {
+    let mut popups = model();
+    popups.item_name = Some(Timed {
+        text: "Dirt".into(),
+        born: 0.0,
+    });
+    popups.popup = Some(Timed {
+        text: "\nPopup".into(),
+        born: 0.0,
+    });
+    popups.jukebox_popup = Some(Timed {
+        text: "Jukebox\n".into(),
+        born: 0.0,
+    });
+    let Some(render) = render_full(&popups, true) else {
+        return;
+    };
+    assert!(
+        descendant(&render.bound, "item_name_text").is_none(),
+        "the popup takes the item-text field"
+    );
+    for name in ["popup_item_text", "popup_jukebox_text"] {
+        assert!(descendant(&render.bound, name).is_some(), "missing {name}");
+    }
+    let popup = text_node(&render.nodes, "\nPopup");
+    let jukebox = text_node(&render.nodes, "Jukebox\n");
+    assert!(popup.dest.h > 0.0 && popup.dest.h == jukebox.dest.h);
+}
+
+#[test]
 fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     let mut item = model();
     item.item_name = Some(Timed {
@@ -366,9 +437,8 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
             return;
         };
         let name = text_node(&render.nodes, "Dirt");
-        let slots = custom(&render.nodes, "hotbar_renderer");
+        let slots = custom(&render.nodes, "hotbar_slots_renderer");
         let first = slots.first().expect("hotbar start");
-        let last = slots.last().expect("hotbar end");
         let hotbar_bottom = first.dest.y + first.dest.h;
         let root = descendant(&render.bound, "item_name_text").expect("spawned item-name root");
         let label = descendant(root, "item_text_label").expect("native item-name label");
@@ -386,9 +456,12 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
         let bottom = name.dest.y + name.dest.h;
         // Read the authored offset and padding; do not duplicate HUD constants.
         assert_eq!(bottom, hotbar_bottom + dy - padding);
+        let icons = custom(&render.nodes, "inventory_item_renderer");
+        let left = icons.first().expect("first item").dest;
+        let right = icons.last().expect("last item").dest;
         assert_eq!(
             name.dest.x + name.dest.w / 2.0,
-            (first.dest.x + last.dest.x + last.dest.w) / 2.0
+            (left.x + right.x + right.w) / 2.0
         );
         assert!(
             bottom < first.dest.y,
@@ -459,10 +532,9 @@ fn java_pack_places_the_hud() {
     assert_eq!(at(custom(&nodes, "armor_renderer")[0]), [149.0, 231.0]);
     assert_eq!(at(custom(&nodes, "hunger_renderer")[0]), [330.0, 231.0]);
     // Hotbar cells from c-90 at H-22, the selection frame 1 px out.
-    let slots = custom(&nodes, "hotbar_renderer");
-    assert_eq!(slots.len(), 9);
+    let slots = custom(&nodes, "hotbar_slots_renderer");
+    assert_eq!(slots.len(), 1);
     assert_eq!(at(slots[0]), [150.0, 248.0]);
-    assert_eq!(at(slots[8]), [310.0, 248.0]);
     let selected = named(&nodes, "hotbar_slot_selected_image");
     assert_eq!(selected.len(), 1);
     assert_eq!(at(selected[0]), [188.0, 247.0]);
@@ -541,7 +613,7 @@ fn bedrock_hotbar_flag_raises_the_java_hud_to_the_vanilla_hotbar() {
         return;
     };
     let raised = raised.nodes.to_vec();
-    let slot_y = |nodes: &[DrawNode]| custom(nodes, "hotbar_renderer")[0].dest.y;
+    let slot_y = |nodes: &[DrawNode]| custom(nodes, "hotbar_slots_renderer")[0].dest.y;
     assert_eq!(slot_y(&flush) + 22.0, 270.0, "Java's hotbar is flush");
     assert_eq!(slot_y(&raised), slot_y(&vanilla), "vanilla's hotbar height");
     let lift = slot_y(&flush) - slot_y(&raised);
@@ -555,7 +627,7 @@ fn bedrock_hotbar_flag_raises_the_java_hud_to_the_vanilla_hotbar() {
         );
     };
     for renderer in [
-        "hotbar_renderer",
+        "hotbar_slots_renderer",
         "heart_renderer",
         "armor_renderer",
         "hunger_renderer",

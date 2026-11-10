@@ -15,7 +15,6 @@ use entity::{
     EntityAnimationProperty, EntityControllerAnimation, EntityControllerState,
     EntityControllerTransition, EntityRigAnimationBinding, EntityRigBinding,
     EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
-    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
     MAX_ENTITY_RIG_BINDINGS, MAX_MOLANG_COLLECTION_ITEMS, MAX_MOLANG_EXPRESSIONS,
     MAX_MOLANG_OPS_PER_EXPRESSION, MAX_MOLANG_STACK_DEPTH, MolangCollection, MolangCollectionItem,
@@ -198,6 +197,7 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
         reset: None,
         binding: None,
         texture_meshes: Box::new([]),
+        poly_mesh: None,
         cubes: Box::new([]),
     }]
     .into_boxed_slice();
@@ -516,6 +516,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 reset: None,
                 binding: None,
                 texture_meshes: Box::new([]),
+                poly_mesh: None,
                 cubes: Box::new([]),
             }]
             .into_boxed_slice(),
@@ -632,6 +633,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
             scale_expressions: None,
             held_item_scale: None,
+            hide_held_items: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -782,7 +784,7 @@ fn carrier_rejects_adjacent_versions_and_hashes_extended_payload() {
 fn carrier_v4_header_bounds_precede_hash_or_payload_allocation_and_counts_match() {
     let encoded = entity::encode_entity_blob(&carrier_v4_fixture()).unwrap();
     let mut excessive = encoded.to_vec();
-    excessive[64..68].copy_from_slice(&(MAX_ENTITY_ANIMATION_CLIPS as u32 + 1).to_le_bytes());
+    excessive[68..72].copy_from_slice(&(MAX_ENTITY_CONTROLLERS as u32 + 1).to_le_bytes());
     let error = RuntimeEntityAssetsV4::decode(&excessive).unwrap_err();
     assert!(error.to_string().contains("header counts exceed bounds"));
 
@@ -796,37 +798,8 @@ fn carrier_v4_header_bounds_precede_hash_or_payload_allocation_and_counts_match(
 }
 
 #[test]
-fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
+fn carrier_v4_accepts_exact_controller_bounds() {
     let mut compiled = carrier_v4_fixture();
-    compiled.animation_clips = (0..MAX_ENTITY_ANIMATION_CLIPS)
-        .map(|index| EntityAnimationClip {
-            first_channel: u32::from(index != 0),
-            channel_count: u32::from(index == 0),
-            ..compiled.animation_clips[0]
-        })
-        .collect();
-    assert!(compiled.validate().is_ok());
-
-    compiled = carrier_v4_fixture();
-    compiled.animation_channels = (0..MAX_ENTITY_ANIMATION_CHANNELS)
-        .map(|index| EntityAnimationChannel {
-            bone_name: None,
-            first_keyframe: u32::from(index != 0),
-            keyframe_count: u32::from(index == 0),
-            rotation_relative_to_entity: false,
-            ..compiled.animation_channels[0].clone()
-        })
-        .collect();
-    compiled.animation_clips[0].channel_count = MAX_ENTITY_ANIMATION_CHANNELS as u32;
-    assert!(compiled.validate().is_ok());
-
-    compiled = carrier_v4_fixture();
-    compiled.animation_keyframes =
-        vec![compiled.animation_keyframes[0]; MAX_ENTITY_ANIMATION_KEYFRAMES].into_boxed_slice();
-    compiled.animation_channels[0].keyframe_count = MAX_ENTITY_ANIMATION_KEYFRAMES as u32;
-    assert!(compiled.validate().is_ok());
-
-    compiled = carrier_v4_fixture();
     let state = compiled.controller_states[0];
     compiled.controller_states = (0..MAX_ENTITY_CONTROLLERS)
         .map(|index| EntityControllerState {
@@ -846,6 +819,8 @@ fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
         .into_boxed_slice();
     assert!(compiled.validate().is_ok());
 
+    // Per-controller and per-state counts are u16, so the totals spread over several owners.
+    let per_owner = usize::from(u16::MAX);
     compiled = carrier_v4_fixture();
     compiled.controller_states = (0..MAX_ENTITY_CONTROLLER_STATES)
         .map(|index| EntityControllerState {
@@ -856,14 +831,34 @@ fn carrier_v4_accepts_exact_animation_and_controller_bounds() {
             ..compiled.controller_states[0]
         })
         .collect();
-    compiled.controllers[0].state_count = MAX_ENTITY_CONTROLLER_STATES as u16;
+    compiled.controllers = (0..MAX_ENTITY_CONTROLLER_STATES)
+        .step_by(per_owner)
+        .map(|first| EntityAnimationController {
+            first_state: first as u32,
+            state_count: (MAX_ENTITY_CONTROLLER_STATES - first).min(per_owner) as u16,
+            ..compiled.controllers[0]
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
     assert!(compiled.validate().is_ok());
 
     compiled = carrier_v4_fixture();
     compiled.controller_transitions =
         vec![compiled.controller_transitions[0]; MAX_ENTITY_CONTROLLER_TRANSITIONS]
             .into_boxed_slice();
-    compiled.controller_states[0].transition_count = MAX_ENTITY_CONTROLLER_TRANSITIONS as u16;
+    let state = compiled.controller_states[0];
+    compiled.controller_states = (0..MAX_ENTITY_CONTROLLER_TRANSITIONS)
+        .step_by(per_owner)
+        .enumerate()
+        .map(|(index, first)| EntityControllerState {
+            first_animation: u32::from(index != 0),
+            animation_count: u16::from(index == 0),
+            first_transition: first as u32,
+            transition_count: (MAX_ENTITY_CONTROLLER_TRANSITIONS - first).min(per_owner) as u16,
+            ..state
+        })
+        .collect();
+    compiled.controllers[0].state_count = compiled.controller_states.len() as u16;
     assert!(compiled.validate().is_ok());
 }
 
@@ -886,25 +881,34 @@ fn carrier_v4_accepts_the_animation_channels_of_a_large_server_pack() {
 }
 
 #[test]
-fn carrier_v4_rejects_animation_and_controller_limits_plus_one() {
+fn carrier_v4_accepts_controllers_repeated_across_many_attachables() {
+    // Controllers compile once per owning entity and geometry: 1,024 attachables sharing eight
+    // armour controllers carry 8,192 of them, which once dropped the whole server entity pack.
+    const REPEATED_CONTROLLERS: usize = 1_024 * 8;
+    let mut compiled = carrier_v4_fixture();
+    let state = compiled.controller_states[0];
+    compiled.controller_states = (0..REPEATED_CONTROLLERS)
+        .map(|index| EntityControllerState {
+            first_animation: u32::from(index != 0),
+            animation_count: u16::from(index == 0),
+            first_transition: u32::from(index != 0),
+            transition_count: u16::from(index == 0),
+            ..state
+        })
+        .collect();
+    compiled.controllers = (0..REPEATED_CONTROLLERS)
+        .map(|index| EntityAnimationController {
+            first_state: index as u32,
+            ..compiled.controllers[0]
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    assert!(compiled.validate().is_ok());
+}
+
+#[test]
+fn carrier_v4_rejects_controller_limits_plus_one() {
     let mut cases = Vec::new();
-    let mut compiled = carrier_v4_fixture();
-    compiled.animation_clips =
-        vec![compiled.animation_clips[0]; MAX_ENTITY_ANIMATION_CLIPS + 1].into_boxed_slice();
-    cases.push(compiled);
-
-    let mut compiled = carrier_v4_fixture();
-    compiled.animation_channels =
-        vec![compiled.animation_channels[0].clone(); MAX_ENTITY_ANIMATION_CHANNELS + 1]
-            .into_boxed_slice();
-    cases.push(compiled);
-
-    let mut compiled = carrier_v4_fixture();
-    compiled.animation_keyframes =
-        vec![compiled.animation_keyframes[0]; MAX_ENTITY_ANIMATION_KEYFRAMES + 1]
-            .into_boxed_slice();
-    cases.push(compiled);
-
     let mut compiled = carrier_v4_fixture();
     compiled.controllers =
         vec![compiled.controllers[0]; MAX_ENTITY_CONTROLLERS + 1].into_boxed_slice();
@@ -945,18 +949,24 @@ fn carrier_v4_enforces_molang_and_rig_bounds_and_all_indices() {
     let mut compiled = carrier_v4_fixture();
     compiled.molang_ops = std::iter::once(compiled.molang_ops[0])
         .chain(
-            (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 2) / 2)
+            (0..(MAX_MOLANG_OPS_PER_EXPRESSION - 1) / 2)
                 .flat_map(|_| [compiled.molang_ops[0], MolangOp::Add]),
         )
-        .chain(std::iter::once(MolangOp::Negate))
+        .chain(std::iter::repeat_n(
+            MolangOp::Negate,
+            (MAX_MOLANG_OPS_PER_EXPRESSION - 1) % 2,
+        ))
         .collect();
-    compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16;
+    assert_eq!(compiled.molang_ops.len(), MAX_MOLANG_OPS_PER_EXPRESSION);
+    compiled.molang_expressions[0].op_count = u16::try_from(MAX_MOLANG_OPS_PER_EXPRESSION).unwrap();
     compiled.molang_expressions[0].max_stack = 2;
     assert!(compiled.validate().is_ok());
     compiled.molang_expressions[0].max_stack = MAX_MOLANG_STACK_DEPTH + 1;
     assert!(compiled.validate().is_err());
+    // The bound is the full width of the stored operation count, so no longer expression can
+    // be represented; a count past the stored operations is still rejected.
     compiled.molang_expressions[0].max_stack = 2;
-    compiled.molang_expressions[0].op_count = MAX_MOLANG_OPS_PER_EXPRESSION as u16 + 1;
+    compiled.molang_ops = compiled.molang_ops[1..].into();
     assert!(compiled.validate().is_err());
 
     let mut compiled = carrier_v4_fixture();
@@ -1116,5 +1126,19 @@ fn material_selection_graph_is_optional_and_validated() {
         no: 0,
     }]
     .into();
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn hide_held_items_validates_and_roundtrips_optional_expression() {
+    let mut compiled = carrier_v4_fixture();
+    let encoded = serde_json::to_value(compiled.rig_bindings[0]).unwrap();
+    assert!(encoded.get("hide_held_items").is_none());
+    let binding: EntityRigBinding = serde_json::from_value(encoded).unwrap();
+    assert_eq!(binding.hide_held_items, None);
+    compiled.rig_bindings[0].hide_held_items = Some(0);
+    let runtime = RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+    assert_eq!(runtime.rig_bindings()[0].hide_held_items, Some(0));
+    compiled.rig_bindings[0].hide_held_items = Some(compiled.molang_expressions.len() as u32);
     assert!(compiled.validate().is_err());
 }

@@ -171,6 +171,7 @@ pub(crate) fn support_requirement(
             _ => None,
         },
         R::Lantern => state_bit(states, P::Hanging.name()).map(u8::from),
+        R::FrogSpawn => Some(0),
         _ => {
             return match fact.survival {
                 S::Carpet | S::Door | S::Candle | S::SeaPickle | S::SnowLayer => {
@@ -223,11 +224,18 @@ pub(crate) fn support_acceptance(
             Some(true)
         } else if matches!(
             support.support,
-            SupportKind::Air | SupportKind::Water | SupportKind::Lava
+            SupportKind::Air | SupportKind::Water | SupportKind::WaterSource | SupportKind::Lava
         ) {
             Some(false)
         } else {
             None
+        };
+    }
+    if fact.placement == R::FrogSpawn {
+        return match support.support {
+            SupportKind::WaterSource => Some(true),
+            SupportKind::Air | SupportKind::Water => Some(false),
+            _ => None,
         };
     }
     if accepts_support(fact, support, full_cube) {
@@ -240,6 +248,7 @@ pub(crate) fn support_acceptance(
                 | SupportKind::PowderSnow
                 | SupportKind::Air
                 | SupportKind::Water
+                | SupportKind::WaterSource
                 | SupportKind::Lava
                 | SupportKind::Fire
         )

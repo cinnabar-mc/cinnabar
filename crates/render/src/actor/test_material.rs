@@ -74,6 +74,7 @@ impl TestMaterial {
             depth_equal: self.depth_equal,
             disable_alpha_write: self.disable_alpha_write,
             disable_color_write: self.disable_color_write,
+            masked_multitexture: false,
         }
         .definition()
     }

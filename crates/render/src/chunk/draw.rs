@@ -263,6 +263,19 @@ pub(in crate::chunk) fn queue_chunks(
         };
 
         if gpu_cull_view == Some(view_entity) {
+            let raster = gpu_culling.raster_enabled();
+            if raster {
+                lists.drawable(admit);
+                let sorted = refresh_indirect_batches(
+                    lists,
+                    &mut indirect_batch_sets,
+                    view_entity,
+                    view,
+                    enhanced.is_some(),
+                );
+                gpu_culling.set_raster_orders(lists.cull_orders(), &allocations);
+                retained.stats.cube_sorts += u64::from(sorted);
+            }
             // Retain CPU commands and their buffer offsets without queueing their draws.
             indirect_views.push(view_entity);
             let pipelines = [
@@ -272,7 +285,16 @@ pub(in crate::chunk) fn queue_chunks(
                 depth_liquid_pipeline_id,
             ];
             let early = gpu_cull::draw_function_ids(&draw_functions, false);
-            for (draw_function, pipeline) in early.into_iter().zip(pipelines) {
+            for (stream, (draw_function, pipeline)) in early.into_iter().zip(pipelines).enumerate()
+            {
+                if raster && stream != 0 {
+                    continue;
+                }
+                let pipeline = if raster {
+                    gpu_culling.raster_depth_pipeline(&pipeline_cache, pipeline)
+                } else {
+                    pipeline
+                };
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function,
@@ -306,36 +328,14 @@ pub(in crate::chunk) fn queue_chunks(
             if lists.drawable(admit).is_empty() {
                 continue;
             }
-            let requeue = !indirect_batch_sets.p0().0.contains_key(&view_entity);
-            let update = lists.indirect_lists(
-                view.world_from_view.to_matrix(),
-                &view.rangefinder3d(),
-                requeue,
+            let sorted = refresh_indirect_batches(
+                lists,
+                &mut indirect_batch_sets,
+                view_entity,
+                view,
+                enhanced.is_some(),
             );
-            retained.stats.cube_sorts += u64::from(update.sorted);
-            if let Some(visible) = update.visible {
-                indirect_batch_sets
-                    .p1()
-                    .0
-                    .insert(view_entity, ChunkIndirectBatch::new(visible.clone()));
-                indirect_batch_sets
-                    .p2()
-                    .0
-                    .insert(view_entity, ChunkIndirectBatch::new(visible));
-            }
-            if let Some(cubes) = update.cubes {
-                indirect_batch_sets
-                    .p0()
-                    .0
-                    .insert(view_entity, ChunkIndirectBatch::new(cubes.clone()));
-                indirect_batch_sets.p3().0.insert(
-                    view_entity,
-                    pipeline::solid::ChunkSolidIndirectBatch::new(cubes),
-                );
-            }
-            if let Some(solid) = indirect_batch_sets.p3().0.get_mut(&view_entity) {
-                solid.camera = pipeline::solid::solid_cull_camera(view, enhanced.is_some());
-            }
+            retained.stats.cube_sorts += u64::from(sorted);
             indirect_views.push(view_entity);
 
             phase.add(
@@ -545,6 +545,44 @@ pub(in crate::chunk) fn queue_chunks(
         }
     }
     retain_queued_indirect_views(&mut indirect_batch_sets, &indirect_views, &mut retained);
+}
+
+/// Refreshes retained CPU commands even when this frame draws through raster culling.
+fn refresh_indirect_batches(
+    lists: &mut pipeline::batches::ViewTerrainLists,
+    sets: &mut ParamSet<'_, '_, IndirectBatches>,
+    view_entity: Entity,
+    view: &ExtractedView,
+    enhanced: bool,
+) -> bool {
+    let requeue = !sets.p0().0.contains_key(&view_entity);
+    let update = lists.indirect_lists(
+        view.world_from_view.to_matrix(),
+        &view.rangefinder3d(),
+        requeue,
+    );
+    let sorted = update.sorted;
+    if let Some(visible) = update.visible {
+        sets.p1()
+            .0
+            .insert(view_entity, ChunkIndirectBatch::new(visible.clone()));
+        sets.p2()
+            .0
+            .insert(view_entity, ChunkIndirectBatch::new(visible));
+    }
+    if let Some(cubes) = update.cubes {
+        sets.p0()
+            .0
+            .insert(view_entity, ChunkIndirectBatch::new(cubes.clone()));
+        sets.p3().0.insert(
+            view_entity,
+            pipeline::solid::ChunkSolidIndirectBatch::new(cubes),
+        );
+    }
+    if let Some(solid) = sets.p3().0.get_mut(&view_entity) {
+        solid.camera = pipeline::solid::solid_cull_camera(view, enhanced);
+    }
+    sorted
 }
 
 /// Drops the indirect batches of views not in `views`, so the next prepare lays the rest out again.

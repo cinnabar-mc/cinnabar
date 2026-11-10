@@ -807,3 +807,369 @@ fn material_merges_match_declarations_by_name_across_large_files() {
     }
     assert_eq!(merged["new"], json!({"upper": "new"}));
 }
+
+#[test]
+fn declared_entity_images_use_pack_relative_paths_with_base_definitions() {
+    macro_rules! source {
+        ($path:literal) => {
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/localserver/testdata/player-preview-layers/",
+                $path
+            ))
+            .as_slice()
+        };
+    }
+    for image in [
+        "artwork/ui/stripes",
+        "models/ui/stripes",
+        "models/entity/stripes",
+        "attachables/ui/stripes",
+    ] {
+        let image_file = format!("{image}.png");
+        let mut entity: serde_json::Value =
+            serde_json::from_slice(source!("entity/player.json")).unwrap();
+        let description = &mut entity["minecraft:client_entity"]["description"];
+        description["geometry"]["default"] = json!("geometry.fixture.avatar");
+        description["textures"]["panel"] = json!(image);
+        description["render_controllers"][0] = json!("controller.render.fixture.avatar");
+        let mut geometry: serde_json::Value =
+            serde_json::from_slice(source!("models/entity/preview.geo.json")).unwrap();
+        let mut avatar = geometry["minecraft:geometry"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
+        avatar["description"]["identifier"] = json!("geometry.fixture.avatar");
+        let mut controllers: serde_json::Value =
+            serde_json::from_slice(source!("render_controllers/preview.json")).unwrap();
+        let body = controllers["render_controllers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("controller.render.preview.body")
+            .unwrap();
+        controllers["render_controllers"]["controller.render.preview.panel"]["textures"] =
+            json!(["Texture.panel"]);
+        let mut vanilla = assets::VanillaEntityRefs::new();
+        vanilla
+            .render_controllers
+            .insert("controller.render.fixture.avatar".into(), body);
+        vanilla
+            .geometry_index
+            .insert("geometry.fixture.avatar".into(), 0);
+        vanilla.geometry_files.push(assets::VanillaGeometryFile {
+            path: "models/entity/avatar.json".into(),
+            text: json!({"format_version":"1.12.0","minecraft:geometry":[avatar]}).to_string(),
+        });
+        let files = [
+            ("entity/player.json", serde_json::to_vec(&entity).unwrap()),
+            (
+                "models/entity/panel.json",
+                serde_json::to_vec(&geometry).unwrap(),
+            ),
+            (
+                "render_controllers/panel.json",
+                serde_json::to_vec(&controllers).unwrap(),
+            ),
+            (
+                "animations/preview.json",
+                source!("animations/preview.json").to_vec(),
+            ),
+            (
+                "textures/entity/preview_layers.png",
+                source!("textures/entity/preview_layers.png").to_vec(),
+            ),
+            (
+                image_file.as_str(),
+                source!("textures/entity/preview_layers.png").to_vec(),
+            ),
+        ];
+        let borrowed = files
+            .iter()
+            .map(|(path, bytes)| (*path, bytes.as_slice()))
+            .collect::<Vec<_>>();
+        let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&borrowed));
+        let collected = super::collect_files(&view, Some(&vanilla), None);
+        assert!(
+            collected
+                .iter()
+                .any(|(path, _)| path.as_ref() == image_file),
+            "a declared image must not require the conventional texture directory"
+        );
+        let compiled = pack_entity_compiler::compile_actor_pack(collected)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            compiled.entities.rig_bindings.len(),
+            1,
+            "partial entity resolves its base geometry and renderer"
+        );
+        assert_eq!(compiled.entities.render.layers.len(), 2);
+        assert!(compiled.textures.iter().any(|texture| {
+            compiled.entities.sources[texture.source as usize]
+                .path
+                .as_ref()
+                == image_file
+        }));
+        assert!(!compiled.bindings.is_empty());
+    }
+}
+
+#[test]
+fn declared_entity_image_paths_stay_inside_the_resource_root() {
+    for path in [
+        "../image",
+        "/image",
+        "folder/../image",
+        "folder//image",
+        "C:/image",
+        "folder\\image",
+        "",
+    ] {
+        assert!(super::declared_texture_stem(path).is_none(), "{path}");
+    }
+    assert_eq!(
+        super::declared_texture_stem("artwork/ui/image.tga"),
+        Some("artwork/ui/image".into())
+    );
+}
+
+#[test]
+fn inert_vanilla_entity_overrides_keep_the_vanilla_animations() {
+    let vanilla = tempfile::tempdir().unwrap();
+    std::fs::create_dir(vanilla.path().join("entity")).unwrap();
+    std::fs::write(
+        vanilla.path().join("entity/player.entity.json"),
+        json!({
+            "format_version": "1.10.0",
+            "minecraft:client_entity": {"description": {
+                "identifier": "minecraft:player",
+                "geometry": {"default": "geometry.humanoid.custom", "cape": "geometry.cape"},
+                "scripts": {"animate": ["root"]},
+                "animations": {"root": "controller.animation.player.root"}
+            }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let emote = json!({
+        "format_version": "1.8.0",
+        "minecraft:client_entity": {"description": {
+            "identifier": "minecraft:player",
+            "geometry": {"default": "geometry.server"},
+            "animations": {"emote": "animation.server.emote"}
+        }}
+    })
+    .to_string();
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+        "entity/player.entity.json",
+        emote.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(vanilla.path()));
+    let (_, bytes) = files
+        .iter()
+        .find(|(path, _)| path.as_ref() == "entity/player.entity.json")
+        .unwrap();
+    let description: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let description = &description["minecraft:client_entity"]["description"];
+    assert_eq!(description["scripts"]["animate"], json!(["root"]));
+    assert_eq!(
+        description["animations"],
+        json!({"root": "controller.animation.player.root", "emote": "animation.server.emote"})
+    );
+    assert_eq!(
+        description["geometry"],
+        json!({"default": "geometry.server", "cape": "geometry.cape"})
+    );
+
+    // Without an installed vanilla source the inert override is dropped, keeping the compiled
+    // vanilla definition.
+    let sourceless = tempfile::tempdir().unwrap();
+    let files = super::collect_files(&view, None, Some(sourceless.path()));
+    assert!(
+        !files
+            .iter()
+            .any(|(path, _)| path.as_ref() == "entity/player.entity.json")
+    );
+
+    // A server definition with its own animate list stays a complete replacement.
+    let complete = json!({
+        "minecraft:client_entity": {"description": {
+            "identifier": "minecraft:player",
+            "scripts": {"animate": ["emote"]},
+            "animations": {"emote": "animation.server.emote"}
+        }}
+    })
+    .to_string();
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+        "entity/player.entity.json",
+        complete.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(vanilla.path()));
+    let (_, bytes) = files
+        .iter()
+        .find(|(path, _)| path.as_ref() == "entity/player.entity.json")
+        .unwrap();
+    let description: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert!(description["minecraft:client_entity"]["description"]["animations"]["root"].is_null());
+}
+
+#[test]
+fn legacy_controller_overrides_remain_animated_complete_replacements() {
+    let vanilla = tempfile::tempdir().unwrap();
+    std::fs::create_dir(vanilla.path().join("entity")).unwrap();
+    std::fs::write(
+        vanilla.path().join("entity/player.entity.json"),
+        json!({
+            "format_version": "1.10.0",
+            "minecraft:client_entity": {"description": {
+                "identifier": "minecraft:player",
+                "scripts": {"animate": ["base"]},
+                "animations": {"base": "animation.fixture.base"}
+            }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut replacement = json!({
+        "format_version": "1.8.0",
+        "minecraft:client_entity": {"description": {
+            "identifier": "minecraft:player",
+            "geometry": {"default": "geometry.fixture.replacement"},
+            "animations": {"move": "animation.fixture.move"},
+            "animation_controllers": [{"move": "controller.animation.fixture.move"}]
+        }}
+    });
+    let source = replacement.to_string();
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
+        "entity/player.entity.json",
+        source.as_bytes(),
+    )]));
+    for root in [None, Some(vanilla.path())] {
+        let files = super::collect_files(&view, None, root);
+        let (_, bytes) = files
+            .iter()
+            .find(|(path, _)| path.as_ref() == "entity/player.entity.json")
+            .expect("an active legacy replacement must survive collection");
+        let collected: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        assert_eq!(collected, replacement);
+        assert!(pack_entity_compiler::has_entity_animation_roots(&collected));
+    }
+
+    replacement["format_version"] = json!("1.10.0");
+    let source = replacement.to_string();
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
+        "entity/player.entity.json",
+        source.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(vanilla.path()));
+    let (_, bytes) = files
+        .iter()
+        .find(|(path, _)| path.as_ref() == "entity/player.entity.json")
+        .unwrap();
+    let collected: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert_eq!(
+        collected["minecraft:client_entity"]["description"]["scripts"]["animate"],
+        json!(["base"]),
+        "modern schemas do not activate the legacy controller list"
+    );
+}
+
+#[test]
+fn inert_overrides_find_installed_entities_by_identifier_and_compatible_version() {
+    let vanilla = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(vanilla.path().join("entity/nested")).unwrap();
+    for (path, identifier, minimum, animation) in [
+        (
+            "entity/experience_orb.entity.json",
+            "minecraft:xp_orb",
+            json!(null),
+            "orb",
+        ),
+        (
+            "entity/experience_bottle.entity.json",
+            "minecraft:xp_bottle",
+            json!(null),
+            "bottle",
+        ),
+        (
+            "entity/horse_v1.entity.json",
+            "minecraft:horse",
+            json!(null),
+            "old",
+        ),
+        (
+            "entity/nested/horse_v2.entity.json",
+            "minecraft:horse",
+            json!([1, 17, 10]),
+            "current",
+        ),
+        (
+            "entity/horse_v3.entity.json",
+            "minecraft:horse",
+            json!("99.0.0"),
+            "future",
+        ),
+    ] {
+        std::fs::write(
+            vanilla.path().join(path),
+            json!({
+                "format_version": "1.10.0",
+                "minecraft:client_entity": {"description": {
+                    "identifier": identifier,
+                    "min_engine_version": minimum,
+                    "scripts": {"animate": ["base"]},
+                    "animations": {"base": format!("animation.fixture.{animation}")},
+                    "geometry": {"default": "geometry.fixture.base"},
+                    "textures": {"default": "textures/fixture/base"}
+                }}
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+    for (ceiling, horse_animation) in [(json!([1, 20, 0]), "current"), (json!([1, 0, 0]), "old")] {
+        std::fs::write(
+            vanilla.path().join("manifest.json"),
+            json!({"header": {"min_engine_version": ceiling}}).to_string(),
+        )
+        .unwrap();
+        let overrides = ["xp_orb", "xp_bottle", "horse"].map(|name| {
+            (
+                format!("entity/server_{name}.json"),
+                json!({"format_version": "1.10.0", "minecraft:client_entity": {"description": {
+                    "identifier": format!("minecraft:{name}"),
+                    "geometry": {"default": "geometry.fixture.server"},
+                    "textures": {"default": "textures/fixture/server"}
+                }}})
+                .to_string(),
+            )
+        });
+        let sources = overrides
+            .iter()
+            .map(|(path, source)| (path.as_str(), source.as_bytes()))
+            .collect::<Vec<_>>();
+        let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&sources));
+        let files = super::collect_files(&view, None, Some(vanilla.path()));
+        for ((path, _), animation) in overrides.iter().zip(["orb", "bottle", horse_animation]) {
+            let (_, bytes) = files
+                .iter()
+                .find(|(candidate, _)| candidate.as_ref() == path)
+                .expect("the installed identifier must supply the base definition");
+            let collected: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            let description = &collected["minecraft:client_entity"]["description"];
+            assert_eq!(description["scripts"]["animate"], json!(["base"]));
+            assert_eq!(
+                description["animations"]["base"],
+                format!("animation.fixture.{animation}")
+            );
+            assert_eq!(
+                description["geometry"]["default"],
+                "geometry.fixture.server"
+            );
+            assert_eq!(
+                description["textures"]["default"],
+                "textures/fixture/server"
+            );
+        }
+    }
+}

@@ -68,7 +68,8 @@ fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
 // material's exponent before vertex interpolation. Zero encoding keeps the default exponent 1.
 fn material_ao_shade(ao_face: f32, flags: u32) -> f32 {
     let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    if (encoded == 0u) { return ao_face; }
+    // Fixed-colour materials use these bits for redstone power.
+    if ((flags & MATERIAL_STEM_FLAG) != 0u || encoded == 0u) { return ao_face; }
     return pow(ao_face, f32(encoded) / MATERIAL_LEAF_AO_EXPONENT_SCALE);
 }
 

@@ -39,6 +39,7 @@ pub mod skybox;
 pub mod startup_presentation;
 pub mod startup_timing;
 pub mod terrain_culling;
+pub mod terrain_markers;
 pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
@@ -103,14 +104,14 @@ pub use cloud_config::{
     CloudMatchingView, CloudRenderConfig, adjusted_cloud_distance_blocks,
     adjusted_player_render_distance_blocks,
 };
-pub use cloud_visibility::CloudVisibility;
+pub use cloud_visibility::{CloudDistanceChunks, CloudVisibility};
 pub use dropped_item::DroppedItemScene;
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
 pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
 pub use gpu_times::GpuFrameTimes;
 pub use hand_rig::HandRigScene;
-pub use lighting::{WorldFullbright, WorldLighting};
+pub use lighting::{WorldFullbright, WorldLighting, WorldPointLight, WorldPointLightSource};
 pub use lightning::{
     BoltRecord, BoltSegment, LIGHTNING_FLASH_SECONDS, LIGHTNING_HEIGHT, LightningScene,
     MAX_BOLT_RECORDS, MAX_LIGHTNING_BOLTS, lightning_bolt_segments, lightning_flash_level,
@@ -125,7 +126,7 @@ pub use nametag::NametagSceneResource;
 pub use panorama::PanoramaScene;
 pub use particles::{ParticleGpuFrame, ParticleSimulation, particle_view, update_particle_frame};
 pub use primitive_shapes::PrimitiveShapesScene;
-pub use readiness::PipelineWarmupReadiness;
+pub use readiness::{PipelineWarmupReadiness, SampleCountPreflight, SampleCountRequest};
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
@@ -138,6 +139,7 @@ pub use screen_overlay::{
 };
 pub use skybox::SkyboxSettings;
 pub use terrain_culling::ChunkOcclusionCulling;
+pub use terrain_markers::TerrainMarkerLayers;
 pub use ui::{UiRenderSceneResource, UiRenderStatsResource};
 pub use ui_glint::{UiGlintSettings, UiItemGlintTexture};
 pub use viewmodel::{

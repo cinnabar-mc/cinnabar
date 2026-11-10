@@ -30,7 +30,7 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
         game_mode: GameMode::Survival,
         generator: Generator::Flat,
         difficulty: Difficulty::Normal,
-        backend: Backend::Dragonfly,
+        backend: Backend::LegacyDragonfly,
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
@@ -39,6 +39,10 @@ fn storage_world_delete_uses_catalog_identity_and_returns_to_settings() {
     }]));
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
     menu.activate(MenuAction::SettingsSection(SECTION_INDEX));
+    test_time::eventually("storage inventory", || {
+        menu.poll_storage();
+        !menu.view().storage.loading
+    });
     menu.sync_local_worlds(&mut worlds, false);
     assert_eq!(menu.view().storage.worlds[0].name, "My Saved World");
     menu.activate(MenuAction::SettingsStorage(StorageAction::SelectWorld(0)));

@@ -552,8 +552,11 @@ fn build_translation(
         let mut programs = Vec::with_capacity(all.len());
         // Per geometry program: its pipeline layout, vertex module and fragment stage.
         let mut geometry_stages = vec![];
-        for (program, reflection) in all.iter().zip(&reflections) {
+        // Programs, geometry draws, then the host pipelines: the loading toast counts each.
+        let steps = all.len() + selected_draws.len() + 1;
+        for (built, (program, reflection)) in all.iter().zip(&reflections).enumerate() {
             check_cancelled(progress)?;
+            progress.record_built(built, steps);
             let bindings = resolve_bindings(
                 &mut constants,
                 program.program.group,
@@ -592,7 +595,15 @@ fn build_translation(
                 .stages
                 .iter()
                 .filter_map(|s| s.result.as_ref().ok())
-                .map(|c| (c.stage, c.module.clone()))
+                .map(|c| {
+                    let mut module = c.module.clone();
+                    if c.stage == StageKind::Vertex
+                        && program.program.group == ProgramGroup::Gbuffers
+                    {
+                        super::depth_prepass::invariant_position(&mut module);
+                    }
+                    (c.stage, module)
+                })
                 .collect();
             let modules = shader_modules(&gpu.device, &program.program.name, &stages);
             if matches!(
@@ -764,8 +775,8 @@ fn build_translation(
             });
         }
         let shadow_slots = constants.shadow_slots();
-        check_cancelled(progress)?;
         let mut geometry_failures = vec![];
+        progress.record_built(all.len(), steps);
         let draws = geometry_draws(
             gpu,
             pipeline_cache.as_ref().map(|c| &c.cache),
@@ -776,8 +787,9 @@ fn build_translation(
             &effects,
             &buffer_formats,
             &shadow_slots,
+            progress,
             &mut geometry_failures,
-        );
+        )?;
         // `shadowtex0` can be the attachment itself unless a shadow program samples it while
         // the pass draws.
         let shadowtex0 = shadow_slots.depth[0]
@@ -826,6 +838,7 @@ fn build_translation(
                 .map(|program| (program.group, program.fullscreen_uniforms())),
             &custom_uniforms,
         );
+        progress.record_built(all.len() + selected_draws.len(), steps);
         let host = host_pipelines(
             &gpu.device,
             &buffer_formats,

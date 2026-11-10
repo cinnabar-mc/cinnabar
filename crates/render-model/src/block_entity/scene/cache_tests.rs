@@ -551,7 +551,8 @@ fn lobby_block_entity_frame_cost() {
                                 pattern: "stripe_bottom",
                                 color: [0.9, 0.1, 0.1],
                             },
-                        ],
+                        ]
+                        .into(),
                     }),
                 });
             }
@@ -677,7 +678,7 @@ fn live_chest_artwork_reload_keeps_every_cached_sign_visible() {
             },
         )
         .unwrap();
-        scene.reload_assets(&replacement);
+        assert!(scene.reload_assets(&replacement));
         assert_eq!(scene.atlas().unwrap().text_pages(), pages);
         let shift = scene.atlas().unwrap().static_height() as f32
             - before.atlas.as_ref().unwrap().static_height as f32;
@@ -848,7 +849,7 @@ fn artwork_publication_shares_prepared_static_pixels() {
         scene.atlas().unwrap().identity(),
         prepared.atlas().identity()
     );
-    scene.reload_prepared_assets(&prepared);
+    assert!(scene.reload_prepared_assets(&prepared));
     assert!(Arc::ptr_eq(
         prepared.atlas().static_rgba8(),
         scene.atlas().unwrap().static_rgba8()

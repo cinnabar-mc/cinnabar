@@ -7,7 +7,7 @@ publish = false
 
 [package.metadata.cinnabar]
 platform-specific = ["windows"]
-reads = ["assets/bedrock-target.json", "assets/vanilla-source.json", "crates/assets/data/*", "crates/protocol/data/retail_items_1_26_50.tsv"]
+reads = ["assets/bedrock-target.json", "assets/vanilla-source.json", "crates/assets/data/*", "crates/protocol/data/retail_items_1_26_60.tsv"]
 
 [dependencies]
 pack-compile-input = { path = "../input" }

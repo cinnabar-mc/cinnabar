@@ -566,12 +566,13 @@ fn raster_batch_in_scene(
             label: Some("actor fixture binding contract"),
             entries: &entries,
         });
+    let point_light_layout = gpu.point_light_layout();
     let state = gpu_snapshot::RasterState {
         layout: Some(
             gpu.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("actor fixture pipeline"),
-                    bind_group_layouts: &[Some(&layout)],
+                    bind_group_layouts: &[Some(&layout), Some(&point_light_layout)],
                     ..Default::default()
                 }),
         ),

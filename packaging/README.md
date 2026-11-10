@@ -1,8 +1,8 @@
 # Packaging
 
-Release installers ship the client, the Go core, the dragonfly local-world server and its
-`cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
-carriers. A packaged launch whose carriers are missing or stale runs
+Release installers ship the client, the Go core, the `cinnabar-cxb` verifier, the shader-pack
+compiler, the Cinnangles Sans font and a prep kit, never Mojang-derived carriers. A packaged
+launch whose carriers are missing or stale runs
 `crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
 window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
@@ -10,7 +10,11 @@ carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). 
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
 pack archive and extracted resource versions are kept so carrier-only updates skip downloading
 and unpacking cached resources, even when the archive was removed. Extracted caches are bound to
-the pinned archive's SHA-256, independently of the Cinnabar version. Status: `logs/first-run-status.json`;
+the pinned archive's SHA-256, independently of the Cinnabar version. On macOS and extracted Linux
+AppDirs the running client builds a staged update's carriers at the lowest priority into
+`prepare/next/` (log: `logs/first-run-next.log`), which the update's first launch promotes when
+current; a new pack pin, an unfinished build or a Windows MSI update prepares at launch instead,
+resuming any partial set. Status: `logs/first-run-status.json`;
 details: `logs/first-run.log`. Every launch logs to `logs/client.log`, including stderr and panics
 whether or not a terminal is attached. Each launch archives the previous session as
 `client-<UTC yyyymmdd-hhmmss>.log` (and `first-run.log` likewise); a session past 8 MiB continues
@@ -21,6 +25,7 @@ in a fresh file, and the newest 10 archives up to 64 MiB are kept.
 | macOS `.app` + DMG | `make package-macos` | `CODESIGN_IDENTITY`, `NOTARY_PROFILE` or `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_APP_PASSWORD` |
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
+| Linux Flatpak (x86-64) | See [Flatpak](flatpak/README.md) | none |
 
 All native builds include the local mod host and Settings › Mods. Release targets use
 `--no-default-features` to exclude the acceptance harness. Developer defaults stay enabled for `make play`, live
@@ -91,7 +96,8 @@ shaders with it instead of the much slower FXC. `packaging/windows/fetch-dxc.ps1
 release that `packaging/windows/dxc.json` pins, caches it under `.local/downloads`, and installs the
 library only when both the archive and the library match their pinned SHA-256; `make play` runs it
 for development builds. The client uses only that copy and falls back to FXC, logging why, when it
-is missing or fails to load. `WGPU_DX12_COMPILER=fxc` also selects FXC.
+is missing or fails to load. Intel drivers older than the `24.x` branch, which lose the device on
+DXC's output, and `WGPU_DX12_COMPILER=fxc` also select FXC.
 
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
@@ -128,7 +134,7 @@ device requirements and installation.
 
 `packaging/release-assets.json` is the canonical list of downloadable release artifacts and
 their repository. `assets` lists desktop updater platforms; `manual_assets` lists downloads such
-as Android APKs that are installed separately and have no desktop update payload or symbol archive.
+as Android APKs and iOS IPAs that are installed separately and have no desktop update payload or symbol archive.
 Publication requires every platform installer, every desktop platform's symbol archive
 and the generated Linux install script before writing checksums for the native downloads. A new tagged Beta release
 stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep
@@ -167,8 +173,8 @@ Installers ship only the stripped binaries: packagers stage binaries by name and
 rejects any other file. Each package job zips its Rust binaries with their debug files and a
 `manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
-the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
-print symbolized tracebacks themselves and have no symbol files. Android release APKs use the
+the release carries it beside the installers. The Go core (`bedrock-core`)
+prints symbolized tracebacks itself and have no symbol files. Android release APKs use the
 `release` profile with split debug info disabled and have no symbol archive; the separate Android
 CI workflow uses `play`. Releasing an older source branch without debug info publishes no archives
 when run without those overrides, with a workflow warning; `release-symbols.py has-symbols` checks

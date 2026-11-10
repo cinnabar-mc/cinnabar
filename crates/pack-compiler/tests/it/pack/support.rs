@@ -113,7 +113,7 @@ pub fn record(name: &str, canonical_state: &str) -> RegistryRecord {
     }
 }
 
-pub fn assert_key(actual: TextureKey, expected_key: &str, rotate_uv: bool) {
+pub fn assert_key(actual: TextureKey, expected_key: &str, uv_rotation: u32) {
     assert_eq!(actual.key.as_deref(), Some(expected_key));
-    assert_eq!(actual.rotate_uv, rotate_uv);
+    assert_eq!(actual.uv_rotation, uv_rotation, "{expected_key}");
 }

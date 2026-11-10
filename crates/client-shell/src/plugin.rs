@@ -60,6 +60,8 @@ impl Plugin for ClientShellPlugin {
                 menu::screen_focus::publish_gameplay_screen_controls
                     .in_set(ShellFrameSet::GameplayControls),
             );
+        crate::mobile_input::configure(app);
         crate::discord_presence::configure(app);
+        fullscreen::recovery::configure(app);
     }
 }

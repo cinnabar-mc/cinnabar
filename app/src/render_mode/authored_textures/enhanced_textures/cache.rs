@@ -203,7 +203,7 @@ fn array(input: &mut impl Read, remaining: &mut u64) -> Option<TextureArray> {
     }
     Some(TextureArray {
         layers,
-        mips: mips.into_boxed_slice(),
+        mips: mips.into(),
     })
 }
 
@@ -416,7 +416,7 @@ mod tests {
                     }
                 })
                 .collect::<Vec<_>>()
-                .into_boxed_slice(),
+                .into(),
         };
         Payload {
             color: std::array::from_fn(|page| array(16 + page as u8)),
@@ -491,10 +491,11 @@ mod tests {
     fn cached_material_references_keep_shared_carrier_surfaces_distinct() {
         let array = TextureArray {
             layers: 2,
-            mips: Box::new([TextureMip {
+            mips: [TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let payload = Payload {
             color: [array.clone(), array.clone()],

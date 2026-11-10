@@ -135,10 +135,6 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         fs::canonicalize(&link).expect("link"),
         fs::canonicalize(world_dir.join(LEVEL_DIR)).expect("world data")
     );
-    assert!(!instance.can_pause(), "BDS cannot pause");
-    instance
-        .set_paused(true)
-        .expect("pausing is a harmless no-op");
     assert_eq!(instance.max_players(), Some(HOSTED_WORLD_MAX_PLAYERS));
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     assert!(instance.exited_cleanly());
@@ -288,6 +284,50 @@ fn a_failed_start_removes_the_world_link() {
     assert!(
         fs::symlink_metadata(link).is_err(),
         "the link outlived the failed start"
+    );
+}
+
+/// A real folder left at the link path, which BDS can write there, must not block the world.
+#[test]
+fn an_occupied_link_path_is_moved_aside_with_its_data() {
+    let dir = scratch();
+    let target = dir.path().join("world").join(LEVEL_DIR);
+    fs::create_dir_all(&target).expect("world folder");
+    fs::write(target.join("level.dat"), b"world").expect("world data");
+    let link = dir.path().join("install").join("worlds").join("id");
+    fs::create_dir_all(&link).expect("occupying folder");
+    fs::write(link.join("level.dat"), b"occupant").expect("occupying data");
+
+    link_world(&link, &target).expect("link over the occupant");
+
+    assert_eq!(fs::read(link.join("level.dat")).expect("linked"), b"world");
+    assert_eq!(
+        fs::read(dir.path().join("world/displaced-1/level.dat")).expect("kept"),
+        b"occupant"
+    );
+}
+
+/// A plain file at the link path moves aside too, and repeats keep earlier leftovers.
+#[test]
+fn repeated_occupants_each_keep_their_own_displaced_entry() {
+    let dir = scratch();
+    let target = dir.path().join("world").join(LEVEL_DIR);
+    fs::create_dir_all(&target).expect("world folder");
+    let link = dir.path().join("install").join("worlds").join("id");
+    fs::create_dir_all(link.parent().expect("worlds")).expect("worlds folder");
+
+    for (occupant, displaced) in [("first", "displaced-1"), ("second", "displaced-2")] {
+        unlink_world(&link);
+        fs::write(&link, occupant).expect("occupying file");
+        link_world(&link, &target).expect("link over the file");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("world").join(displaced)).expect("kept"),
+            occupant
+        );
+    }
+    assert_eq!(
+        fs::canonicalize(&link).expect("linked"),
+        fs::canonicalize(&target).expect("world")
     );
 }
 

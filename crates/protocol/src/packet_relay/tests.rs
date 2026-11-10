@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex as StdMutex, PoisonError};
 
-use bedrock_protocol_1_26_51::packets::{self, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, SetTime};
+use bedrock_protocol_1_26_60::wire;
 use tokio::io::AsyncReadExt;
 
 use super::*;
@@ -224,7 +224,7 @@ async fn taps_record_relay_replacements_and_detached_writes_once() {
             crate::session_transport::MAX_SESSION_BATCH_BYTES,
         )
         .unwrap()
-        .pop()
+        .next()
         .unwrap();
         TapEvent::Record(direction, packet.id as u32, packet.body().to_vec())
     };

@@ -431,6 +431,7 @@ const ALPHA_TEST: &str = "ALPHA_TEST";
 const EMISSIVE: &str = "USE_EMISSIVE";
 const COLOR_MASK: &str = "USE_COLOR_MASK";
 const MULTITEXTURE: &str = "USE_MULTITEXTURE";
+const MASKED_MULTITEXTURE: &str = "MASKED_MULTITEXTURE";
 
 /// Native material bases the client ships outside resource packs, as the states, defines and
 /// colour blend pair each declares. The generated native table wins over the base names below.
@@ -457,6 +458,10 @@ fn builtin(name: &str) -> Option<Resolved> {
         "entity_static" => (&[], &[]),
         "entity_nocull" => (&[State::DisableCulling], &[OVERLAY]),
         "entity_alphatest_one_sided" => (&[], &[ALPHA_TEST, OVERLAY]),
+        "entity_multitexture_masked" => (
+            &[State::DisableCulling],
+            &[ALPHA_TEST, MASKED_MULTITEXTURE, OVERLAY],
+        ),
         "entity_emissive" => (&[], &[EMISSIVE, OVERLAY]),
         "entity_emissive_alpha" => (&[State::DisableCulling], &[EMISSIVE, ALPHA_TEST, OVERLAY]),
         "entity_emissive_alpha_one_sided" => (&[], &[EMISSIVE, ALPHA_TEST, OVERLAY]),
@@ -500,6 +505,7 @@ fn shading(resolved: &Resolved) -> EntityRenderMaterialState {
         disable_overlay: !resolved.defines.contains(OVERLAY),
         color_mask: resolved.defines.contains(COLOR_MASK),
         multitexture: resolved.defines.contains(MULTITEXTURE),
+        masked_multitexture: resolved.defines.contains(MASKED_MULTITEXTURE),
     }
 }
 

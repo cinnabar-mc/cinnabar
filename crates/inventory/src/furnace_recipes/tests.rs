@@ -675,11 +675,7 @@ fn furnace_content_and_slots_follow_the_open_window_instead_of_packet_names() {
                     },
                 ));
                 assert_eq!(
-                    inventory
-                        .ledger()
-                        .storage_stack(slot as u8)
-                        .unwrap()
-                        .network_id,
+                    inventory.ledger().storage_stack(slot).unwrap().network_id,
                     4
                 );
             }

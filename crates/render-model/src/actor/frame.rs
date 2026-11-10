@@ -104,9 +104,27 @@ pub struct ActorRigSubmission {
     pub light: u32,
 }
 
+impl ActorRigSubmission {
+    /// The largest model axis scale used to grow this submission's culling box.
+    #[must_use]
+    pub fn culling_scale(&self) -> f32 {
+        (0..3)
+            .map(|axis| {
+                Vec3::new(
+                    self.world_from_actor[0][axis],
+                    self.world_from_actor[1][axis],
+                    self.world_from_actor[2][axis],
+                )
+                .length()
+            })
+            .fold(1.0_f32, f32::max)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
-    /// Alpha weights leather dye independently of the page's other materials.
+    /// Alpha weights leather dye independently of the page's other materials. Authored
+    /// `USE_COLOR_MASK` states mask through their own state bit, outside legacy leather rules.
     pub color_mask: bool,
     /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
@@ -801,16 +819,7 @@ pub fn actor_rig_submission_is_visible(
     view: Option<ActorCullView>,
 ) -> bool {
     // The culling box grows with the instance's scale so scaled models are not cut early.
-    let scale = (0..3)
-        .map(|axis| {
-            Vec3::new(
-                submission.world_from_actor[0][axis],
-                submission.world_from_actor[1][axis],
-                submission.world_from_actor[2][axis],
-            )
-            .length()
-        })
-        .fold(1.0_f32, f32::max);
+    let scale = submission.culling_scale();
     let feet = submission.world_from_actor.map(|row| row[3]);
     actor_bounds_are_visible(feet, scale, submission.culling_bounds, view)
 }

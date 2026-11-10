@@ -93,6 +93,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
                 reset: None,
                 cubes: Box::new([]),
                 texture_meshes: Box::new([]),
+                poly_mesh: None,
             }]
             .into_boxed_slice(),
         }]
@@ -172,6 +173,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
             scale: scalar(1.0),
             scale_expressions: None,
             held_item_scale: None,
+            hide_held_items: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {

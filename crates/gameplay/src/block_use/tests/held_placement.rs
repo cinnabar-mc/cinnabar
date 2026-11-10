@@ -29,7 +29,7 @@ fn step(
         .intention
         .target(hit, eye, endpoint, velocity, sneaking)
     else {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, false, clock);
         return None;
     };
     let mut around = surroundings("minecraft:stone", "minecraft:air");
@@ -88,7 +88,14 @@ fn step(
         sneaking,
         eye,
     );
-    runtime.record(trigger, due, tick, outcome, clock);
+    runtime.record(
+        trigger,
+        due,
+        tick,
+        outcome,
+        outcome == LocalUse::Interact,
+        clock,
+    );
     if outcome != LocalUse::Place {
         return None;
     }
@@ -480,6 +487,7 @@ fn held_cadence_uses_the_motion_of_the_previous_tick() {
         Duration::from_millis(1_000),
         1,
         LocalUse::Place,
+        false,
         clock(1_000),
     );
     assert_eq!(clock(0).speed, 5.0);

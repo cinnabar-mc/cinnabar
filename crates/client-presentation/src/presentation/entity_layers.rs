@@ -1,6 +1,8 @@
 //! Render-controller layers of entity bodies: the first replaces the body's default texture
 //! (and model, when its controller picks another), later layers draw after it.
-use std::{borrow::Cow, sync::Arc};
+#[cfg(any(test, feature = "test-support"))]
+use std::borrow::Cow;
+use std::sync::Arc;
 
 use bevy::platform::collections::HashMap;
 
@@ -194,12 +196,26 @@ fn resolve_layer(
         },
         model,
         ignore_lighting: layer.ignore_lighting,
-        location: if player_skin {
+        // A player wears its runtime skin for the default skin raster, and for any other
+        // texture the catalog did not build; a built controller texture is drawn as authored.
+        location: if player_skin && layer.runtime_skin {
             None
+        } else if player_skin {
+            artwork.source_location(layer.pack, layer.source)
         } else {
             Some(match layer.multitexture {
                 Some([second, third]) => artwork
-                    .multitexture_location(submission.input.rig, [layer.source, second, third])?,
+                    .multitexture_location(submission.input.rig, [layer.source, second, third])
+                    .or_else(|| {
+                        if layer
+                            .material_state
+                            .is_some_and(|state| state.masked_multitexture)
+                        {
+                            artwork.variant_location(submission.input.rig, layer.source)
+                        } else {
+                            None
+                        }
+                    })?,
                 None => artwork.variant_location(submission.input.rig, layer.source)?,
             })
         },
@@ -226,6 +242,11 @@ fn resolve(
             .filter_map(|layer| resolve_layer(submission, layer, artwork, cache, player_skin))
             .take(MAX_TEXTURE_LAYERS),
     );
+    // A player's body keeps its runtime skin, so player passes such as capes still admit it;
+    // catalog textures apply to its further controller layers.
+    if player_skin && let Some(body) = resolved.first_mut() {
+        body.location = None;
+    }
 }
 
 /// Admitted controller styling inherited by equipment without replacing attachment poses.
@@ -328,7 +349,15 @@ pub fn apply_render_layers<'a>(
 ) {
     apply_render_layers_cached(
         batch,
-        |id| rig_of(id).map(|rig| Cow::Borrowed(rig.render)),
+        |id| {
+            rig_of(id).map(|rig| actor_animation::ActorRenderLayers {
+                render: Cow::Borrowed(rig.render),
+                visibility: rig.visibility,
+                skin: Cow::Borrowed(rig.skin_layers),
+                held_item_scale: rig.held_item_scale,
+                head_rotation: None,
+            })
+        },
         artwork,
         &mut LayerPoseCache::default(),
     );
@@ -337,7 +366,7 @@ pub fn apply_render_layers<'a>(
 /// Applies sampled controllers to placed bodies, retaining runtime player skins and their poses.
 pub fn apply_render_layers_cached<'a>(
     batch: &mut ActorPresentationBatch,
-    mut layers_of: impl FnMut(u64) -> Option<Cow<'a, [RenderTextureLayer]>>,
+    mut layers_of: impl FnMut(u64) -> Option<actor_animation::ActorRenderLayers<'a>>,
     artwork: &ActorArtworkPages,
     cache: &mut LayerPoseCache,
 ) {
@@ -346,16 +375,23 @@ pub fn apply_render_layers_cached<'a>(
     for index in 0..batch.submissions.len() {
         let body = &batch.submissions[index];
         let identity = body.input.identity;
-        let Some(player_skin) = batch.body_render_skin(body) else {
+        if identity.layer != render_model::ACTOR_LAYER_BODY {
+            continue;
+        }
+        let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
-        let Some(layers) = layers_of(identity.runtime_id) else {
+        if layers.visibility.hides_body() {
+            batch.submissions[index].route = render_model::ActorRigRoute::NoDraw;
+            continue;
+        }
+        let Some(player_skin) = batch.body_render_skin(body) else {
             continue;
         };
         let pristine = body.clone();
         resolve(
             &pristine,
-            &layers,
+            &layers.render,
             artwork,
             cache,
             &mut resolved,
@@ -422,11 +458,21 @@ mod tests {
             ignore_lighting: false,
             light_color_multiplier: 1.0,
             sampled_scale: None,
+            runtime_skin: true,
+            pack: false,
         };
         let layers = [layer];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(Cow::Borrowed(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &ActorArtworkPages::default(),
             &mut LayerPoseCache::default(),
         );
@@ -443,6 +489,97 @@ mod tests {
                 .iter()
                 .all(|bone| bone.translation_scale[3] == 0.0)
         );
+    }
+
+    /// A player's body draws its own skin; a further controller layer naming a built catalog
+    /// texture, such as a pack's tracer, samples that texture instead.
+    #[test]
+    fn runtime_skin_bodies_draw_other_controller_textures_from_the_catalog() {
+        let presentation = super::super::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        let mut batch =
+            super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+        let layer = |runtime_skin: bool, source: u32| RenderTextureLayer {
+            render_state: None,
+            material: assets::EntityRenderMaterial::Default,
+            material_state: None,
+            source,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry: None,
+            previous_pose: Arc::from([]),
+            pose: Arc::from([]),
+            ignore_lighting: true,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin,
+            pack: true,
+        };
+        let artwork = ActorArtworkPages::default().with_pack_artwork(
+            &[assets::ActorTexture {
+                source: 23,
+                width: 2,
+                height: 2,
+                pixel_sha256: [1; 32],
+                rgba8: vec![255; 16].into(),
+            }],
+            &[],
+            &Default::default(),
+        );
+        let fresh = batch.submissions.clone();
+        let layers = [layer(true, 0), layer(false, 23)];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert_eq!(batch.submissions.len(), 2);
+        let [skin, tracer] = [&batch.submissions[0], &batch.submissions[1]];
+        assert!(!batch.artwork.contains_key(&skin.input.identity));
+        assert_eq!(
+            batch.artwork.get(&tracer.input.identity).copied(),
+            artwork.source_location(true, 23)
+        );
+        // The body itself keeps the runtime skin, so player passes such as capes admit it.
+        batch.submissions = fresh;
+        batch.artwork.clear();
+        let catalog_first = [layer(false, 23)];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&catalog_first),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert!(batch.artwork.is_empty());
     }
 
     #[test]
@@ -464,6 +601,8 @@ mod tests {
             ignore_lighting: false,
             light_color_multiplier: 1.0,
             sampled_scale: None,
+            runtime_skin: true,
+            pack: false,
         };
         for dissolve in [false, true] {
             let presentation = super::super::actors::local_diagnostic_presentation(
@@ -514,7 +653,15 @@ mod tests {
             assert_eq!(body.input.current_bones, original_bones);
             apply_render_layers_cached(
                 &mut batch,
-                |_| Some(Cow::Borrowed(&layers)),
+                |_| {
+                    Some(actor_animation::ActorRenderLayers {
+                        render: Cow::Borrowed(&layers),
+                        visibility: Default::default(),
+                        skin: Cow::Borrowed(&[]),
+                        held_item_scale: None,
+                        head_rotation: None,
+                    })
+                },
                 &artwork,
                 &mut cache,
             );
@@ -541,3 +688,7 @@ mod tests {
         assert_eq!(pack_layer_tint([1.0, 0.0, 0.0, 0.5]), 0x8000_00ff);
     }
 }
+
+#[cfg(test)]
+#[path = "entity_layers/visibility_tests.rs"]
+mod visibility_tests;

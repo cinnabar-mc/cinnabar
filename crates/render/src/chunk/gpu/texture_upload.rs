@@ -16,10 +16,11 @@ use render_scene::{
 fn neutral_pbr_layers() -> (TextureArray, TextureArray) {
     let [normal, material] = [[128, 128, 255, 128], [0, 0, 255, 0]].map(|rgba| TextureArray {
         layers: 1,
-        mips: Box::new([TextureMip {
+        mips: [TextureMip {
             size: 1,
             rgba8: Box::new(rgba),
-        }]),
+        }]
+        .into(),
     });
     (normal, material)
 }
@@ -707,10 +708,11 @@ mod tests {
         assert!(build_chunk_texture_assets(&carrier, &device, &queue).is_some());
         let array = TextureArray {
             layers: 2,
-            mips: Box::new([TextureMip {
+            mips: [TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let authored = Arc::new(
             EnhancedTextureAssets::new(
