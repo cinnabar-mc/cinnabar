@@ -1113,9 +1113,9 @@ fn material_instance_palette_fixture_keeps_every_packed_bit() {
         .flat_map(str::split_whitespace)
         .map(|byte| u8::from_str_radix(byte, 16).expect("fixture byte is hexadecimal"))
         .collect::<Vec<_>>();
-    let mut reader = bedrock_protocol_1_26_51::wire::Reader::new(&bytes);
+    let mut reader = bedrock_protocol_1_26_60::wire::Reader::new(&bytes);
     reader
-        .read_nbt(bedrock_protocol_1_26_51::wire::NbtVariant::Network)
+        .read_nbt(bedrock_protocol_1_26_60::wire::NbtVariant::Network)
         .expect("fixture is one network NBT value");
     reader
         .expect_consumed()
