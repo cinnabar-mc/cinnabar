@@ -101,8 +101,11 @@ pub(crate) struct Reused {
 pub(super) struct Placements {
     records: Memo<usize, Record>,
     generation: u64,
-    /// The view state, culling and geometry identity the records were made under.
+    /// The non-scroll view state, culling and geometry identity the records were made under.
+    /// Scroll state is captured in each control's inputs instead.
     view: Option<(ViewState, bool, crate::LayoutCacheKey)>,
+    /// Largest child-placement set inspected by the latest layout before culling.
+    widest_candidates: usize,
     /// Controls the last layout placed rather than spliced.
     placed: usize,
     /// Controls that follow a scroll view's state ([`super::scroll::pin`]), once found for
@@ -229,8 +232,8 @@ fn vacant_hit() -> HitRegion {
 }
 
 impl Placements {
-    /// Starts a layout; changes to the view, screen or coverage pixel invalidate every record,
-    /// as does a layout that will not `record` its own.
+    /// Starts a layout; non-scroll view state, culling or geometry changes invalidate every
+    /// record, as does a layout that will not `record` its own.
     pub(super) fn begin(
         &mut self,
         view: &ViewState,
@@ -238,27 +241,41 @@ impl Placements {
         layout: crate::LayoutCacheKey,
         record: bool,
     ) {
+        let mut view = view.clone();
+        view.scroll.clear();
+        view.scroll_state.clear();
         if !record
             || self
                 .view
                 .as_ref()
                 .is_none_or(|(last, culled, last_layout)| {
-                    last != view || *culled != cull || *last_layout != layout
+                    *last != view || *culled != cull || *last_layout != layout
                 })
         {
             *self = Self {
-                view: Some((view.clone(), cull, layout)),
+                view: Some((view, cull, layout)),
                 generation: self.generation,
                 ..Self::default()
             };
         }
         self.generation += 1;
         self.placed = 0;
+        self.widest_candidates = 0;
     }
 
     /// Controls the last layout placed rather than spliced.
     pub(super) fn placed_count(&self) -> usize {
         self.placed
+    }
+
+    /// Includes children rejected before they become placed controls.
+    pub(super) fn widest_candidate_count(&self) -> usize {
+        self.widest_candidates
+    }
+
+    /// Records one parent's pre-culling child set for deterministic work regressions.
+    pub(super) fn considered(&mut self, count: usize) {
+        self.widest_candidates = self.widest_candidates.max(count);
     }
 
     /// Finds the controls under `root` that follow a scroll view's state, unless known for
