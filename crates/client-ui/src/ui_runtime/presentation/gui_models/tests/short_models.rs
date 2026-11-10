@@ -31,6 +31,18 @@ pub(super) fn world_with_material(
     width: u16,
     flags: u32,
 ) -> RuntimeAssets {
+    world_with_model_flags(manifest, height, alpha, width, flags, 0)
+}
+
+/// Encodes a centered model, including all connection masks for pane templates.
+pub(super) fn world_with_model_flags(
+    manifest: [u8; 32],
+    height: u16,
+    alpha: u8,
+    width: u16,
+    flags: u32,
+    model_flags: u32,
+) -> RuntimeAssets {
     use assets::*;
     let mut visual = BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary);
     if height == 256 && width == 256 {
@@ -58,6 +70,11 @@ pub(super) fn world_with_material(
             }
         })
         .collect();
+    let template_count = if model_flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
+        16
+    } else {
+        1
+    };
     let compiled = CompiledAssets {
         visuals: vec![
             BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary),
@@ -75,13 +92,14 @@ pub(super) fn world_with_material(
             },
         ]
         .into(),
-        model_templates: vec![ModelTemplate {
-            quad_start: 0,
-            quad_count: quads.len() as u32,
-            flags: 0,
-        }]
-        .into(),
-        model_quads: quads.into(),
+        model_templates: (0..template_count)
+            .map(|index| ModelTemplate {
+                quad_start: (index * quads.len()) as u32,
+                quad_count: quads.len() as u32,
+                flags: model_flags,
+            })
+            .collect(),
+        model_quads: quads.repeat(template_count).into(),
         animations: Box::new([]),
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray {
@@ -112,6 +130,27 @@ pub(super) fn world_with_material(
         },
     };
     RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
+}
+
+#[test]
+fn pane_fixture_round_trips_every_connection_mask() {
+    let world = world_with_model_flags(
+        [0; 32],
+        256,
+        128,
+        32,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+    );
+    let block = world.resolve(assets::NetworkIdMode::Sequential, 1);
+    let base = block.model_template().unwrap() as usize;
+    for mask in 0..16 {
+        let template = world.model_templates()[base + mask];
+        let start = template.quad_start as usize;
+        let quads = &world.model_quads()[start..start + template.quad_count as usize];
+        assert_eq!(quads.len(), assets::BlockFace::ALL.len());
+        assert!(quads.iter().all(|quad| quad.material == 1));
+    }
 }
 
 /// Replaces the carried face source while keeping real item and shaped-thumbnail bindings.
