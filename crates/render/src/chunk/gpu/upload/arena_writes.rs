@@ -685,13 +685,15 @@ mod tests {
         };
         // Control: the queue path's staging is visible to the counter until submission.
         let before = live_buffers(&device);
-        quad_writes(0).issue(
-            &arena,
-            TerrainUploads {
-                staging: None,
-                ..uploads
-            },
-        );
+        quad_writes(0)
+            .issue(
+                &arena,
+                TerrainUploads {
+                    staging: None,
+                    ..uploads
+                },
+            )
+            .unwrap();
         assert!(live_buffers(&device) > before);
         end_frame(&device, &queue, &staging);
         for frame in 1..4 {
