@@ -1856,6 +1856,10 @@ platforms. Missing source music/ambience requires lawful local input or the docu
 fallback; do not bundle game assets to fill gaps.
 Native audio follows changes to the system default output on its owner thread, retaining
 active and queued sounds across output replacement and retrying unavailable devices.
+Failed output streams also reopen on the same endpoint, with repeated callback errors
+coalesced per transport. [Output recovery](docs/reference/audio-output-recovery.md)
+preserves the mixer; the contributor reproduced the ALSA failure and confirmed
+recovery on the affected machine. The initial backend failure cause remains unknown.
 The first failure of each outage is logged as a warning, and an outage that outlasts a
 handoff raises one in-game toast with the platform's likeliest fix; the log links the
 [sound troubleshooting guide](docs/audio-troubleshooting.md). Unit tests cover the outage
