@@ -170,6 +170,16 @@ impl PreparedBlockItems {
 }
 
 impl EquipmentRuntime {
+    /// Selects the wall origin for the drawn visual and a matching pinned item identity.
+    pub(super) fn first_person_wall(&self, item: &WornItem) -> bool {
+        let Some(visual) = self.held_block_visual(item.kind) else {
+            return false;
+        };
+        assets::registry::pinned_block_model_family(visual) == Some(assets::ModelFamily::Wall)
+            && assets::registry::pinned_block_identity(visual)
+                .is_some_and(|(name, _)| name == item.identifier.as_ref())
+    }
+
     /// Selects the button placement only for a matching pinned block-item identity.
     pub(super) fn first_person_button(&self, item: &WornItem) -> bool {
         let Some(visual) = self.held_block_visual(item.kind) else {

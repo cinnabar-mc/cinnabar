@@ -22,6 +22,7 @@ mod fences;
 mod panes;
 mod pressure_plates;
 mod trapdoors;
+mod walls;
 
 /// Resolves a held material mode, with blending taking precedence over cutout.
 pub fn mode_for_material_flags(flags: u32) -> HandItemAlphaMode {
@@ -208,6 +209,12 @@ pub fn collect_held(
                     assets::facts::block_render_fact(&key.identifier).kind
                         == assets::facts::BlockRenderKind::BambooFence,
                 )
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Wall)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Wall(visual)
             } else if flat {
                 HeldDisplay::Sprite
             } else {
@@ -228,6 +235,7 @@ enum HeldDisplay {
     PressurePlate(u32),
     CenteredBlock(u32),
     Fence(u32, bool),
+    Wall(u32),
     Sprite,
 }
 
@@ -270,6 +278,7 @@ fn collect_shapes(
             Some(HeldDisplay::PressurePlate(shown)) => pressure_plates::model(world, shown),
             Some(HeldDisplay::CenteredBlock(shown)) => centered_carried_model(world, shown),
             Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
+            Some(HeldDisplay::Wall(shown)) => walls::model(world, shown),
             _ => None,
         }
         .or_else(|| {
@@ -295,7 +304,8 @@ fn collect_shapes(
                     | HeldDisplay::Button(_)
                     | HeldDisplay::PressurePlate(_)
                     | HeldDisplay::CenteredBlock(_)
-                    | HeldDisplay::Fence(..),
+                    | HeldDisplay::Fence(..)
+                    | HeldDisplay::Wall(_),
                 ) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
