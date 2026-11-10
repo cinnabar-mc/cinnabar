@@ -18,7 +18,7 @@ impl CompiledFontCatalog {
     /// A face with only this face's private-use glyphs, on the same pages and drawn the same
     /// way, without named faces, size alternatives, kerning or a fallback.
     pub fn private_use_subset(&self) -> Self {
-        let glyphs: Box<[GlyphMetrics]> = self
+        let glyphs: Arc<[GlyphMetrics]> = self
             .glyphs
             .iter()
             .filter(|glyph| crate::is_private_use_glyph(glyph.codepoint))
