@@ -242,7 +242,7 @@ impl PackTextureSet<'_> {
     /// The highest-precedence valid set for `path`, if any.
     #[must_use]
     pub fn find<'a>(view: &'a LayeredPackView, path: &str) -> Option<PackTextureSet<'a>> {
-        let (layer, source, definition) =
+        let (_, layer, source, definition) =
             texture_set_definition(view, normalize_texture_path(path))?;
         Some(PackTextureSet {
             definition,

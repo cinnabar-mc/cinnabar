@@ -61,7 +61,8 @@ impl PbrCandidates {
 
 impl Builder<'_> {
     /// Decodes the recorded texture sets' surfaces into the overlay's sparse Enhanced pages,
-    /// in texture-reference order, until the terrain byte budget is spent.
+    /// in texture-reference order, until the terrain byte budget is spent. Sets past the budget
+    /// keep only their colour; that budget is not a verified native limit (see `plan.md`).
     pub(super) fn build_server_surfaces(&mut self, view: &LayeredPackView) {
         let candidates = std::mem::take(&mut self.pbr).sets;
         let mut pages = PbrPages::default();
