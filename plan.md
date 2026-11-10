@@ -1894,6 +1894,11 @@ fragment interfaces fit the fifteen inter-stage variables V3DV exposes, includin
 front-facing. Clean-install and displayed-frame acceptance across supported Pi
 models remain incomplete.
 
+Linux x86-64 Flatpak packaging prepares locked offline sources and delegates application
+updates to Flatpak only in its own sandbox. Clean-install, login, rendering, local-world,
+import, Discord integration and update acceptance inside the sandbox, and a stable-release
+Flathub submission remain incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
