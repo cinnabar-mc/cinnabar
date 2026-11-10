@@ -28,7 +28,7 @@ impl ArtworkRawViews {
 
     /// The view formats artwork textures are created with.
     pub(crate) fn view_formats(self) -> &'static [bevy::render::render_resource::TextureFormat] {
-        if cfg!(feature = "shaderpacks") && self.0 {
+        if self.0 {
             &[bevy::render::render_resource::TextureFormat::Rgba8Unorm]
         } else {
             &[]
@@ -37,7 +37,7 @@ impl ArtworkRawViews {
 }
 
 /// Whether `texture` allows the raw view packs read: creating one raises no validation error.
-#[cfg(all(test, feature = "shaderpacks"))]
+#[cfg(test)]
 pub(crate) fn permits_raw_view(device: &wgpu::Device, texture: &wgpu::Texture) -> bool {
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let _view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -48,7 +48,6 @@ pub(crate) fn permits_raw_view(device: &wgpu::Device, texture: &wgpu::Texture) -
 }
 
 /// Follows the main world's pack cameras during extraction, before any artwork owner prepares.
-#[cfg(feature = "shaderpacks")]
 pub(crate) fn extract_artwork_raw_views(
     cameras: bevy::render::Extract<
         bevy::prelude::Query<
@@ -227,17 +226,12 @@ mod tests {
     use render_scene::ActorPresentationGate;
 
     #[test]
-    fn artwork_raw_view_formats_require_the_feature_and_camera_demand() {
+    fn artwork_raw_view_formats_require_camera_demand() {
         assert!(ArtworkRawViews::default().view_formats().is_empty());
         let formats = ArtworkRawViews(true).view_formats();
-        if cfg!(feature = "shaderpacks") {
-            assert_eq!(formats, [wgpu::TextureFormat::Rgba8Unorm]);
-        } else {
-            assert!(formats.is_empty());
-        }
+        assert_eq!(formats, [wgpu::TextureFormat::Rgba8Unorm]);
     }
 
-    #[cfg(feature = "shaderpacks")]
     #[test]
     fn artwork_raw_views_follow_the_last_pack_camera() {
         use bevy::{ecs::system::RunSystemOnce, prelude::*, render::MainWorld};

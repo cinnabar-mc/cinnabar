@@ -38,7 +38,7 @@
             $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:Validator `
                 -LogPath $Path -ExpectedTarget Bds -ExpectedBuildCommit $script:BuildCommit `
                 -ExpectedPregSha256 $script:PregSha256 -ExpectedBregSha256 $script:BregSha256 `
-                -ExpectedProtocol 2193 `
+                -ExpectedProtocol 2225 `
                 -ExpectedRunId $script:RunId -ExpectedEndpoint $script:Endpoint `
                 -ExpectedBridgeEndpoint $script:BridgeEndpoint `
                 -ExpectedCoreSha256 $script:CoreSha256 -ExpectedCoreProcessId 41 `

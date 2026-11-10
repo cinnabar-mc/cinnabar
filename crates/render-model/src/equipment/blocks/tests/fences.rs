@@ -28,6 +28,33 @@ fn carried_bamboo_fences_keep_their_thicker_slats() {
 }
 
 #[test]
+fn carried_fence_adapter_builds_a_single_material_model() {
+    let mut source = overlay(BlockFlags::empty(), 0, 16);
+    source.visuals[0].kind = VisualKind::Model;
+    source.visuals[0].model_template = 0;
+    source
+        .light_properties
+        .push(assets::LightProperties::OPAQUE_DARK);
+    source.model_templates.push(assets::ModelTemplate {
+        quad_start: 0,
+        quad_count: 0,
+        flags: 0,
+    });
+    let world = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &source)
+        .unwrap();
+    let material = world
+        .resolve(NetworkIdMode::Sequential, 1)
+        .face(BlockFace::South)
+        .material_id();
+
+    let (materials, vertices) = super::super::fences::model(&world, 1, false)
+        .expect("an admitted fence keeps its carried model");
+    assert_eq!(materials, [material; 6]);
+    assert_eq!(vertices.len(), 192);
+}
+
+#[test]
 fn carried_fences_join_their_rail_halves_without_internal_caps() {
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;
@@ -69,7 +96,7 @@ fn carried_fences_join_their_rail_halves_without_internal_caps() {
             bamboo += 1;
         } else {
             assert!(vertices.iter().any(|vertex| vertex.position[2] == 0.0));
-            assert!(vertices.chunks_exact(6).all(|face| {
+            assert!(vertices.as_chunks::<6>().0.iter().all(|face| {
                 face[0].normal[2] == 0.0 || face.iter().any(|vertex| vertex.position[2] != 0.0)
             }));
             ordinary += 1;

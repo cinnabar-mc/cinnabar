@@ -3,6 +3,27 @@ use assets::{EntityRenderMaterialState, RuntimeEntityAssets, encode_entity_blob}
 use super::suite::carrier_v4_fixture;
 
 #[test]
+fn masked_multitexture_state_preserves_carrier_and_gpu_word() {
+    let mut compiled = carrier_v4_fixture();
+    let state = EntityRenderMaterialState {
+        alpha_test: true,
+        masked_multitexture: true,
+        ..Default::default()
+    };
+    compiled.render.layers[0].material_state = Some(state);
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&encoded).unwrap();
+    assert_eq!(runtime.render_data().layers[0].material_state, Some(state));
+    assert_eq!(
+        EntityRenderMaterialState::from_word(
+            assets::EntityRenderMaterial::Default.word(Some(state))
+        ),
+        Some(state)
+    );
+    assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_ref());
+}
+
+#[test]
 fn additive_source_alpha_material_state_round_trips_through_entity_carrier() {
     let mut compiled = carrier_v4_fixture();
     for (additive_alpha, disable_overlay) in
@@ -113,4 +134,21 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
         2
     );
     assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_ref());
+}
+
+#[test]
+fn authored_color_masks_preserve_fractional_mask_alpha() {
+    let mut compiled = carrier_v4_fixture();
+    let source = compiled.render.candidates[0].source;
+    compiled.render.layers[0].material_selection = None;
+    let keeps = |compiled: &assets::CompiledEntityAssets| {
+        assets::actor_sources_keeping_alpha(&compiled.render, &compiled.sources).contains(&source)
+    };
+    compiled.render.layers[0].material_state = Some(EntityRenderMaterialState::default());
+    assert!(!keeps(&compiled));
+    compiled.render.layers[0].material_state = Some(EntityRenderMaterialState {
+        color_mask: true,
+        ..Default::default()
+    });
+    assert!(keeps(&compiled));
 }

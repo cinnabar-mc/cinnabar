@@ -1,6 +1,37 @@
 use super::*;
 use crate::gpu_snapshot::{Draw, Gpu};
 
+/// Compact copies retain sources for active or retired draws and release them when both drain.
+#[test]
+fn idle_compact_tables_release_their_storage_and_source_references() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+    let mut arena = ChunkGpuArena::new(&device);
+    let mut compact = CompactTerrain::default();
+    let mut entries = vec![BindGroupEntry {
+        binding: 2,
+        resource: arena.origin_buffer.as_entire_binding(),
+    }];
+    assert!(compact.prepare(&device, &queue, &mut entries));
+    drop(entries);
+    let resident = crate::chunk::tests::retirement_test_allocation();
+    arena
+        .allocations
+        .insert(Entity::PLACEHOLDER, resident.clone());
+    assert!(!compact.release_if_idle(&arena));
+    arena.allocations.clear();
+    arena
+        .retired_allocations
+        .push(RetiredArenaAllocation::full(Entity::PLACEHOLDER, resident));
+    assert!(!compact.release_if_idle(&arena));
+    assert!(compact.buffer.is_some());
+    assert!(!compact.tables.is_empty());
+    arena.retired_allocations.clear();
+    assert!(compact.release_if_idle(&arena));
+    assert!(compact.buffer.is_none());
+    assert!(compact.tables.is_empty());
+}
+
 #[test]
 fn four_storage_buffers_render_every_packed_table_and_later_updates() {
     let Some(gpu) = Gpu::for_fixture_with_limits(

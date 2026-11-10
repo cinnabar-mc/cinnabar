@@ -27,11 +27,11 @@ impl LightBlockAccess for WaterColumn {
 /// water-including heightmap and then subtracts that filter at every depth.
 #[test]
 fn shipped_water_retains_native_skylight_at_the_ocean_floor() {
-    let breg = include_bytes!("../../../assets/data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../../assets/data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(breg).unwrap();
     let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
     let lights = assets::read_light_registry_for_protocol(
-        include_bytes!("../../../assets/data/block-light-registry-v2193.bin"),
+        include_bytes!("../../../assets/data/block-light-registry-v2225.bin"),
         breg,
         records.len(),
         protocol,

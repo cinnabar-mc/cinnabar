@@ -19,6 +19,36 @@ fn state(material: &str, definitions: Option<&Value>) -> Value {
 }
 
 #[test]
+fn profession_material_keeps_masked_multitexture_through_inheritance() {
+    let definitions = json!({"materials": {
+        "fixture_clothes:entity_alphatest": {"+defines": ["MASKED_MULTITEXTURE"]},
+        "fixture_inherited:fixture_clothes": {},
+        "fixture_removed:fixture_clothes": {"-defines": ["MASKED_MULTITEXTURE"]},
+        "fixture_replaced:fixture_clothes": {"defines": ["ALPHA_TEST"]}
+    }});
+    for material in ["villager_v2_masked", "zombie_villager_v2_masked"] {
+        assert_eq!(
+            state(material, None)["masked_multitexture"],
+            true,
+            "{material}"
+        );
+    }
+    for material in ["fixture_clothes", "fixture_inherited"] {
+        assert_eq!(
+            state(material, Some(&definitions))["masked_multitexture"],
+            true
+        );
+    }
+    for material in ["villager_v2", "fixture_removed", "fixture_replaced"] {
+        assert!(
+            state(material, Some(&definitions))["masked_multitexture"]
+                .as_bool()
+                .is_none_or(|masked| !masked)
+        );
+    }
+}
+
+#[test]
 fn actor_overlay_define_is_inherited_added_removed_and_replaced() {
     let definitions = json!({"materials": {
         "fixture_base": {"defines": [], "states": []},

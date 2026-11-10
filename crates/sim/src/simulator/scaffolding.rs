@@ -382,6 +382,18 @@ impl<W: CollisionWorld + ?Sized> CollisionWorld for ScaffoldingView<'_, W> {
         self.inner.ensure_movement_origin(feet)
     }
 
+    fn begin_tick(&self, tick: u64) {
+        self.inner.begin_tick(tick);
+    }
+
+    fn piston_pushes(
+        &self,
+        query: Aabb,
+        tick: u64,
+    ) -> Result<Option<CollisionQuery<Vec<crate::PistonPush>>>, WorldQueryError> {
+        self.inner.piston_pushes(query, tick)
+    }
+
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         let colliders = self.collision_boxes_with_provenance(query)?;
         Ok(CollisionQuery {

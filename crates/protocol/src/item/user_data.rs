@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-use bedrock_protocol_1_26_51::wire::MAX_NBT_DEPTH;
+use bedrock_protocol_1_26_60::wire::MAX_NBT_DEPTH;
 use sha2::{Digest, Sha256};
 
 use super::{read_i32_le, read_u8, read_u16_le, skip_le_payload, skip_le_string};

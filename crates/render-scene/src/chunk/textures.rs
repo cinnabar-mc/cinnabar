@@ -559,7 +559,7 @@ pub fn diagnostic_texture_page(
     }
     Ok(TextureArray {
         layers: 1,
-        mips: mips.into_boxed_slice(),
+        mips: mips.into(),
     })
 }
 

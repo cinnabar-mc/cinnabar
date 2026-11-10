@@ -122,7 +122,7 @@ fn experience_level_glyphs_leave_a_gap_above_the_bar() {
             )]],
             ..Default::default()
         });
-        runtime.hud.set_experience(45, 0.5);
+        runtime.session.hud.set_experience(45, 0.5);
         let input = build_at(&player, &mut presentation, &runtime, 0, [1920, 1080], 1.0);
         super::super::super::forms::snapshot::write(&input, "xp-level-before");
         assert!(
@@ -135,7 +135,7 @@ fn experience_level_glyphs_leave_a_gap_above_the_bar() {
         presentation.set_gui_scale_preference(Some(scale));
         for dpi in [1.0, 1.25, 1.5, 2.0] {
             for level in [2, 45, 123] {
-                runtime.hud.set_experience(level, 0.5);
+                runtime.session.hud.set_experience(level, 0.5);
                 let input = build_at(&player, &mut presentation, &runtime, 0, [1920, 1080], dpi);
                 let gap = level_gap(&input, &presentation, level, f32::from(scale));
                 assert!(
@@ -149,7 +149,7 @@ fn experience_level_glyphs_leave_a_gap_above_the_bar() {
                     );
                 }
             }
-            runtime.hud.set_experience(0, 0.5);
+            runtime.session.hud.set_experience(0, 0.5);
             build_at(&player, &mut presentation, &runtime, 0, [1920, 1080], dpi);
             assert!(
                 !presentation

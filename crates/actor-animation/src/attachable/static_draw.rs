@@ -30,6 +30,7 @@ pub(super) struct Inputs {
     worn: bool,
     blocking: bool,
     target: bool,
+    hurt: bool,
     elapsed: Option<u32>,
     duration: u32,
     off_hand_duration: u32,
@@ -64,6 +65,7 @@ impl Inputs {
             worn: input.worn,
             blocking: query::actor_flag(owner, ActorFlag::Blocking.wire_value()),
             target: query::has_target(owner),
+            hurt: owner.shows_damage(),
             elapsed: input.use_elapsed_ticks,
             duration: input.max_use_ticks,
             off_hand_duration: inherited

@@ -1,7 +1,7 @@
-use bedrock_protocol_1_26_51::enums::ItemVersion;
-use bedrock_protocol_1_26_51::packets::ItemRegistry as ItemRegistryPacket;
-use bedrock_protocol_1_26_51::types::ItemData;
-use bedrock_protocol_1_26_51::wire::{self, NetworkNbt as Nbt};
+use bedrock_protocol_1_26_60::enums::ItemVersion;
+use bedrock_protocol_1_26_60::packets::ItemRegistry as ItemRegistryPacket;
+use bedrock_protocol_1_26_60::types::ItemData;
+use bedrock_protocol_1_26_60::wire::{self, NetworkNbt as Nbt};
 use bytes::Bytes;
 use protocol::{
     ItemActorEvent, ItemPacketError, WorldEvent, WorldPacketError, WorldWireError,
@@ -110,7 +110,7 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
         let entry = normalize(registry_entry(
             component_data,
             false,
-            ItemVersion::Datadriven,
+            ItemVersion::DataDriven,
         ))
         .unwrap();
 
@@ -118,6 +118,68 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
         assert!(!entry.canonical_empty_component_data);
         let expected_digest: [u8; 32] = Sha256::digest(&original).into();
         assert_eq!(entry.component_digest, expected_digest);
+    }
+}
+
+#[test]
+fn component_data_larger_than_an_item_stack_extra_keeps_the_registry() {
+    // A server sent one item with 426,071 bytes of component data; that must
+    // not drop the registry and leave every custom item unresolved.
+    let mut description = vec![8];
+    write_name(&mut description, "description");
+    let text = "x".repeat(4 * protocol::MAX_ITEM_EXTRA_BYTES);
+    write_var_u32(&mut description, text.len() as u32);
+    description.extend_from_slice(text.as_bytes());
+    let component_data = root_compound(&[compound_tag(
+        "components",
+        &[
+            description,
+            compound_tag("item_properties", &[int_tag("max_stack_size", 16)]),
+        ],
+    )]);
+    let original = component_data.0.clone();
+    assert!(original.len() > protocol::MAX_ITEM_EXTRA_BYTES);
+
+    let entry = normalize(registry_entry(
+        component_data,
+        true,
+        ItemVersion::DataDriven,
+    ))
+    .unwrap();
+
+    assert_eq!(entry.negotiated_max_stack_size, Some(16));
+    let expected_digest: [u8; 32] = Sha256::digest(&original).into();
+    assert_eq!(entry.component_digest, expected_digest);
+}
+
+#[test]
+fn component_decoding_allocates_a_small_multiple_of_the_wire_size() {
+    // Decoding must not cost tens of bytes per wire byte, however a server shapes
+    // the data, now that component data has no size cap.
+    let measure = |unused: Option<&Vec<u8>>| {
+        let mut components = vec![compound_tag(
+            "item_properties",
+            &[int_tag("max_stack_size", 16)],
+        )];
+        components.extend(unused.cloned());
+        let entry = registry_entry(
+            root_compound(&[compound_tag("components", &components)]),
+            true,
+            ItemVersion::DataDriven,
+        );
+        let (entry, allocations) = test_alloc::measure(|| normalize(entry));
+        (entry.unwrap(), allocations.bytes)
+    };
+    let (_, baseline) = measure(None);
+    for (shape, field) in crate::nbt_tree::test_tree::amplifying_fields("test:unused", 1 << 20) {
+        let (entry, bytes) = measure(Some(&field));
+        assert!(entry.components.is_some(), "{shape}");
+        let decoded = bytes.saturating_sub(baseline);
+        assert!(
+            decoded <= 3 * field.len(),
+            "{shape}: {decoded} bytes allocated for {} wire bytes",
+            field.len()
+        );
     }
 }
 
@@ -132,7 +194,7 @@ fn creative_category_survives_registry_admission_with_its_typed_default() {
             "components",
             &[compound_tag("item_properties", &[property])],
         )]);
-        let entry = normalize(registry_entry(data, true, ItemVersion::Datadriven)).unwrap();
+        let entry = normalize(registry_entry(data, true, ItemVersion::DataDriven)).unwrap();
         assert_eq!(entry.components.unwrap().creative_category, Some(expected));
     }
 }
@@ -147,8 +209,8 @@ fn repeated_registry_declaration_retains_its_populated_definition() {
     ] {
         let packet = ItemRegistryPacket {
             item_data: vec![
-                registry_entry(first, true, ItemVersion::Datadriven),
-                registry_entry(last, true, ItemVersion::Datadriven),
+                registry_entry(first, true, ItemVersion::DataDriven),
+                registry_entry(last, true, ItemVersion::DataDriven),
             ],
         };
         let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
@@ -213,7 +275,7 @@ fn only_the_exact_component_property_path_supplies_capacity() {
     let entry = normalize(registry_entry(
         root_compound(&[shadow, valid]),
         true,
-        ItemVersion::Datadriven,
+        ItemVersion::DataDriven,
     ))
     .unwrap();
     assert_eq!(entry.negotiated_max_stack_size, Some(64));
@@ -264,7 +326,7 @@ fn ambiguous_or_invalid_capacity_evidence_is_ignored_without_rejecting_registry(
         let entry = normalize(registry_entry(
             component_data,
             true,
-            ItemVersion::Datadriven,
+            ItemVersion::DataDriven,
         ))
         .unwrap();
         assert_eq!(entry.negotiated_max_stack_size, None);
@@ -297,7 +359,7 @@ fn unknown_version_and_excessive_walk_depth_do_not_supply_capacity() {
             nested,
         ]),
         true,
-        ItemVersion::Datadriven,
+        ItemVersion::DataDriven,
     ))
     .unwrap();
     assert_eq!(deep.negotiated_max_stack_size, None);
@@ -308,9 +370,53 @@ fn malformed_registry_nbt_remains_a_wire_error() {
     let truncated = Nbt(Bytes::from_static(&[
         COMPOUND, 0, COMPOUND, 10, b'c', b'o', b'm', b'p', b'o', b'n', b'e', b'n', b't', b's',
     ]));
-    let error = normalize(registry_entry(truncated, true, ItemVersion::Datadriven)).unwrap_err();
+    let error = normalize(registry_entry(truncated, true, ItemVersion::DataDriven)).unwrap_err();
     assert!(matches!(
         error,
         WorldPacketError::Wire(WorldWireError::Item(ItemPacketError::InvalidItemNbt))
     ));
+}
+
+#[test]
+fn a_repeated_network_id_goes_to_the_later_item_without_dropping_the_registry() {
+    let entry = |name: &str, id: i16, data: Nbt, component_based: bool| ItemData {
+        item_name: name.into(),
+        item_id: wire::I16LE(id),
+        is_component_based: component_based,
+        item_version: ItemVersion::DataDriven,
+        item_component_data: data,
+    };
+    // A proxy that has no ID for newer vanilla items sends them all as ID 0,
+    // alongside the custom items the session depends on.
+    let packet = ItemRegistryPacket {
+        item_data: vec![
+            entry("test:blaster", 300, empty_compound(), true),
+            entry("minecraft:bundle", 0, capacity_component(1), true),
+            entry("minecraft:red_wool_slab", 0, empty_compound(), false),
+            entry("test:blaster", 300, capacity_component(16), true),
+            entry("minecraft:stick", 5, capacity_component(64), true),
+            entry("minecraft:stone", 5, empty_compound(), false),
+        ],
+    };
+    let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
+        into_world_event(protocol::Packet::new(packet), 0)
+            .unwrap()
+            .unwrap()
+    else {
+        panic!("expected item registry")
+    };
+    let by_id = |id: i32| {
+        let matches = registry
+            .entries
+            .iter()
+            .filter(|entry| entry.network_id == id)
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "network ID {id} must name one item");
+        matches[0]
+    };
+    assert_eq!(registry.entries.len(), 3);
+    assert_eq!(by_id(300).identifier.as_ref(), "test:blaster");
+    assert_eq!(by_id(300).negotiated_max_stack_size, Some(16));
+    assert_eq!(by_id(0).identifier.as_ref(), "minecraft:red_wool_slab");
+    assert_eq!(by_id(5).identifier.as_ref(), "minecraft:stone");
 }

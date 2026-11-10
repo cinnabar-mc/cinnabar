@@ -45,3 +45,19 @@ pub(super) fn write_vanilla_manifest(root: &Path, url: &str, sha256: &str, archi
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, manifest.to_string()).unwrap();
 }
+
+/// A small original sample-pack fixture with resource and behavior inputs.
+pub(super) fn pack_archive(texture: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in [
+        ("resource_pack/blocks.json", b"{}".as_slice()),
+        ("resource_pack/textures/block.png", texture),
+        ("behavior_pack/entities/fixture.json", b"{}".as_slice()),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}

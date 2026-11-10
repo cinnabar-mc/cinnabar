@@ -26,7 +26,7 @@ func TestSessionLoginRetainsEmptyProfileHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := device.New(protocol.DeviceAndroid)
+	profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	downstream, err := newSessionDownstream(request, &profile)
 	if err != nil {
 		t.Fatal(err)

@@ -201,7 +201,7 @@ mod tests {
         let collisions = PhysicsCollisionRegistries::from_assets(
             breg,
             &records,
-            include_bytes!("../../assets/data/block-physics-v2193.bin"),
+            include_bytes!("../../assets/data/block-physics-v2225.bin"),
             protocol,
         )
         .unwrap();

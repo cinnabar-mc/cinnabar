@@ -45,7 +45,7 @@ fn array(side: u32, layers: u32) -> TextureArray {
                 }
             })
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     }
 }
 

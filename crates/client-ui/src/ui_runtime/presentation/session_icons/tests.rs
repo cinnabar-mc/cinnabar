@@ -573,3 +573,56 @@ fn shrinking_weights_colour_by_coverage() {
     assert_eq!(size, [1, 1]);
     assert_eq!(pixels, [240, 120, 60, 63]);
 }
+
+#[test]
+fn session_icon_lookup_keeps_namespaces_and_explicit_aliases_separate() {
+    let catalog = assets::RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog(
+            [5; 32],
+            &[assets::IconSprite {
+                width: 1,
+                height: 1,
+                rgba8: Arc::from([255; 4]),
+            }],
+            &[assets::IconEntry {
+                identifier: "minecraft:diamond_sword".into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut presentation = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        crate::test_support::fixture_hud(),
+        Arc::new(catalog),
+    )
+    .unwrap();
+    let startup = presentation
+        .startup_item_icon("minecraft:diamond_sword", 7)
+        .unwrap();
+    let icons = Arc::new(SessionIcons {
+        icons: vec![
+            flat("custom:diamond_sword", 16, [240, 120, 60, 255]),
+            flat("diamond_sword", 8, [20, 40, 80, 255]),
+        ],
+        ..Default::default()
+    });
+    install_landed(&mut presentation, &icons);
+    assert_eq!(
+        presentation.item_icon("minecraft:diamond_sword", 7),
+        Some(startup)
+    );
+    assert!(
+        presentation
+            .session_item_icon("minecraft:diamond_sword", 7)
+            .is_none()
+    );
+    assert!(presentation.item_icon("other:diamond_sword", 0).is_none());
+    let custom = presentation.item_icon("custom:diamond_sword", 7).unwrap();
+    let alias = presentation.item_icon("diamond_sword", 7).unwrap();
+    assert_ne!(custom, alias);
+    assert_eq!(alias.uv[2] - alias.uv[0], 8);
+    assert_eq!(custom.uv[2] - custom.uv[0], 16);
+}

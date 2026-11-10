@@ -80,7 +80,7 @@ fn page(colors: &[u8]) -> TexturePage {
                 }
             })
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     })
 }
 

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::RecipeUnlockingRequirementUnlockingContext as WireContext;
+use bedrock_protocol_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext as WireContext;
 
 use super::model::Batch;
 
@@ -20,9 +20,9 @@ impl RecipeUnlockingContext {
     pub fn from_index(index: i32) -> Self {
         match WireContext::from(index) {
             WireContext::None => Self::Ingredients,
-            WireContext::Alwaysunlocked => Self::AlwaysUnlocked,
-            WireContext::Playerinwater => Self::PlayerInWater,
-            WireContext::Playerhasmanyitems => Self::PlayerHasManyItems,
+            WireContext::AlwaysUnlocked => Self::AlwaysUnlocked,
+            WireContext::PlayerInWater => Self::PlayerInWater,
+            WireContext::PlayerHasManyItems => Self::PlayerHasManyItems,
             WireContext::Unknown(value) => Self::Unknown(value),
         }
     }

@@ -17,6 +17,7 @@ pub mod test_support;
 mod tests;
 
 pub use display::FirstPersonHand;
+pub(crate) use display::LAYER_OFF_HAND;
 /// Rig layer identity used by the main-hand equipment submission.
 pub(crate) const LAYER_MAIN_HAND: u8 = 1;
 pub use input::{local_input, remote_input};
@@ -46,4 +47,9 @@ pub(crate) fn is_elytra_layer(layer: u8) -> bool {
 /// Whether a submission belongs to worn armor rather than a held item or cosmetic.
 pub(crate) fn is_armor_layer(layer: u8) -> bool {
     (display::LAYER_HELMET..=display::LAYER_BOOTS).contains(&layer)
+}
+
+/// Converts an armor layer identity to the corresponding equipment-array index.
+pub(crate) fn armor_slot_index(layer: u8) -> Option<usize> {
+    is_armor_layer(layer).then(|| usize::from(layer - display::LAYER_HELMET))
 }
