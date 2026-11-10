@@ -1,5 +1,6 @@
 //! Home geometry fits the action, character and utility groups inside the viewport.
 
+use super::super::theme::{CAPTION, HEADER5};
 use ui::IconRef;
 
 pub(super) const LIVE_EVENT_HEIGHT: f32 = 5.2;
@@ -21,9 +22,31 @@ pub(super) struct Layout {
     pub compact_footer: bool,
 }
 
-/// The action group's height in rem, including wardrobe controls on compact layouts.
+/// Space below the "LET'S PLAY" heading, in rem.
+pub(super) const HEADING_GAP: f32 = 0.8;
+/// Space below the caption, before the Play button, in rem.
+pub(super) const CAPTION_GAP: f32 = 1.6;
+/// Height of the Play button, in rem.
+pub(super) const HERO_HEIGHT: f32 = 6.4;
+/// Space below the Play button, in rem.
+pub(super) const HERO_GAP: f32 = 1.2;
+/// Height of each secondary action row, in rem.
+pub(super) const ROW_HEIGHT: f32 = 4.8;
+/// Space between secondary action rows, in rem.
+pub(super) const ROW_GAP: f32 = 0.8;
+
+/// The action group's height in rem: heading, caption, Play, the Servers and Settings
+/// row, Realms, and Dressing Room on compact layouts.
 pub(super) fn action_group_height(compact: bool) -> f32 {
-    if compact { 29.2 } else { 23.6 }
+    let rows = if compact { 3.0 } else { 2.0 };
+    HEADER5.line
+        + HEADING_GAP
+        + CAPTION.line
+        + CAPTION_GAP
+        + HERO_HEIGHT
+        + HERO_GAP
+        + rows * ROW_HEIGHT
+        + (rows - 1.0) * ROW_GAP
 }
 
 /// The panel inset in logical pixels, limited by its width.

@@ -85,7 +85,7 @@ fn device_requirements(
             features.remove(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
         }
     }
-    raise_window_texture_limits(&mut limits, &adapter.limits());
+    use_adapter_texture_limits(&mut limits, &adapter.limits());
     limits.max_storage_buffers_per_shader_stage = limits
         .max_storage_buffers_per_shader_stage
         .min(adapter.limits().max_storage_buffers_per_shader_stage);
@@ -100,14 +100,11 @@ fn device_requirements(
 }
 
 /// Window-sized targets follow the window, which can span monitors beyond the 8192 default, so
-/// every priority takes the adapter's texture dimensions.
-fn raise_window_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits) {
-    limits.max_texture_dimension_1d = limits
-        .max_texture_dimension_1d
-        .max(adapter.max_texture_dimension_1d);
-    limits.max_texture_dimension_2d = limits
-        .max_texture_dimension_2d
-        .max(adapter.max_texture_dimension_2d);
+/// every priority takes the adapter's texture dimensions. Requests must not exceed them;
+/// larger windows suspend in the renderer until their size fits the device again.
+fn use_adapter_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits) {
+    limits.max_texture_dimension_1d = adapter.max_texture_dimension_1d;
+    limits.max_texture_dimension_2d = adapter.max_texture_dimension_2d;
 }
 
 /// Builds exactly one backend with the given DX12 shader compiler and the shipping display policy.
@@ -119,7 +116,8 @@ pub(super) fn instance(
 ) -> wgpu::Instance {
     let mut descriptor = wgpu::InstanceDescriptor {
         backends: flags(backend),
-        flags: settings.instance_flags,
+        flags: backend_instance_flags(backend, settings.instance_flags, cfg!(debug_assertions))
+            .with_env(),
         memory_budget_thresholds: settings.instance_memory_budget_thresholds,
         backend_options: Default::default(),
         display,
@@ -137,6 +135,19 @@ pub(super) fn instance(
         wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
     descriptor.backend_options.gl.gles_minor_version = settings.gles3_minor_version;
     wgpu::Instance::new(descriptor)
+}
+
+/// Applies Bevy's release validation policy to the selected backend. The caller reapplies
+/// wgpu's environment overrides after this default, including explicit indirect validation.
+fn backend_instance_flags(
+    backend: Backend,
+    mut flags: wgpu::InstanceFlags,
+    debug: bool,
+) -> wgpu::InstanceFlags {
+    if !debug && backend != Backend::Dx12 {
+        flags.remove(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL);
+    }
+    flags
 }
 
 /// Whether a DX12 instance needs FXC instead: wgpu leaves out the DX12 backend, logging only at

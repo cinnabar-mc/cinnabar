@@ -51,7 +51,7 @@ pub struct Context {
     pub connection: u64,
     pub dimension: i32,
     pub candidates: Vec<mod_render::retained::EntityKey>,
-    /// Current candidates, held references and candidates of one in-flight callback.
+    /// Current candidates and retained references; helper transport bytes bound this list.
     pub live: Vec<mod_render::retained::EntityKey>,
     pub targets: Vec<(mod_api::drawing::MaskEntity, u64)>,
     pub blocks: Vec<BlockStatus>,
@@ -67,7 +67,6 @@ impl Context {
         ensure!(
             self.blocks.len() <= mod_api::MAX_DRAW_GEOMETRIES + mod_api::drawing::MAX_DRAW_CLIPS
                 && self.candidates.len() <= mod_api::MAX_DRAW_ENTITIES
-                && self.live.len() <= mod_api::MAX_DRAW_ENTITIES * 3
                 && self.targets.len() <= mod_api::drawing::MAX_MASK_ENTITIES,
             "drawing context budget exceeded"
         );

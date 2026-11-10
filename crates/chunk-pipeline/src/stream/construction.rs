@@ -32,14 +32,14 @@ impl WorldStream {
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
-        entity_assets: Arc<RuntimeEntityAssets>,
+        entity_assets: impl Into<actor_animation::ActorAnimationCatalog>,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
         Self::with_first_sequence_and_asset_sets(
             bootstrap,
             runtime_assets,
-            Some(entity_assets),
+            Some(entity_assets.into()),
             1,
             current_position,
             existing_anchor,
@@ -64,16 +64,16 @@ impl WorldStream {
     fn with_first_sequence_and_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
-        entity_assets: Option<Arc<RuntimeEntityAssets>>,
+        entity_assets: Option<actor_animation::ActorAnimationCatalog>,
         first_sequence: u64,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
         let _ = &*workers::WORKERS;
         warm_block_mutation_facts();
-        let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
-        let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
-        let authority = client_world::WorldAuthority::new(
+        let (decode_tx, decode_rx) = result_mailbox(WORK_RESULT_CAPACITY);
+        let (mesh_tx, mesh_rx) = result_mailbox(WORK_RESULT_CAPACITY);
+        let authority = client_world::WorldAuthority::new_with_actor_catalog(
             bootstrap,
             runtime_assets,
             entity_assets,
@@ -96,6 +96,7 @@ impl WorldStream {
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             classifier: BlockClassifier::new(air_network_id),
             mesh_render_settings: ::meshing::MeshRenderSettings::default(),
+            surface_rules: Arc::from([]),
             mesh_render_revision: 0,
             startup_terrain_announced: true,
             java_meshing: None,

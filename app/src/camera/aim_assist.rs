@@ -138,6 +138,7 @@ pub(crate) fn publish_assisted_interaction(
 
 impl AimActivation {
     /// Camera activation requests policy from the server, which owns the resulting settings.
+    /// Only a camera configured by a server preset reports its activation.
     fn publish(
         &mut self,
         view: &ServerCameraView,
@@ -152,36 +153,44 @@ impl AimActivation {
             || perspective != PerspectiveMode::FirstPerson,
             |base| base != "minecraft:first_person",
         );
-        let perspective = camera.is_none().then_some(perspective);
+        let local = camera.is_none().then_some(perspective);
         if self.identity == identity
             && self.camera.as_deref() == camera
             && self.settings.as_ref() == settings
             && self.supported == Some(supported)
-            && self.perspective == perspective
+            && self.perspective == local
         {
             return;
         }
-        let clear = !supported || settings.is_none();
-        if !clear
-            && !state.has_preset(
-                settings
-                    .and_then(|settings| settings.preset_id.as_deref())
-                    .unwrap_or(client_presentation::aim_assist::DEFAULT_AIM_ASSIST_PRESET),
-            )
-        {
-            return;
-        }
-        let packet = protocol::camera_aim_assist_activation_packet(
-            if clear { "" } else { camera.unwrap_or("") },
-            supported,
-            clear,
-        );
-        if send(packet) {
+        let reported = camera.map(|camera| (camera, settings)).or_else(|| {
+            view.perspective_preset(perspective)
+                .map(|preset| (&*preset.name, preset.aim_assist.as_ref()))
+        });
+        let sent = match reported {
+            None => true,
+            Some((name, aim)) => {
+                let clear = !supported || aim.is_none();
+                if !clear
+                    && !state.has_preset(
+                        aim.and_then(|aim| aim.preset_id.as_deref())
+                            .unwrap_or(client_presentation::aim_assist::DEFAULT_AIM_ASSIST_PRESET),
+                    )
+                {
+                    return;
+                }
+                send(protocol::camera_aim_assist_activation_packet(
+                    if clear { "" } else { name },
+                    supported,
+                    clear,
+                ))
+            }
+        };
+        if sent {
             self.identity = identity;
             self.camera = camera.map(Arc::from);
             self.settings = settings.cloned();
             self.supported = Some(supported);
-            self.perspective = perspective;
+            self.perspective = local;
         }
     }
 }

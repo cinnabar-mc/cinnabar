@@ -1,10 +1,11 @@
 use super::*;
 use crate::presentation::actors::{PoseConversions, select_actor_presentations};
-use crate::presentation::skin_rig::{MAX_SKIN_RIGS, SkinRigCache};
+use crate::presentation::skin_rig::SkinRigCache;
 use bevy::math::Vec3;
 use protocol::{
     ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, WorldEvent,
 };
+use render_model::MAX_SKIN_RIGS;
 use render_model::{ActorArtworkPages, ActorRigFrameBuilder, ActorRigRoute};
 use std::sync::Arc;
 
@@ -319,7 +320,6 @@ impl Caches {
                     partial_tick: alpha,
                     first_person: true,
                     java_mode: false,
-                    java_item_blocking: true,
                     combat_visuals: Default::default(),
                     sampling_camera: Some(([0.0; 2], Vec3::Y.to_array())),
                     aspect: 1.0,
@@ -463,7 +463,7 @@ fn selected_wide_geometry_is_drawn_when_only_its_base_is_outside() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| frame.layers(id),
+        |id| frame.layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -528,7 +528,7 @@ fn selected_geometry_keeps_empty_layer_base_fallback_and_unknown_bounds() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| sampled.render_frame.as_mut().unwrap().layers(id),
+        |id| sampled.render_frame.as_mut().unwrap().layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -604,7 +604,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
         }
         let mut batch =
             select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
-        let mut layers = crate::presentation::skin_layers::SkinLayerCache::default();
+        let mut layers = crate::presentation::skin_layers::ActorLayerCache::default();
         let _ = layers.apply(
             &mut batch,
             &artwork,
@@ -619,6 +619,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
             },
             &mut caches.skin_rigs,
             |geometry| geometries.push(geometry),
+            |_, _| None,
         );
         let persona = batch
             .submissions

@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{LevelChunk, SubChunk};
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{LevelChunk, SubChunk};
 
 use super::requests::checked_sub_chunk_position;
 use super::{
@@ -92,20 +92,20 @@ pub(super) fn normalize_sub_chunks(
                     .map(|payload| payload.to_vec())
                     .unwrap_or_default(),
             },
-            SubChunkRequestResult::Successallair => SubChunkResult::AllAir,
+            SubChunkRequestResult::SuccessAllAir => SubChunkResult::AllAir,
             SubChunkRequestResult::Unknown(0) => {
                 SubChunkResult::Unavailable(SubChunkUnavailable::Undefined)
             }
-            SubChunkRequestResult::Levelchunkdoesntexist => {
+            SubChunkRequestResult::LevelChunkDoesntExist => {
                 SubChunkResult::Unavailable(SubChunkUnavailable::ChunkNotFound)
             }
-            SubChunkRequestResult::Wrongdimension => {
+            SubChunkRequestResult::WrongDimension => {
                 SubChunkResult::Unavailable(SubChunkUnavailable::InvalidDimension)
             }
-            SubChunkRequestResult::Playerdoesntexist => {
+            SubChunkRequestResult::PlayerDoesntExist => {
                 SubChunkResult::Unavailable(SubChunkUnavailable::PlayerNotFound)
             }
-            SubChunkRequestResult::Indexoutofbounds => {
+            SubChunkRequestResult::IndexOutOfBounds => {
                 SubChunkResult::Unavailable(SubChunkUnavailable::YIndexOutOfBounds)
             }
             SubChunkRequestResult::Unknown(value) => {

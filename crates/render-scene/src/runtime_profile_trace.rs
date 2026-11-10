@@ -20,8 +20,8 @@ use std::{
 use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 const TRACE_CAPACITY: usize = 131_072;
-const MAX_TRACE_CAPACITY: usize = 2_097_152;
-const TRACE_CAPACITY_ENV: &str = "CINNABAR_STAGE_PROFILE_EVENTS";
+const MAX_TRACE_CAPACITY: usize = render_api::MAX_STAGE_PROFILE_EVENTS;
+const TRACE_CAPACITY_ENV: &str = render_api::STAGE_PROFILE_EVENTS_ENV;
 /// Normal play retains recent completed spans even without an export path.
 const GAMEPLAY_CAPACITY: usize = 4096;
 const HITCH_PRE_FRAMES: u64 = 4;
@@ -53,7 +53,9 @@ struct TraceEvent {
 
 #[derive(Debug, Clone)]
 enum TraceArgs {
-    None,
+    Span {
+        thread_cpu: Option<Duration>,
+    },
     Focus {
         focused: bool,
         occluded: bool,
@@ -117,6 +119,20 @@ pub struct FrameTrace {
 }
 
 impl FrameTrace {
+    /// Records a workload boundary and returns its offset, shared by route sampling and export.
+    pub fn marker(&self, name: &'static str, frame_id: u64) -> Duration {
+        let started = self.epoch.elapsed();
+        self.push(TraceEvent {
+            name,
+            started,
+            elapsed: Duration::ZERO,
+            thread: std::thread::current().id(),
+            frame_id: Some(frame_id),
+            args: TraceArgs::Span { thread_cpu: None },
+        });
+        started
+    }
+
     /// Preallocates recent history, using the larger recording budget for explicit exports.
     pub fn new(path: Option<PathBuf>, epoch: Instant) -> Self {
         let capacity = if path.is_some() {
@@ -159,13 +175,25 @@ impl FrameTrace {
 
     /// Records a completed CPU stage with the frame captured when it began.
     pub fn record(&self, frame_id: u64, stage: RuntimeStage, started: Instant, elapsed: Duration) {
+        self.record_with_cpu(frame_id, stage, started, elapsed, None);
+    }
+
+    /// Retains same-thread CPU time alongside the span's wall duration when available.
+    pub(super) fn record_with_cpu(
+        &self,
+        frame_id: u64,
+        stage: RuntimeStage,
+        started: Instant,
+        elapsed: Duration,
+        thread_cpu: Option<Duration>,
+    ) {
         self.push(TraceEvent {
             name: stage.name(),
             started: started.saturating_duration_since(self.epoch),
             elapsed,
             thread: std::thread::current().id(),
             frame_id: Some(frame_id),
-            args: TraceArgs::None,
+            args: TraceArgs::Span { thread_cpu },
         });
     }
 
@@ -504,7 +532,11 @@ impl Serialize for TraceRecords<'_> {
                 args["frame_id"] = json!(frame_id);
             }
             match &event.args {
-                TraceArgs::None => {}
+                TraceArgs::Span { thread_cpu } => {
+                    if let Some(cpu) = thread_cpu {
+                        args["thread_cpu_ns"] = json!(nanos(*cpu));
+                    }
+                }
                 TraceArgs::Focus {
                     focused,
                     occluded,
@@ -538,7 +570,7 @@ impl Serialize for TraceRecords<'_> {
                     record["cat"] = json!("background_work");
                     record["timestamp_kind"] = json!("sample_received");
                 }
-                TraceArgs::None => {}
+                TraceArgs::Span { .. } => {}
                 _ => {
                     record["ph"] = json!("i");
                     record["s"] = json!("t");

@@ -374,6 +374,7 @@ fn ui_model_uv_keeps_native_side_pixel_centers_without_rounding_or_half_texel_sh
     assert_eq!(
         render_model::project_ui_model_vertex(input.vertices[0], None)
             .unwrap()
+            .vertex
             .uv,
         [8.5, 4.5]
     );

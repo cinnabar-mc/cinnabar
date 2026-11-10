@@ -7,7 +7,7 @@ use super::super::{
 use crate::images::{PLAY_TAB_ICONS, PLAY_TAB_IMAGES, SETTINGS_ICON_HIGHLIGHT_IMAGE};
 use {
     super::PaintError,
-    launcher::menu::{MenuAction, MenuScreen, MenuView},
+    launcher::menu::{MenuAction, MenuView, play::PLAY_TABS},
 };
 
 #[cfg(test)]
@@ -24,11 +24,16 @@ pub(super) fn draw(
     }
     let worlds = format!("Worlds ({})", view.friends.len() + view.local_worlds.len());
     let labels = [worlds.as_str(), "Realms", "Servers"];
-    let screens = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
-    let role = canvas.role(NEUTRAL);
-    let panel = canvas.role(NEUTRAL80);
+    let screens = PLAY_TABS;
     let edge = canvas.r(EDGE);
     let width = (b[2] - b[0] + edge * (labels.len() - 1) as f32) / labels.len() as f32;
+    for (i, screen) in screens.into_iter().enumerate() {
+        let left = b[0] + (width - edge) * i as f32;
+        canvas.focus_target(
+            MenuAction::Navigate(screen),
+            [left, b[1], left + width, b[3]],
+        )?;
+    }
     let feedback: [Feedback; 3] = std::array::from_fn(|i| {
         let state = canvas.interaction(view, Some(MenuAction::Navigate(screens[i])));
         canvas.feedback(state, true, i == selected, Kind::Tab)
@@ -46,35 +51,7 @@ pub(super) fn draw(
         let down = motion.depression();
         let face = [cell[0], cell[1] + canvas.r(0.4) * down, cell[2], cell[3]];
         let strip = canvas.r(0.4) * (1.0 - down);
-        if !artwork(canvas, face, motion, down)? {
-            canvas.fill(face, BORDER)?;
-            let border = canvas.r(0.4);
-            let inner = [
-                face[0] + border,
-                face[1] + border,
-                face[2] - border,
-                face[3] - border,
-            ];
-            canvas.fill(inner, NEUTRAL80.fill)?;
-            let front = [inner[0], inner[1], inner[2], inner[3] - strip];
-            canvas.fill(
-                front,
-                mix(mix(role.fill, role.hovered, motion.hover), panel.fill, down),
-            )?;
-            canvas.specular(front, role.specular[0], role.specular[1])?;
-            if motion.focus > 0.0 {
-                canvas.frame(
-                    [
-                        face[0] - edge,
-                        face[1] - edge,
-                        face[2] + edge,
-                        face[3] + edge,
-                    ],
-                    EDGE,
-                    opacity(OUTLINE, motion.focus),
-                )?;
-            }
-        }
+        face_art(canvas, face, motion, down)?;
         let side = icons::native_side(canvas);
         let has_icon = canvas
             .originals
@@ -120,8 +97,92 @@ pub(super) fn draw(
             opacity(OUTLINE, motion.selected),
         )?;
         if i != selected {
-            canvas.hit(action, cell)?;
+            canvas.pointer_hit(action, cell)?;
         }
+    }
+    Ok(())
+}
+
+/// Side of each `[` / `]` keycap beside the tab bar, in rem.
+pub(super) const KEY_HINT_SIDE: f32 = 3.2;
+/// Width each keycap, its gap to the bar and its screen-edge clearance take, in rem.
+pub(super) const KEY_HINT_RESERVE: f32 = KEY_HINT_SIDE + EDGE * 2.0;
+
+/// Labels the tab-switch keys at each end of the bar: Bedrock's `[` and `]`
+/// keyboard helpers, or its bumper helpers while a controller drives the menu.
+fn key_hint_labels(gamepad: bool) -> [&'static str; 2] {
+    if gamepad { ["LB", "RB"] } else { ["[", "]"] }
+}
+
+/// Draws the tab-switch keycaps just outside each end of `bar`, as Bedrock's
+/// Play screen places its `keyboard_left_trigger` / `keyboard_right_trigger`
+/// helpers, and its bumper helpers in the same spots for a controller. Touch
+/// shows neither, as Bedrock hides both helpers for touch input.
+pub(super) fn key_hints(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    bar: Bounds,
+) -> Result<(), PaintError> {
+    if view.touch_input {
+        return Ok(());
+    }
+    let side = canvas.r(KEY_HINT_SIDE);
+    let gap = canvas.r(EDGE);
+    let top = (bar[1] + bar[3] - side) * 0.5;
+    let [left_label, right_label] = key_hint_labels(view.gamepad_input);
+    for (glyph, left) in [
+        (left_label, bar[0] - gap - side),
+        (right_label, bar[2] + gap),
+    ] {
+        let key = [left, top, left + side, top + side];
+        face_art(canvas, key, Feedback::default(), 0.0)?;
+        let label = [key[0], key[1], key[2], key[3] - canvas.r(0.4)];
+        canvas.text_centred(glyph, label, BODY, TEXT, false)?;
+    }
+    Ok(())
+}
+
+/// Paints a raised neutral tab face, from the native artwork when it is
+/// installed and from flat fills otherwise.
+fn face_art(
+    canvas: &mut Canvas<'_>,
+    face: Bounds,
+    motion: Feedback,
+    down: f32,
+) -> Result<(), PaintError> {
+    if artwork(canvas, face, motion, down)? {
+        return Ok(());
+    }
+    let role = canvas.role(NEUTRAL);
+    let panel = canvas.role(NEUTRAL80);
+    let edge = canvas.r(EDGE);
+    let strip = canvas.r(0.4) * (1.0 - down);
+    canvas.fill(face, BORDER)?;
+    let border = canvas.r(0.4);
+    let inner = [
+        face[0] + border,
+        face[1] + border,
+        face[2] - border,
+        face[3] - border,
+    ];
+    canvas.fill(inner, NEUTRAL80.fill)?;
+    let front = [inner[0], inner[1], inner[2], inner[3] - strip];
+    canvas.fill(
+        front,
+        mix(mix(role.fill, role.hovered, motion.hover), panel.fill, down),
+    )?;
+    canvas.specular(front, role.specular[0], role.specular[1])?;
+    if motion.focus > 0.0 {
+        canvas.frame(
+            [
+                face[0] - edge,
+                face[1] - edge,
+                face[2] + edge,
+                face[3] + edge,
+            ],
+            EDGE,
+            opacity(OUTLINE, motion.focus),
+        )?;
     }
     Ok(())
 }

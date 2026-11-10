@@ -1,8 +1,9 @@
 use super::{
-    AssetMetrics, DIAGNOSTIC_TOP_LIMIT, DiagnosticQuadTracker, ExactFullViewProof,
-    GpuPassMeasurement, GpuPassSample, MetricsCollector, MetricsReport, ModelWorkloadCountSnapshot,
-    ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot, TeleportProof,
-    TransparentSortMetricsSnapshot, deterministic_manifest_hash, pair_gpu_pass_sample, percentile,
+    AssetMetrics, DIAGNOSTIC_TOP_LIMIT, DiagnosticAttributionSnapshot, DiagnosticQuadTracker,
+    ExactFullViewProof, GpuPassMeasurement, GpuPassSample, MetricsCollector, MetricsReport,
+    ModelWorkloadCountSnapshot, ModelWorkloadMetricsSnapshot, PipelineMetricsSnapshot,
+    TeleportProof, TransparentSortMetricsSnapshot, deterministic_manifest_hash,
+    pair_gpu_pass_sample, percentile,
 };
 use meshing::{DiagnosticGeometryCount, DiagnosticGeometrySummary};
 use std::{fs, time::Duration};
@@ -888,5 +889,36 @@ fn diagnostic_top_reporting_is_bounded_and_deterministic() {
             .top
             .windows(2)
             .all(|pair| pair[0].sequential_id < pair[1].sequential_id)
+    );
+}
+
+/// A fresh process keeps another test from warming the process-wide registry catalog.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn first_empty_diagnostic_snapshot_does_not_build_a_registry_catalog() {
+    const CHILD: &str = "CINNABAR_TEST_COLD_DIAGNOSTIC_SNAPSHOT";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "metrics::tests::first_empty_diagnostic_snapshot_does_not_build_a_registry_catalog",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let (snapshot, allocations) = test_alloc::count(|| DiagnosticQuadTracker::default().snapshot());
+    assert_eq!(snapshot, DiagnosticAttributionSnapshot::default());
+    assert_eq!(
+        allocations, 0,
+        "an empty snapshot needs no block identities"
     );
 }

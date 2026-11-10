@@ -84,16 +84,6 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     )?;
     options(content, SettingPanel::VideoGeneral)?;
     content.heading(
-        "Animations",
-        "Choose how players and held items are animated.",
-    )?;
-    options(content, SettingPanel::VideoAnimations)?;
-    if content.view.settings_options.java_animations_selected() {
-        content.nested = true;
-        options(content, SettingPanel::VideoJavaCombat)?;
-        content.nested = false;
-    }
-    content.heading(
         "menu.video.group.performance",
         "menu.video.group.performance.description",
     )?;

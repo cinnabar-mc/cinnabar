@@ -363,6 +363,8 @@ settings! {
         [(SettingPanel::Keyboard, 4)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
+    CinnabarChatInput => "cinnabar_chat_input", dropdown("Chat Input", super::chat::CHAT_INPUTS, 0),
+        [(SettingPanel::VideoGeneral, 3), (SettingPanel::Chat, 6)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
         [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
@@ -408,7 +410,7 @@ settings! {
     CinnabarBedrockHotbar => "cinnabar_bedrock_hotbar", toggle("Bedrock Hotbar Position", true),
         [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
     DamageBob => "damage_bob", slider("options.damageBobbing", 0, 100, 100),
-        [(SettingPanel::VideoAccessibility, 5)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoAccessibility, 6)], [SettingsGroup::Video], None, None;
     PanoramaSpeed => "panorama_speed", slider("options.panoramaSpeed", 0, 100, 100),
         [(SettingPanel::VideoAccessibility, 3)], [SettingsGroup::Video], None, None;
     HideHand => "hide_hand", toggle("options.hidehand", false),
@@ -429,16 +431,10 @@ settings! {
         [(SettingPanel::VideoCustomization, 7)], [SettingsGroup::Video], None, Some("options.ingamePlayerNames.name");
     ViewBobbing => "view_bobbing", dropdown("options.viewBobbing", VIEW_BOBBING_CHOICES, ui::ViewBobbing::Full as i32),
         [(SettingPanel::VideoAccessibility, 4)], [SettingsGroup::Video], None, None;
-    Animations => "animations", dropdown("Player Animations", ANIMATION_CHOICES, 1),
-        [(SettingPanel::VideoAnimations, 0)], [SettingsGroup::Video], None, None;
-    ItemBlockingAnimation => "java_item_blocking", toggle("Sword Blocking Pose", ui::AnimationSettings::DEFAULT_ITEM_BLOCKING),
-        [(SettingPanel::VideoJavaCombat, 0)], [SettingsGroup::Video], None, None;
-    BlockingSlowdown => "java_blocking_slowdown", toggle("Slow Movement While Blocking", ui::AnimationSettings::DEFAULT_BLOCKING_SLOWDOWN),
-        [(SettingPanel::VideoJavaCombat, 1)], [SettingsGroup::Video], None, None;
-    KeepSprintWhileBlocking => "java_keep_sprint", toggle("Keep Sprint While Blocking", ui::AnimationSettings::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING),
-        [(SettingPanel::VideoJavaCombat, 2)], [SettingsGroup::Video], None, None;
+    Animations => "animations", dropdown("Animations", ANIMATION_CHOICES, 1),
+        [(SettingPanel::VideoAccessibility, 5)], [SettingsGroup::Video], None, None;
     CameraShake => "camera_shake", toggle("options.screenShake", true),
-        [(SettingPanel::AccessibilityGameplay, 0), (SettingPanel::VideoAccessibility, 6)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+        [(SettingPanel::AccessibilityGameplay, 0), (SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     TransparentLeaves => "transparent_leaves", toggle("options.transparentleaves", true),
         [(SettingPanel::VideoClouds, 1)], [SettingsGroup::Video], None, None;
     RenderClouds => "render_clouds", toggle("options.renderclouds", true),
@@ -448,7 +444,7 @@ settings! {
     SmoothLighting => "smooth_lighting", toggle("options.smooth_lighting", true),
         [(SettingPanel::VideoGraphics, 7)], [SettingsGroup::Video], None, None;
     FieldOfViewToggle => "field_of_view_toggle", toggle("options.fov.toggle", true),
-        [(SettingPanel::VideoAccessibility, 7)], [SettingsGroup::Video], None, Some("options.fov.toggle.name");
+        [(SettingPanel::VideoAccessibility, 8)], [SettingsGroup::Video], None, Some("options.fov.toggle.name");
     ThirdPerson => "third_person", dropdown("options.thirdperson", PERSPECTIVES, 0),
         [(SettingPanel::VideoGeneral, 1)], [SettingsGroup::Video], None, None;
     GraphicsMode => "graphics_mode", dropdown("options.graphicsMode", GRAPHICS, 1),
@@ -510,13 +506,13 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
-    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
         [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
+    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
+        [(SettingPanel::Chat, 10)], [SettingsGroup::Chat], None, None;
     ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
-        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
-    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
+    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
         [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),
@@ -559,7 +555,9 @@ settings! {
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
-    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+    TouchControlMode => "touch_control_mode", dropdown("options.controlMode.name", super::touch_control_mode::TOUCH_CONTROL_MODE_CHOICES, super::touch_control_mode::DEFAULT_TOUCH_CONTROL_MODE),
         [(SettingPanel::Touch, 0)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 1)], [], None, None;
 
 }

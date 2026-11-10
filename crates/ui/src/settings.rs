@@ -16,8 +16,17 @@ pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
 pub const MAX_FOV_DEGREES: i32 = 130;
 
-/// Desktop vanilla starts with two coverage samples per pixel.
-pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+/// Whether this build runs on a platform Bedrock classifies as Mobile.
+const MOBILE_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
+/// Coverage samples per pixel this platform starts with.
+pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = default_anti_aliasing_samples(MOBILE_PLATFORM);
+
+/// Bedrock's starting coverage samples: one (off) on Mobile platforms, two on desktop and
+/// console platforms.
+const fn default_anti_aliasing_samples(mobile: bool) -> u32 {
+    if mobile { 1 } else { 2 }
+}
+
 /// Lowest supported world-rendering resolution relative to the output.
 pub const MIN_RENDER_SCALE_PERCENT: u8 = 10;
 /// Native world-rendering resolution relative to the output.
@@ -175,7 +184,6 @@ pub struct UserSettings {
     pub schema_version: u32,
     pub controls: ControlSettings,
     pub video: VideoSettings,
-    pub animation: AnimationSettings,
     pub gameplay: GameplaySettings,
 }
 
@@ -185,42 +193,7 @@ impl Default for UserSettings {
             schema_version: CURRENT_SETTINGS_SCHEMA,
             controls: ControlSettings::default(),
             video: VideoSettings::default(),
-            animation: AnimationSettings::default(),
             gameplay: GameplaySettings::default(),
-        }
-    }
-}
-
-/// Java 1.7 combat presentation and movement preferences.
-///
-/// These options are intentionally separate from [`VideoSettings::java_animations`]: the
-/// animation family selects the overall player pose, while these switches control the sword
-/// blocking details independently.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AnimationSettings {
-    /// Shows the raised-item blocking pose while Java 1.7 animations are selected.
-    pub item_blocking: bool,
-    /// Applies Java's movement slowdown while a sword is blocking.
-    pub blocking_slowdown: bool,
-    /// Allows ordinary sprinting while holding Use with a sword.
-    pub keep_sprint_while_blocking: bool,
-}
-
-impl AnimationSettings {
-    /// The legacy visual behavior is retained when Java 1.7 animations are selected.
-    pub const DEFAULT_ITEM_BLOCKING: bool = true;
-    /// Sword blocking preserves ordinary movement until the player enables the override.
-    pub const DEFAULT_BLOCKING_SLOWDOWN: bool = false;
-    /// Sword blocking preserves ordinary sprint behavior by default.
-    pub const DEFAULT_KEEP_SPRINT_WHILE_BLOCKING: bool = true;
-}
-
-impl Default for AnimationSettings {
-    fn default() -> Self {
-        Self {
-            item_blocking: Self::DEFAULT_ITEM_BLOCKING,
-            blocking_slowdown: Self::DEFAULT_BLOCKING_SLOWDOWN,
-            keep_sprint_while_blocking: Self::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING,
         }
     }
 }
@@ -316,6 +289,8 @@ pub struct GameplaySettings {
     pub always_sprint: bool,
     /// Sneak key toggles a persistent sneak instead of requiring hold.
     pub toggle_sneak: bool,
+    /// How touch controls move and interact.
+    pub touch_control_mode: semantic_input::TouchControlMode,
 }
 
 /// World rendering path. `Enhanced` and `ShaderPack` are opt-in custom looks that never
@@ -363,7 +338,7 @@ impl RenderMode {
 
 #[cfg(test)]
 mod tests {
-    use super::{AnimationSettings, RenderMode, UserSettings};
+    use super::{RenderMode, UserSettings};
 
     #[test]
     fn vrr_defaults_to_automatic_detection() {
@@ -376,18 +351,6 @@ mod tests {
     #[test]
     fn default_block_selection_uses_an_outline() {
         assert!(UserSettings::default().video.outline_selection);
-    }
-
-    #[test]
-    fn java_animation_details_keep_bedrock_defaults() {
-        assert_eq!(
-            UserSettings::default().animation,
-            AnimationSettings {
-                item_blocking: AnimationSettings::DEFAULT_ITEM_BLOCKING,
-                blocking_slowdown: AnimationSettings::DEFAULT_BLOCKING_SLOWDOWN,
-                keep_sprint_while_blocking: AnimationSettings::DEFAULT_KEEP_SPRINT_WHILE_BLOCKING,
-            }
-        );
     }
 
     #[test]
@@ -412,6 +375,17 @@ mod tests {
 #[cfg(test)]
 mod antialiasing_tests {
     use super::*;
+
+    /// Mobile platforms start without multisampling, while desktop keeps two samples.
+    #[test]
+    fn anti_aliasing_default_follows_the_platform_type() {
+        assert_eq!(default_anti_aliasing_samples(true), 1);
+        assert_eq!(default_anti_aliasing_samples(false), 2);
+        assert_eq!(
+            UserSettings::default().video.anti_aliasing_samples,
+            default_anti_aliasing_samples(MOBILE_PLATFORM)
+        );
+    }
 
     #[test]
     fn spatial_antialiasing_defaults_off_and_round_trips_setting_values() {

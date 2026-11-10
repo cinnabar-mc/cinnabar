@@ -29,7 +29,7 @@ mod capture;
 pub struct PackApplication {
     /// One-shot block state prepared after reusable pack compilation.
     pub(super) registries: Option<super::session_registries::PreparedSessionRegistries>,
-    pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
+    pub(super) dependencies: Arc<pack_runtime::reload_diff::Dependencies>,
     /// Finalized by the join or reload worker after all terrain reads have been recorded.
     pub(super) terrain_identity: [u8; 32],
     /// Inert metadata only; accepting a pack does not authorize execution.
@@ -303,7 +303,7 @@ fn compile_application(
 ) -> Option<PackApplication> {
     use pack_runtime::reload_diff::{Subscriber, compile_part};
     let mut dependencies = previous
-        .map(|old| old.dependencies.clone())
+        .map(|old| old.dependencies.as_ref().clone())
         .unwrap_or_default();
     let custom_blocks = &inputs.blocks;
     let icon_keys = &inputs.icons;
@@ -589,7 +589,7 @@ fn compile_application(
         aim_assist_textures,
         admission: PackAdmission::Validated(stack),
         block_overlay,
-        dependencies,
+        dependencies: Arc::new(dependencies),
         terrain_identity,
     })
 }

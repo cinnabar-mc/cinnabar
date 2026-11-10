@@ -28,13 +28,13 @@ fn component(title: &str) -> Vec<u8> {
         .trim_end_matches(';');
     let (namespace, version) = package.split_once('@').unwrap();
     let source = fixture("", "Hello")
-        .replacen("(component", &format!("(component (import \"{namespace}/panel@{version}\" (instance $panel (export \"set-open\" (func (param \"open\" bool) (result (result (error string))))))) (alias export $panel \"set-open\" (func $set-open))"), 1)
-        .replace("(core func $lower-label", "(core func $lower-open (canon lower (func $set-open) (memory $memory) (realloc $realloc))) (core func $lower-label")
-        .replace("(import \"host\" \"time\"", "(import \"host\" \"open\" (func $open (param i32 i32))) (import \"host\" \"time\"")
+        .replacen("(component", &format!("(component (import \"{namespace}/panel@{version}\" (instance $panel (export \"open\" (func (result (result (error string))))))) (alias export $panel \"open\" (func $open))"), 1)
+        .replace("(core func $lower-label", "(core func $lower-open (canon lower (func $open) (memory $memory) (realloc $realloc))) (core func $lower-label")
+        .replace("(import \"host\" \"time\"", "(import \"host\" \"open\" (func $open (param i32))) (import \"host\" \"time\"")
         .replace("(export \"time\" (func $lower-time))", "(export \"open\" (func $lower-open)) (export \"time\" (func $lower-time))")
-        .replacen("(func (export \"init\")", "(func (export \"init\") i32.const 1 i32.const 256 call $open", 1);
+        .replacen("(func (export \"init\")", "(func (export \"init\") i32.const 256 call $open", 1);
     let mut bytes = wat::parse_str(source).unwrap();
-    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+    let bundle = serde_json::json!({"panel":{"controls":[],
         "surface":super::panel_surface(title)},"surfaces":{}})
     .to_string();
     section(&mut bytes, mod_api::PANEL_BUNDLE_SECTION, bundle.as_bytes());

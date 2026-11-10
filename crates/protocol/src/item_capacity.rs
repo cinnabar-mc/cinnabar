@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_50.tsv");
+const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_60.tsv");
 static CAPACITIES: OnceLock<Box<[(&'static str, u8)]>> = OnceLock::new();
 
 /// The stack size vanilla gives every item until its definition says otherwise
@@ -9,7 +9,7 @@ pub const ITEM_DEFAULT_MAX_STACK_SIZE: u8 = 64;
 
 /// Returns the measured vanilla capacity for a bare retail item at metadata zero.
 ///
-/// This is a protocol-2168 baseline, not a negotiated inventory rule. Runtime consumers must
+/// This baseline follows the active target, not a negotiated inventory rule. Runtime consumers must
 /// first bind the exact active identifier and reconcile server-provided item properties and
 /// component overrides. Metadata variants and unknown identifiers deliberately return `None`.
 pub fn vanilla_item_capacity(identifier: &str, metadata: u32) -> Option<u8> {
@@ -44,8 +44,8 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::collections::BTreeSet;
 
-    const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_50.tsv");
-    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_50.tsv");
+    const CAPACITY_DATA: &str = include_str!("../data/item_capacity_1_26_60.tsv");
+    const RETAIL_ITEMS: &str = include_str!("../data/retail_items_1_26_60.tsv");
 
     #[test]
     fn returns_measured_retail_capacities_for_bare_items() {

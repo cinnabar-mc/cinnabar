@@ -2,51 +2,42 @@
 
 use super::*;
 
-/// Animation dependencies, compact wrapping and the search path to a disabled control.
-pub(super) const JAVA_ANIMATION_STATES: &[State] = &[
-    State {
-        name: "settings-animations-bedrock",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(false, ""),
-    },
-    State {
-        name: "settings-animations-java",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(true, ""),
-    },
-    State {
-        name: "settings-animations-compact",
-        size: [640, 360],
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(true, ""),
-    },
-    State {
-        name: "settings-animations-search",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || settings_java_animations(false, "sprint blocking"),
-    },
-];
-
-/// Focuses the relevant controls through normal settings scrolling with anonymous preferences.
-fn settings_java_animations(java: bool, query: &str) -> Fixture {
-    let mut view = settings(SettingSection::Video.definition().name);
-    Arc::make_mut(&mut view.settings_options).set(SettingId::Animations.index(), i32::from(!java));
-    view.settings_query = query.into();
-    view.focused_action = Some(if !query.is_empty() {
-        MenuAction::SearchSettings
-    } else if java {
-        MenuAction::SettingsOption(SettingId::KeepSprintWhileBlocking.index() as u16, 0)
-    } else {
-        MenuAction::SettingsOption(SettingId::Animations.index() as u16, 1)
-    });
-    Fixture::Menu(Box::new(view))
+/// Opens a settings category by its registered name rather than a copied index.
+pub fn settings(section: &str) -> MenuView {
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Settings;
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == section).then_some(*index))
+        .expect("registered settings category");
+    view
 }
 
-/// Search results, an empty result and the compact settings viewport.
+/// Global resources while applying and with an empty library, search results, an empty result
+/// and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
+    State {
+        name: "settings-global-resources-applying",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            let packs = Arc::make_mut(&mut view.global_resources);
+            packs.busy = true;
+            packs.message = oreui::loading_screen::RESOURCE_PACK_WORDS[0].to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
+        name: "settings-global-resources-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            Arc::make_mut(&mut view.global_resources).available_expanded = true;
+            Fixture::Menu(Box::new(view))
+        },
+    },
     State {
         name: "settings-framerate",
         size: SIZE,
@@ -74,6 +65,36 @@ pub(super) const SEARCH_STATES: &[State] = &[
         size: [640, 360],
         gui_scale: GUI_SCALE,
         fixture: || settings_search("vsync"),
+    },
+    State {
+        name: "settings-storage-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+                unreachable!()
+            };
+            Arc::make_mut(&mut view.storage).loading = true;
+            Fixture::Menu(view)
+        },
+    },
+    State {
+        name: "settings-storage-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("harbor"),
+    },
+    State {
+        name: "settings-storage-empty-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("no matching downloaded pack"),
+    },
+    State {
+        name: "settings-storage-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::settings_storage,
     },
 ];
 
@@ -271,6 +292,17 @@ fn settings_search(query: &str) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the Accessibility GUI-scale slider with a 1440p window's three modifiers, set to the
+/// middle one.
+pub(super) fn settings_gui_scale() -> Fixture {
+    let mut view = settings("accessibility_forced_index");
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
+        .choices()
+        .collect();
+    view.gui_scale_offset = view.gui_scale_choices[1].offset;
+    Fixture::Menu(Box::new(view))
+}
+
 /// Focuses the occlusion toggle at its saved value in the Video settings viewport.
 pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
     let mut view = settings("video_forced_index");
@@ -281,4 +313,13 @@ pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
         i32::from(!enabled),
     ));
     Fixture::Menu(Box::new(view))
+}
+
+/// Filters an anonymous cache inventory without changing its original row indices.
+fn storage_search(query: &str) -> Fixture {
+    let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+        unreachable!()
+    };
+    view.storage_query = query.into();
+    Fixture::Menu(view)
 }

@@ -34,7 +34,6 @@ pub(super) fn prepare(
         partial_tick,
         first_person,
         java_mode,
-        java_item_blocking,
         combat_visuals: _,
         sampling_camera,
         aspect,
@@ -59,13 +58,7 @@ pub(super) fn prepare(
             let equipment_input = local_equipment(stream, local_runtime_id, &input.local_equipment);
             let (consume_ticks, item_animation) = hand_use;
             let motion = hand_motion.map_or(Mat4::IDENTITY, hand_motion_matrix);
-            let key = hand::source_key(
-                stream,
-                consume_ticks,
-                item_animation,
-                partial_tick,
-                java_item_blocking,
-            );
+            let key = hand::source_key(stream, consume_ticks, item_animation, partial_tick);
             let samples_item_scale = stream
                 .authority()
                 .actor_rig(local_runtime_id)
@@ -74,32 +67,34 @@ pub(super) fn prepare(
                 .into_iter()
                 .flatten()
                 .any(|item| item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER);
-            if key == *ready_hand_key && !samples_item_scale && !holds_map {
+            let inputs = hand::HandInputs {
+                stream,
+                presentation,
+                equipment_input: &equipment_input,
+                owner_equipment: &equipment_input,
+                consume_ticks,
+                item_animation,
+                alpha: partial_tick,
+                artwork,
+                motion,
+                sampling_camera,
+                aspect,
+            };
+            let visibility = java_hand.native_pose.visibility(&inputs, java_mode);
+            if key == *ready_hand_key
+                && !samples_item_scale
+                && !holds_map
+                && ready_hand_source
+                    .as_ref()
+                    .is_some_and(|source| Some(source.visibility) == visibility)
+            {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;
                     source
                 });
             }
-            hand::source(
-                hand::HandInputs {
-                    stream,
-                    presentation,
-                    equipment_input: &equipment_input,
-                    owner_equipment: &equipment_input,
-                    consume_ticks,
-                    item_animation,
-                    alpha: partial_tick,
-                    artwork,
-                    motion,
-                    sampling_camera,
-                    aspect,
-                },
-                java_mode,
-                java_item_blocking,
-                equipment,
-                java_hand,
-            )
+            hand::source(inputs, java_mode, equipment, java_hand)
         })
     } else {
         None
@@ -159,6 +154,6 @@ pub(super) fn lighting(
     if java_mode {
         hand_light.with_java_lighting(hand::java_light_matrix(hand_motion, rotation))
     } else {
-        hand_light
+        hand_light.with_bedrock_lighting(Mat4::from_quat(rotation))
     }
 }

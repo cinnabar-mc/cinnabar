@@ -151,6 +151,7 @@ impl Harness {
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticInputSnapshot>()
             .init_resource::<ScreenInputConsumed>()
+            .init_resource::<client_shell::ui_resources::FrameInputOwner>()
             .insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player)
             .add_systems(
@@ -158,6 +159,7 @@ impl Harness {
                 (
                     collect_raw_input,
                     route_semantic_input,
+                    crate::ui_runtime::input_owner::decide_input_owner,
                     drive_emote_input,
                     crate::ui_runtime::interaction::drive_chat_keyboard_input,
                     finalize_semantic_input_after_ui_authority,
@@ -216,6 +218,36 @@ impl Harness {
         assert!(self.runtime().emotes().playback().is_some());
         assert!(!self.runtime().emotes().is_open());
     }
+}
+
+/// A sign editor's closing frame, standing in for any screen's: its keys are not the game's.
+#[test]
+fn the_frame_a_screen_closes_does_not_open_the_wheel() {
+    use crate::ui_runtime::input_owner::decide_input_owner;
+    fn close_sign(mut runtime: ResMut<UiRuntimeResource>) {
+        runtime.sign_editor_mut().close();
+    }
+    let _catalog = cosmetics::test_support::playback_catalog();
+    let mut h = Harness::new();
+    h.app.add_systems(
+        Update,
+        close_sign
+            .after(decide_input_owner)
+            .before(drive_emote_input),
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .sign_editor_mut()
+        .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    h.press(KeyCode::KeyB);
+    assert!(!h.runtime().emotes().is_open());
+    h.press(KeyCode::KeyB);
+    assert!(h.runtime().emotes().is_open());
 }
 
 #[test]

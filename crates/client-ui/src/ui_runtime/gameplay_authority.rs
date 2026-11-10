@@ -252,7 +252,8 @@ impl UiRuntime {
         let mut health = self.session.hud.health();
         let mut hunger = self.session.hud.hunger();
         let mut absorption = self.session.hud.absorption();
-        let mut xp_level = self.session.hud.experience().map(|xp| xp.level);
+        let old_experience = self.session.hud.experience();
+        let mut xp_level = old_experience.map(|xp| xp.level);
         let mut xp_progress = self.session.hud.experience().map(|xp| xp.progress);
         for attribute in envelope.attributes.iter() {
             match attribute.name.as_ref() {
@@ -313,6 +314,11 @@ impl UiRuntime {
             self.session
                 .hud
                 .set_experience(xp_level.unwrap_or(0), xp_progress.unwrap_or(0.0));
+            if old_experience.is_some() && old_experience != self.session.hud.experience() {
+                self.session
+                    .locator
+                    .experience_changed(envelope.local_millis);
+            }
         }
         self.session.last_fifo_sequence = Some(envelope.fifo_sequence);
         self.session.last_local_millis = Some(envelope.local_millis);
