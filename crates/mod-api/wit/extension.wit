@@ -415,6 +415,23 @@ interface panel {
     record panel-layout { width: f32, height: f32, scale: f32, offset: tuple<f32, f32> }
     /// Requires controls authority; none without it and while this mod's panel is not open.
     read-layout: func() -> option<panel-layout>;
+    /// An affine map of panel units: `(x, y)` goes to `(a x + c y + e, b x + d y + f)`.
+    record local-map { a: f32, b: f32, c: f32, d: f32, e: f32, f: f32 }
+    /// The last pointer press on one of this panel's declared controls: its control `id` and
+    /// the box where that control was laid out when pressed (scrolling included), in the
+    /// control's own layout coordinates. `to-local` maps a panel point, such as the
+    /// `input.read-controls` pointer through `read-layout`, into those coordinates, undoing a
+    /// scale or rotation the surface paints the control with; it is the identity otherwise.
+    /// `held` stays true while the button is held, wherever the pointer moves, even outside
+    /// the control or the panel, and is false from the release until the next press; a press
+    /// elsewhere clears it. A mod thus follows a press, drag and release relative to its own
+    /// control.
+    record panel-press {
+        id: string, x: f32, y: f32, width: f32, height: f32, held: bool, to-local: local-map,
+    }
+    /// Requires controls authority; none without it, while this mod's panel is not open, or
+    /// before a press on a declared control.
+    read-press: func() -> option<panel-press>;
 }
 
 /// Read-only introspection of this instance's explicitly granted capabilities.

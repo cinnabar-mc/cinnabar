@@ -114,6 +114,12 @@ impl ModHost {
         self.instance.observe_panel_layout(layout);
     }
 
+    /// Records this mod's open panel's last pointer press on a declared control, which
+    /// `panel.read-press` reports to later callbacks; none while the panel is not up.
+    pub fn observe_panel_press(&mut self, press: Option<ui::mod_hud::PanelPress>) {
+        self.instance.observe_panel_press(press);
+    }
+
     /// Installs the host label metrics `measure-text` uses; none reports them unavailable.
     pub fn set_text_measure(&mut self, text: Option<Arc<dyn crate::HudTextMeasure>>) {
         self.instance.set_text_measure(text);

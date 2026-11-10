@@ -54,6 +54,70 @@ record panel-layout {
 | `scale` | `f32` |  |
 | `offset` | `tuple<f32, f32>` |  |
 
+<a id="type-local-map"></a>
+
+### `local-map`
+
+An affine map of panel units: `(x, y)` goes to `(a x + c y + e, b x + d y + f)`.
+
+```wit
+record local-map {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `a` | `f32` |  |
+| `b` | `f32` |  |
+| `c` | `f32` |  |
+| `d` | `f32` |  |
+| `e` | `f32` |  |
+| `f` | `f32` |  |
+
+<a id="type-panel-press"></a>
+
+### `panel-press`
+
+The last pointer press on one of this panel's declared controls: its control `id` and
+the box where that control was laid out when pressed (scrolling included), in the
+control's own layout coordinates. `to-local` maps a panel point, such as the
+`input.read-controls` pointer through `read-layout`, into those coordinates, undoing a
+scale or rotation the surface paints the control with; it is the identity otherwise.
+`held` stays true while the button is held, wherever the pointer moves, even outside
+the control or the panel, and is false from the release until the next press; a press
+elsewhere clears it. A mod thus follows a press, drag and release relative to its own
+control.
+
+```wit
+record panel-press {
+    id: string,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    held: bool,
+    to-local: local-map,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `id` | `string` |  |
+| `x` | `f32` |  |
+| `y` | `f32` |  |
+| `width` | `f32` |  |
+| `height` | `f32` |  |
+| `held` | `bool` |  |
+| `to-local` | `local-map` |  |
+
+Types: [`local-map`](panel.md#type-local-map).
+
 ## Functions
 
 <a id="open"></a>
@@ -133,3 +197,16 @@ read-layout: func() -> option<panel-layout>;
 Requires controls authority; none without it and while this mod's panel is not open.
 
 Types: [`panel-layout`](panel.md#type-panel-layout).
+
+<a id="read-press"></a>
+
+### `read-press`
+
+```wit
+read-press: func() -> option<panel-press>;
+```
+
+Requires controls authority; none without it, while this mod's panel is not open, or
+before a press on a declared control.
+
+Types: [`panel-press`](panel.md#type-panel-press).

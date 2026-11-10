@@ -105,6 +105,8 @@ pub(super) struct ControlState {
     /// Where the host last laid out this mod's panel; none while another mod's panel or no
     /// panel is up.
     pub layout: Option<ui::mod_hud::PanelLayout>,
+    /// This mod's open panel's last pointer press on a declared control, as last observed.
+    pub press: Option<ui::mod_hud::PanelPress>,
     pub keys: Vec<String>,
     pub interaction: InteractionOutput,
     pub dirty_settings: Option<String>,
@@ -139,6 +141,7 @@ impl ControlState {
             native_editing: self.native_editing,
             native_editing_next: false,
             layout: self.layout,
+            press: self.press.clone(),
             keys: Vec::new(),
             interaction: Default::default(),
             dirty_settings: None,
@@ -200,6 +203,7 @@ impl ControlState {
             native_editing: _,
             native_editing_next: _,
             layout: _,
+            press: _,
             keys: _,
             interaction: _,
             dirty_settings: _,
@@ -243,6 +247,7 @@ impl ControlState {
             native_editing: false,
             native_editing_next: false,
             layout: None,
+            press: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
             dirty_settings: None,
@@ -677,6 +682,26 @@ impl cinnabar::extension::panel::Host for State {
                 height: layout.size[1],
                 scale: layout.scale,
                 offset: (layout.offset[0], layout.offset[1]),
+            }))
+    }
+
+    fn read_press(&mut self) -> Result<Option<cinnabar::extension::panel::PanelPress>> {
+        Ok(self
+            .controls
+            .press
+            .as_ref()
+            .filter(|_| self.grants.controls && self.controls.open)
+            .map(|press| cinnabar::extension::panel::PanelPress {
+                id: press.id.clone(),
+                x: press.rect[0],
+                y: press.rect[1],
+                width: press.rect[2],
+                height: press.rect[3],
+                held: press.held,
+                to_local: {
+                    let [a, b, c, d, e, f] = press.to_local;
+                    cinnabar::extension::panel::LocalMap { a, b, c, d, e, f }
+                },
             }))
     }
 }

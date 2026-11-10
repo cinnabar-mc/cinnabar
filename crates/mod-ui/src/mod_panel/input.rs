@@ -9,9 +9,22 @@ impl ModUi {
     }
 }
 
+/// A pointer press on a declared control and its hit box in panel units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Press {
+    pub(super) control: usize,
+    pub(super) rect: [f32; 4],
+    /// Drawn panel units to the box's layout coordinates, `[a, b, c, d, e, f]`.
+    pub(super) to_local: [f32; 6],
+    pub(super) held: bool,
+}
+
 impl ModPanel {
     /// Releases captured movement and visual pointer states without closing the panel.
     pub(super) fn cancel_pointer_input(&mut self) {
+        if let Some(press) = &mut self.press {
+            press.held = false;
+        }
         self.drag = None;
         self.vector_drag = None;
         self.scroll_drag = None;
@@ -37,6 +50,13 @@ impl ModPanel {
         if !self.open || !position.iter().all(|value| value.is_finite()) {
             self.cancel_pointer_input();
             return Vec::new();
+        }
+        // A press stays held wherever the pointer goes, inside or outside the panel, until the
+        // button is released.
+        if pressed {
+            self.press = None;
+        } else if !held && let Some(press) = &mut self.press {
+            press.held = false;
         }
         if let Some(edit::Editor::Field { state, .. }) = &mut self.edit
             && state.dragging
@@ -95,6 +115,32 @@ impl ModPanel {
         let action = pressed
             .then(|| hit.and_then(|hit| hit.pressed.as_deref()))
             .flatten();
+        if pressed {
+            self.press = hit
+                .zip(
+                    action
+                        .and_then(|action| {
+                            action
+                                .strip_prefix("mod.control:")
+                                .or_else(|| action.strip_prefix("mod.edit:"))
+                        })
+                        .and_then(|index| index.parse::<usize>().ok()),
+                )
+                .and_then(|(hit, control)| {
+                    // A hit transform is invertible: a collapsed one takes no presses.
+                    let local = hit
+                        .transform
+                        .map_or(Some(json_ui::transform::Affine::IDENTITY), |t| t.inverse())?;
+                    let [a, b, c, d] = local.linear;
+                    let [e, f] = local.translation;
+                    Some(Press {
+                        control,
+                        rect: [hit.rect.x, hit.rect.y, hit.rect.w, hit.rect.h].map(|v| v as f32),
+                        to_local: [a, b, c, d, e, f].map(|v| v as f32),
+                        held,
+                    })
+                });
+        }
         if pressed {
             if action == Some("mod.dismiss") {
                 self.cancel_edit();

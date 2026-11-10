@@ -806,22 +806,6 @@ impl Instance {
         self.store.data().hud.hidden
     }
 
-    /// Records the last laid-out HUD root and vanilla element states for later reads.
-    pub(super) fn observe_hud(
-        &mut self,
-        viewport: Option<ui::mod_hud::HudViewport>,
-        elements: ui::mod_hud::ElementStates,
-    ) {
-        let hud = &mut self.store.data_mut().hud;
-        hud.viewport = viewport.filter(|viewport| viewport.valid());
-        hud.elements = elements.map(ui::mod_hud::ElementState::sanitized);
-    }
-
-    /// Records where the host last laid out this mod's open panel, for `panel.read-layout`.
-    pub(super) fn observe_panel_layout(&mut self, layout: Option<ui::mod_hud::PanelLayout>) {
-        self.store.data_mut().controls.layout = layout.filter(|layout| layout.valid());
-    }
-
     /// Installs the label metrics `measure-text` reads.
     pub(super) fn set_text_measure(&mut self, text: Option<Arc<dyn hud::HudTextMeasure>>) {
         self.store.data_mut().hud.text = text;
