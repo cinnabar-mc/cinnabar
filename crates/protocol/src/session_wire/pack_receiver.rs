@@ -151,6 +151,8 @@ impl HandoffPackReceiver {
             if archive.bytes.len() as u64 != archive.size {
                 break;
             }
+            // Chunks grew the buffer as they arrived; the session keeps only the archive.
+            archive.bytes.shrink_to_fit();
             if let Some((hash, expected)) = &mut archive.digest {
                 let actual: [u8; 32] = std::mem::take(hash).finalize().into();
                 if actual != *expected {

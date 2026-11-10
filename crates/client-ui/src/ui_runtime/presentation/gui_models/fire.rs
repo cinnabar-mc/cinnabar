@@ -2,7 +2,7 @@
 
 use assets::ParticleTexture;
 
-use super::{MODEL_PAGE, MODEL_PAGES, UiPresentationError, UiPresentationRuntime, atlas};
+use super::{MODEL_PAGE, MODEL_PAGES, UiPresentationRuntime, atlas};
 use {crate::ui_runtime::presentation::player_preview, ui::IconRef};
 
 #[derive(Default)]
@@ -34,31 +34,38 @@ impl FirePlayback {
 
 impl UiPresentationRuntime {
     /// Optional particle carriers supply native flames without synthesizing replacement artwork.
-    pub fn set_gui_fire_texture(
-        &mut self,
-        texture: Option<&ParticleTexture>,
-    ) -> Result<(), UiPresentationError> {
+    pub fn set_gui_fire_texture(&mut self, texture: Option<&ParticleTexture>) {
         if let Some(start) = self.gui_models.fire.pages_start {
             self.gui_models.sources.pages.truncate(start);
         }
         self.gui_models.fire.source = texture.filter(|texture| valid(texture)).cloned();
-        self.install_gui_fire()?;
+        self.install_gui_fire();
         self.place_pack_armor();
-        Ok(())
     }
 
-    pub(super) fn install_gui_fire(&mut self) -> Result<(), UiPresentationError> {
+    /// Places the flame frames after the item sources, reclaiming optional block meshes first.
+    /// Flames that still cannot fit are left out, so the HUD doll burns without them.
+    pub(super) fn install_gui_fire(&mut self) {
         self.gui_models.fire.frames.clear();
+        self.gui_models.fire.pages_start = None;
+        let Some(texture) = &self.gui_models.fire.source else {
+            return;
+        };
+        let side = texture.width as u16;
+        let frame_bytes = usize::from(side) * usize::from(side) * 4;
         let mut atlas = atlas::Atlas::new(0, MODEL_PAGES);
-        let mut frames = Vec::new();
-        if let Some(texture) = &self.gui_models.fire.source {
-            let side = texture.width as u16;
-            let frame_bytes = usize::from(side) * usize::from(side) * 4;
-            for pixels in texture.rgba8.chunks_exact(frame_bytes) {
-                frames.push(atlas.insert([side; 2], pixels)?);
-            }
-        }
-        let (pages, _) = atlas.finish()?;
+        let frames = texture
+            .rgba8
+            .chunks_exact(frame_bytes)
+            .map(|pixels| atlas.insert([side; 2], pixels))
+            .collect::<Result<Vec<_>, _>>();
+        let placed = frames.and_then(|frames| Ok((frames, atlas.finish()?.0)));
+        let Ok((mut frames, pages)) = placed else {
+            tracing::warn!(
+                "actor flame frames exceed the GUI model atlas; the HUD doll omits them"
+            );
+            return;
+        };
         let mut start = self.gui_models.sources.pages.len();
         if start + pages.len() > MODEL_PAGES
             && self
@@ -68,7 +75,12 @@ impl UiPresentationRuntime {
             start = self.gui_models.sources.pages.len();
         }
         if start + pages.len() > MODEL_PAGES {
-            return Err(UiPresentationError::InvalidFontTexture);
+            tracing::warn!(
+                pages = pages.len(),
+                free = MODEL_PAGES.saturating_sub(start),
+                "GUI model atlas is full; the HUD doll omits actor flames"
+            );
+            return;
         }
         let first = (self.textures.dynamic_start() + MODEL_PAGE + start) as u16;
         for frame in &mut frames {
@@ -77,7 +89,6 @@ impl UiPresentationRuntime {
         self.gui_models.fire.frames = frames;
         self.gui_models.fire.pages_start = Some(start);
         self.gui_models.sources.pages.extend(pages);
-        Ok(())
     }
 
     /// The HUD doll's flame frame; other views draw no flames.

@@ -142,6 +142,66 @@ fn lowered_workers_publish_results_at_normal_priority() {
     }
 }
 
+/// Only trailing light and summary work may run below frame priority; mesh, decode and urgent
+/// work keep normal priority even on a background worker.
+#[test]
+fn only_light_and_summary_jobs_run_below_frame_priority() {
+    let mut queues = Queues::default();
+    let (order_tx, order_rx) = crossbeam_channel::unbounded();
+    for lane in [Lane::Mesh, Lane::Decode, Lane::Light, Lane::Summary] {
+        let order = order_tx.clone();
+        queues.push(
+            lane,
+            Moment::default(),
+            Box::new(move |_| order.send(Some(lane)).unwrap()),
+        );
+    }
+    queues
+        .urgent
+        .push_back((Lane::Light, Box::new(move |_| order_tx.send(None).unwrap())));
+    let mut taken = Vec::new();
+    while let Some(Taken { job, below_frame }) = queues.take(true, Moment::default()) {
+        job(&mut WorkerScratch::default());
+        taken.push((order_rx.try_recv().unwrap(), below_frame));
+    }
+    assert_eq!(
+        taken,
+        [
+            (None, false),
+            (Some(Lane::Mesh), false),
+            (Some(Lane::Decode), false),
+            (Some(Lane::Light), true),
+            (Some(Lane::Summary), true),
+        ]
+    );
+}
+
+/// Windows priorities are strict, so decode or mesh on a lowered background worker would wait
+/// behind every busy normal-priority thread; only light and summaries run lowered there.
+#[cfg(windows)]
+#[test]
+fn background_workers_run_mesh_decode_and_urgent_work_at_normal_priority() {
+    const JOBS: usize = 32;
+    let pool = WorldPool::new(PoolSize {
+        foreground: 0,
+        background: 2,
+    });
+    let (done_tx, done_rx) = crossbeam_channel::unbounded();
+    for _ in 0..JOBS {
+        for lane in [Lane::Mesh, Lane::Decode] {
+            let done = done_tx.clone();
+            pool.spawn(lane, move || done.send(priority::is_lowered()).unwrap());
+        }
+        let done = done_tx.clone();
+        pool.batch(Lane::Light)
+            .spawn(true, move || done.send(priority::is_lowered()).unwrap());
+    }
+    let lowered: Vec<bool> = (0..JOBS * 3)
+        .map(|_| done_rx.recv_timeout(Duration::from_secs(5)).unwrap())
+        .collect();
+    assert!(lowered.iter().all(|lowered| !*lowered), "{lowered:?}");
+}
+
 /// Pushes `queued` lanes at `queued_at` and drains them at `now` in worker order.
 fn take_order(background: bool, queued: &[Lane], queued_at: Moment, now: Moment) -> Vec<Lane> {
     let mut queues = Queues::default();
@@ -154,7 +214,7 @@ fn take_order(background: bool, queued: &[Lane], queued_at: Moment, now: Moment)
             Box::new(move |_| order.send(lane).unwrap()),
         );
     }
-    while let Some(job) = queues.take(background, now) {
+    while let Some(Taken { job, .. }) = queues.take(background, now) {
         job(&mut WorkerScratch::default());
     }
     order_rx.try_iter().collect()
@@ -247,7 +307,7 @@ fn dispatch_batch_publishes_independent_jobs_together() {
     let mut queues = pool.shared.lock();
     assert_eq!(queues.mesh.len(), 16);
     let mut scratch = WorkerScratch::default();
-    while let Some(job) = queues.take(false, Moment::default()) {
+    while let Some(Taken { job, .. }) = queues.take(false, Moment::default()) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -345,7 +405,7 @@ fn summaries_never_jump_urgent_or_near_work() {
     ));
     let now = oldest.checked_add(Duration::from_secs(3600)).unwrap();
     let mut scratch = WorkerScratch::default();
-    while let Some(job) = queues.take(false, now) {
+    while let Some(Taken { job, .. }) = queues.take(false, now) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -353,7 +413,7 @@ fn summaries_never_jump_urgent_or_near_work() {
         [Lane::Mesh, Lane::Decode, Lane::Mesh]
     );
     assert_eq!(queues.summary.len(), 1);
-    while let Some(job) = queues.take(true, now) {
+    while let Some(Taken { job, .. }) = queues.take(true, now) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -386,7 +446,7 @@ fn summary_submission_wakes_background_waiters() {
                     if queues.shutdown {
                         break;
                     }
-                    if let Some(job) = queues.take(background, Moment::default()) {
+                    if let Some(Taken { job, .. }) = queues.take(background, Moment::default()) {
                         drop(queues);
                         job(&mut WorkerScratch::default());
                         queues = shared.lock();

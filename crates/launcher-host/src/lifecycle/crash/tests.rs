@@ -252,6 +252,9 @@ fn panic_hook_fixture() {
         .spawn(|| panic!("fixture panic"))
         .unwrap();
     assert!(worker.join().is_err());
+    let last = last_panic().expect("the hook keeps the panic");
+    assert!(last.starts_with("crash-fixture panicked at "), "{last}");
+    assert!(last.ends_with("fixture panic"), "{last}");
 }
 
 #[test]

@@ -301,7 +301,8 @@
         {"name": "CORAL", "bit": 59, "go_name": "traitCoral", "source": true},
         {"name": "BLOCK_ENTITY_BACKING", "bit": 60, "go_name": "traitBlockEntityBacking", "source": true},
         {"name": "FARMLAND", "bit": 61, "go_name": "traitFarmland", "source": true},
-        {"name": "CAN_CONTAIN_LIQUID_SOURCE", "bit": 62, "go_name": "traitCanContainLiquidSource", "source": true}
+        {"name": "CAN_CONTAIN_LIQUID_SOURCE", "bit": 62, "go_name": "traitCanContainLiquidSource", "source": true},
+        {"name": "INTERACTIVE", "bit": 63, "go_name": "traitInteractive", "source": true}
       ]
     }
   ],

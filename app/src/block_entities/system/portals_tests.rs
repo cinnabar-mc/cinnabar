@@ -38,7 +38,89 @@ fn submit_sub_chunk(
         submissions,
         &sub_chunk_cells(grid, sub_chunk, classify),
         eye,
-        |_, _| 1.0.into(),
+        1.0,
+        |_| (0, 0),
+    );
+}
+
+#[test]
+fn palette_beds_use_both_halves_light_before_entity_nbt_arrives() {
+    use render_model::{BedModel, BlockEntityLight};
+
+    let block = [2, 3, 4];
+    let center = block.map(|value| value as f32 + 0.5);
+    for direction in 0..4 {
+        let model = BedModel {
+            color: render_model::bed_color(render_model::DEFAULT_BED_DYE).unwrap(),
+            head: true,
+            direction,
+        };
+        let offset = model.other_half_offset();
+        let foot = std::array::from_fn(|axis| center[axis] + offset[axis] as f32);
+        let cells = sub_chunk_cells([0; 3], &fixture(Some([2, 3, 4]), false), &mut |id| {
+            (id == PORTAL).then_some(BlockEntityKind::Bed(model))
+        });
+        for (head_light, foot_light, expected) in [
+            ((0, 0), (0, 0), BlockEntityLight::Actor { block: 0, sky: 0 }),
+            (
+                (2, 12),
+                (11, 4),
+                BlockEntityLight::Actor { block: 11, sky: 12 },
+            ),
+        ] {
+            let mut submissions = Vec::new();
+            let mut sampled = Vec::new();
+            submit(
+                &mut submissions,
+                &cells,
+                Vec3::from_array(center),
+                1.0,
+                |position| {
+                    sampled.push(position);
+                    if position == center {
+                        head_light
+                    } else {
+                        foot_light
+                    }
+                },
+            );
+            assert_eq!(sampled, [center, foot]);
+            assert_eq!(submissions.len(), 1);
+            assert_eq!(submissions[0].block, block);
+            assert_eq!(submissions[0].kind, BlockEntityKind::Bed(model));
+            assert_eq!(submissions[0].light, expected);
+        }
+    }
+}
+
+#[test]
+fn palette_submission_preserves_portal_and_piston_lighting() {
+    use render_model::{BlockEntityLight, PistonArmModel};
+
+    let block = [2, 3, 4];
+    let piston = PistonArmModel {
+        facing: 1,
+        sticky: false,
+        progress: 0.0,
+    };
+    let cells = vec![
+        (block, BlockEntityKind::EndPortal),
+        (block, BlockEntityKind::EndGateway),
+        (block, BlockEntityKind::PistonArm(piston)),
+    ];
+    let mut submissions = Vec::new();
+    let mut sampled = Vec::new();
+    submit(&mut submissions, &cells, Vec3::ZERO, 0.0, |position| {
+        sampled.push(position);
+        (3, 7)
+    });
+    assert_eq!(sampled, [piston.plate_center(block)]);
+    assert_eq!(submissions.len(), 3);
+    assert_eq!(submissions[0].light, 1.0.into());
+    assert_eq!(submissions[1].light, 1.0.into());
+    assert_eq!(
+        submissions[2].light,
+        BlockEntityLight::Actor { block: 3, sky: 7 }
     );
 }
 

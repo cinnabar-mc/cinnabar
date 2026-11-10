@@ -64,6 +64,14 @@ impl cinnabar::extension::input::Host for State {
         controls::reserve(self, keys)
     }
 
+    fn read_scroll(&mut self) -> Result<Result<crate::ScrollFrame, String>> {
+        controls::read_scroll(self)
+    }
+
+    fn reserve_scroll(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
+        controls::reserve_scroll(self, keys)
+    }
+
     /// Reports native editor ownership of this frame's keys under controls authority.
     fn read_native_editing(&mut self) -> Result<Result<bool, String>> {
         self.charge()?;
@@ -72,6 +80,25 @@ impl cinnabar::extension::input::Host for State {
         } else {
             Err("controls permission denied".into())
         })
+    }
+}
+
+impl Instance {
+    pub(crate) fn scroll_capture_keys(&self) -> &[String] {
+        &self.store.data().controls.scroll_keys
+    }
+
+    pub(crate) fn observe_scroll(&mut self, scroll: crate::ScrollFrame) {
+        let allowed = self.is_active()
+            && self.store.data().grants.controls
+            && [scroll.line_x, scroll.line_y, scroll.pixel_x, scroll.pixel_y]
+                .iter()
+                .all(|v| v.is_finite());
+        self.store.data_mut().controls.scroll = if allowed {
+            scroll
+        } else {
+            crate::empty_scroll()
+        };
     }
 }
 

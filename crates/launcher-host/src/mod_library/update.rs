@@ -15,6 +15,9 @@ use std::{
 /// Existing registration, permission grants and settings companions retain their identities.
 pub fn install<B: Backend>(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
     let (item, path) = selected(mods, download)?;
+    if crate::marketplace::managed(&path) {
+        return Err("Marketplace mods require signed marketplace releases.".into());
+    }
     let old =
         B::read_source(&path).map_err(|error| format!("Could not read {}: {error}", item.file))?;
     let bytes = B::read_source(download.path())
@@ -57,6 +60,33 @@ pub fn install<B: Backend>(mods: &Path, download: &Downloaded) -> Result<Install
 pub struct Installed {
     path: PathBuf,
     pub message: String,
+}
+
+impl Installed {
+    /// Names the permissions this replacement newly requests that its retained grants leave off,
+    /// so the completion message asks the player to review them. `previous` is the replaced
+    /// revision's card. Grants stay unchanged; approval remains an explicit card action.
+    pub fn review_new_requests<B: Backend>(
+        &mut self,
+        previous: &launcher::mods::InstalledMod,
+        registration: &Path,
+    ) {
+        let current = B::registered(registration)
+            .into_iter()
+            .find(|entry| same_path(entry.component(), &self.path));
+        let mut next = launcher::mods::InstalledMod {
+            permissions: Vec::new(),
+            ..previous.clone()
+        };
+        B::describe(&mut next, &B::declarations(&self.path), current.as_ref());
+        let added = next.new_requests(previous);
+        if !added.is_empty() {
+            self.message.push_str(&format!(
+                " It requests new permissions: {}. Review them on its card.",
+                added.join(", ")
+            ));
+        }
+    }
 }
 
 /// Completion is held until the runtime acknowledges the freshly requested instance.
@@ -149,8 +179,8 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
         metadata
             .revision_update
             .as_ref()
+            .filter(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
             .map(|r| &r.source)
-            .or(metadata.update_url.as_ref())
             .is_some_and(|source| {
                 source.repository().slug() == download.repository
                     && source.asset() == download.asset
@@ -159,7 +189,11 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
     if !matches_source(&previous) || !matches_source(&next) {
         return Err("The update source does not match the installed mod.".into());
     }
-    if let Some(expected) = download.revision_update.as_deref() {
+    if let Some(expected) = download
+        .revision_update
+        .as_deref()
+        .filter(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
+    {
         if next.revision_update.as_ref() != Some(expected)
             || !previous
                 .revision_update
@@ -170,7 +204,7 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
                 "The downloaded mod identity does not match the compatible release.".into(),
             );
         }
-    } else if previous.revision_update.is_some() || next.revision_update.is_some() {
+    } else {
         return Err("A revision-aware update requires verified compatibility metadata.".into());
     }
     let current = previous

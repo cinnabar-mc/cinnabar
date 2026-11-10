@@ -31,7 +31,7 @@ func TestLocalLANPeerRequiresAdvertisedOfflineAdmissionAndNonce(t *testing.T) {
 		{name: "offline advertised", offline: true, nonce: "fixture-nonce", connection: p2p.ConnectionTypeSignalingOverLAN},
 		{name: "online only", nonce: "fixture-nonce", connection: p2p.ConnectionTypeSignalingOverLAN, wantErr: true},
 		{name: "no nonce", offline: true, connection: p2p.ConnectionTypeSignalingOverLAN, wantErr: true},
-		{name: "unsupported signaling", offline: true, nonce: "fixture-nonce", connection: p2p.ConnectionTypeSignalingOverWebSocket, wantErr: true},
+		{name: "unsupported signaling", offline: true, nonce: "fixture-nonce", connection: p2p.ConnectionTypeSignalingOverJSONRPC, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

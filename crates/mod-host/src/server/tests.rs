@@ -808,17 +808,6 @@ fn scroll_changed_reaches_the_guest() {
     assert!(skipped.commands.is_empty());
 }
 
-/// `name` keyed by this worktree. Cargo judges freshness by modification time alone and its
-/// dep-info paths are relative to the workspace, so two worktrees building into one target would
-/// silently reuse each other's guests; keying the guests' target directory by worktree keeps
-/// each worktree's guests its own.
-fn worktree_dir(name: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
-    format!("{name}-{:016x}", hasher.finish())
-}
-
 /// The bundle imports call the same host that personal mods use, with bundle-scoped grants.
 #[test]
 fn client_part_drawing_and_sky_commit_together_and_revoke() {

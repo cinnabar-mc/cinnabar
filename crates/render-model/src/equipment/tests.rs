@@ -1,6 +1,6 @@
 //! Pure placement invariants shared by world equipment and UI previews.
 
-use super::{ItemDisplay, attach_to_bone, held_block_display, held_sprite_display};
+use super::{ItemDisplay, SpriteGrip, attach_to_bone, held_block_display, held_sprite_display};
 use crate::RenderBoneTransform;
 use glam::{Quat, Vec3};
 
@@ -66,11 +66,13 @@ fn hand_rotation_turns_the_display_offset() {
 
 #[test]
 fn held_item_placements_follow_the_reference_scales() {
-    let sprite = held_sprite_display(false);
-    let sword = held_sprite_display(true);
+    let sprite = held_sprite_display(SpriteGrip::Flat);
+    let sword = held_sprite_display(SpriteGrip::HandEquipped);
+    let rod = held_sprite_display(SpriteGrip::Rod);
     let block = held_block_display();
     assert!((sprite.scale - 0.5625).abs() < 1e-5, "{}", sprite.scale);
     assert!((sword.scale - 0.9375).abs() < 1e-5, "{}", sword.scale);
+    assert!((rod.scale - 0.9375).abs() < 1e-5, "{}", rod.scale);
     assert!((block.scale - 0.375).abs() < 1e-5, "{}", block.scale);
 }
 
@@ -121,11 +123,67 @@ fn third_person_bound_root_stays_at_the_hand_under_rotation_and_scale() {
 
 #[test]
 fn third_person_sword_points_forward_and_up_from_a_hanging_arm() {
-    let sword = held_sprite_display(true);
+    let sword = held_sprite_display(SpriteGrip::HandEquipped);
     let handle = icon_point(sword, 1.0, 15.0);
     let tip = icon_point(sword, 15.0, 1.0);
     let blade = tip - handle;
     assert!(blade.z < -0.5 && blade.y > 0.0, "{blade}");
+}
+
+/// Rod icons run from a bottom-left handle to a top-right tip, with the line drawn below the tip.
+/// Vanilla turns the rod over so the line hangs from the forward tip; the sword grip raised it.
+#[test]
+fn third_person_rod_points_forward_with_its_line_hanging_down() {
+    let line_below_tip = |grip| {
+        let display = held_sprite_display(grip);
+        let handle = icon_point(display, 1.0, 15.0);
+        let tip = icon_point(display, 15.0, 1.0);
+        let line = icon_point(display, 15.0, 12.0);
+        let rod = tip - handle;
+        assert!(rod.z < -0.5 && rod.y > 0.0, "{grip:?} {rod}");
+        (line - tip).y < 0.0
+    };
+    assert!(line_below_tip(SpriteGrip::Rod));
+    assert!(!line_below_tip(SpriteGrip::HandEquipped));
+}
+
+/// Pins each hand's rod placement on its item bone: the main hand holds the rod lower and further
+/// back than the off hand, as vanilla's two rod offsets do.
+#[test]
+fn third_person_rod_placement_differs_per_hand() {
+    use super::held_sprite_display_for_hand;
+    let near = |actual: Vec3, expected: [f32; 3]| {
+        assert!(
+            actual.distance(Vec3::from_array(expected)) < 1e-3,
+            "{actual} != {expected:?}"
+        );
+    };
+    for (off_hand, handle, tip) in [
+        (false, [-0.012, -0.0841, 0.1928], [-0.0466, 0.0184, -0.9623]),
+        (true, [0.113, 0.1252, 0.1842], [0.0784, 0.2277, -0.9709]),
+    ] {
+        let display = held_sprite_display_for_hand(SpriteGrip::Rod, off_hand);
+        near(icon_point(display, 1.0, 15.0), handle);
+        near(icon_point(display, 15.0, 1.0), tip);
+    }
+}
+
+#[test]
+fn rod_grip_wins_over_the_hand_equipped_flag() {
+    assert_eq!(SpriteGrip::new(true, true), SpriteGrip::Rod);
+    assert_eq!(SpriteGrip::new(false, true), SpriteGrip::Rod);
+    assert_eq!(SpriteGrip::new(true, false), SpriteGrip::HandEquipped);
+    assert_eq!(SpriteGrip::new(false, false), SpriteGrip::Flat);
+    for identifier in [
+        "minecraft:fishing_rod",
+        "minecraft:carrot_on_a_stick",
+        "minecraft:warped_fungus_on_a_stick",
+    ] {
+        let grip = assets::item::grip::builtin_item_grip(identifier);
+        assert_eq!(SpriteGrip::from(grip), SpriteGrip::Rod, "{identifier}");
+    }
+    let sword = assets::item::grip::builtin_item_grip("minecraft:diamond_sword");
+    assert_eq!(SpriteGrip::from(sword), SpriteGrip::HandEquipped);
 }
 
 #[test]

@@ -111,6 +111,7 @@ impl UiPresentationRuntime {
             // Every cursor style belongs to gameplay input, including pack image
             // replacements. Personal modal surfaces own input outside the scene stack.
             let crosshair_visible = stack.receives_input(Scene::Gameplay)
+                && !self.touch_hides_crosshair()
                 && !self.screens.mod_ui.mod_panel_open()
                 && !self.screens.mod_ui.experience_modal_open();
             if host.over_world {
@@ -161,11 +162,31 @@ impl UiPresentationRuntime {
                             nodes,
                             next,
                             metrics,
-                            content,
+                            if crosshair {
+                                [logical_width, logical_height]
+                            } else {
+                                content
+                            },
                             now_millis,
                             crosshair,
                         )?;
-                        if !crosshair {
+                        if crosshair {
+                            // The reticle follows the world viewport, outside safe-area layout.
+                            for node in &mut nodes[hud_start..] {
+                                if node.parent().is_none() {
+                                    *node = node
+                                        .clone()
+                                        .with_bounds(
+                                            node.bounds()
+                                                .translated([-safe_area.left(), -safe_area.top()])
+                                                .map_err(UiPresentationError::Geometry)?,
+                                        )
+                                        .with_viewport_clip(
+                                            node.viewport_clip().unwrap_or(viewport),
+                                        );
+                                }
+                            }
+                        } else {
                             hud_nodes = hud_start..nodes.len();
                             self.append_mod_hud(
                                 player_runtime,
@@ -390,7 +411,7 @@ impl UiPresentationRuntime {
                 content,
             );
             // Personal panels can admit host portraits while painting this frame.
-            self.sync_server_ui_pages();
+            self.end_ui_frame();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {

@@ -5,7 +5,7 @@
 `cinnabar:extension/touch@0.1.0`
 
 Mod-owned on-screen buttons drawn in the built-in touch control style while touch controls
-are shown. Players move them in the touch layout editor. Requires controls authority.
+are shown. Players move and resize them in the touch layout editor. Requires controls authority.
 
 **Grants:** `controls`.
 

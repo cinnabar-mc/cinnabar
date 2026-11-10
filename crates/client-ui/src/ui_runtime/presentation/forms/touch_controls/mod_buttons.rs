@@ -18,6 +18,11 @@ pub(super) fn slot(name: &str) -> Option<usize> {
         .filter(|slot| *slot < MAX_PRESENTED_TOUCH_BUTTONS)
 }
 
+/// Layout control name of a presented slot, which its `cinnabar.touch.<name>` id carries.
+pub(super) fn layout_name(slot: usize) -> String {
+    format!("{SLOT_PREFIX}{slot}")
+}
+
 /// The saved-layout and editor name of a painted control: an authored control keeps its own
 /// name, and a mod button uses its stable id rather than its slot.
 pub(super) fn placement_name(buttons: &[TouchButton], name: &str) -> Option<String> {

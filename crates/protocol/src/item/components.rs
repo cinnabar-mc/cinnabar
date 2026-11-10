@@ -160,7 +160,7 @@ impl FoodProperties {
     }
 }
 /// Reads only explicit component values; absent or malformed fields remain unavailable.
-fn food_properties(component: Option<&Nbt>) -> Option<FoodProperties> {
+fn food_properties(component: Option<Nbt<'_>>) -> Option<FoodProperties> {
     let component = component?;
     let nutrition = component.field("nutrition")?.number()?;
     let modifier = component.field("saturation_modifier")?.number()? as f32;
@@ -179,8 +179,8 @@ fn food_properties(component: Option<&Nbt>) -> Option<FoodProperties> {
 }
 
 /// Keeps absent, malformed and finite flags distinct while retaining the current OR combination.
-fn declared_flag(property: Option<&Nbt>, component: Option<&Nbt>) -> (bool, Option<bool>) {
-    let read = |value: &Nbt| {
+fn declared_flag(property: Option<Nbt<'_>>, component: Option<Nbt<'_>>) -> (bool, Option<bool>) {
+    let read = |value: Nbt<'_>| {
         value
             .field("value")
             .or(Some(value))
@@ -201,7 +201,8 @@ fn declared_flag(property: Option<&Nbt>, component: Option<&Nbt>) -> (bool, Opti
 /// Reads both the `item_properties` and the top-level component layouts; `None` when the
 /// data carries no components compound.
 pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
-    let root = read_root(bytes)?;
+    let document = read_root(bytes)?;
+    let root = document.root();
     // A non-compound payload carries no usable facts, not confirmed absence.
     let components = root
         .field("components")
@@ -217,14 +218,14 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
     let component = |name: &str| components.field(name);
     let use_modifiers = component("minecraft:use_modifiers")
         .filter(|modifiers| matches!(modifiers, Nbt::Compound(_)));
-    let value_of = |nbt: &Nbt| nbt.field("value").or(Some(nbt)).and_then(Nbt::number);
-    let text = |nbt: Option<&Nbt>| {
+    let value_of = |nbt: Nbt<'_>| nbt.field("value").or(Some(nbt)).and_then(Nbt::number);
+    let text = |nbt: Option<Nbt<'_>>| {
         nbt.and_then(Nbt::as_str)
             .filter(|text| !text.is_empty() && text.len() <= MAX_TEXT_BYTES)
             .map(Arc::from)
     };
-    let flag = |nbt: Option<&Nbt>| nbt.and_then(value_of).is_some_and(|value| value != 0.0);
-    let count = |nbt: Option<&Nbt>| {
+    let flag = |nbt: Option<Nbt<'_>>| nbt.and_then(value_of).is_some_and(|value| value != 0.0);
+    let count = |nbt: Option<Nbt<'_>>| {
         nbt.and_then(value_of)
             .filter(|value| value.is_finite() && *value >= 0.0)
             .map(|value| value.min(f64::from(u32::MAX)) as u32)
@@ -280,7 +281,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         render_offsets: super::render_offsets::parse_render_offsets(component(
             "minecraft:render_offsets",
         )),
-        icon: super::icons::icon_key(bytes),
+        icon: super::icons::icon_key(components),
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),
         ),
@@ -295,8 +296,8 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         allow_off_hand: component("minecraft:allow_off_hand")
             .or(property("allow_off_hand"))
             .and_then(|value| match value.field("value").unwrap_or(value) {
-                Nbt::Byte(value) => Some(*value != 0),
-                Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value) => Some(*value != 0),
+                Nbt::Byte(value) => Some(value != 0),
+                Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value) => Some(value != 0),
                 _ => None,
             }),
         creative_category: super::registry_properties::negotiated_creative_category(bytes),
@@ -340,9 +341,9 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .and_then(|wearable| wearable.field("protection"))
             .and_then(|value| match value {
                 Nbt::Short(value) | Nbt::Int(value) | Nbt::Long(value)
-                    if (0..=i64::from(i32::MAX)).contains(value) =>
+                    if (0..=i64::from(i32::MAX)).contains(&value) =>
                 {
-                    Some(*value as u32)
+                    Some(value as u32)
                 }
                 _ => None,
             }),

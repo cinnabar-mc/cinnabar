@@ -18,6 +18,7 @@ pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;
 mod focus;
+pub(crate) mod freeform_pick;
 mod presentation;
 mod render_scale;
 
@@ -67,6 +68,7 @@ impl Plugin for FlyCameraPlugin {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticRouteState>()
         .init_resource::<SemanticTouchTargets>()
+        .init_resource::<freeform_pick::FreeformPickPoint>()
         .init_resource::<RuntimeSettings>()
         .init_resource::<client_presentation::camera::LocalPlayerDeath>()
         .add_systems(

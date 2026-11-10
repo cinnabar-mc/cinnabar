@@ -405,7 +405,7 @@ fn mcbeas04_rejects_noncanonical_new_tables_and_limits() {
     }]
     .into_boxed_slice();
     bad_quad.model_quads = vec![assets::ModelQuad {
-        flags: assets::MODEL_QUAD_FLAG_INHERITED_SHADE << 1,
+        flags: assets::MODEL_QUAD_FLAG_WORLD_ALIGNED_UV << 1,
         ..quad
     }]
     .into_boxed_slice();
@@ -668,7 +668,10 @@ fn texture_array(layers: u32) -> TextureArray {
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
-    TextureArray { layers, mips }
+    TextureArray {
+        layers,
+        mips: mips.into(),
+    }
 }
 
 fn valid_assets() -> CompiledAssets {

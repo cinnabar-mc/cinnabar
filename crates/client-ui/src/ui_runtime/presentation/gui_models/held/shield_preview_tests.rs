@@ -113,6 +113,7 @@ fn dress(ui: &mut UiPresentationRuntime, patterns: Option<&[Arc<render_api::Shie
     let runtime = crate::ui_runtime::UiRuntime::new(1);
     ui.dress_player_preview(&player, &runtime, None, Default::default(), |stack| {
         Some(client_world::CanonicalItemStack {
+            trim: None,
             shield_pattern: patterns.map(|patterns| Arc::clone(&patterns[stack.metadata as usize])),
             grip: assets::item::grip::ItemGrip::Session {
                 upright: true,
@@ -170,7 +171,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                 assert!(model.placements.iter().all(|placement| matches!(
                     placement,
                     PreviewHeldPlacement::Sprite {
-                        hand_equipped: true
+                        grip: render_model::equipment::SpriteGrip::HandEquipped
                     }
                 )));
                 let pixels = ui
@@ -221,7 +222,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                     assert!(model.placements.iter().all(|placement| matches!(
                         placement,
                         PreviewHeldPlacement::Sprite {
-                            hand_equipped: true
+                            grip: render_model::equipment::SpriteGrip::HandEquipped
                         }
                     )));
                 }
@@ -261,7 +262,7 @@ fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
                             assert!(model.placements.iter().all(|placement| matches!(
                                 placement,
                                 PreviewHeldPlacement::Sprite {
-                                    hand_equipped: true
+                                    grip: render_model::equipment::SpriteGrip::HandEquipped
                                 }
                             )));
                             let pixels = ui
