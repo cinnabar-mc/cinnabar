@@ -1,8 +1,8 @@
 # Packaging
 
-Release installers ship the client, the Go core, the dragonfly local-world server and its
-`cinnabar-cxb` verifier beside it, the shader-pack compiler, the Cinnangles Sans font and a prep
-kit, never Mojang-derived carriers. A packaged launch whose carriers are missing or stale runs
+Release installers ship the client, the Go core, the `cinnabar-cxb` verifier, the shader-pack
+compiler, the Cinnangles Sans font and a prep kit, never Mojang-derived carriers. A packaged
+launch whose carriers are missing or stale runs
 `crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
 window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
@@ -173,8 +173,8 @@ Installers ship only the stripped binaries: packagers stage binaries by name and
 rejects any other file. Each package job zips its Rust binaries with their debug files and a
 `manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
-the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
-print symbolized tracebacks themselves and have no symbol files. Android release APKs use the
+the release carries it beside the installers. The Go core (`bedrock-core`)
+prints symbolized tracebacks itself and have no symbol files. Android release APKs use the
 `release` profile with split debug info disabled and have no symbol archive; the separate Android
 CI workflow uses `play`. Releasing an older source branch without debug info publishes no archives
 when run without those overrides, with a workflow warning; `release-symbols.py has-symbols` checks

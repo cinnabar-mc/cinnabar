@@ -5,12 +5,13 @@ for server callbacks, saved data and hosts of `experience-runtime`.
 
 ## Running and artifacts
 
-`make local-server` builds `bedrock-local-server`, `experience-runtime` and the
-bundle verifier. Installed `.cmod` packages are discovered under `<world>/mods/`.
+From a source checkout, `make local-server` builds the development server from
+`tools/localserver`, `experience-runtime` and the bundle verifier. Player packages
+use BDS for local worlds and do not include this development server. Installed `.cmod` packages are discovered under `<world>/mods/`.
 For unpackaged server artifacts:
 
 ```sh
-bedrock-local-server -dir <world> -addr 127.0.0.1:19132 \
+target/release/bedrock-local-server -dir <world> -addr 127.0.0.1:19132 \
   -experiences <artifacts> -experience-runtime <binary>
 ```
 
