@@ -96,6 +96,10 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
     SkullKind::from_block_identifier(identifier).filter(|kind| kind.packed_rig_index().is_some())
 }
 
+/// Startup meshes occupy the item namespace below session icons and static item meshes.
+const STARTUP_MESH_ID_CAPACITY: usize =
+    render_model::ITEM_MESH_RIG_ID_CAPACITY - session::MAX_SESSION_MESHES - ReservedItemMesh::COUNT;
+
 /// Maps generic humanoid armor geometries used by third-party attachables to the native player armor rig.
 pub(super) fn canonical_armor_geometry_identifier(identifier: &str) -> &str {
     match identifier {
@@ -106,9 +110,6 @@ pub(super) fn canonical_armor_geometry_identifier(identifier: &str) -> &str {
         other => other,
     }
 }
-
-/// Generated item meshes kept resident; further distinct items draw nothing.
-const MAX_ITEM_MESHES: usize = 512;
 
 /// Body bone index per armor bone; `None` where the body lacks it.
 type ArmorBoneMap = Arc<[Option<usize>]>;
@@ -149,7 +150,7 @@ pub struct EquipmentRuntime {
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
     next_mesh: u32,
-    map_meshes: Option<[EntityRigId; 2]>,
+    map_meshes: Option<[EntityRigId; maps::MAP_MESH_COUNT]>,
     /// Retired pack slots, reused only after replacement geometry is queued.
     free_meshes: Vec<EntityRigId>,
     /// The session's server-pack attachables, consulted before `catalog`.
@@ -669,7 +670,8 @@ impl EquipmentRuntime {
         make: impl FnOnce(EntityRigId) -> Option<ActorRigGeometry>,
     ) -> Option<EntityRigId> {
         let id = self.free_meshes.last().copied().or_else(|| {
-            (self.next_mesh < MAX_ITEM_MESHES as u32).then(|| item_mesh_rig_id(self.next_mesh))
+            (self.next_mesh < STARTUP_MESH_ID_CAPACITY as u32)
+                .then(|| item_mesh_rig_id(self.next_mesh))
         })?;
         let geometry = make(id)?;
         if self.free_meshes.pop().is_none() {
@@ -703,6 +705,9 @@ impl EquipmentRuntime {
                     .copied()
                     .map(|mut vertex| {
                         for uv in [&mut vertex.uv, &mut vertex.back_uv] {
+                            if *uv == render_model::ONE_SIDED_BACK_UV {
+                                continue;
+                            }
                             for axis in 0..2 {
                                 uv[axis] = rect[axis] + uv[axis] * (rect[axis + 2] - rect[axis]);
                             }

@@ -115,9 +115,14 @@ fn a_replayed_server_sprint_ends_at_a_liquid_stop() {
     let mut ticker = MovementTicker::default();
     let (start, start_position) = swim_out_of_the_side(&mut delayed, &mut ticker, None);
     assert_eq!(delayed.latest_sneak_sprint(), Some((false, false)));
+    let live_swim_amount = delayed.state().unwrap().swim_amount;
     let rewind = delayed.apply_server_movement_flags(start, sprint).unwrap();
     reconcile_timeline_rewind(&mut ticker, &mut delayed, rewind, &SidePool).unwrap();
-    assert_eq!(delayed.state(), on_time.state());
+    // Copy-back leaves the live swim blend; every replayed field matches.
+    let mut replayed = delayed.state().unwrap().clone();
+    assert_eq!(replayed.swim_amount, live_swim_amount);
+    replayed.swim_amount = on_time.state().unwrap().swim_amount;
+    assert_eq!(Some(&replayed), on_time.state());
     assert_eq!(delayed.latest_sneak_sprint(), Some((false, false)));
     assert_eq!(delayed.prediction_sync_posture(), Some((false, false)));
     assert_eq!(delayed.prediction_sync_flags().sprinting, Some(false));

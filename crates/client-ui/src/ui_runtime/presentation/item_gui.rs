@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use assets::gui_item::{CUBE_FACES, CubeLighting};
+use assets::gui_item::{BlockModelOrder, CUBE_FACES, CubeLighting};
 use ui::{UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use ui::IconRef;
@@ -71,7 +71,12 @@ pub(super) fn cutout_cube(faces: [IconRef; 6], lighting: CubeLighting) -> Option
             faces[face as usize],
         )
     });
-    block_model(&quads, assets::gui_item::GuiShading::Inventory, lighting)
+    block_model(
+        &quads,
+        assets::gui_item::GuiShading::Inventory,
+        lighting,
+        BlockModelOrder::Depth,
+    )
 }
 
 /// Converts directional face lighting or uniform brightness to the shared byte-space tint.

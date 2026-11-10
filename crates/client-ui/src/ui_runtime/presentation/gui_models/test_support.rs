@@ -27,7 +27,7 @@ pub fn assert_installed_geometry(
         height: 32,
         rgba8: [31, 47, 59, 255].repeat(16 * 32).into(),
     };
-    presentation.set_gui_fire_texture(Some(&flame)).unwrap();
+    presentation.set_gui_fire_texture(Some(&flame));
     let icons = presentation.icon_catalog.as_deref().unwrap();
     for identifier in ["minecraft:dirt", "minecraft:grass_block"] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
@@ -98,10 +98,11 @@ pub fn assert_installed_geometry(
         .as_deref()
         .is_some_and(|icons| !icons.block_models().is_empty());
     if modelled {
-        for identifier in [
-            "minecraft:oak_stairs",
-            "minecraft:cobblestone_wall",
-            "minecraft:oak_fence",
+        use assets::gui_item::BlockModelOrder::{Depth, Paint};
+        for (identifier, order) in [
+            ("minecraft:oak_stairs", Depth),
+            ("minecraft:cobblestone_wall", Depth),
+            ("minecraft:oak_fence", Paint),
         ] {
             let icon = presentation.item_icon(identifier, 0).unwrap();
             let mesh = presentation
@@ -110,8 +111,7 @@ pub fn assert_installed_geometry(
                 .models
                 .get(&icon_key(icon))
                 .unwrap_or_else(|| panic!("{identifier} draws at the control's size"));
-            assert!(mesh.batches().iter().all(|batch| batch.depth_test));
-            assert!(mesh.vertices().iter().all(|vertex| vertex.terrain_mips));
+            assert_block_model_order(mesh, order);
         }
     }
     assert_installed_blended_thumbnails(&presentation, world, entities, icons);
@@ -132,6 +132,24 @@ pub fn assert_installed_geometry(
             .models
             .contains_key(&icon_key(grass))
     );
+}
+
+/// Checks depth state and flat paint depth for admitted block geometry.
+pub(super) fn assert_block_model_order(
+    mesh: &ui::UiMesh,
+    order: assets::gui_item::BlockModelOrder,
+) {
+    let depth = order == assets::gui_item::BlockModelOrder::Depth;
+    assert!(!mesh.batches().is_empty());
+    assert!(
+        mesh.batches()
+            .iter()
+            .all(|batch| batch.depth_test == depth && batch.depth_write == depth)
+    );
+    assert!(mesh.vertices().iter().all(|vertex| vertex.terrain_mips));
+    if !depth {
+        assert!(mesh.vertices().iter().all(|vertex| vertex.clip_z == 0.0));
+    }
 }
 
 /// Checks fractional blended faces using the installed carrier's material and alpha data.

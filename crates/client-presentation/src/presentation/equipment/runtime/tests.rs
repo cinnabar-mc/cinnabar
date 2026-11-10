@@ -1,5 +1,8 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "item_mesh_tests.rs"]
+mod item_mesh_tests;
+
 #[path = "map_mesh_tests.rs"]
 mod map_mesh_tests;
 
@@ -627,6 +630,68 @@ fn unplaced_session_block_sheets_keep_startup_alpha_modes_for_both_hands() {
 }
 
 #[test]
+fn carried_buttons_keep_their_first_person_panel_anchor() {
+    use bevy::math::Vec3;
+    let records = assets::registry::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut names = std::collections::BTreeSet::new();
+    let (mut runtime, body, mut item) = block_fixture();
+    for record in records
+        .iter()
+        .filter(|record| record.model_family == assets::ModelFamily::Button)
+    {
+        if !names.insert(record.name.clone()) {
+            continue;
+        }
+        Arc::make_mut(&mut runtime.blocks.source)
+            .sheets
+            .insert(record.sequential_id, 0);
+        for kind in [
+            HeldKind::Block(record.sequential_id),
+            HeldKind::RetainedBlock {
+                state: Some(record.sequential_id),
+                item: Some(record.sequential_id),
+            },
+        ] {
+            item.identifier = record.name.clone().into();
+            item.kind = kind;
+            for profile in [
+                render_api::CombatVisuals::Legacy112,
+                render_api::CombatVisuals::Modern,
+            ] {
+                let first = runtime
+                    .first_person_item_for_profile(
+                        &body,
+                        &item,
+                        ItemAnimationState::default().into(),
+                        profile,
+                    )
+                    .unwrap();
+                let pose = first.presentation.submission.input.current_bones[0];
+                let anchor = Vec3::from_array(pose.translation_scale[..3].try_into().unwrap());
+                assert!(
+                    anchor.abs_diff_eq(Vec3::new(0.7155635, -0.72, -0.8472792), 1.0e-6),
+                    "{} profile={profile:?} kind={kind:?}: {anchor:?}",
+                    item.identifier
+                );
+                assert!((pose.translation_scale[3] - 0.4).abs() < 1.0e-6);
+            }
+            item.identifier = Arc::from("custom:ordinary");
+            let ordinary = runtime
+                .first_person_item(&body, &item, ItemAnimationState::default())
+                .unwrap();
+            let pose = ordinary.presentation.submission.input.current_bones[0];
+            let anchor = Vec3::from_array(pose.translation_scale[..3].try_into().unwrap());
+            assert!(anchor.abs_diff_eq(Vec3::new(0.56, -0.52, -0.72), 1.0e-6));
+        }
+    }
+    assert!(!names.is_empty());
+}
+
+#[test]
 fn first_person_block_uses_camera_space_and_reuses_the_cube_atlas_and_rig() {
     let (mut runtime, body, item) = block_fixture();
     let first = runtime
@@ -722,31 +787,6 @@ fn third_person_block_retains_the_existing_grip_on_the_avatar_bone() {
     assert_eq!(&*third.submission.input.previous_bones, &[expected]);
     assert_eq!(&*third.submission.input.current_bones, &[expected]);
     assert_eq!(third.submission.world_from_actor, body.world_from_actor);
-}
-
-#[test]
-fn review_render_pack_replacement_reclaims_mesh_slots_without_reusing_vanilla_ids() {
-    let (mut runtime, _, _) = block_fixture();
-    runtime.next_mesh = MAX_ITEM_MESHES as u32;
-    for index in 0..MAX_ITEM_MESHES as u32 - 1 {
-        runtime
-            .meshes
-            .insert(MeshKey::Block(index), Some(item_mesh_rig_id(index)));
-    }
-    let retired = item_mesh_rig_id(MAX_ITEM_MESHES as u32 - 1);
-    let placement = runtime.blocks.source.placements[0].unwrap();
-    for _ in 0..8 {
-        runtime.attachable_meshes.insert((true, 0, (1, 0)), retired);
-        runtime.set_pack_layer(None);
-        assert_eq!(
-            runtime.build_mesh(MeshKey::Block(7), 0, placement),
-            Some(retired)
-        );
-        assert_eq!(
-            runtime.meshes[&MeshKey::Block(0)],
-            Some(item_mesh_rig_id(0))
-        );
-    }
 }
 
 #[test]
@@ -982,6 +1022,7 @@ fn attachment_placement_shared_endpoint_composes_once() {
     assert_eq!(work, 1);
     assert!(Arc::ptr_eq(&poses[0], &poses[1]));
 }
+mod walls;
 
 #[test]
 fn held_dial_frames_draw_without_a_static_item_icon() {

@@ -89,6 +89,7 @@ impl Plugin for ChunkRenderPlugin {
                 ),
             );
         super::visibility::install(app);
+        super::markers::install(app);
 
         if app.get_sub_app(RenderApp).is_none() {
             return;

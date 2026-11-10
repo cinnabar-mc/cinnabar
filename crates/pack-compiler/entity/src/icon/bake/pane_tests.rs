@@ -1,6 +1,93 @@
 use super::*;
 
 #[test]
+fn identical_glass_and_grate_thumbnails_keep_distinct_coverage_keys() {
+    let root = tempfile::tempdir().unwrap();
+    write_fixture(root.path());
+    std::fs::write(
+        root.path().join("blocks.json"),
+        r#"{"glass":{"textures":"glass"},"copper_grate":{"textures":"glass"}}"#,
+    )
+    .unwrap();
+    image::RgbaImage::from_fn(16, 16, |x, y| {
+        image::Rgba([40, 80, 120, if x == y { 0 } else { 255 }])
+    })
+    .save(root.path().join("textures/blocks/glass.png"))
+    .unwrap();
+    let protocol = assets::active_content_registry_protocol();
+    let records =
+        assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+            .unwrap()
+            .into_vec()
+            .into_iter()
+            .filter(|record| {
+                matches!(
+                    record.name.as_ref(),
+                    "minecraft:air" | "minecraft:glass" | "minecraft:copper_grate"
+                )
+            })
+            .collect::<Vec<_>>();
+    let visual = |name: &str| {
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap()
+            .sequential_id
+    };
+    let glass = visual("minecraft:glass");
+    let grate = visual("minecraft:copper_grate");
+    let span = records
+        .iter()
+        .map(|record| record.sequential_id as usize + 1)
+        .max()
+        .unwrap();
+    let compiled_world = pack_compiler::compile_pack_with_biomes(
+        root.path(),
+        &root.path().join("behavior"),
+        &records,
+        &[],
+        &vec![assets::LightProperties::default(); span],
+        protocol,
+    )
+    .unwrap();
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled_world).unwrap()).unwrap();
+    let compiled = crate::compile_entity_assets(
+        root.path(),
+        include_bytes!("../../../../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut sprites = Vec::new();
+    let baked = run(
+        root.path(),
+        Some(&world),
+        Some(&blocks),
+        &BTreeMap::new(),
+        &BTreeMap::from([
+            (glass, Err(cube::Reject::Geometry)),
+            (grate, Err(cube::Reject::Geometry)),
+        ]),
+        &compiled,
+        &mut sprites,
+    )
+    .unwrap();
+    let glass = baked.model_sprites[&(glass, 0)];
+    let grate = baked.model_sprites[&(grate, 0)];
+    assert_eq!(
+        sprites[glass as usize], sprites[grate as usize],
+        "the fixture has identical artwork"
+    );
+    assert_ne!(
+        glass, grate,
+        "coverage policies must address distinct GUI models"
+    );
+    assert!(
+        !baked.block_models.iter().any(|model| model.sprite == grate),
+        "coverage isolation does not add a held model binding"
+    );
+}
+
+#[test]
 fn glass_panes_keep_their_carried_model_in_hand() {
     for (side, name) in [16, 32].into_iter().flat_map(|side| {
         ["minecraft:glass_pane", "minecraft:red_stained_glass_pane"].map(|name| (side, name))
@@ -67,10 +154,37 @@ fn glass_panes_keep_their_carried_model_in_hand() {
             .find(|model| model.sprite == gui)
             .unwrap();
         assert_eq!(model.visual.0, visual);
+        let held = model
+            .held_sprite
+            .expect("a GUI pane keeps separate carried artwork");
+        assert_ne!(held, gui);
+        let entry = assets::IconEntry {
+            identifier: name.into(),
+            metadata: 0,
+            sprite: gui,
+        };
+        let icons = assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog_with_blocks(
+                world.provenance().source_manifest_sha256,
+                &sprites,
+                std::slice::from_ref(&entry),
+                &baked.block_sheets,
+                &baked.block_models,
+            )
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            model.held_sprite, None,
-            "glass panes use their carried plate in both hands"
+            icons.lookup_index(&entry.identifier, entry.metadata),
+            Some(gui as usize)
         );
+        assert_eq!(
+            icons.lookup_held_index(&entry.identifier, entry.metadata),
+            Some(held as usize)
+        );
+        let held = &sprites[held as usize];
+        assert_eq!([held.width, held.height], [side as u16; 2]);
+        assert_eq!(held.rgba8.as_ref(), artwork.as_raw());
     }
 }
 

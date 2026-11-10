@@ -225,6 +225,24 @@ fn worker_decodes_become_resident_and_keep_their_pixels() {
     assert_eq!(atlas.decodes.pixels.len(), keys.len());
 }
 
+#[test]
+fn server_screen_keeps_every_reserved_image_resident_in_one_frame() {
+    let keys: Vec<_> = (0..render_model::UI_SERVER_UI_PAGES)
+        .map(|index| format!("textures/ui/image{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .map(|key| (format!("{key}.png"), png(200, 200)))
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    for key in &keys {
+        assert!(atlas.placement(key).is_some(), "missing {key}");
+    }
+    assert_eq!(atlas.images().len(), render_model::UI_SERVER_UI_PAGES);
+}
+
 // A full atlas evicts the page drawn least recently, never one drawn this frame.
 #[test]
 fn a_full_atlas_evicts_the_least_recently_drawn_page() {

@@ -3826,14 +3826,28 @@
       "fact": "render:Invisible",
       "status": "provisional",
       "members": [
-        "minecraft:barrier",
-        "minecraft:structure_void",
         "minecraft:invisible_bedrock",
         "minecraft:moving_block",
         "minecraft:piston_arm_collision",
         "minecraft:sticky_piston_arm_collision"
+      ]
+    },
+    {
+      "id": "render-camera-sprite",
+      "fact": "render:CameraSprite",
+      "status": "provisional",
+      "members": [
+        "minecraft:barrier"
       ],
       "prefix": "light_block_"
+    },
+    {
+      "id": "render-structure-void",
+      "fact": "render:StructureVoid",
+      "status": "provisional",
+      "members": [
+        "minecraft:structure_void"
+      ]
     },
     {
       "id": "render-ice",
@@ -7324,6 +7338,7 @@
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",
       "Glass": "minecraft:glass",
+      "GlassPane": "minecraft:glass_pane",
       "BeeNest": "minecraft:bee_nest",
       "Beehive": "minecraft:beehive",
       "ChiseledBookshelf": "minecraft:chiseled_bookshelf",

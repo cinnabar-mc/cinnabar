@@ -3,7 +3,9 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, material_tile};
+use assets::gui_item::{
+    BlockModelOrder, GUI_BLOCK_ALPHA_THRESHOLD, GuiShading, block_gui_quads, material_tile,
+};
 use assets::{
     BlockFace, BlockVisualId, Material, ModelQuad, ModelTemplate, NetworkIdMode, RuntimeAssets,
     TexturePage, VisualKind,
@@ -14,6 +16,7 @@ use super::{atlas::Atlas, item_gui};
 
 /// One block state's shape and the world tables it indexes.
 struct Shape<'a> {
+    render_kind: assets::facts::BlockRenderKind,
     kind: VisualKind,
     faces: [u32; 6],
     template: Option<u32>,
@@ -30,6 +33,7 @@ pub(super) fn mesh(
     world: &RuntimeAssets,
     visual: BlockVisualId,
     atlas: &mut Atlas,
+    render_kind: assets::facts::BlockRenderKind,
 ) -> Option<Arc<UiMesh>> {
     if world.is_diagnostic() || visual.0 as usize >= world.visual_count() {
         return None;
@@ -39,6 +43,7 @@ pub(super) fn mesh(
         return None;
     }
     let shape = Shape {
+        render_kind,
         kind: block.kind(),
         faces: BlockFace::ALL.map(|face| block.face(face).material_id()),
         template: block.model_template(),
@@ -52,7 +57,9 @@ pub(super) fn mesh(
 
 /// Builds GUI geometry from a block shape, keeping the thumbnail when any input is unsupported.
 fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
+    let covered = assets::gui_item::forces_covered_gui_alpha(shape.render_kind);
     let quads = block_gui_quads(
+        shape.render_kind,
         shape.kind,
         shape.faces,
         shape.template,
@@ -79,7 +86,8 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         })
         .ok()?;
         // Blend-flagged art that is only opaque or cut out (the anvil's) draws like cutout.
-        if blend
+        if !covered
+            && blend
             && tile
                 .as_chunks::<4>()
                 .0
@@ -90,12 +98,14 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
         }
         let side = u16::try_from(side).ok()?;
         let mut pixels = tile.to_vec();
-        for texel in pixels.as_chunks_mut::<4>().0 {
-            texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
-                255
-            } else {
-                0
-            };
+        if !covered {
+            for texel in pixels.as_chunks_mut::<4>().0 {
+                texel[3] = if texel[3] >= GUI_BLOCK_ALPHA_THRESHOLD {
+                    255
+                } else {
+                    0
+                };
+            }
         }
         source.insert((side, pixels));
     }
@@ -110,7 +120,12 @@ fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
                 .into_iter()
                 .map(|quad| (quad, textures[&quad.material]))
                 .collect();
-            item_gui::block_model(&placed, shading, Default::default())
+            let order = BlockModelOrder::for_template(
+                shape
+                    .template
+                    .and_then(|id| shape.templates.get(id as usize)),
+            );
+            item_gui::block_model(&placed, shading, Default::default(), order)
         },
     )
 }

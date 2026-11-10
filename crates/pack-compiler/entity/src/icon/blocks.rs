@@ -107,7 +107,7 @@ impl IconBlocks {
             ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// Selects canonical inventory poses for walls and directional blocks.
+    /// Selects canonical carried model states for walls and directional blocks.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
@@ -132,6 +132,21 @@ impl IconBlocks {
                 .find(|candidate| {
                     candidate.name == record.name
                         && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if assets::facts::pack::face_slots(&record.name)
+            == Some(assets::facts::pack::FaceSlots::Pumpkin)
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && matches!(
+                            candidate.property(assets::facts::BlockProperty::MinecraftCardinalDirection),
+                            Some(assets::facts::StateValue::String(direction)) if direction.as_ref() == "south"
+                        )
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -306,8 +321,11 @@ impl IconBlocks {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return Ok(None);
         };
-        if assets::facts::pack::face_slots(&record.name)
-            != Some(assets::facts::pack::FaceSlots::Pumpkin)
+        let bookshelf =
+            record.name.as_ref() == assets::facts::pack::PackBlock::ChiseledBookshelf.identifier();
+        if !bookshelf
+            && assets::facts::pack::face_slots(&record.name)
+                != Some(assets::facts::pack::FaceSlots::Pumpkin)
         {
             return Ok(None);
         }
@@ -316,9 +334,20 @@ impl IconBlocks {
         };
         let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
         for face in BlockFace::ALL {
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+            let source_face = if bookshelf {
+                match face {
+                    BlockFace::North => BlockFace::South,
+                    BlockFace::South => BlockFace::North,
+                    BlockFace::West => BlockFace::East,
+                    BlockFace::East => BlockFace::West,
+                    BlockFace::Up | BlockFace::Down => face,
+                }
+            } else {
+                face
+            };
+            let Some(key) = resolve_carried_face_key(&pack.blocks, record, source_face)
                 .map(String::into_boxed_str)
-                .or_else(|| resolve_carried_fallback_key(&pack.blocks, record, face))
+                .or_else(|| resolve_carried_fallback_key(&pack.blocks, record, source_face))
             else {
                 return Ok(None);
             };
@@ -449,12 +478,9 @@ impl IconBlocks {
         Ok(tiles.try_into().ok())
     }
 
-    /// Keeps a flat carried override only for pane-family shapes without an item model.
+    /// Retains flat pane artwork as a fallback for carried models.
     pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
-        let record = self.records.get(visual.0 as usize)?;
-        if record.model_family != ModelFamily::Pane
-            || !assets::facts::block_render_fact(&record.name).flat_icon
-        {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
             return None;
         }
         self.texture_path(visual)
@@ -743,3 +769,7 @@ mod lectern_tests;
 #[cfg(test)]
 #[path = "blocks/pumpkin_tests.rs"]
 mod pumpkin_tests;
+
+#[cfg(test)]
+#[path = "blocks/bookshelf_tests.rs"]
+mod bookshelf_tests;

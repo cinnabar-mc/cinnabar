@@ -168,11 +168,7 @@ pub(super) fn prepare(
                     resident
                         .get(&atlas::key(size, &pixels))
                         .copied()
-                        .or_else(|| {
-                            atlas.try_insert([(size, pixels.as_ref())], |sources| {
-                                sources.first().copied()
-                            })
-                        })
+                        .or_else(|| atlas.insert_or_fallback(size, &pixels))
                 });
             if source.is_none() {
                 fallbacks += 1;
@@ -247,7 +243,13 @@ pub(super) fn prepare(
             let Some(texture) = equipment.texture(&binding.texture.identifier) else {
                 continue;
             };
-            let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
+            // A full atlas leaves the ordinary sprite or block model in the hand.
+            let Some(source) =
+                atlas.insert_or_fallback([texture.width, texture.height], &texture.rgba8)
+            else {
+                fallbacks += 1;
+                continue;
+            };
             let Some(model) = authored(entities, equipment, binding, hand_pivots, source) else {
                 continue;
             };

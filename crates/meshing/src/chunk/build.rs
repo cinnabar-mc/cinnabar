@@ -196,6 +196,7 @@ fn mesh_sub_chunk_core<
             model_draw_refs: Box::default(),
             liquid_quads: Arc::from([]),
             liquid_lighting: Arc::from([]),
+            terrain_markers: Arc::from([]),
             connectivity,
         };
     }
@@ -605,6 +606,7 @@ fn mesh_sub_chunk_core<
     } else {
         (Vec::new(), Vec::new())
     };
+    let terrain_markers = crate::markers::collect(&facts, &lighting);
     let (quads, cube_lighting, layout) = cube_streams.finish();
     scratch.palette = facts.scratch;
     ChunkMesh {
@@ -622,6 +624,7 @@ fn mesh_sub_chunk_core<
         }),
         liquid_quads: liquid_quads.into(),
         liquid_lighting: liquid_lighting.into(),
+        terrain_markers,
         connectivity,
     }
 }

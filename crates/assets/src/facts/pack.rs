@@ -57,6 +57,7 @@ domain!(PackBlock {
     Beacon,
     Obsidian,
     Glass,
+    GlassPane,
     BeeNest,
     Beehive,
     ChiseledBookshelf,

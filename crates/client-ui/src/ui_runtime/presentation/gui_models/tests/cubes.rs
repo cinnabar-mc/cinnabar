@@ -227,7 +227,7 @@ fn actor_flames_reclaim_cutout_cube_pages_after_required_equipment() {
             .collect::<Vec<_>>()
             .into(),
     };
-    presentation.set_gui_fire_texture(Some(&flame)).unwrap();
+    presentation.set_gui_fire_texture(Some(&flame));
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .expect("required equipment and flames must fit after optional cubes are discarded");
@@ -335,6 +335,7 @@ fn transparent_carried_sheets_preserve_shortened_models() {
                 &alpha::world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]),
                 VISUAL,
                 &sprite,
+                Default::default(),
             )
             .is_some(),
             "these source alpha modes can draw normalized cube faces"

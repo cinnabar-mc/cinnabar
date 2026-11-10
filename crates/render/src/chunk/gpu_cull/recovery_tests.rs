@@ -34,6 +34,11 @@ struct Published {
 #[derive(Resource, Default)]
 struct CulledView(Option<Entity>);
 
+/// Set once device startup has finished and the app renders frames. Startup allocates the
+/// minimal arena, which is required rather than grown, so faults apply only after it.
+#[derive(Resource, Clone, Default)]
+struct Rendering(Arc<std::sync::atomic::AtomicBool>);
+
 /// Reads the logical publication and the geometry bytes referenced by its GPU draws.
 fn published(app: &mut App) -> Published {
     let world = app.sub_app_mut(RenderApp).world_mut();
@@ -168,6 +173,16 @@ fn terrain_app(culling: bool, direct: bool, hardware: bool) -> Option<App> {
     single_threaded(&mut app);
     app.sub_app_mut(RenderApp)
         .init_resource::<CulledView>()
+        .init_resource::<Rendering>()
+        .add_systems(
+            Render,
+            (|rendering: Res<Rendering>| {
+                rendering
+                    .0
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            })
+            .in_set(RenderSystems::ExtractCommands),
+        )
         .add_systems(
             Render,
             (|frame: Res<GpuCullFrame>, mut culled: ResMut<CulledView>| {
@@ -327,11 +342,17 @@ fn recovery_table(hardware: bool) {
         {
             let injected = Rc::clone(&failures);
             let observed = Rc::clone(&observed);
+            let rendering = recovering
+                .sub_app(RenderApp)
+                .world()
+                .resource::<Rendering>()
+                .0
+                .clone();
             let _failure = crate::gpu_allocation::inject_with_owner(move |label, _, terrain| {
                 if terrain || label == site {
                     observed.borrow_mut().insert(label.to_owned());
                 }
-                let fail = label == site;
+                let fail = label == site && rendering.load(std::sync::atomic::Ordering::Relaxed);
                 injected.set(injected.get() + usize::from(fail));
                 fail
             });
@@ -371,7 +392,6 @@ fn recovery_table(hardware: bool) {
         }
         covered.insert(site.to_owned());
         recover(&mut recovering);
-        assert_eq!(published(&mut recovering), published(&mut fresh), "{site}");
         assert_eq!(
             updates(&recovering),
             if site == "retained terrain upload staging" {
@@ -390,7 +410,19 @@ fn recovery_table(hardware: bool) {
             KEYS.len(),
             "{site} acknowledged an upload twice"
         );
+        // Occlusion admission samples by frame, and verdicts restart with the rebuilt generation
+        // until the readback ring returns them. Compare at the same frame once they have settled.
+        while frame_count(&fresh) < frame_count(&recovering) {
+            frame(&mut fresh);
+        }
+        for _ in 0..=crate::gpu_timing::readback::SLOTS {
+            frame(&mut fresh);
+            frame(&mut recovering);
+            assert_eq!(updates(&recovering), 0, "{site} uploaded again");
+        }
+        assert_eq!(published(&mut recovering), published(&mut fresh), "{site}");
         // Once rebuilt, another frame retains the exact publication without uploading it again.
+        frame(&mut fresh);
         frame(&mut recovering);
         assert_eq!(
             published(&mut recovering),
@@ -731,6 +763,11 @@ fn drawable(app: &App) -> bool {
         .resource::<ChunkGpuArena>()
         .bind_group
         .is_some()
+}
+
+/// Frames this app has run.
+fn frame_count(app: &App) -> u32 {
+    app.world().resource::<bevy::diagnostic::FrameCount>().0
 }
 
 /// Counts geometry payloads uploaded in the latest deterministic render frame.

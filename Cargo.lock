@@ -7868,6 +7868,7 @@ dependencies = [
  "cosmetics",
  "foldhash 0.2.0",
  "glam",
+ "half",
  "hashbrown 0.16.1",
  "image",
  "mod-api",

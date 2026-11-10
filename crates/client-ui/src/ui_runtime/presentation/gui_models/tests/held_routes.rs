@@ -1,6 +1,7 @@
 //! Ordinary held models use the same routes and geometry in previews and world hands.
 
 use super::*;
+use assets::facts::pack::PackBlock;
 use assets::{ItemVisualDefinitionRoute, ItemVisualKey, RuntimeIconCatalog};
 use player_preview::PreviewHeldPlacement;
 
@@ -14,7 +15,7 @@ fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog
     compiled.block_visual_count = 2;
     compiled.item_visuals = vec![assets::ItemVisualDefinition {
         key: ItemVisualKey {
-            identifier: "minecraft:glass_pane".into(),
+            identifier: PackBlock::GlassPane.identifier().into(),
             metadata: 0,
         },
         source: 0,
@@ -32,7 +33,14 @@ fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog
     }]
     .into();
     let entities = RuntimeEntityAssets::from_compiled(compiled.with_unresolved_item_use()).unwrap();
-    let world = short_models::world_with_width(entities.source_manifest_sha256(), 256, 128, 32);
+    let world = short_models::world_with_model_flags(
+        entities.source_manifest_sha256(),
+        256,
+        128,
+        32,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+    );
     let icons = RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog_with_blocks(
             entities.source_manifest_sha256(),
@@ -42,7 +50,7 @@ fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog
                 rgba8: [50, 90, 130, 200].repeat(256).into(),
             }],
             &[assets::IconEntry {
-                identifier: "minecraft:glass_pane".into(),
+                identifier: PackBlock::GlassPane.identifier().into(),
                 metadata: 0,
                 sprite: 0,
             }],
@@ -88,10 +96,16 @@ fn player_preview_holds_the_carried_glass_plate_in_both_hands() {
     );
     assert_eq!(model.vertices.len(), 36);
     for vertex in &*model.vertices {
-        assert_eq!(vertex.position[0].abs(), 1.0 / 16.0);
-        assert_eq!(vertex.position[1].abs(), 0.5);
-        assert_eq!(vertex.position[2].abs(), 0.5);
+        assert_eq!(vertex.position[0].abs(), 0.07501221);
+        assert_eq!(vertex.position[1].abs(), 0.60009766);
+        assert_eq!(vertex.position[2].abs(), 0.60009766);
+        assert_eq!(vertex.back_uv, render_model::ONE_SIDED_BACK_UV);
     }
+    let page = &preview.textures.pages()[usize::from(model.source.page)];
+    let offset = (usize::from(model.source.uv[1]) * page.dimensions()[0] as usize
+        + usize::from(model.source.uv[0]))
+        * 4;
+    assert_eq!(&page.pixels()[offset..offset + 4], &[31, 47, 59, 255]);
     assert_ordinary_routes(&preview, &world, &entities, &icons);
 }
 
@@ -214,8 +228,14 @@ fn every_installed_item_has_the_same_ordinary_held_route_in_preview_and_world() 
 /// Prepares a real player catalog whose carried model uses the requested alpha policy.
 fn alpha_preview(flags: u32, alpha: u8) -> (UiPresentationRuntime, RuntimeEntityAssets) {
     let (_, entities, icons) = pane_fixture();
-    let world =
-        short_models::world_with_material(entities.source_manifest_sha256(), 256, alpha, 32, flags);
+    let world = short_models::world_with_model_flags(
+        entities.source_manifest_sha256(),
+        256,
+        alpha,
+        32,
+        flags,
+        assets::MODEL_TEMPLATE_FLAG_PANE,
+    );
     let mut preview = UiPresentationRuntime::with_hud_and_icons(
         ui_engine::test_support::fixture_font(),
         crate::test_support::fixture_hud(),
@@ -339,7 +359,7 @@ fn full_model_atlas_keeps_the_unadmitted_held_model_on_its_sprite_route() {
         .set_gui_models(&world, &entities)
         .expect("one optional held texture must not abort the player catalog");
     assert!(held_model(&preview, &entities.item_visuals()[0].key).is_sprite());
-    assert_eq!(preview.gui_models.sources.held_texture_fallbacks(), 1);
+    assert_eq!(preview.gui_models.sources.fallbacks.held, 1);
 }
 
 #[test]
@@ -395,5 +415,5 @@ fn full_model_atlas_reuses_resident_held_face_sheets() {
             .source,
         resident
     );
-    assert_eq!(preview.gui_models.sources.held_texture_fallbacks(), 0);
+    assert_eq!(preview.gui_models.sources.fallbacks.held, 0);
 }

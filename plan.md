@@ -152,6 +152,8 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   native visual comparison and runtime replacement-pack acceptance remain open.
 - [ ] Close cutout-cube and leaf visual acceptance. Preserve independent geometry,
   occlusion and cave-connectivity semantics, packed quads and coverage-preserving mips.
+  Inventory terrain previews weight face tint by source opacity while retaining partial
+  coverage. Matched-background and complete replacement-pack acceptance remain open.
 - [ ] `P2.5-NATIVE-BIOME` — Qualify existing biome palettes and grass/foliage/water tinting
   against native output while preserving packed storage and the shared quad contract.
   Terrain particles use the dimension biome fallback until their column is published;
@@ -188,13 +190,17 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   trapdoors, connected panes/fences/gates and static chest/sign models. Check existing
   coverage before implementing a missing case. Keep conservative culling and connectivity
   until exact face-coverage behavior is verified separately. Inventory fences draw the
-  native two-post shape. Walls now use the custom carried two-post shape, and vanilla
+  native two-post shape, with separately textured rear and front rail halves and ordered
+  surface overlap in meshes and fallback thumbnails. Acacia texture-boundary sampling
+  remains unqualified.
+  Walls use the carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
   and fresh integrated-frame acceptance remain unverified. World bamboo fences and bamboo
   fence gates stretch their native texture regions over each piece face; the bamboo fence
-  inventory icon still uses ordinary fence UVs instead of the native bamboo GUI shape and
-  slat regions, the down/up quarter-turn direction of turned bamboo rail and slat tops is
-  unverified, and world fence rails still omit the outer end faces native tessellation draws.
+  inventory preview uses separate posts and three-pixel slats with independent texture
+  regions. Exact compositing bytes and replacement-pack acceptance remain open. The down/up
+  quarter-turn direction of turned bamboo rail and slat tops remains unverified, and world
+  fence rails omit the outer end faces.
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
@@ -339,8 +345,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Local actor displacement also needs matched interpolation-timing acceptance.
 - [ ] Close protocol/content integration findings and required upstream fixes through
   the current PR, review and acceptance workflow. Follow the current branch policy.
-- [ ] Verify invisible-block presentation, including conditional camera-facing marker
-  sprites and their display/input conditions; invisible terrain alone does not close acceptance.
+- [ ] Verify invisible-block presentation. Barriers and light blocks draw camera-facing sprites
+  and structure voids textured boxes, each in its own marker layer shown while a creative local
+  player holds a block of that layer. Remaining gaps: the main-hand-only held check, the
+  unidentified level-renderer options and services that also gate or force the layers, the
+  near-chunk limit, sprite size and alpha cutoff are unverified against native code, and
+  native frame comparison is missing.
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
@@ -999,6 +1009,38 @@ and version-matched in-game acceptance remain incomplete.
   Pumpkin GUI cubes keep their class-specific front artwork independently of held face
   sheets; jack o’lantern GUI cubes retain uniform texture brightness. GUI-only cube textures
   follow required equipment and held artwork, retaining thumbnails when they cannot fit.
+  Held pumpkin cubes use the same canonical class artwork independently of placement
+  facing. Their first-person block pose retains the item-space quarter turn.
+  Held stairs select that turn from their pinned model family or active stair topology,
+  independently of inventory GUI orientation. Rendered stair acceptance remains open.
+  Static carried slabs and carpets are centered between their caps while double slabs
+  retain their full height. Animated carried materials and rendered slab and carpet
+  acceptance remain incomplete.
+  Held trapdoors use a centered thin panel with cap artwork and narrow edge UVs,
+  independently of placement state. Rendered trapdoor acceptance remains open.
+  Held buttons retain their unpressed panel and first-person model offset independently
+  of the inventory wall mounting. Rendered button acceptance remains open.
+  Held pressure plates retain their thin panel, inset cap artwork and item-space pivot
+  independently of floor placement. Rendered pressure-plate acceptance remains open.
+  Ordinary held fences join their rail halves at the center and retain post-relative
+  artwork. Held bamboo fences retain thicker slats and separate post and rail texture
+  regions. Rendered fence acceptance remains open.
+  Held walls retain two posts, separate rail halves, position-derived artwork, directional
+  face materials and their first-person model origin, including retained block stacks.
+  Rendered wall acceptance remains open.
+  Ordinary held fence gates retain carried post-cap and rail artwork independently of
+  their placed orientation. Held bamboo gates reuse their separate piece regions with
+  carried cap and end-face directions. Rendered gate acceptance remains open.
+  Bedrock hand rigs shade posed normals in world space and interpolate their combined
+  directional and eye light in gamma space. Held block emission supplies a minimum
+  light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
+  retains sRGB artwork sampling. Opaque Bedrock hands round gamma output to bytes before
+  scene conversion. Bedrock SDR hands blend over the encoded scene attachment, retaining
+  gamma-space translucent composition. Broader held lighting and shape acceptance remain incomplete.
+  Held mesh allocation uses the available item ID namespace while reserving distinct session
+  and map slots. Rendered large-catalog acceptance remains open.
+  Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
+  placed book counts and the held world model.
   Shared cube silhouette and texture-coordinate acceptance remains incomplete.
   Missing lit block or carried texture entries select pack diagnostic artwork; rendered
   acceptance of these fallbacks remains incomplete.
@@ -1009,6 +1051,8 @@ and version-matched in-game acceptance remain incomplete.
   to half precision after control scaling and placement; their texture vertices use normalized
   unsigned shorts after atlas placement. Tinted and glinting copies retain both formats.
   Opaque terrain-face tinting rounds to encoded output bytes.
+  Copper-grate GUI texels retain opaque covered samples after alpha testing,
+  independently of control opacity. Broader GUI coverage acceptance remains open.
   Source tiles stay aligned through the retained
   levels; the source allocation retains shaped models alongside the flame page for the
   pinned catalog.
@@ -1017,8 +1061,11 @@ and version-matched in-game acceptance remain incomplete.
   Glowstone, sea lanterns, shroomlight, froglight and jack o’lantern GUI cubes retain uniform texture
   brightness. The emissive-cube census rejects missing classifications after registry
   changes; partial emissive faces and entries marked incomplete still need acceptance.
-  Glass-pane previews use thin plates with separate edges and retain their held sprites.
-  Glass panes use thin plates with separate edges in slots and both hands; player previews share the ordinary held model, sprite resolver and material alpha policy. Preview face sheets reuse resident artwork, with a counted sprite fallback when new held artwork cannot fit. Metal bars keep their flat carried sprites.
+  Glass panes use thin plates with separate body and edge artwork in slots and both hands.
+  Player previews share the ordinary held model, sprite resolver and material alpha policy.
+  Preview face sheets reuse resident artwork, with a counted sprite fallback when new held
+  artwork cannot fit. Flat pane artwork remains available as a fallback; metal bars keep
+  their flat carried sprites. Rendered glass-pane acceptance remains open.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
   Heavy-core inventory previews use their carried scale and screen offset.
@@ -1291,9 +1338,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   HUD paper-doll controls retain independently evaluated player-controller layers, authored
   bone translations and camera-driven repeated UVs. Model coverage may extend outside a
   control while retaining its ancestor clip. Selected source artwork shares the UI catalog's
-  existing texture-layer and byte budgets. Declared pack-relative image paths and session
-  player skins retain independent controller layers. Other entity material modes and menu-controller
-  layer acceptance remain open.
+  existing texture-layer and byte budgets. Base item cubes, equipment textures, held artwork
+  and actor flames share a fixed reservation of GUI model-atlas pages. A pack that overflows it
+  still starts: equipment is placed first, cubes keep their thumbnails, held items their sprites,
+  and the HUD doll omits flames or an unplaced armor texture. Sizing the atlas from its content
+  within the device's texture-layer and byte limits remains incomplete. Declared pack-relative
+  image paths and session player skins retain independent controller layers. Other entity
+  material modes and menu-controller layer acceptance remain open.
   Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   Controller overlays and material face culling remain independent from repeated source bounds.
   Live player controls consume UI-context controller layers, part visibility and held-item

@@ -17,6 +17,15 @@ const TILE: usize = BLOCK_ITEM_FACE_SIDE as usize;
 #[cfg(test)]
 mod tests;
 
+mod bamboo_gates;
+mod buttons;
+mod fences;
+mod gates;
+mod panes;
+mod pressure_plates;
+mod trapdoors;
+mod walls;
+
 /// Resolves a held material mode, with blending taking precedence over cutout.
 pub fn mode_for_material_flags(flags: u32) -> HandItemAlphaMode {
     if flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0 {
@@ -155,23 +164,75 @@ pub fn collect_held(
     entities: &RuntimeEntityAssets,
     icons: &assets::RuntimeIconCatalog,
 ) -> BlockSheets {
-    let states: BTreeMap<u32, HeldDisplay> = icons
+    let states: BTreeMap<_, _> = icons
         .block_models()
         .iter()
-        .map(|model| {
-            (
-                model.sprite,
-                if model.held_sprite.is_some() {
-                    HeldDisplay::Sprite
-                } else {
-                    HeldDisplay::Block(model.visual.0)
-                },
-            )
-        })
+        .map(|model| (model.sprite, (model.visual.0, model.held_sprite.is_some())))
         .collect();
     let display = |key: &assets::ItemVisualKey| {
         let sprite = u32::try_from(icons.lookup_index(&key.identifier, key.metadata)?).ok()?;
-        states.get(&sprite).copied()
+        let &(visual, flat) = states.get(&sprite)?;
+        Some(
+            if assets::gui_item::has_carried_glass_plate(&key.identifier) {
+                HeldDisplay::GlassPlate(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Trapdoor)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Trapdoor(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Button)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Button(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::PressurePlate)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::PressurePlate(visual)
+            } else if matches!(
+                assets::registry::pinned_block_model_family(visual),
+                Some(assets::ModelFamily::Slab | assets::ModelFamily::Carpet)
+            ) && !flat
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::CenteredBlock(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Fence)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Fence(
+                    visual,
+                    assets::facts::block_render_fact(&key.identifier).kind
+                        == assets::facts::BlockRenderKind::BambooFence,
+                )
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Wall)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Wall(visual)
+            } else if assets::registry::pinned_block_model_family(visual)
+                == Some(assets::ModelFamily::Gate)
+                && assets::registry::pinned_block_identity(visual)
+                    .is_some_and(|(name, _)| name == key.identifier.as_ref())
+            {
+                HeldDisplay::Gate(
+                    visual,
+                    assets::facts::block_render_fact(&key.identifier).kind
+                        == assets::facts::BlockRenderKind::BambooGate,
+                )
+            } else if flat {
+                HeldDisplay::Sprite
+            } else {
+                HeldDisplay::Block(visual)
+            },
+        )
     };
     collect_shapes(world, entities, Some(&display))
 }
@@ -180,6 +241,14 @@ pub fn collect_held(
 #[derive(Clone, Copy)]
 enum HeldDisplay {
     Block(u32),
+    GlassPlate(u32),
+    Trapdoor(u32),
+    Button(u32),
+    PressurePlate(u32),
+    CenteredBlock(u32),
+    Fence(u32, bool),
+    Wall(u32),
+    Gate(u32, bool),
     Sprite,
 }
 
@@ -215,21 +284,45 @@ fn collect_shapes(
         if matches!(display_state, Some(HeldDisplay::Sprite)) {
             continue;
         }
-        let model = (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
-            .then(|| frame_model(world, visual))
-            .flatten()
-            .or_else(|| cube_model(world, visual));
+        let model = match display_state {
+            Some(HeldDisplay::GlassPlate(shown)) => panes::model(world, shown),
+            Some(HeldDisplay::Trapdoor(shown)) => trapdoors::model(world, shown),
+            Some(HeldDisplay::Button(shown)) => buttons::model(world, shown),
+            Some(HeldDisplay::PressurePlate(shown)) => pressure_plates::model(world, shown),
+            Some(HeldDisplay::CenteredBlock(shown)) => centered_carried_model(world, shown),
+            Some(HeldDisplay::Fence(shown, bamboo)) => fences::model(world, shown, bamboo),
+            Some(HeldDisplay::Wall(shown)) => walls::model(world, shown),
+            Some(HeldDisplay::Gate(shown, false)) => gates::model(world, shown),
+            Some(HeldDisplay::Gate(shown, true)) => bamboo_gates::model(world, shown),
+            _ => None,
+        }
+        .or_else(|| {
+            (definition.key.identifier.as_ref() == assets::END_PORTAL_FRAME_IDENTIFIER)
+                .then(|| frame_model(world, visual))
+                .flatten()
+        })
+        .or_else(|| cube_model(world, visual));
         let cube = model
             .is_none()
             .then(|| cube_materials(world, visual))
             .flatten();
         let model = model.or_else(|| {
-            // Items the inventory draws flat (torches, plants, panes) stay sprites in hand.
+            // Flat carried artwork, such as torches and plants, keeps its sprite in hand.
             if cube.is_some() {
                 return None;
             }
             let shown = match display_state {
                 Some(HeldDisplay::Block(shown)) => shown,
+                Some(
+                    HeldDisplay::GlassPlate(_)
+                    | HeldDisplay::Trapdoor(_)
+                    | HeldDisplay::Button(_)
+                    | HeldDisplay::PressurePlate(_)
+                    | HeldDisplay::CenteredBlock(_)
+                    | HeldDisplay::Fence(..)
+                    | HeldDisplay::Wall(_)
+                    | HeldDisplay::Gate(..),
+                ) => return None,
                 None if display.is_some()
                     && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
                 {
@@ -384,6 +477,25 @@ fn template_model(
     )
     .ok()?;
     template_quads(&quads, retain_shape)
+}
+
+/// Centers admitted carried panels between their caps, retaining full-height double slabs.
+fn centered_carried_model(
+    world: &RuntimeAssets,
+    visual: u32,
+) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
+    let (materials, mut vertices) =
+        cube_model(world, visual).or_else(|| template_model(world, visual, false))?;
+    let (min, max) = vertices
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), vertex| {
+            (min.min(vertex.position[1]), max.max(vertex.position[1]))
+        });
+    let center = (min + max) * 0.5;
+    for vertex in &mut vertices {
+        vertex.position[1] -= center;
+    }
+    Some((materials, vertices))
 }
 
 /// Maps bounded template geometry into the same material sheet used by held cubes. The sheet holds
