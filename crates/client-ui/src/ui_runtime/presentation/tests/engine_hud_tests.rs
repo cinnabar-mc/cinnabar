@@ -20,6 +20,7 @@ mod effects;
 mod experience_spacing;
 mod geometry;
 mod locator;
+mod long_chat;
 mod menu_crosshair;
 mod offhand;
 mod pack_snapshots;

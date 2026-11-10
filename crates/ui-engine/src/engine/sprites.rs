@@ -6,6 +6,9 @@ use serde_json::Value;
 
 use super::{Canvas, UiVisual, screen::PaintError};
 
+#[cfg(test)]
+mod tests;
+
 impl Canvas<'_> {
     /// Snaps logical sprite bounds to physical pixels after a custom renderer positions them.
     pub fn snap_sprite_bounds(&self, [x0, y0, x1, y1]: [f32; 4]) -> [f32; 4] {

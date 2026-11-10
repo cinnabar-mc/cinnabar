@@ -182,7 +182,7 @@ pub(super) fn normalize_player_skin(
     *retained_bytes = next_bytes;
     let cape = normalize_cape(skin.cape(), retained_bytes);
     let geometry = geometry_source(&skin, retained_bytes);
-    alpha::normalize(skin.persona(), skin.geometry().0, width, height, &mut rgba8);
+    alpha::normalize(skin.persona(), width, height, &mut rgba8);
     PlayerSkin::Standard(StandardSkin {
         width,
         height,
@@ -235,22 +235,44 @@ mod tests {
     }
 
     #[test]
-    fn legacy_alpha_is_validated_after_left_limbs_are_expanded() {
-        let side = CLASSIC_SKIN_SIDE as u32;
-        let source = SerializedSkinRef {
-            resource_patch: r#"{"geometry":{"default":"geometry.humanoid.custom"}}"#.into(),
-            image_data: SkinImage {
-                width: wire::U32LE(side),
-                height: wire::U32LE(side / 2),
-                image_bytes: vec![0; (side * side / 2 * 4) as usize].into(),
-            },
-            ..Default::default()
-        };
-        let PlayerSkin::Standard(skin) = normalize_player_skin(source, &mut 0) else {
-            panic!("legacy skin");
-        };
-        assert_eq!(skin.height, side);
-        assert_eq!(skin.rgba8[(52 * CLASSIC_SKIN_SIDE + 16) * 4 + 3], 255);
-        assert_eq!(skin.rgba8[(48 * CLASSIC_SKIN_SIDE) * 4 + 3], 0);
+    fn received_classic_skins_preserve_transparent_body_regions() {
+        for (side, height) in [(64, 32), (64, 64), (128, 128)] {
+            for model in ["geometry.humanoid.custom", "geometry.humanoid.customSlim"] {
+                let mut pixels = vec![0; (side * height * 4) as usize];
+                let scale = side as usize / CLASSIC_SKIN_SIDE;
+                for y in 8 * scale..16 * scale {
+                    for x in 8 * scale..16 * scale {
+                        let at = (y * side as usize + x) * 4;
+                        pixels[at..at + 4].copy_from_slice(&[80, 40, 20, 255]);
+                    }
+                }
+                let expected = if side != height {
+                    expand_legacy_skin_rgba8(&pixels, side as usize)
+                } else {
+                    pixels.clone()
+                };
+                let source = SerializedSkinRef {
+                    resource_patch: format!(r#"{{"geometry":{{"default":"{model}"}}}}"#).into(),
+                    image_data: SkinImage {
+                        width: wire::U32LE(side),
+                        height: wire::U32LE(height),
+                        image_bytes: pixels.into(),
+                    },
+                    ..Default::default()
+                };
+                let mut retained = 0;
+                let PlayerSkin::Standard(skin) = normalize_player_skin(source, &mut retained)
+                else {
+                    panic!("supported received skin");
+                };
+                assert_eq!(skin.height, side);
+                let changed = skin.rgba8.iter().zip(&expected).position(|(a, b)| a != b);
+                assert_eq!(changed, None, "changed byte in {side}x{height}, {model}");
+                assert_eq!(
+                    retained,
+                    expected.len() + skin.geometry.as_ref().unwrap().byte_len()
+                );
+            }
+        }
     }
 }

@@ -766,6 +766,14 @@ qualification remain open.
 Remote players remain eligible while their collision box contains the camera. Render and
 animation bounds containing the eye survive frustum rejection after distance admission;
 matched overlapping-player visual qualification remains open.
+The exact pinned modern snow-golem sample restores the
+[retail arm cube binds](docs/reference/snow-golem-rendering.md) while
+preserving animated bone frames and authored replacements. Matched arm geometry,
+turning, lighting and depth qualification remains open.
+Ocelot controllers receive the native movement-state variable from synced flags before
+authored pre-animation, including sitting and native flag precedence. Custom actors
+inherit their advertised ocelot base. Contributor gameplay captures confirm the sitting
+pose; moving-state visual qualification remains open.
 Named villager eggs use the selected current actor's
 [spawn egg icon](docs/reference/retail-villager-eggs.md), preserving authored
 aliases and indices. Generic villager auxiliaries resolve their declared current
@@ -883,6 +891,9 @@ and version-matched in-game acceptance remain incomplete.
   The slim left leg drops the fetched copy's mirror to match in-game output and the newest
   identified public copy of that skin pack; public copies disagree on this flag, and the target
   version's own `skin_packs/vanilla/geometry.json` is unverified.
+  Received classic and slim skins retain transparent body regions, including legacy
+  limb expansion. Body-coverage protection stays at local import; matched post-change
+  in-game qualification of received transparency remains open.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified. Snow golems wear a carved pumpkin
@@ -961,7 +972,15 @@ and version-matched in-game acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
+  Framed filled maps retain signed numeric and decimal-string map IDs, request missing
+  images, and wait for image data without displaying their inventory icon.
   Framed filled maps wait for image data without displaying their inventory icon.
+  Received framed maps select the full-face rim even without a server map bit. Map and
+  text canvas pages grow without moving live pixel rects; the former 16-map ceiling is removed.
+  Map growth reserves capacity for every admitted sign page. Artwork reloads that cannot
+  retain the cached canvases report an error before publishing the replacement pack.
+  Moving-camera map-wall qualification and overflow beyond the atlas texture-side budget
+  remain incomplete.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
   inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
@@ -1276,8 +1295,17 @@ remain available for local presentation and text resolution.
 Open chat follows incoming messages while at the bottom and preserves a surviving
 message's position while reading history, including wrapped rows and history eviction.
 Version-matched native scroll acceptance remains unverified.
+Incoming messages retain complete resolved text in HUD notifications and open
+history instead of using the compact-label byte prefix. Synthetic multiline and
+translation regressions and inspected CPU snapshots cover both paths; contributor
+gameplay captures show a previously truncated server guide footer in HUD chat.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
+Action-bar controller inputs remain until explicit clear/reset so server controls
+without fade animations retain their text. Authored fade animations remain in control
+of visibility, and a new factory creation clock revives a previously destroyed control.
+Each action-bar request starts fresh factory bindings, including when text and creation time repeat.
+Matched native controller timing and rendered server HUD qualification remain incomplete.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
@@ -1286,6 +1314,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Sliced image backgrounds share physical pixel edges so translucent joins do not
+  blend twice. [Slice-grid regressions](docs/reference/ui-sprite-seams.md) cover DPI,
+  animation and cached translation. An in-game Cinnabar comparison confirms the
+  HUD's dark slice seam is removed; broader matched native frames remain open.
+  Oversized bitmap glyphs preserve label line boxes and text baselines while their ink
+  overflows vertically. A matched single-line in-game comparison confirms unchanged icon
+  size, aligned text baselines and a common background height; broader text acceptance remains open.
   Unmapped cursor-following buttons pass held-stack presses through to inventory and
   container backgrounds, allowing outside clicks to drop items.
   Mouse presses on a catalog scroll view's touch-drag mapping reach its background's
@@ -1360,6 +1395,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pending native-reference and rendered-frame acceptance; they do not close this gate.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
+  Finite notification toasts emit their [interface sound](docs/reference/toast-audio.md)
+  once when their queued presentation begins. Native sound timing and matched live
+  achievement notification acceptance remain incomplete.
   Titles, subtitles, the action bar and non-raw chat replace `:_input_<binding>:` with the
   bound control's controls-screen label when they arrive. Vanilla draws mouse-button, gamepad
   and touch controls as icons through its emoticon list (`font/emoticons`) and glyph sheets,
@@ -1837,6 +1875,10 @@ platforms. Missing source music/ambience requires lawful local input or the docu
 fallback; do not bundle game assets to fill gaps.
 Native audio follows changes to the system default output on its owner thread, retaining
 active and queued sounds across output replacement and retrying unavailable devices.
+Failed output streams also reopen on the same endpoint, with repeated callback errors
+coalesced per transport. [Output recovery](docs/reference/audio-output-recovery.md)
+preserves the mixer; the contributor reproduced the ALSA failure and confirmed
+recovery on the affected machine. The initial backend failure cause remains unknown.
 The first failure of each outage is logged as a warning, and an outage that outlasts a
 handoff raises one in-game toast with the platform's likeliest fix; the log links the
 [sound troubleshooting guide](docs/audio-troubleshooting.md). Unit tests cover the outage
@@ -1855,6 +1897,10 @@ native switch timing and live Bluetooth/platform acceptance remain incomplete.
 World sounds use the native distance curves: inverse from one block by default, linear
 with only a maximum, inverse from the definition's minimum otherwise, and start within
 16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
+Overlapping sound starts keep independent playback cursors and pitches while sharing
+decoded samples, including cold starts. The unverified six-voice per-definition cap
+is removed; [overall audio admission budgets](docs/reference/audio-polyphony.md),
+native voice stealing and matched server-melody listening remain incomplete.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
@@ -1893,6 +1939,30 @@ buttons and hotplugging, including controllers unavailable through HID compatibi
 HID-only controllers retain their existing backend, with duplicate native delivery suppressed.
 Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
 macOS, including gameplay input, remains incomplete.
+
+Android controller key and joystick events reach Bevy as gamepads through the pinned winit
+fork, with hotplug scans naming devices. Physical keyboards use winit's existing key path;
+mouse input and capture use the activity's hybrid input path described below. Device
+acceptance with Xbox, PlayStation and generic controllers remains incomplete, as do
+controllers whose right stick uses `AXIS_RX`/`AXIS_RY`.
+iOS reads physical keys, mouse motion, buttons and scrolling, and extended-profile controllers
+through the Game Controller framework. Keyboard and mouse callbacks reach both Bevy's typed
+messages and ordered window stream, including unlocked primary clicks for binding capture and
+data-driven forms. A UIKit recognizer consumes mouse-generated touches before winit sees them,
+while finger and Pencil touches retain their own path. UIKit hover and click gestures update
+the unlocked menu pointer in window coordinates without requesting a native cursor warp.
+Gameplay locks the iPadOS pointer through the winit fork
+so mouse clicks do not also arrive as touches. While text input is enabled, the keyboard's
+Backspace yields to winit's text path. Device acceptance remains incomplete, including mouse
+delta and scroll directions and scales, pointer-touch deduplication, Enter handling in focused
+text fields, and micro-profile controllers.
+Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
+winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
+look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
+gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
+winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
+PlayStation and generic controllers remains incomplete, as do controllers whose right stick
+uses `AXIS_RX`/`AXIS_RY`.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
@@ -2574,6 +2644,9 @@ Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-
 spans, trace exports and developer-control state on supported desktop and Android
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
+Android packaging has an opt-in optimized profileable mode with Rust line tables and
+matching ELF build IDs in the diagnostic APK. Normal release settings stay unchanged;
+full APK and physical-device profiler acceptance remain incomplete.
 
 The scripted resident-render benchmark copies a frozen fixture and isolated user template,
 flies real-time camera paths and exports exact interval statistics with native stage spans.

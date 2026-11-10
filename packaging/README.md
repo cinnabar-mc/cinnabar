@@ -134,7 +134,7 @@ device requirements and installation.
 
 `packaging/release-assets.json` is the canonical list of downloadable release artifacts and
 their repository. `assets` lists desktop updater platforms; `manual_assets` lists downloads such
-as Android APKs that are installed separately and have no desktop update payload or symbol archive.
+as Android APKs and iOS IPAs that are installed separately and have no desktop update payload or symbol archive.
 Publication requires every platform installer, every desktop platform's symbol archive
 and the generated Linux install script before writing checksums for the native downloads. A new tagged Beta release
 stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep

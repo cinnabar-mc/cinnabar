@@ -44,6 +44,7 @@ fn request(call: Call, actor: Option<String>, entities: Vec<EntitySnapshot>) -> 
         snapshot: Vec::new(),
         network: None,
         inventory: None,
+        pose: None,
         containers: None,
         call,
     }

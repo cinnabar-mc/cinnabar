@@ -140,6 +140,6 @@ pub(super) fn configure(app: &mut App) {
             crate::named_audio::drain_live_named_audio,
         )
             .after(world::reconcile_world_stream_before_physics)
-            .after(world::drive_world_stream),
+            .after(world::publication::drive_world_stream),
     );
 }

@@ -1,5 +1,8 @@
 //! Bounded sound requests drained by the app audio adapter at its existing frame stage.
 
+/// Default sound of a toast entering the notification queue's visible slot.
+pub const TOAST: &str = "random.toast";
+
 /// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
 static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
     std::sync::Mutex::new(Vec::new());

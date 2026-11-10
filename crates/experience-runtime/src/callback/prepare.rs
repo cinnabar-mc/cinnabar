@@ -33,6 +33,7 @@ pub(super) fn prepare<'a>(
         snapshot,
         network,
         inventory,
+        pose,
         containers,
         call,
         ..
@@ -241,6 +242,14 @@ pub(super) fn prepare<'a>(
     if let Some(inventory) = inventory {
         items::check_inventory(own, inventory, actor.as_deref())?;
     }
+    if let Some(pose) = pose {
+        if actor.is_none() {
+            return Err("pose without an actor".into());
+        }
+        if !pose.valid() {
+            return Err(format!("pose angles out of range: {pose:?}"));
+        }
+    }
     let centres = anchor.into_iter().chain(members.iter().copied()).collect();
     let containers = containers::Reachable::new(own, centres, containers.as_ref())?;
     let res = CallbackRes {
@@ -267,6 +276,7 @@ pub(super) fn prepare<'a>(
         },
         network: network.clone(),
         inventory: inventory.clone(),
+        pose: *pose,
         containers,
         ops: Vec::new(),
         spawned_entities: 0,

@@ -40,6 +40,32 @@ Android CI workflow builds a test APK for pull requests that change `packaging/a
 release workflow, every six hours and on manual runs, and attaches it to the run. Each run uses its own key, so
 uninstall an earlier build (which clears its data) before installing a newer one.
 
+## Profile an optimized APK
+
+For native CPU attribution on Android 10+, build an opt-in release APK that permits local
+shell profilers and retains Rust line tables and symbol names:
+
+```sh
+ANDROID_HOME=/path/to/sdk CINNABAR_ANDROID_PROFILEABLE=true \
+  bash packaging/android/build-apk.sh
+```
+
+This writes `target/android/Cinnabar-<version>-profileable-arm64-v8a.apk`. It keeps release
+optimization settings and does not enable Android's `debuggable` flag. The extra debug sections
+make this diagnostic APK larger; normal builds keep their existing symbol settings and disable
+shell profiling. Other Cargo profiles are rejected in this mode.
+
+Keep the exact APK with the capture. Its `lib/arm64-v8a/` directory contains the matching
+unstripped Rust libraries, including line tables and ELF build IDs; extract them for simpleperf's
+binary cache when symbolizing the recording. Record the source commit and APK SHA-256 alongside
+the trace. Rebuilding the same source is not a substitute for preserving the sampled binaries.
+Go and third-party library symbol settings are unchanged. A test-signed APK cannot update an
+installation signed with a different key; use the existing signing identity to preserve app data.
+
+See Android's [profileable manifest documentation](https://developer.android.com/guide/topics/manifest/profileable-element)
+and [simpleperf application guide](https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/android_application_profiling.md).
+This build mode still needs full APK and device capture acceptance.
+
 ## Local terrain checks
 
 Run the headless terrain pixel tests on a development machine with a native graphics adapter:

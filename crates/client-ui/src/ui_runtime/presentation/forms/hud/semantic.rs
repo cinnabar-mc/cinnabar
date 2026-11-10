@@ -306,13 +306,14 @@ impl SemanticHud {
         changed |= refresh_controller_text(&mut self.model.title_text, runtime.hud().title_text());
         changed |=
             refresh_controller_text(&mut self.model.subtitle_text, runtime.hud().subtitle_text());
+        let actionbar = runtime.hud().actionbar_request();
+        changed |= replace(
+            &mut self.model.actionbar_creation_id,
+            actionbar.map(|text| text.fifo_sequence),
+        );
         changed |= refresh_timed(
             &mut self.model.actionbar,
-            runtime
-                .hud()
-                .actionbar()
-                .filter(|text| text.visible_at(now))
-                .map(|text| (text.text.as_ref(), text.started_millis)),
+            actionbar.map(|text| (text.text.as_ref(), text.started_millis)),
         );
         changed |= refresh_timed(
             &mut self.model.tip,
@@ -386,7 +387,7 @@ impl SemanticHud {
                     self.chat_rows.push(id);
                     let text = resolve_chat_line(line, |key| runtime.translation(key));
                     Timed {
-                        text: bounded_visible_text(text.as_ref()).to_owned(),
+                        text: text.into_owned(),
                         born: seconds(born),
                     }
                 })

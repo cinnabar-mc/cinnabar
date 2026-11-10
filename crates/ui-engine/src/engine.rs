@@ -546,6 +546,24 @@ impl Canvas<'_> {
         )
     }
 
+    /// Places image pieces on one grid, including when painting a cached translated fragment.
+    fn snapped_slice(&self, rect: &RectOut, parent: &RectOut) -> [f32; 4] {
+        let offset = self.art.pixel_snap_offset;
+        pixel_snap::translated([rect.x, rect.y, rect.w, rect.h], offset, self.px, |rect| {
+            pixel_snap::slice(
+                rect,
+                [
+                    parent.x + offset[0],
+                    parent.y + offset[1],
+                    parent.w,
+                    parent.h,
+                ],
+                self.metrics.gui_scale,
+                self.px,
+            )
+        })
+    }
+
     /// `rect` as logical bounds moved to a whole physical pixel, where vanilla
     /// places text ([`pixel_snap`]).
     fn positioned(&self, rect: &RectOut) -> [f32; 4] {
@@ -731,6 +749,8 @@ impl Canvas<'_> {
                     )
                 },
             )
+        } else if let Some(parent) = &drawn.slice {
+            self.snapped_slice(&drawn.dest, parent)
         } else {
             self.snapped(&drawn.dest)
         };

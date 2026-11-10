@@ -1,7 +1,7 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
 mod item;
-use item::held_item;
+use item::{held_item, map_id};
 
 use assets::{
     banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
@@ -403,10 +403,7 @@ pub(super) fn describe(
                     map: None,
                 },
                 item: nbt.compound("Item").and_then(held_item),
-                map_id: nbt
-                    .compound("Item")
-                    .and_then(|stack| stack.compound("tag"))
-                    .and_then(|tag| tag.integer("map_uuid")),
+                map_id: nbt.compound("Item").and_then(map_id),
                 rotation_degrees: frame_rotation(nbt),
             })
         }

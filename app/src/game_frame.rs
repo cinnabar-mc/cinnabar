@@ -10,7 +10,7 @@ use crate::{
             PackReload, advance_actor_frame, prepare_actor_render_frame, publish_entity_shadows,
             receive_network_events, reload_resource_packs,
         },
-        world::drive_world_stream,
+        world::publication::drive_world_stream,
     },
 };
 use bevy::prelude::*;

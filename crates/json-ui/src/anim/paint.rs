@@ -128,6 +128,8 @@ pub struct NodeAnim {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Animated {
     pub dest: RectOut,
+    /// Animated whole-image bounds shared by the pieces of a sliced sprite.
+    pub slice: Option<RectOut>,
     pub clip: RectOut,
     pub opacity: f32,
     /// A replacement sprite colour, from a colour animation.
@@ -154,6 +156,18 @@ impl DrawNode {
     ) -> Animated {
         let mut out = Animated {
             dest: self.dest,
+            slice: match &self.draw {
+                Draw::Sprite {
+                    slice: Some(parent),
+                    ..
+                } => Some(RectOut {
+                    x: self.dest.x + parent.x,
+                    y: self.dest.y + parent.y,
+                    w: parent.w,
+                    h: parent.h,
+                }),
+                _ => None,
+            },
             clip: self.clip,
             opacity: self.alpha,
             color: None,
@@ -165,7 +179,7 @@ impl DrawNode {
             hidden: false,
             transform: None,
         };
-        if animator.hides(&self.key) {
+        if animator.hides(&self.key, clocks) {
             out.hidden = true;
             return out;
         }
@@ -221,6 +235,7 @@ impl DrawNode {
         for mover in anim.movers.iter().rev() {
             let written = animator.sample(mover, now, clocks);
             out.dest = moved(mover, &written, out.dest);
+            out.slice = out.slice.map(|parent| moved(mover, &written, parent));
         }
         for mover in anim.clip_movers.iter().rev() {
             let written = animator.sample(mover, now, clocks);

@@ -210,6 +210,124 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 }
 
 #[test]
+fn actionbar_controller_input_outlives_default_animation_until_explicit_clear() {
+    let mut fixture = Fixture::default();
+    let mut cache = SemanticHud::default();
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Persistent status"), 1, 100);
+    fixture.frame.now_millis = 100;
+    fixture.check(&mut cache);
+    fixture.runtime.session.hud.expire(30_000);
+    fixture.frame.now_millis = 30_000;
+    fixture.check(&mut cache);
+    assert!(
+        fixture.runtime.hud().actionbar().is_none(),
+        "the default timed view expired"
+    );
+    assert_eq!(
+        cache.model.actionbar.as_ref().unwrap().text,
+        "Persistent status",
+        "an unanimated server control retains the request"
+    );
+    fixture.runtime.session.hud.clear_titles();
+    fixture.check(&mut cache);
+    assert!(cache.model.actionbar.is_none());
+}
+
+#[test]
+fn actionbar_requests_reset_stateful_server_labels_after_default_expiry() {
+    let mut fixture = Fixture::default();
+    Arc::make_mut(&mut fixture.catalog).overlay_text(
+        "ui/server_hud.json",
+        r##"{"namespace":"hud",
+        "hud_screen":{"type":"panel","size":["100%","100%"],"factory":{
+            "name":"hud_actionbar_text_factory","control_ids":{"hud_actionbar_text":"hud.message"}
+        }},
+        "message":{"type":"label","size":[180,12],"text":"#text",
+            "property_bag":{"#text":"$actionbar_text"},"bindings":[
+                {"binding_name":"#text","binding_condition":"once"}
+            ]}
+        }"##,
+    );
+    let catalog = Arc::clone(&fixture.catalog);
+    let context = json_ui::Context::desktop();
+    let root = Arc::new(
+        json_ui::resolve(&catalog, "hud.hud_screen", &context)
+            .control
+            .unwrap(),
+    );
+    let mut cache = SemanticHud::default();
+    let mut state = json_ui::BindState::new();
+    let mut resolve_cache = json_ui::ResolveCache::default();
+    let mut render = |fixture: &mut Fixture, state: &mut json_ui::BindState| {
+        fixture.check(&mut cache);
+        let bound = json_ui::bind_incremental(
+            &root,
+            &fixture.bindings.update(&cache.model, HudChanges::default()),
+            &json_ui::CachedLibrary {
+                library: json_ui::CatalogLibrary {
+                    catalog: &catalog,
+                    context: &context,
+                },
+                cache: &mut resolve_cache,
+            },
+            state,
+        );
+        let frame = json_ui::render_bound(
+            bound,
+            [480.0, 270.0],
+            &json_ui::LayoutEnv {
+                text: &ui_screens::test_support::FixedText,
+                textures: &ui_screens::test_support::NoTextures,
+            },
+            &json_ui::ViewState::default(),
+        );
+        frame
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.draw {
+                json_ui::Draw::Text { text, .. } => Some((node.key.clone(), text.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    for (request, now, expected) in [
+        (Some((1, "First", 100)), 100, "First"),
+        (None, 30_000, "First"),
+        (Some((2, "Second", 30_000)), 30_000, "Second"),
+        (Some((3, "Third", 30_000)), 30_000, "Third"),
+    ] {
+        if let Some((sequence, text, started)) = request {
+            fixture
+                .runtime
+                .session
+                .hud
+                .set_actionbar(Arc::from(text), sequence, started);
+        }
+        fixture.frame.now_millis = now;
+        fixture.runtime.session.hud.expire(now);
+        if request.is_none() {
+            assert!(fixture.runtime.hud().actionbar().is_none());
+        }
+        let labels = render(&mut fixture, &mut state);
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].1, expected);
+    }
+    let key = render(&mut fixture, &mut state)[0].0.clone();
+    state.publish(&key, "#text", json_ui::Scalar::Text("Retained".into()));
+    assert_eq!(render(&mut fixture, &mut state)[0].1, "Retained");
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Third"), 4, 30_000);
+    assert_eq!(render(&mut fixture, &mut state)[0].1, "Third");
+}
+
+#[test]
 fn creative_hides_hud_durability_bars_until_the_mode_changes_back() {
     let mut fixture = Fixture::default();
     fixture.frame.hotbar_stacks[0] = Some(stack(1));
@@ -615,6 +733,53 @@ fn stale_local_offhand_echo_keeps_the_inventory_offhand() {
         );
         fixture.check(&mut cache);
         assert_eq!(cache.model.offhand.as_ref().map(|slot| slot.count), Some(1));
+    }
+}
+
+#[test]
+fn long_multiline_chat_hud_preserves_raw_and_translated_message_tails() {
+    let text = ui_screens::test_support::long_chat_message();
+    assert!(text.len() > ui_screens::text::MAX_PRESENTED_TEXT_BYTES);
+    for kind in [ChatMessageKind::System, ChatMessageKind::Translation] {
+        let mut fixture = Fixture::default();
+        fixture.runtime.session.chat.push_local(ChatMessage {
+            fifo_sequence: 0,
+            received_millis: 0,
+            kind,
+            source: None,
+            message: if kind == ChatMessageKind::Translation {
+                "test.guide".into()
+            } else {
+                text.as_str().into()
+            },
+            parameters: if kind == ChatMessageKind::Translation {
+                Arc::from([Arc::from(text.as_str())])
+            } else {
+                Arc::from([])
+            },
+        });
+        let bytes = assets::encode_lang_catalog(
+            [3; 32],
+            [4; 32],
+            &[assets::LangEntry {
+                key: "test.guide".into(),
+                value: "%s".into(),
+            }],
+        )
+        .unwrap();
+        fixture.runtime.set_active_language(Some(Arc::new(
+            assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+        )));
+        let mut cache = SemanticHud::default();
+        fixture.check(&mut cache);
+        assert_eq!(cache.model.chat[0].text, text, "{kind:?}");
+        let before = cache.constructions;
+        fixture.frame.now_millis = 100;
+        assert!(!fixture.check(&mut cache).chat);
+        assert_eq!(
+            cache.constructions, before,
+            "unchanged long rows stay retained"
+        );
     }
 }
 

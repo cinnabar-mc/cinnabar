@@ -558,6 +558,9 @@ pub(super) fn apply_backdrops(
     pass.draw(0..3, 0..1);
     pass.set_render_pipeline(apply);
     pass.set_bind_group(1, shapes, &[]);
+    if let Some(profile) = profile {
+        profile.record_pass(stage);
+    }
     layer::draw_batches(
         &mut pass,
         draw.gpu,

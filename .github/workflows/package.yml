@@ -642,9 +642,52 @@ jobs:
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
 
+  ios:
+    name: iOS arm64 IPA
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      CINNABAR_RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      # IPAs do not use the desktop symbol archive pipeline.
+      CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
+          path: source
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: release-tools
+          persist-credentials: false
+      - name: Resolve the downloadable artifact name
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env ios arm64 --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
+      - name: Install the pinned Rust toolchain and the iOS target
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: false
+      - name: Install the icon renderer
+        run: brew install librsvg
+      # Unsigned: sideloading tools sign it with the installer's Apple ID (docs/ios.md).
+      - name: Build the IPA
+        run: |
+          bash packaging/ios/build-ipa.sh
+          mv target/ios/*-unsigned.ipa "$RUNNER_TEMP/$RELEASE_ASSET"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ios-arm64
+          path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
+          if-no-files-found: error
+
   release:
     name: Publish
-    needs: [prepare, macos, windows, linux, android]
+    needs: [prepare, macos, windows, linux, android, ios]
     if: ${{ github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v') }}
     environment: release
     runs-on: ubuntu-24.04
@@ -677,7 +720,7 @@ jobs:
         with:
           path: source/dist
           # Timing reports are CI diagnostics, never release downloads; symbol archives are.
-          pattern: "{macos-*,windows-x64,linux-*,android-arm64,symbols-*}"
+          pattern: "{macos-*,windows-x64,linux-*,android-arm64,ios-arm64,symbols-*}"
           merge-multiple: true
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env --channel "$RELEASE_CHANNEL" --tag "$RELEASE_TAG" >> "$GITHUB_ENV"

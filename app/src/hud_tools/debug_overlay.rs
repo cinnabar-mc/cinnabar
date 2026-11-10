@@ -30,7 +30,7 @@ use render_scene::{
     ChunkRenderQueue, GpuFrameTimes, RuntimeStage, RuntimeStageProfiler, VisibilityDiagnostics,
 };
 
-use client_shell::ui_resources::UiPresentationResource;
+use client_shell::{physical_input::keyboard_usage, ui_resources::UiPresentationResource};
 use client_ui::ui_runtime::presentation::DebugLines;
 use {
     crate::runtime::{shutdown::FatalError, visibility::CaveVisibilityCache, world::ClientWorld},
@@ -60,8 +60,9 @@ pub(super) struct DebugOverlayState {
     chords: bindings::DebugChords,
     chunk_border_geometry: Option<ChunkBorderGeometry>,
     visible: bool,
-    pub show_chunk_borders: bool,
-    f3_chord_used: bool,
+    show_chunk_borders: bool,
+    chord_used: bool,         // A chord ran since the debug key went down.
+    restore_visibility: bool, // This frame's first chord undoes the debug key's own toggle.
     publication_present: bool,
     elapsed: Duration,
     frames: u32,
@@ -109,6 +110,7 @@ pub(super) fn configure(app: &mut App) {
         Update,
         (
             collect_debug_chords.before(ClientFrameSet::RawInput),
+            apply_debug_chords.run_if(|state: Res<DebugOverlayState>| !state.chords.is_empty()),
             publish_debug_overlay
                 .after(ClientFrameSet::UiPreparation)
                 .before(ClientFrameSet::UiPublication),
@@ -122,19 +124,81 @@ fn collect_debug_chords(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     menu: Option<Res<client_shell::menu::MenuRuntime>>,
+    ui: Option<Res<client_shell::ui_resources::UiRuntimeResource>>,
+    semantic: Option<ResMut<crate::semantic_controls::SemanticInputRuntime>>,
     mut state: ResMut<DebugOverlayState>,
 ) {
-    let settings = menu
-        .as_deref()
-        .map(client_shell::menu::MenuRuntime::settings_snapshot);
+    let menu = menu.as_deref();
+    let settings = menu.map(client_shell::menu::MenuRuntime::settings_snapshot);
     state
         .bindings
         .update(settings.as_ref().map(|(settings, _)| settings));
-    state.chords = if menu.is_some_and(|menu| menu.is_remapping_key()) {
+    // A focused text box keeps chord letters as typed text.
+    let chords = if menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
+        || ui.is_some_and(|ui| ui.text_entry_focused())
+    {
         bindings::DebugChords::default()
     } else {
         state.bindings.take_chords(&mut keys, mouse.as_deref())
     };
+    // Gameplay ignores a chord key until its release, so F3+A and F3+D do not strafe.
+    if let Some(mut semantic) = semantic {
+        for usage in chords.iter().filter_map(|(_, key)| keyboard_usage(key)) {
+            semantic.consume_control(semantic_input::PhysicalControl::KeyboardUsage(usage));
+        }
+    }
+    state.restore_visibility = !chords.is_empty() && !state.chord_used;
+    state.chord_used =
+        (state.chord_used || !chords.is_empty()) && state.bindings.is_down(&keys, mouse.as_deref());
+    state.chords = chords;
+}
+
+/// Runs this frame's chords; they change only local presentation and chat.
+fn apply_debug_chords(
+    time: Res<Time<Real>>,
+    mut state: ResMut<DebugOverlayState>,
+    mut client_world: ResMut<ClientWorld>,
+    mut ui: Option<ResMut<client_shell::ui_resources::UiRuntimeResource>>,
+) {
+    let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let chords = state.chords;
+    for (chord, _) in chords.iter() {
+        let line: Arc<str> = match chord {
+            bindings::DebugChord::ChunkBorders => {
+                state.show_chunk_borders = !state.show_chunk_borders;
+                let status = if state.show_chunk_borders {
+                    "shown"
+                } else {
+                    "hidden"
+                };
+                Arc::from(format!("[Debug] Chunk borders: {status}"))
+            }
+            bindings::DebugChord::ReloadChunks => Arc::from(match client_world.stream.as_mut() {
+                Some(stream) => {
+                    stream.remesh_all_resident(web_time::Instant::now());
+                    "[Debug] Reloading all chunks"
+                }
+                None => "[Debug] Cannot reload chunks: no world is loaded",
+            }),
+            bindings::DebugChord::ClearChat => {
+                if let Some(ui) = ui.as_deref_mut() {
+                    ui.clear_chat_messages();
+                }
+                Arc::from("[Debug] Cleared chat")
+            }
+            bindings::DebugChord::Help => {
+                if let Some(ui) = ui.as_deref_mut() {
+                    for line in state.bindings.chord_help() {
+                        ui.push_local_chat_line(Arc::from(line), now);
+                    }
+                }
+                continue;
+            }
+        };
+        if let Some(ui) = ui.as_deref_mut() {
+            ui.push_local_chat_line(line, now);
+        }
+    }
 }
 
 /// Format already-collected GPU statistics without sorting an allocated list.
@@ -182,7 +246,7 @@ fn top_gpu_passes(
 /// Read existing authorities; never change gameplay or drain queues.
 #[derive(SystemParam)]
 struct DebugContext<'w, 's> {
-    client_world: ResMut<'w, ClientWorld>,
+    client_world: Res<'w, ClientWorld>,
     fatal_error: Res<'w, FatalError>,
     frame: Res<'w, LocalPlayerFrameCarrier>,
     view: Option<Res<'w, LocalViewPose>>,
@@ -190,7 +254,7 @@ struct DebugContext<'w, 's> {
     physics: Option<Res<'w, LocalPhysicsController>>,
     movement: Option<Res<'w, MovementTicker>>,
     player: Option<Res<'w, PlayerRuntime>>,
-    ui: Option<ResMut<'w, client_shell::ui_resources::UiRuntimeResource>>,
+    ui: Option<Res<'w, client_shell::ui_resources::UiRuntimeResource>>,
     menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
     mouse: Option<Res<'w, ButtonInput<MouseButton>>>,
     clock: Option<Res<'w, WorldClock>>,
@@ -215,7 +279,7 @@ fn publish_debug_overlay(
     mut presentation: ResMut<UiPresentationResource>,
     gpu_detail: Option<ResMut<render::DetailedGpuTiming>>,
     mut mod_scene: Option<ResMut<render_scene::ModRenderScene>>,
-    mut context: DebugContext,
+    context: DebugContext,
 ) {
     let timing_updated = state.sample_frame(time.delta());
     state.timing_pending |= timing_updated;
@@ -231,6 +295,7 @@ fn publish_debug_overlay(
         .bypass_change_detection()
         .take_touch_debug_toggle();
     let toggled = touch_toggled
+        ^ state.restore_visibility
         ^ (!menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
             && state.bindings.pressed(&keys, context.mouse.as_deref()));
     if toggled {
@@ -244,82 +309,6 @@ fn publish_debug_overlay(
                 presentation.set_changed();
             }
             state.publication_present = false;
-        }
-    }
-
-    let f3_is_down = state.bindings.is_down(&keys, context.mouse.as_deref());
-    if !f3_is_down {
-        state.f3_chord_used = false;
-    } else {
-        let bindings::DebugChords {
-            chunk_borders: chord_g,
-            reload_chunks: chord_a,
-            clear_chat: chord_d,
-            help: chord_q,
-        } = state.chords;
-
-        if chord_g || chord_a || chord_d || chord_q {
-            if !state.f3_chord_used {
-                state.visible = !state.visible;
-                if !state.visible {
-                    let mut cleared = None;
-                    if presentation
-                        .bypass_change_detection()
-                        .swap_debug_lines(&mut cleared)
-                    {
-                        presentation.set_changed();
-                    }
-                    state.publication_present = false;
-                }
-                state.f3_chord_used = true;
-            }
-
-            let now = (time.elapsed_secs_f64() * 1000.0) as u64;
-
-            if chord_g {
-                state.show_chunk_borders = !state.show_chunk_borders;
-                let status = if state.show_chunk_borders {
-                    "shown"
-                } else {
-                    "hidden"
-                };
-                if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(
-                        std::sync::Arc::from(format!("[Debug] Chunk borders: {status}")),
-                        now,
-                    );
-                }
-            }
-            if chord_a {
-                let message = if let Some(stream) = context.client_world.stream.as_mut() {
-                    stream.remesh_all_resident(web_time::Instant::now());
-                    "[Debug] Reloading all chunks"
-                } else {
-                    "[Debug] Cannot reload chunks: no world is loaded"
-                };
-                if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(std::sync::Arc::from(message), now);
-                }
-            }
-            if chord_d && let Some(ui) = context.ui.as_deref_mut() {
-                ui.clear_chat_messages();
-                ui.push_local_chat_line(std::sync::Arc::from("[Debug] Cleared chat"), now);
-            }
-            if chord_q && let Some(ui) = context.ui.as_deref_mut() {
-                ui.push_local_chat_line(
-                    std::sync::Arc::from("[Debug] F3 + A = Reload chunks"),
-                    now,
-                );
-                ui.push_local_chat_line(std::sync::Arc::from("[Debug] F3 + D = Clear chat"), now);
-                ui.push_local_chat_line(
-                    std::sync::Arc::from("[Debug] F3 + G = Show chunk borders"),
-                    now,
-                );
-                ui.push_local_chat_line(
-                    std::sync::Arc::from("[Debug] F3 + Q = Show this help list"),
-                    now,
-                );
-            }
         }
     }
 
@@ -410,79 +399,6 @@ fn publish_debug_overlay(
     state.publication_present = true;
 }
 
-/// Appends a constant-width world line as camera-facing triangles.
-fn append_debug_line(
-    out: &mut Vec<mod_render::geometry::ModVertex>,
-    a: [f32; 3],
-    b: [f32; 3],
-    color: [f32; 4],
-    width_pixels: f32,
-) {
-    let dx = b[0] - a[0];
-    let dy = b[1] - a[1];
-    let dz = b[2] - a[2];
-    let len_sq = dx * dx + dy * dy + dz * dz;
-    if len_sq < 1e-8 {
-        return;
-    }
-    let inv_len = 1.0 / len_sq.sqrt();
-    let dir = [dx * inv_len, dy * inv_len, dz * inv_len];
-    let half_w = width_pixels * 0.5;
-    for (side, p) in [
-        (-1.0, a),
-        (1.0, a),
-        (1.0, b),
-        (-1.0, a),
-        (1.0, b),
-        (-1.0, b),
-    ] {
-        out.push(mod_render::geometry::ModVertex {
-            anchor: [p[0], p[1], p[2], mod_render::geometry::KIND_STRIP],
-            shape: [dir[0], dir[1], dir[2], half_w],
-            color,
-            uv: [side, 0.0, 0.0, 0.0],
-            style: [mod_render::geometry::STYLE_UNTAPERED_RIBBON, 0.0, 0.0, 1.0],
-        });
-    }
-}
-
-/// Appends the twelve edges of an axis-aligned debug box.
-fn append_debug_box(
-    out: &mut Vec<mod_render::geometry::ModVertex>,
-    min: [f32; 3],
-    max: [f32; 3],
-    color: [f32; 4],
-    width_pixels: f32,
-) {
-    let corners: [[f32; 3]; 8] = [
-        [min[0], min[1], min[2]],
-        [max[0], min[1], min[2]],
-        [max[0], min[1], max[2]],
-        [min[0], min[1], max[2]],
-        [min[0], max[1], min[2]],
-        [max[0], max[1], min[2]],
-        [max[0], max[1], max[2]],
-        [min[0], max[1], max[2]],
-    ];
-    let edges = [
-        (0, 1),
-        (1, 2),
-        (2, 3),
-        (3, 0),
-        (4, 5),
-        (5, 6),
-        (6, 7),
-        (7, 4),
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),
-    ];
-    for (i, j) in edges {
-        append_debug_line(out, corners[i], corners[j], color, width_pixels);
-    }
-}
-
 /// Inputs that determine the chunk-border vertex buffer.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct ChunkBorderKey {
@@ -553,7 +469,21 @@ fn update_debug_visuals(
 
 /// Builds the dimension grid and the finer lines around the player's current section.
 fn chunk_border_vertices(key: ChunkBorderKey) -> Arc<[mod_render::geometry::ModVertex]> {
-    let mut debug_vertices = Vec::new();
+    const COLUMN: mod_render::Rgba = [1.0, 1.0, 0.0, 1.0];
+    const GRID: mod_render::Rgba = [1.0, 1.0, 0.0, 0.7];
+    const X_STEP: mod_render::Rgba = [1.0, 0.2, 0.2, 0.5];
+    const Z_STEP: mod_render::Rgba = [0.2, 0.6, 1.0, 0.5];
+    let mut ribbons = Vec::new();
+    let mut line =
+        |a: mod_render::Vec3, b: mod_render::Vec3, color: mod_render::Rgba, width: f32| {
+            ribbons.push(mod_render::Ribbon {
+                pattern: mod_render::LinePattern::Solid,
+                taper: false,
+                points: vec![a, b],
+                width,
+                color,
+            });
+        };
     let [cx, section_y, cz] = key.section;
     let side = world::SUB_CHUNK_SIDE as f32;
     let min_y = key.range.base_sub_chunk_y as f32 * side;
@@ -563,78 +493,56 @@ fn chunk_border_vertices(key: ChunkBorderKey) -> Arc<[mod_render::geometry::ModV
     let min_z = cz as f32 * side;
     let max_z = min_z + side;
 
-    append_debug_line(
-        &mut debug_vertices,
-        [min_x, min_y, min_z],
-        [min_x, max_y, min_z],
-        [1.0, 1.0, 0.0, 1.0],
-        1.5,
-    );
-    append_debug_line(
-        &mut debug_vertices,
-        [max_x, min_y, min_z],
-        [max_x, max_y, min_z],
-        [1.0, 1.0, 0.0, 1.0],
-        1.5,
-    );
-    append_debug_line(
-        &mut debug_vertices,
-        [min_x, min_y, max_z],
-        [min_x, max_y, max_z],
-        [1.0, 1.0, 0.0, 1.0],
-        1.5,
-    );
-    append_debug_line(
-        &mut debug_vertices,
-        [max_x, min_y, max_z],
-        [max_x, max_y, max_z],
-        [1.0, 1.0, 0.0, 1.0],
-        1.5,
-    );
-
+    for [x, z] in [
+        [min_x, min_z],
+        [max_x, min_z],
+        [min_x, max_z],
+        [max_x, max_z],
+    ] {
+        line([x, min_y, z], [x, max_y, z], COLUMN, 1.5);
+    }
+    let ring = |y: f32| {
+        [
+            [min_x, y, min_z],
+            [max_x, y, min_z],
+            [max_x, y, max_z],
+            [min_x, y, max_z],
+        ]
+    };
     for section in 0..=key.range.sub_chunk_count {
         let y = min_y + section as f32 * side;
-        append_debug_box(
-            &mut debug_vertices,
-            [min_x, y - 0.01, min_z],
-            [max_x, y + 0.01, max_z],
-            [1.0, 1.0, 0.0, 0.7],
-            1.0,
-        );
+        let (low, high) = (ring(y - 0.01), ring(y + 0.01));
+        for (corner, (bottom, top)) in low.into_iter().zip(high).enumerate() {
+            let next = (corner + 1) % low.len();
+            line(bottom, low[next], GRID, 1.0);
+            line(top, high[next], GRID, 1.0);
+            line(bottom, top, GRID, 1.0);
+        }
     }
-
     let sub_y = section_y as f32 * side;
     let sub_top = sub_y + side;
     for step in 1..8 {
         let offset = step as f32 * 2.0;
-        append_debug_line(
-            &mut debug_vertices,
-            [min_x + offset, sub_y, min_z],
-            [min_x + offset, sub_top, min_z],
-            [1.0, 0.2, 0.2, 0.5],
-            1.0,
-        );
-        append_debug_line(
-            &mut debug_vertices,
-            [min_x + offset, sub_y, max_z],
-            [min_x + offset, sub_top, max_z],
-            [1.0, 0.2, 0.2, 0.5],
-            1.0,
-        );
-        append_debug_line(
-            &mut debug_vertices,
-            [min_x, sub_y, min_z + offset],
-            [min_x, sub_top, min_z + offset],
-            [0.2, 0.6, 1.0, 0.5],
-            1.0,
-        );
-        append_debug_line(
-            &mut debug_vertices,
-            [max_x, sub_y, min_z + offset],
-            [max_x, sub_top, min_z + offset],
-            [0.2, 0.6, 1.0, 0.5],
-            1.0,
-        );
+        for z in [min_z, max_z] {
+            line(
+                [min_x + offset, sub_y, z],
+                [min_x + offset, sub_top, z],
+                X_STEP,
+                1.0,
+            );
+        }
+        for x in [min_x, max_x] {
+            line(
+                [x, sub_y, min_z + offset],
+                [x, sub_top, min_z + offset],
+                Z_STEP,
+                1.0,
+            );
+        }
     }
-    debug_vertices.into()
+    mod_render::geometry::build(&mod_render::Primitives {
+        ribbons,
+        ..Default::default()
+    })
+    .into()
 }
