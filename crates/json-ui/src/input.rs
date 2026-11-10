@@ -130,6 +130,8 @@ pub struct HitRegion {
     pub order: usize,
     /// Where `button.menu_select` routes when pressed (`$pressed_button_name`).
     pub pressed: Option<String>,
+    /// Whether the control is positioned at the pointer by `follows_cursor`.
+    pub follows_cursor: bool,
     /// `toggle_name` / `slider_name` / `text_box_name` / `dropdown_name`, and a scroll view's
     /// `scroll_view_name`, which server Experiences' modals report.
     pub control_name: Option<String>,
@@ -142,6 +144,8 @@ pub struct HitRegion {
     pub max_length: Option<usize>,
     /// A radio toggle's `toggle_group_forced_index`, its place in the group.
     pub group_index: Option<usize>,
+    /// The place in its group a radio toggle compares against the selection.
+    pub radio_index: Option<usize>,
     /// The `custom` renderer name for [`HitKind::Custom`].
     pub renderer: Option<String>,
     /// The axes a [`HitKind::Draggable`] region moves along.
@@ -368,6 +372,7 @@ pub(crate) fn region(
         layer: node.layer,
         order: *order,
         pressed,
+        follows_cursor: widgets::bound_bool(control, "follows_cursor").unwrap_or(false),
         control_name,
         collection_index,
         collection,
@@ -384,6 +389,11 @@ pub(crate) fn region(
             .get("toggle_group_forced_index")
             .and_then(Value::as_f64)
             .filter(|index| *index >= 0.0)
+            .map(|index| index as usize),
+        radio_index: control
+            .properties
+            .get(crate::bind::radio::RADIO_INDEX_KEY)
+            .and_then(Value::as_u64)
             .map(|index| index as usize),
         renderer: (kind == HitKind::Custom)
             .then(|| text("renderer"))

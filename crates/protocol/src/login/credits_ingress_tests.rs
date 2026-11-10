@@ -1,9 +1,9 @@
 use std::cell::Cell;
 
 use crate::raw_packet::{RawPacket, decode_packet_raw};
-use bedrock_protocol_1_26_51::packets::ShowCredits;
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::ShowCredits;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 fn raw_credits(runtime_id: u64, credits_state: i32) -> RawPacket {

@@ -140,7 +140,7 @@ pub(crate) fn station_controls(
     match kind {
         WindowKind::Enchanting => data.set_collection("#enchant_buttons", enchant_buttons(source)),
         WindowKind::Anvil => {
-            let name = source.screen().anvil_name.to_owned();
+            let name = source.screen().shown_anvil_name();
             data.set_global("#text_box_item_name", Scalar::Text(name));
             anvil_cost(source, data);
         }
@@ -526,7 +526,7 @@ fn loom_controls(source: &dyn ContainerSource, data: &mut DataSource) {
 /// Encodes the base, existing overlays and selected overlay in native UI order.
 fn banner_bindings(
     base: u8,
-    current: &[protocol::ItemBannerPattern],
+    current: &[render_api::BannerPattern],
     selected: Option<(&str, u8)>,
 ) -> (String, String) {
     let mut patterns = vec!["0".to_owned()];
@@ -668,6 +668,7 @@ mod banner_tests {
 
     static EXPANDED: BTreeSet<u32> = BTreeSet::new();
     static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
+    static RADIOS: BTreeMap<u64, u16> = BTreeMap::new();
 
     /// Answers only what the loom bindings read.
     pub(super) struct LoomSource {
@@ -759,6 +760,7 @@ mod banner_tests {
             screen: ScreenView {
                 mount_equipment: Default::default(),
                 anvil_name: "",
+                anvil_caret: None,
                 anvil_cost: None,
                 recipe_choice: None,
                 beacon: (0, 0),
@@ -775,7 +777,9 @@ mod banner_tests {
                 ),
                 creative_expanded: &EXPANDED,
                 search: "",
+                search_caret: None,
                 container_scroll: &SCROLL,
+                storage_radios: &RADIOS,
                 text_focused: false,
                 book: None,
             },
@@ -914,7 +918,7 @@ mod banner_tests {
 
     #[test]
     fn loom_result_preserves_existing_layers_and_adds_the_selected_pattern() {
-        let current = [protocol::ItemBannerPattern {
+        let current = [render_api::BannerPattern {
             pattern: "bs".into(),
             color: 1,
         }];

@@ -74,7 +74,7 @@ impl StagedSessionIcons {
                 .unwrap_or_default();
             block_alpha.insert(
                 Box::from(sheet.identifier.as_ref()),
-                alpha::mode_for_material_flags(flags),
+                render_model::equipment::blocks::mode_for_material_flags(flags),
             );
             sprites.push(IconSprite {
                 width,
@@ -198,6 +198,14 @@ impl EquipmentRuntime {
         let sheet = *self.session.block_sheets.get(identifier)?;
         let (placement, location) = self.session_placement(sheet)?;
         Some((sheet, placement, location))
+    }
+
+    /// Whether the session carries every variant of `identifier` from zero up to `count`.
+    pub(super) fn session_has_variants(&self, identifier: &str, count: u32) -> bool {
+        self.session
+            .by_identifier
+            .get(identifier)
+            .is_some_and(|variants| (0..count).all(|variant| variants.contains_key(&variant)))
     }
 
     /// The session icon for `identifier` with its atlas placement and artwork location.

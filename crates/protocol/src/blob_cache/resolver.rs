@@ -71,19 +71,18 @@ impl BlobCacheResolver {
         }
     }
 
-    /// Attributes items accepted from now on to the core frame and slot `origin`.
-    pub(crate) fn trace_origin(&mut self, origin: (u64, u32)) {
+    /// Retains the packet's trace position and capture sequence with each accepted item.
+    pub(crate) fn trace_origin(&mut self, origin: crate::packet_tap::PacketOrigin) {
         self.trace_origins
             .get_or_insert_with(Default::default)
             .current = origin;
     }
 
-    /// The traced origin of the item [`Self::pop_ready_ingress`] returned last; `(0, 0)` for a
-    /// recovery the resolver produced itself or when not tracing.
-    pub(crate) fn popped_trace_origin(&self) -> (u64, u32) {
+    /// The last ready item's packet origin; zero fields mean client-generated or untraced work.
+    pub(crate) fn popped_trace_origin(&self) -> crate::packet_tap::PacketOrigin {
         self.trace_origins
             .as_ref()
-            .map_or((0, 0), |origins| origins.popped)
+            .map_or(Default::default(), |origins| origins.popped)
     }
 
     /// Notes `sequence`'s traced origin as its item leaves the resolver.
@@ -213,14 +212,7 @@ impl BlobCacheResolver {
         value: ResolverReady,
         accounted_bytes: usize,
     ) -> Result<(), BlobCacheError> {
-        let retained_bytes = self
-            .retained_ordinary_bytes()?
-            .checked_add(accounted_bytes)
-            .and_then(|bytes| bytes.checked_add(size_of::<(u64, ImmediateReady)>()))
-            .ok_or(BlobCacheError::ByteCountOverflow)?;
-        if self.immediate_ready.len() >= MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS
-            || retained_bytes > MAX_CLIENT_BLOB_ORDINARY_READY_BYTES
-        {
+        if !self.can_accept_ordinary(accounted_bytes)? {
             self.stats.ordinary_backpressure = self.stats.ordinary_backpressure.saturating_add(1);
             return Err(BlobCacheError::OrdinaryLaneFull {
                 events: self.immediate_ready.len(),
@@ -276,7 +268,7 @@ impl BlobCacheResolver {
                         expected,
                     });
                 }
-                (PendingPacket::LevelChunk(Box::new(packet)), hashes)
+                (PendingPacket::LevelChunk(packet), hashes)
             }
             packets::Packet::SubChunk(packet) => {
                 if !packet.cache_enabled {
@@ -791,6 +783,10 @@ impl BlobCacheResolver {
                 .ready
                 .iter()
                 .any(|(earlier, transaction)| conflicts(earlier, &transaction.columns))
+            && !self
+                .immediate_ready
+                .iter()
+                .any(|(earlier, event)| conflicts(earlier, &event.columns))
     }
 
     fn take_ready_sequence(&mut self) -> Result<u64, BlobCacheError> {

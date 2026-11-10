@@ -12,6 +12,13 @@ fn stream() -> WorldStream {
     })
 }
 
+/// A stream whose next slice has retention maintenance to run.
+fn stream_with_work() -> WorldStream {
+    let mut stream = stream();
+    stream.retention_due = true;
+    stream
+}
+
 /// Prepares four air columns: two ready commits and two completions awaiting the poll.
 fn stream_with_completed_columns() -> WorldStream {
     let mut stream = stream();
@@ -47,8 +54,8 @@ fn stream_with_completed_columns() -> WorldStream {
     stream
 }
 
-/// Reclaims a loan with injected poll work and an older first-poll timestamp, without sleeping.
-fn reclaim_after_poll_work(stream: WorldStream, busy: Duration) -> ServicedStream {
+/// Reclaims injected busy time, optionally polling an expired allocation to commit real work.
+fn reclaim_after_poll_work(stream: WorldStream, busy: Duration, commit: bool) -> ServicedStream {
     let mut service = WorldStreamService::spawn().unwrap();
     let shared = Arc::clone(&service.shared);
     let turns = shared.turns.lock().unwrap();
@@ -57,6 +64,12 @@ fn reclaim_after_poll_work(stream: WorldStream, busy: Duration) -> ServicedStrea
     {
         let mut slot = shared.slot();
         let lent = slot.lent.as_mut().unwrap();
+        if commit {
+            lent.stream.service_yield = Some(Arc::clone(&shared.yield_request));
+            lent.stream.frame_deadline = Some(Instant::now() - Duration::from_secs(1));
+            lent.report = lent.stream.poll([0.0; 3], 0);
+            lent.stream.service_yield = None;
+        }
         lent.serving_since = Some(since);
         lent.busy = busy;
     }
@@ -67,9 +80,26 @@ fn reclaim_after_poll_work(stream: WorldStream, busy: Duration) -> ServicedStrea
     serviced
 }
 
-/// Idle ownership cannot take away the frame's bounded progress on already decoded terrain.
+/// Worker-only service time cannot suppress the frame's ready terrain commits.
 #[test]
-fn idle_service_time_does_not_suppress_ready_foreground_commits() {
+fn busy_service_without_commits_keeps_foreground_intake() {
+    let serviced = reclaim_after_poll_work(
+        stream_with_completed_columns(),
+        commit_budget::WORLD_POLL_BUDGET,
+        false,
+    );
+    assert_eq!(serviced.report.commit_steps, 0);
+    assert_eq!(serviced.busy, commit_budget::WORLD_POLL_BUDGET);
+    let mut stream = serviced.stream;
+    stream.frame_deadline = Some(Instant::now());
+    let report = stream.poll([0.0; 3], 0);
+    assert_eq!(report.commit_steps, 1);
+    assert_eq!(stream.committed_sequence(), 1);
+}
+
+/// A loan that commits work earns offload credit only after a full polling allocation.
+#[test]
+fn committed_service_time_preserves_the_foreground_offload_threshold() {
     let budget = commit_budget::WORLD_POLL_BUDGET;
     for busy in [
         Duration::ZERO,
@@ -77,9 +107,9 @@ fn idle_service_time_does_not_suppress_ready_foreground_commits() {
         budget - Duration::from_nanos(1),
         budget,
     ] {
-        let serviced = reclaim_after_poll_work(stream_with_completed_columns(), busy);
+        let serviced = reclaim_after_poll_work(stream_with_completed_columns(), busy, true);
         assert_eq!(serviced.busy, busy);
-        assert_eq!(serviced.report, WorldStreamPoll::default());
+        assert_eq!(serviced.report.commit_steps, 1);
         let mut stream = serviced.stream;
         stream.frame_deadline = Some(Instant::now());
         let report = stream.poll([0.0; 3], 0);
@@ -90,18 +120,18 @@ fn idle_service_time_does_not_suppress_ready_foreground_commits() {
         );
         assert_eq!(
             stream.committed_sequence(),
-            expected as u64,
+            expected as u64 + 1,
             "busy={busy:?}"
         );
-        assert_eq!(stream.loaded_column_count(), expected, "busy={busy:?}");
+        assert_eq!(stream.loaded_column_count(), expected + 1, "busy={busy:?}");
         assert_eq!(
             report.commit_steps, expected,
             "only the guaranteed commit may run"
         );
         assert_eq!(
             stream.decode_rx.len(),
-            1,
-            "the other decode waits for another poll"
+            0,
+            "the service and frame each accept one decode result"
         );
         assert!(!stream.known_air.is_empty() || expected == 0);
     }
@@ -147,11 +177,12 @@ fn reclaim_does_not_wait_for_a_service_thread_that_cannot_run() {
     drop(turns);
 }
 
-/// A lent stream is polled on the service thread without the frame thread driving it.
+/// A lent stream with work is polled on the service thread without the frame thread driving it.
 #[test]
 fn the_service_polls_a_lent_stream_until_reclaimed() {
     let mut service = WorldStreamService::spawn().unwrap();
-    service.launch(stream(), [0.0; 3], 0);
+    service.launch(stream_with_work(), [0.0; 3], 0);
+    assert_eq!(service.wakes, 1);
     let shared = Arc::clone(&service.shared);
     test_time::eventually("the service polls the lent stream", || {
         shared
@@ -163,6 +194,37 @@ fn the_service_polls_a_lent_stream_until_reclaimed() {
     let serviced = service.reclaim().expect("the lent stream comes back");
     assert!(serviced.stream.between_frames_service);
     service.launch(serviced.stream, [0.0; 3], 0);
+    assert!(service.reclaim().is_some());
+}
+
+/// A loan with nothing to advance leaves a sleeping service asleep; the stream still comes back
+/// unserviced, so the next frame poll keeps its commits.
+#[test]
+fn an_idle_loan_does_not_wake_the_service() {
+    let mut service = WorldStreamService::spawn().unwrap();
+    let stream = stream();
+    assert!(!stream.has_service_work());
+    service.launch(stream, [0.0; 3], 0);
+    assert_eq!(service.wakes, 0);
+    assert!(service.is_servicing());
+    let serviced = service.reclaim().expect("the lent stream comes back");
+    assert_eq!(serviced.held, Duration::ZERO);
+    assert_eq!(serviced.stream.service_poll_time, Duration::ZERO);
+    assert_eq!(serviced.report, WorldStreamPoll::default());
+
+    // Work that appears later wakes the same service on its next loan.
+    let mut stream = serviced.stream;
+    stream.retention_due = true;
+    service.launch(stream, [0.0; 3], 0);
+    assert_eq!(service.wakes, 1);
+    let shared = Arc::clone(&service.shared);
+    test_time::eventually("the woken service polls the loan", || {
+        shared
+            .slot()
+            .lent
+            .as_ref()
+            .is_some_and(|lent| lent.serving_since.is_some())
+    });
     assert!(service.reclaim().is_some());
 }
 
@@ -185,4 +247,21 @@ fn idle_wait_consumes_the_wake_it_observes() {
     sent.send(()).unwrap();
     stream.idle_wait().wait(&wake, false, Duration::ZERO);
     assert!(wake.is_empty());
+}
+
+/// A consumed notification cannot hide a result that is still queued for the service.
+#[test]
+fn idle_wait_returns_for_a_queued_result_after_its_doorbell_is_drained() {
+    let stream = stream_with_completed_columns();
+    let wait = stream.idle_wait();
+    assert!(wait.decode.doorbell().try_recv().is_ok());
+    let (_sent, wake) = bounded(1);
+    let waiter = std::thread::spawn(move || {
+        wait.wait(&wake, false, Duration::from_secs(60));
+    });
+    test_time::eventually("the queued result prevents an idle sleep", || {
+        waiter.is_finished()
+    });
+    waiter.join().unwrap();
+    assert_eq!(stream.decode_rx.len(), 2);
 }

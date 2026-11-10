@@ -27,6 +27,11 @@ pub const ANVIL_MATERIAL_SLOT: u8 = 2;
 /// The craft action a screen's result take is announced with.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ScreenCraft {
+    /// A smithing trim carries the decorated base stack, including its original user data.
+    SmithingTrim {
+        recipe_network_id: u32,
+        output: protocol::NetworkItemStack,
+    },
     Trade {
         recipe_network_id: u32,
         output: protocol::NetworkItemStack,
@@ -74,6 +79,7 @@ pub enum ScreenCraft {
 impl ScreenCraft {
     const fn kinds(&self) -> &'static [WindowKind] {
         match self {
+            Self::SmithingTrim { .. } => &[WindowKind::Smithing],
             Self::Trade { .. } => &[
                 WindowKind::Trade { modern: true },
                 WindowKind::Trade { modern: false },
@@ -406,6 +412,7 @@ impl PlayerInventoryLedger {
         let predicted_distinct = matches!(
             craft,
             ScreenCraft::Trade { .. }
+                | ScreenCraft::SmithingTrim { .. }
                 | ScreenCraft::Predicted { .. }
                 | ScreenCraft::Cartography { .. }
                 | ScreenCraft::Loom { .. }
@@ -424,11 +431,7 @@ impl PlayerInventoryLedger {
                 if self.negotiated_item_entry(output.network_id).is_none() {
                     return Err(InventoryGestureError::InvalidRequest);
                 }
-                let user_data: Arc<[u8]> = if output.empty_envelope {
-                    Arc::from([0; 10])
-                } else {
-                    Arc::from([])
-                };
+                let user_data: Arc<[u8]> = output.user_data.bytes();
                 let stack = protocol::NetworkItemStack {
                     network_id: output.network_id,
                     metadata: u32::from(output.aux),
@@ -458,7 +461,8 @@ impl PlayerInventoryLedger {
                 output: Some(output),
                 ..
             }
-            | ScreenCraft::Trade { output, .. } => {
+            | ScreenCraft::Trade { output, .. }
+            | ScreenCraft::SmithingTrim { output, .. } => {
                 let mut stack = output.clone();
                 stack.stack_network_id = request_id;
                 stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
@@ -565,6 +569,9 @@ impl PlayerInventoryLedger {
                 vec![name.to_string()],
             ),
             ScreenCraft::Recipe { recipe_network_id }
+            | ScreenCraft::SmithingTrim {
+                recipe_network_id, ..
+            }
             | ScreenCraft::Trade {
                 recipe_network_id, ..
             }

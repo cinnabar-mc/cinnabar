@@ -1,7 +1,10 @@
 //! See-through cube sources remain optional under the real GUI atlas budget.
 
 use super::*;
-use assets::{IconBlockSheet, IconEntry, IconSprite, ItemVisualKey, RuntimeIconCatalog};
+use assets::{
+    IconBlockSheet, IconEntry, IconSprite, ItemVisualDefinitionRoute, ItemVisualKey,
+    RuntimeIconCatalog,
+};
 
 /// Fills a bounded shelf with distinct opaque sheets and keeps the carrier's sheet-count limit.
 /// Required equipment textures fill any remaining atlas pages in larger budget fixtures.

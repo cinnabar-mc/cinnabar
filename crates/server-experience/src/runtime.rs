@@ -347,6 +347,16 @@ impl Contributions {
 
     /// Checks legacy scene costs together with the caller's active drawing placements.
     pub fn check_scene_budget(&self, drawing_draws: usize, drawing_triangles: u64) -> Result<()> {
+        self.remaining_scene_triangles(drawing_draws, drawing_triangles)
+            .map(|_| ())
+    }
+
+    /// Checks synchronous scene work and returns the allowance left for asynchronous meshes.
+    pub fn remaining_scene_triangles(
+        &self,
+        drawing_draws: usize,
+        drawing_triangles: u64,
+    ) -> Result<u64> {
         ensure!(
             self.scene.len().saturating_add(drawing_draws) <= MAX_DRAWS as usize,
             "draw budget exceeded"
@@ -366,7 +376,7 @@ impl Contributions {
             triangles <= u64::from(MAX_TRIANGLES) && particles <= u64::from(MAX_PARTICLES),
             "scene budget exceeded"
         );
-        Ok(())
+        Ok(u64::from(MAX_TRIANGLES) - triangles)
     }
 }
 

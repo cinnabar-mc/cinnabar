@@ -82,12 +82,15 @@ fn assert_quick_move(
 ) {
     let held = ledger.displayed_stack(SOURCE_SLOT).unwrap().clone();
     let expected = match target {
-        InventoryTarget::Armor(row) => (StackRequestContainer::Armor, row),
-        InventoryTarget::Craft(slot) => (protocol::ui_slot_request_container(slot).unwrap(), slot),
+        InventoryTarget::Armor(row) => (StackRequestContainer::Armor, u16::from(row)),
+        InventoryTarget::Craft(slot) => (
+            protocol::ui_slot_request_container(slot).unwrap(),
+            u16::from(slot),
+        ),
         InventoryTarget::Storage(slot) => {
             protocol::open_cell_request(ledger.window_kind().unwrap(), slot, None, None).unwrap()
         }
-        InventoryTarget::Player(slot) => (StackRequestContainer::PlayerInventory, slot),
+        InventoryTarget::Player(slot) => (StackRequestContainer::PlayerInventory, u16::from(slot)),
         InventoryTarget::Offhand => (StackRequestContainer::Offhand, 1),
     };
     ledger
@@ -105,7 +108,7 @@ fn assert_quick_move(
     };
     assert_eq!(*amount, 1);
     assert_eq!(source.container, StackRequestContainer::PlayerInventory);
-    assert_eq!(source.slot, SOURCE_SLOT);
+    assert_eq!(source.slot, u16::from(SOURCE_SLOT));
     assert_eq!(source.stack_network_id, held.stack_network_id);
     assert_eq!(
         (destination.container, destination.slot),

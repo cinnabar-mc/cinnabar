@@ -3,8 +3,15 @@
 
 use bevy::app::{TaskPoolOptions, TaskPoolPlugin, TaskPoolThreadAssignmentPolicy};
 
+#[cfg(any(target_os = "android", test))]
+mod android;
 #[cfg(target_os = "macos")]
 mod macos;
+
+#[cfg(target_os = "android")]
+use android as frame_priority;
+#[cfg(target_os = "macos")]
+use macos as frame_priority;
 
 /// Thread counts for each shared pool on a machine with `cores` logical processors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,8 +53,10 @@ impl ThreadBudget {
                 io: fixed(budget.io),
                 async_compute: fixed(budget.async_compute),
                 compute: TaskPoolThreadAssignmentPolicy {
-                    #[cfg(target_os = "macos")]
-                    on_thread_spawn: Some(std::sync::Arc::new(macos::prepare_frame_thread)),
+                    #[cfg(any(target_os = "macos", target_os = "android"))]
+                    on_thread_spawn: Some(std::sync::Arc::new(
+                        frame_priority::prepare_frame_thread,
+                    )),
                     ..fixed(budget.compute)
                 },
                 ..TaskPoolOptions::default()
@@ -55,18 +64,26 @@ impl ThreadBudget {
         }
     }
 
-    /// Configures frame submission on the render executor's own thread.
-    #[cfg(target_os = "macos")]
-    pub(crate) fn configure_render_thread(app: &mut bevy::prelude::App) {
+    /// Raises frame submission on the render executor's own thread. Android also raises the main
+    /// schedule's thread, which the platform starts at normal priority; threads either one spawns
+    /// later start at normal priority.
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    pub(crate) fn configure_frame_threads(app: &mut bevy::prelude::App) {
         use bevy::{
             ecs::schedule::common_conditions::run_once,
             prelude::IntoScheduleConfigs,
             render::{Render, RenderApp, RenderSystems},
         };
+        #[cfg(target_os = "android")]
+        app.add_systems(bevy::app::Startup, android::prepare_schedule_thread);
+        #[cfg(target_os = "macos")]
+        let prepare_render = macos::prepare_render_thread;
+        #[cfg(target_os = "android")]
+        let prepare_render = android::prepare_schedule_thread;
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.add_systems(
                 Render,
-                macos::prepare_render_thread
+                prepare_render
                     .run_if(run_once)
                     .before(RenderSystems::ExtractCommands),
             );

@@ -17,6 +17,37 @@ fn view() -> MenuView {
     view
 }
 
+/// Returns `node`'s top-left corner in screen space by adding every ancestor's offset.
+fn screen_origin(nodes: &[ui::UiNode], node: &ui::UiNode) -> [f32; 2] {
+    let mut point = [node.bounds().min().x(), node.bounds().min().y()];
+    let mut parent = node.parent();
+    while let Some(id) = parent {
+        let ancestor = nodes.iter().find(|candidate| candidate.id() == id).unwrap();
+        point[0] += ancestor.bounds().min().x();
+        point[1] += ancestor.bounds().min().y();
+        parent = ancestor.parent();
+    }
+    point
+}
+
+#[test]
+fn marketplace_browsing_is_reachable_without_an_account_or_idle_library() {
+    for auth in [
+        launcher::menu::auth::AuthState::SignedOut,
+        launcher::menu::auth::AuthState::Authenticated,
+    ] {
+        let mut view = view();
+        view.auth_state = auth;
+        std::sync::Arc::make_mut(&mut view.mods).library.busy = true;
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            draw(canvas, &view, [1280.0, 720.0], None, &|_| None).unwrap();
+        });
+        assert!(hits.iter().any(|(action, _)| {
+            *action == MenuAction::Mods(launcher::mods::Action::BrowseMarketplace)
+        }));
+    }
+}
+
 #[test]
 fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
     let view = view();
@@ -114,6 +145,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             MenuAction::Navigate(MenuScreen::Play),
             MenuAction::Navigate(MenuScreen::Servers),
             MenuAction::Navigate(MenuScreen::Settings),
+            MenuAction::Mods(launcher::mods::Action::BrowseMarketplace),
             MenuAction::Navigate(MenuScreen::Social),
             MenuAction::Navigate(MenuScreen::DressingRoom),
             MenuAction::OpenAccounts,
@@ -234,4 +266,40 @@ fn update_ready_notice_leaves_quit_and_play_reachable() {
             |(action, _)| *action == MenuAction::Update(launcher::menu::updates::Action::Later)
         )
     );
+}
+
+#[test]
+fn idle_secondary_actions_paint_the_same_button_face_as_servers() {
+    let view = view();
+    let (_, hits, nodes) = paint(HashMap::new(), |c| {
+        draw(c, &view, [1280.0, 720.0], None, &|_| None).unwrap();
+    });
+    let visible_fills = |action| {
+        let area = hits.iter().find(|(found, _)| *found == action).unwrap().1;
+        let mut fills = nodes
+            .iter()
+            .filter_map(|node| match node.visual() {
+                UiVisual::Solid { color, .. } if color[3] > 0 => {
+                    let [x, y] = screen_origin(&nodes, node);
+                    let inside = x >= area.min().x() - 0.5
+                        && y >= area.min().y() - 0.5
+                        && x + node.bounds().width() <= area.max().x() + 0.5
+                        && y + node.bounds().height() <= area.max().y() + 0.5;
+                    inside.then_some(*color)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        fills.sort_unstable();
+        fills.dedup();
+        fills
+    };
+    let servers = visible_fills(MenuAction::Navigate(MenuScreen::Servers));
+    assert!(!servers.is_empty());
+    for action in [
+        MenuAction::Navigate(MenuScreen::Social),
+        MenuAction::Mods(launcher::mods::Action::BrowseMarketplace),
+    ] {
+        assert_eq!(visible_fills(action), servers, "{action:?}");
+    }
 }

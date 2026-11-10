@@ -249,6 +249,26 @@ fn a_full_atlas_evicts_the_least_recently_drawn_page() {
 }
 
 #[test]
+fn server_ui_reservation_keeps_eight_page_sized_images_resident_together() {
+    let side = PAGE_SIDE - GUTTER * 2;
+    let pixels = png(side, side);
+    let keys: Vec<_> = (0..8)
+        .map(|index| format!("textures/ui/page{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .map(|key| (format!("{key}.png"), pixels.clone()))
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(crate::sources::ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    for key in &keys {
+        let placement = atlas.placement(key).expect("every image stays resident");
+        assert_eq!(placement.rect[2..], [side as u16; 2]);
+    }
+}
+
+#[test]
 fn large_local_images_publish_metadata_without_reading_on_the_requesting_thread() {
     let root = Arc::new(MemoryPack::default());
     let key = "textures/ui/large_local";

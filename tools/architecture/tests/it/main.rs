@@ -1,3 +1,4 @@
+mod dependency_fixture;
 mod gameplay_session_boundary;
 mod git_ignored_trees;
 mod hygiene;
@@ -10,4 +11,5 @@ mod policy;
 mod presentation_boundary;
 mod reads;
 mod render_boundary;
+mod ui_world_boundary;
 mod workspace_docs;

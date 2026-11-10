@@ -52,6 +52,7 @@ pub(crate) fn collect_death_fov_inputs(
 pub(crate) fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
     hand: ResMut<FirstPersonHandMotion>,
+    shake: ResMut<client_presentation::camera::actor_effects::PresentedDamageShake>,
     legacy: Option<Res<client_presentation::camera::legacy::LegacyCameraMotion>>,
     server: Res<ServerCameraView>,
     world: Option<Res<ClientWorld>>,
@@ -62,6 +63,7 @@ pub(crate) fn apply_actor_damage_camera_rotation(
     client_presentation::camera::actor_effects::apply_actor_damage_camera_rotation(
         settings,
         hand,
+        shake,
         legacy,
         server,
         world.as_deref().map(
@@ -163,6 +165,7 @@ pub(crate) fn apply_camera_presentation(
     instructions: Option<Res<ServerCameraInstructions>>,
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
+    clock: Option<Res<client_presentation::environment::WorldClock>>,
     client_world: Option<Res<ClientWorld>>,
     collisions: Option<Res<PhysicsCollisionRegistries>>,
     server: ResMut<ServerCameraView>,
@@ -174,6 +177,7 @@ pub(crate) fn apply_camera_presentation(
         instructions,
         portal,
         view,
+        clock.map_or(0, |clock| clock.session_generation()),
         client_world.as_deref().map(
             |world| client_presentation::observations::WorldObservation {
                 stream: world.stream.as_ref(),

@@ -281,15 +281,75 @@ fn boat_spawns_apply_the_network_offset_and_feet_moves_do_not() {
 }
 
 #[test]
+fn minecart_spawn_and_stationary_network_moves_keep_the_same_height() {
+    let facts = assets::facts::entity::EntityFacts::pinned();
+    let mut checked = 0;
+    for record in facts.records.iter().filter(|record| {
+        record.fact.native_class == assets::facts::entity::NativeEntityClass::Minecart
+    }) {
+        checked += 1;
+        let mut store = ActorStore::new(1, 0);
+        let spawn = entity_spawn(42, -7, &record.identifier, Arc::from([]));
+        store.apply(1, 1, spawn);
+        let expected_y = 64.0 - record.fact.collision.unwrap()[1] * 0.5;
+        let actor = store.get(42).unwrap();
+        assert_eq!(actor.position[1], expected_y, "{} spawn", record.identifier);
+        assert_eq!(actor.bounding_box().unwrap().0[1], expected_y);
+        store.apply(1, 2, network_move(42, 64.0, false));
+        for _ in 0..super::ACTOR_INTERPOLATION_TICKS {
+            store.advance_interpolation_ticks(1);
+            let actor = store.get(42).unwrap();
+            assert_eq!(
+                actor.position[1], expected_y,
+                "{} movement",
+                record.identifier
+            );
+            assert_eq!(actor.native_position()[1], 64.0);
+            for alpha in [0.0, 0.5, 1.0] {
+                assert_eq!(actor.interpolated_position(alpha).unwrap()[1], expected_y);
+            }
+        }
+    }
+    assert!(checked > 0, "pinned minecart constructors");
+}
+
+#[test]
+fn minecart_spawn_retains_the_exact_packet_origin_above_collision_feet() {
+    let mut store = ActorStore::new(1, 0);
+    let ActorEvent::Spawn(mut spawn) =
+        entity_spawn(42, -7, "minecraft:hopper_minecart", Arc::from([]))
+    else {
+        unreachable!()
+    };
+    // A cart summoned at 64.1 in the offline server fixture arrives at 64.45.
+    spawn.position[1] = 64.45;
+    store.apply(1, 1, ActorEvent::Spawn(spawn));
+    let actor = store.get(42).unwrap();
+    assert!((actor.position[1] - 64.1).abs() < 0.00001);
+    assert_eq!(actor.native_position()[1].to_bits(), 64.45_f32.to_bits());
+    let ActorEvent::Move(mut movement) = network_move(42, 65.0, true) else {
+        unreachable!()
+    };
+    movement.position_origin = ActorPositionOrigin::Feet;
+    store.apply(1, 2, ActorEvent::Move(movement));
+    assert_eq!(store.get(42).unwrap().position[1], 65.0);
+}
+
+#[test]
 fn absolute_network_positions_use_supported_entity_kind_offsets() {
+    let cart_offset = assets::facts::entity::EntityFacts::pinned()
+        .get("minecraft:minecart")
+        .collision
+        .unwrap()[1]
+        * 0.5;
     let cases = [
         ("minecraft:item", super::ITEM_ACTOR_NETWORK_OFFSET),
         ("minecraft:falling_block", 0.5),
-        ("minecraft:minecart", 0.5),
-        ("minecraft:chest_minecart", 0.5),
-        ("minecraft:hopper_minecart", 0.5),
-        ("minecraft:tnt_minecart", 0.5),
-        ("minecraft:command_block_minecart", 0.5),
+        ("minecraft:minecart", cart_offset),
+        ("minecraft:chest_minecart", cart_offset),
+        ("minecraft:hopper_minecart", cart_offset),
+        ("minecraft:tnt_minecart", cart_offset),
+        ("minecraft:command_block_minecart", cart_offset),
         ("minecraft:boat", 0.375),
         ("minecraft:chest_boat", 0.375),
     ];
@@ -455,6 +515,7 @@ fn player_network_teleport_snaps_to_feet_space() {
 fn remote_player_converges_to_received_position_in_three_ticks() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
 
     let actor = store.get(42).unwrap();
@@ -476,6 +537,7 @@ fn remote_player_converges_to_received_position_in_three_ticks() {
 fn new_target_restarts_three_ticks_from_current_smoothed_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.advance_interpolation_ticks(1);
     store.apply(1, 3, player_move(42, 12.0, false));
@@ -490,6 +552,7 @@ fn new_target_restarts_three_ticks_from_current_smoothed_position() {
 fn multiple_packets_before_one_tick_use_only_the_latest_target() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.apply(1, 3, player_move(42, 12.0, false));
     store.advance_interpolation_ticks(1);
@@ -501,6 +564,7 @@ fn multiple_packets_before_one_tick_use_only_the_latest_target() {
 fn teleport_snaps_received_previous_and_current_positions() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.advance_interpolation_ticks(1);
     store.apply(1, 3, player_move(42, 100.0, true));
@@ -979,7 +1043,7 @@ fn movement_flag_update_reads_both_flag_words_and_skips_absent_ones() {
     assert_eq!(crate::MovementFlagUpdate::from_metadata(&[unrelated]), None);
 }
 
-/// Remote MovePlayer Rotation turns without moving and Reset snaps without a lerp.
+/// Remote rotation preserves body yaw, and Reset snaps without a lerp.
 #[test]
 fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     let mut store = ActorStore::new(1, 0);
@@ -1000,7 +1064,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
         turned.position, before,
         "rotation mode never moves the player"
     );
-    assert_eq!(turned.yaw, 90.0);
+    assert_eq!(turned.yaw, 0.0);
 
     store.apply_player_move(1, 3, 0, movement(protocol::MovePlayerMode::Reset, 30.0));
     let reset = store.get(42).unwrap();
@@ -1011,7 +1075,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     assert_eq!(reset.interpolation_ticks_remaining, 0);
 }
 
-/// 1.26.50.26 samples 0.66 of the authoritative body height.
+/// 1.26.60.26 samples 0.66 of the authoritative body height.
 #[test]
 fn brightness_sample_uses_interpolated_feet_and_body_height() {
     for height in [0.25, 1.8, 3.6] {
@@ -1073,6 +1137,30 @@ fn always_show_name_tag_sentinel_preserves_the_previous_effective_value() {
         assert_eq!(
             store.snapshot_by_unique(70).unwrap().metadata.get(&key),
             expected.map(ActorMetadataValue::Byte).as_ref()
+        );
+    }
+}
+
+#[test]
+fn every_actor_data_update_advances_the_metadata_revision() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(7, 70));
+    assert_eq!(store.snapshot_by_unique(70).unwrap().metadata_revision, 0);
+    for sequence in [2, 5] {
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: Arc::from([]),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+        assert_eq!(
+            store.snapshot_by_unique(70).unwrap().metadata_revision,
+            sequence
         );
     }
 }

@@ -49,12 +49,13 @@ coordinates work that crosses these owners.
 | `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames; `cinnabar` owns application startup. |
 | `web/transport` | `web-transport` | Browser WebTransport and WebSocket channels, bounded control and reconnect state; the browser host drives timers and passes prepared play I/O to the existing session. | `bridge` owns framing and the shared relay contract. |
 | `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |
+| `packaging/ios/client` | `cinnabar-ios` | iOS app executable: resolves the bundle and container layout, then runs the client with the Go core linked in; build it with `packaging/ios/build-ipa.sh`. | `cinnabar` runs the client; `launcher` owns the iOS install layout; `launcher-host` runs cores in-process. |
 | `crates/client-state` | `client-state` | Shared ECS resource wrappers, frame sets and observations; use these contracts to connect plugins. | Domain crates own transitions; the other `client-*` crates own systems. |
 | `crates/client-runtime` | `client-runtime` | Transport resources, world servicing and session lifecycle adapters; use its runtime plugin and ingress/publication APIs. | `client-session` owns transport; `client-world` and `chunk-pipeline` own world work. |
 | `crates/client-session` | `client-session` | Session transport, join bootstrap and separate bounded control/world FIFOs; use its network handle and sequenced events. | `pack-runtime` prepares packs; presentation owners interpret the opaque prepared payload. |
 | `crates/client-shell` | `client-shell` | Menu input, launcher services and desktop settings; install its shell plugin. | `launcher-host` owns services; `launcher` owns models; screen crates draw the menus. |
 | `crates/client-interaction` | `client-interaction` | Input-to-movement, camera and interaction adapters; install its interaction plugin. | `gameplay`, `sim` and `inventory` own decisions; `client-presentation` owns visual results. |
-| `crates/client-ui` | `client-ui` | Retained client UI state, input routing and frame publication; call its UI runtime from client adapters. | `ui-screens`, `oreui` and `mod-ui` draw screen families; `ui-engine` retains their nodes. |
+| `crates/client-ui` | `client-ui` | Retained client UI state, input routing and frame publication; call its UI runtime with borrowed `client-world::ui_read` contracts from client adapters. | `ui-screens`, `oreui` and `mod-ui` draw screen families; `ui-engine` retains their nodes. |
 | `crates/client-presentation` | `client-presentation` | Camera, actor, equipment and environment frame preparation; use its plugin, environment state and borrowed observation inputs. | `actor-animation` evaluates poses; `render-model` defines CPU data; `render` submits it. |
 | `crates/client-audio` | `client-audio` | Sound admission, playback and local audio cues; install its audio plugin. | `assets` supplies sound data; interaction and session adapters publish observations. |
 | `crates/client-extensions` | `client-extensions` | Local mod and server Experience adapters, including consent input; install its extension plugin. | `mod-host` executes guests; `server-experience` negotiates them; `mod-ui` draws their surfaces. |
@@ -64,7 +65,7 @@ coordinates work that crosses these owners.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/world` | `world` | Palette-native chunks and world storage; use its block, chunk and coordinate types. | `client-world` admits network state; `meshing` produces geometry. |
-| `crates/client-world` | `client-world` | Authoritative world, actor and local-player facts, decoding and ordered commits; use its ingestion and committed views. | `world` owns storage; `inventory` admits numeric session item facts; `chunk-pipeline` schedules terrain; `player-state` joins player authorities. |
+| `crates/client-world` | `client-world` | Authoritative world, actor and local-player facts, decoding and ordered commits; use its ingestion, committed views and narrow UI reads. | `world` owns storage; `inventory` admits numeric session item facts; `chunk-pipeline` schedules terrain; `player-state` joins player authorities. |
 | `crates/chunk-pipeline` | `chunk-pipeline` | Bounded terrain residency, worker scheduling and publication; use its world stream and publication snapshots. | `client-world` owns admitted state; `render-api` owns shared request bounds and receipts; the app encodes outbound requests through `protocol`; `meshing` builds geometry; `render` consumes publications. |
 | `crates/far-terrain` | `far-terrain` | Far-terrain level of detail from received terrain: per-column surface summaries, their caches and bounds; use its summaries and config. | `chunk-pipeline` extracts summaries on its workers; `render` draws the far pass. |
 | `crates/inventory` | `inventory` | Inventory authority, prediction, crafting and commands; use its session, ledger and router APIs. | `player-state` shares it with gameplay and UI; `protocol` defines wire requests. |
@@ -88,7 +89,9 @@ coordinates work that crosses these owners.
 | `crates/pack-json` | `pack-json` | Shared pack text decoding and JSONC parsing; use its decoder before reading authored pack documents. | Pack admission, compilers and UI readers share this format policy. |
 | `crates/zip-footer` | `zip-footer` | ZIP end-record admission for in-memory archives; run `prepare_zip_bytes` before handing bytes to a ZIP parser. | `resource-pack` and `shaderpack` share this archive policy. |
 | `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; the pack compiler owners compile them. |
+| `crates/java-resource-pack` | `java-resource-pack` | Java Edition resource-pack translation: `find_root` recognizes a Java pack among archive paths and `translate` rewrites its textures, HUD atlases, potions and OptiFine sky into Bedrock pack files with a generated manifest. | `resource-pack` reads the archive within its import limits and validates the translated pack like any other import; `shaderpack` owns Java shader packs. |
 | `crates/shaderpack` | `shaderpack` | Java Edition OptiFine/Iris shader-pack loading, configuration and translation; `ShaderPack` owns options, dimensions, property parsing, program discovery, enable rules and translation to validated naga modules with their binding reflection, while `PackSource` owns bounded source/asset reads and `discover_packs` lists installed packs. See its [contract](../../crates/shaderpack/README.md). | `render` creates pipelines from the modules; `app` lists installed packs for the Video renderer picker; `resource-pack` owns Bedrock packs. |
+| `crates/shaderpack-worker` | `shaderpack-worker` | The isolated shader-pack compiler executable; spawn it through `shaderpack::worker::Running` only. | `shaderpack` owns translation and limits; `launcher` resolves the packaged path; `asset-compiler` stays separate so shader-pack changes leave carrier fingerprints unchanged. |
 | `crates/assets` | `assets` | Pack source readers, compiled carrier formats and the pinned item- and entity-facts owner; use bounded loaders and typed asset data. | The pack compiler owners write carriers; `protocol-ids` supplies query metadata IDs; `pack-runtime` prepares active session stacks. |
 | `crates/pack-compiler` | `pack-compiler` | Terrain, materials and independent carriers such as atmosphere, audio and UI; import its compiler APIs directly. | `pack-compile-input` owns shared inputs; `assets` owns formats. |
 | `crates/pack-compiler/input` | `pack-compile-input` | Bounded pack sources, source validation, JSON and texture decoding; use its shared input APIs. | Terrain and entity compilers consume these inputs; `assets` owns formats. |
@@ -97,17 +100,17 @@ coordinates work that crosses these owners.
 | `crates/asset-compiler` | `asset-compiler` | The `assetc` executable for runtime carrier preparation; use its CLI from asset setup. | the pack compiler owners implement compilation; `protocol-ids` validates generated event routes; `first-run` coordinates initial preparation. |
 | `crates/pack-runtime` | `pack-runtime` | Runtime pack admission, compilation cache and reload dependencies; use its pack preparation and reload APIs. | `resource-pack` admits archives; `pack-entity-compiler` compiles entities; client adapters install the results. |
 
-`assets` owns `crates/assets/data/item-facts-v2193.bin`, generated by `registryc` from
+`assets` owns `crates/assets/data/item-facts-v2225.bin`, generated by `registryc` from
 the pinned item tables and typed rules. It contains identifiers and behavior metadata,
 with a checked schema and hash, rather than artwork or executable code. Regenerate it
 through the item-facts compiler; runtime pack carriers remain local inputs.
 
-`assets` also owns `crates/assets/data/entity-facts-v2193.bin`, generated by `registryc`
+`assets` also owns `crates/assets/data/entity-facts-v2225.bin`, generated by `registryc`
 from pinned entity component metadata and typed compatibility rules. It contains
 identifiers and constructor facts with a checked schema and hash. Runtime artwork
 and pack carriers remain local inputs.
 
-`assets` also owns `crates/assets/data/java-mapping-v2193.bin`, generated by `registryc --kind
+`assets` also owns `crates/assets/data/java-mapping-v2225.bin`, generated by `registryc --kind
 java-mapping` from the GeyserMC mappings and Geyser sources pinned in
 `assets/geyser-mappings-source.json`. It maps block-registry states to Java block states, lists
 Java block tags, the Java biome registry (climate values and sky, fog and water fog colour
@@ -156,7 +159,7 @@ the prepared visual data to the GPU.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/launcher` | `launcher` | Bevy-free account, menu and world models plus product identity; use these models across services and screens. | `json-ui` owns vanilla screen names; `launcher-host` owns process and persistence services; `client-shell` integrates them. |
-| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
+| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence, mod-library file operations and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the Go core owns authentication and upstream services; `client-shell` owns ordinary ECS adapters; `app` supplies canonical mod package inspection, registration edits and retirement permits. |
 | `crates/first-run` | `first-run` | Consent, download and preparation of local asset carriers, with the setup window; use its setup runner before launching the game window. | `asset-compiler` builds carriers; `bootstrap-ui` draws the setup window; `launcher-host` owns ordinary launcher services. |
 | `crates/bootstrap-ui` | `bootstrap-ui` | The shared pre-game window stack for the setup and crash windows: panorama presenter, CPU-drawn OreUI canvas and controls, focus input, preferences, window attributes and the UI font lookup; build Bevy-free windows on it. | `first-run` owns the setup window; `crash-monitor` owns the crash window; `ui` owns the OreUI theme; `render-model` owns the panorama shader. |
 | `crates/crash-monitor` | `crash-monitor` | The `--crash-monitor` process: minidump server watching the client, crash report folders, the crash window and native-dialog fallback; run it beside the client and show reports through its window API. | `crash-report` owns the report format; `launcher-host` installs in-process crash handlers; `bootstrap-ui` draws the window. |
@@ -186,6 +189,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `examples/mods/hello` | `hello-mod` | Minimal retained HUD label and keybind example; use it as a personal-mod template. | `mod-api` supplies imports; `mod-host` runs it. |
 | `examples/mods/time-changer` | `time-changer-mod` | Local visual-time override example; build it to exercise host environment controls. | `mod-api` defines the imports; `client-extensions` applies the visual output. |
 | `examples/mods/render-sample` | `render-sample-mod` | Post-pass and world-decal example; build it to exercise guest rendering. | `mod-render` validates outputs; `render` draws them. |
+| `examples/mods/portal-view` | `portal-view-mod` | Retained block-grid and geometry-clip example; build it to display a three-by-three chunk portal view. | `mod-api` supplies imports; `mod-render` validates grids and clips; `render` submits them. |
 | `examples/mods/screen-probe` | `screen-probe-mod` | Player-mod screen fixture for events, data reads and traps; build it for host contract tests. | `mod-api` defines screens; `mod-host` executes callbacks; `mod-ui` draws them. |
 
 ### Diagnostics, tests and tools
@@ -200,6 +204,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `crates/test-alloc` | `test-alloc` | Per-thread allocation request counting for tests, benchmarks and opt-in runtime diagnostics; optional process totals compose with the chosen allocator. | Owning crates define allocation contracts for their own hot paths. |
 | `tools/architecture` | `architecture` | Repository gate for boundaries, ownership docs, source limits and declarations; run its `check` command. | `policy.toml` defines rules; `workspace-declarations` shares metadata with `devtool`. |
 | `tools/devtool` | `devtool` | Affected verification, CI planning, captures, worktree tools and offline crash symbolication; use its commands for scoped checks and artifacts. | `architecture` enforces boundaries; `workspace-declarations` supplies metadata and path matching; `crash-report` owns the crash folders `symbolicate` reads. |
+| `tools/mod-docs` | `mod-docs` | Generate and check the standalone modding API book. | `mod-api`, `mod-host`, `server-experience`, `ui` |
 | `tools/workspace-declarations` | `workspace-declarations` | Shared Cargo metadata keys and repository path matching; use these declarations in gates and CI selection. | `architecture` validates metadata; `devtool` selects affected packages. |
 | `tools/dist` | `dist-local` | Distribution staging, layout and hashes; use its CLI to assemble distributable bundles. | `launcher` owns install layout; `release-manifest` signs the published update manifest. |
 | `tools/release-manifest` | `release-manifest` | Release key generation and manifest signing; use its CLI in release publishing. | `update-manifest` owns the format and verification; `dist-local` stages artifacts. |

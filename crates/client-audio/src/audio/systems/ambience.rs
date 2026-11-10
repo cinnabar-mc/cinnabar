@@ -18,6 +18,8 @@ pub struct AmbientState {
     mood: IntervalTimer,
     additions: IntervalTimer,
     music: MusicScheduler,
+    /// The biome at the eye's block, re-read only when that block or its terrain changes.
+    biome: chunk_pipeline::TerrainSampleCache<[u32; 3], Option<u32>>,
 }
 
 impl Default for AmbientState {
@@ -27,19 +29,20 @@ impl Default for AmbientState {
             mood: IntervalTimer::new(MOOD_INTERVAL),
             additions: IntervalTimer::new(ADDITIONS_INTERVAL),
             music: MusicScheduler::default(),
+            biome: Default::default(),
         }
     }
 }
 
-/// Ambience definition prefix for the eye position: the biome's own set when the pack defines it.
+/// Ambience definition prefix for the eye's biome: the biome's own set when the pack defines it.
 fn ambience_prefix(
     stream: &chunk_pipeline::WorldStream,
     dimension: i32,
-    eye: [f32; 3],
+    biome: Option<u32>,
     engine: &AudioEngine,
 ) -> Option<String> {
     let fallback = dimension_ambience(dimension)?;
-    let biome = stream.camera_biome_id(eye).and_then(|id| {
+    let biome = biome.and_then(|id| {
         stream
             .biome_definitions_snapshot()
             .iter()
@@ -120,8 +123,17 @@ pub fn drive_ambience(
             .then(|| loop_spec("ambient.underwater.loop"))
             .flatten(),
     );
-    let prefix: Option<String> = stream
-        .and_then(|stream| ambience_prefix(stream, dimension, [eye.x, eye.y, eye.z], &engine));
+    let at = [eye.x, eye.y, eye.z];
+    let block = at.map(f32::floor);
+    let biome = stream.and_then(|stream| {
+        state
+            .biome
+            .sample(stream, block.map(f32::to_bits), |stream, _| {
+                stream.camera_biome_id(block)
+            })
+    });
+    let prefix: Option<String> =
+        stream.and_then(|stream| ambience_prefix(stream, dimension, biome, &engine));
     engine.set_loop(
         "dimension",
         prefix
@@ -131,9 +143,8 @@ pub fn drive_ambience(
 
     // Unloaded chunks read as unlit, so mood waits for the eye's chunk to be present.
     let dark = stream.is_some_and(|stream| {
-        let at = [eye.x, eye.y, eye.z];
         let (block, sky) = stream.light_level_at(at);
-        stream.camera_biome_id(at).is_some() && block == 0 && sky == 0
+        biome.is_some() && block == 0 && sky == 0
     });
     let unit = engine.unit();
     if state.mood.tick(dark && !underwater, dt, unit) {

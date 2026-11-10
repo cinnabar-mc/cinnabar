@@ -4,7 +4,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use assets::gui_item::{
-    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, face_brightness,
+    CubeLighting, GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, GuiShading,
     project_cube,
 };
 use ui::UiMesh;
@@ -15,10 +15,11 @@ use {
     ui::IconRef,
 };
 
-/// Each quad with its tile's place in the atlas. `None` when a UV leaves its tile, which an atlas
-/// cannot wrap.
+/// Draws atlas quads with the requested face shading and cube brightness.
+/// Returns `None` when a UV leaves its tile, which an atlas cannot wrap.
 pub(in crate::ui_runtime::presentation) fn mesh(
     quads: &[(GuiBlockQuad, IconRef)],
+    shading: GuiShading,
     lighting: CubeLighting,
 ) -> Option<Arc<UiMesh>> {
     let mut vertices = Vec::with_capacity(quads.len() * 4);
@@ -35,7 +36,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
         {
             return None;
         }
-        let shade = shade(face_brightness(quad.corners), lighting);
+        let shade = shade(shading.brightness(quad.corners), lighting);
         let start = vertices.len() as u32;
         for (corner, uv) in quad.corners.into_iter().zip(quad.uvs) {
             let [x, y, z] = project_cube(corner);

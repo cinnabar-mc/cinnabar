@@ -33,7 +33,12 @@ fn with_output_frame(check: impl FnOnce(ContainerFrame<'_>)) {
     let (icons4, durability4) = ([None; 4], [None; 4]);
     let entries: Arc<[Option<ui::IconRef>]> = Arc::from([]);
     let predicted = StationOutput {
-        icon: None,
+        icon: Some(ui::IconRef {
+            color_mask: None,
+            page: 7,
+            uv: [0, 0, 16, 16],
+            glint: true,
+        }),
         durability: Some(0.5),
         stack: NetworkItemStack {
             network_id: 7,
@@ -80,6 +85,67 @@ fn anvil_and_grindstone_output_cells_show_the_predicted_result() {
         let loom = player(protocol::WINDOW_TYPE_LOOM);
         let (stack, _, _) = station_cell(&loom, &frame, Cell::Output);
         assert!(stack.is_none(), "other screens keep their own output path");
+    });
+}
+
+#[test]
+fn smithing_result_cell_shows_prediction_until_the_server_states_an_output() {
+    with_output_frame(|frame| {
+        let mut station = player(protocol::WINDOW_TYPE_SMITHING_TABLE);
+        let mut output = frame.recipe_output.unwrap().clone();
+        let trim = protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        };
+        output.stack.extra_data = protocol::apply_item_trim(&[], &trim).unwrap();
+        let frame = ContainerFrame {
+            recipe_output: Some(&output),
+            ..frame
+        };
+        let (stack, icon, durability) = station_cell(&station, &frame, Cell::Output);
+        assert_eq!(stack, Some(&output.stack));
+        assert_eq!(
+            stack.and_then(|stack| protocol::item_trim(&stack.extra_data)),
+            Some(trim)
+        );
+        assert_eq!(icon, output.icon);
+        assert_eq!(durability, output.durability);
+
+        let server = NetworkItemStack {
+            network_id: 8,
+            count: 2,
+            ..NetworkItemStack::empty()
+        };
+        station
+            .inventory
+            .ledger_mut()
+            .apply(&protocol::InventoryEvent::Slot(
+                protocol::InventorySlotEvent {
+                    identity: protocol::SlotIdentity {
+                        container: protocol::ContainerIdentity::window(
+                            protocol::UI_INVENTORY_WINDOW_ID,
+                        ),
+                        slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
+                    },
+                    stack: server.clone(),
+                    storage_item: None,
+                },
+            ));
+        let server_icon = output.icon.map(|icon| icon.with_glint(false));
+        let index = usize::from(protocol::CREATED_OUTPUT_SLOT);
+        let mut icons = [None; protocol::CREATED_OUTPUT_SLOT as usize + 1];
+        let mut durabilities = [None; protocol::CREATED_OUTPUT_SLOT as usize + 1];
+        icons[index] = server_icon;
+        durabilities[index] = Some(0.75);
+        let frame = ContainerFrame {
+            ui_icons: &icons,
+            ui_durability: &durabilities,
+            ..frame
+        };
+        let (stack, icon, durability) = station_cell(&station, &frame, Cell::Output);
+        assert_eq!(stack, Some(&server));
+        assert_eq!(icon, server_icon);
+        assert_eq!(durability, Some(0.75));
     });
 }
 
