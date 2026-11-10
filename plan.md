@@ -1302,6 +1302,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Oversized bitmap glyphs preserve label line boxes and text baselines while their ink
+  overflows vertically. A matched single-line in-game comparison confirms unchanged icon
+  size, aligned text baselines and a common background height; broader text acceptance remains open.
   Unmapped cursor-following buttons pass held-stack presses through to inventory and
   container backgrounds, allowing outside clicks to drop items.
   Mouse presses on a catalog scroll view's touch-drag mapping reach its background's
