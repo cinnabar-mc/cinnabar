@@ -1007,7 +1007,15 @@ and version-matched in-game acceptance remain incomplete.
   follow required equipment and held artwork, retaining thumbnails when they cannot fit.
   Held pumpkin cubes use the same canonical class artwork independently of placement
   facing. Their first-person block pose retains the item-space quarter turn.
-  Held lighting and broader held-shape acceptance remain incomplete.
+  Held stairs select that turn from their pinned model family or active stair topology,
+  independently of inventory GUI orientation. Rendered stair acceptance remains open.
+  Bedrock hand rigs shade posed normals in world space and interpolate their combined
+  directional and eye light in gamma space. Held block emission supplies a minimum
+  light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
+  retains sRGB artwork sampling. Opaque Bedrock hands round gamma output to bytes before
+  scene conversion. Broader held lighting and shape acceptance remain incomplete.
+  Held mesh allocation uses the available item ID namespace while reserving distinct session
+  and map slots. Rendered large-catalog acceptance remains open.
   Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
   placed book counts and the held world model.
   Shared cube silhouette and texture-coordinate acceptance remains incomplete.

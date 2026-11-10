@@ -129,8 +129,7 @@ impl EquipmentRuntime {
         }
         let shape = if block {
             FirstPersonShape::Block {
-                quarter_turn: assets::facts::pack::face_slots(&item.identifier)
-                    == Some(assets::facts::pack::FaceSlots::Pumpkin),
+                quarter_turn: self.first_person_block_quarter_turn(item),
             }
         } else {
             FirstPersonShape::Sprite {
@@ -181,6 +180,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            emitted_light: self.first_person_emitted_light(item, block),
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })
@@ -215,6 +215,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, block),
+            emitted_light: self.first_person_emitted_light(item, block),
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })
@@ -241,6 +242,7 @@ impl EquipmentRuntime {
             ),
             camera_space: true,
             alpha_mode: self.first_person_alpha_mode(item, false),
+            emitted_light: 0,
             java_camera: None,
             java_normal_axis: bevy::math::Vec3::Z,
         })

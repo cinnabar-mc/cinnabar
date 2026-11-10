@@ -56,6 +56,11 @@ fn pumpkin_gui_and_held_fronts_keep_their_class_artwork_in_the_carried_pose() {
             .unwrap()
             .unwrap();
         let gui = blocks.gui_cube_tiles(root.path(), visual).unwrap().unwrap();
+        let shown = &blocks.records[blocks.icon_state(visual).0 as usize];
+        assert!(matches!(
+            shown.property(assets::facts::BlockProperty::MinecraftCardinalDirection),
+            Some(assets::facts::StateValue::String(direction)) if direction.as_ref() == "south"
+        ));
         let expected = match record.name.as_ref() {
             "minecraft:carved_pumpkin" => [240, 10, 20, 255],
             "minecraft:lit_pumpkin" => [10, 240, 20, 255],
