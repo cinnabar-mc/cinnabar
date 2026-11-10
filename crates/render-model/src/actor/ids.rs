@@ -6,6 +6,11 @@ use super::{ActorRigGeometry, EntityRigId, geometry_from_geometry_index};
 pub const DIAGNOSTIC_RIG_ID: EntityRigId = EntityRigId(u32::MAX);
 const EQUIPMENT_RIG_ID_BASE: u32 = 0x8000_0000;
 const ITEM_MESH_RIG_ID_BASE: u32 = 0xC000_0000;
+const SKIN_RIG_ID_BASE: u32 = 0xE000_0000;
+
+/// Number of generated item mesh ids below the reserved cosmetic and skin ranges.
+pub const ITEM_MESH_RIG_ID_CAPACITY: usize =
+    (SKIN_RIG_ID_BASE - ITEM_MESH_RIG_ID_BASE) as usize - cosmetics::MAX_ITEMS;
 
 /// Rig id of an entity-catalog geometry registered as equipment geometry.
 #[must_use]
@@ -80,7 +85,11 @@ pub fn is_equipment_rig_id(id: EntityRigId) -> bool {
     id.0 >= EQUIPMENT_RIG_ID_BASE && id != DIAGNOSTIC_RIG_ID
 }
 
-const SKIN_RIG_ID_BASE: u32 = 0xE000_0000;
+/// Rig id of an admitted cosmetic, descending from the player skin range.
+#[must_use]
+pub const fn cosmetic_rig_id(item_index: u16) -> EntityRigId {
+    EntityRigId(SKIN_RIG_ID_BASE - 1 - item_index as u32)
+}
 
 /// Body and animated skin models for every selected player, plus the local first-person hand.
 pub const MAX_SKIN_RIGS: usize =

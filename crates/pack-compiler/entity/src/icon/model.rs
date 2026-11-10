@@ -23,6 +23,7 @@ struct Face<'a> {
     size: [usize; 2],
     blend: bool,
     face_dimming: bool,
+    force_covered_alpha: bool,
 }
 
 /// A source-textured quad with independently controlled face dimming.
@@ -83,8 +84,8 @@ pub(super) struct Model<'a> {
     projection: fn([f32; 3]) -> [f32; 3],
     light: f32,
     face_lighting: bool,
-    paint_order: bool,
     shading: GuiShading,
+    paint_order: bool,
 }
 
 impl<'a> Model<'a> {
@@ -106,6 +107,7 @@ impl<'a> Model<'a> {
                 ],
                 blend: false,
                 face_dimming: quad.face_dimming,
+                force_covered_alpha: false,
             })
             .collect();
         Self {
@@ -113,14 +115,23 @@ impl<'a> Model<'a> {
             projection,
             light,
             face_lighting: true,
-            paint_order: false,
             shading: GuiShading::Inventory,
+            paint_order: false,
         }
     }
 
     /// Preserves flat model lighting for inventory materials without face shading.
     pub(super) fn unshaded(mut self) -> Self {
         self.face_lighting = false;
+        self
+    }
+
+    /// Applies item-family coverage after sampling without modifying source artwork.
+    pub(super) fn with_render_kind(mut self, kind: assets::facts::BlockRenderKind) -> Self {
+        let covered = assets::gui_item::forces_covered_gui_alpha(kind);
+        for face in &mut self.faces {
+            face.force_covered_alpha = covered;
+        }
         self
     }
 
@@ -242,6 +253,7 @@ impl<'a> Model<'a> {
                 face_dimming: parts.materials[quad.material as usize].flags
                     & assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING
                     == 0,
+                force_covered_alpha: false,
             })
         })
         .collect::<Result<Vec<_>, Reject>>()?;
@@ -250,12 +262,12 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
+            shading: GuiShading::of(kind, template, parts.templates),
             paint_order: block_gui_uses_paint_order(
-                render_kind,
                 template.and_then(|id| parts.templates.get(id as usize)),
             ),
-            shading: GuiShading::of(kind, template, parts.templates),
-        })
+        }
+        .with_render_kind(render_kind))
     }
 
     /// A GUI cube's outward surfaces from six tiles and alpha modes in `BlockFace` order.
@@ -277,6 +289,7 @@ impl<'a> Model<'a> {
                     size: [usize::from(assets::BLOCK_ITEM_FACE_SIDE); 2],
                     blend: blending[face as usize],
                     face_dimming: true,
+                    force_covered_alpha: false,
                 }
             })
             .collect();
@@ -285,8 +298,8 @@ impl<'a> Model<'a> {
             projection: assets::gui_item::project_cube,
             light: 1.0,
             face_lighting: true,
-            paint_order: false,
             shading: GuiShading::Inventory,
+            paint_order: false,
         }
     }
 
@@ -327,6 +340,9 @@ impl<'a> Model<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod ordering_tests;
 
 /// Reads a material tile and preserves a session overlay's source texture scale.
 fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
@@ -448,14 +464,29 @@ fn triangle(
             let tx = ((u.rem_euclid(1.) * width as f32) as usize).min(width - 1);
             let ty = ((v.rem_euclid(1.) * height as f32) as usize).min(height - 1);
             let texel = &face.tile.as_slice()[(ty * width + tx) * 4..][..4];
-            if texel[3] < GUI_BLOCK_ALPHA_THRESHOLD && !(face.blend && texel[3] > 0) {
+            let coverage = f32::from(texel[3]) / f32::from(u8::MAX);
+            let rejected = if face.force_covered_alpha {
+                coverage < assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD
+            } else {
+                texel[3] < GUI_BLOCK_ALPHA_THRESHOLD && !(face.blend && texel[3] > 0)
+            };
+            if rejected {
                 continue;
             }
+            let brightness = if face.force_covered_alpha {
+                1.0 + (brightness - 1.0) * coverage
+            } else {
+                brightness
+            };
             let color = [
                 (f32::from(texel[0]) * brightness).round().clamp(0., 255.) as u8,
                 (f32::from(texel[1]) * brightness).round().clamp(0., 255.) as u8,
                 (f32::from(texel[2]) * brightness).round().clamp(0., 255.) as u8,
-                if face.blend { texel[3] } else { 255 },
+                if face.blend && !face.force_covered_alpha {
+                    texel[3]
+                } else {
+                    255
+                },
             ];
             if color[3] < 255 {
                 fragments[target].push((z, color));
@@ -490,136 +521,55 @@ fn composite_fragments(pixels: &mut [u8], depth: &[f32], fragments: &mut [Vec<(f
 #[cfg(test)]
 mod review_tests {
     use super::*;
-
-    /// Rasters source-textured GUI faces with ordinary depth ordering.
-    fn raster_quads(
-        quads: impl IntoIterator<Item = assets::gui_item::GuiBlockQuad>,
-        texture: &IconSprite,
-    ) -> IconSprite {
-        Model::textured(
-            quads.into_iter().map(|quad| TexturedQuad {
-                corners: quad.corners,
-                uvs: quad.uvs,
-                texture,
-                face_dimming: true,
-            }),
-            assets::gui_item::project_cube,
-            1.0,
-        )
-        .raster()
-    }
-
     #[test]
-    fn fence_thumbnails_match_gui_surface_order() {
-        for cutout in [false, true] {
-            let side = assets::TILE_SIZE as usize;
-            let texture = IconSprite {
-                width: side as u16,
-                height: side as u16,
-                rgba8: (0..side * side)
-                    .flat_map(|pixel| {
-                        [
-                            (pixel % side * 16) as u8,
-                            (pixel / side * 16) as u8,
-                            120,
-                            if cutout && pixel % 3 == 0 { 0 } else { 255 },
-                        ]
-                    })
-                    .collect(),
-            };
-            let overlay = BlockOverlay {
-                textures: vec![assets::TextureArray {
-                    layers: 1,
-                    mips: vec![assets::TextureMip {
-                        size: side as u32,
-                        rgba8: texture.rgba8.to_vec().into(),
-                    }]
-                    .into(),
-                }],
-                ..Default::default()
-            };
-            let materials = [
-                Material::unvaried(),
-                Material {
-                    texture: assets::TextureRef::new(1, 0).unwrap(),
-                    flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
-                    ..Material::unvaried()
+    fn copper_grate_filtered_texels_keep_covered_opacity_and_weighted_shading() {
+        let overlay = BlockOverlay {
+            textures: vec![assets::TextureArray {
+                layers: 1,
+                mips: vec![assets::TextureMip {
+                    size: 1,
+                    rgba8: vec![200, 100, 80, 64].into(),
+                }]
+                .into(),
+            }],
+            ..Default::default()
+        };
+        let materials = [
+            Material::unvaried(),
+            Material {
+                texture: assets::TextureRef::new(1, 0).unwrap(),
+                flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+                ..Material::unvaried()
+            },
+        ];
+        for kind in [
+            assets::facts::BlockRenderKind::CopperGrate,
+            Default::default(),
+        ] {
+            let icon = Model::build(
+                Parts {
+                    materials: &materials,
+                    templates: &[],
+                    quads: &[],
+                    textures: Textures::Overlay(&overlay, None),
+                    tint: None,
                 },
-            ];
-            for (flags, render_kind, paint) in [
-                (
-                    assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-                    Default::default(),
-                    true,
-                ),
-                (
-                    assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-                    Default::default(),
-                    true,
-                ),
-                (
-                    assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-                    assets::facts::BlockRenderKind::BambooFence,
-                    false,
-                ),
-            ] {
-                let templates = [ModelTemplate {
-                    quad_start: 0,
-                    quad_count: 0,
-                    flags,
-                }];
-                let actual = Model::build(
-                    Parts {
-                        materials: &materials,
-                        templates: &templates,
-                        quads: &[],
-                        textures: Textures::Overlay(&overlay, None),
-                        tint: None,
-                    },
-                    VisualKind::Model,
-                    [1; 6],
-                    Some(0),
-                    render_kind,
-                )
-                .unwrap()
-                .raster();
-                let quads: Vec<_> = block_gui_quads(
-                    render_kind,
-                    VisualKind::Model,
-                    [1; 6],
-                    Some(0),
-                    &templates,
-                    &[],
-                )
-                .unwrap()
-                .into_iter()
-                .filter(|quad| quad.visible_in_gui())
-                .collect();
-                let depth = raster_quads(quads.iter().copied(), &texture);
-                if !paint {
-                    assert_eq!(actual.rgba8, depth.rgba8, "bamboo keeps depth ordering");
-                    continue;
-                }
-                let mut expected = vec![0; SIDE * SIDE * 4];
-                for quad in quads {
-                    let face = raster_quads([quad], &texture);
-                    for (target, source) in expected
-                        .as_chunks_mut::<4>()
-                        .0
-                        .iter_mut()
-                        .zip(face.rgba8.as_chunks::<4>().0)
-                    {
-                        if source[3] != 0 {
-                            *target = *source;
-                        }
-                    }
-                }
-                assert_ne!(expected.as_slice(), depth.rgba8.as_ref());
-                assert_eq!(
-                    actual.rgba8.as_ref(),
-                    expected.as_slice(),
-                    "fence rails must cover posts in GUI paint order (cutout: {cutout})"
+                VisualKind::Cube,
+                [1; 6],
+                None,
+                kind,
+            )
+            .unwrap()
+            .raster();
+            let pixels = icon.rgba8.as_chunks::<4>().0;
+            if kind == assets::facts::BlockRenderKind::CopperGrate {
+                assert!(
+                    pixels.contains(&[175, 87, 70, 255]),
+                    "covered side texels retain alpha-weighted lighting"
                 );
+                assert!(pixels.iter().all(|pixel| pixel[3] == 0 || pixel[3] == 255));
+            } else {
+                assert!(pixels.iter().all(|pixel| pixel[3] == 0));
             }
         }
     }
@@ -662,6 +612,7 @@ mod review_tests {
                 size: [1; 2],
                 blend: false,
                 face_dimming: true,
+                force_covered_alpha: false,
             };
             let front = Face {
                 corners: [[0.0; 3]; 4],
@@ -670,6 +621,7 @@ mod review_tests {
                 size: [1; 2],
                 blend: true,
                 face_dimming: true,
+                force_covered_alpha: false,
             };
             let mut layers = [(&rear, 2.0), (&front, 1.0)];
             if reverse {

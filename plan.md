@@ -191,14 +191,16 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   coverage before implementing a missing case. Keep conservative culling and connectivity
   until exact face-coverage behavior is verified separately. Inventory fences draw the
   native two-post shape, with separately textured rear and front rail halves and ordered
-  surface overlap. Acacia texture-boundary sampling remains unqualified.
+  surface overlap in meshes and fallback thumbnails. Acacia texture-boundary sampling
+  remains unqualified.
   Walls use the carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
   and fresh integrated-frame acceptance remain unverified. World bamboo fences and bamboo
   fence gates stretch their native texture regions over each piece face; the bamboo fence
-  inventory icon still uses ordinary fence UVs instead of the native bamboo GUI shape and
-  slat regions, the down/up quarter-turn direction of turned bamboo rail and slat tops is
-  unverified, and world fence rails still omit the outer end faces native tessellation draws.
+  inventory preview uses separate posts and three-pixel slats with independent texture
+  regions. Exact compositing bytes and replacement-pack acceptance remain open. The down/up
+  quarter-turn direction of turned bamboo rail and slat tops remains unverified, and world
+  fence rails omit the outer end faces.
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
@@ -1003,6 +1005,17 @@ and version-matched in-game acceptance remain incomplete.
   Pumpkin GUI cubes keep their class-specific front artwork independently of held face
   sheets; jack o’lantern GUI cubes retain uniform texture brightness. GUI-only cube textures
   follow required equipment and held artwork, retaining thumbnails when they cannot fit.
+  Held pumpkin cubes use the same canonical class artwork independently of placement
+  facing. Their first-person block pose retains the item-space quarter turn.
+  Held stairs select that turn from their pinned model family or active stair topology,
+  independently of inventory GUI orientation. Rendered stair acceptance remains open.
+  Bedrock hand rigs shade posed normals in world space and interpolate their combined
+  directional and eye light in gamma space. Held block emission supplies a minimum
+  light level. Bedrock hand artwork samples original gamma bytes directly; Java lighting
+  retains sRGB artwork sampling. Opaque Bedrock hands round gamma output to bytes before
+  scene conversion. Broader held lighting and shape acceptance remain incomplete.
+  Held mesh allocation uses the available item ID namespace while reserving distinct session
+  and map slots. Rendered large-catalog acceptance remains open.
   Chiseled bookshelf GUI cubes show their empty front and authored caps independently of
   placed book counts and the held world model.
   Shared cube silhouette and texture-coordinate acceptance remains incomplete.
@@ -1015,6 +1028,8 @@ and version-matched in-game acceptance remain incomplete.
   to half precision after control scaling and placement; their texture vertices use normalized
   unsigned shorts after atlas placement. Tinted and glinting copies retain both formats.
   Opaque terrain-face tinting rounds to encoded output bytes.
+  Copper-grate GUI texels retain opaque covered samples after alpha testing,
+  independently of control opacity. Broader GUI coverage acceptance remains open.
   Source tiles stay aligned through the retained
   levels; the source allocation retains shaped models alongside the flame page for the
   pinned catalog.
