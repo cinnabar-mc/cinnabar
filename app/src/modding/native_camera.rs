@@ -197,7 +197,7 @@ mod tests {
         let rotation = Quat::from_rotation_y(0.5);
         view.set_look_rotation(rotation);
         NativeCamera::default().apply(&mut camera, Some(&mut view), false, None, 0, 0.0);
-        assert_eq!(view.camera_rotation(), rotation);
+        assert_eq!(view.player_camera_rotation(), rotation);
     }
 
     /// A connected input-owned frame with no look or time of its own.
@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(view.rotation(), body, "captured look never turns the body");
         state.apply(&mut camera, Some(&mut view), false, None, 0, 0.048);
         assert!(camera.presented_view().is_none() && !camera.captures_look());
-        assert_eq!(view.camera_rotation(), body);
+        assert_eq!(view.player_camera_rotation(), body);
     }
 
     /// Pitch stops at the native limit and only the applied part is reported.

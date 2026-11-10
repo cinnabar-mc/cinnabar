@@ -233,7 +233,6 @@ fn full_fixture() -> Arc<SkinGeometry> {
         layer.cubes[0].inflate = Scalar::new(0.25).unwrap();
         bones.push(layer);
     }
-    source.poly_meshes = vec![None; bones.len()].into();
     source.bones = bones.into();
     source.digest = Sha256::digest(b"original full cuboid catalog test fixture").into();
     Arc::new(source)
@@ -438,7 +437,6 @@ fn catalog_keeps_head_only_face_layers_attached_to_the_body() {
             Scalar::new(head.pivot.unwrap()[axis].get() + offset[axis]).unwrap()
         }));
         face.bones = vec![head].into();
-        face.poly_meshes = vec![None].into();
         face.digest = Sha256::digest(source.digest).into();
         let face = Arc::new(face);
         let (bones, _) = crate::geometry::skeleton(&face.bones).unwrap();
@@ -521,7 +519,6 @@ fn catalog_item_anchors_follow_wrist_rotation_and_bind_offsets() {
         anchor.cubes = Box::new([]);
         bones.push(anchor);
     }
-    source.poly_meshes = vec![None; bones.len()].into();
     source.bones = bones.into();
     source.digest = Sha256::digest(b"catalog item anchor fixture").into();
     let f = Fixture::from_skin(source.clone());

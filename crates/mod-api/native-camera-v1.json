@@ -4,7 +4,6 @@
     "view": {"position": [1.25, 70.5, -2.0], "yaw": 0.5, "pitch": -0.25, "velocity": [0.0, 4.0, 10.0]},
     "capture_look": true,
     "capture_movement": true,
-    "view_tilt": {"roll": 14.0, "pitch": 0.0, "suppress_hurt_shake": true},
-    "preserve_teleport_rotation": true
+    "view_tilt": {"roll": 14.0, "pitch": 0.0, "suppress_hurt_shake": true}
   }
 }

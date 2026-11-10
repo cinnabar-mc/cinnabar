@@ -18,6 +18,15 @@ pub(in crate::chunk) struct CompactTerrain {
 }
 
 impl CompactTerrain {
+    /// Stops retaining and copying old sources once no active or retired allocation can draw.
+    pub(super) fn release_if_idle(&mut self, arena: &ChunkGpuArena) -> bool {
+        if !arena.allocations.is_empty() || !arena.retired_allocations.is_empty() {
+            return false;
+        }
+        *self = Self::default();
+        true
+    }
+
     /// Packs the storage entries absent from the compact layout, preserving their addresses.
     pub(super) fn prepare(
         &mut self,

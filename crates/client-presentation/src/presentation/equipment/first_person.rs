@@ -38,7 +38,12 @@ pub(super) fn sprite_pose(state: ItemAnimationState) -> Option<RenderBoneTransfo
 /// Presentation-mode-1 correction and default display matrix cancel the block Y turns.
 #[cfg(test)]
 pub(super) fn block_pose(state: ItemAnimationState) -> Option<RenderBoneTransform> {
-    pose(state, FirstPersonShape::Block)
+    pose(
+        state,
+        FirstPersonShape::Block {
+            quarter_turn: false,
+        },
+    )
 }
 
 /// Vanilla offhand item pose, not the main-hand swing stack. Blocks use
@@ -66,13 +71,7 @@ pub(super) fn offhand_sprite_pose(
         return None;
     }
     let long_side = f32::from(width.max(height));
-    let height = f32::from(height) / long_side;
-    // Vanilla's sprite extrusion writes positive column X, depth Y,
-    // row Z. held_sprite_vertices stores [-column, height-row, -depth]/long_side.
-    // This proper rotation + translation preserves the UV-labelled front/back corners.
-    let native_from_held = Mat4::from_translation(Vec3::new(0.0, 0.0, height))
-        * Mat4::from_rotation_y(std::f32::consts::PI)
-        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
+    let native_from_held = render_model::equipment::native_sprite_from_held([width, height])?;
     let placement = if hand_equipped {
         Mat4::from_translation(Vec3::new(-0.6875, -0.125, -1.53125))
             * Mat4::from_rotation_y(-10.0_f32.to_radians())
@@ -98,6 +97,7 @@ fn matrix_bone(matrix: Mat4) -> Option<RenderBoneTransform> {
         rotation: rotation.normalize(),
         translation,
         scale: scale.x,
+        axis_scale: Vec3::ONE,
     })
 }
 

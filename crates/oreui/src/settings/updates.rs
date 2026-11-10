@@ -22,6 +22,12 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 /// Presents app preferences and worker actions only when this window owns the updater.
 fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     let view = content.view;
+    if view.updates.managed {
+        return content.label_text(
+            &installed_version(&view.updates.running),
+            "Updates are managed by Flatpak. Use your software store or run flatpak update.",
+        );
+    }
     if !view.updates.active {
         let message = if view.updates.manual_pending {
             view.updates.status_text()
@@ -77,18 +83,10 @@ fn app(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             launcher::download::file_size(progress.received_bytes, &tr),
             launcher::download::file_size(progress.total_bytes, &tr)
         );
-        content.label_text("", &text)?;
-        let [left, right] = content.inset();
-        let height = content.canvas.r(super::super::theme::PROGRESS_HEIGHT);
-        crate::progress::track(
-            content.canvas,
-            [left, content.y, right, content.y + height],
-            Some(
-                progress.received_bytes.min(progress.total_bytes) as f32
-                    / progress.total_bytes as f32,
-            ),
+        content.progress_row(
+            &text,
+            progress.received_bytes.min(progress.total_bytes) as f32 / progress.total_bytes as f32,
         )?;
-        content.y += height + content.canvas.r(0.8);
     }
     if !view.over_world {
         if ready_primary.is_none()

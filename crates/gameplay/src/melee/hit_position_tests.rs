@@ -84,6 +84,7 @@ fn assert_packets(hit: ActorHit, min: [f32; 3], max: [f32; 3]) {
                     unique_id: 1,
                     runtime_id: hit.runtime_id,
                     point: hit.point,
+                    metadata_revision: 0,
                 }),
                 held_item: (0, 0),
             },

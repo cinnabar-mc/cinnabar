@@ -79,6 +79,33 @@ fn accepts(recipe: &ScreenRecipe, index: usize, item: &Item) -> bool {
 }
 
 impl InventorySession {
+    /// Decorates the base with server-advertised trim identifiers, retaining its complete data.
+    fn smithing_trim_output(&self) -> Option<protocol::NetworkItemStack> {
+        use sha2::{Digest, Sha256};
+        let ledger = self.ledger();
+        let template = item_in(ledger, 53)?;
+        let addition = item_in(ledger, 52)?;
+        let trim = ledger
+            .trim_registry()
+            .resolve(&template.identifier, &addition.identifier)?;
+        let mut stack = ledger.target_stack(InventoryTarget::Craft(51))?.clone();
+        if protocol::item_trim(&stack.extra_data).as_ref() == Some(&trim) {
+            return None;
+        }
+        stack.extra_data = protocol::apply_item_trim(&stack.extra_data, &trim)?;
+        stack.nbt_digest = Sha256::digest(&stack.extra_data).into();
+        stack.count = 1;
+        stack.stack_network_id = 0;
+        Some(stack)
+    }
+
+    /// The smithing trim preview is a decorated stack rather than a static recipe output.
+    pub fn predicted_smithing_trim(&self) -> Option<protocol::NetworkItemStack> {
+        (self.active_screen_recipe(None)?.kind == ScreenRecipeKind::SmithingTrim)
+            .then(|| self.smithing_trim_output())
+            .flatten()
+    }
+
     /// The committed recipe catalog while it is available.
     pub fn screen_catalog(&self) -> Option<&RecipeCatalog> {
         self.crafting_authority.catalog()
@@ -115,10 +142,13 @@ impl InventorySession {
                 );
                 catalog
                     .screen_recipes(ScreenRecipeKind::SmithingTransform)
+                    .chain(catalog.screen_recipes(ScreenRecipeKind::SmithingTrim))
                     .find(|recipe| {
                         accepts(recipe, 0, &template)
                             && accepts(recipe, 1, &base)
                             && accepts(recipe, 2, &addition)
+                            && (recipe.kind != ScreenRecipeKind::SmithingTrim
+                                || self.smithing_trim_output().is_some())
                     })
             }
             WindowKind::Cartography => {

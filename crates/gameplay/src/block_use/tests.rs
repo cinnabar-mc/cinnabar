@@ -11,7 +11,9 @@ use super::{
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
+mod brush;
 mod classification;
+mod edible_planting;
 mod held_placement;
 mod repeat_clock;
 mod respawn_anchor;
@@ -70,7 +72,7 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
         false,
         [0.5, 64.0, 0.5],
     );
-    runtime.record(trigger, due, 1, LocalUse::Place, clock(1_000, 0.0));
+    runtime.record(trigger, due, 1, LocalUse::Place, false, clock(1_000, 0.0));
     // A fresh placement repeats at the slow interval, then the line is established.
     assert_eq!(runtime.due(true, 2, clock(1_300, 0.0)), None);
     let (trigger, due) = runtime.due(true, 3, clock(1_301, 0.0)).unwrap();
@@ -94,25 +96,26 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
         false,
         [1.5, 64.0, 0.5],
     );
-    runtime.record(trigger, due, 3, LocalUse::Place, clock(1_301, 0.0));
+    runtime.record(trigger, due, 3, LocalUse::Place, false, clock(1_301, 0.0));
     // Still: anchored to now. Moving: to the due time, lagging at most 180 ms.
     assert_eq!(runtime.due(true, 4, clock(1_501, 0.0)), None);
     let (trigger, due) = runtime.due(true, 4, clock(1_502, 5.0)).unwrap();
     assert_eq!(due, Duration::from_millis(1_481));
-    runtime.record(trigger, due, 4, LocalUse::Place, clock(1_502, 5.0));
+    runtime.record(trigger, due, 4, LocalUse::Place, false, clock(1_502, 5.0));
     assert_eq!(runtime.last_use, Some(Duration::from_millis(1_481)));
     runtime.record(
         ItemUseTrigger::SimulationTick,
         Duration::from_millis(1_600),
         5,
         LocalUse::Place,
+        false,
         clock(2_000, 5.0),
     );
     assert_eq!(runtime.last_use, Some(Duration::from_millis(1_820)));
     // A later buffered pick may use an elapsed deadline in the same tick.
     assert!(runtime.due(true, 5, clock(5_000, 5.0)).is_some());
     let (trigger, due) = runtime.due(true, 6, clock(5_000, 5.0)).unwrap();
-    runtime.record(trigger, due, 6, LocalUse::Nothing, clock(5_000, 5.0));
+    runtime.record(trigger, due, 6, LocalUse::Nothing, false, clock(5_000, 5.0));
     assert!(runtime.due(true, 7, clock(5_001, 5.0)).is_some());
 }
 
@@ -133,6 +136,87 @@ fn placement_targets_the_clicked_face_neighbor() {
             [5, 64, -2]
         ]
     );
+}
+
+#[test]
+fn frogspawn_uses_the_liquid_aware_pick() {
+    let item = verified(network_item(2, 77));
+    assert!(super::uses_liquid_pick(
+        &item,
+        Some(assets::facts::FROG_SPAWN_IDENTIFIER)
+    ));
+    assert!(!super::uses_liquid_pick(&item, Some("minecraft:stone")));
+    assert!(!super::uses_liquid_pick(&item, None));
+}
+
+#[test]
+fn frogspawn_rejects_unsupported_liquid_targets() {
+    use assets::facts::{BlockFacts, BlockProperty, StateValue};
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let facts = BlockFacts::new(&records).unwrap();
+    let item = verified(network_item(2, 77));
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
+    for record in records.iter().filter(|record| {
+        record
+            .traits
+            .intersects(assets::registry::BlockTraits::WATER | assets::registry::BlockTraits::LAVA)
+    }) {
+        let around = UseSurroundings {
+            clicked: facts.get(record.sequential_id),
+            held: block_fact("minecraft:frog_spawn"),
+            ..surroundings("minecraft:air", "minecraft:air")
+        };
+        let occupied = UseSurroundings {
+            neighbor: block_fact("minecraft:short_grass"),
+            ..around.clone()
+        };
+        assert_eq!(
+            LocalUse::resolve(&item, [2, 63, 0], 1, &occupied, &survival),
+            LocalUse::Nothing
+        );
+        for face in 0..6 {
+            let accepted = record.traits.contains(assets::registry::BlockTraits::WATER)
+                && record.property(BlockProperty::LiquidDepth) == Some(&StateValue::Int(0))
+                && face == 1;
+            let outcome = LocalUse::resolve(&item, [2, 63, 0], face, &around, &survival);
+            assert_eq!(
+                outcome,
+                if accepted {
+                    LocalUse::Place
+                } else {
+                    LocalUse::Nothing
+                },
+                "{} {} face={face}",
+                record.name,
+                record.canonical_state
+            );
+            let observed = crate::interaction_authority::FrozenBlockObservation::fixture(
+                [2, 63, 0],
+                face,
+                item.clone(),
+            );
+            let packets = use_packets(
+                (&observed, record.sequential_id),
+                [0.5, 65.62, 0.5],
+                ItemUseTrigger::PlayerInput,
+                outcome,
+                None,
+                None,
+                42,
+                |_| true,
+                101,
+            );
+            let envelope =
+                protocol::test_support::transactions::observe_transaction(packets.last().unwrap())
+                    .unwrap();
+            assert_eq!(envelope.item_use().unwrap().predicted_success, accepted);
+            assert_eq!(packets.len(), if accepted { 2 } else { 1 });
+        }
+    }
 }
 
 fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
@@ -194,6 +278,91 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
 }
 
+/// A lectern is interactive and needs the open-containers ability, so a use press aimed at
+/// it places a held book instead of opening the book's own screen.
+#[test]
+fn a_lectern_takes_the_use_press_from_a_held_book() {
+    let book = verified(network_item(3, 0));
+    let lectern = surroundings("minecraft:lectern", "minecraft:air");
+    let resolve = |mode| {
+        LocalUse::resolve(
+            &book,
+            [2, 63, 0],
+            1,
+            &lectern,
+            &GameModeCapabilities::for_mode(mode),
+        )
+    };
+    assert_eq!(resolve(PlayerGameMode::Survival), LocalUse::Interact);
+    assert_eq!(resolve(PlayerGameMode::Spectator), LocalUse::Nothing);
+    assert!(super::block_takes_use_press(lectern.clicked, false));
+    assert!(!super::block_takes_use_press(lectern.clicked, true));
+    assert!(!super::block_takes_use_press(
+        block_fact("minecraft:stone"),
+        false
+    ));
+}
+
+/// Vanilla's interactive blocks take a use press from the held item even when their own use
+/// fails, so a book or a snowball pressed on a jukebox, cauldron or composter does nothing
+/// of its own. A sneaking press, or one on a plain block, stays with the item.
+#[test]
+fn interactive_blocks_take_the_use_press_even_when_their_use_fails() {
+    let book = verified(network_item(3, 0));
+    let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
+    for name in [
+        "minecraft:jukebox",
+        "minecraft:cauldron",
+        "minecraft:composter",
+        "minecraft:flower_pot",
+        "minecraft:frame",
+        "minecraft:oak_hanging_sign",
+        "minecraft:candle",
+        "minecraft:iron_door",
+        "minecraft:crafting_table",
+        "minecraft:respawn_anchor",
+    ] {
+        let around = surroundings(name, "minecraft:air");
+        assert!(
+            super::block_takes_use_press(around.clicked, false),
+            "{name}"
+        );
+        assert!(
+            !super::block_takes_use_press(around.clicked, true),
+            "{name}"
+        );
+    }
+    for name in [
+        "minecraft:jukebox",
+        "minecraft:cauldron",
+        "minecraft:composter",
+    ] {
+        let around = surroundings(name, "minecraft:air");
+        let local_use = LocalUse::resolve(&book, [2, 63, 0], 1, &around, &survival);
+        assert_eq!(local_use, LocalUse::Nothing, "{name}");
+        let mut runtime = BlockUseRuntime::default();
+        runtime.observe_use(false, true, false, true);
+        let takes_press = super::block_takes_use_press(around.clicked, around.sneaking);
+        assert!(runtime.admit(
+            ItemUseTrigger::PlayerInput,
+            Duration::from_millis(1_000),
+            1,
+            local_use,
+            takes_press,
+            clock(1_000, 0.0),
+            true
+        ));
+        assert!(
+            runtime.press_consumed(),
+            "{name} keeps the press from the item"
+        );
+    }
+    assert!(!super::block_takes_use_press(
+        block_fact("minecraft:stone"),
+        false
+    ));
+}
+
 #[test]
 fn replacement_overrides_choose_the_clicked_cell() {
     for name in [
@@ -242,6 +411,31 @@ fn placement_obstruction_uses_the_placed_shape_and_resolved_cell() {
     assert_eq!(grass.destination([2, 64, 0], 4), ([2, 64, 0], true));
     let stone = surroundings("minecraft:stone", "minecraft:air");
     assert_eq!(stone.destination([2, 64, 0], 4), ([1, 64, 0], true));
+}
+
+/// A ladder clicked onto a top or bottom face neither swings nor spends the item.
+#[test]
+fn ladders_are_not_placed_on_top_or_bottom_faces() {
+    let ladder = verified(network_item(2, 77));
+    let around = UseSurroundings {
+        held: block_fact("minecraft:ladder"),
+        ..surroundings("minecraft:stone", "minecraft:air")
+    };
+    for mode in [PlayerGameMode::Survival, PlayerGameMode::Creative] {
+        let caps = GameModeCapabilities::for_mode(mode);
+        for (clicked, face) in [([2, 63, 0], 1), ([2, 66, 0], 0)] {
+            assert_eq!(
+                LocalUse::resolve(&ladder, clicked, face, &around, &caps),
+                LocalUse::Nothing,
+                "{mode:?} face {face}"
+            );
+        }
+        assert_eq!(
+            LocalUse::resolve(&ladder, [3, 64, 0], 4, &around, &caps),
+            LocalUse::Place,
+            "{mode:?} side face"
+        );
+    }
 }
 
 /// A full cube does not merge into the clicked cube; its placement is just as certain.
@@ -420,6 +614,7 @@ fn review_refused_use_preserves_the_press_and_success_schedule() {
         Duration::from_millis(1000),
         1,
         LocalUse::Interact,
+        true,
         clock(1000, 0.0),
         false
     ));
@@ -445,6 +640,7 @@ fn unlined_repeats_keep_the_initial_delay() {
         Duration::from_millis(1000),
         1,
         LocalUse::Place,
+        false,
         clock(1000, 0.0),
     );
     runtime.intention.record(
@@ -460,6 +656,7 @@ fn unlined_repeats_keep_the_initial_delay() {
         Duration::from_millis(1300),
         8,
         LocalUse::Place,
+        false,
         clock(1350, 0.0),
     );
     assert_eq!(runtime.due(true, 13, clock(1551, 0.0)), None);
@@ -646,6 +843,34 @@ fn failed_held_repeats_require_a_known_passive_crop_hand() {
     ));
 }
 
+/// A non-block item resolves to placement only by planting, which repeats like any item use.
+#[test]
+fn held_seed_planting_repeats_unless_the_item_is_a_bucket() {
+    let seeds = verified(network_item(2, 0));
+    let soil = block_fact("minecraft:farmland");
+    assert!(super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        true,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Nothing,
+        soil,
+        Default::default()
+    ));
+}
+
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {
@@ -723,6 +948,7 @@ fn adventure_held_repeats_keep_the_noncreative_floor() {
         Duration::from_millis(1_000),
         1,
         LocalUse::Place,
+        false,
         clock,
     );
     clock.now = Duration::from_millis(1_050);
@@ -765,14 +991,16 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
         0.0,
         Some(PlayerGameMode::Survival),
     );
+    let outcome = LocalUse::for_actor(&player, false, Default::default());
     runtime.record(
         ItemUseTrigger::PlayerInput,
         Duration::from_millis(1_000),
         1,
-        LocalUse::for_actor(&player, false, Default::default()),
+        outcome,
+        outcome == LocalUse::Interact,
         clock,
     );
-    assert!(!runtime.press_interacted());
+    assert!(!runtime.press_consumed());
     assert!(!runtime.press_pending());
 }
 
@@ -801,11 +1029,12 @@ fn an_actor_without_an_offering_leaves_the_press_for_default_item_use() {
         Duration::from_millis(1_000),
         1,
         outcome,
+        outcome == LocalUse::Interact,
         clock,
         true
     ));
     assert!(
-        !runtime.press_interacted(),
+        !runtime.press_consumed(),
         "the same press must be available to held-item use"
     );
     assert!(!runtime.press_pending());

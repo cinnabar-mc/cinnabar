@@ -504,3 +504,64 @@ fn partial_packs_show_their_active_state_and_program_diagnostics() {
     assert!(!shown.iter().any(|text| text == "Failed"));
     assert!(shown.iter().any(|text| text.contains("shadow")));
 }
+
+#[test]
+fn storage_search_keeps_original_pack_indices_and_clear_all_is_explicit() {
+    use launcher::menu::settings_storage::StorageItem;
+    let mut view = settings_view(SettingSection::StorageManagement.definition().name);
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.expanded.fill(true);
+    storage.cached = vec![
+        StorageItem {
+            name: "Cloud Islands".into(),
+            ..Default::default()
+        },
+        StorageItem {
+            name: "Harbor".into(),
+            version: "2.0.0".into(),
+            ..Default::default()
+        },
+    ];
+    view.storage_query = "harbor".into();
+    let (actions, labels) = controls(&view);
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::DeletePack(1))));
+    assert!(!actions.contains(&MenuAction::SettingsStorage(StorageAction::DeletePack(0))));
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::RequestClear)));
+    assert!(labels.iter().any(|label| label.contains("Harbor")));
+    view.storage_query = "missing".into();
+    let (actions, labels) = controls(&view);
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        MenuAction::SettingsStorage(StorageAction::DeletePack(_))
+    )));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.contains("No matching packs"))
+    );
+}
+
+#[test]
+fn storage_loading_keeps_rows_readable_and_disables_deletion() {
+    use launcher::menu::settings_storage::StorageItem;
+    let mut view = settings_view(SettingSection::StorageManagement.definition().name);
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.loading = true;
+    storage.expanded.fill(true);
+    storage.cached = vec![StorageItem {
+        name: "Cloud Islands".into(),
+        ..Default::default()
+    }];
+    let (actions, labels) = controls(&view);
+    assert!(labels.iter().any(|label| label.contains("Cloud Islands")));
+    assert!(labels.iter().any(|label| label.contains("Loading storage")));
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        MenuAction::SettingsStorage(
+            StorageAction::DeletePack(_)
+                | StorageAction::RequestClear
+                | StorageAction::RequestDelete
+                | StorageAction::RequestScreenshots
+        )
+    )));
+}

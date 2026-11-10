@@ -11,6 +11,9 @@ pub struct ChunkUploadBudget {
     pub max_per_frame: usize,
     pub max_bytes_per_frame: u64,
     pub max_zero_byte_operations_per_frame: usize,
+    /// Elapsed preparation time after which the render thread defers the remaining uploads;
+    /// unbounded unless the publication service sets its allowance.
+    pub max_preparation_time: std::time::Duration,
 }
 
 impl Default for ChunkUploadBudget {
@@ -26,7 +29,18 @@ impl ChunkUploadBudget {
             max_per_frame,
             max_bytes_per_frame,
             max_zero_byte_operations_per_frame: DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME,
+            max_preparation_time: std::time::Duration::MAX,
         }
+    }
+
+    /// Sets the elapsed upload-preparation allowance, allowing at least one eligible upload.
+    #[must_use]
+    pub const fn with_preparation_time(
+        mut self,
+        max_preparation_time: std::time::Duration,
+    ) -> Self {
+        self.max_preparation_time = max_preparation_time;
+        self
     }
 
     #[must_use]
@@ -123,55 +137,97 @@ pub struct PendingRemoval {
 
 #[derive(Clone)]
 pub struct PublicationPermitSlot {
-    inner: Arc<Mutex<Option<PublicationPermit>>>,
+    inner: Arc<Mutex<PublicationPermitState>>,
+}
+
+struct PublicationPermitState {
+    permit: Option<PublicationPermit>,
+    completed: bool,
 }
 
 impl PublicationPermitSlot {
+    /// Shares a pending permit and its eventual completion across extracted copies.
     pub fn new(permit: PublicationPermit) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Some(permit))),
+            inner: Arc::new(Mutex::new(PublicationPermitState {
+                permit: Some(permit),
+                completed: false,
+            })),
         }
     }
 
+    /// Takes the pending permit without marking the payload as uploaded.
     pub fn take(&self) -> Option<PublicationPermit> {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+            .permit
             .take()
     }
 
+    /// Returns a failed upload's permit unless this slot is occupied or completed.
     pub fn restore(&self, permit: PublicationPermit) -> Result<(), PublicationPermit> {
         let mut slot = self
             .inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        if slot.is_some() {
+        if slot.permit.is_some() || slot.completed {
             return Err(permit);
         }
-        *slot = Some(permit);
+        slot.permit = Some(permit);
         Ok(())
     }
 
+    /// Retires a prepared permit and remembers successful upload in every shared copy.
+    pub fn complete(&self, permit: PublicationPermit) -> bool {
+        let mut slot = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if slot.permit.is_some()
+            || slot.completed
+            || permit.stage() != Some(PublicationPermitStage::GpuPrepared)
+        {
+            return false;
+        }
+        slot.completed = permit.retire();
+        slot.completed
+    }
+
+    /// Distinguishes successfully uploaded payloads from cancelled or pending permits.
+    pub fn is_completed(&self) -> bool {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .completed
+    }
+
+    /// Returns the pending permit's stage, or none after it has been taken.
     pub fn stage(&self) -> Option<PublicationPermitStage> {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+            .permit
             .as_ref()
             .and_then(PublicationPermit::stage)
     }
 
+    /// Returns the byte charge of the pending permit.
     pub fn bytes(&self) -> Option<u64> {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+            .permit
             .as_ref()
             .and_then(PublicationPermit::bytes)
     }
 
+    /// Whether the pending permit admits a removal instead of geometry.
     pub fn is_zero_byte(&self) -> bool {
         self.inner
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+            .permit
             .as_ref()
             .is_some_and(PublicationPermit::is_zero_byte)
     }

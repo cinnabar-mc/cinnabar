@@ -392,3 +392,40 @@ fn source_refresh_reuses_unchanged_descriptors_and_invalidates_reused_addresses(
     let removed = source_snapshot(&mut world, &[b], Some(&relocated));
     assert!(removed.lookup.iter().all(|lookup| !lookup.contains_key(&a)));
 }
+
+impl TerrainUnitBatches {
+    /// Reads what each direct-draw page submits: its reference count and the descriptors its
+    /// references resolve to, in draw order. Descriptor slots are stable across frames, so
+    /// their order and any unreferenced slot or tail depend on history rather than on the
+    /// publication the shader draws.
+    pub(in crate::chunk) fn publication_snapshot(
+        &self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> Vec<Vec<u8>> {
+        let mut views = self.views.iter().collect::<Vec<_>>();
+        views.sort_unstable_by_key(|(entity, _)| **entity);
+        views
+            .into_iter()
+            .flat_map(|(_, view)| view.streams.iter().chain(std::iter::once(&view.occluders)))
+            .flat_map(|stream| &stream.pages)
+            .map(|page| {
+                let bytes = crate::render_test_support::read_buffer(
+                    device,
+                    queue,
+                    &page.buffer,
+                    0,
+                    page.buffer.size(),
+                );
+                let records: &[VisibleTerrainUnit] = bytemuck::cast_slice(&bytes);
+                let [references, count, ..] = bytemuck::cast::<_, [u32; 4]>(records[0]);
+                let references: &[u32] = bytemuck::cast_slice(&records[references as usize..]);
+                let mut submitted = count.to_le_bytes().to_vec();
+                for &slot in &references[..count as usize] {
+                    submitted.extend_from_slice(bytemuck::bytes_of(&records[1 + slot as usize]));
+                }
+                submitted
+            })
+            .collect()
+    }
+}

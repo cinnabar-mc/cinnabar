@@ -342,7 +342,7 @@ fn rasterize(image: &mut image::RgbaImage, triangles: &[Triangle], artwork: &Act
                 let ty = ((v * f32::from(height)) as usize).min(usize::from(height) - 1);
                 let at =
                     ((triangle.layer * usize::from(height) + ty) * usize::from(width) + tx) * 4;
-                let texel = &page.pixels()[at..at + 4];
+                let texel = page.rgba8.range(at, 4);
                 if texel[3] < 26 {
                     continue;
                 }
@@ -378,7 +378,7 @@ fn measure_pages(
         .ok()
         .and_then(|bytes| assets::RuntimeBlockEntityAssets::decode(&bytes).ok());
     let summary = |label: &str, pages: &ActorArtworkPages| {
-        let bytes: usize = pages.pages().iter().map(|page| page.pixels().len()).sum();
+        let bytes: usize = pages.pages().iter().map(|page| page.rgba8.len()).sum();
         eprintln!(
             "pages {label}: generic={} bytes={:.1}MiB rejected_bindings={}",
             pages.pages().len(),

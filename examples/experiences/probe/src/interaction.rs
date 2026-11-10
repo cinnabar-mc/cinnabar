@@ -141,6 +141,8 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         38 => tell(&contract::redstone(ctx, p)),
         // Server WIT 0.12: the actor's game mode.
         39 => tell(&contract::game_mode(ctx)),
+        // Server WIT 0.12: the actor's pose.
+        40 => tell(&contract::pose(ctx)),
         // Server WIT 0.12: 5 health points of damage to the actor, which armour does not reduce.
         43 => tell(&format!(
             "damage {}",

@@ -45,6 +45,21 @@ fn disabled_labels_use_locked_styling() {
     assert_eq!(color(&plain, false), [0, 255, 0, 255]);
 }
 
+#[test]
+fn label_opacity_is_independent_of_color_alpha() {
+    for property in ["color", "#color"] {
+        for alpha in [0.0, 0.5, 1.0] {
+            let control = label(json!({
+                (property): [0, 1, 0, alpha],
+                "locked_color": [1, 0, 0, alpha],
+                "locked_alpha": 0.25
+            }));
+            assert_eq!(color(&control, true), [0, 255, 0, 255]);
+            assert_eq!(color(&control, false), [255, 0, 0, 64]);
+        }
+    }
+}
+
 // A bound payload beginning with `#` is literal text with a real extent.
 #[test]
 fn hash_prefixed_payload_is_literal() {

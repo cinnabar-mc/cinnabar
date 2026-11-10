@@ -58,7 +58,9 @@ work has completed. Main-world updates alone cannot confirm startup or discard t
 - **Linux:** the same swap and startup rollback apply to AppImages and extracted AppDirs,
   including installations made by `install.sh`. AppDirs are updated by extracting the verified
   AppImage beside the installation, then replacing the complete directory and relaunching `AppRun`.
-  Other unpacked layouts use the manual download action.
+  Other unpacked layouts use the manual download action. Flatpak installations use their
+  software store or `flatpak update`; they do not check for direct-install updates or offer
+  application channel switching.
 - **Windows:** the helper runs the verified MSI passively with existing rights and relaunches
   the client. The previous downloaded MSI remains in the update directory for manual repair.
 

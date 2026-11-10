@@ -42,6 +42,21 @@ pub(super) struct PresentationState {
 }
 
 impl PresentationState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            committed: self.committed.clone(),
+            pending: None,
+            revision: 0,
+            writes: 0,
+        }
+    }
+
+    /// Moves only the staged presentation into the current committed owner.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        self.pending = transaction.pending;
+    }
+
     /// All native presentation parameters, including global styles, are world-scoped.
     /// Reset through normal publication so consumers observe a fresh revision immediately.
     pub fn clear_world(&mut self) {
@@ -58,9 +73,7 @@ impl PresentationState {
     /// Publishes staged parameters, giving changed output a process-unique revision.
     pub fn commit(&mut self) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        if let Some(pending) = self.pending.take()
-            && pending != self.committed
-        {
+        if let Some(pending) = self.pending.take() {
             self.committed = pending;
             self.revision = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
@@ -74,6 +87,14 @@ impl PresentationState {
     /// The callback's working copy, starting from the committed parameters.
     fn stage(&mut self) -> &mut ModPresentation {
         self.pending.get_or_insert_with(|| self.committed.clone())
+    }
+
+    /// Compares only the imported field at admission, leaving publication a revision change.
+    fn replace<T: PartialEq>(&mut self, field: fn(&mut ModPresentation) -> &mut T, value: T) {
+        let current = self.pending.as_mut().unwrap_or(&mut self.committed);
+        if *field(current) != value {
+            *field(self.stage()) = value;
+        }
     }
 }
 
@@ -196,7 +217,8 @@ impl wit::Host for State {
         }
         match style.map(nametag_style).transpose() {
             Ok(style) => {
-                self.presentation.stage().nametag_style = style;
+                self.presentation
+                    .replace(|output| &mut output.nametag_style, style);
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(error)),
@@ -209,7 +231,8 @@ impl wit::Host for State {
         }
         match annotations(rows) {
             Ok(rows) => {
-                self.presentation.stage().annotations = rows;
+                self.presentation
+                    .replace(|output| &mut output.annotations, rows);
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(error)),
@@ -231,7 +254,8 @@ impl wit::Host for State {
             })
         }) {
             Ok(overlay) => {
-                self.presentation.stage().hurt_overlay = overlay;
+                self.presentation
+                    .replace(|output| &mut output.hurt_overlay, overlay);
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(error)),
@@ -252,7 +276,7 @@ impl wit::Host for State {
             .and_then(|rows| keyed(rows, MAX_ACTOR_TINTS));
         match rows {
             Ok(rows) => {
-                self.presentation.stage().tints = rows;
+                self.presentation.replace(|output| &mut output.tints, rows);
                 Ok(Ok(()))
             }
             Err(error) => Ok(Err(error)),
@@ -278,7 +302,8 @@ impl wit::Host for State {
         if let Err(error) = lines.iter().try_for_each(TooltipLine::validate) {
             return Ok(Err(error));
         }
-        self.presentation.stage().tooltip_lines = lines;
+        self.presentation
+            .replace(|output| &mut output.tooltip_lines, lines);
         Ok(Ok(()))
     }
 
@@ -299,7 +324,8 @@ impl wit::Host for State {
         if let Err(error) = actions.iter().try_for_each(ChatAction::validate) {
             return Ok(Err(error));
         }
-        self.presentation.stage().chat_actions = actions;
+        self.presentation
+            .replace(|output| &mut output.chat_actions, actions);
         Ok(Ok(()))
     }
 }

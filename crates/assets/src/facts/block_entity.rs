@@ -35,6 +35,7 @@ pub enum BlockEntityRenderer {
     EndPortal,
     EndGateway,
     MobSpawner,
+    PistonArm,
 }
 
 /// A mount selected from the backing state's property shape at compile time.

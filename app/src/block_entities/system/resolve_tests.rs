@@ -156,7 +156,7 @@ fn frustum_hidden_cue_and_reader_changes_match_uninterrupted_animation_on_reentr
         chest_template(),
         Template::Bell {
             attachment: BellAttachment::Standing,
-            direction: 0,
+            ring_direction: 0,
         },
         Template::EnchantTable,
         Template::Shulker(render_model::ShulkerModel {
@@ -228,7 +228,7 @@ fn hidden_animation_state_resets_across_sessions_and_dimensions() {
         chest_template(),
         Template::Bell {
             attachment: BellAttachment::Standing,
-            direction: 0,
+            ring_direction: 0,
         },
         Template::EnchantTable,
     ];
@@ -352,7 +352,7 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
     });
     let bell_template = Template::Bell {
         attachment: BellAttachment::Standing,
-        direction: 0,
+        ring_direction: 0,
     };
     let frame_template = Template::ItemFrame {
         model: ItemFrameModel {

@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 const MODERN_VERSIONS: [&str; 5] = ["1.12.0", "1.16.0", "1.21.0", "1.21.120", "1.26.10"];
 const LEGACY_VERSIONS: [&str; 2] = ["1.8.0", "1.10.0"];
-const BONE_FIELDS: [&str; 13] = [
+const BONE_FIELDS: [&str; 14] = [
     "name",
     "parent",
     "pivot",
@@ -17,6 +17,7 @@ const BONE_FIELDS: [&str; 13] = [
     "locators",
     "binding",
     "texture_meshes",
+    "poly_mesh",
     "neverRender",
     "reset",
     "bind_pose_rotation",
@@ -80,9 +81,11 @@ fn sanitize_cube(cube: &mut Value) -> bool {
     if let Some(uv) = object.get_mut("uv") {
         let keep = match uv {
             Value::Array(_) => numbers::<2>(uv).is_some(),
+            // A face map stays per-face with no faces left: that cube draws nothing, while
+            // a cube with no `uv` gets box UV at the origin.
             Value::Object(faces) => {
                 faces.retain(|name, face| FACES.contains(&name.as_str()) && sanitize_face(face));
-                !faces.is_empty()
+                true
             }
             _ => false,
         };
@@ -311,7 +314,7 @@ mod tests {
         assert_eq!(cubes.as_array().unwrap().len(), 1);
         assert_eq!(cubes[0]["origin"], json!([-2.0, 0.0, 0.0]));
         assert_eq!(cubes[0]["size"], json!([2.0, 4.0, 4.0]));
-        assert!(cubes[0].get("uv").is_none());
+        assert_eq!(cubes[0]["uv"], json!({}));
         assert!(root.get("other").is_none());
     }
 

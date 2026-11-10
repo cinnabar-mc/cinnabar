@@ -70,9 +70,15 @@ fn consent(
     item: &InstalledMod,
     available: bool,
 ) -> Result<(), PaintError> {
-    if item.declares_permissions() {
+    // After earlier consent, name only what is still waiting, such as an update's new request.
+    let waiting = item.permissions.iter().any(|permission| permission.enabled)
+        && item.awaiting_approval().next().is_some();
+    if waiting {
+        caption(content, "Waiting for your approval:")?;
+        chips(content, item, true)?;
+    } else if item.declares_permissions() {
         caption(content, "This mod requests:")?;
-        chips(content, item)?;
+        chips(content, item, false)?;
     } else {
         caption(content, "This mod doesn't declare its permissions")?;
     }
@@ -95,12 +101,22 @@ fn consent(
 }
 
 /// Wraps the existing tags into rows without treating unrequested capabilities as requests.
-fn chips(content: &mut Content<'_, '_>, item: &InstalledMod) -> Result<(), PaintError> {
+/// `waiting` limits them to requests the grants do not yet allow.
+fn chips(
+    content: &mut Content<'_, '_>,
+    item: &InstalledMod,
+    waiting: bool,
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let gap = content.canvas.r(0.8);
     let mut x = left;
     let mut any = false;
-    for index in item.permission_order(false) {
+    let awaiting: Vec<_> = item.awaiting_approval().collect();
+    for index in item
+        .permission_order(false)
+        .into_iter()
+        .filter(|index| !waiting || awaiting.contains(index))
+    {
         let label = item.permissions[index].label();
         let width = content.canvas.measure(&label, theme::BODY)? + gap;
         if x > left && x + width > right {
@@ -120,6 +136,9 @@ fn chips(content: &mut Content<'_, '_>, item: &InstalledMod) -> Result<(), Paint
 }
 
 /// Keeps batch actions, a requested-first grid and the full-list disclosure together.
+///
+/// A marketplace mod can only receive its requested permissions, so its card offers neither
+/// Grant all nor the full-list disclosure.
 fn customize(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
@@ -134,16 +153,20 @@ fn customize(
             available.then_some(command(Action::AllowRequested(item.id))),
         ));
     }
-    let (label, variant, action) = if item.permissions.iter().any(|permission| permission.enabled) {
-        (
+    let marketplace = item.marketplace();
+    if item.permissions.iter().any(|permission| permission.enabled) {
+        buttons.push((
             "Revoke all",
             Variant::Destructive,
-            Action::RevokeAll(item.id),
-        )
-    } else {
-        ("Grant all", Variant::Primary, Action::GrantAll(item.id))
-    };
-    buttons.push((label, variant, available.then_some(command(action))));
+            available.then_some(command(Action::RevokeAll(item.id))),
+        ));
+    } else if !marketplace {
+        buttons.push((
+            "Grant all",
+            Variant::Primary,
+            available.then_some(command(Action::GrantAll(item.id))),
+        ));
+    }
     buttons.push((
         "Done",
         Variant::Secondary,
@@ -151,11 +174,15 @@ fn customize(
     ));
     actions(content, &buttons)?;
     content.y += content.canvas.r(1.2);
-    let indices = item.permission_order(snapshot.show_all_permissions);
+    let indices = item.permission_order(snapshot.show_all_permissions && !marketplace);
     if indices.is_empty() {
         caption(
             content,
-            "No declared requests. Show all permissions to choose.",
+            if marketplace {
+                "No permissions requested."
+            } else {
+                "No declared requests. Show all permissions to choose."
+            },
         )?;
     }
     grid(content, item, &indices, available)?;
@@ -177,6 +204,9 @@ fn customize(
             |permission| permission.description.as_str(),
         ),
     )?;
+    if marketplace {
+        return Ok(());
+    }
     let [left, right] = content.inset();
     let y = content.y;
     let action = command(Action::ShowAllPermissions(item.id));

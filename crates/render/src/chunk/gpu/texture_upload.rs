@@ -16,10 +16,11 @@ use render_scene::{
 fn neutral_pbr_layers() -> (TextureArray, TextureArray) {
     let [normal, material] = [[128, 128, 255, 128], [0, 0, 255, 0]].map(|rgba| TextureArray {
         layers: 1,
-        mips: Box::new([TextureMip {
+        mips: [TextureMip {
             size: 1,
             rgba8: Box::new(rgba),
-        }]),
+        }]
+        .into(),
     });
     (normal, material)
 }
@@ -172,7 +173,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         vec![u32::MAX; assets::MAX_TEXTURE_PAGES * assets::MAX_TEXTURE_LAYERS];
     #[cfg(feature = "enhanced")]
     let enhanced = assets.enhanced().filter(|authored| {
-        let supported = authored.fits_device_limits(&device_limits);
+        let supported = render_scene::enhanced_maps_fit_device_limits(authored, &device_limits);
         if !supported {
             bevy::log::warn!("unsupported authored Enhanced maps; using carrier materials");
         }
@@ -644,7 +645,7 @@ fn upload_texture_page_format(
 mod tests {
     use super::*;
     #[cfg(feature = "enhanced")]
-    use render_scene::{EnhancedTextureAssets, plan_texture_mip_uploads};
+    use {assets::texture::EnhancedTextureAssets, render_scene::plan_texture_mip_uploads};
 
     /// Ordinary carrier uploads fit the five-page sRGB and native-leaf views, two samplers,
     /// and the biome table at binding 26.
@@ -707,10 +708,11 @@ mod tests {
         assert!(build_chunk_texture_assets(&carrier, &device, &queue).is_some());
         let array = TextureArray {
             layers: 2,
-            mips: Box::new([TextureMip {
+            mips: [TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let authored = Arc::new(
             EnhancedTextureAssets::new(

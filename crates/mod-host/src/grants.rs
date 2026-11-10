@@ -8,10 +8,19 @@ pub struct Capability {
     pub label: &'static str,
     /// Whether this capability can change combat, movement or gameplay input.
     pub sensitive: bool,
+    /// Whether this permission belongs exclusively to packet runtimes.
+    pub packet_only: bool,
     pub enabled: fn(&ModGrants) -> bool,
     /// Whether every requested value for this capability is already granted.
     pub requested_allowed: fn(&ModGrants, &ModGrants) -> bool,
     pub set: fn(&mut ModGrants, bool, Option<&ModGrants>),
+}
+
+impl Capability {
+    /// Whether this permission applies to the selected runtime kind.
+    pub fn applies_to(&self, packet: bool) -> bool {
+        packet || !self.packet_only
+    }
 }
 
 trait GrantValue {
@@ -23,6 +32,8 @@ trait GrantValue {
     fn covers(&self, requested: &Self) -> bool;
     /// Sets only authority explicitly named by the request for non-boolean fields.
     fn set(&mut self, enabled: bool, requested: Option<&Self>);
+    /// Removes authority the ceiling does not hold, keeping the rest unchanged.
+    fn cap(&mut self, ceiling: &Self);
 }
 impl GrantValue for bool {
     fn include(&mut self, other: &Self) {
@@ -37,6 +48,10 @@ impl GrantValue for bool {
     }
     fn set(&mut self, enabled: bool, _: Option<&Self>) {
         *self = enabled;
+    }
+    /// Stays enabled only when the ceiling enables it.
+    fn cap(&mut self, ceiling: &Self) {
+        *self &= *ceiling;
     }
 }
 impl GrantValue for Vec<String> {
@@ -57,10 +72,16 @@ impl GrantValue for Vec<String> {
             Vec::new()
         };
     }
+    /// Keeps only command names the ceiling also lists.
+    fn cap(&mut self, ceiling: &Self) {
+        self.retain(|value| ceiling.contains(value));
+    }
 }
 
 macro_rules! grants {
-    ($(#[doc = $doc:literal] #[permission($label:literal, $sensitive:literal)] pub $field:ident: $ty:ty,)* ) => {
+    (@packet) => { false };
+    (@packet $value:literal) => { $value };
+    ($(#[doc = $doc:literal] #[permission($label:literal, $sensitive:literal $(, $packet_only:literal)?)] pub $field:ident: $ty:ty,)* ) => {
         /// Explicit per-instance authority; optional capabilities are denied by default.
         #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
         #[serde(default, deny_unknown_fields)]
@@ -70,9 +91,21 @@ macro_rules! grants {
             pub fn include(&mut self, other: &Self) {
                 $(GrantValue::include(&mut self.$field, &other.$field);)*
             }
+            /// Limits authority to a ceiling such as a signed release's exact grants.
+            ///
+            /// A boolean capability stays enabled only when the ceiling enables it, and only
+            /// command names the ceiling lists remain, so capabilities may still be turned off.
+            pub fn cap(&mut self, ceiling: &Self) {
+                $(GrantValue::cap(&mut self.$field, &ceiling.$field);)*
+            }
+            /// Whether every requested capability and command value fits within a signed ceiling.
+            pub fn is_subset_of(&self, ceiling: &Self) -> bool {
+                $(GrantValue::covers(&ceiling.$field, &self.$field))&&*
+            }
             /// Every optional capability, generated from the same fields as serialization.
             pub const CAPABILITIES: &'static [Capability] = &[$(Capability {
                 name: stringify!($field), description: $doc, label: $label, sensitive: $sensitive,
+                packet_only: grants!(@packet $($packet_only)?),
                 enabled: |grants| GrantValue::enabled(&grants.$field),
                 requested_allowed: |grants, requested| GrantValue::covers(&grants.$field, &requested.$field),
                 set: |grants, enabled, requested| GrantValue::set(&mut grants.$field, enabled, requested.map(|grants| &grants.$field)),
@@ -97,10 +130,10 @@ grants! {
     /// Allows current-frame remote player and camera pose reads with independent user consent.
     #[permission("Player poses", false)]
     pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
+    /// Allows bounded local camera rotation, rigs, view tilt and scale, and teleport handlers.
     #[permission("Camera rotation", true)]
     pub camera: bool,
-    /// Allows one immediate air use after each slot change and air use while attacking.
+    /// Allows item-use pulses that skip the client's use repeat delays.
     #[permission("Item use", true)]
     pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
@@ -172,15 +205,34 @@ grants! {
     /// Allows retained local fullbright lighting, without altering server light data.
     #[permission("Fullbright", false)]
     pub fullbright: bool,
+    /// Allows sound handlers that observe and cancel local sound playback requests.
+    #[permission("Sound filtering", false)]
+    pub audio: bool,
     /// Lets a trusted packet mod see and change every session packet, and add resource packs.
-    #[permission("Session packets", true)]
+    #[permission("Session packets", true, true)]
     pub packets: bool,
     /// Links WASI clocks, randomness and captured output into a packet mod, never files or network.
-    #[permission("WASI runtime", false)]
+    #[permission("WASI runtime", false, true)]
     pub wasi: bool,
 }
 
 impl ModGrants {
+    /// Whether retained authority includes any capability restricted to packet runtimes.
+    pub fn has_packet_only(&self) -> bool {
+        Self::CAPABILITIES
+            .iter()
+            .any(|capability| capability.packet_only && (capability.enabled)(self))
+    }
+
+    /// Removes authority unavailable to the selected runtime, preserving unrelated capabilities.
+    pub fn retain_applicable(&mut self, packet: bool) {
+        for capability in Self::CAPABILITIES {
+            if !capability.applies_to(packet) {
+                (capability.set)(self, false, None);
+            }
+        }
+    }
+
     /// Whether current input-owned gameplay is needed to serve any granted capability.
     pub fn needs_gameplay(&self) -> bool {
         self.terrain
@@ -203,6 +255,39 @@ impl ModGrants {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn signed_grant_subsets_compare_every_capability_and_command_value() {
+        let ceiling = ModGrants {
+            hud: true,
+            commands: vec!["help".into(), "list".into()],
+            ..Default::default()
+        };
+        assert!(ModGrants::default().is_subset_of(&ceiling));
+        assert!(ceiling.is_subset_of(&ceiling));
+        assert!(
+            ModGrants {
+                commands: vec!["help".into()],
+                ..Default::default()
+            }
+            .is_subset_of(&ceiling)
+        );
+        assert!(
+            !ModGrants {
+                commands: vec!["op".into()],
+                ..Default::default()
+            }
+            .is_subset_of(&ceiling)
+        );
+        for capability in ModGrants::CAPABILITIES {
+            let mut requested = ModGrants::default();
+            (capability.set)(&mut requested, true, Some(&ceiling));
+            assert_eq!(
+                requested.is_subset_of(&ModGrants::default()),
+                !(capability.enabled)(&requested)
+            );
+        }
+    }
+
     #[test]
     fn only_active_packet_authority_disables_the_upstream_cache() {
         let frame = ModGrants {
@@ -263,6 +348,34 @@ mod tests {
                 .sensitive
         );
     }
+    #[test]
+    fn cap_keeps_only_authority_the_ceiling_holds() {
+        let mut grants = ModGrants::default();
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(&mut grants, true, None);
+        }
+        grants.commands = vec!["help".into(), "op".into()];
+        let mut uncapped = grants.clone();
+        uncapped.cap(&ModGrants::default());
+        assert_eq!(uncapped, ModGrants::default());
+        let ceiling = ModGrants {
+            hud: true,
+            camera: true,
+            commands: vec!["help".into(), "say".into()],
+            ..Default::default()
+        };
+        grants.camera = false;
+        grants.cap(&ceiling);
+        assert_eq!(
+            grants,
+            ModGrants {
+                hud: true,
+                commands: vec!["help".into()],
+                ..Default::default()
+            }
+        );
+    }
+
     #[test]
     fn command_toggle_grants_only_declared_names() {
         let descriptor = ModGrants::CAPABILITIES

@@ -308,3 +308,29 @@ fn prepared_cape(profile: &PlayerProfile) -> actor_animation::CapePreparationQue
     }
     preparation
 }
+
+#[test]
+fn visibility_hidden_body_keeps_cape_backed_wings_but_never_adds_a_cape() {
+    for wings in [false, true] {
+        let mut batch = batch();
+        batch.submissions[0].route = ActorRigRoute::NoDraw;
+        let profile = profile(true);
+        let cape = fixture_cape();
+        let mut preparation = prepared_cape(&profile);
+        let before = batch.submissions[1].clone();
+        apply_capes(
+            &mut batch,
+            &cape,
+            &mut preparation,
+            |_| panic!("hidden body must not pose a cape"),
+            |_| Some(&profile),
+            |_| None,
+            |_| wings,
+        );
+        assert_eq!(batch.submissions.len(), 2);
+        assert_eq!(batch.submissions[0].route, ActorRigRoute::NoDraw);
+        assert_eq!(batch.submissions[1].route, before.route);
+        assert_eq!(batch.submissions[1].input, before.input);
+        assert_eq!(batch.skin_layers.len(), if wings { 2 } else { 1 });
+    }
+}

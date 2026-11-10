@@ -151,6 +151,46 @@ fn ordered_mouse_review_refused_air_press_expires_before_item_maintenance() {
     assert!(sent.iter().all(|packet| equipment(packet).is_none()));
 }
 
+/// Reads the slot the player sees selected.
+fn selected(app: &App) -> Option<u8> {
+    app.world()
+        .resource::<client_state::PlayerRuntime>()
+        .selected_hotbar_slot()
+}
+
+#[test]
+fn ordered_mouse_review_selection_in_the_frame_of_a_block_hit_is_not_lost() {
+    let (mut app, _captured) = app_fixture(16);
+    remove_actor(app.world_mut());
+    tap(app.world_mut(), MouseButton::Left);
+    next_slot(app.world_mut());
+    frame(&mut app);
+    assert_eq!(selected(&app), Some(1));
+}
+
+#[test]
+fn ordered_mouse_review_selection_behind_queued_mining_is_not_lost() {
+    let (mut app, _captured) = app_fixture(16);
+    remove_actor(app.world_mut());
+    tap(app.world_mut(), MouseButton::Left);
+    frame(&mut app);
+    assert!(crate::ordered_interactions::pending(app.world()));
+    next_slot(app.world_mut());
+    frame(&mut app);
+    assert_eq!(selected(&app), Some(1));
+}
+
+#[test]
+fn ordered_mouse_review_selection_with_an_unsent_tick_is_not_lost() {
+    let (mut app, _captured) = app_fixture(16);
+    fill(&app, 16);
+    attack_progress_tests::ticks(app.world_mut(), 102, 103);
+    next_slot(app.world_mut());
+    before_physics(&mut app);
+    after_physics(&mut app);
+    assert_eq!(selected(&app), Some(1));
+}
+
 #[test]
 fn ordered_mouse_review_refused_attack_does_not_delay_movement() {
     let (mut app, mut captured) = app_fixture(2);

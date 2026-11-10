@@ -23,7 +23,9 @@ fn retained_equipment_bindings_keep_their_pixel_and_layout_witness() {
     );
     // Changing a public page must invalidate the retained source, even at the same location.
     let page = &mut Arc::make_mut(&mut appended.pages)[usize::from(location.page) - 1];
-    Arc::make_mut(&mut page.rgba8)[0] = 99;
+    let mut changed = page.pixels().into_owned();
+    changed[0] = 99;
+    page.rgba8 = changed.into();
     assert!(appended.equipment_artwork_location(identity).is_none());
     assert_eq!(pages.equipment_artwork_location(identity), Some(location));
     let invalid = ActorArtworkLocation {

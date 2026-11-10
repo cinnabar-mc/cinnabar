@@ -3,6 +3,11 @@ use crate::identity::{InputAuthorityGeneration, InputSequence};
 
 mod admission;
 mod ordered;
+mod quarantine;
+
+use quarantine::{
+    QuarantinedControl, push_quarantine, quarantine_active_controls, without_quarantined_controls,
+};
 
 use crate::{
     Action, ActionPhase, ActionSnapshot, AxisDirection, BindingError, ControlSettings,
@@ -48,6 +53,7 @@ pub struct SemanticInputRouter {
     physical_down: [bool; Action::COUNT],
     frame_sequence: InputSequence,
     input_mode: InputMode,
+    preferred_input_mode: Option<InputMode>,
     input_activity_sequence: u64,
     touch_layout: TouchControlLayout,
     activity_watermark: u64,
@@ -74,6 +80,7 @@ impl Default for SemanticInputRouter {
             physical_down: [false; Action::COUNT],
             frame_sequence: InputSequence::new(0),
             input_mode: InputMode::KeyboardMouse,
+            preferred_input_mode: None,
             input_activity_sequence: 0,
             touch_layout: TouchControlLayout::default(),
             activity_watermark: 0,
@@ -109,6 +116,25 @@ impl SemanticInputRouter {
     ) -> bool {
         evaluate_controller_state(previous, &self.settings)
             != evaluate_controller_state(current, &self.settings)
+    }
+
+    /// Returns the manual fallback mode used when no active input candidates exist.
+    pub fn preferred_input_mode(&self) -> Option<InputMode> {
+        self.preferred_input_mode
+    }
+
+    /// Sets the manual fallback mode used when no active input candidates exist.
+    ///
+    /// Only `InputMode::Touch` and `InputMode::KeyboardMouse` are accepted. `InputMode::GamePad`
+    /// is rejected and returns `false` without modifying the preference.
+    pub fn set_preferred_input_mode(&mut self, mode: Option<InputMode>) -> bool {
+        match mode {
+            Some(InputMode::GamePad) => false,
+            valid => {
+                self.preferred_input_mode = valid;
+                true
+            }
+        }
     }
 
     pub fn route(&mut self, frame: DeviceFrame) -> Result<(), RouterError> {
@@ -383,7 +409,14 @@ impl SemanticInputRouter {
             .copied()
             .find(|candidate| candidate.0 == self.input_mode)
             .or_else(|| candidates.iter().flatten().copied().next())
-            .unwrap_or((self.input_mode, self.input_activity_sequence));
+            .unwrap_or_else(|| {
+                let fallback = match self.preferred_input_mode {
+                    Some(InputMode::Touch) => InputMode::Touch,
+                    Some(InputMode::KeyboardMouse) => InputMode::KeyboardMouse,
+                    _ => self.input_mode,
+                };
+                (fallback, self.input_activity_sequence)
+            });
         // Equal global stamps retain the active mode. If it is absent, fixed
         // KeyboardMouse -> GamePad -> Touch candidate order breaks the tie.
         for candidate in candidates.into_iter().flatten() {
@@ -661,15 +694,6 @@ impl SemanticInputRouter {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum QuarantinedControl {
-    KeyboardUsage(u16),
-    MouseButton(u8),
-    ControllerButton { device_id: u32, button: u8 },
-    ControllerAxis { device_id: u32, axis: u8 },
-    TouchContact(u64),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ControllerActivityBaseline {
     device_id: u32,
     activity_sequence: u64,
@@ -700,137 +724,6 @@ impl Default for Sample {
             released: [false; Action::COUNT],
         }
     }
-}
-
-fn quarantine_active_controls(
-    frame: &DeviceFrame,
-    output: &mut Vec<QuarantinedControl>,
-    settings: &ControlSettings,
-) {
-    if let Some(keyboard) = frame.keyboard_mouse.as_ref() {
-        for code in keyboard.keys.iter().chain(&keyboard.key_edges.pressed) {
-            push_quarantine(output, QuarantinedControl::KeyboardUsage(*code));
-        }
-        for button in keyboard
-            .mouse_buttons
-            .iter()
-            .chain(&keyboard.mouse_edges.pressed)
-        {
-            push_quarantine(output, QuarantinedControl::MouseButton(*button));
-        }
-    }
-    let controller_state = evaluate_controller_state(frame.controllers.iter(), settings);
-    for controller in &frame.controllers {
-        for button in controller
-            .buttons
-            .iter()
-            .chain(&controller.button_edges.pressed)
-        {
-            push_quarantine(
-                output,
-                QuarantinedControl::ControllerButton {
-                    device_id: controller.device_id,
-                    button: *button,
-                },
-            );
-        }
-        for axis in 0..controller.axes.len() {
-            if controller.axes[axis] == 0.0 || !controller_state.axis_family_is_active(axis) {
-                continue;
-            }
-            push_quarantine(
-                output,
-                QuarantinedControl::ControllerAxis {
-                    device_id: controller.device_id,
-                    axis: axis as u8,
-                },
-            );
-        }
-    }
-    for contact in &frame.touches {
-        push_quarantine(output, QuarantinedControl::TouchContact(contact.contact_id));
-    }
-}
-
-fn push_quarantine(output: &mut Vec<QuarantinedControl>, control: QuarantinedControl) {
-    if !output.contains(&control) {
-        if output.len() == MAX_QUARANTINED_CONTROLS {
-            output.remove(0);
-        }
-        output.push(control);
-    }
-}
-
-fn without_quarantined_controls(
-    frame: &DeviceFrame,
-    quarantine: &[QuarantinedControl],
-    quarantined_controllers: &[u32],
-    controller_activity_baselines: &[ControllerActivityBaseline],
-    settings: &ControlSettings,
-) -> DeviceFrame {
-    let mut filtered = frame.clone();
-    if let Some(keyboard) = filtered.keyboard_mouse.as_mut() {
-        for keys in [
-            &mut keyboard.keys,
-            &mut keyboard.key_edges.pressed,
-            &mut keyboard.key_edges.released,
-        ] {
-            keys.retain(|code| !quarantine.contains(&QuarantinedControl::KeyboardUsage(*code)));
-        }
-        for buttons in [
-            &mut keyboard.mouse_buttons,
-            &mut keyboard.mouse_edges.pressed,
-            &mut keyboard.mouse_edges.released,
-        ] {
-            buttons
-                .retain(|button| !quarantine.contains(&QuarantinedControl::MouseButton(*button)));
-        }
-    }
-    let controller_state = evaluate_controller_state(filtered.controllers.iter(), settings);
-    filtered.controllers.retain_mut(|controller| {
-        if quarantined_controllers.contains(&controller.device_id)
-            || controller_activity_baselines.iter().any(|baseline| {
-                baseline.device_id == controller.device_id
-                    && (controller.activity_sequence <= baseline.activity_sequence
-                        || controller_state.is_neutral())
-            })
-        {
-            return false;
-        }
-        for buttons in [
-            &mut controller.buttons,
-            &mut controller.button_edges.pressed,
-            &mut controller.button_edges.released,
-        ] {
-            buttons.retain(|button| {
-                !quarantine.contains(&QuarantinedControl::ControllerButton {
-                    device_id: controller.device_id,
-                    button: *button,
-                })
-            });
-        }
-        for (axis, value) in controller.axes.iter_mut().enumerate() {
-            if quarantine.contains(&QuarantinedControl::ControllerAxis {
-                device_id: controller.device_id,
-                axis: axis as u8,
-            }) {
-                *value = 0.0;
-            }
-        }
-        true
-    });
-    // A neutral controller family cannot compete with another present device
-    // family. Preserve the sole-controller mode fallback without allowing it
-    // to suppress semantically active keyboard or touch input.
-    if evaluate_controller_state(filtered.controllers.iter(), settings).is_neutral()
-        && (filtered.keyboard_mouse.is_some() || !filtered.touches.is_empty())
-    {
-        filtered.controllers.clear();
-    }
-    filtered.touches.retain(|contact| {
-        !quarantine.contains(&QuarantinedControl::TouchContact(contact.contact_id))
-    });
-    filtered
 }
 
 fn control_matches_mode(control: PhysicalControl, mode: InputMode) -> bool {

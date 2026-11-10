@@ -53,6 +53,8 @@ const SHADE_UP: f32 = 1.0;
 const SHADE_DOWN: f32 = 0.5;
 const SHADE_Z: f32 = 0.8;
 const SHADE_X: f32 = 0.6;
+/// Scalar shades of a box's faces, in [`BoxSpec::faces`] order.
+const BOX_SHADES: [f32; 6] = [SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN];
 
 /// Directional brightness in the shared terrain face order.
 pub(super) const fn tile_face_shade(face: usize) -> f32 {
@@ -145,7 +147,31 @@ impl MeshBuilder {
         spec: BoxSpec,
         tint: [f32; 4],
     ) {
-        self.box_faces(layer, texture, model, spec.faces(), tint);
+        self.box_faces(layer, texture, model, spec.faces(), tint, BOX_SHADES);
+    }
+
+    /// Emits a legacy native cube, given with its Y range negated. Native legacy cubes start
+    /// each side's art at the box's lowest Y and put the unwrap's first top-strip cell on that
+    /// low face, while [`BoxSpec::faces`] starts both at the highest Y; drawing the negated box
+    /// under a half turn about Z reproduces the native placement. The top and bottom shades
+    /// follow those faces to where they land.
+    pub fn legacy_cuboid(
+        &mut self,
+        layer: Layer,
+        texture: &TextureRef,
+        model: Mat4,
+        spec: BoxSpec,
+        tint: [f32; 4],
+    ) {
+        let [north, south, west, east, up, down] = BOX_SHADES;
+        self.box_faces(
+            layer,
+            texture,
+            model * Mat4::from_rotation_z(std::f32::consts::PI),
+            spec.faces(),
+            tint,
+            [north, south, west, east, down, up],
+        );
     }
 
     /// Emits a box with no depth, such as a book cover, as its front and back faces moved
@@ -169,10 +195,10 @@ impl MeshBuilder {
                 corner[2] += shift;
             }
         }
-        self.box_faces(layer, texture, model, faces, tint);
+        self.box_faces(layer, texture, model, faces, tint, BOX_SHADES);
     }
 
-    /// Emits the six faces of a box with their face shades.
+    /// Emits the six faces of a box, each with its scalar shade.
     fn box_faces(
         &mut self,
         layer: Layer,
@@ -180,11 +206,9 @@ impl MeshBuilder {
         model: Mat4,
         faces: [assets::block_entity_geometry::ModelFace; 6],
         tint: [f32; 4],
+        shades: [f32; 6],
     ) {
-        for ((corners, texels), shade) in faces
-            .into_iter()
-            .zip([SHADE_Z, SHADE_Z, SHADE_X, SHADE_X, SHADE_UP, SHADE_DOWN])
-        {
+        for ((corners, texels), shade) in faces.into_iter().zip(shades) {
             if texels[2] <= 0.0 || texels[3] == 0.0 {
                 continue;
             }

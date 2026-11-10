@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Condvar, Mutex, PoisonError,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender, SyncSender},
     },
     thread,
@@ -18,11 +18,9 @@ use std::{
 };
 
 mod native_frame;
-mod native_menu;
+
 pub use native_frame::FrameOutput;
 use native_frame::{FrameLink, NativeFrames};
-pub use native_menu::MenuOutput;
-use native_menu::{MenuLink, NativeMenu};
 
 /// How long a starting session waits for the selected packet mod to finish compiling before
 /// it continues without it.
@@ -46,8 +44,7 @@ struct Inner {
     state: Mutex<LoaderState>,
     ready: Condvar,
     native_frame: Mutex<std::sync::Weak<FrameLink>>,
-    native_menu: Mutex<std::sync::Weak<MenuLink>>,
-    next_native_menu: AtomicU64,
+    panel_state: Mutex<std::sync::Weak<Mutex<Option<mod_host::packet_mod::panel::PanelHandle>>>>,
 }
 
 #[derive(Default)]
@@ -126,9 +123,9 @@ impl PacketModLoader {
             .unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&relay.native_frame);
         *self
             .inner
-            .native_menu
+            .panel_state
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&relay.native_menu);
+            .unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&relay.panel);
         Some(Arc::new(relay))
     }
 
@@ -196,25 +193,20 @@ impl PacketModLoader {
             .and_then(|link| link.upgrade())
             .is_some_and(|link| link.available())
     }
-    /// Exchanges focused menu input without waiting for packet-mod code on the frame thread.
-    pub fn native_menu(&self, input: mod_api::native_menu::Input) -> Option<Arc<MenuOutput>> {
-        self.inner
-            .native_menu
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .upgrade()?
-            .exchange(input)
-    }
-
-    /// Each capable live relay has a distinct identity even before its UI session publishes.
-    pub fn native_menu_identity(&self) -> Option<u64> {
-        let link = self
+    /// Shares a live packet owner's grant-gated panel and raw-input mailbox.
+    pub fn panel(&self) -> Option<mod_host::packet_mod::panel::PanelHandle> {
+        let state = self.state();
+        if !state.authority.load(Ordering::Acquire) {
+            return None;
+        }
+        let panel = self
             .inner
-            .native_menu
+            .panel_state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .upgrade()?;
-        link.available().then_some(link.identity)
+        let handle = panel.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        handle.filter(|handle| handle.enabled())
     }
 }
 
@@ -237,7 +229,6 @@ enum Request {
     },
     Stop,
     NativeFrame,
-    NativeMenu,
 }
 
 /// A session's relay. The instance lives on its own thread, so WASI never runs on the session's
@@ -245,7 +236,7 @@ enum Request {
 struct PacketModRelay {
     requests: Sender<Request>,
     native_frame: Arc<FrameLink>,
-    native_menu: Arc<MenuLink>,
+    panel: Arc<Mutex<Option<mod_host::packet_mod::panel::PanelHandle>>>,
 }
 
 impl PacketModRelay {
@@ -254,23 +245,27 @@ impl PacketModRelay {
         let (requests, receive) = mpsc::channel();
         let frames = Arc::new(NativeFrames::new(Arc::clone(&authority)));
         let native_frame = Arc::new(FrameLink::new(requests.clone(), Arc::clone(&frames)));
-        let menu = Arc::new(NativeMenu::new(Arc::clone(&authority)));
-        let identity = loader
-            .inner
-            .next_native_menu
-            .fetch_add(1, Ordering::Relaxed)
-            .wrapping_add(1);
-        let native_menu = Arc::new(MenuLink::new(requests.clone(), Arc::clone(&menu), identity));
+        let panel = Arc::new(Mutex::new(None));
+        let worker_panel = Arc::clone(&panel);
         if let Err(error) = thread::Builder::new()
             .name("packet-mod".into())
-            .spawn(move || serve(&loader, receive, generation, &authority, &frames, &menu))
+            .spawn(move || {
+                serve(
+                    &loader,
+                    receive,
+                    generation,
+                    &authority,
+                    &frames,
+                    &worker_panel,
+                )
+            })
         {
             tracing::warn!(%error, "packet mod thread unavailable; packets pass through");
         }
         Self {
             requests,
             native_frame,
-            native_menu,
+            panel,
         }
     }
 
@@ -339,7 +334,14 @@ impl PacketRelay for PacketModRelay {
 
     fn stop(&self) {
         self.native_frame.deactivate();
-        self.native_menu.deactivate();
+        if let Some(panel) = self
+            .panel
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
+            panel.deactivate();
+        }
         let _ = self.requests.send(Request::Stop);
     }
 }
@@ -351,17 +353,16 @@ fn serve(
     generation: u64,
     authority: &AtomicBool,
     frames: &NativeFrames,
-    menu: &NativeMenu,
+    panel: &Mutex<Option<mod_host::packet_mod::panel::PanelHandle>>,
 ) {
     let mut instance: Option<PacketMod> = None;
     let mut frame_epoch = None;
-    let mut menu_output = None;
     for request in requests {
         if !authority.load(Ordering::Acquire)
             && let Some(mut old) = instance.take()
         {
             frames.deactivate();
-            menu.deactivate();
+
             old.stop();
         }
         match request {
@@ -381,7 +382,8 @@ fn serve(
                         .unwrap_or_default()
                 });
                 frames.activate(instance.as_ref().is_some_and(PacketMod::has_native_frame));
-                menu.activate(instance.as_ref().is_some_and(PacketMod::has_native_menu));
+                *panel.lock().unwrap_or_else(PoisonError::into_inner) =
+                    instance.as_ref().and_then(PacketMod::panel);
                 let packs = packs
                     .into_iter()
                     .filter(|_| authority.load(Ordering::Acquire))
@@ -413,7 +415,6 @@ fn serve(
                     .is_some_and(|instance| !instance.is_active())
                 {
                     frames.deactivate();
-                    menu.deactivate();
                 }
                 let _ = reply.send(replaced.filter(|_| authority.load(Ordering::Acquire)));
             }
@@ -431,7 +432,6 @@ fn serve(
                     .is_some_and(|instance| !instance.is_active())
                 {
                     frames.deactivate();
-                    menu.deactivate();
                 }
                 let _ = reply.send(if authority.load(Ordering::Acquire) {
                     output
@@ -440,40 +440,6 @@ fn serve(
                 });
             }
             Request::Stop => break,
-            Request::NativeMenu => {
-                for input in menu.take_inputs() {
-                    if !menu.available() {
-                        break;
-                    }
-                    let Some(instance) = instance.as_mut() else {
-                        break;
-                    };
-                    if !input.input.events.is_empty()
-                        || !input.input.keys.is_empty()
-                        || input.input.pointer_cancelled
-                    {
-                        frames.fence_guest_state();
-                    }
-                    let output = match instance.menu(&input.input) {
-                        Ok(Some(output)) => match native_menu::prepare(output, &mut menu_output) {
-                            Ok(output) => Some(output),
-                            Err(error) => {
-                                tracing::warn!(%error, "packet menu rejected");
-                                menu.deactivate();
-                                menu_output = None;
-                                None
-                            }
-                        },
-                        _ => None,
-                    };
-                    if instance.is_active() {
-                        menu.complete(&input, output);
-                    } else {
-                        frames.deactivate();
-                        menu.deactivate();
-                    }
-                }
-            }
             Request::NativeFrame => {
                 if let Some(input) = frames.take_input()
                     && let Some(instance) = instance.as_mut()
@@ -491,14 +457,13 @@ fn serve(
                         frames.complete(input, output.0);
                     } else {
                         frames.deactivate();
-                        menu.deactivate();
                     }
                 }
             }
         }
     }
     frames.deactivate();
-    menu.deactivate();
+
     if let Some(instance) = instance.as_mut() {
         instance.stop();
     }

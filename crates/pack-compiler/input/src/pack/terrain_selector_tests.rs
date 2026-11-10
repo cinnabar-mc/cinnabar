@@ -25,7 +25,9 @@ fn fixture() -> tempfile::TempDir {
     let source = serde_json::json!({"texture_data": {
         "test:array": {"textures": ["textures/first", "textures/second"]},
         "test:single": {"textures": ["textures/first"]},
-        "wheat": {"textures": (0..8).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()}
+        "wheat": {"textures": (0..8).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()},
+        "test:eggs": {"textures": ["textures/stage_0", "textures/stage_1", "textures/stage_2"]},
+        "test:ghast": {"textures": (0..4).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()}
     }});
     std::fs::write(
         root.path().join("terrain.json"),
@@ -88,6 +90,40 @@ fn capture(root: &Path, unknown: Option<(&str, u32)>, wheat: Option<(&str, u32)>
 }
 
 #[test]
+fn carried_class_arrays_use_the_model_missing_variant_fallback() {
+    let root = fixture();
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let mut state = record("{}");
+    state.name = "minecraft:pumpkin".into();
+    assert_eq!(
+        terrain.get_for_model_record("test:array", &state),
+        Some(("textures/first", 0))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &state),
+        Some(("textures/first", None))
+    );
+    state.name = "minecraft:lit_pumpkin".into();
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &state),
+        Some(("textures/second", None))
+    );
+    state.name = "minecraft:carved_pumpkin".into();
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &state),
+        Some(("textures/first", None))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("test:array", &record("{}")),
+        Some(("textures/first", None))
+    );
+    assert_eq!(
+        terrain.get_carried_for_record("wheat", &record(r#"{"growth":{"type":"int","value":7}}"#)),
+        Some(("textures/stage_7", None))
+    );
+}
+
+#[test]
 fn unknown_model_arrays_use_first_entry_ignoring_unrelated_properties() {
     let root = fixture();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
@@ -147,6 +183,81 @@ fn model_array_ranges_are_declared_and_checked() {
     assert_eq!(
         terrain.get_for_model_record("wheat", &record(r#"{"growth":{"type":"int","value":1}}"#)),
         None
+    );
+}
+
+#[test]
+fn turtle_egg_art_follows_the_cracked_state_under_any_key() {
+    let root = fixture();
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let records = assets::read_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let eggs = records
+        .iter()
+        .filter(|record| {
+            record.name.as_ref() == assets::facts::pack::PackBlock::TurtleEgg.identifier()
+        })
+        .collect::<Vec<_>>();
+    assert!(!eggs.is_empty(), "the registry must contain turtle eggs");
+    let mut selected = std::collections::BTreeSet::new();
+    for record in eggs {
+        let (path, variant) = terrain.get_for_model_record("test:eggs", record).unwrap();
+        assert_eq!(path, format!("textures/stage_{variant}"));
+        selected.insert(variant);
+        assert_eq!(
+            terrain.get_for_model_record("test:single", record),
+            Some(("textures/first", 0)),
+            "a one-entry key stays usable at every crack stage"
+        );
+        assert_eq!(
+            terrain
+                .get_for_model_record("test:array", record)
+                .map(|(_, variant)| variant < 2),
+            Some(true),
+            "stages past a short array still resolve"
+        );
+    }
+    assert_eq!(selected.len(), 3, "each crack stage keeps its own art");
+}
+
+#[test]
+fn dried_ghast_art_follows_rehydration_under_any_key() {
+    let root = fixture();
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let records = assets::read_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let ghasts = records
+        .iter()
+        .filter(|record| {
+            record.name.as_ref() == assets::facts::pack::PackBlock::DriedGhast.identifier()
+        })
+        .collect::<Vec<_>>();
+    assert!(!ghasts.is_empty(), "the registry must contain dried ghasts");
+    let mut selected = std::collections::BTreeSet::new();
+    for record in ghasts {
+        let (path, variant) = terrain.get_for_model_record("test:ghast", record).unwrap();
+        assert_eq!(path, format!("textures/stage_{variant}"));
+        selected.insert(variant);
+        assert_eq!(
+            terrain.get_for_model_record("test:single", record),
+            Some(("textures/first", 0)),
+            "a one-entry key stays usable at every rehydration level"
+        );
+        assert!(
+            terrain.get_for_model_record("test:array", record).is_some(),
+            "levels past a short array still resolve"
+        );
+    }
+    assert_eq!(
+        selected.len(),
+        4,
+        "each rehydration level keeps its own art"
     );
 }
 
@@ -327,12 +438,6 @@ const UNSELECTED_VANILLA_ARRAYS: &[&str] = &[
     "daylight_detector_top",
     "decorated_pot",
     "dirt",
-    "dried_ghast_back",
-    "dried_ghast_bottom",
-    "dried_ghast_front",
-    "dried_ghast_left",
-    "dried_ghast_right",
-    "dried_ghast_top",
     "exposed_copper_bulb",
     "farmland",
     "firefly_bush",
@@ -394,7 +499,6 @@ const UNSELECTED_VANILLA_ARRAYS: &[&str] = &[
     "suspicious_sand",
     "trial_spawner_side",
     "trial_spawner_top",
-    "turtle_egg",
     "vault_bottom",
     "vault_front",
     "vault_side",

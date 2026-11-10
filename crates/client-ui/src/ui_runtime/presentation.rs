@@ -217,6 +217,8 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_icon: Option<IconRef>,
     /// The art set last requested: service art plus engine textures too big for a server page.
     menu_artwork_set: menu_artwork::ArtworkSet,
+    /// Large server textures the last built frame drew; requests pack them first.
+    frame_oversized: std::collections::BTreeSet<String>,
     mod_menu_branding: Option<Arc<menu_branding::PreparedMenuBranding>>,
     menu_artwork_loader: menu_artwork::ArtworkLoader,
     /// This frame's clock in seconds, which engine screen animations paint at.

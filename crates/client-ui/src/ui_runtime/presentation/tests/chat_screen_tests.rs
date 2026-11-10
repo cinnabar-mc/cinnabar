@@ -279,7 +279,8 @@ fn open_chat_draws_the_java_line_with_history_and_the_hud() {
     assert!(edit.dest.y > 200.0 && edit.dest.h <= newest.dest.h * 2.0);
     assert!(newest.dest.y + newest.dest.h < edit.dest.y);
     assert!(presentation.hud_draw_nodes().iter().any(|node| {
-        matches!(&node.draw, Draw::Custom { renderer, .. } if renderer == "hotbar_renderer")
+        matches!(&node.draw, Draw::Custom { renderer, .. }
+            if renderer == json_ui::vanilla::Renderer::HotbarSlotsRenderer.as_str())
     }));
     // The HUD's own chat lines hide while the screen shows the history.
     assert!(
@@ -464,10 +465,33 @@ fn history_opens_on_the_newest_line_and_the_wheel_reveals_older_ones() {
     build(&player_runtime, &mut presentation, &runtime, 0);
     assert!(visible(&presentation, "line 1"));
     assert!(!visible(&presentation, "line 80"));
-    // A new message jumps back to the newest line.
+    let before = text_node(presentation.chat_draw_nodes(), "line 1")
+        .unwrap()
+        .dest
+        .y;
     chat(&mut player_runtime, &mut runtime, 81, "line 81");
     build(&player_runtime, &mut presentation, &runtime, 0);
-    assert!(visible(&presentation, "line 81"));
+    assert!(visible(&presentation, "line 1"));
+    assert!(!visible(&presentation, "line 81"));
+    assert_eq!(
+        text_node(presentation.chat_draw_nodes(), "line 1")
+            .unwrap()
+            .dest
+            .y,
+        before
+    );
+    presentation.scroll_chat(-1_000.0, false);
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    chat(&mut player_runtime, &mut runtime, 82, "line 82");
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    assert!(visible(&presentation, "line 82"));
+    presentation.scroll_chat(1_000.0, false);
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    runtime.close_chat();
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    runtime.open_chat(&mut player_runtime);
+    build(&player_runtime, &mut presentation, &runtime, 0);
+    assert!(visible(&presentation, "line 82"));
 }
 
 #[test]
