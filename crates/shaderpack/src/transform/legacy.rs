@@ -120,6 +120,23 @@ fn texture_function(n: &str) -> Option<&'static str> {
     })
 }
 
+/// Built-ins GLSL (4.60 section 7.1, and `GL_KHR_vulkan_glsl` for the `Index` names) declares
+/// as `int` but naga's GLSL front end declares as `uint`, each with the name naga reads. Packs
+/// compiled by an OpenGL driver use them as `int` (`int corner = gl_VertexID % 3;`), so every
+/// read becomes `int(name)`. `gl_VertexID` and `gl_InstanceID` read Vulkan's
+/// `gl_VertexIndex` and `gl_InstanceIndex`.
+pub(super) const SIGNED_BUILTINS: &[(&str, &str)] = &[
+    ("gl_VertexID", "gl_VertexIndex"),
+    ("gl_InstanceID", "gl_InstanceIndex"),
+    ("gl_VertexIndex", "gl_VertexIndex"),
+    ("gl_InstanceIndex", "gl_InstanceIndex"),
+    ("gl_PrimitiveID", "gl_PrimitiveID"),
+    ("gl_SampleID", "gl_SampleID"),
+    ("gl_DrawID", "gl_DrawID"),
+    ("gl_BaseVertex", "gl_BaseVertex"),
+    ("gl_BaseInstance", "gl_BaseInstance"),
+];
+
 /// Legacy built-in variables and their translated names.
 fn builtin_variable(name: &str, stage: StageKind) -> Option<&'static str> {
     Some(match (name, stage) {
@@ -133,8 +150,6 @@ fn builtin_variable(name: &str, stage: StageKind) -> Option<&'static str> {
         ("gl_MultiTexCoord2", _) => "iris_MultiTexCoord2",
         ("gl_MultiTexCoord3", _) => "iris_MultiTexCoord3",
         ("gl_FogFragCoord", _) => "iris_FogFragCoord",
-        ("gl_VertexID", _) => "gl_VertexIndex",
-        ("gl_InstanceID", _) => "gl_InstanceIndex",
         _ => {
             return crate::reflection::LEGACY_UNIFORMS
                 .iter()
@@ -620,6 +635,15 @@ pub(super) fn rewrite(
             out.builtins.insert(name.to_string());
             out.frag_data.insert(0);
             toks.push(id(&frag_data_output(0, compatibility)).at(line));
+            i += 1;
+            continue;
+        }
+        if let Some((_, naga_name)) = SIGNED_BUILTINS.iter().find(|(glsl, _)| *glsl == name) {
+            toks.extend(
+                [id("int"), p("("), id(naga_name), p(")")]
+                    .into_iter()
+                    .map(|t| t.at(line)),
+            );
             i += 1;
             continue;
         }
