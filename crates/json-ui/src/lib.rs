@@ -39,6 +39,7 @@ mod resolve;
 pub mod rounded;
 mod scene;
 mod screens;
+pub mod scrollbar;
 mod sidecar;
 mod sprite;
 mod state;

@@ -2474,6 +2474,9 @@ Flathub submission remain incomplete.
   populated-world and displayed-frame acceptance remain pending. Panel motion
   preferences now settle feedback, wheel scrolling and surface transitions
   immediately, retain prepared routes and apply across route changes.
+  Surface scroll views can declare box and track hover and pressed states, a minimum
+  box fraction, their wheel easing and a mouse auto-hide; offline regressions cover
+  them, and displayed-frame acceptance remains pending.
   displayed-frame pacing and complete rendering acceptance.
   HUD layout editing stores nine anchors and GUI-pixel offsets after completed
   moves, resizes and nudges, with an additive anchored-layout read and normalized

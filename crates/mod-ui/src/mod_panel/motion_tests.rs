@@ -71,7 +71,9 @@ fn motion_preference_snaps_feedback_and_resumes_only_future_transitions() {
     patch(&mut ui, r#"{"control_values":[[0,true]]}"#);
     {
         let current = ui.mod_panel.as_mut().unwrap();
-        current.motion.scroll("list", 0.0, 30.0, 100.0);
+        current
+            .motion
+            .scroll("list", 0.0, 30.0, 100.0, motion::SCROLL_SECONDS);
         current
             .motion
             .advance(&current.panel, &mut current.view, Some(0), 1.5, true);

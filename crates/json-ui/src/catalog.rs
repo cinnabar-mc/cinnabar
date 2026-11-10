@@ -172,14 +172,16 @@ pub struct Catalog {
     /// First-file parse state and namespace inherited by later layers at that path.
     files: BTreeMap<String, FileRead>,
     diagnostics: Vec<String>,
-    /// Keeps Cinnabar transforms, normalized placement and filters for opted-in catalogs.
+    /// Keeps Cinnabar transforms, normalized placement, filters and scrollbar extensions for
+    /// opted-in catalogs.
     paint_transforms: bool,
 }
 
 impl Catalog {
-    /// Opts this catalog into [`crate::transform::TRANSFORM_PROPERTY`] and
-    /// [`crate::filter::FILTER_PROPERTY`] and [`crate::position::PROPERTY`]. Other
-    /// catalogs resolve as if the properties were never authored.
+    /// Opts this catalog into [`crate::transform::TRANSFORM_PROPERTY`],
+    /// [`crate::filter::FILTER_PROPERTY`], [`crate::position::PROPERTY`] and the
+    /// [`crate::scrollbar`] extensions. Other catalogs resolve as if the properties were
+    /// never authored.
     pub fn with_paint_transforms(mut self) -> Self {
         self.paint_transforms = true;
         self

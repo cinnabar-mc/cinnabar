@@ -603,6 +603,9 @@ fn build_properties(
         properties.remove(crate::transform::TRANSFORM_PROPERTY);
         properties.remove(crate::position::PROPERTY);
         properties.remove(crate::filter::FILTER_PROPERTY);
+        for property in crate::scrollbar::PROPERTIES {
+            properties.remove(property);
+        }
     }
     properties
 }
