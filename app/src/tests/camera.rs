@@ -87,6 +87,8 @@ include!("camera/correction_and_evidence.rs");
 include!("camera/presentation_and_input.rs");
 include!("camera/crouch.rs");
 
+mod point_lights;
+
 #[test]
 fn review_overflowing_quaternion_norm_is_rejected_without_publication() {
     let mut carrier = LocalPlayerFrameCarrier::default();

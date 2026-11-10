@@ -140,7 +140,10 @@ pub(crate) fn sync_world_point_light_from_local_player(
     if light.enabled != enabled {
         light.enabled = enabled;
     }
-    let position = local_player_point_light_position(&carrier).unwrap_or([0.0; 3]);
+    let Some(position) = local_player_point_light_position(&carrier) else {
+        light.local = render_scene::WorldPointLightSource::default();
+        return;
+    };
     let profile = world.stream.as_ref().and_then(|stream| {
         let main_hand = player
             .as_deref()
@@ -204,6 +207,7 @@ fn item_light_profile_from_emission(emission: u8) -> Option<ItemLightProfile> {
 
 /// Publishes nearest remote-player and dropped-item lights for the vanilla shader.
 pub(crate) fn sync_remote_item_point_lights(
+    carrier: Res<LocalPlayerFrameCarrier>,
     world: Res<ClientWorld>,
     partial_tick: Res<ActorFramePartialTick>,
     mut scratch: Local<ItemLightScratch>,
@@ -216,6 +220,10 @@ pub(crate) fn sync_remote_item_point_lights(
         point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
         return;
     }
+    let Some(origin) = local_player_point_light_position(&carrier).map(Vec3::from_array) else {
+        point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
+        return;
+    };
     let Some(stream) = world.stream.as_ref() else {
         point_light.additional = [render_scene::WorldPointLightSource::default(); 7];
         return;
@@ -225,7 +233,6 @@ pub(crate) fn sync_remote_item_point_lights(
         dropped_items,
     } = &mut *scratch;
 
-    let origin = Vec3::from_array(point_light.local.position);
     let render_distance = stream.render_distance_blocks();
     if !render_distance.is_finite() || render_distance <= 0.0 {
         point_light.additional = [render_scene::WorldPointLightSource::default(); 7];

@@ -408,7 +408,7 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   the feet, independent of camera perspective. Vanilla fragments convert source falloff
   into fractional block-light levels and sample the existing lightmap, preserving sky
   light and texture shading without chunk rebuilds. Video settings expose a default-off
-  toggle; the Performance preset enables it. Strength and range are not public settings. Each held
+  toggle; the Quality preset enables it. Strength and range are not public settings. Each held
   or dropped item receives a profile derived from its resolved Bedrock block emission:
   normalized emission controls strength and maps to a provisional 2–8 block radius.
   Up to eight sources (the local player plus the nearest seven remote-player or dropped-item
