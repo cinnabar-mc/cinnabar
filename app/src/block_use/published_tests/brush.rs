@@ -276,3 +276,51 @@ fn a_brush_use_on_a_block_starts_its_item_category_cooldown() {
     assert!(!runtime.cooldown_ready(cooldown, tick + 8));
     assert!(runtime.cooldown_ready(cooldown, tick + 9));
 }
+
+/// Brush strokes the local player's uses on blocks have drawn dust for so far.
+fn dust_strokes(world: &World) -> Vec<crate::particles::LocalBrushDust> {
+    world
+        .resource::<Messages<crate::particles::LocalBrushDust>>()
+        .iter_current_update_messages()
+        .copied()
+        .collect()
+}
+
+/// Vanilla's client draws brush dust from the brush's use on a block: the press draws it
+/// on the brushed block's hit face, and held repeats draw it again only once its effects
+/// cooldown of more than eight ticks has passed.
+#[test]
+fn held_brushing_sweeps_dust_off_the_block_once_per_effects_cooldown() {
+    let (mut world, mut captured) = brush_fixture(None);
+    let mut router = crate::semantic_controls::SemanticInputRuntime::default();
+    settle(&mut world, &mut router);
+
+    let mut uses = 0;
+    let mut dusty_frames = Vec::new();
+    for frame in 0..24 {
+        let before = dust_strokes(&world).len();
+        uses += step(&mut world, &mut router, &mut captured, true)
+            .uses
+            .len();
+        if dust_strokes(&world).len() > before {
+            dusty_frames.push(frame);
+        }
+    }
+    let strokes = dust_strokes(&world);
+    assert_eq!(dusty_frames.first(), Some(&0), "the press draws dust");
+    assert!(strokes.len() >= 2, "held brushing draws dust again");
+    assert!(
+        strokes.len() < uses,
+        "{} strokes for {uses} uses",
+        strokes.len()
+    );
+    assert!(
+        dusty_frames.windows(2).all(|pair| pair[1] - pair[0] > 8),
+        "{dusty_frames:?}"
+    );
+    for stroke in &strokes {
+        assert_eq!((stroke.block, stroke.face), (FLOOR, 1));
+        assert_eq!(stroke.runtime_id, strokes[0].runtime_id);
+        assert_eq!(stroke.relative_hit[1], 1.0);
+    }
+}

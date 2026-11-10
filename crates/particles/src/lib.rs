@@ -3,6 +3,7 @@
 
 pub mod actor;
 mod atlas;
+mod brush_dust;
 mod def;
 mod dragon_egg;
 mod draw;
@@ -24,6 +25,7 @@ pub mod tiles;
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use atlas::{ATLAS_SIDE, AtlasPatch, FALLBACK_TEXEL, TILE_SLOT, particle_textures_fit};
+pub use brush_dust::brush_dust_request;
 pub use dragon_egg::dragon_egg_teleport_requests;
 pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
