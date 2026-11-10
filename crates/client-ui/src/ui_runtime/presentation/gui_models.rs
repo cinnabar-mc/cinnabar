@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
+use assets::{RuntimeAssets, RuntimeEntityAssets};
 use render_model::UiTexturePage;
 use ui::{
     RetainedDraw, SafeArea, TextEffects, UiLimits, UiMesh, UiNode, UiRect, UiScale, UiVisual,
@@ -29,10 +29,11 @@ mod pack_equipment;
 mod player_layers;
 mod preparation;
 mod shield_icons;
+mod trim_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
 mod sources;
-use sources::{ModulatedMeshes, gui_cube_sheet, modulated};
+use sources::{ModulatedMeshes, modulated};
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
 #[cfg(test)]
 mod cube_budget;
@@ -131,6 +132,7 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 #[derive(Default)]
 pub(super) struct GuiModels {
     pub(super) shield_icons: shield_icons::ShieldIcons,
+    pub(super) trim_icons: trim_icons::TrimIcons,
     pub(super) enabled: bool,
     #[cfg(test)]
     hud_cpu_reference: bool,
@@ -166,7 +168,16 @@ pub struct PreparedGuiModels {
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: held::HeldModels,
+    /// Ordinary items that retained their sprite because a held texture could not fit.
+    pub(super) held_texture_fallbacks: usize,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
+}
+
+impl PreparedGuiModels {
+    /// Reports held items that used resident sprites after their model artwork could not fit.
+    pub const fn held_texture_fallbacks(&self) -> usize {
+        self.held_texture_fallbacks
+    }
 }
 
 impl GuiModels {
@@ -204,22 +215,6 @@ impl GuiModels {
         self.fire.pages_start = None;
         true
     }
-}
-
-/// A sheet can become a cube only when an existing carried model spans the full cube.
-/// Shortened models keep the shaped-model path even when their source texels are transparent.
-fn cube_shape_admitted(
-    ordinary: &render_model::equipment::blocks::BlockSheets,
-    visual: u32,
-) -> bool {
-    !ordinary.models.get(&visual).is_some_and(|vertices| {
-        vertices.iter().any(|vertex| {
-            vertex
-                .position
-                .iter()
-                .any(|coordinate| coordinate.abs() != 0.5)
-        })
-    })
 }
 
 /// Immutable UI addresses used to prepare item geometry on a worker.
@@ -667,8 +662,9 @@ impl UiPresentationRuntime {
         let armor = std::array::from_fn(|slot| {
             let texture = self.player_preview_gear.armor[slot].as_ref()?;
             self.gui_models
-                .pack_equipment
-                .region(slot)
+                .trim_icons
+                .region(texture)
+                .or_else(|| self.gui_models.pack_equipment.region(slot))
                 .or_else(|| {
                     let key = atlas::key([texture.width, texture.height], &texture.rgba);
                     self.gui_models.sources.textures.get(&key).copied()

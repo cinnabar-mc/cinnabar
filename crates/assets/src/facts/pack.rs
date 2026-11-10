@@ -20,6 +20,7 @@ macro_rules! domain {
 }
 
 domain!(PackTexture {
+    Missing,
     PaleMossCarpetSide,
     BambooFenceGate,
     BeaconCore,

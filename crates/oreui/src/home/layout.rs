@@ -36,9 +36,9 @@ pub(super) const ROW_HEIGHT: f32 = 4.8;
 pub(super) const ROW_GAP: f32 = 0.8;
 
 /// The action group's height in rem: heading, caption, Play, the Servers and Settings
-/// row, Realms, and Dressing Room on compact layouts.
+/// row, Mod marketplace, Realms, and Dressing Room on compact layouts.
 pub(super) fn action_group_height(compact: bool) -> f32 {
-    let rows = if compact { 3.0 } else { 2.0 };
+    let rows = if compact { 4.0 } else { 3.0 };
     HEADER5.line
         + HEADING_GAP
         + CAPTION.line

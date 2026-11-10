@@ -121,9 +121,21 @@ pub(super) const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: undeclared_permissions,
     },
+    State {
+        name: "settings-mods-permissions-new-request",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: new_request,
+    },
+    State {
+        name: "settings-mods-permissions-new-request-collapsed",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: new_request_collapsed,
+    },
 ];
 
-/// A signed-out home with no service fixtures.
+/// A signed-out home with a public marketplace shortcut and no service fixtures.
 fn home_marketplace() -> Fixture {
     Fixture::Menu(Box::new(launcher::menu::MenuView::new(
         true,
@@ -438,6 +450,30 @@ pub fn no_grants() -> Fixture {
 /// A component without a declaration can only customize its grants.
 pub fn undeclared_permissions() -> Fixture {
     permissions(false, false, true, false)
+}
+
+/// An updated card whose new request waits while its earlier grants stay allowed.
+pub fn new_request() -> Fixture {
+    let Fixture::Menu(mut view) = permissions(false, false, false, true) else {
+        unreachable!()
+    };
+    let item = &mut Arc::make_mut(&mut view.mods).library.installed[0];
+    let added = item
+        .permissions
+        .iter_mut()
+        .find(|permission| permission.name == "Item use")
+        .expect("fixture permission");
+    added.requested = Some(true);
+    Fixture::Menu(view)
+}
+
+/// The same updated card closed, showing only its face.
+pub fn new_request_collapsed() -> Fixture {
+    let Fixture::Menu(mut view) = new_request() else {
+        unreachable!()
+    };
+    Arc::make_mut(&mut view.mods).details_expanded = None;
+    Fixture::Menu(view)
 }
 
 /// Three closed cards with long descriptions to compare list density.

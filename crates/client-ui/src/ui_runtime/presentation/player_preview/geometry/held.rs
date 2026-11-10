@@ -101,7 +101,7 @@ pub(super) fn append(
         blend: UiBlendMode::Alpha,
         depth_test: true,
         depth_write: true,
-        alpha_cutoff: Some(0.5),
+        alpha_cutoff: model.alpha_cutoff(),
     });
     Some(())
 }

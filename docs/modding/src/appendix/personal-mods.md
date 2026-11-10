@@ -272,7 +272,9 @@ package must match the client's official package constant in
 exact release asset), `revision` (the full mod source commit), and `api_revision`.
 The existing revision-checked `/v1/mod/update` path verifies the native build's
 stamped revision, supported API revisions and the downloaded replacement identity.
-It never falls back to GitHub latest.
+It never falls back to GitHub latest. The replacement keeps the player's grants, so
+permissions it newly requests stay off: the update message names them, and the card
+shows Review permissions while any requested permission is off.
 
 Marketplace updates use `/v1/mods/{slug}/update` with the same native revision and
 supported API list, plus the installed version and digest. The signed statement

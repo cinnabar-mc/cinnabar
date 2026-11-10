@@ -673,6 +673,21 @@ impl UiRuntime {
             Some(
                 kind @ (WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography),
             ) => {
+                if let Some(output) = player_runtime.inventory.predicted_smithing_trim() {
+                    let recipe_network_id = self
+                        .active_screen_recipe(player_runtime)
+                        .ok_or(InventoryGestureError::InvalidRequest)?
+                        .id;
+                    return self
+                        .inventory_ledger_mut(player_runtime)
+                        .begin_screen_output_into(
+                            &ScreenCraft::SmithingTrim {
+                                recipe_network_id,
+                                output,
+                            },
+                            sink,
+                        );
+                }
                 let (recipe_network_id, output) = self
                     .active_screen_recipe(player_runtime)
                     .and_then(|recipe| Some((recipe.id, recipe.output?)))

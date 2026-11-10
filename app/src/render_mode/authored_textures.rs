@@ -187,7 +187,7 @@ mod tests {
                 size: 1,
                 rgba8: vec![128, 128, 255, 255].into_boxed_slice(),
             }]
-            .into_boxed_slice(),
+            .into(),
         };
         Arc::new(
             EnhancedTextureAssets::new(
@@ -285,10 +285,11 @@ mod tests {
         let base = Arc::new(RuntimeAssets::diagnostic());
         let array = assets::texture::TextureArray {
             layers: 2,
-            mips: Box::new([assets::texture::TextureMip {
+            mips: [assets::texture::TextureMip {
                 size: 1,
                 rgba8: vec![128; 8].into_boxed_slice(),
-            }]),
+            }]
+            .into(),
         };
         let authored = Arc::new(
             EnhancedTextureAssets::new(

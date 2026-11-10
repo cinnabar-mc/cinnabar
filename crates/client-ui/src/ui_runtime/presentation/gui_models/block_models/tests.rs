@@ -160,6 +160,36 @@ fn unsupported_materials_keep_the_thumbnail() {
 }
 
 #[test]
+fn fence_meshes_keep_surface_order_for_both_fence_shapes() {
+    let materials = [material(0), material(0)];
+    let pages = [page()];
+    for (flags, render_kind) in [
+        (assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD, Default::default()),
+        (assets::MODEL_TEMPLATE_FLAG_FENCE_NETHER, Default::default()),
+        (
+            assets::MODEL_TEMPLATE_FLAG_FENCE_WOOD,
+            assets::facts::BlockRenderKind::BambooFence,
+        ),
+    ] {
+        let templates = [ModelTemplate {
+            quad_start: 0,
+            quad_count: 0,
+            flags,
+        }];
+        let mut shape = stair(&[], &templates, &materials, &pages);
+        shape.render_kind = render_kind;
+        shape.faces = [1; 6];
+        let mesh = shaped(&shape, &mut Atlas::new(7, 1)).unwrap();
+        assert!(!mesh.batches().is_empty());
+        assert!(
+            mesh.batches()
+                .iter()
+                .all(|batch| !batch.depth_test && !batch.depth_write)
+        );
+    }
+}
+
+#[test]
 fn review_rejected_mesh_does_not_consume_atlas_capacity() {
     let mut atlas = Atlas::new(7, 1);
     let tile_side = assets::gui_item::MAX_GUI_TILE_SIDE;

@@ -145,6 +145,15 @@ impl ActorSnapshot {
         self.update_poses(|pose| pose.y_origin.native_y = None);
     }
 
+    /// Retains unconverted spawn coordinates before admission gives them a network offset.
+    pub(super) fn retain_spawn_heights(&mut self) {
+        self.update_poses(|pose| {
+            if pose.y_origin == PoseYOrigin::SPAWN {
+                pose.y_origin.native_y = Some(pose.position[1]);
+            }
+        });
+    }
+
     /// Visits every retained pose so coordinate changes also reach buffered targets.
     fn update_poses(&mut self, mut update: impl FnMut(&mut ActorPose)) {
         let mut current = self.current_pose();

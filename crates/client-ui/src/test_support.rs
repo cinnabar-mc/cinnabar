@@ -205,6 +205,7 @@ pub use crate::ui_runtime::presentation::forms::test_support::{text_metrics, tex
 /// Constructs a named UI fixture item with unrelated registry traits explicitly unresolved.
 pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
     client_world::CanonicalItemStack {
+        trim: None,
         identifier: Some(identifier.into()),
         use_animation: assets::item_use::ItemUseAnimation::None,
         grip: assets::item::grip::ItemGrip::Unresolved,

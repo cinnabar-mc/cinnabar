@@ -57,11 +57,9 @@ fn initialized_buffer(device: &RenderDevice, init: &BufferInitDescriptor<'_>) ->
 
 /// Checks the minimal indirect allocation before it can be installed in a replacement arena.
 fn initial_indirect_buffer(device: &RenderDevice) -> Option<Buffer> {
-    crate::gpu_allocation::checked(
+    crate::gpu_allocation::buffer(
         device,
-        "initial terrain indirect storage",
-        INITIAL_INDIRECT_CAPACITY as u64 * INDEXED_INDIRECT_BYTES,
-        || create_indirect_buffer(device, INITIAL_INDIRECT_CAPACITY),
+        &super::arena::buffers::indirect_buffer_descriptor(INITIAL_INDIRECT_CAPACITY),
     )
 }
 
@@ -199,9 +197,36 @@ impl ChunkGpuArena {
                 MAX_TRANSPARENT_RETIRED_BYTES,
             ),
             migration: None,
+            growth_blocked: false,
+            release_revision: 0,
             memory: Default::default(),
             idle_completion: None,
         };
         Some(arena)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Startup allocations use the same indexed command layout as later growth.
+    #[test]
+    fn initial_indirect_storage_matches_the_command_layout() {
+        let (device, _) = wgpu::Device::noop(&default());
+        let device = RenderDevice::from(device);
+        let buffer = initial_indirect_buffer(&device).unwrap();
+        assert_eq!(
+            buffer.size(),
+            INITIAL_INDIRECT_CAPACITY as u64 * INDEXED_INDIRECT_BYTES
+        );
+        assert!(
+            buffer
+                .usage()
+                .contains(BufferUsages::INDIRECT | BufferUsages::COPY_DST)
+        );
+        let _failure =
+            crate::gpu_allocation::inject(|label, _| label == "packed chunk indirect commands");
+        assert!(initial_indirect_buffer(&device).is_none());
     }
 }

@@ -10,6 +10,7 @@ mod carried;
 mod cost;
 mod culling;
 mod mesh;
+mod minecart;
 pub(crate) mod native;
 mod rope;
 pub use atlas::atlas_layer_limit;
@@ -18,6 +19,7 @@ pub use bounds::{DroppedItemBounds, DroppedItemCullView, DroppedItemFrustum};
 pub use budget::ItemModelBudget;
 pub use carried::{enderman_carried_block_transform, snow_golem_pumpkin_transform};
 pub use cost::{ItemModelCost, block_quad_vertex_count};
+pub use minecart::{MINECART_DEFAULT_DISPLAY_OFFSET, minecart_display_block_transform};
 
 pub use mesh::{
     ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, cube_mesh, extruded_sprite_mesh,

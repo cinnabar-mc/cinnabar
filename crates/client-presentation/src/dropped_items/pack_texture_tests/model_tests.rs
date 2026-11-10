@@ -268,6 +268,56 @@ fn carried_blocks_draw_world_models_at_their_placement_and_skip_air() {
 }
 
 #[test]
+fn minecart_chest_contents_publish_geometry_from_current_block_entity_artwork() {
+    let (_, terrain) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (icons, _) = fixture_item(ITEM, 0, 1);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(ChunkTextureAssets::new(terrain));
+    let chest = assets::pinned_block_state_by_name("minecraft:chest").unwrap();
+    let stream = stream(false, chest);
+    let placement = render_model::dropped_item::minecart_display_block_transform(
+        crate::presentation::actors::rig_world_from_actor([10.0, 64.0, 20.0], 45.0, 1.0),
+        render_model::dropped_item::MINECART_DEFAULT_DISPLAY_OFFSET,
+    )
+    .unwrap();
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    for color in [30, 80] {
+        chest_artwork(&mut world, Some(color));
+        for block in [CarriedBlockId::Pinned(chest), CarriedBlockId::Wire(1)] {
+            let carried = crate::actor_publication::carried_blocks::CarriedBlock {
+                block,
+                world_from_block: placement,
+                light: (4, 12),
+            };
+            publisher.get_mut(&mut world).unwrap().publish(
+                Some(&icons),
+                Some(&stream),
+                None,
+                (None, None),
+                DroppedItemFrame {
+                    carried_blocks: &[carried],
+                    ..Default::default()
+                },
+                (None, Default::default()),
+            );
+            let scene = world.resource::<DroppedItemScene>();
+            let instance = scene
+                .instances
+                .iter()
+                .find(|draw| draw.world_from_item == placement)
+                .expect("a chest display must reach the drawn scene");
+            let DroppedItemModel::Block(model) = &scene.models[instance.model as usize] else {
+                panic!("chests need dedicated geometry");
+            };
+            assert_eq!(model.materials[0].0.rgba8[0], color);
+            assert!(!model.quads.is_empty());
+            assert_eq!((instance.block_level, instance.sky_level), (4, 12));
+        }
+    }
+}
+
+#[test]
 fn framed_cubes_take_the_frame_block_pose_while_framed_sprites_keep_theirs() {
     let (mut icons, stream) = fixture(0);
     let block = [10, 2, 3];

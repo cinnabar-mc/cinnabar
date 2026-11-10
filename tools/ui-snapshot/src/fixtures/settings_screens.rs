@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// Opens a settings category by its registered name rather than a copied index.
+pub fn settings(section: &str) -> MenuView {
+    let mut view = MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Settings;
+    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
+        .iter()
+        .find_map(|(name, index)| (*name == section).then_some(*index))
+        .expect("registered settings category");
+    view
+}
+
 /// Global resources while applying and with an empty library, search results, an empty result
 /// and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[

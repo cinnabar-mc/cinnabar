@@ -205,7 +205,7 @@ fn select_slot(player_runtime: &mut player_state::PlayerState, runtime: &mut UiR
     );
 }
 
-// The crosshair spans 15 GUI px and stays on physical pixels near the safe viewport's center.
+// The crosshair spans 15 GUI px and stays on physical pixels near the viewport's center.
 #[test]
 fn crosshair_aligns_to_pixels_across_scales_dpi_and_insets() {
     let mut player_runtime = player_state::PlayerState::new(1);
@@ -254,11 +254,7 @@ fn crosshair_aligns_to_pixels_across_scales_dpi_and_insets() {
         );
         let bounds =
             crosshair(&input, 15.0 * k).unwrap_or_else(|| panic!("crosshair at {physical:?}"));
-        let logical = [physical[0] as f32 / dpi, physical[1] as f32 / dpi];
-        let centre = [
-            (safe.left() + (logical[0] - safe.left() - safe.right()) / 2.0) * dpi,
-            (safe.top() + (logical[1] - safe.top() - safe.bottom()) / 2.0) * dpi,
-        ];
+        let centre = physical.map(|size| size as f32 / 2.0);
         assert!(
             ((bounds[0] + bounds[2]) / 2.0 - centre[0]).abs() <= 0.5 + 1e-3,
             "{physical:?}"
