@@ -134,8 +134,9 @@ pub(super) fn world_with_model_flags(
 
 #[test]
 fn pane_fixture_round_trips_every_connection_mask() {
+    // Decoding rejects an all-zero source identity; no entity carrier is bound here.
     let world = world_with_model_flags(
-        [0; 32],
+        [1; 32],
         256,
         128,
         32,
