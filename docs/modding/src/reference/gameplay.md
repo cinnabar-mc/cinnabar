@@ -6,9 +6,29 @@
 
 Explicit local gameplay capabilities; no raw packet access.
 
-**Grants:** Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `entities`, `commands` or `packet_delay`; see each function.
+**Grants:** Per operation: `players`, `terrain`, `movement`, `camera`, `interaction`, `gameplay_input`, `entities`, `commands` or `packet_delay`; see each function.
 
 ## Types
+
+<a id="type-button"></a>
+
+### `button`
+
+One-frame semantic gameplay button tap; never a retained hold or desktop key injection.
+
+```wit
+enum button {
+    attack,
+    %use,
+    jump,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `attack` |  |  |
+| `use` |  |  |
+| `jump` |  |  |
 
 <a id="type-vector3"></a>
 
@@ -405,6 +425,33 @@ pulse-attack: func() -> result<_, string>;
 
 One attack-press edge, only while the physical attack control is held.
 An active action filter receives it as a repeat.
+
+<a id="pulse-button"></a>
+
+### `pulse-button`
+
+```wit
+pulse-button: func(button: button) -> result<_, string>;
+```
+
+Requests one tap on a gameplay button while focused gameplay owns input.
+Requires gameplay-input authority. Attack and Use taps use the ordered input pipeline;
+Jump stays active through one physics tick. Quarantine withdraws the failed filter owner's
+pending taps.
+
+Types: [`button`](gameplay.md#type-button).
+
+<a id="select-hotbar-slot"></a>
+
+### `select-hotbar-slot`
+
+```wit
+select-hotbar-slot: func(slot: u8) -> result<_, string>;
+```
+
+Selects one local hotbar slot from 0 through 8 through ordinary inventory selection.
+Requires gameplay-input authority and a current focused gameplay frame. The latest
+request from one mod wins; across mods, the earliest loaded mod wins.
 
 <a id="set-block-mining"></a>
 

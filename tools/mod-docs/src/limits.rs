@@ -115,6 +115,7 @@ pub(super) fn render() -> String {
         mod_api::MAX_FOUND_BLOCK_IDENTIFIERS => "Identifiers per block search.",
     );
     section!("Requests and camera",
+        mod_api::MAX_GAMEPLAY_INPUT_PULSES => "Gameplay button taps per callback and across all mods per frame.",
         mod_api::MAX_CAMERA_DELTA_RADIANS => "Accumulated rotation per axis per callback, in radians.",
         mod_api::MAX_ENTITY_REACH_BLOCKS => "Local actor attack reach in blocks.",
         mod_api::MAX_PACKET_DELAY_MS => "Post-login application packet delay in milliseconds.",

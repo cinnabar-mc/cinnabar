@@ -60,8 +60,9 @@ pub use runtime::legacy_input::{
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    BlockPosition as GameplayBlockPosition, CameraPose as GameplayCameraPose,
-    CameraRig as GameplayCameraRig, ControlModes as GameplayControlModes, Mob as GameplayMob,
+    BlockPosition as GameplayBlockPosition, Button as GameplayButton,
+    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
+    ControlModes as GameplayControlModes, Mob as GameplayMob,
     MovementInput as GameplayMovementInput, MovementIntents as GameplayMovementIntents,
     Player as GameplayPlayer, Vector3 as GameplayVector3,
 };
@@ -117,6 +118,8 @@ pub struct InteractionOutput {
     pub block_breaks: Vec<GameplayBlockPosition>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    pub gameplay_button_pulses: Vec<GameplayButton>,
+    pub hotbar_slot: Option<u8>,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.
     pub block_mining: bool,
     /// A one-frame destination for physically held mining, independent of the view.

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{DamageShake, ModGrants};
+use crate::{DamageShake, InteractionOutput, ModGrants};
 use cinnabar::extension::{camera::Host as _, events::Host as _, gameplay::Host as _};
 
 /// Intents need movement authority and focused gameplay, commit atomically and expire each frame.
@@ -180,6 +180,121 @@ fn damage_shake_read_needs_the_camera_grant() {
         assert!(validate_facts(&invalid).is_err());
     }
     assert!(validate_facts(&facts).is_ok());
+}
+
+#[test]
+fn gameplay_input_is_granted_focused_bounded_and_transactional() {
+    let mut denied = state(ModGrants::default());
+    denied.controls.frame.focused = true;
+    denied.controls.frame.gameplay = true;
+    assert!(
+        denied
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .is_err()
+    );
+    assert!(denied.select_hotbar_slot(0).unwrap().is_err());
+
+    let mut state = state(ModGrants {
+        gameplay_input: true,
+        ..Default::default()
+    });
+    assert!(
+        state
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .is_err()
+    );
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    assert!(state.select_hotbar_slot(9).unwrap().is_err());
+    state.controls.frame.panel_open = true;
+    assert!(
+        state
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .is_err()
+    );
+    state.controls.frame.panel_open = false;
+    state.select_hotbar_slot(8).unwrap().unwrap();
+    for button in [
+        cinnabar::extension::gameplay::Button::Use,
+        cinnabar::extension::gameplay::Button::Jump,
+        cinnabar::extension::gameplay::Button::Use,
+    ] {
+        state.pulse_button(button).unwrap().unwrap();
+    }
+    assert_eq!(
+        state.controls.pending_interaction.gameplay_button_pulses,
+        [
+            cinnabar::extension::gameplay::Button::Use,
+            cinnabar::extension::gameplay::Button::Jump,
+            cinnabar::extension::gameplay::Button::Use,
+        ]
+    );
+    assert_eq!(state.controls.pending_interaction.hotbar_slot, Some(8));
+    assert_eq!(state.controls.interaction, InteractionOutput::default());
+    state.controls.commit();
+    assert_eq!(
+        state.controls.interaction.gameplay_button_pulses,
+        [
+            cinnabar::extension::gameplay::Button::Use,
+            cinnabar::extension::gameplay::Button::Jump,
+            cinnabar::extension::gameplay::Button::Use,
+        ]
+    );
+    assert_eq!(state.controls.interaction.hotbar_slot, Some(8));
+    state.controls.begin_frame();
+    assert_eq!(state.controls.interaction, InteractionOutput::default());
+}
+
+#[test]
+fn gameplay_input_budget_resets_for_each_callback_and_transaction() {
+    let mut state = state(ModGrants {
+        gameplay_input: true,
+        ..Default::default()
+    });
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    for _ in 0..MAX_IMPORT_WRITES {
+        state.select_hotbar_slot(0).unwrap().unwrap();
+    }
+    assert!(state.select_hotbar_slot(0).is_err());
+    state.begin_callback();
+    state.select_hotbar_slot(1).unwrap().unwrap();
+    let mut transaction = state.frame_transaction();
+    for _ in 0..MAX_IMPORT_WRITES {
+        transaction.select_hotbar_slot(2).unwrap().unwrap();
+    }
+    assert!(transaction.select_hotbar_slot(2).is_err());
+}
+
+#[test]
+fn gameplay_input_from_a_late_callback_is_discarded() {
+    for current_frame in [false, true] {
+        let mut state = state(ModGrants {
+            gameplay_input: true,
+            ..Default::default()
+        });
+        state.controls.frame.focused = true;
+        state.controls.frame.gameplay = true;
+        let mut transaction = state.frame_transaction();
+        transaction
+            .pulse_button(cinnabar::extension::gameplay::Button::Use)
+            .unwrap()
+            .unwrap();
+        transaction.select_hotbar_slot(3).unwrap().unwrap();
+        state.accept_frame(transaction, current_frame, true, 0);
+        state.controls.commit();
+        assert_eq!(
+            state.controls.interaction.hotbar_slot,
+            current_frame.then_some(3)
+        );
+        assert_eq!(
+            state.controls.interaction.gameplay_button_pulses.len(),
+            usize::from(current_frame)
+        );
+    }
 }
 
 fn vector(x: f32, y: f32, z: f32) -> GameplayVector3 {

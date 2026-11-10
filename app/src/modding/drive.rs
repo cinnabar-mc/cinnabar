@@ -79,7 +79,7 @@ pub(super) fn drive_mod(
         mut pointer_isolation,
     } = observation;
     let now = time.elapsed_secs_f64();
-    let (network, mut camera, cues, mut item_use) = outputs;
+    let (network, mut camera, cues, mut item_use, mut hotbar_selection) = outputs;
     if let Some(interaction) = interaction.as_deref_mut() {
         interaction.block_mining = false;
         interaction.block_mining_target = None;
@@ -113,13 +113,24 @@ pub(super) fn drive_mod(
         interaction.block_breaks.clear();
         interaction.block_break_scope = None;
     }
-    let movement_allowed = extension.as_ref().is_some_and(|runtime| {
+    // Controller and touch gestures reach gameplay without cursor capture, so they are
+    // filtered under the same source gates.
+    let source_admitted = gameplay
+        .input
+        .as_ref()
+        .and_then(|input| input.snapshot())
+        .is_some_and(|input| {
+            crate::semantic_controls::physical::admits_input_mode(
+                input.input_mode,
+                focused,
+                captured,
+            )
+        });
+    let jump_allowed = extension.as_ref().is_some_and(|runtime| {
         !runtime.suspended
-            && (0..runtime.hosts.host_count()).any(|index| {
-                runtime.hosts.host(index).is_active() && runtime.hosts.host(index).grants().movement
-            })
+            && gameplay::jump_input_allowed(&runtime.hosts, captured, source_admitted)
     });
-    gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
+    gameplay.synchronize_jump_scope(jump_allowed && !absorbed, &ui);
     let menu_open = menu.as_deref().is_some_and(MenuRuntime::is_visible);
     screen_input.modifiers(focused && !menu_open);
     let (Some(mut extension), Some(mut time_override), Some(mut interaction)) =
@@ -419,23 +430,30 @@ pub(super) fn drive_mod(
     let scope = world_observation
         .as_ref()
         .map(|world| (world.session, world.dimension));
-    // Controller and touch gestures reach gameplay without cursor capture, so they are
-    // filtered under the same source gates.
-    let source_admitted = gameplay
-        .input
-        .as_ref()
-        .and_then(|input| input.snapshot())
-        .is_some_and(|input| {
-            crate::semantic_controls::physical::admits_input_mode(
-                input.input_mode,
-                focused,
-                captured,
-            )
-        });
     if *action_scope != scope || !source_admitted || absorbed {
         action_filter.reset();
     }
     let enabled = source_admitted && !absorbed && scope.is_some();
+    let mut jump_owners = Vec::new();
+    if enabled {
+        let mut remaining = mod_api::MAX_GAMEPLAY_INPUT_PULSES;
+        for index in 0..extension.hosts.host_count() {
+            let host = extension.hosts.host_mut(index);
+            let owner = host.action_filter_identity();
+            for button in host
+                .take_gameplay_button_pulses()
+                .into_iter()
+                .take(remaining)
+            {
+                remaining -= 1;
+                if button == mod_host::GameplayButton::Jump {
+                    jump_owners.push(index);
+                } else {
+                    gameplay.pulse_button(button, owner, &ui);
+                }
+            }
+        }
+    }
     let attack_requested = extension
         .hosts
         .iter_mut()
@@ -516,14 +534,24 @@ pub(super) fn drive_mod(
         window.set_cursor_position(Some(point));
     }
     let merged = multi::collect_frame_outputs(&mut extension.hosts);
+    if enabled
+        && let (Some(slot), Some(selection)) = (merged.hotbar_slot, hotbar_selection.as_deref_mut())
+    {
+        selection.0 = Some(slot);
+    }
     if callback_failed || merged.jump_cancel {
         gameplay.synchronize_jump_scope(false, &ui);
     }
-    let movement_allowed = (0..extension.hosts.host_count()).any(|index| {
-        extension.hosts.host(index).is_active() && extension.hosts.host(index).grants().movement
-    });
-    gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
+    let jump_allowed = gameplay::jump_input_allowed(&extension.hosts, captured, source_admitted);
+    gameplay.synchronize_jump_scope(jump_allowed && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
+    if !merged.jump_cancel
+        && jump_owners
+            .into_iter()
+            .any(|index| extension.hosts.host(index).is_active())
+    {
+        gameplay.pulse_button(mod_host::GameplayButton::Jump, None, &ui);
+    }
     let break_scope = gameplay
         .world
         .as_ref()

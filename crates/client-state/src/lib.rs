@@ -40,6 +40,10 @@ pub struct RuntimeSettings(pub ui::settings_state::SettingsState);
 #[derive(Clone, Debug, Default, Resource, Deref, DerefMut)]
 pub struct SemanticInputSnapshot(pub semantic_input::finalized::FinalizedInput);
 
+/// A one-frame local hotbar selection requested by a granted mod.
+#[derive(Clone, Copy, Debug, Default, Resource)]
+pub struct ModHotbarSelection(pub Option<u8>);
+
 pub mod devices;
 pub use devices::{
     ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,

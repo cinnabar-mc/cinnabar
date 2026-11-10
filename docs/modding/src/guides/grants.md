@@ -10,7 +10,7 @@ The flow is the player's, not the mod's:
 2. A component may declare what it wants in a top-level `cinnabar:grants` custom section containing a `ModGrants` JSON object. The declaration requests; it grants nothing by itself. A personal component with no declaration has no declared requests.
 3. The player can revoke individual grants, or all of them, at any time in Settings. Permission changes reload that mod, so it restarts under the new grants.
 
-Some capabilities are marked sensitive in the permission list because they can change combat, movement or gameplay input: `camera`, `item_use`, `interaction`, `packet_delay`, `packets`, `controls`, `movement`, `commands`, `keys` and `inventory`. Expect players to read those twice.
+Some capabilities are marked sensitive in the permission list because they can change combat, movement or gameplay input: `camera`, `item_use`, `interaction`, `gameplay_input`, `packet_delay`, `packets`, `controls`, `movement`, `commands`, `keys` and `inventory`. Expect players to read those twice.
 
 Server consent does not control personal-mod grants. A personal mod runs under its player's grants in local and remote worlds alike. Paired mods are different: the server offers the client part, and its permissions are declared in the project — see [Paired mods](paired-mods.md).
 
@@ -34,6 +34,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `entities` | Entities | Non-player actor rows and `gameplay.read-mobs` |
 | `hud` | HUD | HUD surfaces, nametag and annotation policy, hurt overlay, tooltip lines, chat actions |
 | `controls` | Controls | Key edges, reserved keys, text input, touch buttons, the panel, chat-action clicks |
+| `gameplay_input` | Gameplay input | Semantic gameplay button taps and local hotbar selection |
 | `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport handlers |
 | `interaction` | Attack reach | Bounded attack reach, held-attack press pulses and ordinary crosshair mining holds |
 | `item_use` | Item use | Item-use press pulses |
