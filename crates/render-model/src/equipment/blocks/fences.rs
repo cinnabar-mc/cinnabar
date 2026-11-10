@@ -15,7 +15,8 @@ pub(super) fn model(
     {
         return None;
     }
-    template_quads(&assets::gui_item::carried_fence_quads(
-        block.face(BlockFace::South).material_id(),
-    ))
+    template_quads(
+        &assets::gui_item::carried_fence_quads(block.face(BlockFace::South).material_id()),
+        false,
+    )
 }
