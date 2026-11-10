@@ -301,31 +301,24 @@ fn publish_debug_overlay(
                     ui.push_local_chat_line(std::sync::Arc::from(message), now);
                 }
             }
-            if chord_d {
-                if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.clear_chat_messages();
-                    ui.push_local_chat_line(std::sync::Arc::from("[Debug] Cleared chat"), now);
-                }
+            if chord_d && let Some(ui) = context.ui.as_deref_mut() {
+                ui.clear_chat_messages();
+                ui.push_local_chat_line(std::sync::Arc::from("[Debug] Cleared chat"), now);
             }
-            if chord_q {
-                if let Some(ui) = context.ui.as_deref_mut() {
-                    ui.push_local_chat_line(
-                        std::sync::Arc::from("[Debug] F3 + A = Reload chunks"),
-                        now,
-                    );
-                    ui.push_local_chat_line(
-                        std::sync::Arc::from("[Debug] F3 + D = Clear chat"),
-                        now,
-                    );
-                    ui.push_local_chat_line(
-                        std::sync::Arc::from("[Debug] F3 + G = Show chunk borders"),
-                        now,
-                    );
-                    ui.push_local_chat_line(
-                        std::sync::Arc::from("[Debug] F3 + Q = Show this help list"),
-                        now,
-                    );
-                }
+            if chord_q && let Some(ui) = context.ui.as_deref_mut() {
+                ui.push_local_chat_line(
+                    std::sync::Arc::from("[Debug] F3 + A = Reload chunks"),
+                    now,
+                );
+                ui.push_local_chat_line(std::sync::Arc::from("[Debug] F3 + D = Clear chat"), now);
+                ui.push_local_chat_line(
+                    std::sync::Arc::from("[Debug] F3 + G = Show chunk borders"),
+                    now,
+                );
+                ui.push_local_chat_line(
+                    std::sync::Arc::from("[Debug] F3 + Q = Show this help list"),
+                    now,
+                );
             }
         }
     }
