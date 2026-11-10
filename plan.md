@@ -1009,8 +1009,9 @@ and version-matched in-game acceptance remain incomplete.
   facing. Their first-person block pose retains the item-space quarter turn.
   Held stairs select that turn from their pinned model family or active stair topology,
   independently of inventory GUI orientation. Rendered stair acceptance remains open.
-  Static carried slabs are centered between their caps while double slabs retain their
-  full height. Animated slab materials and rendered slab acceptance remain incomplete.
+  Static carried slabs and carpets are centered between their caps while double slabs
+  retain their full height. Animated carried materials and rendered slab and carpet
+  acceptance remain incomplete.
   Held trapdoors use a centered thin panel with cap artwork and narrow edge UVs,
   independently of placement state. Rendered trapdoor acceptance remains open.
   Held buttons retain their unpressed panel and first-person model offset independently
