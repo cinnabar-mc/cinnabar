@@ -42,7 +42,9 @@ fn carried_walls_keep_post_artwork_and_mirrored_rail_edges() {
 fn carried_walls_split_the_span_at_the_center_between_posts() {
     let quads = carried_wall_quads([7; 6]);
     let mut bounds: Vec<_> = quads
-        .chunks_exact(6)
+        .as_chunks::<6>()
+        .0
+        .iter()
         .map(|part| {
             let corners: Vec<_> = part.iter().flat_map(|quad| quad.corners).collect();
             std::array::from_fn::<_, 3, _>(|axis| {
