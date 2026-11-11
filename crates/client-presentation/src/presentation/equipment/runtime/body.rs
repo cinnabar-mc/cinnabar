@@ -160,9 +160,7 @@ impl EquipmentRuntime {
         let Some((artwork, texture_index, location)) = self.draw_artwork(texture, source) else {
             return;
         };
-        let rig = if render_model::resolve_geometry_bones(&assets, geometry_index as usize)
-            .is_ok_and(|bones| bones.iter().any(|bone| !bone.texture_meshes.is_empty()))
-        {
+        let rig = if self.has_texture_meshes(&assets, source.from_pack, geometry_index) {
             // Texture meshes are extruded from the selected texture's pixels.
             let key = (
                 source.from_pack,
@@ -203,5 +201,21 @@ impl EquipmentRuntime {
         let mut presentation = layer_presentation(body, layer, rig, poses, location, 0);
         style.apply(&mut presentation.submission);
         layers.push(presentation);
+    }
+
+    /// Whether geometry `geometry_index` has texture meshes, resolved once per installed pack.
+    fn has_texture_meshes(
+        &mut self,
+        assets: &assets::RuntimeEntityAssets,
+        from_pack: bool,
+        geometry_index: u32,
+    ) -> bool {
+        *self
+            .texture_mesh_geometries
+            .entry((from_pack, geometry_index))
+            .or_insert_with(|| {
+                render_model::resolve_geometry_bones(assets, geometry_index as usize)
+                    .is_ok_and(|bones| bones.iter().any(|bone| !bone.texture_meshes.is_empty()))
+            })
     }
 }

@@ -326,6 +326,7 @@ impl EquipmentRuntime {
         self.free_meshes
             .extend(self.attachable_meshes.values().copied());
         self.attachable_meshes.clear();
+        self.texture_mesh_geometries.clear();
         self.free_meshes
             .extend(self.native_meshes.values().copied());
         self.native_meshes.clear();

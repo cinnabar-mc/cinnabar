@@ -163,6 +163,8 @@ pub struct EquipmentRuntime {
     layers: Vec<EquipmentPresentation>,
     attachables: actor_animation::AttachablesRuntime,
     attachable_meshes: BTreeMap<AttachableMeshKey, EntityRigId>,
+    /// Whether a worn geometry, by `(from_pack, geometry index)`, has texture meshes.
+    texture_mesh_geometries: BTreeMap<(bool, u32), bool>,
     native_meshes: BTreeMap<(u16, u32), EntityRigId>,
     /// Raster attachables' image-to-rig frame and rest pose under Java's hand, by mesh key.
     java_rasters: BTreeMap<AttachableMeshKey, Option<JavaRasterFrame>>,
@@ -318,6 +320,7 @@ impl EquipmentRuntime {
             trims: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
+            texture_mesh_geometries: BTreeMap::new(),
             native_meshes: BTreeMap::new(),
             java_rasters: BTreeMap::new(),
             selected_geometries: Default::default(),
