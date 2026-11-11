@@ -297,16 +297,7 @@ impl EquipmentRuntime {
             }
             None => (None, placed, bevy::math::Vec3::Z),
         };
-        let rig = if let Some(rig) = self.attachable_meshes.get(&key) {
-            *rig
-        } else {
-            let rig = self.build_item_mesh(|rig| {
-                render_model::attachable_geometry(&assets, geometry_index as usize, rig, texture)
-                    .ok()
-            })?;
-            self.attachable_meshes.insert(key, rig);
-            rig
-        };
+        let rig = self.attachable_mesh(&assets, key, texture)?;
         let mut presentation = layer_presentation(
             body,
             if input.off_hand {
@@ -328,6 +319,26 @@ impl EquipmentRuntime {
             java_camera,
             java_normal_axis,
         })
+    }
+}
+
+impl EquipmentRuntime {
+    /// The mesh of attachable geometry `key.1` drawn with `texture`, built once per artwork
+    /// page. Its texture meshes are extruded from that texture's pixels.
+    pub(super) fn attachable_mesh(
+        &mut self,
+        assets: &assets::RuntimeEntityAssets,
+        key: AttachableMeshKey,
+        texture: &assets::EquipmentTexture,
+    ) -> Option<EntityRigId> {
+        if let Some(rig) = self.attachable_meshes.get(&key) {
+            return Some(*rig);
+        }
+        let rig = self.build_item_mesh(|rig| {
+            render_model::attachable_geometry(assets, key.1 as usize, rig, texture).ok()
+        })?;
+        self.attachable_meshes.insert(key, rig);
+        Some(rig)
     }
 }
 

@@ -573,7 +573,20 @@ fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
 #[test]
 fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
-    let (mut runtime, _) = pack_runtime(crown_pack());
+    let mut files = crown_pack();
+    for (path, bytes) in &mut files {
+        if path.as_ref() == "attachables/crown.json" {
+            *bytes = String::from_utf8(bytes.clone())
+                .unwrap()
+                .replace("controller.render.armor", "controller.render.test.crown")
+                .into_bytes();
+        }
+    }
+    files.push((
+        "render_controllers/crown.json".into(),
+        br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test.crown":{"geometry":"Geometry.default","textures":["Texture.default"],"materials":[{"*":"Material.default"}]}}}"#.to_vec(),
+    ));
+    let (mut runtime, _) = pack_runtime(files);
     let body = player_body(&mut runtime);
     let crown = WornItem {
         trim: None,
@@ -595,7 +608,16 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
         armor: [Some(crown), None, None, None],
         ..ActorEquipmentInput::default()
     };
-    assert_eq!(runtime.layers_for(&body, &worn, None).len(), 1);
+    let owner = held_animation_tests::owner();
+    let names = ["head".into()];
+    let rig = held_animation_tests::owner_rig(&owner, &names);
+    let animation = Some(super::runtime::EquipmentAnimation {
+        owner: &owner,
+        rig: &rig,
+        frame_alpha: 1.0,
+        delta_seconds: simulation_clock::TICK_DURATION.as_secs_f32(),
+    });
+    assert_eq!(runtime.layers_for(&body, &worn, animation).len(), 1);
     for (slot, drawn) in [("slot.armor.chest", 0), ("slot.armor.head", 1)] {
         let components = protocol::ItemComponents {
             wearable_slot: Some(slot.into()),
@@ -604,13 +626,13 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
         let items = session_items(vec![("test:crown", components)], vec![]);
         runtime.set_session_items(Some(&items), None, Vec::new());
         assert_eq!(
-            runtime.layers_for(&body, &worn, None).len(),
+            runtime.layers_for(&body, &worn, animation).len(),
             drawn,
             "{slot}"
         );
     }
     runtime.set_session_items(None, None, Vec::new());
-    assert_eq!(runtime.layers_for(&body, &worn, None).len(), 1);
+    assert_eq!(runtime.layers_for(&body, &worn, animation).len(), 1);
 }
 
 #[test]

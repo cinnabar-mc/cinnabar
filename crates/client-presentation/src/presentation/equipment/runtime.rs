@@ -550,6 +550,24 @@ impl EquipmentRuntime {
                         continue;
                     }
                     routing::EquipmentRoute::Armor(source) => source,
+                    routing::EquipmentRoute::SlotAttachable(source) => {
+                        let before = layers.len();
+                        if let Some(animation) = animation {
+                            self.push_slot_attachable(
+                                body,
+                                item,
+                                &source,
+                                input,
+                                animation,
+                                (slot, layer),
+                                layers,
+                            );
+                        }
+                        if layers.len() == before {
+                            self.note_missing_layer(item, Some(slot), bones.head);
+                        }
+                        continue;
+                    }
                     _ => {
                         self.note_missing_layer(item, Some(slot), bones.head);
                         continue;

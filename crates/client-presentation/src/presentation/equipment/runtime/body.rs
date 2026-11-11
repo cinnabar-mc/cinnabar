@@ -1,4 +1,5 @@
-//! Body-slot attachables retain their authored owner binding and controller output.
+//! Body-slot attachables, and attachables that name no worn slot, retain their authored
+//! owner binding and controller output.
 
 use super::*;
 
@@ -23,6 +24,48 @@ impl EquipmentRuntime {
         let Some(source) = self.selected_binding_source(item, animation, input) else {
             return;
         };
+        self.push_worn_attachable(
+            body,
+            &source,
+            input,
+            animation,
+            super::super::BODY_EQUIPMENT_LAYER,
+            layers,
+        );
+    }
+
+    /// Draws an attachable whose item names no worn slot in the armor slot that holds it, as
+    /// native does for a server cosmetic. Its own controllers see that slot.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn push_slot_attachable(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        source: &pack::BindingSource,
+        equipment: &ActorEquipmentInput,
+        animation: EquipmentAnimation<'_>,
+        (slot, layer): (ArmorSlot, u8),
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
+        let variables = [(
+            assets::entity::EngineVariable::IsEnchanted.name(),
+            f32::from(item.has_glint()),
+        )];
+        let input = animation.worn_input(equipment, slot, &variables);
+        self.push_worn_attachable(body, source, input, animation, layer, layers);
+    }
+
+    /// Draws one worn attachable on `layer`: its controllers' geometry, texture and authored
+    /// pose, with each root bound to its owner bone.
+    fn push_worn_attachable(
+        &mut self,
+        body: &ActorRigSubmission,
+        source: &pack::BindingSource,
+        input: actor_animation::AttachableAnimationInput<'_>,
+        animation: EquipmentAnimation<'_>,
+        layer: u8,
+        layers: &mut Vec<EquipmentPresentation>,
+    ) {
         let Some((_, bones)) = self.body_bones_for(body.input.rig) else {
             return;
         };
@@ -114,38 +157,51 @@ impl EquipmentRuntime {
             .strip_suffix(".png")
             .or_else(|| texture_source.path.strip_suffix(".tga"))
             .unwrap_or(&texture_source.path);
-        let Some((_, _, location)) = self.draw_artwork(texture, &source) else {
+        let Some((artwork, texture_index, location)) = self.draw_artwork(texture, source) else {
             return;
         };
-        let Some(geometry) = assets.geometries().get(geometry_index as usize) else {
-            return;
-        };
-        let Some(geometry) = self.armor_geometry_for(&geometry.identifier, source.from_pack) else {
-            return;
-        };
-        let registered = if source.from_pack {
-            registered == Some(geometry_index)
+        let rig = if render_model::resolve_geometry_bones(&assets, geometry_index as usize)
+            .is_ok_and(|bones| bones.iter().any(|bone| !bone.texture_meshes.is_empty()))
+        {
+            // Texture meshes are extruded from the selected texture's pixels.
+            let key = (
+                source.from_pack,
+                geometry_index,
+                (location.page(), location.layer()),
+            );
+            let texture = &artwork.textures()[texture_index];
+            let Some(rig) = self.attachable_mesh(&assets, key, texture) else {
+                return;
+            };
+            rig
         } else {
-            self.startup_geometries.contains(&geometry.rig)
-        };
-        if !registered && !self.selected_geometries.contains(&geometry.rig) {
-            let Some(mesh) =
-                render_model::equipment_geometry(&assets, geometry_index as usize, geometry.rig)
+            let Some(geometry) = assets.geometries().get(geometry_index as usize) else {
+                return;
+            };
+            let Some(geometry) = self.armor_geometry_for(&geometry.identifier, source.from_pack)
             else {
                 return;
             };
-            self.pending.push(mesh);
-            self.selected_geometries.insert(geometry.rig);
-        }
-        let mut layer = layer_presentation(
-            body,
-            super::super::BODY_EQUIPMENT_LAYER,
-            geometry.rig,
-            poses,
-            location,
-            0,
-        );
-        style.apply(&mut layer.submission);
-        layers.push(layer);
+            let registered = if source.from_pack {
+                registered == Some(geometry_index)
+            } else {
+                self.startup_geometries.contains(&geometry.rig)
+            };
+            if !registered && !self.selected_geometries.contains(&geometry.rig) {
+                let Some(mesh) = render_model::equipment_geometry(
+                    &assets,
+                    geometry_index as usize,
+                    geometry.rig,
+                ) else {
+                    return;
+                };
+                self.pending.push(mesh);
+                self.selected_geometries.insert(geometry.rig);
+            }
+            geometry.rig
+        };
+        let mut presentation = layer_presentation(body, layer, rig, poses, location, 0);
+        style.apply(&mut presentation.submission);
+        layers.push(presentation);
     }
 }

@@ -16,6 +16,9 @@ pub(super) enum EquipmentRoute {
     HeadBlock,
     Armor(pack::BindingSource),
     Elytra(pack::BindingSource),
+    /// An attachable whose item names no worn slot. Native sets up every armor slot's
+    /// attachable, so it is worn wherever the server put it.
+    SlotAttachable(pack::BindingSource),
     Hidden,
 }
 
@@ -66,15 +69,21 @@ impl EquipmentRuntime {
                 EquipmentRoute::Hidden
             };
         };
-        let category = source.catalog.bindings()[source.index].category;
-        if slot == ArmorSlot::Chestplate
-            && self.effective_category(&item.identifier, category) == EquipmentCategory::Elytra
-        {
-            EquipmentRoute::Elytra(source)
-        } else if self.draws_worn(&item.identifier, category, slot) {
-            EquipmentRoute::Armor(source)
-        } else {
-            EquipmentRoute::Hidden
+        match self.effective_category(
+            &item.identifier,
+            source.catalog.bindings()[source.index].category,
+        ) {
+            EquipmentCategory::Elytra if slot == ArmorSlot::Chestplate => {
+                EquipmentRoute::Elytra(source)
+            }
+            EquipmentCategory::Armor { slot: admitted }
+            | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                if slot == admitted =>
+            {
+                EquipmentRoute::Armor(source)
+            }
+            EquipmentCategory::Held => EquipmentRoute::SlotAttachable(source),
+            _ => EquipmentRoute::Hidden,
         }
     }
 }
