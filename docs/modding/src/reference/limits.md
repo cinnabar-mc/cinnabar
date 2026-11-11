@@ -27,7 +27,7 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `mod_host::MEMORY_BYTES` | 16777216 | Linear memory per personal mod. |
 | `mod_api::MAX_LOADED_MODS` | 256 | Concurrent local mods. |
 | `mod_host::MAX_COMPONENT_BYTES` | 4194304 | Executable component bytes. |
-| `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21233966 | Component envelope including embedded resources. |
+| `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21234010 | Component envelope including embedded resources. |
 | `mod_host::package::MAX_PACKAGE_BYTES` | 16777216 | Indexed directory package bytes. |
 | `mod_host::MAX_LABEL_BYTES` | 256 | Plain label bytes. |
 | `mod_api::MAX_SETTINGS_BYTES` | 16384 | Settings JSON bytes. |
