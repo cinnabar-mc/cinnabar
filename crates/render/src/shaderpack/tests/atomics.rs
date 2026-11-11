@@ -1,4 +1,4 @@
-//! Image atomics reach the passes after the one that runs them.
+//! Image atomics reach the passes after the one that runs them and return the original texel.
 
 use super::*;
 
@@ -97,4 +97,78 @@ fn fragment_image_atomics_reach_the_next_pass() {
         2,
     );
     assert_pixels(&bytes, |_| [16, 0, 0]);
+}
+
+/// Each invocation exchanges its ticket into the chain texel and marks the ticket it got back,
+/// then tries to claim the lock texel with a compare-exchange and records the owner it saw.
+const EXCHANGE_TICKETS: &str = "#version 430
+layout(local_size_x = 4, local_size_y = 4) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D state;
+layout(r32ui) uniform uimage2D seen;
+void main() {
+    uint ticket = gl_LocalInvocationIndex + 1u;
+    uint previous = imageAtomicExchange(state, ivec2(0), ticket);
+    imageAtomicAdd(seen, ivec2(int(previous), 0), 1u);
+    uint owner = imageAtomicCompSwap(state, ivec2(1, 0), 0u, ticket);
+    imageStore(seen, ivec2(int(gl_LocalInvocationIndex), 1), uvec4(owner));
+}
+";
+
+/// Writes, over 255: the tickets the exchanges returned exactly once to red, the invocations
+/// that found the lock free to green, and those that saw its final owner to blue.
+const SHOW_TICKETS: &str = "#version 430
+uniform usampler2D stateSampler;
+uniform usampler2D seenSampler;
+void main() {
+/* DRAWBUFFERS:0 */
+    uint unique = 0u;
+    for (int ticket = 0; ticket <= 16; ticket++) {
+        unique += texelFetch(seenSampler, ivec2(ticket, 0), 0).r == 1u ? 1u : 0u;
+    }
+    uint owner = texelFetch(stateSampler, ivec2(1, 0), 0).r;
+    uint won = 0u;
+    uint lost = 0u;
+    for (int invocation = 0; invocation < 16; invocation++) {
+        uint seenOwner = texelFetch(seenSampler, ivec2(invocation, 1), 0).r;
+        won += seenOwner == 0u ? 1u : 0u;
+        lost += seenOwner == owner ? 1u : 0u;
+    }
+    gl_FragData[0] = vec4(float(unique), float(won), float(lost), 255.0) / 255.0;
+}
+";
+
+#[test]
+fn image_exchanges_return_the_original_texel() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    if !gpu
+        .device
+        .features()
+        .contains(wgpu::Features::TEXTURE_ATOMIC)
+    {
+        eprintln!("missing fixture: a GPU with TEXTURE_ATOMIC for image atomics");
+        return;
+    }
+    let (_, bytes) = render_frames(
+        &gpu,
+        &[
+            (
+                "shaders.properties",
+                "image.state = stateSampler RED_INTEGER R32UI UNSIGNED_INT true false 2 1\n\
+                 image.seen = seenSampler RED_INTEGER R32UI UNSIGNED_INT true false 17 2\n",
+            ),
+            ("composite.csh", EXCHANGE_TICKETS),
+            ("composite.vsh", PASS_VERTEX),
+            ("composite.fsh", SHOW_TICKETS),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ],
+        2,
+    );
+    // 16 distinct tickets came back, one invocation took the free lock, and the
+    // other 15 saw its owner without replacing it.
+    assert_pixels(&bytes, |_| [16, 1, 15]);
 }
