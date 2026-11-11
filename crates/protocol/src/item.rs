@@ -17,6 +17,7 @@ use thiserror::Error;
 
 #[cfg(test)]
 mod animation_tests;
+mod armor_trim;
 mod attack;
 mod banner;
 mod block_items;
@@ -42,6 +43,7 @@ mod registry;
 mod registry_properties;
 mod user_data;
 
+pub use armor_trim::{CustomArmorTrim, TRIMMABLE_ARMORS_TAG};
 pub use attack::{ItemAttackCooldown, ItemAttackTiming, KineticWeaponTiming};
 pub use banner::{item_banner_patterns, item_banner_type};
 pub use components::{FoodProperties, ItemComponents, ItemUseCooldown};

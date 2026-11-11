@@ -167,7 +167,14 @@ impl EquipmentRuntime {
         worn: Option<render_model::ActorRenderIdentity>,
     ) -> Option<(EquipmentRaster, EntityRigId)> {
         let trim = item.trim.as_ref()?;
-        let slot = assets::item::trim::armor_slot(&item.identifier)?;
+        // Vanilla armor first; custom armor takes trims through its tag and wearable slot.
+        let (slot, custom) = match assets::item::trim::armor_slot(&item.identifier) {
+            Some(slot) => (slot, None),
+            None => {
+                let custom = self.custom_trim(&item.identifier)?;
+                (custom.slot, Some(custom))
+            }
+        };
         let icon = if worn.is_some() {
             None
         } else {
@@ -184,6 +191,10 @@ impl EquipmentRuntime {
                 _ => return None,
             }
         };
+        // The reference client generates trimmed icons only for custom items declaring an icon.
+        if icon.is_some() && custom.as_ref().is_some_and(|custom| !custom.icon) {
+            return None;
+        }
         let page = artwork
             .pages()
             .get(usize::from(location.page()).checked_sub(1)?)?;
@@ -193,34 +204,45 @@ impl EquipmentRuntime {
             let selected = self.trims.worn_source(identity)?;
             (
                 Arc::clone(&selected.catalog),
-                selected.binding,
+                Some(selected.binding),
                 Some((Arc::clone(&selected.artwork), selected.texture)),
             )
-        } else {
-            let (catalog, _) = self.binding_source(&item.identifier)?;
+        } else if let Some((catalog, _)) = self.binding_source(&item.identifier) {
             let index = catalog
                 .bindings()
                 .partition_point(|binding| binding.identifier.as_ref() <= item.identifier.as_ref())
                 .checked_sub(1)?;
-            (catalog, index, None)
-        };
-        let binding = catalog.bindings().get(binding_index)?;
-        let (base_path, texture_identity) = if let Some((artwork, index)) = &selected_artwork {
-            let texture = artwork.textures().get(*index)?;
-            (
-                texture.identifier.as_ref(),
-                texture as *const assets::EquipmentTexture as usize,
-            )
+            (catalog, Some(index), None)
+        } else if custom.is_some() {
+            // A custom icon reads only its own trim artwork, so it needs no attachable.
+            (Arc::clone(self.catalog.as_ref()?), None, None)
         } else {
-            (
+            return None;
+        };
+        let binding = match binding_index {
+            Some(index) => Some(catalog.bindings().get(index)?),
+            None => None,
+        };
+        let (base_path, texture_identity) = match (&selected_artwork, binding) {
+            (Some((artwork, index)), _) => {
+                let texture = artwork.textures().get(*index)?;
+                (
+                    texture.identifier.as_ref(),
+                    texture as *const assets::EquipmentTexture as usize,
+                )
+            }
+            (None, Some(binding)) => (
                 binding.texture.identifier.as_ref(),
                 &binding.texture as *const assets::EquipmentReference as usize,
-            )
+            ),
+            (None, None) => (item.identifier.as_ref(), 0),
         };
         let key = Key {
             trim: trim.clone(),
             item: Arc::clone(&item.identifier),
-            binding: binding as *const assets::EquipmentBinding as usize,
+            binding: binding.map_or(0, |binding| {
+                binding as *const assets::EquipmentBinding as usize
+            }),
             texture: texture_identity,
             source: pixels.storage_id(),
             layer: location.layer(),
@@ -250,23 +272,45 @@ impl EquipmentRuntime {
                 height: h,
                 rgba8: base_pixels.into(),
             };
-            let composed = assets::item::trim::compose(
-                &base,
-                assets::facts::ItemFacts::builtin()
-                    .ok()?
-                    .by_identifier(&item.identifier)?
-                    .armor_material(),
-                &trim.material,
-                &trim.pattern,
-                slot,
-                icon.is_some(),
-                dye,
-                Some(&binding.resources),
-                |path| {
-                    pack.and_then(|c| c.texture(path))
-                        .or_else(|| startup.texture(path))
-                },
-            )?;
+            let texture = |path: &str| {
+                pack.and_then(|c| c.texture(path))
+                    .or_else(|| startup.texture(path))
+            };
+            let layers = match &custom {
+                // Custom icons read their own trim artwork, never the attachable's.
+                Some(custom) if icon.is_some() => assets::item::trim::custom_icon(
+                    &trim.material,
+                    slot,
+                    custom.art.icon_mask.is_some(),
+                    custom
+                        .art
+                        .icon_palette(assets::item::trim::short_name(&trim.material)),
+                    texture,
+                )?,
+                // Custom armor has no armor material, so no trim takes a darker palette.
+                Some(_) => assets::item::trim::layers(
+                    None,
+                    &trim.material,
+                    &trim.pattern,
+                    slot,
+                    false,
+                    Some(&binding?.resources),
+                    texture,
+                )?,
+                None => assets::item::trim::layers(
+                    assets::facts::ItemFacts::builtin()
+                        .ok()?
+                        .by_identifier(&item.identifier)?
+                        .armor_material(),
+                    &trim.material,
+                    &trim.pattern,
+                    slot,
+                    icon.is_some(),
+                    Some(&binding?.resources),
+                    texture,
+                )?,
+            };
+            let composed = layers.compose(&base, dye)?;
             let raster = if key.icon.is_none() {
                 EquipmentRaster {
                     width: composed.width,

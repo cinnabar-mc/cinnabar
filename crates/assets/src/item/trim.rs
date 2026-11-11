@@ -63,8 +63,25 @@ pub struct TrimLayers<'a> {
     target: &'a EquipmentTexture,
 }
 
-/// Resolves the trim's mask and material palettes. `None` when any is missing or malformed,
-/// which is exactly when [`compose`] keeps the undecorated fallback for a valid base.
+/// Authored replacements for the mask and palette paths [`resolve`] would otherwise derive.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TrimAliases<'a> {
+    /// Replaces the pattern mask of worn armor, or the slot's item mask of an icon.
+    pub mask: Option<&'a str>,
+    /// Replaces the material's palette.
+    pub palette: Option<&'a str>,
+}
+
+/// A trim material or pattern without its `minecraft:` namespace, as texture paths and authored
+/// aliases name it.
+pub fn short_name(name: &str) -> &str {
+    name.strip_prefix("minecraft:").unwrap_or(name)
+}
+
+/// Resolves the trim's mask and material palettes, applying an attachable's authored
+/// `<pattern>_trim` and `<material>_palette` textures. Icons keep the slot's item mask.
+/// `None` when any is missing or malformed, which is exactly when [`compose`] keeps the
+/// undecorated fallback for a valid base.
 pub fn layers<'a>(
     armor_material: Option<ArmourMaterial>,
     material: &str,
@@ -72,40 +89,83 @@ pub fn layers<'a>(
     slot: ArmorSlot,
     icon: bool,
     overrides: Option<&crate::equipment::EquipmentResources>,
+    texture: impl FnMut(&str) -> Option<&'a EquipmentTexture>,
+) -> Option<TrimLayers<'a>> {
+    let alias = |name: String| {
+        overrides
+            .and_then(|resources| resources.textures.get(name.as_str()))
+            .map(AsRef::as_ref)
+    };
+    let aliases = TrimAliases {
+        mask: (!icon)
+            .then(|| alias(format!("{}_trim", short_name(pattern))))
+            .flatten(),
+        palette: alias(format!("{}_palette", short_name(material))),
+    };
+    resolve(
+        armor_material,
+        material,
+        pattern,
+        slot,
+        icon,
+        aliases,
+        texture,
+    )
+}
+
+/// Resolves a trimmable custom item's icon trim, which the reference client generates from the
+/// item's own `minecraft:icon` textures: the slot's item mask, and the material's palette unless
+/// the icon declares `palette` for it. Custom armor has no armor material, so no trim darkens.
+/// `None` while the icon declares its own mask (`icon_trim`), an item atlas image this client
+/// does not resolve yet, so the plain icon draws instead of a wrong mask.
+pub fn custom_icon<'a>(
+    material: &str,
+    slot: ArmorSlot,
+    mask_declared: bool,
+    palette: Option<&str>,
+    texture: impl FnMut(&str) -> Option<&'a EquipmentTexture>,
+) -> Option<TrimLayers<'a>> {
+    if mask_declared {
+        return None;
+    }
+    let aliases = TrimAliases {
+        mask: None,
+        palette,
+    };
+    resolve(None, material, "", slot, true, aliases, texture)
+}
+
+/// Resolves the trim's mask and material palettes from the native paths, unless `aliases`
+/// replace them. A trim whose material is `armor_material`'s own uses its darker palette.
+pub fn resolve<'a>(
+    armor_material: Option<ArmourMaterial>,
+    material: &str,
+    pattern: &str,
+    slot: ArmorSlot,
+    icon: bool,
+    aliases: TrimAliases<'_>,
     mut texture: impl FnMut(&str) -> Option<&'a EquipmentTexture>,
 ) -> Option<TrimLayers<'a>> {
-    let material = material.strip_prefix("minecraft:").unwrap_or(material);
-    let pattern = pattern.strip_prefix("minecraft:").unwrap_or(pattern);
-    let mask = if icon {
-        texture(&format!(
-            "{TEXTURE_DIRECTORY}items/{}_trim",
-            slot_name(slot)
-        ))?
+    let material = short_name(material);
+    let pattern = short_name(pattern);
+    let native = if icon {
+        format!("{TEXTURE_DIRECTORY}items/{}_trim", slot_name(slot))
     } else {
         let suffix = if slot == ArmorSlot::Leggings {
             "_leggings"
         } else {
             ""
         };
-        let native = format!("{TEXTURE_DIRECTORY}{pattern}{suffix}");
-        let authored = overrides
-            .and_then(|resources| resources.textures.get(format!("{pattern}_trim").as_str()));
-        texture(authored.map_or(native.as_str(), AsRef::as_ref))?
+        format!("{TEXTURE_DIRECTORY}{pattern}{suffix}")
     };
+    let mask = texture(aliases.mask.unwrap_or(&native))?;
     let palette = texture(&format!("{TEXTURE_DIRECTORY}color_palettes/trim_palette"))?;
     let darker = armor_material.is_some_and(|armor| material == armor.trim_material());
     let target_path = format!(
         "{TEXTURE_DIRECTORY}color_palettes/{material}{}",
         if darker { "_darker" } else { "" }
     );
-    let target_path = overrides
-        .and_then(|resources| {
-            resources
-                .textures
-                .get(format!("{material}_palette").as_str())
-        })
-        .map_or(target_path.as_str(), AsRef::as_ref);
-    let target = texture(target_path)
+    let target = texture(aliases.palette.unwrap_or(&target_path))
         .or_else(|| texture(&format!("{TEXTURE_DIRECTORY}color_palettes/{material}")))?;
     if [mask, palette, target]
         .into_iter()

@@ -527,6 +527,11 @@ impl UiRuntime {
         self.item_name_generation
     }
 
+    /// The server's item components this session, when any item declares them.
+    pub fn session_items(&self) -> Option<&Arc<super::item_facts::SessionItemComponents>> {
+        self.session.session_items.as_ref()
+    }
+
     /// The server's components for `identifier` this session.
     pub fn item_components(&self, identifier: &str) -> Option<&protocol::ItemComponents> {
         self.session.session_items.as_ref()?.get(identifier)
