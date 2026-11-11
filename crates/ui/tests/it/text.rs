@@ -271,10 +271,20 @@ fn caret_stops_follow_source_bytes_and_pens_instead_of_ink_widths() {
 }
 
 #[test]
-fn range_boxes_follow_unparsed_bytes_and_padded_line_pitch() {
-    let font = font([0x34; 32]);
+fn range_boxes_cover_advances_by_unparsed_bytes_on_padded_lines() {
+    // Ink spans [-1, 3) units around a two-unit advance, so ink and advance boxes differ.
+    let font = font_with_glyph(
+        [0x34; 32],
+        GlyphMetrics {
+            codepoint: '界',
+            page: 0,
+            uv: [0, 0, 4, 1],
+            bearing: [-1, 0],
+            advance_64: 2 * 64,
+        },
+    );
     let mut cache = TextLayoutCache::new(8, 64 * 1024);
-    let text = "§aAB\nhe";
+    let text = "§a界界\n界";
     let drawn = cache
         .layout(TextLayoutRequest {
             text,
@@ -290,15 +300,19 @@ fn range_boxes_follow_unparsed_bytes_and_padded_line_pitch() {
             },
         })
         .unwrap();
-    let b = text.find('B').unwrap();
-    let h = text.find('h').unwrap();
-    let boxes = drawn.range_boxes_64(text, b..h + 1);
+    let second = "§a界".len();
+    let boxes = drawn.range_boxes_64(text, second..text.len());
     assert_eq!(boxes.len(), 2, "{boxes:?}");
     let top = boxes[0][1];
-    assert_eq!(boxes[0], [64, top, 128, top + 64]);
-    assert_eq!(boxes[1], [0, top + 96, 64, top + 160]);
+    // The line starts one unit right of its first pen so the first glyph's ink fits.
+    assert_eq!(boxes[0], [3 * 64, top, 5 * 64, top + 64]);
+    assert_eq!(boxes[1], [64, top + 96, 3 * 64, top + 160]);
+    assert_eq!(drawn.glyphs()[1].pen_64, [3 * 64, 5 * 64]);
     assert!(drawn.range_boxes_64(text, 0.."§a".len()).is_empty());
-    assert_eq!(drawn.range_boxes_64(text, 0..text.len()).len(), 2);
+    assert_eq!(
+        drawn.range_boxes_64(text, 0..second),
+        [[64, top, 3 * 64, top + 64]]
+    );
 }
 
 #[test]

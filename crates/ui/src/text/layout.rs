@@ -147,6 +147,7 @@ struct Glyph {
 
 struct LineCandidate {
     bounds_64: [i32; 4],
+    pen_start_64: i64,
     pen_end_64: i64,
     min_64: i64,
     max_64: i64,
@@ -263,6 +264,7 @@ impl Lines<'_> {
         let width_64 = u64::try_from(max_64 - min_64).map_err(|_| TextError::FixedPointOverflow)?;
         Ok(LineCandidate {
             bounds_64,
+            pen_start_64: x_64,
             pen_end_64,
             min_64,
             max_64,
@@ -295,6 +297,10 @@ impl Lines<'_> {
             page: glyph.metrics.page,
             uv: glyph.metrics.uv,
             bounds_64: candidate.bounds_64,
+            pen_64: [
+                checked_i32(candidate.pen_start_64)?,
+                checked_i32(candidate.pen_end_64)?,
+            ],
             line: u16::try_from(self.line).map_err(|_| TextError::FixedPointOverflow)?,
             style,
             linear_sampling: glyph.linear_sampling,
@@ -421,6 +427,9 @@ impl Lines<'_> {
         for glyph in &mut self.glyphs[self.line_start..] {
             glyph.bounds_64[0] = checked_i32(i64::from(glyph.bounds_64[0]) + shift_64)?;
             glyph.bounds_64[2] = checked_i32(i64::from(glyph.bounds_64[2]) + shift_64)?;
+            for pen in &mut glyph.pen_64 {
+                *pen = checked_i32(i64::from(*pen) + shift_64)?;
+            }
         }
         for mark in &mut self.marks[self.line_start..] {
             mark.pen_64 += shift_64;
@@ -468,6 +477,9 @@ impl Lines<'_> {
                 checked_i32(units.to_output(right)? + offset)?,
                 checked_i32(units.to_output(bottom)?)?,
             ];
+            for pen in &mut glyph.pen_64 {
+                *pen = checked_i32(units.to_output(i64::from(*pen))? + offset)?;
+            }
         }
         let count = i64::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?;
         let nominal_height_64 = self.metrics.block_height_64(count)?;

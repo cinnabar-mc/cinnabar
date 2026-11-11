@@ -24,7 +24,7 @@ pub use colors::{ColorDescriptor, FORMATTING_COLORS};
 pub use palette::FormattingPalette;
 
 use layout::build_layout;
-pub use parse::parse_bedrock_text;
+pub use parse::{formatting_code_boundary, parse_bedrock_text};
 
 pub const MAX_TEXT_SPANS: usize = 4_096;
 pub const MAX_GLYPHS_PER_LAYOUT: usize = 16_384;
@@ -212,6 +212,9 @@ pub struct GlyphQuad {
     pub page: u16,
     pub uv: [u16; 4],
     pub bounds_64: [i32; 4],
+    /// The pen before and after this glyph's advance on its line, in output 1/64 pixels.
+    /// A space has an advance but little or no ink.
+    pub pen_64: [i32; 2],
     pub line: u16,
     pub style: TextStyle,
     pub linear_sampling: bool,
@@ -306,9 +309,9 @@ impl TextLayout {
         &self.source_indices
     }
 
-    /// Boxes covering the glyphs drawn from the byte range `bytes` of `text`, the unparsed
-    /// text this layout was made from: one per line that has any, as `[left, top, right,
-    /// bottom]` in output 1/64 pixels spanning the line box vertically, top line first.
+    /// Boxes covering the advances of the glyphs drawn from the byte range `bytes` of `text`,
+    /// the unparsed text this layout was made from: one per line that has any, as `[left, top,
+    /// right, bottom]` in output 1/64 pixels spanning the line box vertically, top line first.
     /// Formatting codes draw no glyphs, so they add no box.
     pub fn range_boxes_64(&self, text: &str, bytes: core::ops::Range<usize>) -> Vec<[i32; 4]> {
         let text = text_prefix(text, crate::UiLimits::MAX_TEXT_BYTES);
@@ -324,7 +327,7 @@ impl TextLayout {
             if !end.is_some_and(|end| end > bytes.start && end <= bytes.end) {
                 continue;
             }
-            let [left, _, right, _] = glyph.bounds_64;
+            let [left, right] = glyph.pen_64;
             match boxes.iter_mut().find(|(line, _)| *line == glyph.line) {
                 Some((_, area)) => {
                     area[0] = area[0].min(left);
