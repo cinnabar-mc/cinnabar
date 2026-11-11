@@ -185,6 +185,15 @@ impl ModHosts {
         }
     }
 
+    /// Schedules frame callbacks against a caller-owned monotonic clock instead of wall time,
+    /// so admission and yields depend only on guest fuel. Call it before the first frame.
+    pub fn use_scheduling_clock(
+        &mut self,
+        clock: impl Fn() -> std::time::Duration + Send + Sync + 'static,
+    ) {
+        self.budget = mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, clock);
+    }
+
     /// Resets the shared frame, event and loading allowances, and grants
     /// exclusive camera and time output to the first active instance publishing that output.
     pub fn begin_frame(&mut self) {

@@ -46,6 +46,10 @@ fn scroll_app(directory: &Path) -> (App, Entity) {
     });
     let mut runtime = ModRuntime::new(hosts.next().unwrap(), HostMetadata::environment(0));
     runtime.push_host(hosts.next().unwrap(), HostMetadata::environment(1));
+    // A wall-clock budget could defer a guest's callback on a slow runner and leave its label stale.
+    runtime
+        .hosts
+        .use_scheduling_clock(|| std::time::Duration::ZERO);
     app.insert_resource(runtime)
         .insert_resource(crate::environment::VisualTimeOverride(None))
         .insert_resource(client_state::DrivenInput)
