@@ -109,8 +109,30 @@ pub(super) struct LivePlayer {
     pub(super) emote_envelope: Option<EmoteEnvelope>,
 }
 
-/// Phases sampled across a clip when measuring its envelope.
+/// Evenly spaced phases sampled across a clip when measuring its envelope, besides its keys.
 const EMOTE_ENVELOPE_SAMPLES: u32 = 48;
+
+/// The phases an envelope samples: every authored key time, evenly spaced phases, and the
+/// midpoint between each neighbouring pair, so a brief excursion between even phases and the
+/// interpolated motion between keys are both measured.
+fn envelope_phases(clip: &cosmetics::emotes::Clip) -> Vec<f64> {
+    let mut phases: Vec<f64> = (0..=EMOTE_ENVELOPE_SAMPLES)
+        .map(|step| clip.duration * f64::from(step) / f64::from(EMOTE_ENVELOPE_SAMPLES))
+        .chain(
+            clip.tracks
+                .iter()
+                .flat_map(|track| track.keys.iter().map(|key| key.time)),
+        )
+        .collect();
+    phases.sort_by(f64::total_cmp);
+    phases.dedup();
+    let midpoints: Vec<f64> = phases
+        .windows(2)
+        .map(|pair| (pair[0] + pair[1]) * 0.5)
+        .collect();
+    phases.extend(midpoints);
+    phases
+}
 
 /// Identifies what an envelope was measured for: the clip, the drawn geometry and the HUD
 /// frame it was projected through.
@@ -126,9 +148,9 @@ pub(super) struct EmoteEnvelope {
 }
 
 impl EmoteEnvelope {
-    /// Projects every drawn bone's prepared bounds through `frame` and the HUD view at evenly
-    /// spaced phases of the clip, sampled on `rig` as the live capture samples it, and keeps
-    /// the box around them all. Returns `None` when no bone is drawn.
+    /// Projects every drawn bone's prepared bounds through `frame` and the HUD view at each
+    /// of the clip's [`envelope_phases`], sampled on `rig` as the live capture samples it, and
+    /// keeps the box around them all. Returns `None` when no bone is drawn.
     fn sample(
         rig: &actor_animation::ActorRigSnapshot<'_>,
         key: EnvelopeKey,
@@ -138,9 +160,7 @@ impl EmoteEnvelope {
         let (emote, _, frame) = key;
         let view = Rig::new(Default::default(), PreviewView::Hud, 0.0, [false; 2]);
         let (mut low, mut high) = (glam::Vec2::INFINITY, glam::Vec2::NEG_INFINITY);
-        for step in 0..=EMOTE_ENVELOPE_SAMPLES {
-            let phase =
-                emote.duration_seconds() * f64::from(step) / f64::from(EMOTE_ENVELOPE_SAMPLES);
+        for phase in envelope_phases(emote.clip()) {
             let pose = actor_animation::sample_custom_emote(rig, emote, phase, phase)?;
             for (index, bone) in pose.current.iter().enumerate() {
                 let Some((min, max)) = geometry.bone_bounds(index) else {

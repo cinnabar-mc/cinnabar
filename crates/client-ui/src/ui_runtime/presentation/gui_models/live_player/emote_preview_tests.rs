@@ -103,6 +103,56 @@ fn emote_wheel_previews_keep_a_dance_that_lies_down_inside_its_slot() {
     );
 }
 
+/// A synthetic clip that steps far aside for a moment shorter than the even sample spacing.
+fn quick_side_step() -> cosmetics::emotes::Item {
+    let rest = serde_json::json!([0.0, 0.0, 0.0, 1.0]);
+    cosmetics::test_support::clip_emote(
+        "fixture:quick_side_step",
+        "Quick side step",
+        true,
+        &serde_json::json!({
+            "version": 1,
+            "duration": 1.0,
+            "loop": true,
+            "tracks": [{"joint": "root", "keys": [
+                {"time": 0.0, "rotation": rest, "offset": [0.0, 0.0, 0.0]},
+                {"time": 0.01, "rotation": rest, "offset": [3.0, 0.0, 0.0]},
+                {"time": 0.02, "rotation": rest, "offset": [0.0, 0.0, 0.0]},
+                {"time": 1.0, "rotation": rest, "offset": [0.0, 0.0, 0.0]}
+            ]}]
+        }),
+    )
+}
+
+#[test]
+fn emote_wheel_previews_keep_a_brief_excursion_between_even_samples_inside_the_slot() {
+    let catalog = player_catalog_geometry(BIPED.to_vec());
+    let stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let emote = quick_side_step();
+    let slot = ui::UiRect::new(
+        ui::UiPoint::new(0.0, 0.0).unwrap(),
+        ui::UiPoint::new(60.0, 60.0).unwrap(),
+    )
+    .unwrap();
+    for phase in [0.0, 0.005, 0.01, 0.015] {
+        presentation.capture_hud_player_with_emote_reference(
+            Some(stream.authority().local_player_ui()),
+            false,
+            Some((emote, phase)),
+        );
+        let bounds = presentation.emote_preview_bounds(slot).unwrap();
+        let vertices = presentation.gui_models.live_player.vertices.clone();
+        for point in drawn(&vertices, bounds) {
+            assert!(
+                inside(slot, point),
+                "phase {phase}: {point:?} leaves {slot:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn emote_previews_fit_the_box_centred_without_stretching() {
     let slot = ui::UiRect::new(
