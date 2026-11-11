@@ -50,9 +50,10 @@ struct Reveal {
 }
 
 impl Reveal {
-    /// Returns true exactly once, on the first call at or after the deadline.
-    fn due(&mut self, now: Instant) -> bool {
-        if self.revealed || now < self.at {
+    /// Returns true exactly once, on the first call at or after the deadline, and never for a
+    /// helper that is already exiting, so late readiness cannot flash a retired window.
+    fn due(&mut self, now: Instant, exiting: bool) -> bool {
+        if self.revealed || exiting || now < self.at {
             return false;
         }
         self.revealed = true;
@@ -298,7 +299,7 @@ impl ApplicationHandler<Option<Message>> for Screen {
             return;
         };
         if !self.reveal.revealed {
-            if !self.reveal.due(now) {
+            if !self.reveal.due(now, event_loop.exiting()) {
                 event_loop.set_control_flow(ControlFlow::WaitUntil(self.reveal.at));
                 return;
             }
@@ -375,10 +376,21 @@ mod tests {
             at: start + Duration::from_millis(500),
             revealed: false,
         };
-        assert!(!reveal.due(start));
+        assert!(!reveal.due(start, false));
         assert!(!reveal.revealed);
-        assert!(reveal.due(start + Duration::from_millis(500)));
+        assert!(reveal.due(start + Duration::from_millis(500), false));
         assert!(reveal.revealed);
-        assert!(!reveal.due(start + Duration::from_secs(1)));
+        assert!(!reveal.due(start + Duration::from_secs(1), false));
+    }
+
+    #[test]
+    fn retired_loading_window_never_reveals_after_its_deadline() {
+        let start = Instant::now();
+        let mut reveal = Reveal {
+            at: start,
+            revealed: false,
+        };
+        assert!(!reveal.due(start + Duration::from_secs(1), true));
+        assert!(!reveal.revealed);
     }
 }
