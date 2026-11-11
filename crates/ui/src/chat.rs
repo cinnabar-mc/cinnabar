@@ -5,6 +5,8 @@ mod edit_keys;
 pub const MAX_CHAT_MESSAGES: usize = 512;
 pub const MAX_CHAT_RETAINED_BYTES: usize = 1_048_576;
 pub const MAX_CHAT_INPUT_BYTES: usize = 512;
+/// The most bytes any [`ChatEditor`] may hold; each owner bounds its own field below this.
+pub const MAX_TEXT_EDITOR_BYTES: usize = 131_072;
 pub const MAX_CHAT_HISTORY: usize = 128;
 pub const MAX_PENDING_CHAT_SENDS: usize = 64;
 pub const MAX_CHAT_AUTOCOMPLETE: usize = 256;
@@ -41,11 +43,12 @@ pub struct ChatEditor {
 
 impl ChatEditor {
     pub fn new(maximum_bytes: usize) -> Result<Self, ChatEditorError> {
-        if maximum_bytes == 0 || maximum_bytes > MAX_CHAT_INPUT_BYTES {
+        if maximum_bytes == 0 || maximum_bytes > MAX_TEXT_EDITOR_BYTES {
             return Err(ChatEditorError::InvalidMaximum);
         }
         Ok(Self {
-            text: String::with_capacity(maximum_bytes),
+            // Large boxes grow as they fill instead of reserving their whole bound.
+            text: String::with_capacity(maximum_bytes.min(MAX_CHAT_INPUT_BYTES)),
             cursor: 0,
             selection_anchor: None,
             maximum_bytes,

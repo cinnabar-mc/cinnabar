@@ -24,7 +24,7 @@ pub use colors::{ColorDescriptor, FORMATTING_COLORS};
 pub use palette::FormattingPalette;
 
 use layout::build_layout;
-pub use parse::parse_bedrock_text;
+pub use parse::{formatting_code_boundary, parse_bedrock_text};
 
 pub const MAX_TEXT_SPANS: usize = 4_096;
 pub const MAX_GLYPHS_PER_LAYOUT: usize = 16_384;
@@ -212,10 +212,42 @@ pub struct GlyphQuad {
     pub page: u16,
     pub uv: [u16; 4],
     pub bounds_64: [i32; 4],
+    /// The pen before and after this glyph's advance on its line, in output 1/64 pixels.
+    /// A space has an advance but little or no ink.
+    pub pen_64: [i32; 2],
     pub line: u16,
     pub style: TextStyle,
     pub linear_sampling: bool,
     pub rendering: FontRendering,
+}
+
+/// Where a layout's line boxes sit: line `n` spans `n` pitches down for one line height,
+/// rounded to output units like glyph edges, then moved with the layout's normalization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LineRows {
+    units: units::Units,
+    pitch_64: i64,
+    height_64: i64,
+    shift_64: i64,
+}
+
+impl LineRows {
+    /// Line `line`'s top and bottom in output 1/64 pixels.
+    fn row_64(self, line: u16) -> Option<[i32; 2]> {
+        let output = |edge_64: i64| {
+            let edge_64 = self
+                .units
+                .to_output(edge_64)
+                .ok()?
+                .checked_add(self.shift_64)?;
+            i32::try_from(edge_64).ok()
+        };
+        let top_64 = i64::from(line).checked_mul(self.pitch_64)?;
+        Some([
+            output(top_64)?,
+            output(top_64.checked_add(self.height_64)?)?,
+        ])
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -226,6 +258,7 @@ pub struct TextLayout {
     /// Some glyph is `§k` text, whose glyphs change every frame.
     obfuscated: bool,
     source_indices: Box<[Option<usize>]>,
+    line_rows: LineRows,
     caret_stops_64: Box<[(usize, i32)]>,
     line_count: u16,
     size_64: [u32; 2],
@@ -274,6 +307,42 @@ impl TextLayout {
     /// Character indices in formatting-stripped text; generated hyphens and ellipses have none.
     pub fn glyph_source_indices(&self) -> &[Option<usize>] {
         &self.source_indices
+    }
+
+    /// Boxes covering the advances of the glyphs drawn from the byte range `bytes` of `text`,
+    /// the unparsed text this layout was made from: one per line that has any, as `[left, top,
+    /// right, bottom]` in output 1/64 pixels spanning the line box vertically, top line first.
+    /// Formatting codes draw no glyphs, so they add no box.
+    pub fn range_boxes_64(&self, text: &str, bytes: core::ops::Range<usize>) -> Vec<[i32; 4]> {
+        let text = text_prefix(text, crate::UiLimits::MAX_TEXT_BYTES);
+        let Ok((_, ends)) =
+            parse::parse_bedrock_text_with_sources(text, text.len(), TextStyle::default())
+        else {
+            return Vec::new();
+        };
+        let mut boxes: Vec<(u16, [i32; 4])> = Vec::new();
+        for (glyph, source) in self.glyphs.iter().zip(&self.source_indices) {
+            // Selections fall on character boundaries, so a glyph is inside when its end is.
+            let end = source.and_then(|index| ends.get(index).copied());
+            if !end.is_some_and(|end| end > bytes.start && end <= bytes.end) {
+                continue;
+            }
+            let [left, right] = glyph.pen_64;
+            match boxes.iter_mut().find(|(line, _)| *line == glyph.line) {
+                Some((_, area)) => {
+                    area[0] = area[0].min(left);
+                    area[2] = area[2].max(right);
+                }
+                None => {
+                    let Some([top, bottom]) = self.line_rows.row_64(glyph.line) else {
+                        continue;
+                    };
+                    boxes.push((glyph.line, [left, top, right, bottom]));
+                }
+            }
+        }
+        boxes.sort_by_key(|(line, _)| *line);
+        boxes.into_iter().map(|(_, area)| area).collect()
     }
 
     /// The first line's pen at a source byte boundary, in output 1/64 pixels.

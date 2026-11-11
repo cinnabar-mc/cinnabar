@@ -14,6 +14,26 @@ pub(super) fn parse_bedrock_text_with_style(
     parse_bedrock_text_with_sources(text, max_bytes, base_style).map(|(spans, _)| spans)
 }
 
+/// `byte` moved back onto its formatting code's `§` when it falls between the `§` and the
+/// character that `§` consumes. Text inserted there would pair with the `§` instead, hiding
+/// itself and the code's change; inserted before the `§`, it lands in the same visual place.
+pub fn formatting_code_boundary(text: &str, byte: usize) -> usize {
+    let mut characters = text.char_indices();
+    while let Some((at, character)) = characters.next() {
+        if at >= byte {
+            break;
+        }
+        if character == '§' {
+            if at + character.len_utf8() == byte {
+                return at;
+            }
+            // `§` consumes whatever follows it, another `§` included.
+            characters.next();
+        }
+    }
+    byte
+}
+
 /// Parses formatting once and retains each visible character's source byte end.
 pub(super) fn parse_bedrock_text_with_sources(
     text: &str,
@@ -153,6 +173,24 @@ fn formatting_change(code: char) -> Option<FormattingChange> {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    #[test]
+    fn insertion_points_never_split_a_formatting_code() {
+        let text = "§aGreen §§b§";
+        let after_section = |at: usize| at + '§'.len_utf8();
+        assert_eq!(formatting_code_boundary(text, after_section(0)), 0);
+        assert_eq!(formatting_code_boundary(text, "§a".len()), "§a".len());
+        assert_eq!(formatting_code_boundary(text, "§aG".len()), "§aG".len());
+        let pair = "§aGreen ".len();
+        assert_eq!(formatting_code_boundary(text, after_section(pair)), pair);
+        // The second `§` of `§§` is the first one's code, so the boundary after it is free.
+        assert_eq!(
+            formatting_code_boundary(text, after_section(after_section(pair))),
+            after_section(after_section(pair))
+        );
+        let trailing = text.len() - '§'.len_utf8();
+        assert_eq!(formatting_code_boundary(text, text.len()), trailing);
+    }
 
     #[test]
     fn review_redundant_style_changes_have_bounded_parsing_work() {

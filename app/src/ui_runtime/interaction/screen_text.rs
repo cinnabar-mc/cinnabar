@@ -1,14 +1,14 @@
-//! Keyboard editing in an open screen's search or anvil name field: caret and deletion keys,
-//! Shift selection, and the Control/Command select-all, copy, cut and paste shortcuts.
+//! Keyboard editing in an open screen's text field (search box, anvil name, or an editable
+//! book's page or title): caret and deletion keys, Shift selection, and the Control/Command
+//! select-all, copy, cut and paste shortcuts.
 
 use bevy::prelude::KeyCode;
 use client_shell::{menu::MenuClipboard, physical_input::keyboard_key};
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime, interaction::is_chat_edit_shortcut};
 use semantic_input::KeyboardKey;
 
-/// Applies `key` to the focused search or anvil field, with `held` the keys held with it.
-/// `false` leaves the press to the screen's other text handling: typed characters, Escape
-/// and an editable book's keys.
+/// Applies `key` to the focused text field, with `held` the keys held with it. `false` leaves
+/// the press to the screen's other text handling: typed characters, Escape and a book's keys.
 pub(super) fn edit_field_key(
     runtime: &mut UiRuntime,
     key: KeyCode,

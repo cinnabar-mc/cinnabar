@@ -132,6 +132,8 @@ pub struct BookView<'a> {
     pub author: &'a str,
     /// The page whose edit controls the screen shows.
     pub editing: Option<usize>,
+    /// The caret of the page or title typing reaches, while it takes typing.
+    pub caret: Option<launcher::menu::MenuCaret>,
 }
 
 /// This frame's resolved icons, durabilities and names, borrowed from the client's frame.

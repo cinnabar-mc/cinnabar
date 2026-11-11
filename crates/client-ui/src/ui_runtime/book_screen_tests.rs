@@ -1,5 +1,6 @@
 //! Book commits retain edits while the transport is full.
 use super::*;
+use protocol::MAX_BOOK_PAGE_BYTES;
 
 #[path = "book_screen_tests/backing.rs"]
 mod backing;
@@ -361,4 +362,39 @@ fn review_regression_inventory_updates_preserve_the_book_screen() {
     assert!(runtime.inventory_open());
     assert!(runtime.session.screen.book.as_ref().unwrap().editable);
     assert!(!player.inventory.ledger().personal_inventory_desired_open());
+}
+
+#[test]
+fn opening_another_book_with_the_same_text_starts_without_the_last_selection() {
+    let mut runtime = UiRuntime::new(1);
+    let open = |runtime: &mut UiRuntime| {
+        runtime.open_book(BookState::new(
+            BookSource::Held(0),
+            vec!["same".into()],
+            true,
+            String::new(),
+            String::new(),
+        ));
+    };
+    open(&mut runtime);
+    assert!(runtime.session.screen.select_all_text());
+    assert!(
+        runtime
+            .session
+            .screen
+            .field_caret()
+            .unwrap()
+            .selection
+            .is_some()
+    );
+    runtime.session.screen.book = None;
+    open(&mut runtime);
+    let caret = runtime.session.screen.field_caret().unwrap();
+    assert_eq!(caret.selection, None);
+    assert_eq!(caret.byte, "same".len());
+    runtime.session.screen.type_text("!");
+    assert_eq!(
+        runtime.session.screen.book.as_ref().unwrap().pages[0],
+        "same!"
+    );
 }
