@@ -99,7 +99,10 @@ impl ShadowFrustum {
         view_projection: Mat4,
         light: Vec3,
     ) -> Self {
-        let render_distance = f64::from(render_distance);
+        // Fog fully obscures distant shadows beyond the maximum horizon; clamping prevents
+        // excessive plane evaluations on extreme or maximum render distances.
+        const MAX_SHADOW_CULL_HORIZON: f32 = 768.0;
+        let render_distance = f64::from(render_distance.min(MAX_SHADOW_CULL_HORIZON));
         let half_plane = f64::from(settings.shadow_distance);
         let mut mul = f64::from(settings.render_mul);
         let distance_only = settings.culling == ShadowCulling::Distance

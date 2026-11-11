@@ -149,16 +149,19 @@ impl PublicationController {
         // Frames without a world must not repeat the retired session's backlog.
         self.diagnostics.last_work = PublicationFrameWork::default();
 
+        // Clamp elapsed duration during token accrual to 50ms so an occasional slow frame
+        // cannot trigger an overwhelming multi-frame upload burst cascade.
+        let elapsed_accrual = elapsed.min(Duration::from_millis(50));
         let (items, item_remainder) = accrue_tokens(
             u128::from(self.item_rate_per_second),
-            elapsed,
+            elapsed_accrual,
             self.item_numerator_remainder,
             0,
             self.config.maximum_burst_items as u128,
         );
         let (bytes, byte_remainder) = accrue_tokens(
             u128::from(self.byte_rate_per_second),
-            elapsed,
+            elapsed_accrual,
             self.byte_numerator_remainder,
             0,
             u128::from(self.config.maximum_burst_bytes),

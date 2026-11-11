@@ -23,8 +23,11 @@ impl WorldStream {
         ) else {
             return;
         };
+        // Bound connectivity reservation to a safe upper limit (96 chunks) so maximum
+        // render distance settings do not cause excessive cell allocations or relayout stalls.
+        const MAX_SAFE_CONNECTIVITY_RADIUS: u32 = 96;
         self.connectivity.reserve_view(
-            radius.max(0).unsigned_abs(),
+            radius.max(0).unsigned_abs().min(MAX_SAFE_CONNECTIVITY_RADIUS),
             u32::try_from(range.sub_chunk_count).unwrap_or(u32::MAX),
         );
     }
