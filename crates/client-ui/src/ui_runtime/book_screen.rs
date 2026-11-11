@@ -1,13 +1,10 @@
 //! The writable-book, written-book and lectern reading screens.
 
-use protocol::{BookEdit, MAX_BOOK_PAGE_BYTES, MAX_BOOK_PAGES, Packet};
+use protocol::{BookEdit, MAX_BOOK_PAGES, Packet};
 use semantic_input::KeyboardKey;
 
 use super::UiRuntime;
-
-/// Characters a writable page holds.
-const MAX_PAGE_CHARS: usize = 256;
-const MAX_TITLE_CHARS: usize = 16;
+use super::screen_state::{FieldKind, FieldLimit};
 /// Client packets held for the network flush; extras are dropped.
 pub(super) const MAX_QUEUED_CLIENT_PACKETS: usize = 32;
 
@@ -58,35 +55,43 @@ impl BookState {
         }
     }
 
-    /// Types into the current page, or the title while signing.
+    /// Appends typed text to the current page, or the title while signing, within its limits.
     pub fn type_text(&mut self, text: &str) {
         if !self.editable {
             return;
         }
-        let (field, limit, newlines) = if self.signing {
-            (&mut self.title, MAX_TITLE_CHARS, false)
+        let (field, limit, _) = self.focused_field_mut();
+        let admitted = limit.admit(field.chars().count(), field.len(), text);
+        field.push_str(&admitted);
+    }
+
+    /// The text typing reaches: the title while signing, else the current page.
+    pub(super) fn focused_field(&self) -> (&str, FieldLimit, FieldKind) {
+        if self.signing {
+            (&self.title, FieldLimit::BOOK_TITLE, FieldKind::BookTitle)
         } else {
-            (&mut self.pages[self.page], MAX_PAGE_CHARS, true)
-        };
-        for ch in text.chars() {
-            let allowed = !ch.is_control() || (newlines && ch == '\n');
-            if allowed
-                && field.chars().count() < limit
-                && field.len() + ch.len_utf8() <= MAX_BOOK_PAGE_BYTES
-            {
-                field.push(ch);
-            }
+            (
+                &self.pages[self.page],
+                FieldLimit::BOOK_PAGE,
+                FieldKind::BookPage(self.page),
+            )
         }
     }
 
-    pub fn backspace(&mut self) {
-        if !self.editable {
-            return;
-        }
+    /// [`Self::focused_field`], to edit.
+    pub(super) fn focused_field_mut(&mut self) -> (&mut String, FieldLimit, FieldKind) {
         if self.signing {
-            self.title.pop();
+            (
+                &mut self.title,
+                FieldLimit::BOOK_TITLE,
+                FieldKind::BookTitle,
+            )
         } else {
-            self.pages[self.page].pop();
+            (
+                &mut self.pages[self.page],
+                FieldLimit::BOOK_PAGE,
+                FieldKind::BookPage(self.page),
+            )
         }
     }
 
@@ -389,7 +394,7 @@ impl UiRuntime {
                 if book.signing {
                     self.finish_book(player_runtime, true);
                 } else {
-                    book.type_text("\n");
+                    self.session.screen.type_text("\n");
                 }
                 true
             }
@@ -501,24 +506,26 @@ mod tests {
     fn page_text_is_bounded() {
         let mut state = book(true);
         state.type_text(&"a".repeat(400));
-        assert_eq!(state.pages[0].chars().count(), MAX_PAGE_CHARS);
+        assert_eq!(state.pages[0].chars().count(), FieldLimit::BOOK_PAGE.chars);
         state.signing = true;
         state.type_text(&"t".repeat(40));
-        assert_eq!(state.title.chars().count(), MAX_TITLE_CHARS);
+        assert_eq!(state.title.chars().count(), FieldLimit::BOOK_TITLE.chars);
     }
 
     #[test]
     fn unicode_page_typing_obeys_both_character_and_wire_byte_limits() {
+        use protocol::MAX_BOOK_PAGE_BYTES;
+        let max_page_chars = FieldLimit::BOOK_PAGE.chars;
         for character in ['a', 'é', '€', '🦀'] {
             let mut state = book(true);
             state.pages[0].clear();
-            state.type_text(&character.to_string().repeat(MAX_PAGE_CHARS + 1));
+            state.type_text(&character.to_string().repeat(max_page_chars + 1));
             assert_eq!(
                 state.pages[0].chars().count(),
-                MAX_PAGE_CHARS.min(MAX_BOOK_PAGE_BYTES / character.len_utf8())
+                max_page_chars.min(MAX_BOOK_PAGE_BYTES / character.len_utf8())
             );
             assert!(protocol::book_edit_packet(0, &state.edits()[0]).is_some());
-            state.backspace();
+            state.pages[0].pop();
             state.type_text("a");
             assert!(state.pages[0].len() <= MAX_BOOK_PAGE_BYTES);
         }

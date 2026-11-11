@@ -1,5 +1,6 @@
 //! Book commits retain edits while the transport is full.
 use super::*;
+use protocol::MAX_BOOK_PAGE_BYTES;
 
 #[path = "book_screen_tests/backing.rs"]
 mod backing;

@@ -278,10 +278,11 @@ impl ContainerScreen {
             pointer,
             &mut icons,
         );
-        // A selection in the search or anvil name box draws highlighted.
+        // A selection in the search box, anvil name box or book field draws highlighted.
         let edit = screen
             .search_caret
             .or(screen.anvil_caret)
+            .or(screen.book.as_ref().and_then(|book| book.caret))
             .and_then(|caret| caret.selection)
             .map(|selection| ui_engine::engine::host_edit::Feedback::new(Some(selection)));
         let art = ScreenArt {
