@@ -20,7 +20,7 @@ pub struct FurnaceBookCache {
     names: NameSources,
     source_icons: Arc<[Option<IconRef>]>,
     first_icon: usize,
-    selected: Option<(i32, u32, i32)>,
+    selected: Option<(i32, u32, i32, [u8; 32])>,
     pub(super) categories: [bool; 3],
     pub(super) icons: Vec<IconRef>,
     pub(super) rows: Arc<[CollectionItem]>,
@@ -45,7 +45,14 @@ pub fn publication<'a>(
         .inventory
         .ledger()
         .selected_furnace_result()
-        .map(|stack| (stack.network_id, stack.metadata, stack.block_runtime_id));
+        .map(|stack| {
+            (
+                stack.network_id,
+                stack.metadata,
+                stack.block_runtime_id,
+                stack.nbt_digest,
+            )
+        });
     let reusable = cache.as_ref().is_some_and(|cache| {
         Arc::ptr_eq(&cache.all, all.shared_indices())
             && Arc::ptr_eq(&cache.supplied, supplied.shared_indices())
@@ -109,17 +116,7 @@ fn rows(
                 Scalar::Num((first_icon + icons.len() - 1) as f64)
             });
             let supplied = player.inventory.can_supply_furnace_result(recipe);
-            let selected = player
-                .inventory
-                .ledger()
-                .selected_furnace_result()
-                .is_some_and(|selected| {
-                    recipe.output.as_ref().is_some_and(|output| {
-                        selected.network_id == output.network_id
-                            && selected.metadata == u32::from(output.aux)
-                            && selected.block_runtime_id == output.block_runtime_id as i32
-                    })
-                });
+            let selected = player.inventory.ledger().furnace_result_selected(recipe);
             CollectionItem::default()
                 .with("#item_renderer_data", renderer)
                 .with("#recipe_book_total_items", Scalar::Num(total))

@@ -190,9 +190,9 @@ pub(super) fn supplied(inventory: &InventorySession, recipe: &ScreenRecipe) -> b
 }
 
 /// A furnace result's item and item data, which together tell listed outputs apart.
-type OutputKey = (i32, u16, u32, Option<Arc<[u8]>>);
+pub(super) type OutputKey = (i32, u16, u32, Option<Arc<[u8]>>);
 
-fn output_key(output: &protocol::RecipeOutput) -> OutputKey {
+pub(super) fn output_key(output: &protocol::RecipeOutput) -> OutputKey {
     (
         output.network_id,
         output.aux,

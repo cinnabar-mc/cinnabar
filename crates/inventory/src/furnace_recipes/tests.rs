@@ -496,28 +496,22 @@ fn furnace_results_deduplicate_alternatives_and_filter_by_the_active_station() {
     );
 }
 
-/// Furnace results of one item that differ in item data, such as a server's custom name, are
-/// listed separately; results with the same data still deduplicate.
-#[test]
-fn furnace_results_with_distinct_item_data_stay_separate() {
+/// Item data giving a result the custom name `name`.
+fn named_result(name: &str) -> Vec<u8> {
+    ::protocol::edit_item_extra(
+        &[],
+        &::protocol::ItemNbtEdit {
+            custom_name: Some(Some(name.to_owned())),
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .to_vec()
+}
+
+/// A furnace fixture whose recipes smelt each named ingredient into item 3 with that item data.
+fn named_results_fixture(recipes: Vec<(&str, Vec<u8>)>) -> InventorySession {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
-    let named = |name: &str| {
-        ::protocol::edit_item_extra(
-            &[],
-            &::protocol::ItemNbtEdit {
-                custom_name: Some(Some(name.to_owned())),
-                ..Default::default()
-            },
-        )
-        .unwrap()
-        .to_vec()
-    };
-    let recipes = [
-        ("minecraft:oak_log", named("Ember")),
-        ("minecraft:birch_log", named("Cinder")),
-        ("minecraft:raw_iron", named("Cinder")),
-        ("minecraft:oak_log", Vec::new()),
-    ];
     let update = CraftingDataFixture::clearing(
         recipes
             .into_iter()
@@ -543,18 +537,66 @@ fn furnace_results_with_distinct_item_data_stay_separate() {
         .unwrap();
     inventory.synchronize_crafting_frontier(1, Some((1, 0, Some(2))));
     inventory.drain_pending_inventory();
+    inventory
+}
+
+fn result_name(recipe: &::protocol::ScreenRecipe) -> Option<String> {
+    ::protocol::item_custom_name(&recipe.output.as_ref().unwrap().user_data.bytes())
+        .map(|name| name.to_string())
+}
+
+/// Furnace results of one item that differ in item data, such as a server's custom name, are
+/// listed separately; results with the same data still deduplicate.
+#[test]
+fn furnace_results_with_distinct_item_data_stay_separate() {
+    let inventory = named_results_fixture(vec![
+        ("minecraft:oak_log", named_result("Ember")),
+        ("minecraft:birch_log", named_result("Cinder")),
+        ("minecraft:raw_iron", named_result("Cinder")),
+        ("minecraft:oak_log", Vec::new()),
+    ]);
     let listed = inventory.furnace_recipes(false);
-    let names = listed
-        .iter()
-        .map(|recipe| {
-            ::protocol::item_custom_name(&recipe.output.as_ref().unwrap().user_data.bytes())
-        })
-        .collect::<Vec<_>>();
+    let names = listed.iter().map(result_name).collect::<Vec<_>>();
     assert_eq!(names.len(), 3);
     for name in ["Ember", "Cinder"] {
         assert!(names.iter().any(|listed| listed.as_deref() == Some(name)));
     }
     assert!(names.contains(&None));
+}
+
+/// Choosing a differently named result of the same item selects it instead of deselecting.
+#[test]
+fn furnace_selection_switches_between_differently_named_results() {
+    let mut inventory = named_results_fixture(vec![
+        ("minecraft:oak_log", named_result("Ember")),
+        ("minecraft:raw_iron", named_result("Cinder")),
+    ]);
+    let listed = inventory.furnace_recipes(false);
+    let ember = listed
+        .iter()
+        .find(|recipe| result_name(recipe).as_deref() == Some("Ember"))
+        .unwrap()
+        .clone();
+    let cinder = listed
+        .iter()
+        .find(|recipe| result_name(recipe).as_deref() == Some("Cinder"))
+        .unwrap()
+        .clone();
+    for (chosen, other) in [(&ember, &cinder), (&cinder, &ember)] {
+        assert_eq!(inventory.ledger_mut().begin_furnace_recipe(chosen), Ok(0));
+        let ledger = inventory.ledger();
+        assert!(ledger.furnace_result_selected(chosen));
+        assert!(!ledger.furnace_result_selected(other));
+        let selected = ledger.selected_furnace_result().unwrap();
+        assert_eq!(
+            ::protocol::item_custom_name(&selected.extra_data),
+            ::protocol::item_custom_name(&chosen.output.as_ref().unwrap().user_data.bytes())
+        );
+        assert_eq!(
+            ledger.furnace_ghost_stack(2).map(|stack| &stack.extra_data),
+            Some(&selected.extra_data)
+        );
+    }
 }
 
 #[test]
