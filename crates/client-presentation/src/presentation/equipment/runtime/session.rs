@@ -101,6 +101,8 @@ impl StagedSessionIcons {
 #[derive(Default)]
 pub(super) struct SessionLayer {
     wearable: BTreeMap<Box<str>, ArmorSlot>,
+    /// Trimmable custom armor: its armor slot and declared icon trim artwork.
+    trimmable: BTreeMap<Box<str>, (ArmorSlot, Arc<protocol::CustomArmorTrim>)>,
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     /// Custom block item to its material sheet's index in `sprites`.
@@ -109,17 +111,6 @@ pub(super) struct SessionLayer {
     models: BTreeMap<usize, Arc<[render_model::ActorRigVertex]>>,
     placements: Vec<Option<Placement>>,
     locations: Vec<Option<ActorArtworkLocation>>,
-}
-
-/// The armor slot a `minecraft:wearable` slot name wears in.
-pub(super) fn armor_slot(slot: &str) -> Option<ArmorSlot> {
-    Some(match slot {
-        "slot.armor.head" => ArmorSlot::Helmet,
-        "slot.armor.chest" => ArmorSlot::Chestplate,
-        "slot.armor.legs" => ArmorSlot::Leggings,
-        "slot.armor.feet" => ArmorSlot::Boots,
-        _ => return None,
-    })
 }
 
 impl EquipmentRuntime {
@@ -138,8 +129,17 @@ impl EquipmentRuntime {
         let mut item_attack = (*self.base_item_attack).clone();
         for (identifier, components) in items.into_iter().flat_map(|items| items.components.iter())
         {
-            if let Some(slot) = components.wearable_slot.as_deref().and_then(armor_slot) {
+            if let Some(slot) = components
+                .wearable_slot
+                .as_deref()
+                .and_then(ArmorSlot::from_wearable_slot)
+            {
                 layer.wearable.insert(Box::from(identifier.as_ref()), slot);
+                if let Some(trim) = &components.armor_trim {
+                    layer
+                        .trimmable
+                        .insert(Box::from(identifier.as_ref()), (slot, Arc::clone(trim)));
+                }
             }
             if let Some(ticks) = components.use_duration_ticks.filter(|ticks| *ticks > 0) {
                 item_use.insert(Box::from(identifier.as_ref()), ticks);
@@ -173,6 +173,15 @@ impl EquipmentRuntime {
     /// The armor slot a custom item's `minecraft:wearable` names.
     pub(super) fn wearable_slot(&self, identifier: &str) -> Option<ArmorSlot> {
         self.session.wearable.get(identifier).copied()
+    }
+
+    /// The armor slot and icon trim artwork of custom armor tagged `minecraft:trimmable_armors`.
+    pub(super) fn custom_trim(
+        &self,
+        identifier: &str,
+    ) -> Option<(ArmorSlot, Arc<protocol::CustomArmorTrim>)> {
+        let (slot, trim) = self.session.trimmable.get(identifier)?;
+        Some((*slot, Arc::clone(trim)))
     }
 
     /// Gives declared session wearables their armor route while preserving specialized models.
@@ -259,13 +268,6 @@ pub(super) fn session_mesh_id(index: usize) -> Option<EntityRigId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn wearable_slots_map_to_armor_slots_and_others_to_none() {
-        assert_eq!(armor_slot("slot.armor.head"), Some(ArmorSlot::Helmet));
-        assert_eq!(armor_slot("slot.armor.feet"), Some(ArmorSlot::Boots));
-        assert_eq!(armor_slot("slot.weapon.offhand"), None);
-    }
 
     // Session meshes stay in their own id range and refuse indices past it.
     #[test]

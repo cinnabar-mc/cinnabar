@@ -831,9 +831,13 @@ their selected artwork, preserving dye and enchantment state. Authored pattern a
 aliases override the native paths. Worn and preview compositions retain their admitted
 owner definition; held session icons retain their selected sprite placement. Worn composition
 preserves authored controller color and opacity. Dropped items and item frames draw a trimmed
-armor stack's trimmed icon, as native icon lookup does for every item drawer. Custom armor
-tagged `minecraft:trimmable_armors` is not decorated yet, and full native trim visual
-qualification remains incomplete.
+armor stack's trimmed icon, as native icon lookup does for every item drawer. Server armor
+tagged `minecraft:trimmable_armors` with an armor `minecraft:wearable` slot takes trims the
+same way, without a same-material darker palette: worn armor reads its attachable's aliases,
+and icons read the `minecraft:icon` `<material>_palette` textures. Two gaps remain: an icon's
+own `icon_trim` mask (an item atlas key) is not resolved, so such icons stay plain, and icon
+palettes outside `textures/trims/` are not retained by the pack catalog. Full native trim
+visual qualification remains incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 Inventory and HUD player models draw prepared block headgear on the captured head pose,
 using the world renderer's shared placement. Headgear scale, vertical placement and held

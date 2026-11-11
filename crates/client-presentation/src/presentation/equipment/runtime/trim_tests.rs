@@ -3,8 +3,13 @@ use super::*;
 
 /// Supplies original armor and trim pixels without installed game carriers.
 fn trim_fixture() -> (EquipmentRuntime, ActorArtworkPages, WornItem) {
+    trim_fixture_for("minecraft:diamond_chestplate")
+}
+
+/// [`trim_fixture`] for a chestplate definition bound to `identifier`.
+fn trim_fixture_for(identifier: &str) -> (EquipmentRuntime, ActorArtworkPages, WornItem) {
     let (fixture, _, mut item) = block_fixture();
-    item.identifier = "minecraft:diamond_chestplate".into();
+    item.identifier = identifier.into();
     item.kind = HeldKind::Sprite;
     item.trim = Some(render_api::ItemTrim {
         material: "gold".into(),
@@ -72,6 +77,11 @@ fn trim_fixture() -> (EquipmentRuntime, ActorArtworkPages, WornItem) {
                 texture(
                     "textures/trims/color_palettes/diamond_darker",
                     vec![10, 100, 100, 255],
+                    1,
+                ),
+                texture(
+                    "textures/trims/color_palettes/fixture_icon",
+                    vec![1, 2, 3, 255],
                     1,
                 ),
             ],
@@ -327,4 +337,129 @@ fn worn_trim_selection_reuses_slots_and_requires_the_current_draw() {
     cache.begin_frame();
     cache.finish_frame();
     assert!(cache.worn_source(identity).is_none());
+}
+
+/// Declares `identifier` as server chestplate armor tagged `minecraft:trimmable_armors`, with an
+/// icon palette for `icon_palette` materials.
+fn custom_armor_items(
+    identifier: &Arc<str>,
+    icon_palette: &[&str],
+    icons: Option<Arc<client_ui::ui_runtime::presentation::SessionIcons>>,
+) -> crate::session_assets::SessionItems {
+    let art = protocol::CustomArmorTrim {
+        icon_mask: None,
+        icon_palettes: icon_palette
+            .iter()
+            .map(|material| {
+                (
+                    Arc::from(*material),
+                    Arc::from("textures/trims/color_palettes/fixture_icon"),
+                )
+            })
+            .collect(),
+    };
+    crate::session_assets::SessionItems {
+        components: Arc::new(
+            [(
+                Arc::clone(identifier),
+                protocol::ItemComponents {
+                    icon: Some("fixture_coat".into()),
+                    wearable_slot: Some("slot.armor.chest".into()),
+                    armor_trim: Some(Arc::new(art)),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        ),
+        icons,
+    }
+}
+
+#[test]
+fn worn_trimmable_custom_armor_draws_its_trim_without_a_darker_palette() {
+    let (mut runtime, pages, mut item) = trim_fixture_for("fixture:coat");
+    item.trim.as_mut().unwrap().material = "diamond".into();
+    let (pages, locations) = pages.with_equipment_rasters(&[EquipmentRaster {
+        width: 2,
+        height: 1,
+        rgba8: vec![10, 20, 30, 255, 40, 50, 60, 255].into(),
+    }]);
+    let identity = block_fixture().1.input.identity;
+    let catalog = Arc::clone(runtime.catalog.as_ref().unwrap());
+    let remember = |runtime: &mut EquipmentRuntime| {
+        runtime.trims.remember_worn(
+            identity,
+            trims::WornSource {
+                catalog: Arc::clone(&catalog),
+                binding: 0,
+                artwork: Arc::clone(&catalog),
+                texture: 0,
+            },
+        );
+    };
+    let draw = |runtime: &mut EquipmentRuntime| {
+        runtime.trim_raster(
+            &item,
+            &pages,
+            locations[0].unwrap(),
+            EntityRigId(99),
+            None,
+            Some(identity),
+        )
+    };
+    remember(&mut runtime);
+    assert!(
+        draw(&mut runtime).is_none(),
+        "untagged custom armor takes no trim"
+    );
+    // The icon's palette never reaches worn armor, which reads its attachable's aliases.
+    runtime.set_session_items(
+        Some(&custom_armor_items(&item.identifier, &["diamond"], None)),
+        None,
+        Vec::new(),
+    );
+    remember(&mut runtime);
+    let (raster, _) = draw(&mut runtime).expect("trimmable custom armor draws its trim");
+    assert_eq!(raster.rgba8.as_ref(), &[30, 250, 250, 255, 40, 50, 60, 255]);
+}
+
+#[test]
+fn held_trimmable_custom_armor_icon_uses_its_icon_palette() {
+    use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
+    let (mut runtime, pages, item) = trim_fixture_for("fixture:coat");
+    let icons = Arc::new(SessionIcons {
+        icons: vec![SessionIcon {
+            identifier: Arc::clone(&item.identifier),
+            metadata: item.metadata,
+            width: 2,
+            height: 1,
+            rgba8: vec![10, 20, 30, 255, 40, 50, 60, 255].into(),
+        }],
+        ..Default::default()
+    });
+    let staged = StagedSessionIcons::stage_icons(&icons).unwrap();
+    let (pages, locations) = pages.with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(
+        Some(&custom_armor_items(
+            &item.identifier,
+            &["gold"],
+            Some(icons),
+        )),
+        Some(staged),
+        locations,
+    );
+    let (rig, location, _) = runtime.held_icon_mesh(&item).unwrap();
+    let (_, placement, _) = runtime
+        .session_sprite(&item.identifier, item.metadata)
+        .unwrap();
+    let (decorated, _) = runtime
+        .trim_raster(&item, &pages, location, rig, None, None)
+        .expect("the custom icon must receive the stack trim");
+    let at =
+        (usize::from(placement.y) * usize::from(decorated.width) + usize::from(placement.x)) * 4;
+    assert_eq!(
+        &decorated.rgba8[at..at + 8],
+        &[1, 2, 3, 255, 40, 50, 60, 255]
+    );
 }

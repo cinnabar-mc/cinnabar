@@ -14,7 +14,8 @@ pub struct WorldTrimArtwork {
     startup: Arc<assets::RuntimeEquipmentCatalog>,
     active: Option<Arc<assets::RuntimeEquipmentCatalog>>,
     identifier: Arc<str>,
-    material: Arc<str>,
+    trim: render_api::ItemTrim,
+    item: trim_icons::TrimItem,
     native: bool,
 }
 
@@ -26,7 +27,8 @@ impl PartialEq for WorldTrimArtwork {
             && Arc::ptr_eq(&self.startup, &other.startup)
             && self.active.as_ref().map(Arc::as_ptr) == other.active.as_ref().map(Arc::as_ptr)
             && self.identifier == other.identifier
-            && self.material == other.material
+            && self.trim.material == other.trim.material
+            && self.item == other.item
             && self.native == other.native
     }
 }
@@ -39,7 +41,8 @@ impl Hash for WorldTrimArtwork {
         Arc::as_ptr(&self.startup).hash(state);
         self.active.as_ref().map(Arc::as_ptr).hash(state);
         self.identifier.hash(state);
-        self.material.hash(state);
+        self.trim.material.hash(state);
+        self.item.hash(state);
         self.native.hash(state);
     }
 }
@@ -56,9 +59,8 @@ impl WorldTrimArtwork {
             &self.startup,
             self.active.as_deref(),
             binding,
-            &self.material,
-            "",
-            &self.identifier,
+            &self.trim,
+            &self.item,
             true,
         )
     }
@@ -152,13 +154,18 @@ impl UiPresentationRuntime {
         native: bool,
     ) -> Option<WorldTrimArtwork> {
         let trim = trim?;
-        assets::item::trim::armor_slot(identifier)?;
+        let item = self.gui_models.trim_icons.item(identifier)?;
         Some(WorldTrimArtwork {
             icon,
             startup: Arc::clone(self.equipment_catalog.as_ref()?),
             active: self.gui_models.pack_equipment.source.clone(),
             identifier: Arc::clone(identifier),
-            material: Arc::clone(&trim.material),
+            // Icons use the slot's item mask, so the pattern never changes their pixels.
+            trim: render_api::ItemTrim {
+                material: Arc::clone(&trim.material),
+                pattern: "".into(),
+            },
+            item,
             native,
         })
     }

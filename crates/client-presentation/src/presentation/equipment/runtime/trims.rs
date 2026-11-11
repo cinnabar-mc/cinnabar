@@ -167,7 +167,14 @@ impl EquipmentRuntime {
         worn: Option<render_model::ActorRenderIdentity>,
     ) -> Option<(EquipmentRaster, EntityRigId)> {
         let trim = item.trim.as_ref()?;
-        let slot = assets::item::trim::armor_slot(&item.identifier)?;
+        // Vanilla armor first; custom armor takes trims through its tag and wearable slot.
+        let (slot, custom) = match assets::item::trim::armor_slot(&item.identifier) {
+            Some(slot) => (slot, None),
+            None => {
+                let (slot, custom) = self.custom_trim(&item.identifier)?;
+                (slot, Some(custom))
+            }
+        };
         let icon = if worn.is_some() {
             None
         } else {
@@ -250,23 +257,43 @@ impl EquipmentRuntime {
                 height: h,
                 rgba8: base_pixels.into(),
             };
-            let composed = assets::item::trim::compose(
-                &base,
-                assets::facts::ItemFacts::builtin()
-                    .ok()?
-                    .by_identifier(&item.identifier)?
-                    .armor_material(),
-                &trim.material,
-                &trim.pattern,
-                slot,
-                icon.is_some(),
-                dye,
-                Some(&binding.resources),
-                |path| {
-                    pack.and_then(|c| c.texture(path))
-                        .or_else(|| startup.texture(path))
-                },
-            )?;
+            let texture = |path: &str| {
+                pack.and_then(|c| c.texture(path))
+                    .or_else(|| startup.texture(path))
+            };
+            let layers = match &custom {
+                // Custom icons read their own trim artwork, never the attachable's.
+                Some(custom) if icon.is_some() => assets::item::trim::custom_icon(
+                    &trim.material,
+                    slot,
+                    custom.icon_mask.is_some(),
+                    custom.icon_palette(assets::item::trim::short_name(&trim.material)),
+                    texture,
+                )?,
+                // Custom armor has no armor material, so no trim takes a darker palette.
+                Some(_) => assets::item::trim::layers(
+                    None,
+                    &trim.material,
+                    &trim.pattern,
+                    slot,
+                    false,
+                    Some(&binding.resources),
+                    texture,
+                )?,
+                None => assets::item::trim::layers(
+                    assets::facts::ItemFacts::builtin()
+                        .ok()?
+                        .by_identifier(&item.identifier)?
+                        .armor_material(),
+                    &trim.material,
+                    &trim.pattern,
+                    slot,
+                    icon.is_some(),
+                    Some(&binding.resources),
+                    texture,
+                )?,
+            };
+            let composed = layers.compose(&base, dye)?;
             let raster = if key.icon.is_none() {
                 EquipmentRaster {
                     width: composed.width,

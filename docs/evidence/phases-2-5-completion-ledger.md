@@ -417,8 +417,10 @@ from pack masks and palettes. Startup collection retains unreferenced trim artwo
 authored pattern and palette aliases retain precedence. Worn and preview compositions
 retain their admitted definition; regression cases cover owner-specific palettes, held
 session sprites and authored controller color and opacity. Dropped and framed armor draw the
-stack's trimmed icon; regression cases cover both drawers and pack catalog release. Custom
-trimmable armor and native trim visual qualification remain open.
+stack's trimmed icon; regression cases cover both drawers and pack catalog release. Server
+armor tagged `minecraft:trimmable_armors` takes trims on worn armor, held icons, inventory
+icons and world drawers; regression cases cover tag admission, icon palette aliases and the
+absent darker palette. Custom `icon_trim` masks and native trim visual qualification remain open.
 Shield decoration tests cover metadata, ordered texture composition, stack-specific icons,
 selected artwork and pack replacement. Inventory, preview and held routes retain banner layers;
 dropped/frame models retain their authored geometry and decoration. Custom model-part trees,
