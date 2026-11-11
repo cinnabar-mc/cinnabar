@@ -65,6 +65,8 @@ pub(super) fn summary(render: &EntityRenderData, layer: &EntityRenderLayer) -> V
 /// Compiles and round-trips the material selected by one fixture actor.
 fn state(material: &str, definitions: Option<&Value>) -> Value {
     let fixture = pack(0, material, false);
+    // Three textures satisfy every define's draw-time texture requirement.
+    write(fixture.path(), "render_controllers/example.json", br#"{"format_version":"1.8.0","render_controllers":{"controller.render.example":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default","Texture.default","Texture.default"]}}}"#);
     if let Some(definitions) = definitions {
         write(
             fixture.path(),
@@ -608,6 +610,7 @@ fn generated_materials_reach_the_carrier_without_fallback() {
             ("depth_equal", native.depth_equal && !native.depth_always),
             ("disable_alpha_write", native.disable_alpha_write),
             ("disable_color_write", native.disable_color_write),
+            ("masked_multitexture", native.masked_multitexture),
         ] {
             if enabled {
                 expected[key] = true.into();
