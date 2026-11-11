@@ -43,8 +43,10 @@ pub struct EmoteInput<'a> {
     pub equipping_emote: Option<Item>,
     pub selected_slot: Option<usize>,
     pub slots: &'a [Option<Item>],
-    /// The live player preview the occupied slots show.
+    /// The live player preview, playing the clip of `previewed_slot`.
     pub preview: Option<IconRef>,
+    /// The one slot that shows `preview`; the other occupied slots name their clip.
+    pub previewed_slot: Option<usize>,
 }
 
 impl EmoteScreen {
@@ -297,7 +299,7 @@ fn emote_data(
         data.set_indexed_global(
             index,
             "#image_is_valid",
-            Scalar::Bool(preview_ready && emote.is_some()),
+            Scalar::Bool(preview_ready && emote.is_some() && state.previewed_slot == Some(index)),
         );
         data.set_indexed_global(
             index,
