@@ -171,8 +171,8 @@ impl EquipmentRuntime {
         let (slot, custom) = match assets::item::trim::armor_slot(&item.identifier) {
             Some(slot) => (slot, None),
             None => {
-                let (slot, custom) = self.custom_trim(&item.identifier)?;
-                (slot, Some(custom))
+                let custom = self.custom_trim(&item.identifier)?;
+                (custom.slot, Some(custom))
             }
         };
         let icon = if worn.is_some() {
@@ -191,6 +191,10 @@ impl EquipmentRuntime {
                 _ => return None,
             }
         };
+        // The reference client generates trimmed icons only for custom items declaring an icon.
+        if icon.is_some() && custom.as_ref().is_some_and(|custom| !custom.icon) {
+            return None;
+        }
         let page = artwork
             .pages()
             .get(usize::from(location.page()).checked_sub(1)?)?;
@@ -200,34 +204,45 @@ impl EquipmentRuntime {
             let selected = self.trims.worn_source(identity)?;
             (
                 Arc::clone(&selected.catalog),
-                selected.binding,
+                Some(selected.binding),
                 Some((Arc::clone(&selected.artwork), selected.texture)),
             )
-        } else {
-            let (catalog, _) = self.binding_source(&item.identifier)?;
+        } else if let Some((catalog, _)) = self.binding_source(&item.identifier) {
             let index = catalog
                 .bindings()
                 .partition_point(|binding| binding.identifier.as_ref() <= item.identifier.as_ref())
                 .checked_sub(1)?;
-            (catalog, index, None)
-        };
-        let binding = catalog.bindings().get(binding_index)?;
-        let (base_path, texture_identity) = if let Some((artwork, index)) = &selected_artwork {
-            let texture = artwork.textures().get(*index)?;
-            (
-                texture.identifier.as_ref(),
-                texture as *const assets::EquipmentTexture as usize,
-            )
+            (catalog, Some(index), None)
+        } else if custom.is_some() {
+            // A custom icon reads only its own trim artwork, so it needs no attachable.
+            (Arc::clone(self.catalog.as_ref()?), None, None)
         } else {
-            (
+            return None;
+        };
+        let binding = match binding_index {
+            Some(index) => Some(catalog.bindings().get(index)?),
+            None => None,
+        };
+        let (base_path, texture_identity) = match (&selected_artwork, binding) {
+            (Some((artwork, index)), _) => {
+                let texture = artwork.textures().get(*index)?;
+                (
+                    texture.identifier.as_ref(),
+                    texture as *const assets::EquipmentTexture as usize,
+                )
+            }
+            (None, Some(binding)) => (
                 binding.texture.identifier.as_ref(),
                 &binding.texture as *const assets::EquipmentReference as usize,
-            )
+            ),
+            (None, None) => (item.identifier.as_ref(), 0),
         };
         let key = Key {
             trim: trim.clone(),
             item: Arc::clone(&item.identifier),
-            binding: binding as *const assets::EquipmentBinding as usize,
+            binding: binding.map_or(0, |binding| {
+                binding as *const assets::EquipmentBinding as usize
+            }),
             texture: texture_identity,
             source: pixels.storage_id(),
             layer: location.layer(),
@@ -266,8 +281,10 @@ impl EquipmentRuntime {
                 Some(custom) if icon.is_some() => assets::item::trim::custom_icon(
                     &trim.material,
                     slot,
-                    custom.icon_mask.is_some(),
-                    custom.icon_palette(assets::item::trim::short_name(&trim.material)),
+                    custom.art.icon_mask.is_some(),
+                    custom
+                        .art
+                        .icon_palette(assets::item::trim::short_name(&trim.material)),
                     texture,
                 )?,
                 // Custom armor has no armor material, so no trim takes a darker palette.
@@ -277,7 +294,7 @@ impl EquipmentRuntime {
                     &trim.pattern,
                     slot,
                     false,
-                    Some(&binding.resources),
+                    Some(&binding?.resources),
                     texture,
                 )?,
                 None => assets::item::trim::layers(
@@ -289,7 +306,7 @@ impl EquipmentRuntime {
                     &trim.pattern,
                     slot,
                     icon.is_some(),
-                    Some(&binding.resources),
+                    Some(&binding?.resources),
                     texture,
                 )?,
             };

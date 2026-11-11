@@ -97,12 +97,22 @@ impl StagedSessionIcons {
     }
 }
 
+/// Trim facts of custom armor tagged `minecraft:trimmable_armors`.
+#[derive(Clone)]
+pub(super) struct CustomTrim {
+    pub(super) slot: ArmorSlot,
+    /// The icon trim artwork the item declares.
+    pub(super) art: Arc<protocol::CustomArmorTrim>,
+    /// Whether the item declares `minecraft:icon`; the reference client generates trimmed
+    /// icons only for such items, so a sprite found by another route stays plain.
+    pub(super) icon: bool,
+}
+
 /// Installed session items: facts by identifier and placed icon sprites.
 #[derive(Default)]
 pub(super) struct SessionLayer {
     wearable: BTreeMap<Box<str>, ArmorSlot>,
-    /// Trimmable custom armor: its armor slot and declared icon trim artwork.
-    trimmable: BTreeMap<Box<str>, (ArmorSlot, Arc<protocol::CustomArmorTrim>)>,
+    trimmable: BTreeMap<Box<str>, CustomTrim>,
     sprites: Vec<IconSprite>,
     by_identifier: BTreeMap<Box<str>, BTreeMap<u32, usize>>,
     /// Custom block item to its material sheet's index in `sprites`.
@@ -135,10 +145,13 @@ impl EquipmentRuntime {
                 .and_then(ArmorSlot::from_wearable_slot)
             {
                 layer.wearable.insert(Box::from(identifier.as_ref()), slot);
-                if let Some(trim) = &components.armor_trim {
-                    layer
-                        .trimmable
-                        .insert(Box::from(identifier.as_ref()), (slot, Arc::clone(trim)));
+                if let Some(art) = &components.armor_trim {
+                    let trim = CustomTrim {
+                        slot,
+                        art: Arc::clone(art),
+                        icon: components.icon.is_some(),
+                    };
+                    layer.trimmable.insert(Box::from(identifier.as_ref()), trim);
                 }
             }
             if let Some(ticks) = components.use_duration_ticks.filter(|ticks| *ticks > 0) {
@@ -175,13 +188,9 @@ impl EquipmentRuntime {
         self.session.wearable.get(identifier).copied()
     }
 
-    /// The armor slot and icon trim artwork of custom armor tagged `minecraft:trimmable_armors`.
-    pub(super) fn custom_trim(
-        &self,
-        identifier: &str,
-    ) -> Option<(ArmorSlot, Arc<protocol::CustomArmorTrim>)> {
-        let (slot, trim) = self.session.trimmable.get(identifier)?;
-        Some((*slot, Arc::clone(trim)))
+    /// The trim facts of custom armor tagged `minecraft:trimmable_armors`.
+    pub(super) fn custom_trim(&self, identifier: &str) -> Option<CustomTrim> {
+        self.session.trimmable.get(identifier).cloned()
     }
 
     /// Gives declared session wearables their armor route while preserving specialized models.
