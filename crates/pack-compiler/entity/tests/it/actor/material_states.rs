@@ -610,6 +610,7 @@ fn generated_materials_reach_the_carrier_without_fallback() {
             ("depth_equal", native.depth_equal && !native.depth_always),
             ("disable_alpha_write", native.disable_alpha_write),
             ("disable_color_write", native.disable_color_write),
+            ("masked_multitexture", native.masked_multitexture),
         ] {
             if enabled {
                 expected[key] = true.into();
