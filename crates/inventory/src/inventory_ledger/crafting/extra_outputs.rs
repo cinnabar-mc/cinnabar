@@ -27,7 +27,7 @@ pub(in crate::inventory_ledger) enum ExtraDestination {
 /// The wire declaration of one craft's result.
 pub(in crate::inventory_ledger) fn craft_result(
     entry: &ItemRegistryEntry,
-    output: RecipeOutput,
+    output: &RecipeOutput,
 ) -> CraftResult {
     CraftResult {
         identifier: Arc::clone(&entry.identifier),
@@ -40,7 +40,7 @@ pub(in crate::inventory_ledger) fn craft_result(
 
 /// The stack a craft creates for `count` items of `output` under `request_id`.
 pub(in crate::inventory_ledger) fn created_stack(
-    output: RecipeOutput,
+    output: &RecipeOutput,
     count: u16,
     request_id: i32,
 ) -> NetworkItemStack {
@@ -66,7 +66,7 @@ impl PlayerInventoryLedger {
             .chain(recipe.extra_outputs())
             .map(|output| {
                 self.negotiated_item_entry(output.network_id)
-                    .map(|entry| craft_result(entry, output))
+                    .map(|entry| craft_result(entry, &output))
             })
             .collect()
     }
@@ -95,7 +95,7 @@ impl PlayerInventoryLedger {
                 .and_then(entry_capacity)
                 .ok_or(InventoryGestureError::InvalidRequest)?;
             let total = u16::from(output.count) * u16::from(crafts);
-            let created = created_stack(output, total, request_id);
+            let created = created_stack(&output, total, request_id);
             actions.push(StackRequestAction::Create {
                 results_index: u8::try_from(index + 1)
                     .map_err(|_| InventoryGestureError::InvalidRequest)?,

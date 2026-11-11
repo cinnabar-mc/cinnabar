@@ -21,7 +21,7 @@ pub(super) fn category(
     runtime: &UiRuntime,
     recipe: &ScreenRecipe,
 ) -> u8 {
-    let output = recipe.output.unwrap();
+    let output = recipe.output.as_ref().unwrap();
     let Some(entry) = player
         .inventory
         .ledger()

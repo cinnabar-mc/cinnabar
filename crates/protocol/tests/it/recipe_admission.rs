@@ -280,7 +280,7 @@ fn shield_blocking_timestamp_does_not_remove_its_crafting_recipe() {
 }
 
 #[test]
-fn shield_recipe_data_requires_complete_unrestricted_plain_envelopes() {
+fn shield_recipe_data_requires_complete_envelopes() {
     for len in (1..=25).filter(|len| !matches!(len, 10 | 18)) {
         let mut result = recipe(1);
         result.results[0].user_data_buffer = vec![0; len].into();
@@ -299,4 +299,32 @@ fn shield_recipe_data_requires_complete_unrestricted_plain_envelopes() {
         assert!(catalog.apply(1, 1, &update(vec![result], true)));
         assert!(catalog.recipe(1).is_none(), "nonempty header byte {index}");
     }
+}
+
+/// Servers declare custom results with a display name and lore; vanilla keeps every
+/// result's item data, so such a recipe stays craftable with that data.
+#[test]
+fn named_result_data_keeps_its_crafting_recipe() {
+    let edit = ::protocol::ItemNbtEdit {
+        custom_name: Some(Some("Block of Sapphire".into())),
+        ..Default::default()
+    };
+    let data = ::protocol::edit_item_extra(&[], &edit).expect("named item data");
+    let mut named = recipe(1);
+    named.results[0].user_data_buffer = data.to_vec().into();
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &update(vec![named], true)));
+    let output = catalog.recipe(1).expect("named recipe").output();
+    assert_eq!(output.user_data.bytes(), data);
+    assert_eq!(
+        ::protocol::item_custom_name(&output.user_data.bytes()).as_deref(),
+        Some("Block of Sapphire")
+    );
+    let stack = output.stack();
+    assert_eq!(stack.extra_data, data);
+    assert_eq!(
+        stack.nbt_digest,
+        <[u8; 32]>::from(<sha2::Sha256 as sha2::Digest>::digest(&data))
+    );
 }

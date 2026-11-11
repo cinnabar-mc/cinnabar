@@ -188,7 +188,7 @@ impl PlayerInventoryLedger {
         let capacity = entry_capacity(entry)
             .filter(|capacity| output.count != 0 && output.count <= *capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        let one_craft = created_stack(output, u16::from(output.count), 0);
+        let one_craft = created_stack(&output, u16::from(output.count), 0);
         // Before anything is consumed, one craft's output must fit an empty cell or a partial stack.
         if !self.player_cell_fits(&one_craft, capacity) {
             return Err(InventoryGestureError::InvalidRequest);
@@ -198,7 +198,7 @@ impl PlayerInventoryLedger {
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let total = output.count * crafts;
         let request_id = self.peek_request_id()?;
-        let created = created_stack(output, u16::from(total), request_id);
+        let created = created_stack(&output, u16::from(total), request_id);
         // Each ingredient is listed once with count 1 and empty grid cells are skipped;
         // the sources above still consume every ingredient's full count per craft.
         let ingredients: Arc<[AutoCraftIngredient]> = recipe

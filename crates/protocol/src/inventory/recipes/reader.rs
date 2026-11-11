@@ -109,4 +109,8 @@ impl<'a> Reader<'a> {
     pub(super) fn string_bytes(&self) -> usize {
         self.strings
     }
+    /// The bytes of every opaque value read so far.
+    pub(super) fn opaque_bytes(&self) -> usize {
+        self.opaque
+    }
 }

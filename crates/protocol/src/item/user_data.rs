@@ -17,6 +17,13 @@ pub fn item_user_data_equal(left: &[u8], right: &[u8]) -> Option<bool> {
     Some(left.0.reflexive && right.0.reflexive && left == right)
 }
 
+/// Whether `extra` is one complete item user-data envelope: an optional compound, both
+/// restriction lists and at most a shield's blocking tick, with nothing left over.
+#[must_use]
+pub(crate) fn item_user_data_complete(extra: &[u8]) -> bool {
+    read_extra(extra).is_some()
+}
+
 /// One of the two block-restriction lists that trail an item's user-data compound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemBlockList {

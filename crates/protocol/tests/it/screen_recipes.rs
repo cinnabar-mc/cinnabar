@@ -69,7 +69,7 @@ fn screen_recipes_are_retained_by_kind() {
     assert_eq!(cutter.len(), 1);
     assert_eq!(cutter[0].id, 5);
     assert_eq!(&*cutter[0].ingredients[0].name, "minecraft:stone");
-    assert_eq!(cutter[0].output.unwrap().network_id, 9);
+    assert_eq!(cutter[0].output.as_ref().unwrap().network_id, 9);
     let smith = catalog.screen_recipe(6).expect("smithing transform");
     assert_eq!(smith.kind, ScreenRecipeKind::SmithingTransform);
     assert_eq!(smith.ingredients.len(), 3);
@@ -99,7 +99,7 @@ fn furnace_recipes_reach_the_screen_catalog_without_entering_the_crafting_grid()
     for id in 1..=3 {
         let recipe = catalog.screen_recipe(id).expect("furnace recipe retained");
         assert_eq!(&*recipe.ingredients[0].name, "minecraft:stone");
-        assert_eq!(recipe.output.unwrap().network_id, 9);
+        assert_eq!(recipe.output.as_ref().unwrap().network_id, 9);
         assert!(catalog.recipe(id).is_none());
     }
 }

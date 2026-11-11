@@ -81,7 +81,7 @@ pub(super) fn listing(inventory: &InventorySession) -> Arc<Listing> {
     Arc::clone(&cache.listing)
 }
 
-/// Groups every fitting crafting recipe by output, ranking each group's preferred candidate.
+/// Groups every fitting crafting recipe by output item, item data included, ranking each group's preferred candidate.
 fn build(inventory: &InventorySession, small: bool) -> Listing {
     let Some(catalog) = inventory.screen_catalog() else {
         return Listing::default();
@@ -104,7 +104,12 @@ fn build(inventory: &InventorySession, small: bool) -> Listing {
         let held = craftable || inputs.holds_any(recipe);
         let candidate = BookGroup::new(recipe, unlocked, craftable, held);
         let output = recipe.output();
-        let key = (output.network_id, output.aux, output.block_runtime_id);
+        let key = (
+            output.network_id,
+            output.aux,
+            output.block_runtime_id,
+            output.user_data.identity(),
+        );
         if let Some(&index) = outputs.get(&key) {
             groups[index].include(candidate);
         } else {

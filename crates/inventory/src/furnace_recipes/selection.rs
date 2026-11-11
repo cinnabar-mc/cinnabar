@@ -6,6 +6,8 @@ use crate::inventory_ledger::InventoryGestureError;
 #[derive(Clone, Debug)]
 pub(crate) struct Selection {
     generation: u64,
+    /// The selected result's item and item data, as the furnace book lists it.
+    key: super::cache::OutputKey,
     result: NetworkItemStack,
     ghosts: [Option<NetworkItemStack>; 3],
     original: [Option<NetworkItemStack>; protocol::PLAYER_INVENTORY_SLOTS as usize],
@@ -69,16 +71,15 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// Repeating the selected result triggers ingredient return and deselection.
-    pub(super) fn furnace_result_selected(&self, recipe: &ScreenRecipe) -> bool {
+    /// Whether `recipe` produces the selected result, item data included; repeating the
+    /// selected result triggers ingredient return and deselection.
+    #[must_use]
+    pub fn furnace_result_selected(&self, recipe: &ScreenRecipe) -> bool {
         recipe
             .output
-            .zip(self.selected_furnace_result())
-            .is_some_and(|(output, selected)| {
-                selected.network_id == output.network_id
-                    && selected.metadata == u32::from(output.aux)
-                    && selected.block_runtime_id == output.block_runtime_id as i32
-            })
+            .as_ref()
+            .zip(self.furnace_selection())
+            .is_some_and(|(output, selection)| super::cache::output_key(output) == selection.key)
     }
 
     /// Returns incompatible items before snapshotting sources and installing previews.
@@ -103,14 +104,12 @@ impl PlayerInventoryLedger {
             last_request = Some(request);
         }
         let original = std::array::from_fn(|slot| self.displayed_stack(slot as u8).cloned());
-        let output = recipe.output.ok_or(InventoryGestureError::InvalidRequest)?;
-        let result = NetworkItemStack {
-            network_id: output.network_id,
-            metadata: u32::from(output.aux),
-            count: u16::from(output.count),
-            block_runtime_id: output.block_runtime_id as i32,
-            ..NetworkItemStack::empty()
-        };
+        let output = recipe
+            .output
+            .as_ref()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
+        let key = super::cache::output_key(output);
+        let result = output.stack();
         let mut ghosts = [None, None, None];
         if !supplied {
             ghosts[2] = Some(result.clone());
@@ -137,6 +136,7 @@ impl PlayerInventoryLedger {
         }
         self.furnace_selection = Some(Selection {
             generation,
+            key,
             result,
             ghosts,
             original,

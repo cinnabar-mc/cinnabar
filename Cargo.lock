@@ -9429,7 +9429,6 @@ dependencies = [
  "resource-pack",
  "semantic-input",
  "serde_json",
- "sha2",
  "tracing",
  "ui",
  "ui-engine",
