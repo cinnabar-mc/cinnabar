@@ -214,7 +214,7 @@ func (e *friendEndpoint) withdraw() error {
 func friendNetwork(signaling nethernet.Signaling, log *slog.Logger) minecraft.NetherNet {
 	return minecraft.NetherNet{
 		Signaling: signaling, Log: log,
-		ListenConfig: nethernet.ListenConfig{AllowAnonymous: true},
+		ListenConfig: nethernet.ListenConfig{API: netherNetAPI(), AllowAnonymous: true},
 	}
 }
 
