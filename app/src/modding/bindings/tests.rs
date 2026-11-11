@@ -91,3 +91,48 @@ fn key_names_match_physical_observations_and_devices_stay_explicit() {
         assert!(project(&binding).is_none());
     }
 }
+
+/// Every name a mod can observe resolves back to the same control, so it can assign it.
+#[test]
+fn observable_physical_names_resolve_back_to_their_controls() {
+    let controls = client_shell::physical_input::DESKTOP_KEYS
+        .iter()
+        .filter_map(|(_, key)| key.usage().map(PhysicalControl::KeyboardUsage))
+        .chain([1, 2, 3].map(PhysicalControl::MouseButton));
+    for control in controls {
+        let name = physical_name(control).unwrap();
+        assert_eq!(physical_control(&name), Some(control), "{name}");
+    }
+    assert_eq!(physical_control("KeyNotAKey"), None);
+}
+
+/// Mod requests name actions and keys as observed; unknown ones are refused before settings.
+#[test]
+fn binding_writes_translate_to_controls_row_edits() {
+    let write = |action: &str, change| InputBindingWrite {
+        action: action.into(),
+        change,
+    };
+    assert_eq!(
+        key_change(&write(
+            "freelook",
+            InputBindingChange::Assign("KeyG".into())
+        )),
+        Ok((
+            Action::Freelook,
+            KeyBindingChange::Assign(physical_control("KeyG").unwrap())
+        ))
+    );
+    assert_eq!(
+        key_change(&write("freelook", InputBindingChange::Unbind)),
+        Ok((Action::Freelook, KeyBindingChange::Unbind))
+    );
+    assert!(key_change(&write("look-around", InputBindingChange::Reset)).is_err());
+    assert!(
+        key_change(&write(
+            "freelook",
+            InputBindingChange::Assign("KeyZZ".into())
+        ))
+        .is_err()
+    );
+}

@@ -39,7 +39,7 @@ pub struct ScrollRetained {
     pub hit_bottom: bool,
     /// A touch drag or fling in progress.
     pub motion: Option<ScrollMotion>,
-    /// A touch-mode box fading after its last touch; `Some(0)` once hidden.
+    /// A touch-mode or auto-hidden box fading after its last use; `Some(0)` once hidden.
     pub bar_fade: Option<f32>,
 }
 
@@ -147,6 +147,14 @@ pub struct ScrollMetrics {
     pub gesture: bool,
     pub always_handle_scrolling: bool,
     pub touch_mode: bool,
+    /// The idle box hides for every input mode ([`crate::scrollbar::AUTO_HIDE_PROPERTY`]).
+    pub auto_hide: bool,
+    /// The view declares its minimum box length ([`crate::scrollbar::MIN_THUMB_PROPERTY`]), so a
+    /// box drag maps the box's own travel onto the scroll range.
+    pub thumb_travel_drag: bool,
+    /// The view's declared wheel easing in seconds
+    /// ([`crate::scrollbar::WHEEL_SECONDS_PROPERTY`]), clamped to its bound.
+    pub wheel_seconds: Option<f64>,
     pub allow_scroll_when_fits: bool,
     pub jump_to_end: bool,
     pub track_button: Option<String>,
@@ -198,6 +206,16 @@ impl ScrollMetrics {
         let length = self.along(track).1;
         if length <= 0.0 {
             return self.offset;
+        }
+        // A declared minimum can lengthen the box, so its travel, not the track, spans the range.
+        if self.thumb_travel_drag
+            && let Some(thumb) = self.thumb
+        {
+            let travel = length - self.along(thumb).1;
+            if travel > 0.0 {
+                return (self.offset + delta * self.max_offset() / travel)
+                    .clamp(0.0, self.max_offset());
+            }
         }
         (self.offset + delta * self.content / length).clamp(0.0, self.max_offset())
     }

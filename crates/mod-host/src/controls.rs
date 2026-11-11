@@ -90,6 +90,7 @@ pub(super) struct ControlState {
     pub scroll: crate::ScrollFrame,
     pub scroll_keys: Vec<String>,
     pub bindings: Option<Arc<crate::InputBindings>>,
+    pub(crate) binding_writes: super::input_bindings::BindingWrites,
     pub text_events: Vec<ui::mod_panel::TextEvent>,
     pub field_events: Vec<ui::mod_panel::FieldEvent>,
     in_frame_callback: bool,
@@ -105,6 +106,8 @@ pub(super) struct ControlState {
     /// Where the host last laid out this mod's panel; none while another mod's panel or no
     /// panel is up.
     pub layout: Option<ui::mod_hud::PanelLayout>,
+    /// This mod's open panel's last pointer press on a declared control, as last observed.
+    pub press: Option<ui::mod_hud::PanelPress>,
     pub keys: Vec<String>,
     pub interaction: InteractionOutput,
     pub dirty_settings: Option<String>,
@@ -128,6 +131,7 @@ impl ControlState {
             scroll: self.scroll,
             scroll_keys: self.scroll_keys.clone(),
             bindings: self.bindings.clone(),
+            binding_writes: self.binding_writes.transaction(),
             text_events: self.text_events.clone(),
             field_events: self.field_events.clone(),
             in_frame_callback: self.in_frame_callback,
@@ -139,6 +143,7 @@ impl ControlState {
             native_editing: self.native_editing,
             native_editing_next: false,
             layout: self.layout,
+            press: self.press.clone(),
             keys: Vec::new(),
             interaction: Default::default(),
             dirty_settings: None,
@@ -160,6 +165,7 @@ impl ControlState {
             self.pending_panel = transaction.pending_panel;
         }
         self.pending_settings = transaction.pending_settings;
+        self.binding_writes.accept(transaction.binding_writes);
         self.pending_keys = transaction.pending_keys;
         self.pending_scroll_keys = transaction.pending_scroll_keys;
         if current_frame && same_ui {
@@ -189,6 +195,7 @@ impl ControlState {
             scroll: _,
             scroll_keys: _,
             bindings: _,
+            binding_writes,
             text_events: _,
             field_events: _,
             in_frame_callback: _,
@@ -200,6 +207,7 @@ impl ControlState {
             native_editing: _,
             native_editing_next: _,
             layout: _,
+            press: _,
             keys: _,
             interaction: _,
             dirty_settings: _,
@@ -214,6 +222,7 @@ impl ControlState {
             writes: _,
         } = self;
         pointer.rollback();
+        binding_writes.rollback();
         *pending_panel = None;
         *pending_open = None;
         *pending_keys = None;
@@ -232,6 +241,7 @@ impl ControlState {
             scroll: crate::empty_scroll(),
             scroll_keys: Vec::new(),
             bindings: None,
+            binding_writes: Default::default(),
             text_events: Vec::new(),
             field_events: Vec::new(),
             in_frame_callback: false,
@@ -243,6 +253,7 @@ impl ControlState {
             native_editing: false,
             native_editing_next: false,
             layout: None,
+            press: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
             dirty_settings: None,
@@ -274,6 +285,7 @@ impl ControlState {
 
     pub fn commit(&mut self) {
         self.pointer.commit();
+        self.binding_writes.commit();
         if let Some(panel) = self.pending_panel.take() {
             self.panel = panel;
             if self.panel.is_none() {
@@ -302,6 +314,7 @@ impl ControlState {
 
     pub fn revoke(&mut self) {
         self.pointer = Default::default();
+        self.binding_writes = Default::default();
         self.text_events.clear();
         self.field_events.clear();
         self.in_frame_callback = false;
@@ -677,6 +690,26 @@ impl cinnabar::extension::panel::Host for State {
                 height: layout.size[1],
                 scale: layout.scale,
                 offset: (layout.offset[0], layout.offset[1]),
+            }))
+    }
+
+    fn read_press(&mut self) -> Result<Option<cinnabar::extension::panel::PanelPress>> {
+        Ok(self
+            .controls
+            .press
+            .as_ref()
+            .filter(|_| self.grants.controls && self.controls.open)
+            .map(|press| cinnabar::extension::panel::PanelPress {
+                id: press.id.clone(),
+                x: press.rect[0],
+                y: press.rect[1],
+                width: press.rect[2],
+                height: press.rect[3],
+                held: press.held,
+                to_local: {
+                    let [a, b, c, d, e, f] = press.to_local;
+                    cinnabar::extension::panel::LocalMap { a, b, c, d, e, f }
+                },
             }))
     }
 }

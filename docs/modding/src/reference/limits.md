@@ -27,7 +27,7 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `mod_host::MEMORY_BYTES` | 16777216 | Linear memory per personal mod. |
 | `mod_api::MAX_LOADED_MODS` | 256 | Concurrent local mods. |
 | `mod_host::MAX_COMPONENT_BYTES` | 4194304 | Executable component bytes. |
-| `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21233966 | Component envelope including embedded resources. |
+| `mod_host::MAX_COMPONENT_SOURCE_BYTES` | 21234010 | Component envelope including embedded resources. |
 | `mod_host::package::MAX_PACKAGE_BYTES` | 16777216 | Indexed directory package bytes. |
 | `mod_host::MAX_LABEL_BYTES` | 256 | Plain label bytes. |
 | `mod_api::MAX_SETTINGS_BYTES` | 16384 | Settings JSON bytes. |
@@ -42,6 +42,7 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | --- | ---: | --- |
 | `mod_api::MAX_SELECTED_SLOT_READS` | 8 | Selected-slot reads per callback, apart from the player-state read allowance. |
 | `mod_api::MAX_INPUT_BINDINGS_PER_READ` | 16 | Physical binding entries copied per read. |
+| `mod_api::MAX_INPUT_BINDING_WRITES` | 8 | Actions whose player binding changes may await application at once. |
 | `mod_api::MAX_INPUT_BINDINGS` | 128 | Physical binding entries per settings snapshot. |
 | `mod_api::MAX_INPUT_ACTION_BYTES` | 32 | Bytes per stable binding action name. |
 | `mod_api::MAX_CONTROL_KEYS` | 64 | Physical keys per held/admitted/pressed list, selection or reservation. Held and admitted lists truncate independently in physical-name order; above the cap, chord resolution can differ from the host gate. |
@@ -56,7 +57,8 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | `mod_api::presentation::MAX_ANNOTATIONS` | 128 | Actor annotations. |
 | `mod_api::presentation::MAX_ANNOTATION_SPANS` | 4 | Spans per annotation surface. |
 | `mod_api::presentation::MAX_ANNOTATION_SPAN_BYTES` | 32 | Bytes per annotation span. |
-| `mod_api::presentation::MAX_ACTOR_TINTS` | 64 | Actor tints. |
+| `mod_api::presentation::MAX_NAMETAG_RULES` | 128 | Nametag visibility rules. |
+| `mod_api::presentation::MAX_TINT_RULES` | 128 | Actor tint rules. |
 | `mod_api::presentation::MAX_TOOLTIP_LINES` | 256 | Retained tooltip lines. |
 | `mod_api::presentation::MAX_ITEM_TOOLTIP_LINES` | 8 | Extra tooltip lines shown for one item. |
 | `mod_api::presentation::MAX_TOOLTIP_LINE_BYTES` | 96 | Bytes per tooltip line. |
@@ -102,10 +104,10 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
-| `mod_api::MAX_GAMEPLAY_PLAYERS` | 128 | Remote player poses per gameplay snapshot. |
-| `mod_api::MAX_GAMEPLAY_MOBS` | 64 | Nearby non-player poses. |
-| `mod_api::MAX_MOB_RANGE_BLOCKS` | 64 | Non-player observation radius in blocks. |
-| `mod_api::MAX_OBSERVED_ACTORS` | 16 | Actor observations per read. |
+| `mod_api::MAX_GAMEPLAY_PLAYERS` | 128 | Remote player poses per native packet-mod frame. |
+| `mod_api::MAX_READ_ACTORS` | 16 | Actor rows per `read-actors`. |
+| `mod_api::MAX_OBSERVED_ACTORS` | 64 | Actors of each kind observed per callback, and the largest `read-actors-limited` limit. |
+| `mod_api::OBSERVED_ACTOR_RANGE_BLOCKS` | 128 | Radius of actor observations around the local feet, in blocks. |
 | `mod_api::MAX_OBSERVED_ACTOR_BOXES` | 8 | Boxes per observed actor. |
 | `mod_api::MAX_ACTOR_LIFE_READS` | 64 | Actor IDs per life lookup. |
 | `mod_api::MAX_COMBAT_READ_EVENTS` | 4 | Combat events per incremental read. |
@@ -164,6 +166,7 @@ The guest's `budget.remaining-fuel` reports its cumulative invocation allowance 
 | `mod_api::MAX_DRAW_VERTEX_WORK` | 786432 | Submitted vertex work, including repeated instances. |
 | `mod_api::MAX_DRAW_GROUP_NAME_BYTES` | 32 | Frame group name bytes. |
 | `mod_api::MAX_DRAW_ENTITIES` | 16 | Retained actor references per owner. |
+| `mod_api::MAX_DRAW_ENTITY_RANGE_BLOCKS` | 64 | Actor reference radius around the view, in blocks. |
 | `mod_api::MAX_DRAW_MATERIALS` | 8 | Retained materials, including retiring resources. |
 | `mod_api::MAX_MATERIAL_COMPILES_PER_CALLBACK` | 1 | Material validation attempts per callback. |
 | `mod_api::MAX_MATERIAL_PIPELINE_COMPILES_PER_FRAME` | 1 | Native material compilations per render frame across all mods. |

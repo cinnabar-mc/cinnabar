@@ -33,6 +33,8 @@ pub struct ModuleObservations {
     pub motion: Option<MotionObservation>,
     pub vitals: Option<VitalsObservation>,
     pub ping_ms: Option<u32>,
+    /// Nearest first: the nearest `MAX_OBSERVED_ACTORS` players and the nearest
+    /// `MAX_OBSERVED_ACTORS` other actors, so a grant's prefix is its kinds' nearest actors.
     pub actors: Vec<ObservedActor>,
     pub combat: Vec<RecordedCombatObservation>,
     /// Every admitted actor in the current dimension, sorted by runtime ID; shared by every mod
@@ -77,31 +79,37 @@ pub(super) fn validate(facts: &ModuleObservations) -> Result<()> {
         "invalid held food observation"
     );
     ensure!(
-        facts.actors.len() <= mod_api::MAX_OBSERVED_ACTORS
-            && facts.actors.iter().all(|observed| {
-                let a = &observed.actor;
-                a.session != 0
-                    && a.runtime_id != 0
-                    && finite(a.position)
-                    && a.look_origin.is_none_or(finite)
-                    && a.look_direction.is_none_or(finite)
-                    && a.yaw.is_finite()
-                    && a.pitch.is_finite()
-                    && a.identifier.len() <= 128
-                    && !a.identifier.chars().any(char::is_control)
-                    && a.name.len() <= mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES
-                    && !a.name.chars().any(char::is_control)
-                    && a.health.is_none_or(|n| n.is_finite() && n >= 0.)
-                    && observed.max_health.is_none_or(|n| n.is_finite() && n > 0.)
-                    && a.boxes.len() <= mod_api::MAX_OBSERVED_ACTOR_BOXES
-                    && a.boxes.iter().all(|b| {
-                        finite(b.min)
-                            && finite(b.max)
-                            && b.min.0 <= b.max.0
-                            && b.min.1 <= b.max.1
-                            && b.min.2 <= b.max.2
-                    })
-            }),
+        [true, false].into_iter().all(|player| {
+            facts
+                .actors
+                .iter()
+                .filter(|observed| observed.actor.player == player)
+                .count()
+                <= mod_api::MAX_OBSERVED_ACTORS
+        }) && facts.actors.iter().all(|observed| {
+            let a = &observed.actor;
+            a.session != 0
+                && a.runtime_id != 0
+                && finite(a.position)
+                && a.look_origin.is_none_or(finite)
+                && a.look_direction.is_none_or(finite)
+                && a.yaw.is_finite()
+                && a.pitch.is_finite()
+                && a.identifier.len() <= 128
+                && !a.identifier.chars().any(char::is_control)
+                && a.name.len() <= mod_api::MAX_OBSERVED_ACTOR_NAME_BYTES
+                && !a.name.chars().any(char::is_control)
+                && a.health.is_none_or(|n| n.is_finite() && n >= 0.)
+                && observed.max_health.is_none_or(|n| n.is_finite() && n > 0.)
+                && a.boxes.len() <= mod_api::MAX_OBSERVED_ACTOR_BOXES
+                && a.boxes.iter().all(|b| {
+                    finite(b.min)
+                        && finite(b.max)
+                        && b.min.0 <= b.max.0
+                        && b.min.1 <= b.max.1
+                        && b.min.2 <= b.max.2
+                })
+        }),
         "invalid actor observation"
     );
     ensure!(
@@ -165,6 +173,7 @@ mod tests {
                     health: Some(20.),
                 },
                 max_health: Some(20.),
+                unique_id: -5,
             }],
             combat: vec![RecordedCombatObservation {
                 life: Some(1),
@@ -197,6 +206,22 @@ mod tests {
         assert!(validate(&facts).is_err());
         facts.actors.clear();
         facts.combat.push(facts.combat[0]);
+        assert!(validate(&facts).is_err());
+    }
+
+    /// Each kind may fill its own observation limit, so one kind never displaces the other.
+    #[test]
+    fn actor_rows_are_bounded_per_kind() {
+        let mut facts = facts();
+        let player = facts.actors[0].clone();
+        let mut other = player.clone();
+        other.actor.player = false;
+        facts.actors = [player, other]
+            .into_iter()
+            .flat_map(|row| std::iter::repeat_n(row, mod_api::MAX_OBSERVED_ACTORS))
+            .collect();
+        assert!(validate(&facts).is_ok());
+        facts.actors.push(facts.actors[0].clone());
         assert!(validate(&facts).is_err());
     }
 

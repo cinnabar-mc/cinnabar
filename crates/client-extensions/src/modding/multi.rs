@@ -9,8 +9,8 @@ use {
     mod_api::MAX_LOADED_MODS,
     mod_host::{
         CameraDelta, ControlEvent, ControlFrame, GameplayCameraRig, GameplayControlModes,
-        GameplayMob, GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, ModCue,
-        ModGrants, ModHost, PlayerStateSnapshot,
+        GameplayMovementIntents, GameplayMovementSnapshot, GameplaySnapshot, ModCue, ModGrants,
+        ModHost, PlayerStateSnapshot,
     },
 };
 
@@ -183,6 +183,15 @@ impl ModHosts {
             label_metrics: None,
             teleport_fuel: mod_api::TOTAL_TELEPORT_HANDLER_FUEL,
         }
+    }
+
+    /// Schedules frame callbacks against a caller-owned monotonic clock instead of wall time,
+    /// so admission and yields depend only on guest fuel. Call it before the first frame.
+    pub fn use_scheduling_clock(
+        &mut self,
+        clock: impl Fn() -> std::time::Duration + Send + Sync + 'static,
+    ) {
+        self.budget = mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, clock);
     }
 
     /// Resets the shared frame, event and loading allowances, and grants
@@ -669,13 +678,7 @@ pub struct FrameInput<'a> {
 pub fn run_frame(
     runtime: &mut ModHosts,
     input: FrameInput<'_>,
-    world: impl FnMut(
-        &ModGrants,
-    ) -> (
-        Option<GameplaySnapshot>,
-        Vec<GameplayMob>,
-        Option<GameplayMovementSnapshot>,
-    ),
+    world: impl FnMut(&ModGrants) -> (Option<GameplaySnapshot>, Option<GameplayMovementSnapshot>),
     failed: impl FnMut(usize, String),
 ) -> Merged {
     run_frame_callbacks(runtime, input, world, failed);
@@ -686,13 +689,7 @@ pub fn run_frame(
 pub fn run_frame_callbacks(
     runtime: &mut ModHosts,
     input: FrameInput<'_>,
-    mut world: impl FnMut(
-        &ModGrants,
-    ) -> (
-        Option<GameplaySnapshot>,
-        Vec<GameplayMob>,
-        Option<GameplayMovementSnapshot>,
-    ),
+    mut world: impl FnMut(&ModGrants) -> (Option<GameplaySnapshot>, Option<GameplayMovementSnapshot>),
     mut failed: impl FnMut(usize, String),
 ) {
     let _ = runtime.reconcile_panel_requests();
@@ -707,11 +704,7 @@ pub fn run_frame_callbacks(
         let grants = host.grants();
         union.include(grants);
     }
-    let (snapshot, mobs, movement) = if active {
-        world(&union)
-    } else {
-        (None, Vec::new(), None)
-    };
+    let (snapshot, movement) = if active { world(&union) } else { (None, None) };
     let owner = runtime.panel_owner();
     let chat_owner = runtime.chat_action_owner();
     let priority = (0..runtime.host_count())
@@ -758,25 +751,7 @@ pub fn run_frame_callbacks(
         let snapshot = snapshot
             .as_ref()
             .filter(|_| grants.needs_gameplay())
-            .map(|frame| GameplaySnapshot {
-                players: if grants.players {
-                    frame.players.clone()
-                } else {
-                    Vec::new()
-                },
-                session: frame.session,
-                dimension: frame.dimension,
-                eye: frame.eye,
-                yaw: frame.yaw,
-                pitch: frame.pitch,
-                frame_seconds: frame.frame_seconds,
-                attack_held: frame.attack_held,
-            });
-        let mobs = if grants.entities {
-            mobs.clone()
-        } else {
-            Vec::new()
-        };
+            .cloned();
         let movement = if grants.movement { movement } else { None };
         controls.gameplay = snapshot.is_some() || movement.is_some();
         // Stage each mod's exclusive writes before resolving the completed batch in load order.
@@ -809,14 +784,9 @@ pub fn run_frame_callbacks(
             input.native_editing,
             controls.panel_open,
         ));
-        if let Err(error) = host.frame_with_movement(
-            input.pressed,
-            snapshot,
-            mobs,
-            player_state,
-            movement,
-            controls,
-        ) {
+        if let Err(error) =
+            host.frame_with_movement(input.pressed, snapshot, player_state, movement, controls)
+        {
             failed(index, format!("{error:#}"));
         }
         if let Some(error) = host.take_settings_error() {

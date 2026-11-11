@@ -61,7 +61,7 @@ other grants with the [development switches](https://github.com/cinnabar-mc/cinn
 | Controls, settings and personal panels | WIT `input`, `settings`, `panel`; settings use a bounded companion file |
 | Touch buttons | WIT `touch`; `controls`; labelled buttons in the built-in touch style, placed by players in the touch layout editor |
 | HUD surface, text metrics and vanilla elements | WIT `hud`; see [HUD surfaces](#hud-surfaces); retained output clears on quarantine/reload/unload |
-| Nametag style, actor annotations and tints, hurt overlay, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
+| Nametag style and visibility, actor annotations and tints, tooltip lines, chat actions | WIT `presentation`; `hud`, plus `players`/`entities` for per-actor rows; merged across mods in load order |
 | Item, food, potion and effect facts, and every installed food | WIT `facts`; `player-state`, with its own per-callback read budget |
 | Time/weather and local menu branding | WIT `environment`; changes presentation, not server state |
 | World primitives and post passes | WIT `render`; [render example](https://github.com/cinnabar-mc/cinnabar/tree/dev/examples/mods/render-sample) |
@@ -135,6 +135,25 @@ A route change keeps each scroll view offset shared by layout key, clamped to th
 new content; absent keys are discarded. Closing or removing the panel resets its
 scroll positions.
 
+Surface scroll views take four Cinnabar extensions that server and resource-pack
+JSON-UI never see:
+
+- `cinnabar_default_control`, `cinnabar_hover_control` and `cinnabar_pressed_control`
+  on a `scrollbar_box` or `scroll_track` name the child shown at rest, under the
+  pointer, and while the box is dragged or the track held. A missing state falls back
+  to the next less specific one.
+- `cinnabar_min_thumb_fraction` on the `scroll_view` sets the box's minimum length as a
+  fraction of the track, from 0 to 1 (default 0.1).
+- `cinnabar_scroll_seconds` on the `scroll_view` sets how long a wheel notch eases under
+  panel `motion`, from 0 to 1 second (default 0.14); 0 scrolls at once.
+- `cinnabar_scrollbar_auto_hide: true` on the `scroll_view` hides the box until the view
+  scrolls or the pointer is on its box or track, then fades it out over a second. With
+  panel `motion` off or reduced motion set, the box shows and hides at once instead,
+  staying shown for that second.
+
+The three `scroll_view` settings also accept a `#name` binding reference. Panel and HUD
+surfaces reject literal values outside these bounds; values a binding supplies are clamped.
+
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
 itself, a `stack_panel` root or sizes measured from children or siblings keep the
@@ -178,6 +197,13 @@ scale and a `reference_size` fitted to a small window. `panel.read-layout`, with
 `controls`, reports the open panel root's size in panel units, the HUD GUI units one
 panel unit spans and the root's offset from the HUD root, so a pointer `p` from
 `input.read-controls` lies at `(p - offset) / scale` in panel units.
+`panel.read-press` reports the last pointer press on one of the panel's declared controls:
+its `id`, the box where that control was laid out when pressed, in its own layout
+coordinates, the `to-local` map from panel units into those coordinates (undoing a painted
+scale or rotation) and whether the button is still `held`. The press stays held while the
+pointer leaves the control or the panel, so a mod can draw its own sliders and other pointer
+widgets: on a press event it maps each frame's pointer through `to-local` into the pressed
+control's box until `held` turns false.
 
 `budget.remaining-fuel` returns the fuel left in the running callback, roughly the
 instructions it may still execute. It needs no grant and exposes no game state; use
@@ -186,9 +212,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
-line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
-hiding, and its bounds in GUI units when laid out.
+status effects, sidebar, hunger row or position line; `hud.read-elements` reports whether
+vanilla draws each element this frame, ignoring hiding, and its bounds in GUI units when
+laid out.
 
 ## Gameplay wheel input
 
@@ -259,6 +285,7 @@ from executable bytes; directory packages retain their own lifecycle.
 | Section | Payload/grant |
 | --- | --- |
 | `cinnabar:extension/panel-bundle@1` | Panel JSON; `controls` |
+| `cinnabar:extension/panel-bundle@2` | Panel JSON as one Brotli stream; `controls` |
 | `cinnabar:extension/font@1` | Outline font; `controls` |
 | `cinnabar:extension/menu-logo@1` | PNG; `environment` |
 | `cinnabar:extension/menu-title@1` | Single-line UTF-8 heading; `environment` |
@@ -266,6 +293,9 @@ from executable bytes; directory packages retain their own lifecycle.
 | `cinnabar:extension/icon@1` | PNG Mods-tab icon |
 
 [SDK constants](https://github.com/cinnabar-mc/cinnabar/blob/dev/crates/mod-api/src/lib.rs) define byte/image limits.
+A component carries at most one panel bundle version. Version 2 holds the same JSON
+compressed with Brotli; its decompressed JSON has the same byte limit as version 1.
+Earlier clients reject version 2 as an unsupported asset version.
 Duplicate, nested, malformed or oversized presentation resources are rejected;
 invalid icon/metadata affects only the card. `CINNABAR_MOD_FONT` and
 `CINNABAR_MOD_UI` sidecars override embedded font/panel data. Mod cards read standard
@@ -301,6 +331,22 @@ the old version keeps running until that selection.
 to newest. Adding capabilities appends their stable revision while retaining older
 supported entries. Breaking changes remove revisions that can no longer run.
 Local installation still admits binaries through the native compatibility checks.
+
+## Removed observation reads
+
+Three reads that duplicated other imports were removed, retiring earlier revisions.
+Components importing them no longer link; rebuild against the current WIT:
+
+| Removed | Use instead |
+| --- | --- |
+| `gameplay.read-mobs` | `player-state.read-actors-limited` under `entities`: non-player rows carry runtime and unique IDs, identifier, position, health and maximum health |
+| `players` in `gameplay.read-frame` | Player rows from `player-state.read-actors` under `players`, at the pose drawn in the same frame |
+| `player-state.read-equipment-matches` | `player-state.read-equipment`, re-read only when `read-revisions` reports a new equipment token |
+
+`read-actors` returns the nearest `MAX_READ_ACTORS` (16) actors within 128 blocks of the
+local feet, and `read-actors-limited` the nearest 1 to `MAX_OBSERVED_ACTORS` (64), nearest
+first among the kinds the mod's grants admit. The client observes the 64 nearest actors of
+each kind, so an entities-only mod reads at least as many mobs as `read-mobs` gave.
 
 ## Trusted packet mods
 

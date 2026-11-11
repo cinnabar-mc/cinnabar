@@ -17,8 +17,21 @@ fn opened() -> UiPresentationRuntime {
     presentation
 }
 
+/// A press that opens a native field editor is still reported as a press on its control.
 #[test]
-fn pointer_cancellation_preserves_number_and_dropdown_edits() {
+fn native_editor_presses_report_their_control() {
+    let mut presentation = opened();
+    let number = point(&presentation, "mod.edit:1", 0.5);
+    presentation
+        .mod_ui_mut()
+        .mod_panel_events(number, true, true);
+    let (_, press) = presentation.mod_ui().mod_panel_press().unwrap();
+    assert_eq!(press.id, "strength");
+    assert!(press.held);
+}
+
+#[test]
+fn pointer_cancellation_preserves_number_edits() {
     let mut presentation = opened();
     let number = point(&presentation, "mod.edit:1", 0.5);
     presentation
@@ -34,21 +47,6 @@ fn pointer_cancellation_preserves_number_and_dropdown_edits() {
         vec![Event {
             id: "strength".into(),
             value: 42.0
-        }]
-    );
-    frame(&mut presentation, [1280, 720]);
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    presentation
-        .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    presentation.mod_ui_mut().mod_panel_key("ArrowDown", None);
-    presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
-    assert!(presentation.mod_ui().mod_panel_open() && presentation.mod_ui().mod_panel_editing());
-    assert_eq!(
-        presentation.mod_ui_mut().mod_panel_key("Enter", None),
-        vec![Event {
-            id: "mode".into(),
-            value: 1.0
         }]
     );
 }
@@ -74,21 +72,22 @@ fn pointer_cancellation_prevents_a_previous_slider_drag_from_resuming() {
     assert!(presentation.mod_ui().mod_panel_open());
 }
 
+/// A press outside the open value editor dismisses it and discards the draft.
 #[test]
-fn dropdown_exposes_each_option_and_dismisses_without_changing_value() {
+fn value_editor_dismisses_on_an_outside_press_without_changing_value() {
     let mut presentation = opened();
-    let choice = point(&presentation, "mod.control:2", 0.5);
+    let number = point(&presentation, "mod.edit:1", 0.5);
     assert!(
         presentation
             .mod_ui_mut()
-            .mod_panel_events(choice, true, true)
+            .mod_panel_events(number, true, true)
             .is_empty()
     );
-    assert!(presentation.mod_ui().mod_panel_editing());
+    presentation
+        .mod_ui_mut()
+        .mod_panel_key("Digit4", Some("42"));
+    // The editor's dismissing layer is hit-tested once a frame has laid it out.
     frame(&mut presentation, [1280, 720]);
-    let first = point(&presentation, "mod.option:0", 0.5);
-    let second = point(&presentation, "mod.option:1", 0.5);
-    assert!(first[1] < second[1]);
     assert!(
         presentation
             .mod_ui_mut()
@@ -97,55 +96,15 @@ fn dropdown_exposes_each_option_and_dismisses_without_changing_value() {
     );
     assert!(!presentation.mod_ui().mod_panel_editing());
     frame(&mut presentation, [1280, 720]);
-    let choice = point(&presentation, "mod.control:2", 0.5);
+    let number = point(&presentation, "mod.edit:1", 0.5);
     presentation
         .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    frame(&mut presentation, [1280, 720]);
-    let second = point(&presentation, "mod.option:1", 0.5);
-    assert_eq!(
-        presentation
-            .mod_ui_mut()
-            .mod_panel_events(second, true, true),
-        vec![Event {
-            id: "mode".into(),
-            value: 1.
-        }]
-    );
-    assert!(!presentation.mod_ui().mod_panel_editing());
-}
-
-#[test]
-fn dropdown_keyboard_navigation_is_explicit_and_escape_cancels() {
-    let mut presentation = opened();
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    presentation
-        .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    assert!(
-        presentation
-            .mod_ui_mut()
-            .mod_panel_key("ArrowDown", None)
-            .is_empty()
-    );
-    assert!(
-        presentation
-            .mod_ui_mut()
-            .mod_panel_key("Escape", None)
-            .is_empty()
-    );
-    assert!(presentation.mod_ui().mod_panel_open());
-    frame(&mut presentation, [1280, 720]);
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    presentation
-        .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    presentation.mod_ui_mut().mod_panel_key("End", None);
+        .mod_panel_events(number, true, true);
     assert_eq!(
         presentation.mod_ui_mut().mod_panel_key("Enter", None),
         vec![Event {
-            id: "mode".into(),
-            value: 1.
+            id: "strength".into(),
+            value: 35.
         }]
     );
 }
@@ -261,11 +220,6 @@ fn guest_key_capture_prevents_opening_a_competing_text_editor() {
         .mod_ui_mut()
         .mod_panel_events(value, true, true);
     assert!(!presentation.mod_ui().mod_panel_editing());
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    presentation
-        .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    assert!(!presentation.mod_ui().mod_panel_editing());
 }
 
 #[test]
@@ -292,44 +246,6 @@ fn number_open_and_enter_preserves_sub_cent_precision() {
     let events = presentation.mod_ui_mut().mod_panel_key("Enter", None);
     assert_eq!(events.len(), 1);
     assert!((events[0].value - 0.123).abs() < 0.000001);
-}
-
-#[test]
-fn eight_dropdown_options_remain_inside_small_viewport_and_route_individually() {
-    let mut presentation = opened();
-    let mut spec = panel();
-    spec.controls = vec![Control::Choice {
-        id: "mode".into(),
-        label: "Mode".into(),
-        index: 0,
-        options: (0..8).map(|i| format!("Mode {i}")).collect(),
-    }];
-    spec.surface = mod_ui::test_support::sample_surface(&spec.controls);
-    presentation
-        .mod_ui_mut()
-        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
-        .unwrap();
-    frame(&mut presentation, [320, 320]);
-    let choice = point(&presentation, "mod.control:0", 0.5);
-    presentation
-        .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    frame(&mut presentation, [320, 320]);
-    let mut previous = 0.;
-    for option in 0..8 {
-        let position = point(&presentation, &format!("mod.option:{option}"), 0.5);
-        assert!(position[0] >= 0. && position[0] < 320.);
-        assert!(position[1] > previous && position[1] < 320.);
-        previous = position[1];
-    }
-    let last = point(&presentation, "mod.option:7", 0.5);
-    assert_eq!(
-        presentation.mod_ui_mut().mod_panel_events(last, true, true),
-        vec![Event {
-            id: "mode".into(),
-            value: 7.
-        }]
-    );
 }
 
 #[test]
@@ -364,24 +280,6 @@ fn same_shape_guest_updates_keep_draft_but_shape_changes_cancel_it() {
             .mod_ui_mut()
             .mod_panel_key("Enter", None)
             .is_empty()
-    );
-    frame(&mut presentation, [1280, 720]);
-    let choice = point(&presentation, "mod.control:2", 0.5);
-    presentation
-        .mod_ui_mut()
-        .mod_panel_events(choice, true, true);
-    presentation.mod_ui_mut().mod_panel_key("End", None);
-    presentation
-        .mod_ui_mut()
-        .set_mod_panel(PanelUiOwner::Environment(0), Some(&spec))
-        .unwrap();
-    frame(&mut presentation, [1280, 720]);
-    assert_eq!(
-        presentation.mod_ui_mut().mod_panel_key("Enter", None),
-        vec![Event {
-            id: "mode".into(),
-            value: 1.
-        }]
     );
     frame(&mut presentation, [1280, 720]);
     let value = point(&presentation, "mod.edit:1", 0.5);

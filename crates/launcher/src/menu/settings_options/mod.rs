@@ -24,6 +24,8 @@ pub mod video_presets;
 pub use chat::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 pub use reset::SettingsGroup;
 #[cfg(test)]
+mod action_key_tests;
+#[cfg(test)]
 mod registry_tests;
 #[cfg(test)]
 mod tests;
@@ -52,7 +54,8 @@ pub use definitions::{
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use input_placeholders::ExpandedTextTooLarge;
 pub use keybindings::{
-    DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
+    DEBUG_OVERLAY_KEY, KeyBindingChange, KeyBindingRejected, OPEN_NOTIFICATION_KEY,
+    PLAYER_LIST_KEY, custom_key_label, key_name,
 };
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};

@@ -37,11 +37,18 @@ pub(in crate::ui_runtime::presentation) struct SemanticHud {
     sidebar_key: Option<(u64, u64, bool)>,
     bosses: Vec<BossBarView>,
     world_text: components::WorldTextInput,
+    /// Whether vanilla shows the position line this frame, ignoring a mod hiding it.
+    position_shown: bool,
     #[cfg(test)]
     pub(in crate::ui_runtime::presentation) constructions: [usize; json_ui::HudChanges::COUNT],
 }
 
 impl SemanticHud {
+    /// Whether vanilla showed the position line at the last refresh, ignoring a mod hiding it.
+    pub(super) fn position_shown(&self) -> bool {
+        self.position_shown
+    }
+
     /// Updates only changed semantic components; paint and preview state stay with the caller.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn refresh(
@@ -111,7 +118,13 @@ impl SemanticHud {
             self.model.boss_bars = self.bosses.iter().map(boss_model).collect();
             changes.boss_bars = true;
         }
-        let world_text = world_text_input(runtime, frame, hide_position);
+        let world_text = world_text_input(runtime, frame);
+        self.position_shown = world_text.shows_position();
+        let world_text = if hide_position {
+            world_text.without_position()
+        } else {
+            world_text
+        };
         if reset || language_changed || world_text != self.world_text {
             (self.model.player_position, self.model.days_played) =
                 world_text_lines(runtime, world_text);
@@ -533,5 +546,5 @@ pub(super) fn world_text_lines_for_frame(
     runtime: &UiRuntime,
     frame: &HudFrame,
 ) -> (Option<String>, Option<String>) {
-    world_text_lines(runtime, world_text_input(runtime, frame, false))
+    world_text_lines(runtime, world_text_input(runtime, frame))
 }

@@ -150,6 +150,22 @@ impl MenuRuntime {
         Arc::new(settings)
     }
 
+    /// Applies an action's keyboard and mouse row edit made outside the Controls screen, such
+    /// as a mod's request, and saves it like a Controls edit when it changes the bindings.
+    pub fn change_action_key(
+        &mut self,
+        action: semantic_input::Action,
+        change: launcher::menu::settings_options::KeyBindingChange,
+    ) -> Result<(), launcher::menu::settings_options::KeyBindingRejected> {
+        let mut settings = (*self.settings_options).clone();
+        if settings.change_action_key(action, change)? {
+            self.settings_options = Arc::new(settings);
+            self.settings_dirty = true;
+            self.settings_apply = true;
+        }
+        Ok(())
+    }
+
     /// Applies a registered setting through the persisted option controller.
     pub fn set_named_option(&mut self, id: SettingId, value: i32) {
         self.set_option(id.index() as u16, value);

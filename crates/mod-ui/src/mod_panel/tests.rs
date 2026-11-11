@@ -351,7 +351,9 @@ fn close_button_resets_scroll_and_feedback_before_reopening() {
                 current
                     .motion
                     .advance(&current.panel, &mut current.view, Some(0), 1.0, true);
-                current.motion.scroll("list", 40.0, 30.0, 100.0);
+                current
+                    .motion
+                    .scroll("list", 40.0, 30.0, 100.0, motion::SCROLL_SECONDS);
                 current
                     .motion
                     .advance(&current.panel, &mut current.view, Some(0), 1.03, true);
@@ -420,7 +422,9 @@ fn closed_and_settled_panels_reuse_feedback_data() {
             current
                 .motion
                 .advance(&current.panel, &mut current.view, None, 1.0, true);
-            current.motion.scroll("list", 0.0, 30.0, 100.0);
+            current
+                .motion
+                .scroll("list", 0.0, 30.0, 100.0, motion::SCROLL_SECONDS);
             current
                 .motion
                 .advance(&current.panel, &mut current.view, None, 1.03, true);

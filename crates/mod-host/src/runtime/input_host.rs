@@ -49,6 +49,14 @@ impl cinnabar::extension::input::Host for State {
         super::input_bindings::read(self, after, offset, limit)
     }
 
+    fn write_binding(
+        &mut self,
+        action: String,
+        change: cinnabar::extension::input::BindingChange,
+    ) -> Result<Result<(), String>> {
+        super::input_bindings::write(self, action, change)
+    }
+
     fn read_controls(&mut self) -> Result<Result<crate::ControlFrame, String>> {
         controls::read(self)
     }

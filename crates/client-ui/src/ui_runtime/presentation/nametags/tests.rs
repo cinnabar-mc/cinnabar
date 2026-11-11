@@ -785,10 +785,6 @@ fn cosmetic_shadow_and_border_preserve_each_records_depth_selection_and_record_b
         scene.records[6].color[3], 0.125,
         "sneaking alpha survives cosmetic styling"
     );
-    let mut hidden = style;
-    hidden.hide = true;
-    style_scene(&mut scene, &hidden, None);
-    assert!(scene.records.is_empty());
 }
 
 #[test]

@@ -241,7 +241,7 @@ impl cinnabar::extension::player_state::Host for State {
     }
     fn read_actors(&mut self) -> Result<Result<Vec<crate::ActorObservation>, String>> {
         Ok(self
-            .read_actor_observations(mod_api::MAX_OBSERVED_ACTORS as u32)?
+            .read_actor_observations(mod_api::MAX_READ_ACTORS as u32)?
             .map(|actors| actors.map(|observed| observed.actor.clone()).collect()))
     }
     fn read_actors_limited(
@@ -400,56 +400,6 @@ impl cinnabar::extension::player_state::Host for State {
             .player_state
             .split
             .observe(self.player_state.snapshot.as_ref())?))
-    }
-
-    fn read_equipment_matches(
-        &mut self,
-        identifier: String,
-    ) -> Result<Result<Option<cinnabar::extension::player_state::EquipmentMatches>, String>> {
-        self.player_state.read_budget()?;
-        if !self.grants.player_state {
-            return Ok(Err("player-state capability denied".into()));
-        }
-        if identifier.is_empty() || identifier.len() > MAX_ITEM_IDENTIFIER_BYTES {
-            return Ok(Err("invalid item identifier".into()));
-        }
-        let Some(revisions) = self
-            .player_state
-            .split
-            .observe(self.player_state.snapshot.as_ref())?
-        else {
-            return Ok(Ok(None));
-        };
-        let snapshot = self
-            .player_state
-            .snapshot
-            .as_ref()
-            .expect("observed snapshot");
-        let matches = |slot: &PlayerStateSlot| -> Option<bool> {
-            if !slot.known {
-                return None;
-            }
-            match &slot.item {
-                None => Some(false),
-                Some(item) => item
-                    .identifier
-                    .as_ref()
-                    .map(|name| *name == identifier && item.count > 0),
-            }
-        };
-        let inventory = snapshot
-            .inventory
-            .iter()
-            .enumerate()
-            .filter_map(|(slot, item)| (matches(item) == Some(true)).then_some(slot as u8))
-            .collect();
-        Ok(Ok(Some(
-            cinnabar::extension::player_state::EquipmentMatches {
-                revisions,
-                inventory,
-                offhand: matches(&snapshot.offhand),
-            },
-        )))
     }
 
     fn read_equipment(

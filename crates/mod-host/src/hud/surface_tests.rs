@@ -336,7 +336,8 @@ fn element_reads_follow_enum_order_and_hiding_replaces_the_set() {
             wit::VanillaElement::Crosshair,
             wit::VanillaElement::StatusEffects,
             wit::VanillaElement::Sidebar,
-            wit::VanillaElement::Hunger
+            wit::VanillaElement::Hunger,
+            wit::VanillaElement::Position
         ]
     );
     assert!(elements[3].visible);

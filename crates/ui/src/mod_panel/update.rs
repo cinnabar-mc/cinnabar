@@ -159,9 +159,6 @@ impl Control {
                 Self::Slider { min, max, step, .. } => {
                     matches!(other, Self::Slider {min:b_min,max:b_max,step:b_step,..} if (min,max,step)==(b_min,b_max,b_step))
                 }
-                Self::Choice { options, .. } => {
-                    matches!(other, Self::Choice {options:b,..} if options==b)
-                }
                 Self::Text {
                     min_chars,
                     max_chars,
@@ -223,8 +220,6 @@ struct ControlPatch {
     key: Option<String>,
     #[serde(default)]
     capturing: Option<bool>,
-    #[serde(default)]
-    index: Option<u32>,
 }
 
 impl PanelPatch {
@@ -286,23 +281,13 @@ impl PanelPatch {
             if !seen.insert(control.id().to_owned()) {
                 return Err("panel update repeats a control".into());
             }
-            let mut patch = ControlPatch {
+            let patch = ControlPatch {
                 id: control.id().to_owned(),
                 label: None,
                 value: Some(value),
                 key: None,
                 capturing: None,
-                index: None,
             };
-            if matches!(control, Control::Choice { .. }) {
-                let index = patch
-                    .value
-                    .take()
-                    .and_then(|value| value.as_u64())
-                    .and_then(|value| u32::try_from(value).ok())
-                    .ok_or("panel choice update requires an unsigned integer")?;
-                patch.index = Some(index);
-            }
             patch.apply(control)?;
         }
         if let Some(id) = self.surface {
@@ -370,7 +355,6 @@ impl ControlPatch {
             value,
             key,
             capturing,
-            index,
             ..
         } = self;
         let invalid = || "panel update fields do not match the declared control kind".to_owned();
@@ -381,7 +365,7 @@ impl ControlPatch {
                 max_chars,
                 ..
             } => {
-                if key.is_some() || capturing.is_some() || index.is_some() {
+                if key.is_some() || capturing.is_some() {
                     return Err(invalid());
                 }
                 if let Some(value) = value {
@@ -391,7 +375,7 @@ impl ControlPatch {
                 }
             }
             Control::Toggle { value: current, .. } => {
-                if key.is_some() || capturing.is_some() || index.is_some() {
+                if key.is_some() || capturing.is_some() {
                     return Err(invalid());
                 }
                 if let Some(value) = value {
@@ -404,7 +388,7 @@ impl ControlPatch {
                 max,
                 ..
             } => {
-                if key.is_some() || capturing.is_some() || index.is_some() {
+                if key.is_some() || capturing.is_some() {
                     return Err(invalid());
                 }
                 if let Some(value) = value {
@@ -422,7 +406,7 @@ impl ControlPatch {
                 capturing: active,
                 ..
             } => {
-                if value.is_some() || index.is_some() {
+                if value.is_some() {
                     return Err(invalid());
                 }
                 if let Some(key) = key {
@@ -435,23 +419,8 @@ impl ControlPatch {
                     *active = capturing;
                 }
             }
-            Control::Choice {
-                index: current,
-                options,
-                ..
-            } => {
-                if value.is_some() || key.is_some() || capturing.is_some() {
-                    return Err(invalid());
-                }
-                if let Some(index) = index {
-                    if index as usize >= options.len() {
-                        return Err("panel update choice index is invalid".into());
-                    }
-                    *current = index;
-                }
-            }
             Control::Button { .. } => {
-                if value.is_some() || key.is_some() || capturing.is_some() || index.is_some() {
+                if value.is_some() || key.is_some() || capturing.is_some() {
                     return Err(invalid());
                 }
             }
@@ -462,7 +431,6 @@ impl ControlPatch {
                 Control::Toggle { label, .. }
                 | Control::Slider { label, .. }
                 | Control::Keybind { label, .. }
-                | Control::Choice { label, .. }
                 | Control::Text { label, .. }
                 | Control::Button { label, .. } => label,
             };

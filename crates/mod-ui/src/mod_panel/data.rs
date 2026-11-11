@@ -33,7 +33,6 @@ pub(super) fn control_data(panel: &Panel) -> DataSource {
                     key_label(key)
                 }
             }
-            Control::Choice { index, options, .. } => options[*index as usize].clone(),
             Control::Text { value, .. } => value.clone(),
         };
         data.set_global(

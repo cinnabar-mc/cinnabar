@@ -65,3 +65,7 @@ replace github.com/df-mc/go-nethernet => github.com/hashimthearab/go-nethernet v
 // cinnabar-v4.2 keeps a DTLS transport connected when the peer negotiates no SRTP profile, as
 // data-channel-only NetherNet servers do; upstream fails the transport.
 replace github.com/pion/webrtc/v4 => github.com/cinnabar-mc/webrtc/v4 v4.0.0-20261110082859-ca6ad8c9ad75
+
+// cinnabar-v1.12 bundles a SACK still owed to the peer with outgoing DATA, as vanilla does, so a
+// server's SCTP round trip no longer includes the 200 ms delayed-ack timer.
+replace github.com/pion/sctp => github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f

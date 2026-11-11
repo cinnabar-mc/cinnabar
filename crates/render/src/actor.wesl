@@ -364,6 +364,9 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (!authored && !color_mask_material && !multitexture_material && material == ACTOR_MATERIAL_DEFAULT && ((material_class.x == 0u && color.a < 0.1) || (material_class.x == 1u && color.a == 0.0))) {
         discard;
     }
+    // Materials that compose a second texture never dye the base; MASKED_MULTITEXTURE has
+    // already composed its clothes over it above.
+    let second_texture_material = multitexture_material || masked_multitexture;
     if (input.tint != 0u) {
         let change_color = unpack4x8unorm(input.tint);
         let dye = change_color.rgb;
@@ -371,9 +374,9 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
             // Native entity_change_color: alpha weights dye, never coverage/opacity. The
             // material has no alpha test and the pipeline has no blending, with depth writes.
             color = vec4(mix(color.rgb, color.rgb * dye, color.a), color.a * change_color.a);
-        } else if (!multitexture_material && authored && (input.material_parameters.z & ACTOR_MATERIAL_BLEND_FLAG) != 0u) {
+        } else if (!second_texture_material && authored && (input.material_parameters.z & ACTOR_MATERIAL_BLEND_FLAG) != 0u) {
             color *= change_color;
-        } else if (!multitexture_material && color.a > 0.99) {
+        } else if (!second_texture_material && color.a > 0.99) {
             color = vec4(color.rgb * dye, color.a);
         }
     }
