@@ -820,6 +820,44 @@ fn multi_line_selection_skips_formatting_codes_and_highlights_each_line_box() {
     );
 }
 
+#[test]
+fn centered_single_line_selection_covers_the_selected_glyphs_where_they_are_painted() {
+    let json = serde_json::json!({ "namespace": "fixture", "screen": {
+        "type": "edit_box", "size": [200, 20], "text_control": "value", "max_length": 16,
+        "anchor_from": "top_left", "anchor_to": "top_left", "controls": [{ "value": {
+            "type": "label", "text": "000", "localize": false, "size": [200, 20],
+            "text_alignment": "center", "anchor_from": "top_left", "anchor_to": "top_left",
+            "shadow": false } }] } })
+    .to_string();
+    let metrics = TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), Some(2));
+    for (selection, glyphs) in [([1, 2], 1..2), ([0, 3], 0..3)] {
+        let (_, nodes) = paint_fixture_selection(&fixture_font(), metrics, &json, Some(selection));
+        let (bounds, layout) = nodes
+            .iter()
+            .find_map(|node| match node.visual() {
+                UiVisual::Text { layout, .. } => Some((node.bounds(), Arc::clone(layout))),
+                _ => None,
+            })
+            .unwrap();
+        let first = layout.glyphs()[glyphs.start].pen_64[0];
+        assert!(
+            first > 0,
+            "the centered line starts right of the label edge"
+        );
+        let last = layout.glyphs()[glyphs.end - 1].pen_64[1];
+        let boxes = nodes
+            .iter()
+            .filter(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+            .map(|node| node.bounds())
+            .collect::<Vec<_>>();
+        assert_eq!(boxes.len(), 1, "{boxes:?}");
+        assert_eq!(boxes[0].min().x(), bounds.min().x() + first as f32 / 64.0);
+        assert_eq!(boxes[0].max().x(), bounds.min().x() + last as f32 / 64.0);
+        assert_eq!(boxes[0].min().y(), bounds.min().y());
+        assert_eq!(boxes[0].max().y(), bounds.max().y());
+    }
+}
+
 /// Smooth outline faces retain fractional placement; pixel faces keep their physical grid.
 #[test]
 fn filtered_outline_labels_preserve_fractional_positions() {

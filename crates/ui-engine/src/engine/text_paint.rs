@@ -395,14 +395,14 @@ impl Canvas<'_> {
                 clip,
             );
         }
-        let selection = style.edit.and_then(|edit| edit.selection);
-        // A wrapped or multi-line box highlights the selected glyphs on each line box.
-        let boxes = selection
-            .filter(|_| layout.line_count() > 1)
-            .map(|selection| {
-                let [start, end] = selection.map(|byte| crate::caret::caret_byte(&text, byte));
-                layout.range_boxes_64(&text, start..end)
-            });
+        // The selection highlights the advances of its glyphs where the full layout placed them,
+        // so alignment and wrapping carry over. A single line spans the whole label height so
+        // tall ink stays covered; wrapped lines each span their own line box.
+        let single_line = layout.line_count() == 1;
+        let boxes = style.edit.and_then(|edit| edit.selection).map(|selection| {
+            let [start, end] = selection.map(|byte| crate::caret::caret_byte(&text, byte));
+            layout.range_boxes_64(&text, start..end)
+        });
         let id = self.id();
         self.nodes.push(
             UiNode::new(
@@ -421,40 +421,19 @@ impl Canvas<'_> {
                 shadow,
             }),
         );
-        if let Some(boxes) = boxes {
-            for area in boxes {
-                let [from, line_top, to, line_bottom] = area.map(|edge| edge as f32 / 64.0);
-                self.push(
-                    UiVisual::InvertedSprite {
-                        texture_page: self.solid_page,
-                        uv: [0, 0, 1, 1],
-                    },
-                    [left + from, top + line_top, left + to, top + line_bottom],
-                )?;
-            }
-        } else if let Some(selection) = selection {
-            let mut edges = [0.0; 2];
-            for (edge, byte) in edges.iter_mut().zip(selection) {
-                let byte = crate::caret::caret_byte(&text, byte);
-                let prefix = &text[..byte];
-                if !prefix.is_empty() {
-                    *edge = self
-                        .layouts
-                        .layout(TextLayoutRequest {
-                            text: prefix,
-                            ..request
-                        })
-                        .map_err(PaintError::Text)?
-                        .size_64()[0] as f32
-                        / 64.0;
-                }
-            }
+        for area in boxes.into_iter().flatten() {
+            let [from, line_top, to, line_bottom] = area.map(|edge| edge as f32 / 64.0);
+            let [line_top, line_bottom] = if single_line {
+                [top, top + height]
+            } else {
+                [top + line_top, top + line_bottom]
+            };
             self.push(
                 UiVisual::InvertedSprite {
                     texture_page: self.solid_page,
                     uv: [0, 0, 1, 1],
                 },
-                [dest[0] + edges[0], top, dest[0] + edges[1], top + height],
+                [left + from, line_top, left + to, line_bottom],
             )?;
         }
         Ok(())
