@@ -132,7 +132,8 @@ pub(super) fn instance(
     descriptor.backend_options.dx12.presentation_system =
         wgpu::wgt::Dx12SwapchainKind::from_env().unwrap_or_default();
     descriptor.backend_options.dx12.latency_waitable_object =
-        wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env().unwrap_or_default();
+        wgpu::wgt::Dx12UseFrameLatencyWaitableObject::from_env()
+            .unwrap_or(wgpu::wgt::Dx12UseFrameLatencyWaitableObject(true));
     descriptor.backend_options.gl.gles_minor_version = settings.gles3_minor_version;
     wgpu::Instance::new(descriptor)
 }

@@ -273,12 +273,40 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
                 #[cfg(feature = "acceptance")]
                 drive_model_witness,
                 apply_present_mode,
+                update_launcher_winit_pacing,
                 record_metrics,
                 publish_runtime_stage_profile,
             )
                 .chain()
                 .after(FlyCameraUpdateSet),
         );
+}
+
+/// Adjusts winit update cadence: in launcher menus, a reactive 16ms cadence avoids busy-looping
+/// the GPU on static UI while preserving instantaneous input response; once in-game, continuous
+/// updates drive uninterrupted gameplay frames.
+fn update_launcher_winit_pacing(
+    session: Option<Res<crate::session::SessionController>>,
+    winit_settings: Option<ResMut<bevy::winit::WinitSettings>>,
+    mut in_game_active: Local<Option<bool>>,
+) {
+    let Some(mut winit_settings) = winit_settings else {
+        return;
+    };
+    let in_game = session.is_some_and(|s| s.destination_identity().is_some());
+    if *in_game_active != Some(in_game) {
+        *in_game_active = Some(in_game);
+        *winit_settings = if in_game {
+            bevy::winit::WinitSettings::continuous()
+        } else {
+            bevy::winit::WinitSettings {
+                focused_mode: bevy::winit::UpdateMode::reactive(std::time::Duration::from_millis(16)),
+                unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(
+                    std::time::Duration::from_millis(100),
+                ),
+            }
+        };
+    }
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
@@ -615,11 +643,20 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         Color::srgb(0.035, 0.043, 0.059)
     };
+    let initial_winit_settings = if connection_requested {
+        bevy::winit::WinitSettings::continuous()
+    } else {
+        bevy::winit::WinitSettings {
+            focused_mode: bevy::winit::UpdateMode::reactive(std::time::Duration::from_millis(16)),
+            unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(
+                std::time::Duration::from_millis(100),
+            ),
+        }
+    };
     app.insert_resource(crate::frame_pacing::FramePacingRuntime::new(
         hidden_surface || args.acceptance_seconds.is_some(),
     ))
-    // Every update passes the pacer's single admission wait, so input never adds frames.
-    .insert_resource(bevy::winit::WinitSettings::continuous())
+    .insert_resource(initial_winit_settings)
     .insert_resource(ClearColor(clear_color))
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
