@@ -12,8 +12,12 @@ use std::{
 
 /// Selects the loading-window process before ordinary client argument parsing.
 pub const FLAG: &str = "--startup-screen";
-/// Fast launches finish before the feedback process is needed.
-pub const SHOW_DELAY: Duration = Duration::from_millis(300);
+/// Launches that reach their first interface frame sooner never start the feedback process.
+pub const PREPARE_DELAY: Duration = Duration::from_millis(1000);
+/// The loading window stays hidden until this long after startup began, so a launch that
+/// finishes while the helper is still preparing never flashes it on screen.
+pub const SHOW_DELAY: Duration = Duration::from_millis(1500);
+const _: () = assert!(PREPARE_DELAY.as_millis() < SHOW_DELAY.as_millis());
 
 /// Owns delayed feedback and retires it on every return or unwind from startup.
 pub struct Controller(Arc<Shared>);
@@ -30,7 +34,7 @@ struct State {
 }
 
 impl Controller {
-    /// Schedules feedback without creating a helper until the show delay expires.
+    /// Schedules feedback without creating a helper until the prepare delay expires.
     pub fn start(size: [f32; 2]) -> Result<Self> {
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
@@ -41,7 +45,8 @@ impl Controller {
             wake: Condvar::new(),
         });
         let pending = shared.clone();
-        let deadline = Instant::now() + SHOW_DELAY;
+        let started = Instant::now();
+        let deadline = started + PREPARE_DELAY;
         std::thread::Builder::new()
             .name("startup-delay".into())
             .spawn(move || {
@@ -54,7 +59,8 @@ impl Controller {
                         |state| !state.retired,
                     )
                     .expect("startup delay lock");
-                state.show(|| process::Process::start(size));
+                let reveal_in = reveal_delay(started, Instant::now());
+                state.show(|| process::Process::start(size, reveal_in));
             })
             .context("schedule startup feedback")?;
         Ok(Self(shared))
@@ -114,6 +120,11 @@ impl Drop for Controller {
     }
 }
 
+/// How long a helper spawned at `now` keeps its window hidden, measured from startup at `started`.
+fn reveal_delay(started: Instant, now: Instant) -> Duration {
+    (started + SHOW_DELAY).saturating_duration_since(now)
+}
+
 /// Runs the loading process without game carriers or the client event loop.
 pub fn run() -> Result<()> {
     window::run()
@@ -141,6 +152,19 @@ mod tests {
         });
         assert_eq!(spawned, 0);
         assert!(!controller.cancelled());
+    }
+
+    #[test]
+    fn helper_spawned_at_the_prepare_delay_stays_hidden_until_the_show_delay() {
+        let started = Instant::now();
+        assert_eq!(
+            reveal_delay(started, started + PREPARE_DELAY),
+            SHOW_DELAY - PREPARE_DELAY
+        );
+        assert_eq!(
+            reveal_delay(started, started + SHOW_DELAY * 2),
+            Duration::ZERO
+        );
     }
 
     #[test]
