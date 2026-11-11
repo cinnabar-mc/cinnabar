@@ -115,8 +115,9 @@ void main() {
 }
 ";
 
-/// Writes, over 255: the tickets the exchanges returned exactly once to red, the invocations
-/// that found the lock free to green, and those that saw its final owner to blue.
+/// Writes full red when the exchanges returned the starting ticket 0 and 16 distinct tickets, full
+/// green when exactly one invocation found the lock free, and full blue when the other 15 saw its
+/// final owner.
 const SHOW_TICKETS: &str = "#version 430
 uniform usampler2D stateSampler;
 uniform usampler2D seenSampler;
@@ -126,6 +127,7 @@ void main() {
     for (int ticket = 0; ticket <= 16; ticket++) {
         unique += texelFetch(seenSampler, ivec2(ticket, 0), 0).r == 1u ? 1u : 0u;
     }
+    bool startSeen = texelFetch(seenSampler, ivec2(0), 0).r == 1u;
     uint owner = texelFetch(stateSampler, ivec2(1, 0), 0).r;
     uint won = 0u;
     uint lost = 0u;
@@ -134,7 +136,12 @@ void main() {
         won += seenOwner == 0u ? 1u : 0u;
         lost += seenOwner == owner ? 1u : 0u;
     }
-    gl_FragData[0] = vec4(float(unique), float(won), float(lost), 255.0) / 255.0;
+    gl_FragData[0] = vec4(
+        startSeen && unique == 16u ? 1.0 : 0.0,
+        won == 1u ? 1.0 : 0.0,
+        lost == 15u ? 1.0 : 0.0,
+        1.0
+    );
 }
 ";
 
@@ -168,7 +175,8 @@ fn image_exchanges_return_the_original_texel() {
         ],
         2,
     );
-    // 16 distinct tickets came back, one invocation took the free lock, and the
-    // other 15 saw its owner without replacing it.
-    assert_pixels(&bytes, |_| [16, 1, 15]);
+    // The exchanges returned the starting ticket and 16 distinct tickets, one invocation took
+    // the free lock, and the other 15 saw its owner without replacing it. Atomics that returned
+    // the new texel would miss ticket 0 and leave no invocation seeing a free lock.
+    assert_pixels(&bytes, |_| [255, 255, 255]);
 }
