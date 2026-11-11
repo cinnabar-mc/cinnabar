@@ -30,6 +30,9 @@ tools/registrygen/cmd/itemcapacity/probe/main.js text eol=lf
 tools/registrygen/cmd/itemcapacity/probe/manifest.json text eol=lf
 tools/localserver/cinnabarext/testdata/* -text
 tools/localserver/cinnabarext/testdata/go/* -text
+# The local server embeds these pack files and its tests compare them byte for byte with their
+# generators; a CRLF checkout would change the bytes it serves.
+tools/localserver/fixtures/material_showcase/** text eol=lf
 crates/assets/data/entity-facts-*.bin binary
 crates/assets/data/entity-facts-expansion-*.tsv text eol=lf
 crates/asset-compiler/data/entity-components-*.json text eol=lf
