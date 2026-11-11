@@ -87,10 +87,19 @@ fn body_slot_draws_authored_attachable_changes_artwork_and_clears() {
     }
     input.body = None;
     assert!(layers(&mut runtime, &body, &owner, &input, 4).is_empty());
+    // In the chest slot the attachable is set up with the chest slot context, so its own
+    // controller hides the body-slot model there.
     input.armor[1] = Some(item("a"));
     assert!(
-        layers(&mut runtime, &body, &owner, &input, 5).is_empty(),
-        "an ordinary held definition must not acquire a humanoid chest route"
+        layers(&mut runtime, &body, &owner, &input, 5)
+            .iter()
+            .all(|layer| layer
+                .submission
+                .input
+                .current_bones
+                .iter()
+                .all(|bone| bone.translation_scale[3] == 0.0)),
+        "the body-slot model must stay hidden in the chest slot"
     );
 }
 

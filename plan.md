@@ -854,7 +854,11 @@ use native item sprites only under Java animations. Texture-only spears and trid
 draw as native item sprites in both styles; that choice is unverified against native.
 Script-based helmet inference is provisional and recognizes
 specific head/hand branch names. General slot inference and rendered qualification remain
-incomplete. A pack's attachables have no binding or texture count limit, and all their art
+incomplete. An attachable whose item names no worn slot, such as a server cosmetic, draws in
+whichever armor slot the server places it, as native does, with its own controllers, authored
+pose and texture meshes. Armor that names another slot stays hidden there, which is unverified
+against native. The UI player preview still paints worn attachables onto armor boxes
+instead of drawing their own models; that remains a confirmed gap. A pack's attachables have no binding or texture count limit, and all their art
 is decoded and placed at join. Native queues each texture when it is first requested, and
 no native count limit has been found, so this is not yet matched: decoded art past
 Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred loading

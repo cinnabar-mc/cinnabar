@@ -57,8 +57,10 @@ impl EquipmentRuntime {
                 EquipmentCategory::Armor { slot: admitted }
                     | EquipmentCategory::ArmorAndHeld { slot: admitted }
                     if admitted == slot
-            ) && category != EquipmentCategory::Elytra
-            {
+            ) && !matches!(
+                category,
+                EquipmentCategory::Elytra | EquipmentCategory::Held
+            ) {
                 return "attachable binding is not armor for this slot";
             }
             let texture = self.texture_location(&binding.texture.identifier, from_pack);
