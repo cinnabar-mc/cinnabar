@@ -298,24 +298,17 @@ pub(crate) fn prepare_ui_runtime(
         && settings.value(SettingId::HideHud) == 0
         && presentation.loading_stage().is_none()
         && !menu_visible;
+    // The open wheel previews the slot it labels as playing; otherwise the doll follows playback.
     let emote_preview = runtime
         .emotes()
-        .playback()
-        .map(|playback| (playback.emote, playback.elapsed(now_millis)))
+        .previewed_slot()
+        .and_then(|slot| runtime.emotes().display_slots()[slot])
+        .map(|emote| (emote, now_millis as f64 / 1_000.0))
         .or_else(|| {
             runtime
                 .emotes()
-                .is_open()
-                .then(|| {
-                    let slots = runtime.emotes().slots();
-                    let selected = runtime
-                        .emotes()
-                        .selected_slot()
-                        .and_then(|slot| slots[slot])
-                        .or_else(|| slots.iter().copied().flatten().next())?;
-                    Some((selected, now_millis as f64 / 1_000.0))
-                })
-                .flatten()
+                .playback()
+                .map(|playback| (playback.emote, playback.elapsed(now_millis)))
         });
     presentation.begin_live_capture();
     // A screen's live renderer draws the same animated actor as the HUD doll.
