@@ -170,7 +170,7 @@ impl InventorySession {
     pub fn predicted_screen_output(&self, choice: Option<u32>) -> Option<protocol::RecipeOutput> {
         match self.ledger().window_kind()? {
             WindowKind::Stonecutter | WindowKind::Smithing | WindowKind::Cartography => {
-                self.active_screen_recipe(choice)?.output
+                self.active_screen_recipe(choice)?.output.clone()
             }
             WindowKind::Crafter => {
                 let cells = self.ledger().crafter_grid_cells()?;

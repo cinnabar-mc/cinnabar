@@ -111,7 +111,7 @@ fn apply_recipes(inventory: &mut InventorySession, recipes: &[(&str, i32, &str)]
 fn furnace_unsupplied_recipe_shows_ghosts_and_repeat_selection_deselects() {
     let mut inventory = fixture(::protocol::WINDOW_TYPE_FURNACE);
     let recipe = inventory.furnace_recipes(false)[1].clone();
-    assert_eq!(recipe.output.unwrap().network_id, 4);
+    assert_eq!(recipe.output.as_ref().unwrap().network_id, 4);
     assert_eq!(inventory.ledger_mut().begin_furnace_recipe(&recipe), Ok(0));
     let ledger = inventory.ledger();
     assert_eq!(
@@ -477,7 +477,7 @@ fn furnace_results_deduplicate_alternatives_and_filter_by_the_active_station() {
     assert_eq!(
         listed
             .iter()
-            .map(|recipe| recipe.output.unwrap().network_id)
+            .map(|recipe| recipe.output.as_ref().unwrap().network_id)
             .collect::<Vec<_>>(),
         [3, 4]
     );

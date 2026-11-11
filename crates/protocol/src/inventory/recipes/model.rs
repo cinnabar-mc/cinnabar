@@ -15,7 +15,7 @@ pub struct Ingredient {
     pub(in crate::inventory) count: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::inventory) struct Output {
     pub(in crate::inventory) id: i32,
     pub(in crate::inventory) aux: u16,
@@ -88,7 +88,7 @@ impl Recipe {
             aux: self.output.aux,
             count: self.output.count,
             block_runtime_id: self.output.block,
-            user_data: self.output.user_data,
+            user_data: self.output.user_data.clone(),
         }
     }
 
@@ -103,7 +103,7 @@ impl Recipe {
                 aux: output.aux,
                 count: output.count,
                 block_runtime_id: output.block,
-                user_data: output.user_data,
+                user_data: output.user_data.clone(),
             })
     }
 

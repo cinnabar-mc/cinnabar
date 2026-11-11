@@ -78,7 +78,7 @@ pub fn projection(player: &player_state::PlayerState, runtime: &UiRuntime) -> Ar
                     || player
                         .inventory
                         .ledger()
-                        .negotiated_item_entry(recipe.output.unwrap().network_id)
+                        .negotiated_item_entry(recipe.output.as_ref().unwrap().network_id)
                         .is_some_and(|entry| {
                             runtime
                                 .localized_item_name(&entry.identifier)

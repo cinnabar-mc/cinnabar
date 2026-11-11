@@ -111,7 +111,7 @@ impl ScreenPreviews<'_> {
 }
 
 /// Builds a plain stack for a station's declared recipe result.
-fn output_stack(output: protocol::RecipeOutput) -> protocol::NetworkItemStack {
+fn output_stack(output: &protocol::RecipeOutput) -> protocol::NetworkItemStack {
     protocol::NetworkItemStack {
         network_id: output.network_id,
         metadata: u32::from(output.aux),
@@ -162,7 +162,12 @@ pub(super) fn screen_previews<'a>(
             .stonecutter_options(player)
             .iter()
             .take(ui_screens::container_actions::STONECUTTER_CELLS)
-            .map(|recipe| recipe.output.map(|output| Cow::Owned(output_stack(output))))
+            .map(|recipe| {
+                recipe
+                    .output
+                    .as_ref()
+                    .map(|output| Cow::Owned(output_stack(output)))
+            })
             .collect();
         choices.resize(ui_screens::container_actions::STONECUTTER_CELLS, None);
         choices
@@ -177,7 +182,11 @@ pub(super) fn screen_previews<'a>(
                 protocol::WindowKind::Smithing => player.inventory.predicted_smithing_trim(),
                 _ => None,
             }
-            .or_else(|| runtime.predicted_screen_output(player).map(output_stack))
+            .or_else(|| {
+                runtime
+                    .predicted_screen_output(player)
+                    .map(|output| output_stack(&output))
+            })
         })
         .flatten()
         .map(Cow::Owned);
@@ -236,7 +245,7 @@ pub(super) fn book_page(
                 .enumerate()
             {
                 let output = recipe.recipe.output();
-                let stack = output_stack(output);
+                let stack = output_stack(&output);
                 window_icons.book[cell] = items.icon(&stack, None);
             }
         }

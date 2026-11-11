@@ -690,7 +690,7 @@ impl UiRuntime {
                 }
                 let (recipe_network_id, output) = self
                     .active_screen_recipe(player_runtime)
-                    .and_then(|recipe| Some((recipe.id, recipe.output?)))
+                    .and_then(|recipe| Some((recipe.id, recipe.output.clone()?)))
                     .ok_or(InventoryGestureError::InvalidRequest)?;
                 let craft = if kind == WindowKind::Cartography {
                     // Without a name box, restating the map's custom name keeps it.

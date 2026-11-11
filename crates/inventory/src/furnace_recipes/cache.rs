@@ -136,7 +136,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
                             && recipe.output.is_some()
                     })
             {
-                let output = recipe.output.unwrap();
+                let output = recipe.output.as_ref().unwrap();
                 let key = (output.network_id, output.aux, output.block_runtime_id);
                 let count = ledger.furnace_source_count(recipe);
                 let supplied = ledger.can_supply_furnace_recipe(recipe);
@@ -157,7 +157,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
         cache.supplied_outputs = listed
             .iter()
             .filter(|(_, _, _, supplied)| *supplied)
-            .filter_map(|(_, recipe, ..)| recipe.output)
+            .filter_map(|(_, recipe, ..)| recipe.output.as_ref())
             .map(|output| (output.network_id, output.aux, output.block_runtime_id))
             .collect();
         cache.supplied = listed
@@ -179,7 +179,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
 
 pub(super) fn supplied(inventory: &InventorySession, recipe: &ScreenRecipe) -> bool {
     let _ = project(inventory, false);
-    recipe.output.is_some_and(|output| {
+    recipe.output.as_ref().is_some_and(|output| {
         inventory
             .furnace_cache
             .lock()

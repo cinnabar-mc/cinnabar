@@ -23,7 +23,7 @@ pub fn active(player: &player_state::PlayerState) -> bool {
 
 /// The stack a furnace recipe produces.
 pub fn output_stack(recipe: &ScreenRecipe) -> NetworkItemStack {
-    let Some(output) = recipe.output else {
+    let Some(output) = &recipe.output else {
         return NetworkItemStack::empty();
     };
     NetworkItemStack {

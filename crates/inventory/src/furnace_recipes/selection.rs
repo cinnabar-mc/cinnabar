@@ -73,6 +73,7 @@ impl PlayerInventoryLedger {
     pub(super) fn furnace_result_selected(&self, recipe: &ScreenRecipe) -> bool {
         recipe
             .output
+            .as_ref()
             .zip(self.selected_furnace_result())
             .is_some_and(|(output, selected)| {
                 selected.network_id == output.network_id
@@ -103,7 +104,10 @@ impl PlayerInventoryLedger {
             last_request = Some(request);
         }
         let original = std::array::from_fn(|slot| self.displayed_stack(slot as u8).cloned());
-        let output = recipe.output.ok_or(InventoryGestureError::InvalidRequest)?;
+        let output = recipe
+            .output
+            .as_ref()
+            .ok_or(InventoryGestureError::InvalidRequest)?;
         let result = NetworkItemStack {
             network_id: output.network_id,
             metadata: u32::from(output.aux),

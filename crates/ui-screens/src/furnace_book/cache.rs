@@ -114,7 +114,7 @@ fn rows(
                 .ledger()
                 .selected_furnace_result()
                 .is_some_and(|selected| {
-                    recipe.output.is_some_and(|output| {
+                    recipe.output.as_ref().is_some_and(|output| {
                         selected.network_id == output.network_id
                             && selected.metadata == u32::from(output.aux)
                             && selected.block_runtime_id == output.block_runtime_id as i32

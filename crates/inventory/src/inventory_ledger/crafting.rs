@@ -329,7 +329,7 @@ impl PlayerInventoryLedger {
             .filter(|total| *total <= capacity)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let request_id = self.peek_request_id()?;
-        let created = created_stack(output, u16::from(total), request_id);
+        let created = created_stack(&output, u16::from(total), request_id);
         self.finish_craft_submission(
             output::CraftSubmissionPlan {
                 id: recipe.network_id(),

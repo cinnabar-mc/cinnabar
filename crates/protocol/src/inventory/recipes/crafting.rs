@@ -2,20 +2,21 @@
 
 use super::catalog::RecipeCatalog;
 use super::model::{Ingredient, RecipeHandle};
+use std::sync::Arc;
 
 /// The output a recipe declares.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecipeOutput {
     pub network_id: i32,
     pub aux: u16,
     pub count: u8,
     pub block_runtime_id: u32,
-    /// Plain item data, including a shield's trailing blocking timestamp.
+    /// The result's complete item data, kept byte for byte.
     pub user_data: RecipeOutputData,
 }
 
-/// User data on a recipe result with no saved tags or item restrictions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// User data on a recipe result.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecipeOutputData {
     /// No user-data buffer was supplied.
     Absent,
@@ -23,10 +24,17 @@ pub enum RecipeOutputData {
     Empty,
     /// The empty envelope followed by a shield's blocking timestamp.
     Shield { blocking_tick: i64 },
+    /// Any other complete item data, such as a server's custom name, lore or enchantments.
+    Tagged(Arc<[u8]>),
 }
 
 impl RecipeOutputData {
-    /// Reads a plain result's complete envelope and retains its runtime-only fields.
+    /// Whether a result's item data is one complete, well-formed envelope, without copying it.
+    pub(super) fn admits(extra: &[u8]) -> bool {
+        super::canonical_empty_extra(extra) || crate::item::item_user_data_complete(extra)
+    }
+
+    /// Copies a result's admitted item data, keeping plain and shield envelopes compact.
     pub(super) fn decode(extra: &[u8]) -> Option<Self> {
         if super::canonical_empty_extra(extra) {
             return Some(if extra.is_empty() {
@@ -35,25 +43,28 @@ impl RecipeOutputData {
                 Self::Empty
             });
         }
-        let (envelope, tick) = extra.split_at_checked(10)?;
-        if !super::canonical_empty_extra(envelope) {
-            return None;
+        if let Some((envelope, tick)) = extra.split_at_checked(10)
+            && super::canonical_empty_extra(envelope)
+            && let Ok(tick) = tick.try_into()
+        {
+            return Some(Self::Shield {
+                blocking_tick: i64::from_le_bytes(tick),
+            });
         }
-        Some(Self::Shield {
-            blocking_tick: i64::from_le_bytes(tick.try_into().ok()?),
-        })
+        crate::item::item_user_data_complete(extra).then(|| Self::Tagged(Arc::from(extra)))
     }
 
-    /// Recreates exactly the plain item data advertised by the recipe.
-    pub fn bytes(self) -> std::sync::Arc<[u8]> {
+    /// Recreates exactly the item data advertised by the recipe.
+    pub fn bytes(&self) -> Arc<[u8]> {
         match self {
-            Self::Absent => std::sync::Arc::from([]),
-            Self::Empty => std::sync::Arc::from([0; 10]),
+            Self::Absent => Arc::from([]),
+            Self::Empty => Arc::from([0; 10]),
             Self::Shield { blocking_tick } => {
                 let mut bytes = [0; 18];
                 bytes[10..].copy_from_slice(&blocking_tick.to_le_bytes());
-                std::sync::Arc::from(bytes)
+                Arc::from(bytes)
             }
+            Self::Tagged(bytes) => Arc::clone(bytes),
         }
     }
 }
@@ -61,7 +72,7 @@ impl RecipeOutputData {
 /// One ingredient of a crafting recipe as callers may read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecipeIngredientView {
-    pub name: std::sync::Arc<str>,
+    pub name: Arc<str>,
     pub tag: bool,
     pub aux: u16,
     pub count: u8,
@@ -82,7 +93,7 @@ impl RecipeHandle {
     pub fn ingredient_views(&self) -> Vec<Option<RecipeIngredientView>> {
         let recipe = self.recipe();
         let view = |ingredient: &Ingredient| RecipeIngredientView {
-            name: std::sync::Arc::from(ingredient.name.as_str()),
+            name: Arc::from(ingredient.name.as_str()),
             tag: ingredient.tag,
             aux: ingredient.aux,
             count: ingredient.count,

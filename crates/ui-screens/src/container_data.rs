@@ -423,7 +423,7 @@ fn stones(source: &dyn ContainerSource, frame: &ContainerFrame<'_>) -> Vec<Colle
         .take(STONECUTTER_CELLS)
         .enumerate()
         .map(|(index, recipe)| {
-            let output = recipe.output;
+            let output = recipe.output.as_ref();
             let name = output
                 .and_then(|output| {
                     frame

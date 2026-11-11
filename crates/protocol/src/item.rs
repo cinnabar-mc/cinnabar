@@ -63,6 +63,7 @@ pub use registry::{
 pub use seed::ItemSeed;
 pub use shield::item_shield_pattern;
 pub use shooter::ItemShooter;
+pub(crate) use user_data::item_user_data_complete;
 pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 
 /// The single item shape 1.26.40 puts on the wire.
