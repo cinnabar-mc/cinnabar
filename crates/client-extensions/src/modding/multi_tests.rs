@@ -668,9 +668,7 @@ fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
     )
     .into_iter();
     let mut runtime = ModHosts::new(hosts.next().unwrap(), hosts.collect());
-    runtime.budget = mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, || {
-        std::time::Duration::ZERO
-    });
+    runtime.use_scheduling_clock(|| std::time::Duration::ZERO);
     runtime
 }
 
