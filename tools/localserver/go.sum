@@ -10,6 +10,8 @@ github.com/cinnabar-mc/dragonfly v0.0.0-20261110152115-523d712bd0d8 h1:CRZFO4pi8
 github.com/cinnabar-mc/dragonfly v0.0.0-20261110152115-523d712bd0d8/go.mod h1:/ACkO7GUvuwDiFWjCsLdlBGww2yeQihvHBVjR+MjF1s=
 github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261028003444-2aaf70061542 h1:an79zcBnT7wSifwkreSFjfQbkUjuVE4ZPBzcQLdip/g=
 github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261028003444-2aaf70061542/go.mod h1:kBTWfCuCMRGWmcsX3bojKsX8yUyLpXVjquuPn12vB7c=
+github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f h1:pb11uSj1XoyHo2GAgnSxxAK5TPai5zT5Yp6nOvo3Ebo=
+github.com/cinnabar-mc/sctp v1.12.1-0.20261110160758-dbe1066d869f/go.mod h1:6k1zrpkrxSwbisitn/AlzDQaa15DR49MFsrMochG/yc=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=
@@ -75,8 +77,6 @@ github.com/pion/rtcp v1.2.20 h1:ZxQpb1Z3st9W5Rts4PjGoC3ynDhUtQ9B/itKJho8h2I=
 github.com/pion/rtcp v1.2.20/go.mod h1:vX7Es6skWYm4oVvOSC5+4WHLYUTZHcbGNmk5wjzMGH4=
 github.com/pion/rtp v1.10.6 h1:1qs356bmniSc89gTF1KFdI0kej7qTdIUSnHOXu3P2EY=
 github.com/pion/rtp v1.10.6/go.mod h1:qvV617FVkp5DBUfoHGxP8uOnTI4UaNDJK0z7Sildylk=
-github.com/pion/sctp v1.12.0 h1:AzUdVkVBNyGY1W4crWO1/aOWzMaW3zsVHGrNuAfFQiI=
-github.com/pion/sctp v1.12.0/go.mod h1:6k1zrpkrxSwbisitn/AlzDQaa15DR49MFsrMochG/yc=
 github.com/pion/sdp/v3 v3.0.20 h1:TS6DViqcmp+49f0+mjw9anbr9xY3vJtsZewxAvlMCRQ=
 github.com/pion/sdp/v3 v3.0.20/go.mod h1:slIMXDK5OKj0nhISwjfeN18AzTBCt2LYZq9uPw0cU5Q=
 github.com/pion/srtp/v3 v3.1.3 h1:O3sfbfWfq/OyEaXRbX02Z0SNQRijS9nDdc/DEb8jxlU=
